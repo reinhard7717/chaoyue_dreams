@@ -1,0 +1,291 @@
+资金走势对照
+API：https://ig507.com/data/time/zijin/zlzjzs/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到每分钟资金走势对照，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd HH:mm:ss
+zdf number 涨跌幅(%)
+lrzj number 总流入资金(元)
+lczj number 总流出资金(元)
+jlr number 净流入(元)
+jlrl number 净流入率(%)
+lrl number 主力流入率(%)
+shlrl number 散户流入率(%)
+示例：
+https://ig507.com/data/time/zijin/zlzjzs/000001?licence=您的licence试一下
+[{"t":"2025-03-14 14:57:00","zdf":1.01,"lrzj":1173088478.9,"lczj":858551848.25,"jlr":314536630.65,"jlrl":15.5,"lrl":13.43,"shlrl":0.13}]
+
+资金流入趋势
+API：https://ig507.com/data/time/zijin/zjlrqs/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到近十年每天资金流入趋势，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd
+zdf number 涨跌幅(%)
+hsl number 换手率(%)
+jlr number 净流入(元)
+jlrl number 净流入率(%)
+zljlr number 主力净流入(元)
+zljlrl number 主力净流入率(%)
+hyjlr number 行业净流入(元)
+hyjlrl number 行业净流入率(%)
+示例：
+https://ig507.com/data/time/zijin/zjlrqs/000001?licence=您的licence试一下
+[{"t":"2025-03-14","zdf":1.01,"hsl":0.87,"jlr":314536630.65,"jlrl":15.5,"zljlr":272523336.69,"zljlrl":13.43,"hyjlr":6128900768.6,"hyjlrl":17.34}]
+
+最近10天资金流入趋势
+API：https://ig507.com/data/time/zijin/zjlrqs/last10/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到最近10天资金流入趋势，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd
+zdf number 涨跌幅(%)
+hsl number 换手率(%)
+jlr number 净流入(元)
+jlrl number 净流入率(%)
+zljlr number 主力净流入(元)
+zljlrl number 主力净流入率(%)
+hyjlr number 行业净流入(元)
+hyjlrl number 行业净流入率(%)
+示例：
+https://ig507.com/data/time/zijin/zjlrqs/last10/000001?licence=您的licence试一下
+[{"t":"2025-03-14","zdf":1.01,"hsl":0.87,"jlr":314536630.65,"jlrl":15.5,"zljlr":272523336.69,"zljlrl":13.43,"hyjlr":6128900768.6,"hyjlrl":17.34}]
+
+阶段主力动向
+API：https://ig507.com/data/time/zijin/jdzldx/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到近十年每天阶段主力动向，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd
+jlr3 number 近3日主力净流入(元）
+jlr5 number 近5日主力净流入(元）
+jlr10 number 近10日主力净流入(元）
+jlrl3 number 近3日主力净流入率(%）
+jlrl5 number 近5日主力净流入率(%）
+jlrl10 number 近10日主力净流入率(%）
+示例：
+https://ig507.com/data/time/zijin/jdzldx/000001?licence=您的licence试一下
+[{"t":"2025-03-14","jlr3":813823985.2,"jlr5":685581479.41,"jlr10":875306952.32,"jlrl3":14.08,"jlrl5":9.46,"jlrl10":7.15}]
+
+最近10天阶段主力动向
+API：https://ig507.com/data/time/zijin/jdzldx/last10/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到最近10天阶段主力动向，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd
+jlr3 number 近3日主力净流入(元）
+jlr5 number 近5日主力净流入(元）
+jlr10 number 近10日主力净流入(元）
+jlrl3 number 近3日主力净流入率(%）
+jlrl5 number 近5日主力净流入率(%）
+jlrl10 number 近10日主力净流入率(%）
+示例：
+https://ig507.com/data/time/zijin/jdzldx/last10/000001?licence=您的licence试一下
+[{"t":"2025-03-14","jlr3":813823985.2,"jlr5":685581479.41,"jlr10":875306952.32,"jlrl3":14.08,"jlrl5":9.46,"jlrl10":7.15}]
+
+历史成交分布
+API：https://ig507.com/data/time/zijin/lscjfb/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到近十年每天历史成交分布，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd
+c number 收盘价(元)
+zdf number 涨跌幅(%)
+jlrl number 净流入率(%)
+hsl number 换手率(%)
+qbjlr number 全部净流入(元)
+cddlr number 超大单流入(元)
+cddjlr number 超大单净流入(元)
+ddlr number 大单流入(元)
+ddjlr number 大单净流入(元)
+xdlr number 小单流入(元)
+xdjlr number 小单净流入(元)
+sdlr number 散单流入(元)
+sdjlr number 散单净流入(元)
+示例：
+https://ig507.com/data/time/zijin/lscjfb/000001?licence=您的licence试一下
+[{"t":"2025-03-14","c":11.96,"zdf":1.01,"jlrl":15.5,"hsl":0.87,"qbjlr":314536630.65,"cddlr":1152327707.55,"cddjlr":272523336.69,"ddlr":661453803.14,"ddjlr":29717395.66,"xdlr":199022535.66,"xdjlr":9671709.14,"sdlr":23414978.8,"sdjlr":2624189.16}]
+
+最近10天成交分布
+API：https://ig507.com/data/time/zijin/lscjfb/last10/ 股票代码 ?licence= 您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到最近10天成交分布，按时间倒序。
+更新频率：每天20:00。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+t string 时间yyyy-MM-dd
+c number 收盘价(元)
+zdf number 涨跌幅(%)
+jlrl number 净流入率(%)
+hsl number 换手率(%)
+qbjlr number 全部净流入(元)
+cddlr number 超大单流入(元)
+cddjlr number 超大单净流入(元)
+ddlr number 大单流入(元)
+ddjlr number 大单净流入(元)
+xdlr number 小单流入(元)
+xdjlr number 小单净流入(元)
+sdlr number 散单流入(元)
+sdjlr number 散单净流入(元)
+示例：
+https://ig507.com/data/time/zijin/lscjfb/last10/000001?licence=您的licence试一下
+[{"t":"2025-03-14","c":11.96,"zdf":1.01,"jlrl":15.5,"hsl":0.87,"qbjlr":314536630.65,"cddlr":1152327707.55,"cddjlr":272523336.69,"ddlr":661453803.14,"ddjlr":29717395.66,"xdlr":199022535.66,"xdjlr":9671709.14,"sdlr":23414978.8,"sdjlr":2624189.16}]
+
+涨停股池
+API：https://ig507.com/data/time/zdtgc/ztgc/ 日期 ?licence= 您的licence
+描述：根据日期（格式yyyy-MM-dd，从2019-11-28开始到现在的每个交易日）作为参数，得到每天的涨停股票列表，根据封板时间升序。
+更新频率：交易时间段每10分钟。
+完成更新耗时：约1分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 代码
+mc string 名称
+p number 价格（元）
+zf number 涨幅（%）
+cje number 成交额（元）
+lt number 流通市值（元）
+zsz number 总市值（元）
+hs number 换手率（%）
+lbc number 连板数
+fbt string 首次封板时间（HH:mm:ss）
+lbt string 最后封板时间（HH:mm:ss）
+zj number 封板资金（元）
+zbc number 炸板次数
+tj string 涨停统计（x天/y板）
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/zdtgc/ztgc/2021-09-23?licence=您的licence
+[{"dm":"sz001215","mc":"千味央厨","p":64.54,"zf":10.01,"cje":830591488.00,"lt":1373411200.00,"zsz":5492620937.44,"hs":61.41,"lbc":12,"fbt":"09:25:00","lbt":"09:44:09","zj":46907865,"zbc":4,"tj":"12/12"}]
+
+跌停股池
+API：https://ig507.com/data/time/zdtgc/dtgc/ 日期 ?licence= 您的licence
+描述：根据日期（格式yyyy-MM-dd，从2019-11-28开始到现在的每个交易日）作为参数，得到每天的跌停股票列表，根据封单资金升序。
+更新频率：交易时间段每10分钟。
+完成更新耗时：约1分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 代码
+mc string 名称
+p number 价格（元）
+zf number 跌幅（%）
+cje number 成交额（元）
+lt number 流通市值（元）
+zsz number 总市值（元）
+pe number 动态市盈率
+hs number 换手率（%）
+lbc number 连续跌停次数
+lbt string 最后封板时间（HH:mm:ss）
+zj number 封单资金（元）
+fba number 板上成交额（元）
+zbc number 开板次数
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/zdtgc/dtgc/2021-09-23?licence=您的licence
+[{"dm":"sz002360","mc":"同德化工","p":9.14,"zf":-10.04,"cje":275710496.00,"lt":2817327218.60,"zsz":3640823944.00,"pe":24.57,"hs":9.49,"lbc":1,"lbt":"14:55:54","zj":117869,"fba":74400156.00,"zbc":3}]
+
+强势股池
+API：https://ig507.com/data/time/zdtgc/qsgc/ 日期 ?licence= 您的licence
+描述：根据日期（格式yyyy-MM-dd，从2019-11-28开始到现在的每个交易日）作为参数，得到每天的强势股票列表，根据涨幅倒序。
+更新频率：交易时间段每10分钟。
+完成更新耗时：约1分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 代码
+mc string 名称
+p number 价格（元）
+ztp number 涨停价（元）
+zf number 涨幅（%）
+cje number 成交额（元）
+lt number 流通市值（元）
+zsz number 总市值（元）
+zs number 涨速（%）
+nh number 是否新高（0：否，1：是）
+lb number 量比
+hs number 换手率（%）
+tj string 涨停统计（x天/y板）
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/zdtgc/qsgc/2021-09-23?licence=您的licence
+[{"dm":"sz300882","mc":"万胜智能","p":27.35,"ztp":27.35,"zf":20.01,"cje":283840720.00,"lt":1575527382.00,"zsz":5591144637.00,"zs":0.00,"nh":1,"lb":1.09,"hs":19.13,"tj":"2/2"}]
+
+次新股池
+API：https://ig507.com/data/time/zdtgc/cxgc/ 日期 ?licence= 您的licence
+描述：根据日期（格式yyyy-MM-dd，从2019-11-28开始到现在的每个交易日）作为参数，得到每天的次新股票列表，根据开板几日升序。
+更新频率：交易时间段每10分钟。
+完成更新耗时：约1分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 代码
+mc string 名称
+p number 价格（元）
+ztp number 涨停价（元，无涨停价为null）
+zf number 涨跌幅（%）
+cje number 成交额（元）
+lt number 流通市值（元）
+zsz number 总市值（元）
+nh number 是否新高（0：否，1：是）
+hs number 转手率（%）
+tj string 涨停统计（x天/y板）
+kb number 开板几日
+od string 开板日期（yyyyMMdd）
+ipod string 上市日期（yyyyMMdd）
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/zdtgc/cxgc/2021-09-23?licence=您的licence
+[{"dm":"sz301070","mc":"N开勒","p":46.85,"ztp":null,"zf":70.05,"cje":438701840.00,"lt":758033000.00,"zsz":3024411120.00,"nh":0,"hs":54.90,"tj":"0/0","kb":1,"od":"20210923","ipod":"20210923"}]
+
+炸板股池
+API：https://ig507.com/data/time/zdtgc/zbgc/ 日期 ?licence= 您的licence
+描述：根据日期（格式yyyy-MM-dd，从2019-11-28开始到现在的每个交易日）作为参数，得到每天的炸板股票列表，根据首次封板时间升序。
+更新频率：交易时间段每10分钟。
+完成更新耗时：约1分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 代码
+mc string 名称
+p number 价格（元）
+ztp number 涨停价（元）
+zf number 涨跌幅（%）
+cje number 成交额（元）
+lt number 流通市值（元）
+zsz number 总市值（元）
+zs number 涨速（%）
+hs number 转手率（%）
+tj string 涨停统计（x天/y板）
+fbt string 首次封板时间（HH:mm:ss）
+zbc number 炸板次数
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/zdtgc/zbgc/2021-09-23?licence=您的licence
+[{"dm":"sz002165","mc":"红 宝 丽","p":9.45,"ztp":10.05,"zf":3.39,"cje":2417475344.00,"lt":5614147844.55,"zsz":6948299988.00,"hs":40.83,"zs":-0.21,"tj":"11/6","fbt":"09:25:00","zbc":24}]
