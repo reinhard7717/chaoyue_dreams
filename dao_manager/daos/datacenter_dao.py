@@ -5,19 +5,20 @@ from typing import List, Dict, Optional, Union, Any
 from django.db import transaction
 from django.db.models import Q
 
-from models.datacenter import *
 from api_manager.mappings.datacenter_mappings import *
-from models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, StockCapitalFlow
-from models.datacenter.financial import CircMarketValueRank, MonthlyRankChange, MonthlyStrongStock, PBRatioRank, PERatioRank, ROERank, WeeklyRankChange, WeeklyStrongStock
-from models.datacenter.institution import FundHeavyPosition, InstitutionHoldingSummary, QFIIHeavyPosition, SocialSecurityHeavyPosition
-from models.datacenter.lhb import BrokerOnList, InstitutionTradeDetail, InstitutionTradeTrack, LhbDaily, StockOnList
-from models.datacenter.market_data import ContinuousFall, ContinuousRise, ContinuousVolumeDecrease, ContinuousVolumeIncrease, VolumeDecrease, VolumeIncrease
-from models.datacenter.north_south import NorthFundTrend, NorthSouthFundOverview, NorthStockHolding, SouthFundTrend
-from models.datacenter.statistics import NewHighStock, NewLowStock, StageHighLow
+from dao_manager.base_dao import BaseDAO
+from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, StockCapitalFlow
+from stock_models.datacenter.financial import CircMarketValueRank, MonthlyRankChange, MonthlyStrongStock, PBRatioRank, PERatioRank, ROERank, WeeklyRankChange, WeeklyStrongStock
+from stock_models.datacenter.institution import FundHeavyPosition, InstitutionHoldingSummary, QFIIHeavyPosition, SocialSecurityHeavyPosition
+from stock_models.datacenter.lhb import BrokerOnList, InstitutionTradeDetail, InstitutionTradeTrack, LhbDaily, StockOnList
+from stock_models.datacenter.market_data import ContinuousFall, ContinuousRise, ContinuousVolumeDecrease, ContinuousVolumeIncrease, VolumeDecrease, VolumeIncrease
+from stock_models.datacenter.north_south import NorthFundTrend, NorthSouthFundOverview, NorthStockHolding, SouthFundTrend
+from stock_models.datacenter.statistics import NewHighStock, NewLowStock, StageHighLow
+
 
 logger = logging.getLogger('dao')
 
-class DataCenterDAO:
+class DataCenterDAO(BaseDAO):
     """数据中心DAO"""
     
     @staticmethod

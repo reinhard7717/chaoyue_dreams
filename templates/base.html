@@ -1,0 +1,146 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}超越梦想 - 中国A股策略计算系统{% endblock %}</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 自定义CSS -->
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <!-- 顶部导航栏 -->
+    <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <div class="w-10 h-10 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-md mr-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05c-.867 0-1.563.64-1.563 1.17 0 1.323.526 2.337 1.262 3.004.737.669 1.7 1.054 2.28 1.125.062.14.125.28.187.42.267.6.532 1.188.792 1.752a19.89 19.89 0 001.113 2.12c.45.746.9 1.421 1.44 2.01.54.589 1.172 1.082 1.938 1.394.767.312 1.695.472 2.763.472 1.067 0 1.995-.16 2.763-.472.766-.312 1.399-.805 1.938-1.394.54-.589.99-1.264 1.44-2.01.44-.747.83-1.522 1.112-2.12.284-.598.547-1.185.793-1.753.062-.139.124-.279.187-.419.076-.17.147-.339.213-.504a1 1 0 00.172-1.016c-.125-.282-.396-.568-.822-.88-.424-.312-.99-.614-1.655-.88-.665-.267-1.43-.49-2.22-.668-.317-.07-.629-.131-.929-.184-.317-.055-.609-.103-.866-.144-.256-.041-.48-.075-.665-.106-.183-.03-.321-.054-.403-.072a1 1 0 00-1.064.588c-.05.113-.083.24-.104.374-.21.134-.038.275-.05.414-.012.14-.02.285-.025.43-.004.143-.006.277-.006.4v.268c.002.168.008.336.02.5L9.3 11.9l-.834-.1c-.086-.01-.154-.023-.204-.036a.482.482 0 01-.119-.046.402.402 0 01-.098-.082.276.276 0 01-.075-.11 1.578 1.578 0 01-.104-.458c-.01-.158-.017-.371-.017-.638 0-.259.006-.479.017-.638.011-.158.046-.313.104-.458a.276.276 0 01.075-.11.402.402 0 01.098-.082.482.482 0 01.119-.046c.05-.013.118-.025.204-.036l.834-.1c.023-.95.045-.176.068-.24.022-.063.047-.116.074-.164.336-.59.598-1.28.808-2.09.21-.81.366-1.708.502-2.676.374-2.661.62-4.937.38-5.42-.241-.482-1.074-.76-2.31-.76-.043 0-.09 0-.134.002-.175.006-.361.023-.56.06v3.37c0 1.12-.07 1.973-.398 2.654-.327.68-.783 1.126-1.4 1.315-.49.147-.97.246-1.426.337-.457.09-.886.18-1.284.337C5.309 6.95 6.1 7 7 7c.25 0 .492-.014.712-.04.22-.027.418-.074.58-.134.254-.094.448-.225.583-.41.135-.183.228-.425.292-.694.064-.27.1-.613.115-1.037.013-.425.02-.892.02-1.41v-.4c0-1.326-.076-2.247-.233-2.634-.158-.387-.485-.592-1.05-.592-.063 0-.121.005-.175.016-.317.063-.61.197-.926.43-.317.233-.59.514-.833.857a4.425 4.425 0 00-.53.966c-.134.33-.232.685-.317 1.07z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <a href="/" class="font-bold text-xl text-gray-800">超越梦想</a>
+                    </div>
+                    <!-- 导航链接 -->
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/" class="border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">首页</a>
+                        <a href="{% url 'favorite_stock_list' %}" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">自选股</a>
+                        <a href="#" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">策略</a>
+                    </div>
+                </div>
+                <!-- 用户菜单 -->
+                <div class="hidden sm:ml-6 sm:flex sm:items-center">
+                    <div class="ml-3 relative">
+                        <div>
+                            <button type="button" class="flex text-sm rounded-full focus:outline-none" id="user-menu-button" aria-expanded="false" aria-haspopup="true">
+                                <span class="sr-only">打开用户菜单</span>
+                                {% if user.avatar %}
+                                <img class="h-8 w-8 rounded-full" src="{{ user.avatar.url }}" alt="{{ user.username }}">
+                                {% else %}
+                                <div class="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                                    {{ user.username|first }}
+                                </div>
+                                {% endif %}
+                            </button>
+                        </div>
+                        <div class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none" id="user-menu" role="menu" aria-orientation="vertical" aria-labelledby="user-menu-button" tabindex="-1">
+                            <a href="{% url 'profile' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">个人资料</a>
+                            <a href="{% url 'logout' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">退出登录</a>
+                        </div>
+                    </div>
+                </div>
+                <!-- 移动端菜单按钮 -->
+                <div class="flex items-center sm:hidden">
+                    <button type="button" class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none" id="mobile-menu-button" aria-expanded="false">
+                        <span class="sr-only">打开主菜单</span>
+                        <svg class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- 移动端菜单，默认隐藏 -->
+        <div class="sm:hidden hidden" id="mobile-menu">
+            <div class="pt-2 pb-3 space-y-1">
+                <a href="/" class="bg-indigo-50 border-indigo-500 text-indigo-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">首页</a>
+                <a href="{% url 'favorite_stock_list' %}" class="border-transparent text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">自选股</a>
+                <a href="#" class="border-transparent text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">策略</a>
+            </div>
+            <div class="pt-4 pb-3 border-t border-gray-200">
+                <div class="flex items-center px-4">
+                    <div class="flex-shrink-0">
+                        {% if user.avatar %}
+                        <img class="h-10 w-10 rounded-full" src="{{ user.avatar.url }}" alt="{{ user.username }}">
+                        {% else %}
+                        <div class="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                            {{ user.username|first }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="ml-3">
+                        <div class="text-base font-medium text-gray-800">{{ user.get_full_name }}</div>
+                        <div class="text-sm font-medium text-gray-500">{{ user.email }}</div>
+                    </div>
+                </div>
+                <div class="mt-3 space-y-1">
+                    <a href="{% url 'profile' %}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100">个人资料</a>
+                    <a href="{% url 'logout' %}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100">退出登录</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容区 -->
+    <main class="flex-grow">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-white py-4 shadow-inner mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <p class="text-center text-gray-500 text-sm">
+                &copy; {% now "Y" %} 超越梦想 - 中国A股策略计算系统 | 版权所有
+            </p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // 用户菜单切换
+        document.addEventListener('DOMContentLoaded', function () {
+            const userMenuButton = document.getElementById('user-menu-button');
+            const userMenu = document.getElementById('user-menu');
+            const mobileMenuButton = document.getElementById('mobile-menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+
+            // 用户菜单
+            if (userMenuButton && userMenu) {
+                userMenuButton.addEventListener('click', function () {
+                    userMenu.classList.toggle('hidden');
+                });
+
+                // 点击外部区域关闭菜单
+                document.addEventListener('click', function (event) {
+                    if (!userMenuButton.contains(event.target) && !userMenu.contains(event.target)) {
+                        userMenu.classList.add('hidden');
+                    }
+                });
+            }
+
+            // 移动端菜单
+            if (mobileMenuButton && mobileMenu) {
+                mobileMenuButton.addEventListener('click', function () {
+                    mobileMenu.classList.toggle('hidden');
+                });
+            }
+        });
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html> 

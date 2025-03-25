@@ -1,0 +1,138 @@
+/* 超越梦想 - 自定义样式 */
+
+/* 全局样式 */
+.active-tag {
+    @apply bg-blue-500 text-white;
+}
+
+/* 登录页面样式 */
+.gradient-background {
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+}
+
+/* 表格样式增强 */
+.table-hover tr:hover {
+    @apply bg-gray-50;
+}
+
+/* 自定义表单样式 */
+.form-control {
+    @apply mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm;
+}
+
+.form-check-input {
+    @apply h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded;
+}
+
+/* 股票标签样式 */
+.stock-tag {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800;
+}
+
+.stock-tag-green {
+    @apply bg-green-100 text-green-800;
+}
+
+.stock-tag-red {
+    @apply bg-red-100 text-red-800;
+}
+
+.stock-tag-yellow {
+    @apply bg-yellow-100 text-yellow-800;
+}
+
+.stock-tag-purple {
+    @apply bg-purple-100 text-purple-800;
+}
+
+/* 按钮样式 */
+.btn {
+    @apply inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2;
+}
+
+.btn-primary {
+    @apply text-white bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500;
+}
+
+.btn-secondary {
+    @apply text-gray-700 bg-white hover:bg-gray-50 border-gray-300 focus:ring-indigo-500;
+}
+
+.btn-danger {
+    @apply text-white bg-red-600 hover:bg-red-700 focus:ring-red-500;
+}
+
+.btn-success {
+    @apply text-white bg-green-600 hover:bg-green-700 focus:ring-green-500;
+}
+
+/* 卡片样式 */
+.card {
+    @apply bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200;
+}
+
+.card-header {
+    @apply px-4 py-5 sm:px-6;
+}
+
+.card-body {
+    @apply px-4 py-5 sm:p-6;
+}
+
+.card-footer {
+    @apply px-4 py-4 sm:px-6;
+}
+
+/* 消息提示样式 */
+.alert {
+    @apply rounded-md p-4 mb-4;
+}
+
+.alert-success {
+    @apply bg-green-50 text-green-700;
+}
+
+.alert-danger {
+    @apply bg-red-50 text-red-700;
+}
+
+.alert-warning {
+    @apply bg-yellow-50 text-yellow-700;
+}
+
+.alert-info {
+    @apply bg-blue-50 text-blue-700;
+}
+
+/* 动画效果 */
+.fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* 响应式布局辅助类 */
+@media (max-width: 640px) {
+    .sm-hidden {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .md-hidden {
+        display: none;
+    }
+}
+
+@media (max-width: 1024px) {
+    .lg-hidden {
+        display: none;
+    }
+} 

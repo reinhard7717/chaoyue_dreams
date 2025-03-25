@@ -35,3 +35,5 @@ django-celery-beat==2.7.0
 django_redis==5.4.0
 
 scikit-learn==1.6.1
+
+pillow==11.0.0

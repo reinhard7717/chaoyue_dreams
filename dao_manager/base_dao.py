@@ -3,7 +3,7 @@
 import json
 import logging
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from django.db import models
 from django.core.cache import cache
@@ -435,3 +435,187 @@ class BaseDAO(Generic[T]):
             logger.debug(f"清除所有缓存: {pattern}")
         except Exception as e:
             logger.error(f"清除缓存错误: {str(e)}")
+
+    def _parse_datetime(self, value: Any, default_format: str = None, default: datetime = None) -> Optional[datetime]:
+        """
+        解析各种格式的日期时间，返回统一格式的datetime对象
+        
+        参数:
+            value: 要解析的日期时间值，可以是字符串、时间戳、datetime对象等
+            default_format: 指定日期时间字符串的格式，如 '%Y-%m-%d %H:%M:%S'
+            default: 解析失败时返回的默认值，默认为None
+            
+        返回:
+            Optional[datetime]: 解析后的datetime对象，解析失败则返回default
+            
+        支持的格式:
+            - datetime对象: 直接返回（添加时区信息）
+            - ISO格式字符串: '2023-01-01T12:30:45+08:00'
+            - 日期字符串: '2023-01-01', '01/01/2023', '01-Jan-2023'等
+            - 日期时间字符串: '2023-01-01 12:30:45', '01/01/2023 12:30'等
+            - 时间戳(秒): 1672549845
+            - 时间戳(毫秒): 1672549845000
+            - 特殊值: None, '', 'N/A', '暂无' 等返回default
+            
+        注意:
+            - 返回的datetime对象始终带有时区信息（默认为系统配置的时区）
+            - 如果输入已有时区信息，会被保留
+            - 如果输入没有时区信息，会使用系统配置的时区
+        """
+        if default is None and hasattr(self.model, 'created_at'):
+            # 如果模型有created_at字段，使用当前时间作为默认值
+            default = datetime.now(self.tz)
+            
+        try:
+            # 如果已经是datetime对象
+            if isinstance(value, datetime):
+                # 确保有时区信息
+                if value.tzinfo is None:
+                    return value.replace(tzinfo=self.tz)
+                return value
+                
+            # 处理None或空值
+            if value is None or value == '' or value == 'N/A' or value == '暂无' or value == '-':
+                return default
+                
+            # 确保value是字符串
+            if not isinstance(value, (str, int, float)):
+                value = str(value)
+                
+            # 处理时间戳（秒或毫秒）
+            if isinstance(value, (int, float)) or (isinstance(value, str) and value.isdigit()):
+                timestamp = float(value)
+                # 判断是秒还是毫秒
+                if timestamp > 10000000000:  # 大于10^10的可能是毫秒
+                    timestamp /= 1000
+                return datetime.fromtimestamp(timestamp, self.tz)
+                
+            # 处理ISO格式
+            if isinstance(value, str) and ('T' in value or '+' in value or 'Z' in value):
+                try:
+                    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=self.tz)
+                    return dt
+                except ValueError:
+                    pass  # 继续尝试其他格式
+                    
+            # 处理指定格式
+            if default_format:
+                try:
+                    dt = datetime.strptime(value, default_format)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=self.tz)
+                    return dt
+                except ValueError:
+                    pass  # 继续尝试其他格式
+                    
+            # 尝试常见格式
+            common_formats = [
+                '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%d %H:%M',
+                '%Y/%m/%d %H:%M:%S',
+                '%Y/%m/%d %H:%M',
+                '%d/%m/%Y %H:%M:%S',
+                '%d/%m/%Y %H:%M',
+                '%d-%m-%Y %H:%M:%S',
+                '%d-%m-%Y %H:%M',
+                '%Y-%m-%d',
+                '%Y/%m/%d',
+                '%d/%m/%Y',
+                '%d-%m-%Y',
+                '%d-%b-%Y',
+                '%d %b %Y',
+                '%b %d, %Y',
+                '%B %d, %Y',
+                '%Y年%m月%d日',
+                '%Y年%m月%d日 %H时%M分%S秒',
+            ]
+            
+            for fmt in common_formats:
+                try:
+                    dt = datetime.strptime(value, fmt)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=self.tz)
+                    return dt
+                except ValueError:
+                    continue
+                    
+            # 如果所有尝试都失败
+            logger.warning(f"无法解析日期时间值: {value}，使用默认值")
+            return default
+            
+        except Exception as e:
+            logger.warning(f"解析日期时间值时发生错误: {value}, 错误: {str(e)}")
+            return default
+
+    def _parse_number(self, value: Any, default: float = 0.0) -> float:
+        """
+        解析数字，处理各种格式的数字字符串
+        
+        参数:
+            value: 要解析的值，可以是数字、字符串等
+            default: 解析失败时返回的默认值
+            
+        返回:
+            float: 解析后的数字
+            
+        支持的格式:
+            - 纯数字: "123.45" -> 123.45
+            - 带单位: "123.45万元" -> 1234500.0
+            - 百分比: "12.34%" -> 0.1234
+            - 带括号的负数: "(123.45)" -> -123.45
+            - 特殊值: None, "", "-", "暂无" -> 0.0
+            
+        单位支持:
+            - 万亿/兆: ×1000000000000
+            - 亿: ×100000000
+            - 万: ×10000
+            - 千: ×1000
+        """
+        try:
+            # 如果是数字类型，直接返回float
+            if isinstance(value, (int, float)):
+                return float(value)
+            
+            # 如果是None或空字符串，返回默认值
+            if value is None or value == '' or value == '-' or value == '暂无':
+                return default
+            
+            # 确保value是字符串
+            value = str(value).strip()
+            
+            # 处理特殊字符
+            value = value.replace(',', '')  # 移除千位分隔符
+            
+            # 提取数字部分
+            import re
+            number_match = re.search(r'([-+]?\d*\.?\d+)', value)
+            if not number_match:
+                return default
+            
+            number = float(number_match.group(1))
+            
+            # 处理单位
+            if '万亿' in value or '兆' in value:
+                number *= 1000000000000
+            elif '亿' in value:
+                number *= 100000000
+            elif '万' in value:
+                number *= 10000
+            elif '千' in value:
+                number *= 1000
+            
+            # 处理百分比
+            if '%' in value:
+                number /= 100
+            
+            # 处理括号中的负数
+            if '(' in value and ')' in value:
+                number = -abs(number)
+            
+            return number
+            
+        except Exception as e:
+            logger.warning(f"解析数字失败: {value}, 使用默认值{default}, 错误: {str(e)}")
+            return default

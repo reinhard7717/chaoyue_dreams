@@ -139,7 +139,6 @@ class StockPool(BaseModel):
             models.Index(fields=['code']),
         ]
 
-
 class LimitUpPool(StockPool):
     """
     涨停股池模型

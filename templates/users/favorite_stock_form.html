@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ title }} - 超越梦想{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-6">
+    <div class="max-w-lg mx-auto bg-white rounded-lg shadow-md p-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">{{ title }}</h1>
+        
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            
+            {% if form.non_field_errors %}
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                {% for error in form.non_field_errors %}
+                <p>{{ error }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <div>
+                <label for="{{ form.stock_code.id_for_label }}" class="block text-sm font-medium text-gray-700">股票代码</label>
+                {{ form.stock_code }}
+                {% if form.stock_code.errors %}
+                <p class="mt-2 text-sm text-red-600">{{ form.stock_code.errors.0 }}</p>
+                {% endif %}
+            </div>
+            
+            <div>
+                <label for="{{ form.stock_name.id_for_label }}" class="block text-sm font-medium text-gray-700">股票名称</label>
+                {{ form.stock_name }}
+                {% if form.stock_name.errors %}
+                <p class="mt-2 text-sm text-red-600">{{ form.stock_name.errors.0 }}</p>
+                {% endif %}
+            </div>
+            
+            <div>
+                <label for="{{ form.tags.id_for_label }}" class="block text-sm font-medium text-gray-700">标签</label>
+                {{ form.tags }}
+                <p class="mt-1 text-sm text-gray-500">多个标签请用空格分隔</p>
+                {% if form.tags.errors %}
+                <p class="mt-2 text-sm text-red-600">{{ form.tags.errors.0 }}</p>
+                {% endif %}
+            </div>
+            
+            <div>
+                <label for="{{ form.note.id_for_label }}" class="block text-sm font-medium text-gray-700">备注</label>
+                {{ form.note }}
+                {% if form.note.errors %}
+                <p class="mt-2 text-sm text-red-600">{{ form.note.errors.0 }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="flex items-center">
+                {{ form.is_pinned }}
+                <label for="{{ form.is_pinned.id_for_label }}" class="ml-2 block text-sm text-gray-900">
+                    置顶此股票
+                </label>
+            </div>
+            
+            <div class="flex justify-between pt-4">
+                <a href="{% url 'favorite_stock_list' %}" class="py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    取消
+                </a>
+                <button type="submit" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium">
+                    保存
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %} 

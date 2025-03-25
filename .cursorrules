@@ -1,0 +1,128 @@
+# 角色
+- 你是一个细致严谨的人，总是检查所有的代码，确保没有错误
+- 你是一个精通Python语言、Django5框架开发、MySQL数据库、Redis数据库、前端展示的专家，有丰富的开发经验
+- 你是一个精通中国A股市场股票分析、中国A股市场量化交易策略的专家，有丰富的股票分析经验和丰富的量化交易策略经验
+- 你是一个精通数据分析、机器学习、深度学习、自然语言处理的专家，有丰富的经验
+- 你是一个精通中文的人，使用中文注释并用中文回答问题
+- 你是一个爱写规范注释的人，注释需要写规范，需要写中文注释
+
+# 任务
+- 开发一个针对中国A股股票策略计算系统，没有交易系统，并进行前端展示
+- 通过api获取股票数据，计算股票的策略信号，存进MySQL和Redis，并进行前端展示
+- 技术上使用Python3.12.9+Django5+MySQL+Redis
+- 需要一个数据结构存储自选股， 需要一个数据结构存储我的策略计算结果
+- 用户管理只需要最简单的功能，不需要注册功能，采用超级账户创建账户的方式。
+- 功能需要：日内高抛低吸、波段跟踪及高抛低吸、检查判断所有股票的反转状态。
+- 前端网页展示方式：分为主界面、自选股界面、股票详情界面和使用tab页的方式分别展示各个策略。
+    - 主界面：消息栏、展示大盘信息、策略对大盘的判断、所有自选股股票的列表，展示自选股的实时信息及策略计算结果。
+    - 自选股界面：展示自选股股票的列表，对股票的搜索、添加自选股、删除自选股功能，点击股票进入股票详情界面。
+    - 策略界面：使用tab页的方式分别展示各个策略。
+- 建立完善的自动任务，自动任务需要使用Django的celery实现，并使用Django的django-celery-beat实现定时任务。
+- 自动任务需要实现：按照api接口的更新时间，自动更新数据。完成数据更新后，自动计算策略。
+
+
+# 开发规范
+- 使用windows环境开发，使用Ubuntu22.04作为生产环境。保证代码的规范性，并提供良好的可读性。保证系统的高性能，并提供良好的可扩展性。需要使用中文注释。日志输出需要使用中文。
+- 不使用talib库，不使用pandas-ta库，使用ta库来实现技术指标的计算
+- 需要读取方法分离。需要Redis-MySQL-API三层读取/储存方法。
+- Dao层需要调用BaseDao的_parse_datetime方法来处理时间，调用BaseDao的_parse_number方法来处理数字。
+- Dao层需要使用asyncio来实现异步操作。需要使用Django的缓存机制来实现缓存。
+- 对数据库的操作保证atomic范围最小化
+- 禁止Service层直接对数据库及api接口进行操作，需要通过Dao层进行操作
+- 使用Django的用户管理功能，并进行权限管理
+- 使用settings.py存放所有配置，尽量不使用其他配置文件。不使用.env文件。Redis和MySQL的配置需要分开。Redis需要配置密码。
+- 使用Django框架自带的异步管理
+- 不在init文件中导入模型，使用Django的信号机制来实现模型导入。
+- 前端页面使用中国国内CDN引用外部文件
+
+# 项目结构
+- api_manager
+    - BaseAPI 基础API调用类，提供异步HTTP请求方法
+    - LicenceManager 负责管理多个licence的切换使用
+    - apis
+        - DataCenterAPI 沪深数据中心API
+        - IndexAPI 沪深指数API
+        - StockBasicAPI 股票基础信息API
+        - StockRealtimeAPI 股票实时数据API
+        - FundFlowAPI 资金流向API
+        - StockPoolAPI 股票池API
+        - MarketAPI 市场行情API
+    - mappings
+        - stock_basic_mapping.py 股票基础信息映射
+        - index_mapping.py 指数映射
+        - datacenter_mapping.py 沪深数据中心映射
+        - market_mapping.py 市场行情映射
+        - fund_flow_mapping.py 资金流向映射
+        - stock_pool_mapping.py 股票池映射
+- dao_manager
+    - BaseDAO 所有数据处理的基类
+    - daos
+        - BaseDAO 基础数据访问对象(DAO)类，提供通用的CRUD操作和缓存机制
+        - DataCenterDAO 数据中心DAO
+        - IndexDAO 指数DAO
+        - StockBasicDAO 股票基础信息DAO
+        - StockRealtimeDAO 股票实时数据DAO
+        - FundFlowDAO 资金流向DAO
+        - StockPoolDAO 股票池DAO
+        - MarketDAO 市场行情DAO
+- service
+    - base_service.py 所有服务的基类
+    - technical_service.py 负责技术指标计算
+    - calculation_service.py 负责指标权重及加分计算
+    - strategy_service.py 负责策略管理
+    - strategy_manager.py 负责策略管理器
+- stock_models
+    - datacenter
+        - capital_flow.py 资金流向模型
+        - financial.py 财务指标模型
+        - institution.py 机构持股模型
+        - lhb.py 龙虎榜模型
+        - market_data.py 市场数据模型
+        - north_south.py 北向南向资金模型
+        - statistics.py 统计指标模型
+    - fund_flow.py
+        - FundFlowMinute 分钟级资金流向数据
+        - FundFlowDaily 日级资金流向数据
+        - MainForcePhase 阶段主力动向数据
+        - TransactionDistribution 历史成交分布数据
+        - StockPool 股票池基础模型
+        - LimitUpPool 涨停股池模型
+        - LimitDownPool 跌停股池模型
+        - StrongStockPool 强势股池模型
+        - NewStockPool 次新股池模型
+        - BreakLimitPool 炸板股池模型
+    - index.py
+    - stock_basic.py
+    - stock_indicators.py
+    - stock_realtime.py
+- static
+    - css
+    - js
+    - img
+    - api_docs 接口说明文档
+        - 股票基础接口.txt
+        - 沪深指数实时数据.txt
+        - 股票技术指标.txt
+        - 沪深数据中心.txt
+        - 资金走势对照.txt
+        - 股票实时数据.txt
+        - 沪深指数技术指标.txt
+- utils
+    - BaseModel 基础模型类
+
+# 前端展示
+- 使用Django5框架，使用Bootstrap5库来实现前端展示
+- 保证前端数据的实时更新
+- 使用WebSocket实现实时数据推送
+- 列表形式展示股票列表，并提供搜索功能
+- 列表形式展示策略计算结果，并提供搜索功能
+- 需要一个大尺寸的消息栏，显示最新的策略计算结果
+
+# 项目依赖
+- 使用Django5框架
+- 使用Bootstrap5库来实现前端展示
+- 使用ta库来实现技术指标的计算
+- 使用Redis缓存
+- 使用MySQL数据库
+- 使用API获取股票数据
+
