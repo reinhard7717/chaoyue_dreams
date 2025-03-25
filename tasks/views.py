@@ -15,6 +15,7 @@ from .stock_tasks import manual_refresh_stock_data, manual_refresh_all_favorites
 from .datacenter_tasks import manual_refresh_all_datacenter_data
 from .stock_pool_tasks import manual_refresh_all_stock_pools
 from .strategy_tasks import manual_calculate_stock_strategy, manual_calculate_all_favorites_strategy
+from . import refresh_all_data
 
 logger = logging.getLogger(__name__)
 
@@ -135,4 +136,18 @@ def calculate_all_favorites_strategy(request):
     manual_calculate_all_favorites_strategy.delay()
     
     messages.success(request, _('已成功触发计算所有自选股策略的任务，请等待执行完成'))
+    return redirect('task_dashboard')
+
+@login_required
+def refresh_all_system_data(request):
+    """
+    刷新系统所有数据
+    包括所有指数、股票、资金流向、数据中心、股票池数据和所有策略计算
+    """
+    logger.info(f"用户 {request.user.username} 手动触发刷新系统所有数据")
+    
+    # 异步执行任务
+    refresh_all_data.delay()
+    
+    messages.success(request, _('已成功触发刷新系统所有数据的任务，请等待执行完成。这是一个全面的数据刷新过程，可能需要较长时间。'))
     return redirect('task_dashboard') 
