@@ -5,14 +5,15 @@
 import asyncio
 import logging
 from celery import shared_task
-from api_manager.apis.index_api import IndexAPI
-from dao_manager.daos.index_dao import IndexDAO
+
+from api_manager.apis.index_api import StockIndexAPI
+from dao_manager.daos.index_dao import StockIndexDAO
 
 logger = logging.getLogger(__name__)
 
 # API和DAO实例
-index_api = IndexAPI()
-index_dao = IndexDAO()
+index_api = StockIndexAPI()
+index_dao = StockIndexDAO()
 
 @shared_task
 def refresh_indexes():

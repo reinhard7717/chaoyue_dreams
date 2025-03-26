@@ -9,8 +9,8 @@ from api_manager.apis.stock_basic_api import StockBasicAPI
 from api_manager.apis.stock_realtime_api import StockRealtimeAPI
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
-from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
+from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 from users.models import FavoriteStock
 
 logger = logging.getLogger(__name__)

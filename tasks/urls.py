@@ -12,9 +12,9 @@ urlpatterns = [
     path('refresh/fund_flow/', views.refresh_all_fund_flow_data, name='refresh_all_fund_flow_data'),
     path('refresh/datacenter/', views.refresh_all_datacenter_data, name='refresh_all_datacenter_data'),
     path('refresh/stock_pools/', views.refresh_all_stock_pools, name='refresh_all_stock_pools'),
-    path('refresh/all/', views.refresh_all_system_data, name='refresh_all_system_data'),
+    # path('refresh/all/', views.refresh_all_system_data, name='refresh_all_system_data'),
     
     # 策略计算任务
-    path('calculate/stock/<str:stock_code>/', views.calculate_stock_strategy, name='calculate_stock_strategy'),
-    path('calculate/favorites/', views.calculate_all_favorites_strategy, name='calculate_all_favorites_strategy'),
+    # path('calculate/stock/<str:stock_code>/', views.calculate_stock_strategy, name='calculate_stock_strategy'),
+    # path('calculate/favorites/', views.calculate_all_favorites_strategy, name='calculate_all_favorites_strategy'),
 ] 

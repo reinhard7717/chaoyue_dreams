@@ -9,6 +9,7 @@ from django.db import models
 from django.core.cache import cache
 from django.conf import settings
 from django.db import transaction
+from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +26,20 @@ class BaseDAO(Generic[T]):
     3. 外部API调用
     """
     
-    def __init__(self, model_class: Type[T], api_service=None, cache_timeout: int = 3600):
+    def __init__(self, model_class: Optional[Type[T]] = None, api_service=None, cache_timeout: int = 3600):
         """
         初始化DAO
         
         Args:
-            model_class: 模型类
+            model_class: 模型类，可以为None，表示这是一个管理多个模型的DAO
             api_service: API服务实例
             cache_timeout: 缓存超时时间(秒)
         """
         self.model_class = model_class
         self.api_service = api_service
         self.cache_timeout = cache_timeout
-        self.model_name = model_class._meta.model_name
+        # 只有当model_class不为None时才设置model_name
+        self.model_name = model_class._meta.model_name if model_class else "multi_model"
         logger.info(f"初始化{self.model_name}DAO")
     
     def _get_cache_key(self, key_suffix: str) -> str:
@@ -71,7 +73,7 @@ class BaseDAO(Generic[T]):
         cache_key = self._get_cache_key(f"id:{id_value}")
         
         # 1. 先从缓存获取
-        cached_data = cache.get(cache_key)
+        cached_data = await sync_to_async(cache.get)(cache_key)
         if cached_data:
             logger.debug(f"缓存命中: {cache_key}")
             # 如果缓存中有数据，则反序列化为模型实例
@@ -87,7 +89,7 @@ class BaseDAO(Generic[T]):
             if instance:
                 logger.debug(f"数据库命中: {id_value}")
                 # 如果数据库中存在，则更新缓存
-                cache.set(cache_key, instance, self.cache_timeout)
+                await sync_to_async(cache.set)(cache_key, instance, self.cache_timeout)
                 return instance
         except Exception as e:
             logger.error(f"数据库查询错误: {str(e)}")
@@ -101,7 +103,7 @@ class BaseDAO(Generic[T]):
                     # 保存到数据库
                     instance = await self._save_to_db(api_data)
                     # 更新缓存
-                    cache.set(cache_key, instance, self.cache_timeout)
+                    await sync_to_async(cache.set)(cache_key, instance, self.cache_timeout)
                     return instance
             except Exception as e:
                 logger.error(f"API获取数据错误: {str(e)}")
@@ -124,7 +126,7 @@ class BaseDAO(Generic[T]):
             # 构建查询条件
             filter_kwargs = {pk_name: id_value}
             # 执行查询
-            return await self.model_class.objects.filter(**filter_kwargs).afirst()
+            return await sync_to_async(self.model_class.objects.filter(**filter_kwargs).first)()
         except Exception as e:
             logger.error(f"数据库查询错误: {str(e)}")
             return None
@@ -160,7 +162,7 @@ class BaseDAO(Generic[T]):
         cache_key = self._get_cache_key("all")
         
         # 1. 先从缓存获取
-        cached_data = cache.get(cache_key)
+        cached_data = await sync_to_async(cache.get)(cache_key)
         if cached_data:
             logger.debug(f"缓存命中: {cache_key}")
             return cached_data
@@ -173,25 +175,24 @@ class BaseDAO(Generic[T]):
             if instances and len(instances) > 0:
                 logger.debug(f"数据库命中: 共{len(instances)}条记录")
                 # 如果数据库中存在，则更新缓存
-                cache.set(cache_key, instances, self.cache_timeout)
+                await sync_to_async(cache.set)(cache_key, instances, self.cache_timeout)
                 return instances
         except Exception as e:
             logger.error(f"数据库查询错误: {str(e)}")
         
         # 3. 如果配置了API服务，尝试从API获取
-        if self.api_service:
-            try:
-                logger.debug("从API获取所有数据")
-                api_data_list = await self._fetch_all_from_api()
-                if api_data_list and len(api_data_list) > 0:
-                    # 保存到数据库
-                    instances = await self._save_all_to_db(api_data_list)
-                    # 更新缓存
-                    cache.set(cache_key, instances, self.cache_timeout)
-                    return instances
-            except Exception as e:
-                logger.error(f"API获取数据错误: {str(e)}")
-        
+        try:
+            logger.debug("从API获取所有数据")
+            api_data_list = await self._fetch_all_from_api()
+            if api_data_list and len(api_data_list) > 0:
+                # 保存到数据库
+                instances = await self._save_all_to_db(api_data_list)
+                # 更新缓存
+                await sync_to_async(cache.set)(cache_key, instances, self.cache_timeout)
+                return instances
+        except Exception as e:
+            logger.error(f"API获取数据错误: {str(e)}")
+            
         return []
     
     async def _get_all_from_db(self) -> List[T]:
@@ -202,7 +203,7 @@ class BaseDAO(Generic[T]):
             List[T]: 实体对象列表
         """
         try:
-            return await self.model_class.objects.all()
+            return await sync_to_async(list)(self.model_class.objects.all())
         except Exception as e:
             logger.error(f"数据库查询错误: {str(e)}")
             return []
@@ -238,7 +239,7 @@ class BaseDAO(Generic[T]):
         cache_key = self._get_cache_key(f"filter:{filter_str}")
         
         # 1. 先从缓存获取
-        cached_data = cache.get(cache_key)
+        cached_data = await sync_to_async(cache.get)(cache_key)
         if cached_data:
             logger.debug(f"缓存命中: {cache_key}")
             return cached_data
@@ -247,15 +248,15 @@ class BaseDAO(Generic[T]):
         
         # 2. 从数据库获取
         try:
-            instances = await self.model_class.objects.filter(**kwargs)
+            # 将同步的filter操作转换为异步
+            instances = await sync_to_async(list)(self.model_class.objects.filter(**kwargs))
             # 更新缓存
-            cache.set(cache_key, instances, self.cache_timeout)
+            await sync_to_async(cache.set)(cache_key, instances, self.cache_timeout)
             return instances
         except Exception as e:
             logger.error(f"数据库筛选错误: {str(e)}")
             return []
     
-    @transaction.atomic
     async def _save_to_db(self, data: Dict[str, Any]) -> T:
         """
         保存单个实体到数据库
@@ -274,12 +275,12 @@ class BaseDAO(Generic[T]):
             if pk_name in data:
                 pk_value = data[pk_name]
                 try:
-                    instance = await self.model_class.objects.filter(**{pk_name: pk_value}).afirst()
+                    instance = await sync_to_async(self.model_class.objects.filter(**{pk_name: pk_value}).first)()
                     if instance:
                         # 更新已存在的实体
                         for key, value in data.items():
                             setattr(instance, key, value)
-                        await instance.asave()
+                        await sync_to_async(instance.save)()
                         logger.debug(f"更新实体: {pk_value}")
                         return instance
                 except Exception as e:
@@ -287,14 +288,13 @@ class BaseDAO(Generic[T]):
             
             # 创建新实体
             instance = self.model_class(**data)
-            await instance.asave()
+            await sync_to_async(instance.save)()
             logger.debug(f"创建新实体: {instance}")
             return instance
         except Exception as e:
             logger.error(f"保存实体错误: {str(e)}")
             raise
     
-    @transaction.atomic
     async def _save_all_to_db(self, data_list: List[Dict[str, Any]]) -> List[T]:
         """
         保存多个实体到数据库
@@ -334,7 +334,7 @@ class BaseDAO(Generic[T]):
             
             # 检查实体是否存在
             filter_kwargs = {pk_name: id_value}
-            instance = await self.model_class.objects.filter(**filter_kwargs).afirst()
+            instance = await sync_to_async(self.model_class.objects.filter(**filter_kwargs).first)()
             
             if not instance:
                 logger.error(f"更新失败: 实体不存在 {id_value}")
@@ -345,11 +345,11 @@ class BaseDAO(Generic[T]):
                 if hasattr(instance, key):
                     setattr(instance, key, value)
             
-            await instance.asave()
+            await sync_to_async(instance.save)()
             
             # 删除缓存
-            cache.delete(cache_key)
-            cache.delete(self._get_cache_key("all"))
+            await sync_to_async(cache.delete)(cache_key)
+            await sync_to_async(cache.delete)(self._get_cache_key("all"))
             
             logger.debug(f"更新实体: {id_value}")
             return instance
@@ -376,12 +376,13 @@ class BaseDAO(Generic[T]):
             
             # 执行删除
             filter_kwargs = {pk_name: id_value}
-            count, _ = await self.model_class.objects.filter(**filter_kwargs).adelete()
+            delete_func = sync_to_async(lambda: self.model_class.objects.filter(**filter_kwargs).delete())
+            count, _ = await delete_func()
             
             if count > 0:
                 # 删除缓存
-                cache.delete(cache_key)
-                cache.delete(self._get_cache_key("all"))
+                await sync_to_async(cache.delete)(cache_key)
+                await sync_to_async(cache.delete)(self._get_cache_key("all"))
                 
                 logger.debug(f"删除实体: {id_value}")
                 return True
@@ -402,14 +403,14 @@ class BaseDAO(Generic[T]):
         if id_value:
             # 刷新单个实体缓存
             cache_key = self._get_cache_key(f"id:{id_value}")
-            cache.delete(cache_key)
+            await sync_to_async(cache.delete)(cache_key)
             logger.debug(f"刷新实体缓存: {id_value}")
             
             # 从数据库或API重新获取
             await self.get_by_id(id_value)
         else:
             # 刷新所有实体缓存
-            cache.delete(self._get_cache_key("all"))
+            await sync_to_async(cache.delete)(self._get_cache_key("all"))
             logger.debug("刷新所有实体缓存")
             
             # 从数据库或API重新获取
@@ -420,17 +421,21 @@ class BaseDAO(Generic[T]):
         清除所有相关缓存
         """
         # 清除所有实体缓存
-        cache.delete(self._get_cache_key("all"))
+        await sync_to_async(cache.delete)(self._get_cache_key("all"))
         
         # 删除所有以model_name为前缀的缓存
-        # 注意：Django的cache接口不支持pattern删除，如果使用的是Redis，可以通过redis_client直接删除
         try:
             from django_redis import get_redis_connection
-            redis_client = get_redis_connection("default")
+            # 异步获取Redis连接
+            redis_client = await sync_to_async(get_redis_connection)("default")
             pattern = f"{self.model_name}:*"
             
-            for key in redis_client.keys(pattern):
-                redis_client.delete(key)
+            # 异步获取匹配的键
+            keys = await sync_to_async(redis_client.keys)(pattern)
+            
+            if keys:
+                # 异步删除所有匹配的键
+                await sync_to_async(redis_client.delete)(*keys)
                 
             logger.debug(f"清除所有缓存: {pattern}")
         except Exception as e:
@@ -447,22 +452,13 @@ class BaseDAO(Generic[T]):
             
         返回:
             Optional[datetime]: 解析后的datetime对象，解析失败则返回default
-            
-        支持的格式:
-            - datetime对象: 直接返回（添加时区信息）
-            - ISO格式字符串: '2023-01-01T12:30:45+08:00'
-            - 日期字符串: '2023-01-01', '01/01/2023', '01-Jan-2023'等
-            - 日期时间字符串: '2023-01-01 12:30:45', '01/01/2023 12:30'等
-            - 时间戳(秒): 1672549845
-            - 时间戳(毫秒): 1672549845000
-            - 特殊值: None, '', 'N/A', '暂无' 等返回default
-            
-        注意:
-            - 返回的datetime对象始终带有时区信息（默认为系统配置的时区）
-            - 如果输入已有时区信息，会被保留
-            - 如果输入没有时区信息，会使用系统配置的时区
         """
-        if default is None and hasattr(self.model, 'created_at'):
+        # 获取系统时区
+        from django.conf import settings
+        import pytz
+        self.tz = pytz.timezone(settings.TIME_ZONE) if hasattr(settings, 'TIME_ZONE') else pytz.UTC
+        
+        if default is None and hasattr(self, 'model') and hasattr(self.model, 'created_at'):
             # 如果模型有created_at字段，使用当前时间作为默认值
             default = datetime.now(self.tz)
             
@@ -559,19 +555,6 @@ class BaseDAO(Generic[T]):
             
         返回:
             float: 解析后的数字
-            
-        支持的格式:
-            - 纯数字: "123.45" -> 123.45
-            - 带单位: "123.45万元" -> 1234500.0
-            - 百分比: "12.34%" -> 0.1234
-            - 带括号的负数: "(123.45)" -> -123.45
-            - 特殊值: None, "", "-", "暂无" -> 0.0
-            
-        单位支持:
-            - 万亿/兆: ×1000000000000
-            - 亿: ×100000000
-            - 万: ×10000
-            - 千: ×1000
         """
         try:
             # 如果是数字类型，直接返回float
@@ -619,3 +602,16 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.warning(f"解析数字失败: {value}, 使用默认值{default}, 错误: {str(e)}")
             return default
+
+    @staticmethod
+    def _get_model_fields(model_class):
+        """
+        获取模型的字段列表
+        
+        Args:
+            model_class: Django模型类
+            
+        Returns:
+            list: 字段名称列表
+        """
+        return [field.name for field in model_class._meta.fields]

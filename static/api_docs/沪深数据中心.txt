@@ -5,9 +5,7 @@ API：https://ig507.com/data/all/ld?licence= 您的licence
 完成更新耗时：约1分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dpl7 string 跌幅偏离值达7%的证券，格式："dpl7":[LhbDetail,...]，LhbDetail对象说明见下表。
@@ -31,12 +29,12 @@ c number 收盘价(元)
 val number 对应值(%)
 v number 成交量(万股)
 e number 成交额(万元)
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/ld?licence=您的licence
 {"t":"2021-01-12","dpl7":[{"dm":"000155","mc":"川能动力","c":8.69,"val":-8.2,"v":12652.2110,"e":116116.0915}],"z20":[{"dm":"000155","mc":"川能动力","c":8.69,"val":-8.2,"v":12652.2110,"e":116116.0915}],"zpl7":[{"dm":"000155","mc":"川能动力","c":8.69,"val":-8.2,"v":12652.2110,"e":116116.0915}],"st15":[{"dm":"000155","mc":"川能动力","c":8.69,"val":-8.2,"v":12652.2110,"e":116116.0915}],"st12":null,"std15":null,"std12":[{"dm":"000155","mc":"川能动力","c":8.69,"val":-8.2,"v":12652.2110,"e":116116.0915}],"wxz":[{"dm":"003033","mc":"征和工业","c":33.52,"val":0,"v":21.0128,"e":703.0286}],"wxztp":null}
+
 个股上榜统计
-API：https://ig507.com/data/all/gg/ 近n日 ?licence= 您的licence
+API：https://ig507.com/data/all/gg/近n日?licence=您的licence
 描述：近n日上榜个股，其中 近n日 中的n可以是 5、10、30、60 。
 更新频率：每天15:30。
 完成更新耗时：约10分钟。
@@ -144,8 +142,7 @@ t string 交易日期yyyy-MM-dd
 buy number 机构席位买入额(万)
 sell number 机构席位卖出额(万)
 type number 类型
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/jgcj?licence=您的licence
 [{"dm":"002541","mc":"鸿路钢构","t":"2021-01-12","buy":12241.85,"sell":5333.26,"type":"连续三个交易日内，涨幅偏离值累计达20%的证券"}]
 
@@ -156,9 +153,7 @@ API：https://ig507.com/data/all/jdgd?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -179,8 +174,7 @@ g60 number 近60日最高价
 d60 number 近60日最低价
 zd60 number 近60日涨跌幅（%）
 iscq60 number 近60日是否除权除息（0：否，1：是）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/jdgd?licence=您的licence
 [{"t":"2021-01-13","dm":"sz300240","mc":"飞力达","g5":5.3600,"d5":4.7300,"zd5":"-11.26","g10":5.8200,"d10":4.7300,"zd10":"-15.84","g20":6.2000,"d20":4.7300,"zd20":"-21.04","g60":9.2200,"d60":4.7300,"zd60":"-43.15"}]
 盘中创新高个股
@@ -190,9 +184,7 @@ API：https://ig507.com/data/all/cxg?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -209,8 +201,7 @@ zdf10 number 10日涨跌幅（%）
 iscq10 number 近10日是否除权除息（0：否，1：是）
 zdf20 number 20日涨跌幅（%）
 iscq20 number 近20日是否除权除息（0：否，1：是）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/cxg?licence=您的licence
 [{"t":"2021-01-13","dm":"sh600586","mc":"金晶科技","c":7.1400,"h":7.6900,"l":6.9800,"zdf":"-1.38","hs":8.08,"zdf5":"9.34","zdf10":"29.11","zdf20":"15.35"}]
 盘中创新低个股
@@ -220,9 +211,7 @@ API：https://ig507.com/data/all/cxd?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -239,8 +228,7 @@ zdf10 number 10日涨跌幅（%）
 iscq10 number 近10日是否除权除息（0：否，1：是）
 zdf20 number 20日涨跌幅（%）
 iscq20 number 近20日是否除权除息（0：否，1：是）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/cxd?licence=您的licence
 [{"t":"2021-01-14","dm":"sh601958","mc":"金钼股份","c":5.7100,"h":5.8700,"l":5.7000,"zdf":"-2.73","hs":00.61,"zdf5":"-12.42","zdf10":"-8.35","zdf20":"-5.31"}]
 成交骤增个股
@@ -250,9 +238,7 @@ API：https://ig507.com/data/all/cjzz?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -264,8 +250,7 @@ v number 成交量（股）
 pv number 前一交易日成交量（股）
 zjl number 增减量（股）
 zjf number 增减幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/cjzz?licence=您的licence
 [{"t":"2021-01-15","dm":"sz300250","mc":"初灵信息","c":9.4500,"zdf":4.30,"iscq":0,"v":4964504,"pv":3027201,"zjl":1937303,"zjf":64.00}]
 成交骤减个股
@@ -275,9 +260,7 @@ API：https://ig507.com/data/all/cjzj?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -289,8 +272,7 @@ v number 成交量（股）
 pv number 前一交易日成交量（股）
 zjl number 增减量（股）
 zjf number 增减幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/cjzj?licence=您的licence
 [{"t":"2021-01-15","dm":"sz300247","mc":"融捷健康","c":2.8200,"zdf":2.55,"iscq":0,"v":11313504,"pv":18054404,"zjl":-6740900,"zjf":-37.34}]
 连续放量个股
@@ -300,9 +282,7 @@ API：https://ig507.com/data/all/lxfl?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -316,8 +296,7 @@ flday number 放量天数
 pzdf number 阶段涨跌幅（%）
 ispcq number 阶段是否除权除息（0：否，1：是）
 phs number 阶段换手率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/lxfl?licence=您的licence
 [{"t":"2021-01-15","dm":"sz000611","mc":"ST天首","c":2.7400,"zdf":0.00,"v":1186350,"pv":1137750,"flday":3,"pzdf":1.11,"phs":1.35,"iscq":0,"ispcq":0}]
 连续缩量个股
@@ -327,9 +306,7 @@ API：https://ig507.com/data/all/lxsl?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -343,8 +320,7 @@ flday number 放量天数
 pzdf number 阶段涨跌幅（%）
 ispcq number 阶段是否除权除息（0：否，1：是）
 phs number 阶段换手率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/lxsl?licence=您的licence
 [{"t":"2021-01-15","dm":"sz000623","mc":"吉林敖东","c":16.2600,"zdf":0.43,"v":8991026,"pv":9915907,"flday":3,"pzdf":-1.16,"phs":4.65,"iscq":0,"ispcq":0}]
 连续上涨个股
@@ -354,9 +330,7 @@ API：https://ig507.com/data/all/lxsz?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -369,8 +343,7 @@ hs number 换手（%）
 szday number 上涨天数
 pzdf number 阶段涨跌幅（%）
 ispcq number 阶段是否除权除息（0：否，1：是）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/lxsz?licence=您的licence
 [{"t":"2021-01-15","dm":"sz002210","mc":"*ST飞马","c":2.2100,"zdf":0.00,"iscq":0,"v":20870751,"hs":0.78,"szday":3,"pzdf":8.87,"ispcq":0}]
 连续下跌个股
@@ -380,9 +353,7 @@ API：https://ig507.com/data/all/lxxd?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -395,8 +366,7 @@ hs number 换手（%）
 szday number 上涨天数
 pzdf number 阶段涨跌幅（%）
 ispcq number 阶段是否除权除息（0：否，1：是）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/lxxd?licence=您的licence
 [{"t":"2021-01-15","dm":"sz002237","mc":"恒邦股份","c":11.9400,"zdf":-0.33,"iscq":0,"v":7488599,"hs":0.82,"szday":3,"pzdf":-1.24,"ispcq":0}]
 周涨跌排名
@@ -406,9 +376,7 @@ API：https://ig507.com/data/all/zzdpm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -420,8 +388,7 @@ hs number 周换手率（%）
 hp number 周最高价
 lp number 周最低价
 zf number 周振幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zzdpm?licence=您的licence
 [{"t":"2021-01-15","dm":"sz300767","mc":"震安科技","zdf":0.00,"v":15085862,"amount":1364290238,"hs":0.00,"hp":171.1550,"lp":151.8570,"zf":0.00}]
 月涨跌排名
@@ -431,9 +398,7 @@ API：https://ig507.com/data/all/yzdpm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -445,8 +410,7 @@ hs number 月换手率（%）
 hp number 月最高价
 lp number 月最低价
 zf number 月振幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/yzdpm?licence=您的licence
 [{"t":"2021-01-15","dm":"sz300767","mc":"震安科技","zdf":27.25,"v":15085862,"amount":1364290238,"hs":18.27,"hp":171.1550,"lp":151.8570,"zf":12.71}]
 本周强势股
@@ -456,9 +420,7 @@ API：https://ig507.com/data/all/bzqsg?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -471,8 +433,7 @@ l number 周最低价
 v number 周成交量（股）
 hs number 周换手率（%）
 zf300 number 本周沪深300涨幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/bzqsg?licence=您的licence
 [{"t":"2021-01-18","dm":"sz300250","mc":"初灵信息","zdf":8.28,"o":39.4640,"c":41.2730,"h":41.3570,"l":39.4220,"v":4162391,"hs":0.0267,"zf300":-0.0023}]
 本月强势股
@@ -482,9 +443,7 @@ API：https://ig507.com/data/all/byqsg?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -497,8 +456,7 @@ l number 月最低价
 v number 月成交量（股）
 hs number 月换手率（%）
 zf300 number 本月沪深300涨幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/byqsg?licence=您的licence
 [{"t":"2021-01-18","dm":"sz002750","mc":"龙津药业","zdf":9.79,"o":55.4240,"c":56.6560,"h":58.4420,"l":50.7440,"v":70373101,"hs":0.1768,"zf300":0.0474}]
 流通市值排行
@@ -508,9 +466,7 @@ API：https://ig507.com/data/all/ltsz?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -521,8 +477,7 @@ v number 成交量（股）
 hs number 换手率（%）
 ltsz number 流通市值（万元）
 zsz number 总市值（万元）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/ltsz?licence=您的licence
 [{"t":"2021-01-18","dm":"sh600000","mc":"浦发银行","c":10.080,"zdf":161.30,"v":96389498,"hs":0,"ltsz":29586958.020144,"zsz":29586958.020144}]
 市盈率排行
@@ -532,9 +487,7 @@ API：https://ig507.com/data/all/syl?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -545,8 +498,7 @@ v number 成交量（股）
 hs number 换手率（%）
 jpe number 静态市盈率：总市值除以上年度净利润
 dpe number 市盈率(TTM)：最新价除以最近4个季度的每股收益
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/syl?licence=您的licence
 [{"t":"2021-01-19","dm":"sh600000","mc":"浦发银行","c":10.160,"zdf":79.40,"v":82816180,"hs":0,"jpe":5.21,"dpe":5.392}]
 市净率排行
@@ -556,9 +508,7 @@ API：https://ig507.com/data/all/sjl?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 日期yyyy-MM-dd
 dm string 代码
@@ -569,8 +519,7 @@ v number 成交量（股）
 hs number 换手率（%）
 sjl number 市净率
 jzc number 每股净资产
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/sjl?licence=您的licence
 [{"t":"2021-01-19","dm":"sh600000","mc":"浦发银行","c":10.160,"zdf":79.40,"v":82816180,"hs":0,"sjl":0.581,"jzc":17.4800}]
 ROE排行
@@ -580,9 +529,7 @@ API：https://ig507.com/data/all/roe?licence= 您的licence
 完成更新耗时：约2分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 股票代码
 mc string 股票名称
@@ -612,8 +559,7 @@ mllpm number 毛利率行业排名
 jllpm number 净利率行业排名
 hym string 行业名
 hygpzs number 同行业股票总数量
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/roe?licence=您的licence
 [{"dm":"000001","mc":"平安银行","zsz":601169,"jzc":2.33152E+11,"jlr":0,"syld":3.85,"sjl":0.44,"mll":0.0,"jll":36.811763051599996,"roe":11.34,"hym":"银行","hyzsz":237030692482.74,"hyjzc":465348529679.55,"hyjlr":37953741650.74,"hysyld":6.47,"hysjl":0.72,"hymll":0.0,"hyjll":33.74,"hyroe":10.44,"hygpzs":42,"zszpm":17,"jzcpm":16,"jlrpm":18,"syldpm":4,"sjlpm":6,"mllpm":21,"jllpm":15,"roepm":13}]
 
@@ -624,9 +570,7 @@ API：https://ig507.com/data/all/finyl/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -640,8 +584,7 @@ mgzysr number 每股主营业务收入(元)
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finyl/2021_1?licence=您的licence
 [{"dm":"600961","mc":"株冶集团","jzcsy":112.72,"jll":1.07,"mll":5.2699,"jlr":158.8612,"mgsy":0.3011,"yysr":14765.4551,"mgzysr":27.9936,"y":2021,"q":1,"yq":"2021年一季报"}]
 运营能力
@@ -651,9 +594,7 @@ API：https://ig507.com/data/all/finyynl/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -666,8 +607,7 @@ ldzczzts number 流动资产周转天数(天)
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finyynl/2021_1?licence=您的licence
 [{"dm":"300738","mc":"奥飞数据","yszzzl":4.5,"yszts":80,"chzzl":906.3694,"chzzts":0.3972,"ldzczzl":1.5887,"ldzczzts":226.6004,"y":2021,"q":1,"yq":"2021年一季报"}]
 成长能力
@@ -677,9 +617,7 @@ API：https://ig507.com/data/all/fincznl/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -692,8 +630,7 @@ gdzzl number 股东权益增长率(%)
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/fincznl/2021_1?licence=您的licence
 [{"dm":"300677","mc":"英科医疗","zyzzl":564.2892,"jlrzzl":3829.2213,"jzczzl":528.7742,"zzczzl":332.313,"mgzzl":2315.3846,"gdzzl":532.4855,"y":2021,"q":1,"yq":"2021年一季报"}]
 偿债能力
@@ -703,9 +640,7 @@ API：https://ig507.com/data/all/finchzhainl/ 年份_季度 ?licence= 您的lice
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -718,8 +653,7 @@ zcfzl number 资产负债率(%)
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finchzhainl/2021_1?licence=您的licence
 [{"dm":"000401","mc":"冀东水泥","ldbl":1.1602,"sdbl":0.9635,"xjbl":42.8409,"lxbs":862.4235,"gdbl":54.5392,"zcfzl":45.4608,"y":2021,"q":1,"yq":"2021年一季报"}]
 现金流量
@@ -729,9 +663,7 @@ API：https://ig507.com/data/all/finxjll/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -743,8 +675,7 @@ xjllbl number 现金流量比率(%)
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finxjll/2021_1?licence=您的licence
 [{"dm":"600705","mc":"中航资本","xjlxxbl":0.9716,"xjlhbl":0.0264,"xjljlrbl":1.9042,"xjlfzbl":0.0317,"xjllbl":4.5858,"y":2021,"q":1,"yq":"2021年一季报"}]
 业绩报表
@@ -754,9 +685,7 @@ API：https://ig507.com/data/all/finyjbb/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -772,8 +701,7 @@ rdate string 发布日期
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finyjbb/2021_1?licence=您的licence
 [{"dm":"603881","mc":"数据港","mgsy":0.63,"mgsytb":21.15,"mgjz":0,"jzsy":8.65,"mgxjl":0,"jlr":13635.85,"jlrtb":23.58,"fpfa":"10派0.6转4","rdate":"03-20","y":2021,"q":1,"yq":"2021年一季报"}]
 业绩预告
@@ -783,9 +711,7 @@ API：https://ig507.com/data/all/finyjyg/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -798,8 +724,7 @@ yjzf string 业绩增幅
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finyjyg/2021_1?licence=您的licence
 [{"dm":"002028","mc":"思源电气","lx":"预增","ggrq":"2021-03-18","bgq":"2021-03-31","yjzy":"预计2021年1-3月归属于上市公司股东的净利润为：24000万元至34000万元，与上年同期相比变动幅度：172.2%至285.62%。","qntq":0.12,"yjzf":"172.2%~285.62%","y":2021,"q":1,"yq":"2021年一季报"}]
 业绩快报
@@ -809,9 +734,7 @@ API：https://ig507.com/data/all/finyjkb/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -827,10 +750,10 @@ rdate string 公告日期
 y number 报告年份，如2021
 q number 报告季度，1:一季报，2：中报，3：三季报，4：年报
 yq string 报告年份季度含义，如“2021年一季报”
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finyjkb/2021_1?licence=您的licence
 [{"dm":"603912","mc":"佳力图","mgsy":0.54,"yysr":62525.94,"yysrtb":-2.11,"jlr":11556.01,"jlrtb":36.64,"mgjzc":4.51,"jzcsyl":13.49,"zzc":165412.4,"rdate":"2021-03-20","y":2021,"q":1,"yq":"2021年一季报"}]
+
 利润细分
 API：https://ig507.com/data/all/finlrxf?licence= 您的licence
 描述：个股利润细分汇总。
@@ -838,9 +761,7 @@ API：https://ig507.com/data/all/finlrxf?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 代码
 mc string 名称
@@ -850,8 +771,7 @@ ckcb number 所属行业参考成本(万元)
 cklr number 参考利润(万元)
 lrms string 利润描述
 rdate string 报告日期
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/finlrxf?licence=您的licence
 [{"dm":"601857","mc":"中国石油","sshy":"商贸业","sshysr":73754000.00,"ckcb":72212000.00,"cklr":1542000.00,"lrms":"销售","rdate":"2020-06-30"}]
 
@@ -862,9 +782,7 @@ API：https://ig507.com/data/all/orgcghz/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约5小时。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 股票代码
 mc string 股票名称
@@ -893,12 +811,12 @@ sbl string 上季度占流通股比例（%）
 sblz string 当前持股比例（%）
 gz string 当前持股比例增幅（%）
 sgb string 上季度持股比例（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/orgcghz/2021_1?licence=您的licence
 [{"dm":"600660","mc":"福耀玻璃","oc"
 :1,"occ":-1,"gbl":1.33,"gblz":-0.63,"lbl":1.66,"ltz":-0.79,"dt":[{"c":"110022","n":"易方达消费行业股票","gs":"3325.9677","sgs":"2705
 .3793","bl":"1.66","blz":"0.31","sbl":"1.35","sblz":"1.33","gz":"0.25","sgb":"1.08"}],"y":2021,"q":1,"yq":"2021年一季报"}]
+
 基金重仓
 API：https://ig507.com/data/all/orgjjzc/ 年份_季度 ?licence= 您的licence
 描述：基金重仓，支持“年份_季度”查询，年份可选（1989~当前年份），季度可选（1:一季报，2：中报，3：三季报，4：年报），如“2021_1”，表示查询2021年一季度数据。
@@ -906,9 +824,7 @@ API：https://ig507.com/data/all/orgjjzc/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约5小时。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 股票代码
 mc string 股票名称
@@ -935,8 +851,7 @@ abl string 持股占已流通A股比例(%)
 szj string 同上期增减(万股)
 bzf string 持股比例增幅(%)
 gbl string 上期持股比例(%)
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/orgjjzc/2021_1?licence=您的licence
 [{"dm":"600466","mc":"蓝光发展","ed":"2021-03-31","js":2,"bq":2
 314.8343,"ltb":0.76,"szj":-265.3493,"cbl":0.85,"sjs":2,"dt":[{"c":"009199","n":"万家价值优势一年持有期混合","bqcy":"1232.8273","abl":"0.41","szj":"0.0000","bzf":"0.00","gbl":"0.41"},{"c":"001645","n":"国泰大健康股票A","bqcy":"1082.0070","abl":"0.36","szj":"1082.0070","b
@@ -948,9 +863,7 @@ API：https://ig507.com/data/all/orgsbzc/ 年份_季度 ?licence= 您的licence
 完成更新耗时：约5小时。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 股票代码
 mc string 股票名称
@@ -977,8 +890,7 @@ abl string 持股占已流通A股比例(%)
 szj string 同上期增减(万股)
 bzf string 持股比例增幅(%)
 gbl string 上期持股比例(%)
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/orgsbzc/2021_1?licence=您的licence
 [{"dm":"600298","mc":"安琪酵母","ed":"2021-03-31","js":1,"bq":650.0086,"ltb":0.79,"szj":0.0000,"cbl":0.79,"sjs":1,"dt":[{"c":"70010423","n":"汇添富基金管理股份有限公司－社保基金四二三组合","bqcy":"650.0086","abl":"0.79","szj":"0.0000","bzf":"0.00","gbl":"0.79"}],"y":2021,"q":1,"yq":"2021年一季报"}]
 QFII重仓股
@@ -988,9 +900,7 @@ API：https://ig507.com/data/all/orgqfiizc/ 年份_季度 ?licence= 您的licenc
 完成更新耗时：约5小时。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 dm string 股票代码
 mc string 股票名称
@@ -1017,8 +927,7 @@ abl string 持股占已流通A股比例(%)
 szj string 同上期增减(万股)
 bzf string 持股比例增幅(%)
 gbl string 上期持股比例(%)
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/orgqfiizc/2021_1?licence=您的licence
 [{"dm":"600298","mc":"安琪酵母","ed":"2021-03-31","js":1,"bq":780.7949,"ltb":0.95,"szj":-49.8400,"cbl":1.01,"sjs":1,"dt":[{"c":"70304309","n":"科威特政府投资局－自有资金","bqcy":"780.7949","abl":"0.95","szj":"-49.8400","bzf":"-6.00","gbl":"1.01"}],"y":2021,"q":1,"yq":"2021年一季报"}]
 
@@ -1029,9 +938,7 @@ API：https://ig507.com/data/all/zjlx/zjhhy?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 行业名称
@@ -1045,8 +952,7 @@ jlrl number 净流入率（%）
 lzgmc string 领涨股名称
 lzgdm string 领涨股代码
 lzgjlrl number 领涨股净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/zjhhy?licence=您的licence
 [{"t":"2021-06-17 20:59:16","mc":"计算机、通信和其","ct":"hangye_ZC39","jj":18.86,"zdf":3.94,"lrzj":94300875433.5500,"lczj":73055449353.9700,"jlr":21245426079.5800,"jlrl":12.19,"lzgmc":"聚灿光电","lzgdm":"sz300708","lzgjlrl":25.94}]
 概念板块
@@ -1056,9 +962,7 @@ API：https://ig507.com/data/all/zjlx/gnbk?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 概念板块名称
@@ -1072,8 +976,7 @@ jlrl number 净流入率（%）
 lzgmc string 领涨股名称
 lzgdm string 领涨股代码
 lzgjlrl number 领涨股净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/gnbk?licence=您的licence
 [{"t":"2021-06-17 20:59:16","mc":"业绩预升","ct":"gn_yjys","jj":13.71,"zdf":1.68,"lrzj":49819755738.0000,"lczj":43183008620.8500,"jlr":6636747117.1500,"jlrl":6.88,"lzgmc":"宜华健康","lzgdm":"sz000150","lzgjlrl":57.66}]
 
@@ -1084,9 +987,7 @@ API：https://ig507.com/data/all/zjlx/jlrepm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1099,8 +1000,7 @@ lczj number 流出资金（元）
 lrzj number 流入资金（元）
 jlr string 净流入（元）
 jlrl string 净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/jlrepm?licence=您的licence
 [{"t":"2021-06-17 20:59:17","dm":"sz002594","mc":"比亚迪","zxj":232.10,"zdf":10.00,"hsl":4.49,"cje":11568705616.0000,"lczj":4402724667.9500,"lrzj":6287337003.2100,"jlr":1884612335.2600,"jlrl":16.29}]
 净流入率排名
@@ -1110,9 +1010,7 @@ API：https://ig507.com/data/all/zjlx/jlrlpm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1125,8 +1023,7 @@ lczj number 流出资金（元）
 lrzj number 流入资金（元）
 jlr string 净流入（元）
 jlrl string 净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/jlrlpm?licence=您的licence
 [{"t":"2021-06-17 20:59:17","dm":"sz002594","mc":"比亚迪","zxj":232.10,"zdf":10.00,"hsl":4.49,"cje":11568705616.0000,"lczj":4402724667.9500,"lrzj":6287337003.2100,"jlr":1884612335.2600,"jlrl":16.29}]
 主力净流入额排名
@@ -1136,9 +1033,7 @@ API：https://ig507.com/data/all/zjlx/zljlrepm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1151,8 +1046,7 @@ zllczj number 主力流出资金（元）
 zllrzj number 主力流入资金（元）
 zljlr string 主力净流入（元）
 zljlrl string 主力净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/zljlrepm?licence=您的licence
 [{"t":"2021-06-17 20:59:20","dm":"sz002594","mc":"比亚迪","zxj":232.10,"zdf":10.00,"hsl":4.49,"cje":11568705616.0000,"zllczj":4402724667.9500,"zllrzj":6287337003.2100,"zljlr":1884612335.2600,"zljlrl":16.29}]
 主力净流入率排名
@@ -1162,9 +1056,7 @@ API：https://ig507.com/data/all/zjlx/zljlrlpm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1177,8 +1069,7 @@ zllczj number 主力流出资金（元）
 zllrzj number 主力流入资金（元）
 zljlr string 主力净流入（元）
 zljlrl string 主力净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/zljlrlpm?licence=您的licence
 [{"t":"2021-06-17 20:59:20","dm":"sz002594","mc":"比亚迪","zxj":232.10,"zdf":10.00,"hsl":4.49,"cje":11568705616.0000,"zllczj":4402724667.9500,"zllrzj":6287337003.2100,"zljlr":1884612335.2600,"zljlrl":16.29}]
 散户净流入额排名
@@ -1188,9 +1079,7 @@ API：https://ig507.com/data/all/zjlx/shjlrepm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1203,8 +1092,7 @@ shlczj number 散户流出资金（元）
 shlrzj number 散户流入资金（元）
 shjlr string 散户净流入（元）
 shjlrl string 散户净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/shjlrepm?licence=您的licence
 [{"t":"2021-06-17 20:59:20","dm":"sz002594","mc":"比亚迪","zxj":232.10,"zdf":10.00,"hsl":4.49,"cje":11568705616.0000,"zllczj":4402724667.9500,"zllrzj":6287337003.2100,"zljlr":1884612335.2600,"zljlrl":16.29}]
 散户净流入率排名
@@ -1214,9 +1102,7 @@ API：https://ig507.com/data/all/zjlx/shjlrlpm?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1229,8 +1115,7 @@ shlczj number 散户流出资金（元）
 shlrzj number 散户流入资金（元）
 shjlr string 散户净流入（元）
 shjlrl string 散户净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/shjlrlpm?licence=您的licence
 [{"t":"2021-06-17 20:59:20","dm":"sz002594","mc":"比亚迪","zxj":232.10,"zdf":10.00,"hsl":4.49,"cje":11568705616.0000,"zllczj":4402724667.9500,"zllrzj":6287337003.2100,"zljlr":1884612335.2600,"zljlrl":16.29}]
 
@@ -1241,9 +1126,7 @@ API：https://ig507.com/data/all/zjlx/zjhhyzjlx?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 行业名
@@ -1257,8 +1140,7 @@ ra5 number 近五日净流入率（%）
 ac10 number 近十日涨跌幅（%）
 net10 number 近十日净流入（元）
 ra10 number 近十日净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/zjhhyzjlx?licence=您的licence
 [{"t":"2021-06-18 11:40:02","mc":"农业","dm":"hangye_ZA01","ac3":-1.64,"net3":-601634031.5600,"ra3":-8.18,"ac5":-0.05,"net5":-619750804.7300,"ra5":-4.41,"ac10":-2.29,"net10":-1557422418.0600,"ra10":-6.52}]
 概念板块资金路线图
@@ -1268,9 +1150,7 @@ API：https://ig507.com/data/all/zjlx/gnbklx?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 概念板块名
@@ -1284,8 +1164,7 @@ ra5 number 近五日净流入率（%）
 ac10 number 近十日涨跌幅（%）
 net10 number 近十日净流入（元）
 ra10 number 近十日净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/gnbklx?licence=您的licence
 [{"t":"2021-06-18 11:40:02","mc":"3D打印","dm":"gn_3Ddy","ac3":1.08,"net3":1035075586.5400,"ra3":6.73,"ac5":1.23,"net5":707327639.1900,"ra5":3.26,"ac10":1.54,"net10":253173917.6400,"ra10":0.62}]
 个股阶段统计总览
@@ -1295,9 +1174,7 @@ API：https://ig507.com/data/all/zjlx/ggjdtjzl?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1310,8 +1187,7 @@ jlrl5 number 5日净流入率（%）
 jlrl10 number 10日净流入率（%）
 jlrl20 number 20日净流入率（%）
 jlrl60 number 60日净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/ggjdtjzl?licence=您的licence
 [{"t":"2021-06-17 20:59:26","dm":"sh600000","mc":"浦发银行","zxj":10.04,"zdf":-0.10,"hsl":0.1012,"jlrl3":-6.34,"jlrl5":-8.68,"jlrl10":-0.60,"jlrl20":-2.42,"jlrl60":-2.26}]
 个股阶段统计
@@ -1321,9 +1197,7 @@ API：https://ig507.com/data/all/zjlx/ ggjdtj_阶段 ?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1335,8 +1209,7 @@ jdjlr number 阶段净流入（元）
 jdjlrl number 阶段净流入率（%）
 jdzljlr number 阶段主力净流入（元）
 jdzljlrl number 阶段主力净流入率（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/ggjdtj_3?licence=您的licence
 [{"t":"2021-06-17 20:59:28","dm":"sh600000","mc":"浦发银行","jdjsj":10.04,"jdzdf":-1.28,"jdhsl":0.3646,"jdjlr":null,"jdjlrl":-6.34,"jdzljlr":-49319801.5700,"jdzljlrl":-4.58}]
 主力连续净流入/流出
@@ -1346,9 +1219,7 @@ API：https://ig507.com/data/all/zjlx/zllxjlr?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 t string 服务器更新时间yyyy-MM-dd HH:mm:ss
 mc string 名称
@@ -1360,8 +1231,7 @@ jdhsl number 阶段换手率（%）
 jdjlr number 阶段净流入/流出（元）（正数表示流入，负数表示流出）
 jdjlrl number 阶段流入/流出率（%）（正数表示流入，负数表示流出）
 zljlr number 主力净流入/流出（元）（正数表示流入，负数表示流出）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/zjlx/zllxjlr?licence=您的licence
 [{"t":"2021-06-17 20:59:32","mc":"先锋新材","dm":"sz300163","ts":"17","zxj":3.63,"jdzdf":5.83,"jdhsl":39.5514,"jdjlr":null,"jdjlrl":0.81,"zljlr":7668275.0000}]
 
@@ -1372,9 +1242,7 @@ API：https://ig507.com/data/all/nxbx/zjgl?licence= 您的licence
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 type string 类型:沪港通/沪港通/深港通/深港通
 tname string 板块: 沪股通(港>沪) /港股通(沪>港)/深股通(港>深)/港股通(深>港)。港股通(沪)代表沪港通的港股通部分，港股通(深)代表深港通的港股通部分。
@@ -1389,8 +1257,7 @@ idx number 相关指数
 idxdm number 相关指数代码
 idxzd number 相关指数涨跌幅（%）
 status number 交易状态。3:收盘，4:休市
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/zjgl?licence=您的licence
 [{"idxdm":"000001","idxzd":0.07,"netbuy":286582.3,"remain":4759162.67,"ping":15,"tname":"沪股通","up":280,"type":"沪港通","dir":"北向","idx":"上证指数","down":297,"netin":440837.33}]
 北向资金历史走势
@@ -1400,16 +1267,13 @@ API：https://ig507.com/data/all/nxbx/bxzjlszs/ 阶段参数 ?licence= 您的lic
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 bx number 北向资金净流入（百万）
 hgt number 沪股通净流入（百万）
 sgt number 深股通净流入（百万）
 t string 日期：yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/bxzjlszs/1m?licence=您的licence
 [{"sgt":339.35,"hgt":1707.8,"t":"2022-02-28","bx":2047.15}]
 南向资金历史走势
@@ -1419,16 +1283,13 @@ API：https://ig507.com/data/all/nxbx/nxzjlszs/ 阶段参数 ?licence= 您的lic
 完成更新耗时：约10分钟。
 请求频率限制：每分钟10次。
 返回格式：[{}...]
-
 返回字段说明：
-
 字段 类型 说明
 nx number 南向资金净流入（百万）
 ggth number 港股通（沪）净流入（百万）
 ggts number 港股通（深）净流入（百万）
 t string 日期：yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/nxzjlszs/1m?licence=您的licence
 [{"ggth":2176.38,"t":"2022-03-07","nx":5448.99,"ggts":3272.61},{"ggth":46.29,"t":"2022-03-08","nx":1883.53,"ggts":1837.24}]
 北向资金历史总览
@@ -1454,8 +1315,7 @@ sgt1y number 深股通近一年净流入（百万）
 bxall number 北向资金历史净流入（百万）
 hgtall number 沪股通历史净流入（百万）
 sgtall number 深股通历史净流入（百万）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/bxzjlsgl?licence=您的licence
 {"bx1y":306439.64,"sgt6m":22567.36,"bx6m":114484.77,"hgtall":830569.41,"hgt6m":91917.41,"bxall":1608740.6,"hgt1y":171671.44,"sgt1m":-27978.32,"hgt1m":-20840.59,"bx1m":-48818.91,"sgt1y":134768.2,"sgtall":778171.19}
 南向资金历史总览
@@ -1481,8 +1341,7 @@ ggts1y number 港股通（深）近一年净流入（百万）
 nxall number 南向资金历史净流入（百万）
 ggthall number 港股通（沪）历史净流入（百万）
 ggtsall number 港股通（深）历史净流入（百万）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/nxzjlsgl?licence=您的licence
 {"nx1y":174484.2,"nxall":2281800.17,"nx6m":151888.75,"ggts1y":182964.01,"ggts6m":113507.21,"ggth1m":13926.07,"nx1m":39719.41,"ggthall":1238682.91,"ggth1y":-8479.81,"ggts1m":25793.34,"ggth6m":38381.54,"ggtsall":1043117.26}
 沪股通成分股行情
@@ -1519,8 +1378,7 @@ sjl number 市净率
 zdf60 number 60日涨跌幅（%）
 zdfnc number 年初至今涨跌幅（%）
 t string 更新时间yyyy-MM-dd HH:mm:ss
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/hgthq?licence=您的licence
 [{"dm":"603429","mc":"集友股份","o":19.42,"fm":0.00,"h":21.30,"hs":0.74,"lb":0.50,"l":19.42,"lt":7979671718.00,"pe":59.17,"pc":10.02,"p":21.30,"sz":8099089784.00,"cje":57869886.00,"ud":1.94,"v":27720,"yc":19.36,"zf":9.71,"zs":0.00,"sjl":6.24,"zdf60":-13.41,"zdfnc":-18.39,"t":"2022-04-19 22:55:51"}]
 深股通成分股行情
@@ -1557,8 +1415,7 @@ sjl number 市净率
 zdf60 number 60日涨跌幅（%）
 zdfnc number 年初至今涨跌幅（%）
 t string 更新时间yyyy-MM-dd HH:mm:ss
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/sgthq?licence=您的licence
 [{"dm":"000989","mc":"九 芝 堂","o":9.22,"fm":0.00,"h":10.07,"hs":6.62,"lb":3.57,"l":9.22,"lt":6188980109.00,"pe":24.29,"pc":10.05,"p":10.07,"sz":8754397157.00,"cje":401166672.00,"ud":0.92,"v":406883,"yc":9.15,"zf":9.29,"zs":0.00,"sjl":2.21,"zdf60":-2.99,"zdfnc":-7.27,"t":"2022-04-19 22:55:51"}]
 港股通（沪）成分股行情
@@ -1584,8 +1441,7 @@ ud number 涨跌额（港元）
 v number 成交量（股）
 yc number 昨日收盘价（元）
 t string 更新时间yyyy-MM-dd HH:mm:ss
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggthhq?licence=您的licence
 [{"dm":"03606","mc":"福耀玻璃","o":32.00,"h":32.25,"l":31.15,"pc":7.51,"p":31.50,"cje":292017568.00,"ud":2.20,"v":9220456,"yc":29.30,"t":"2022-04-19 22:55:52"}]
 港股通（深）成分股行情
@@ -1611,8 +1467,7 @@ ud number 涨跌额（港元）
 v number 成交量（股）
 yc number 昨日收盘价（元）
 t string 更新时间yyyy-MM-dd HH:mm:ss
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggtshq?licence=您的licence
 [{"dm":"03606","mc":"福耀玻璃","o":32.00,"h":32.25,"l":31.15,"pc":7.51,"p":31.50,"cje":292017568.00,"ud":2.20,"v":9220456,"yc":29.30,"t":"2022-04-19 22:55:52"}]
 AH股比价
@@ -1636,8 +1491,7 @@ azdf number A股涨跌幅（%）
 ahbj number 比价（A/H）
 ahyj number 溢价（A/H）%
 t string 更新时间yyyy-MM-dd HH:mm:ss
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ahgbj?licence=您的licence
 [{"hdm":"00107","ahbj":2.49,"t":"2022-04-22 00:10:19","hzxj":2.01,"hzdf":3.08,"ahyj":149.48,"mc":"四川成渝","azxj":4.12,"azdf":-5.72,"adm":"601107"}]
 沪股通十大成交股
@@ -1661,8 +1515,7 @@ mr number 沪股通买入额（元）
 mce number 沪股通卖出额（元）
 cj number 沪股通成交额（元）
 t string 日期yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/hgtsdcj?licence=您的licence
 [{"c":38.83,"jm":-2412362087.00,"t":"2022-04-25","mr":593222005.00,"mc":"招商银行","cj":3598806097.00,"dm":"600036","pm":1,"zdf":-8.64,"mce":3005584092.00}]
 深股通十大成交股
@@ -1686,8 +1539,7 @@ mr number 深股通买入额（元）
 mce number 深股通卖出额（元）
 cj number 深股通成交额（元）
 t string 日期yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/sgtsdcj?licence=您的licence
 [{"c":390.10,"jm":-279679324.00,"t":"2022-04-25","mr":1074866343.00,"mc":"宁德时代","cj":2429412010.00,"dm":"300750","pm":1,"zdf":-6.08,"mce":1354545667.00}]
 港股通（沪）十大成交股
@@ -1711,8 +1563,7 @@ mr number 港股通（沪）买入额（港元）
 mce number 港股通（沪）卖出额（港元）
 cj number 港股通（沪）成交额（港元）
 t string 日期yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggthsdcj?licence=您的licence
 [{"c":327.40,"jm":20417340.00,"t":"2022-04-25","mr":1000561780.00,"mc":"腾讯控股","cj":1980706220.00,"dm":"00700","pm":1,"zdf":-3.88,"mce":980144440.00}]
 港股通（深）十大成交股
@@ -1736,8 +1587,7 @@ mr number 港股通（深）买入额（港元）
 mce number 港股通（深）卖出额（港元）
 cj number 港股通（深）成交额（港元）
 t string 日期yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggtssdcj?licence=您的licence
 [{"c":327.40,"jm":20417340.00,"t":"2022-04-25","mr":1000561780.00,"mc":"腾讯控股","cj":1980706220.00,"dm":"00700","pm":1,"zdf":-3.88,"mce":980144440.00}]
 港股通（沪）十大成交股
@@ -1761,8 +1611,7 @@ mr number 港股通（沪）买入额（港元）
 mce number 港股通（沪）卖出额（港元）
 cj number 港股通（沪）成交额（港元）
 t string 日期yyyy-MM-dd
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggthsdcj?licence=您的licence
 [{"c":327.40,"jm":20417340.00,"t":"2022-04-25","mr":1000561780.00,"mc":"腾讯控股","cj":1980706220.00,"dm":"00700","pm":1,"zdf":-3.88,"mce":980144440.00}]
 北向个股周期排名
@@ -1790,8 +1639,7 @@ zqsz number 周期增持估计市值（万元）
 zqszzf number 周期增持估计市值增幅（%）
 zqltb number 周期增持估计占流通股比（%）
 zqzgbb number 周期增持估计占总股本比（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/bxggpm/LD?licence=您的licence
 [{"c":57.09,"zqzgbb":2.42,"zqsz":90349.33,"dm":"016019","zqltb":2.48,"jrzgbb":17.43,"mc":"美的集团","zqszzf":1.35,"jrltb":17.82,"zqzc":1624.85,"zdf":7.15,"jrcg":121987.23,"jrsz":6964251.13,"ssbk":"家电行业"}]
 沪股通个股周期排名
@@ -1819,8 +1667,7 @@ zqsz number 周期增持估计市值（万元）
 zqszzf number 周期增持估计市值增幅（%）
 zqltb number 周期增持估计占流通股比（%）
 zqzgbb number 周期增持估计占总股本比（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/bxhgtpm/LD?licence=您的licence
 [{"c":57.09,"zqzgbb":2.42,"zqsz":90349.33,"dm":"016019","zqltb":2.48,"jrzgbb":17.43,"mc":"美的集团","zqszzf":1.35,"jrltb":17.82,"zqzc":1624.85,"zdf":7.15,"jrcg":121987.23,"jrsz":6964251.13,"ssbk":"家电行业"}]
 深股通个股周期排名
@@ -1848,8 +1695,7 @@ zqsz number 周期增持估计市值（万元）
 zqszzf number 周期增持估计市值增幅（%）
 zqltb number 周期增持估计占流通股比（%）
 zqzgbb number 周期增持估计占总股本比（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/bxsgtpm/LD?licence=您的licence
 [{"c":57.09,"zqzgbb":2.42,"zqsz":90349.33,"dm":"016019","zqltb":2.48,"jrzgbb":17.43,"mc":"美的集团","zqszzf":1.35,"jrltb":17.82,"zqzc":1624.85,"zdf":7.15,"jrcg":121987.23,"jrsz":6964251.13,"ssbk":"家电行业"}]
 沪股通历史数据
@@ -1875,8 +1721,7 @@ lzgmc string 领涨股名称
 lzgzdf number 领涨股涨跌幅（%）
 zs number 上证指数点位
 zszdf number 指数涨跌幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/hgtlssj?licence=您的licence
 [{"lzgzdf":10.09,"jme":85.00,"t":"2022-05-05","mr":25770.00,"drye":50723.00,"lzgmc":"迪马股份","mc":25685.00,"lzgdm":"600565.SH","zs":3067.76,"drlr":1277.00,"lj":827393.49,"zszdf":0.68}]
 深股通历史数据
@@ -1902,8 +1747,7 @@ lzgmc string 领涨股名称
 lzgzdf number 领涨股涨跌幅（%）
 zs number 深证指数点位
 zszdf number 指数涨跌幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/sgtlssj?licence=您的licence
 [{"lzgzdf":11.75,"jme":-2448.00,"t":"2022-05-05","mr":29431.00,"drye":53002.00,"lzgmc":"图南股份","mc":31879.00,"lzgdm":"300855.SZ","zs":11046.38,"drlr":-1002.00,"lj":786793.88,"zszdf":0.23}]
 港股通（沪）历史数据
@@ -1929,8 +1773,7 @@ lzgmc string 领涨股名称
 lzgzdf number 领涨股涨跌幅（%）
 zs number 恒生指数点位
 zszdf number 指数涨跌幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggthlssj?licence=您的licence
 [{"lzgzdf":10.96,"jme":281.00,"t":"2022-05-05","mr":8013.00,"drye":41157.00,"lzgmc":"上海复旦","mc":7732.00,"lzgdm":"01385.HK","zs":20793.40,"drlr":843.00,"lj":1244380.95,"zszdf":-0.36}]
 港股通（深）历史数据
@@ -1956,7 +1799,6 @@ lzgmc string 领涨股名称
 lzgzdf number 领涨股涨跌幅（%）
 zs number 恒生指数点位
 zszdf number 指数涨跌幅（%）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/all/nxbx/ggtslssj?licence=您的licence
 [{"lzgzdf":10.96,"jme":281.00,"t":"2022-05-05","mr":8013.00,"drye":41157.00,"lzgmc":"上海复旦","mc":7732.00,"lzgdm":"01385.HK","zs":20793.40,"drlr":843.00,"lj":1244380.95,"zszdf":-0.36}]
