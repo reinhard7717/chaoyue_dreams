@@ -52,13 +52,14 @@ class LicenceManager:
             self._initialized = True
             logger.info(f"初始化License管理器，共有{len(self._licenses)}个license")
     
-    def get_licence(self, api_type='default', user_type='basic'):
+    def get_licence(self, api_type='default', user_type='basic', ignore_limits=False):
         """
         获取下一个可用的license
         
         Args:
             api_type: API类型 (realtime, basic, index, market, fund_flow, technical, default)
             user_type: 用户类型 (basic, pro)
+            ignore_limits: 是否忽略速率限制，仅在紧急情况下使用
             
         Returns:
             str: license字符串
@@ -76,7 +77,7 @@ class LicenceManager:
                 self._current_index = (self._current_index + 1) % len(self._licenses)
                 
                 # 检查license是否可用
-                if self._is_licence_available(licence, api_type, user_type):
+                if ignore_limits or self._is_licence_available(licence, api_type, user_type):
                     # 记录使用情况
                     current_time = time.time()
                     self._last_use_time[licence] = current_time
@@ -91,9 +92,19 @@ class LicenceManager:
                 
                 attempts -= 1
             
+            if ignore_limits:
+                # 如果忽略限制，强制返回一个license
+                licence = self._licenses[0]
+                current_time = time.time()
+                self._last_use_time[licence] = current_time
+                self._request_history[licence].append(current_time)
+                self._request_counts[licence][api_type] += 1
+                logger.warning(f"强制使用license: {licence}，即使它已达到速率限制")
+                return licence
+                
             logger.error(f"所有license都达到速率限制或处于冷却状态，API类型：{api_type}，用户类型：{user_type}")
-            return self._licenses[0]  # 返回第一个license作为备选，尽管它已经超出速率限制
-    
+            return ""  # 返回空字符串表示没有可用license    
+        
     def _is_licence_available(self, licence, api_type='default', user_type='basic'):
         """
         检查license是否可用

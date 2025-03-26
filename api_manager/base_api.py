@@ -5,6 +5,7 @@ import logging
 import asyncio
 import aiohttp
 import re
+import time
 from typing import Dict, Any, Optional, List, Union
 from django.conf import settings
 
@@ -29,6 +30,12 @@ class BaseAPI:
         
         # 从settings中获取URL模式映射
         self._url_patterns = getattr(settings, 'API_URL_PATTERNS', {})
+        
+        # 重试机制配置
+        self._max_retry_count = getattr(settings, 'API_MAX_RETRY_COUNT', 5)
+        self._retry_delay = getattr(settings, 'API_RETRY_DELAY', 2.0)
+        self._retry_delay_factor = getattr(settings, 'API_RETRY_DELAY_FACTOR', 1.5)
+        self._max_retry_delay = getattr(settings, 'API_MAX_RETRY_DELAY', 30.0)
         
         # 默认使用专业版
         self._user_type = 'pro'
@@ -57,6 +64,41 @@ class BaseAPI:
         logger.debug(f"未能识别API类型: {url}，使用默认类型")
         return 'default'  # 默认API类型
     
+    async def _get_licence_with_retry(self, api_type: str) -> str:
+        """
+        获取license，如果所有license都不可用，则等待一段时间后重试
+        
+        Args:
+            api_type: API类型
+            
+        Returns:
+            str: license字符串
+        """
+        retry_count = 0
+        current_delay = self._retry_delay
+        
+        while retry_count < self._max_retry_count:
+            licence = self.licence_manager.get_licence(api_type=api_type, user_type=self._user_type)
+            
+            # 检查license是否可用 (假设LicenceManager在无可用license时返回空字符串或None)
+            if licence:
+                return licence
+            
+            # 所有license都不可用，等待后重试
+            retry_count += 1
+            if retry_count < self._max_retry_count:
+                logger.warning(f"所有license都达到速率限制或处于冷却状态，将在{current_delay:.1f}秒后重试 ({retry_count}/{self._max_retry_count})")
+                await asyncio.sleep(current_delay)
+                
+                # 增加下次重试的等待时间，但不超过最大等待时间
+                current_delay = min(current_delay * self._retry_delay_factor, self._max_retry_delay)
+            else:
+                logger.error(f"达到最大重试次数({self._max_retry_count})，无法获取可用license")
+        
+        # 如果达到最大重试次数仍然没有可用license，返回一个空字符串或最后一个license
+        # 这里选择返回最后一个license，即使它可能不可用，至少可以尝试请求
+        return self.licence_manager.get_licence(api_type=api_type, user_type=self._user_type, ignore_limits=True)
+    
     async def _make_request(self, method: str, url: str, params: Dict = None, data: Dict = None) -> Any:
         """
         发送HTTP请求
@@ -79,8 +121,8 @@ class BaseAPI:
             # 自动检测API类型
             api_type = self._detect_api_type(url)
             
-            # 获取licence并添加到URL中
-            licence = self.licence_manager.get_licence(api_type=api_type, user_type=self._user_type)
+            # 获取licence并添加到URL中（带重试机制）
+            licence = await self._get_licence_with_retry(api_type)
             
             # 确保base_url不以斜杠结尾，url不以斜杠开头
             base_url = self.base_url.rstrip('/')
@@ -114,6 +156,23 @@ class BaseAPI:
                         return json.loads(error_text)
                     except json.JSONDecodeError:
                         return error_text
+                elif response.status == 429:  # Too Many Requests
+                    error_text = await response.text()
+                    logger.warning(f"请求频率过高(429): {full_url}, 响应: {error_text}")
+                    # 报告错误
+                    self.licence_manager.report_error(licence)
+                    # 等待一段时间后重试
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        try:
+                            retry_seconds = int(retry_after)
+                            logger.info(f"根据服务器提示，将等待 {retry_seconds} 秒后重试")
+                            await asyncio.sleep(retry_seconds)
+                            # 递归调用自身重试请求
+                            return await self._make_request(method, url, params, data)
+                        except ValueError:
+                            pass
+                    return error_text
                 elif response.status >= 400:
                     error_text = await response.text()
                     logger.error(f"HTTP错误 {response.status}: {full_url}, 响应: {error_text}")

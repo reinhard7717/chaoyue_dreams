@@ -243,6 +243,10 @@ API_URL_PATTERNS = {
     ],
 }
 
+API_MAX_RETRY_COUNT = 5 # 最大重试次数，默认为5
+API_RETRY_DELAY = 2 # 初始重试延迟（秒），默认为2秒
+API_RETRY_DELAY_FACTOR = 1.5 # 重试延迟增长因子，默认为1.5
+API_MAX_RETRY_DELAY = 30 # 最大重试延迟（秒），默认为30秒
 
 # API频率限制设置
 API_RATE_LIMITS = {
