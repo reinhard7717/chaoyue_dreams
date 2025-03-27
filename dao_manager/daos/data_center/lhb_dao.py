@@ -53,7 +53,7 @@ class LhbDAO(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -65,7 +65,7 @@ class LhbDAO(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -107,9 +107,9 @@ class LhbDAO(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -232,7 +232,7 @@ class LhbDAO(BaseDAO):
             
             if not data:
                 logger.warning("未获取到龙虎榜数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 验证并处理数据格式
             if isinstance(data, str):
@@ -252,11 +252,11 @@ class LhbDAO(BaseDAO):
                         data = parsed_data
                     except Exception as e:
                         logger.error(f"解析龙虎榜文本数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             if not isinstance(data, dict):
                 logger.error(f"龙虎榜数据格式错误，期望dict类型，实际类型: {type(data)}")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理日期格式
             trade_date = None
@@ -270,7 +270,7 @@ class LhbDAO(BaseDAO):
             # 验证必要字段
             if not trade_date:
                 logger.error("无法获取有效的交易日期")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 转换为标准字典格式并应用字段映射
             mapped_data = {}
@@ -312,7 +312,7 @@ class LhbDAO(BaseDAO):
         except Exception as e:
             logger.error(f"保存龙虎榜数据出错: {str(e)}")
             logger.debug(f"错误数据内容: {data if 'data' in locals() else '未获取到数据'}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_daily_lhb(self) -> Optional[Dict]:
         """
@@ -364,7 +364,7 @@ class LhbDAO(BaseDAO):
             
             if not data_list:
                 logger.warning(f"未获取到近{days}日上榜个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理text/plain或text/html格式的响应
             if isinstance(data_list, str):
@@ -391,12 +391,12 @@ class LhbDAO(BaseDAO):
                         data_list = parsed_data
                     except Exception as e:
                         logger.error(f"解析上榜个股文本数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保数据是列表格式
             if not isinstance(data_list, list):
                 logger.error(f"上榜个股数据格式错误，期望list类型，实际类型: {type(data_list)}")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据
             processed_data = []
@@ -422,7 +422,6 @@ class LhbDAO(BaseDAO):
                 
                 # 添加附加字段
                 processed_item['stats_days'] = days
-                processed_item['update_time'] = self._parse_datetime(datetime.now())
                 
                 # 验证必要字段
                 if 'stock_code' not in processed_item or not processed_item['stock_code']:
@@ -433,7 +432,7 @@ class LhbDAO(BaseDAO):
             
             if not processed_data:
                 logger.warning(f"保存近{days}日上榜个股 - 没有有效的数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -450,7 +449,7 @@ class LhbDAO(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存近{days}日上榜个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_stock_on_list(self, days: int) -> List[Dict]:
         """
@@ -505,7 +504,7 @@ class LhbDAO(BaseDAO):
             
             if not data_list:
                 logger.warning(f"未获取到近{days}日营业部上榜统计数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理text/plain或text/html格式的响应
             if isinstance(data_list, str):
@@ -532,12 +531,12 @@ class LhbDAO(BaseDAO):
                         data_list = parsed_data
                     except Exception as e:
                         logger.error(f"解析营业部上榜文本数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保数据是列表格式
             if not isinstance(data_list, list):
                 logger.error(f"营业部上榜数据格式错误，期望list类型，实际类型: {type(data_list)}")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据
             processed_data = []
@@ -574,7 +573,7 @@ class LhbDAO(BaseDAO):
             
             if not processed_data:
                 logger.warning(f"保存近{days}日营业部上榜统计 - 没有有效的数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -591,7 +590,7 @@ class LhbDAO(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存近{days}日营业部上榜统计数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
 
     async def get_broker_on_list(self, days: int) -> List[Dict]:
@@ -645,7 +644,7 @@ class LhbDAO(BaseDAO):
             
             if not data_list:
                 logger.warning(f"未获取到近{days}日个股机构交易追踪数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理text/plain或text/html格式的响应
             if isinstance(data_list, str):
@@ -673,12 +672,12 @@ class LhbDAO(BaseDAO):
                         data_list = parsed_data
                     except Exception as e:
                         logger.error(f"解析机构交易追踪文本数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保数据是列表格式
             if not isinstance(data_list, list):
                 logger.error(f"机构交易追踪数据格式错误，期望list类型，实际类型: {type(data_list)}")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据
             processed_data = []
@@ -715,7 +714,7 @@ class LhbDAO(BaseDAO):
             
             if not processed_data:
                 logger.warning(f"保存近{days}日个股机构交易追踪 - 没有有效的数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -732,7 +731,7 @@ class LhbDAO(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存近{days}日个股机构交易追踪数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
 
     async def get_institution_trade_track(self, days: int) -> List[Dict]:
@@ -786,7 +785,7 @@ class LhbDAO(BaseDAO):
             
             if not data_list:
                 logger.warning(f"未获取到近{days}日个机构席位成交明细数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理text/plain或text/html格式的响应
             if isinstance(data_list, str):
@@ -815,12 +814,12 @@ class LhbDAO(BaseDAO):
                         data_list = parsed_data
                     except Exception as e:
                         logger.error(f"解析机构席位成交明细文本数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保数据是列表格式
             if not isinstance(data_list, list):
                 logger.error(f"机构席位成交明细数据格式错误，期望list类型，实际类型: {type(data_list)}")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据
             processed_data = []
@@ -856,7 +855,7 @@ class LhbDAO(BaseDAO):
             
             if not processed_data:
                 logger.warning("保存机构席位成交明细 - 没有有效的数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -879,7 +878,7 @@ class LhbDAO(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存机构席位成交明细数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
 
     async def get_institution_trade_detail(self, stock_code: str) -> List[Dict]:

@@ -170,9 +170,9 @@ class FundFlowDAO(BaseDAO):
                     if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
                         item_dict[field.name] = self._parse_datetime(value)
                     # 数值字段处理
-                    elif isinstance(value, (int, float)) or (
+                    elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    ):
+                    )) and 'code' not in field.lower():
                         item_dict[field.name] = self._parse_number(value)
                     else:
                         item_dict[field.name] = value
@@ -236,9 +236,9 @@ class FundFlowDAO(BaseDAO):
                         if model_field.endswith('_date') or model_field.endswith('_time') or model_field == 't':
                             model_data[model_field] = self._parse_datetime(value)
                         # 数值字段处理
-                        elif isinstance(value, (int, float)) or (
+                        elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        ):
+                        )) and 'code' not in model_field.lower():
                             model_data[model_field] = self._parse_number(value)
                         else:
                             model_data[model_field] = value
@@ -1057,9 +1057,9 @@ class StockPoolDAO(BaseDAO):
                     if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
                         item_dict[field.name] = self._parse_datetime(value)
                     # 数值字段处理
-                    elif isinstance(value, (int, float)) or (
+                    elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    ):
+                    )) and 'code' not in field.lower():
                         item_dict[field.name] = self._parse_number(value)
                     else:
                         item_dict[field.name] = value
@@ -1120,9 +1120,9 @@ class StockPoolDAO(BaseDAO):
                         if model_field.endswith('_date') or model_field.endswith('_time') or model_field == 't':
                             model_data[model_field] = self._parse_datetime(value)
                         # 数值字段处理
-                        elif isinstance(value, (int, float)) or (
+                        elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        ):
+                        )) and 'code' not in model_field.lower():
                             model_data[model_field] = self._parse_number(value)
                         else:
                             model_data[model_field] = value

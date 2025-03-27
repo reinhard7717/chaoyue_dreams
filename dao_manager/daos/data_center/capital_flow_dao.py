@@ -10,12 +10,16 @@ from asgiref.sync import sync_to_async
 
 from api_manager.apis.datacenter_api import DataCenterAPI
 from api_manager.mappings.datacenter_mappings import (
-    INDUSTRY_CAPITAL_FLOW_MAPPING,
-    CONCEPT_CAPITAL_FLOW_MAPPING,
-    STOCK_CAPITAL_FLOW_MAPPING
+    INDUSTRY_CAPITAL_FLOW_MAPPING, CONCEPT_CAPITAL_FLOW_MAPPING, NET_INFLOW_RANKING_MAPPING,
+    NET_INFLOW_RATE_RANKING_MAPPING, MAIN_FORCE_NET_INFLOW_RANKING_MAPPING,
+    MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING, RETAIL_NET_INFLOW_RANKING_MAPPING,
+    RETAIL_NET_INFLOW_RATE_RANKING_MAPPING, INDUSTRY_CAPITAL_FLOW_ROUTE_MAPPING,
+    CONCEPT_CAPITAL_FLOW_ROUTE_MAPPING, STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING,
+    STOCK_PERIOD_STATISTICS_MAPPING, MAIN_FORCE_CONTINUOUS_FLOW_MAPPING,
+    NEW_CAPITAL_FLOW_OVERVIEW_MAPPING
 )
 from dao_manager.base_dao import BaseDAO
-from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, StockCapitalFlow
+from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, NetInflowRanking, NetInflowRateRanking, MainForceNetInflowRanking, MainForceNetInflowRateRanking, RetailNetInflowRanking, RetailNetInflowRateRanking, IndustryCapitalFlowRoute, ConceptCapitalFlowRoute, StockPeriodStatisticsOverview, StockPeriodStatistics, MainForceContinuousFlow, NewCapitalFlowOverview
 
 logger = logging.getLogger('dao')
 
@@ -69,7 +73,7 @@ class CapitalFlowDao(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -81,7 +85,7 @@ class CapitalFlowDao(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -123,9 +127,9 @@ class CapitalFlowDao(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -162,9 +166,9 @@ class CapitalFlowDao(BaseDAO):
                     if field.endswith('_time') or field.endswith('_date') or field == 't':
                         cache_data[field] = self._parse_datetime(value)
                     # 数值字段处理
-                    elif isinstance(value, (int, float)) or (
+                    elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    ):
+                    )) and 'code' not in field.lower():
                         cache_data[field] = self._parse_number(value)
                     else:
                         cache_data[field] = value
@@ -180,9 +184,9 @@ class CapitalFlowDao(BaseDAO):
                         if field.endswith('_time') or field.endswith('_date') or field == 't':
                             item_dict[field] = self._parse_datetime(value)
                         # 数值字段处理
-                        elif isinstance(value, (int, float)) or (
+                        elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        ):
+                        )) and 'code' not in field.lower():
                             item_dict[field] = self._parse_number(value)
                         else:
                             item_dict[field] = value
@@ -196,9 +200,9 @@ class CapitalFlowDao(BaseDAO):
                     if field.endswith('_time') or field.endswith('_date') or field == 't':
                         cache_data[field] = self._parse_datetime(value)
                     # 数值字段处理
-                    elif isinstance(value, (int, float)) or (
+                    elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    ):
+                    )) and 'code' not in field.lower():
                         cache_data[field] = self._parse_number(value)
                     else:
                         cache_data[field] = value
@@ -213,9 +217,9 @@ class CapitalFlowDao(BaseDAO):
                         if field.endswith('_time') or field.endswith('_date') or field == 't':
                             item_dict[field] = self._parse_datetime(value)
                         # 数值字段处理
-                        elif isinstance(value, (int, float)) or (
+                        elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        ):
+                        )) and 'code' not in field.lower():
                             item_dict[field] = self._parse_number(value)
                         else:
                             item_dict[field] = value
@@ -241,25 +245,28 @@ class CapitalFlowDao(BaseDAO):
         try:
             # 从API获取数据
             async with DataCenterAPI() as api:
-                data_list = await api.get_csrc_industry_capital_flow()
+                data_list = await api.get_industry_capital_flow()
             
             if not data_list:
                 logger.warning("未获取到行业资金流向数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
                 try:
                     # 尝试解析JSON字符串
                     import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换行业资金流向数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
-                data_list = [data_list]
+                data_list = [data_list] if data_list else []
             
             # 设置当前日期作为交易日期以确保不为空
             current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
@@ -276,16 +283,13 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in INDUSTRY_CAPITAL_FLOW_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_date':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
                             processed_item[model_field] = self._parse_number(data.get(api_field, 0))
                         else:
                             processed_item[model_field] = data.get(api_field, '')
-                
-                # 添加更新时间字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
                 
                 # 验证必要字段
                 if not processed_item.get('industry_name'):
@@ -296,14 +300,14 @@ class CapitalFlowDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的行业资金流向数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
                 model_class=IndustryCapitalFlow,
                 data_list=processed_data,
                 mapping=INDUSTRY_CAPITAL_FLOW_MAPPING,
-                unique_fields=['industry_name', 'trade_date']
+                unique_fields=['industry_code', 'update_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -315,7 +319,7 @@ class CapitalFlowDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存行业资金流向数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
        
     async def get_industry_capital_flow(self, date_str: Optional[str] = None) -> List[Dict]:
         """
@@ -346,23 +350,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(IndustryCapitalFlow.objects.filter(trade_date=target_date).order_by('-main_force_net_inflow'))
+                    lambda: list(IndustryCapitalFlow.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: IndustryCapitalFlow.objects.order_by('-trade_date').values('trade_date').first()
+                    lambda: IndustryCapitalFlow.objects.order_by('-update_time').values('update_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['trade_date']
-                date_str = latest_date.strftime('%Y-%m-%d')
+                latest_date = latest_date_record['update_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(IndustryCapitalFlow.objects.filter(trade_date=latest_date).order_by('-main_force_net_inflow'))
+                    lambda: list(IndustryCapitalFlow.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
                 )
             
             if not records:
@@ -375,11 +378,13 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(IndustryCapitalFlow):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_date':
-                        item_dict[field] = value.strftime('%Y-%m-%d') if field == 'trade_date' else value.strftime('%Y-%m-%d %H:%M:%S')
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif isinstance(value, (int, float)):
-                        item_dict[field] = float(value)
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
                 result.append(item_dict)
@@ -406,21 +411,24 @@ class CapitalFlowDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到概念资金流向数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
                 try:
                     # 尝试解析JSON字符串
                     import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换概念资金流向数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
-                data_list = [data_list]
+                data_list = [data_list] if data_list else []
             
             # 设置当前日期作为交易日期以确保不为空
             current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
@@ -437,7 +445,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in CONCEPT_CAPITAL_FLOW_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_date':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -457,14 +465,14 @@ class CapitalFlowDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的概念资金流向数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
                 model_class=ConceptCapitalFlow,
                 data_list=processed_data,
                 mapping=CONCEPT_CAPITAL_FLOW_MAPPING,
-                unique_fields=['concept_name', 'trade_date']
+                unique_fields=['concept_code', 'update_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -476,7 +484,7 @@ class CapitalFlowDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存概念资金流向数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_concept_capital_flow(self, date_str: Optional[str] = None) -> List[Dict]:
         """
@@ -507,23 +515,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(ConceptCapitalFlow.objects.filter(trade_date=target_date).order_by('-main_force_net_inflow'))
+                    lambda: list(ConceptCapitalFlow.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: ConceptCapitalFlow.objects.order_by('-trade_date').values('trade_date').first()
+                    lambda: ConceptCapitalFlow.objects.order_by('-update_time').values('update_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['trade_date']
-                date_str = latest_date.strftime('%Y-%m-%d')
+                latest_date = latest_date_record['update_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(ConceptCapitalFlow.objects.filter(trade_date=latest_date).order_by('-main_force_net_inflow'))
+                    lambda: list(ConceptCapitalFlow.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
                 )
             
             if not records:
@@ -536,11 +543,13 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(ConceptCapitalFlow):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_date':
-                        item_dict[field] = value.strftime('%Y-%m-%d') if field == 'trade_date' else value.strftime('%Y-%m-%d %H:%M:%S')
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif isinstance(value, (int, float)):
-                        item_dict[field] = float(value)
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
                 result.append(item_dict)
@@ -553,10 +562,9 @@ class CapitalFlowDao(BaseDAO):
             logger.error(f"获取概念板块资金流向数据出错: {str(e)}")
             return []
 
-    async def save_stock_capital_flow(self) -> Dict:
+    async def save_stock_period_statistics_overview(self) -> Dict:
         """
-        保存个股资金流向数据
-        获取多个API接口数据并合并处理
+        保存个股阶段统计总览数据
         
         Returns:
             dict: 操作结果统计
@@ -564,118 +572,95 @@ class CapitalFlowDao(BaseDAO):
         try:
             # 从API获取数据
             async with DataCenterAPI() as api:
-                # 获取所有需要的API数据
-                net_inflow_amount_data = await api.get_net_inflow_amount_rank()
-                net_inflow_rate_data = await api.get_net_inflow_rate_rank()
-                main_net_inflow_amount_data = await api.get_main_net_inflow_amount_rank()
-                main_net_inflow_rate_data = await api.get_main_net_inflow_rate_rank()
-                retail_net_inflow_amount_data = await api.get_retail_net_inflow_amount_rank()
-                retail_net_inflow_rate_data = await api.get_retail_net_inflow_rate_rank()
+                data_list = await api.get_stock_period_statistics_overview()
+            
+            if not data_list:
+                logger.warning("未获取到个股阶段统计总览数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("个股阶段统计总览数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换个股阶段统计总览数据失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
             
             # 设置当前日期作为交易日期以确保不为空
             current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             
-            # 创建股票代码到数据的映射字典
-            stock_data_map = {}
-            
-            # 处理所有API数据源
-            api_data_sources = [
-                ('net_inflow_amount', net_inflow_amount_data, 'zjjlr'),
-                ('net_inflow_rate', net_inflow_rate_data, 'jlrl'),
-                ('main_force_net_inflow', main_net_inflow_amount_data, 'zljlr'),
-                ('main_force_net_inflow_rate', main_net_inflow_rate_data, 'zljlrl'),
-                ('retail_net_inflow', retail_net_inflow_amount_data, 'shjlr'),
-                ('retail_net_inflow_rate', retail_net_inflow_rate_data, 'shjlrl')
-            ]
-            
-            # 处理每个API数据源
-            for data_type, data_list, api_field in api_data_sources:
-                # 检查是否是字符串类型（text/plain或text/html格式）
-                if isinstance(data_list, str):
-                    try:
-                        # 尝试解析JSON字符串
-                        import json
-                        data_list = json.loads(data_list)
-                    except json.JSONDecodeError:
-                        logger.error(f"转换{data_type}数据失败，无法解析为JSON")
-                        data_list = []
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"个股阶段统计总览数据 - 跳过无效数据格式: {data}")
+                    continue
                 
-                # 确保是列表类型
-                if not isinstance(data_list, list):
-                    data_list = [] if data_list is None else [data_list]
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
                 
-                # 处理数据并添加到映射字典
-                for data in data_list:
-                    if not isinstance(data, dict) or 'dm' not in data:
-                        continue
-                    
-                    stock_code = data['dm']
-                    
-                    # 如果是第一次遇到这个股票，初始化其数据
-                    if stock_code not in stock_data_map:
-                        stock_data_map[stock_code] = {
-                            'trade_date': self._parse_datetime(data.get('t', current_date)),
-                            'stock_code': stock_code,
-                            'stock_name': data.get('mc', ''),
-                            'net_inflow': 0,
-                            'main_force_net_inflow': 0,
-                            'retail_net_inflow': 0,
-                            'net_inflow_rate': 0,
-                            'main_force_net_inflow_rate': 0,
-                            'retail_net_inflow_rate': 0,
-                            'average_net_inflow': 0,
-                            'change_rate': self._parse_number(data.get('zdf', 0)),
-                            'trading_amount': self._parse_number(data.get('cje', 0)),
-                            'total_market_value': self._parse_number(data.get('zsz', 0)),
-                            'turnover_rate': self._parse_number(data.get('hs', 0)),
-                            'update_time': self._parse_datetime(current_date)
-                        }
-                    
-                    # 更新特定字段
-                    if data_type in stock_data_map[stock_code]:
-                        field_value = data.get(api_field, 0)
-                        stock_data_map[stock_code][data_type] = self._parse_number(field_value)
-            
-            # 转换为列表
-            processed_data = list(stock_data_map.values())
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"个股阶段统计总览数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
             
             if not processed_data:
-                logger.warning("没有有效的个股资金流向数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                logger.warning("没有有效的个股阶段统计总览数据需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
-                model_class=StockCapitalFlow,
+                model_class=StockPeriodStatisticsOverview,
                 data_list=processed_data,
-                mapping=STOCK_CAPITAL_FLOW_MAPPING,
-                unique_fields=['stock_code', 'trade_date']
+                mapping=STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING,
+                unique_fields=['stock_code', 'update_time']
             )
             
             # 更新缓存，确保数据是字典格式
-            cache_key = 'stock_capital_flow'
+            cache_key = 'stock_period_statistics_overview'
             
             # 直接使用处理过的数据，不需要重新转换
             await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
             
             return result
         except Exception as e:
-            logger.error(f"保存个股资金流向数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            logger.error(f"保存个股阶段统计总览数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}   
 
-    async def get_stock_capital_flow(self, date_str: Optional[str] = None, stock_code: Optional[str] = None) -> List[Dict]:
+    async def get_stock_period_statistics_overview(self, date_str: Optional[str] = None) -> List[Dict]:
         """
-        获取个股资金流向数据
+        获取个股阶段统计总览数据
         
         Args:
             date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
-            stock_code: 股票代码，如果提供则只获取该股票的数据
             
         Returns:
-            List[Dict]: 个股资金流向数据列表
+            List[Dict]: 个股阶段统计总览数据列表
         """
         try:
             # 构建缓存键
-            cache_key = f'stock_capital_flow_{date_str or "latest"}_{stock_code or "all"}'
+            cache_key = f'stock_period_statistics_overview_{date_str or "latest"}'
             
             # 1. 先从缓存获取
             cached_data = await self._get_from_cache(cache_key)
@@ -686,36 +671,28 @@ class CapitalFlowDao(BaseDAO):
             logger.debug(f"缓存未命中: {cache_key}")
             
             # 2. 从数据库获取
-            # 构建查询条件
-            filter_kwargs = {}
-            if stock_code:
-                filter_kwargs['stock_code'] = stock_code
-            
             if date_str:
                 # 尝试解析日期
                 target_date = self._parse_datetime(date_str)
-                filter_kwargs['trade_date'] = target_date
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(StockCapitalFlow.objects.filter(**filter_kwargs).order_by('-main_force_net_inflow'))
+                    lambda: list(StockPeriodStatisticsOverview.objects.filter(update_time=target_date).order_by('-main_force_net_inflow'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: StockCapitalFlow.objects.order_by('-trade_date').values('trade_date').first()
+                    lambda: StockPeriodStatisticsOverview.objects.order_by('-update_time').values('update_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['trade_date']
-                date_str = latest_date.strftime('%Y-%m-%d')
-                filter_kwargs['trade_date'] = latest_date
+                latest_date = latest_date_record['update_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(StockCapitalFlow.objects.filter(**filter_kwargs).order_by('-main_force_net_inflow'))
+                    lambda: list(StockPeriodStatisticsOverview.objects.filter(update_time=latest_date).order_by('-main_force_net_inflow'))
                 )
             
             if not records:
@@ -725,14 +702,16 @@ class CapitalFlowDao(BaseDAO):
             result = []
             for record in records:
                 item_dict = {}
-                for field in get_model_fields(StockCapitalFlow):
+                for field in get_model_fields(StockPeriodStatisticsOverview):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_date':
-                        item_dict[field] = value.strftime('%Y-%m-%d') if field == 'trade_date' else value.strftime('%Y-%m-%d %H:%M:%S')
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif isinstance(value, (int, float)):
-                        item_dict[field] = float(value)
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
                 result.append(item_dict)
@@ -742,5 +721,979 @@ class CapitalFlowDao(BaseDAO):
             
             return result
         except Exception as e:
-            logger.error(f"获取个股资金流向数据出错: {str(e)}")
+            logger.error(f"获取个股阶段统计总览数据出错: {str(e)}")
             return []
+    
+    async def save_net_inflow_amount_rank(self) -> Dict:
+        """
+        保存净流入额排名数据
+        
+        Returns:
+            dict: 操作结果统计
+        """
+        try:
+            # 从API获取数据
+            async with DataCenterAPI() as api:
+                data_list = await api.get_net_inflow_amount_rank()
+            
+            if not data_list:
+                logger.warning("未获取到净流入额排名数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("净流入额排名数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换净流入额排名数据失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
+            
+            # 设置当前日期作为交易日期以确保不为空
+            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"跳过无效数据格式: {data}")
+                    continue
+                
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in NET_INFLOW_RANKING_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
+                
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"净流入额排名数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
+            
+            if not processed_data:
+                logger.warning("没有有效的净流入额排名数据需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 保存数据
+            result = await self._batch_process(
+                model_class=NetInflowRanking,
+                data_list=processed_data,
+                mapping=NET_INFLOW_RANKING_MAPPING,
+                unique_fields=['stock_code', 'update_time']
+            )
+            
+            # 更新缓存，确保数据是字典格式
+            cache_key = 'net_inflow_amount_rank'
+            
+            # 直接使用处理过的数据，不需要重新转换
+            await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存净流入额排名数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}   
+
+    async def get_net_inflow_amount_rank(self, date_str: Optional[str] = None) -> List[Dict]:
+        """
+        获取净流入额排名数据
+        
+        Args:
+            date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
+            
+        Returns:
+            List[Dict]: 净流入额排名数据列表
+        """
+        try:
+            # 构建缓存键
+            cache_key = f'net_inflow_amount_rank_{date_str or "latest"}'
+            
+            # 1. 先从缓存获取
+            cached_data = await self._get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"净流入额排名数据 - 缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"净流入额排名数据 - 缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            if date_str:
+                # 尝试解析日期
+                target_date = self._parse_datetime(date_str)
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(NetInflowRanking.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
+                )
+            else:
+                # 获取最新日期
+                latest_date_record = await asyncio.to_thread(
+                    lambda: NetInflowRanking.objects.order_by('-update_time').values('update_time').first()
+                )
+                
+                if not latest_date_record:
+                    return []
+                
+                latest_date = latest_date_record['update_time']
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(NetInflowRanking.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
+                )
+            
+            if not records:
+                return []
+            
+            # 将查询结果转换为字典列表
+            result = []
+            for record in records:
+                item_dict = {}
+                for field in get_model_fields(NetInflowRanking):
+                    value = getattr(record, field)
+                    # 处理日期和时间
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                    # 处理数值
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
+                    else:
+                        item_dict[field] = value
+                result.append(item_dict)
+            
+            # 更新缓存
+            await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取净流入额排名数据出错: {str(e)}")
+            return []
+    
+    async def save_net_inflow_rate_rank(self) -> Dict:
+        """
+        保存净流入率排名数据
+        
+        Returns:
+            dict: 操作结果统计
+        """
+        try:
+            # 从API获取数据
+            async with DataCenterAPI() as api:
+                data_list = await api.get_net_inflow_rate_rank()
+            
+            if not data_list:
+                logger.warning("未获取到 净流入率排名数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("净流入率排名数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换 净流入率排名数据 失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
+            
+            # 设置当前日期作为交易日期以确保不为空
+            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"净流入率排名数据 - 跳过无效数据格式: {data}")
+                    continue
+                
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in NET_INFLOW_RATE_RANKING_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
+                
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"净流入率排名数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
+            
+            if not processed_data:
+                logger.warning("没有有效的 净流入率排名数据 需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 保存数据
+            result = await self._batch_process(
+                model_class=NetInflowRateRanking,
+                data_list=processed_data,
+                mapping=NET_INFLOW_RATE_RANKING_MAPPING,
+                unique_fields=['stock_code', 'update_time']
+            )
+            
+            # 更新缓存，确保数据是字典格式
+            cache_key = 'net_inflow_rate_rank'
+            
+            # 直接使用处理过的数据，不需要重新转换
+            await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存净流入额排名数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+    
+    async def get_net_inflow_rate_rank(self, date_str: Optional[str] = None) -> List[Dict]:
+        """
+        获取净流入率排名数据
+        
+        Args:
+            date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
+            
+        Returns:
+            List[Dict]: 净流入率排名数据列表
+        """
+        try:
+            # 构建缓存键
+            cache_key = f'net_inflow_rate_rank_{date_str or "latest"}'
+            
+            # 1. 先从缓存获取
+            cached_data = await self._get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"净流入率排名数据 - 缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"净流入率排名数据 - 缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            if date_str:
+                # 尝试解析日期
+                target_date = self._parse_datetime(date_str)
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(NetInflowRateRanking.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
+                )
+            else:
+                # 获取最新日期
+                latest_date_record = await asyncio.to_thread(
+                    lambda: NetInflowRateRanking.objects.order_by('-update_time').values('update_time').first()
+                )
+                
+                if not latest_date_record:
+                    return []
+                
+                latest_date = latest_date_record['update_time']
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(NetInflowRateRanking.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
+                )
+            
+            if not records:
+                return []
+            
+            # 将查询结果转换为字典列表
+            result = []
+            for record in records:
+                item_dict = {}
+                for field in get_model_fields(NetInflowRateRanking):
+                    value = getattr(record, field)
+                    # 处理日期和时间
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                    # 处理数值
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
+                    else:
+                        item_dict[field] = value
+                result.append(item_dict)
+            
+            # 更新缓存
+            await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取 净流入率排名数据 出错: {str(e)}")
+            return []
+    
+    async def save_main_net_inflow_amount_rank(self) -> Dict:
+        """
+        保存主力净流入额排名数据
+        
+        Returns:
+            dict: 操作结果统计
+        """
+        try:
+            # 从API获取数据
+            async with DataCenterAPI() as api:
+                data_list = await api.get_main_net_inflow_amount_rank()
+            
+            if not data_list:
+                logger.warning("未获取到主力净流入额排名数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("主力净流入额排名数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换主力净流入额排名数据失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
+            
+            # 设置当前日期作为交易日期以确保不为空
+            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"主力净流入额排名数据 - 跳过无效数据格式: {data}")
+                    continue
+                
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in MAIN_FORCE_NET_INFLOW_RANKING_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
+                
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"主力净流入额排名数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
+            
+            if not processed_data:
+                logger.warning("没有有效的 主力净流入额排名数据 需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 保存数据
+            result = await self._batch_process(
+                model_class=MainForceNetInflowRanking,
+                data_list=processed_data,
+                mapping=MAIN_FORCE_NET_INFLOW_RANKING_MAPPING,
+                unique_fields=['stock_code', 'update_time']
+            )
+            
+            # 更新缓存，确保数据是字典格式
+            cache_key = 'main_net_inflow_amount_rank'
+            
+            # 直接使用处理过的数据，不需要重新转换
+            await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存净流入额排名数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+    
+    async def get_main_net_inflow_amount_rank(self, date_str: Optional[str] = None) -> List[Dict]:
+        """
+        获取主力净流入额排名数据
+        
+        Args:
+            date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
+            
+        Returns:
+            List[Dict]: 主力净流入额排名数据列表
+        """
+        try:
+            # 构建缓存键
+            cache_key = f'main_net_inflow_amount_rank_{date_str or "latest"}'
+            
+            # 1. 先从缓存获取
+            cached_data = await self._get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"主力净流入额排名数据 - 缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"主力净流入额排名数据 - 缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            if date_str:
+                # 尝试解析日期
+                target_date = self._parse_datetime(date_str)
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(MainForceNetInflowRanking.objects.filter(update_time=target_date).order_by('-main_force_net_inflow_rate'))
+                )
+            else:
+                # 获取最新日期
+                latest_date_record = await asyncio.to_thread(
+                    lambda: MainForceNetInflowRanking.objects.order_by('-update_time').values('update_time').first()
+                )
+                
+                if not latest_date_record:
+                    return []
+                
+                latest_date = latest_date_record['update_time']
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(MainForceNetInflowRanking.objects.filter(update_time=latest_date).order_by('-main_force_net_inflow_rate'))
+                )
+            
+            if not records:
+                return []
+            
+            # 将查询结果转换为字典列表
+            result = []
+            for record in records:
+                item_dict = {}
+                for field in get_model_fields(MainForceNetInflowRanking):
+                    value = getattr(record, field)
+                    # 处理日期和时间
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                    # 处理数值
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
+                    else:
+                        item_dict[field] = value
+                result.append(item_dict)
+            
+            # 更新缓存
+            await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取 主力净流入额排名数据 出错: {str(e)}")
+            return []
+    
+    async def save_main_net_inflow_rate_rank(self) -> Dict:
+        """
+        保存主力净流入率排名数据
+        
+        Returns:
+            dict: 操作结果统计
+        """
+        try:
+            # 从API获取数据
+            async with DataCenterAPI() as api:
+                data_list = await api.get_main_net_inflow_rate_rank()
+            
+            if not data_list:
+                logger.warning("未获取到 主力净流入率排名数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("主力净流入率排名数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换 主力净流入率排名数据 失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
+            
+            # 设置当前日期作为交易日期以确保不为空
+            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"主力净流入率排名数据 - 跳过无效数据格式: {data}")
+                    continue
+                
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
+                
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"主力净流入率排名数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
+            
+            if not processed_data:
+                logger.warning("没有有效的 主力净流入率排名数据 需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 保存数据
+            result = await self._batch_process(
+                model_class=MainForceNetInflowRateRanking,
+                data_list=processed_data,
+                mapping=MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING,
+                unique_fields=['stock_code', 'update_time']
+            )
+            
+            # 更新缓存，确保数据是字典格式
+            cache_key = 'main_net_inflow_rate_rank'
+            
+            # 直接使用处理过的数据，不需要重新转换
+            await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存净流入额排名数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+
+    async def get_main_net_inflow_rate_rank(self, date_str: Optional[str] = None) -> List[Dict]:
+        """
+        获取主力净流入率排名数据
+        
+        Args:
+            date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
+            
+        Returns:
+            List[Dict]: 主力净流入率排名数据列表
+        """
+        try:
+            # 构建缓存键
+            cache_key = f'main_net_inflow_rate_rank_{date_str or "latest"}'
+            
+            # 1. 先从缓存获取
+            cached_data = await self._get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"主力净流入率排名数据 - 缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"主力净流入率排名数据 - 缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            if date_str:
+                # 尝试解析日期
+                target_date = self._parse_datetime(date_str)
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(MainForceNetInflowRateRanking.objects.filter(update_time=target_date).order_by('-main_force_net_inflow_rate'))
+                )
+            else:
+                # 获取最新日期
+                latest_date_record = await asyncio.to_thread(
+                    lambda: MainForceNetInflowRateRanking.objects.order_by('-update_time').values('update_time').first()
+                )
+                
+                if not latest_date_record:
+                    return []
+                
+                latest_date = latest_date_record['update_time']
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(MainForceNetInflowRateRanking.objects.filter(update_time=latest_date).order_by('-main_force_net_inflow_rate'))
+                )
+            
+            if not records:
+                return []
+            
+            # 将查询结果转换为字典列表
+            result = []
+            for record in records:
+                item_dict = {}
+                for field in get_model_fields(MainForceNetInflowRateRanking):
+                    value = getattr(record, field)
+                    # 处理日期和时间
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                    # 处理数值
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
+                    else:
+                        item_dict[field] = value
+                result.append(item_dict)
+            
+            # 更新缓存
+            await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取 主力净流入率排名数据 出错: {str(e)}")
+            return []
+    
+    async def save_retail_net_inflow_amount_rank(self) -> Dict:
+        """
+        保存散户净流入额排名数据
+        
+        Returns:
+            dict: 操作结果统计
+        """
+        try:
+            # 从API获取数据
+            async with DataCenterAPI() as api:
+                data_list = await api.get_retail_net_inflow_amount_rank()
+            
+            if not data_list:
+                logger.warning("未获取到 散户净流入额排名数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("散户净流入额排名数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换 散户净流入额排名数据 失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
+            
+            # 设置当前日期作为交易日期以确保不为空
+            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"散户净流入额排名数据 - 跳过无效数据格式: {data}")
+                    continue
+                
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in RETAIL_NET_INFLOW_RANKING_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
+                
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"散户净流入额排名数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
+            
+            if not processed_data:
+                logger.warning("没有有效的 散户净流入额排名数据 需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 保存数据
+            result = await self._batch_process(
+                model_class=RetailNetInflowRanking,
+                data_list=processed_data,
+                mapping=RETAIL_NET_INFLOW_RANKING_MAPPING,
+                unique_fields=['stock_code', 'update_time']
+            )
+            
+            # 更新缓存，确保数据是字典格式
+            cache_key = 'retail_net_inflow_amount_rank'
+            
+            # 直接使用处理过的数据，不需要重新转换
+            await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存净流入额排名数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+    
+    async def get_retail_net_inflow_amount_rank(self, date_str: Optional[str] = None) -> List[Dict]:
+        """
+        获取散户净流入额排名数据
+        
+        Args:
+            date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
+            
+        Returns:
+            List[Dict]: 散户净流入额排名数据列表
+        """
+        try:
+            # 构建缓存键
+            cache_key = f'retail_net_inflow_amount_rank_{date_str or "latest"}'
+            
+            # 1. 先从缓存获取
+            cached_data = await self._get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"散户净流入额排名数据 - 缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"散户净流入额排名数据 - 缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            if date_str:
+                # 尝试解析日期
+                target_date = self._parse_datetime(date_str)
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(RetailNetInflowRanking.objects.filter(update_time=target_date).order_by('-retail_net_inflow_rate'))
+                )
+            else:
+                # 获取最新日期
+                latest_date_record = await asyncio.to_thread(
+                    lambda: RetailNetInflowRanking.objects.order_by('-update_time').values('update_time').first()
+                )
+                
+                if not latest_date_record:
+                    return []
+                
+                latest_date = latest_date_record['update_time']
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(RetailNetInflowRanking.objects.filter(update_time=latest_date).order_by('-retail_net_inflow_rate'))
+                )
+            
+            if not records:
+                return []
+            
+            # 将查询结果转换为字典列表
+            result = []
+            for record in records:
+                item_dict = {}
+                for field in get_model_fields(RetailNetInflowRanking):
+                    value = getattr(record, field)
+                    # 处理日期和时间
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                    # 处理数值
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
+                    else:
+                        item_dict[field] = value
+                result.append(item_dict)
+            
+            # 更新缓存
+            await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取 散户净流入额排名数据 出错: {str(e)}")
+            return []
+    
+    async def save_retail_net_inflow_rate_rank(self) -> Dict:
+        """
+        保存散户净流入率排名数据
+        
+        Returns:
+            dict: 操作结果统计
+        """
+        try:
+            # 从API获取数据
+            async with DataCenterAPI() as api:
+                data_list = await api.get_retail_net_inflow_rate_rank()
+            
+            if not data_list:
+                logger.warning("未获取到 散户净流入率排名数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 检查是否是字符串类型（text/plain或text/html格式）
+            if isinstance(data_list, str):
+                try:
+                    # 尝试解析JSON字符串
+                    import json
+                    if data_list.strip() in ['{}', '[]', '[{}]']:
+                        logger.warning("散户净流入率排名数据 - API返回了空的JSON数据")
+                        return {'创建': 0, '更新': 0, '跳过': 0}
+                    data_list = json.loads(data_list)
+                except json.JSONDecodeError:
+                    logger.error("转换 散户净流入率排名数据 失败，无法解析为JSON")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 确保data_list是列表类型
+            if not isinstance(data_list, list):
+                data_list = [data_list] if data_list else []
+            
+            # 设置当前日期作为交易日期以确保不为空
+            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # 处理数据
+            processed_data = []
+            for data in data_list:
+                if not isinstance(data, dict):
+                    logger.warning(f"散户净流入率排名数据 - 跳过无效数据格式: {data}")
+                    continue
+                
+                # 使用标准字典格式处理数据并使用映射关系
+                processed_item = {}
+                for api_field, model_field in RETAIL_NET_INFLOW_RATE_RANKING_MAPPING.items():
+                    if api_field in data:
+                        # 日期字段处理
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                            processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
+                        # 数值字段处理
+                        elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
+                            processed_item[model_field] = self._parse_number(data.get(api_field, 0))
+                        else:
+                            processed_item[model_field] = data.get(api_field, '')
+                
+                # 验证必要字段
+                if not processed_item.get('stock_code'):
+                    logger.warning(f"散户净流入率排名数据 - 跳过缺少必要字段的数据: {data}")
+                    continue
+                
+                processed_data.append(processed_item)
+            
+            if not processed_data:
+                logger.warning("没有有效的 散户净流入率排名数据 需要保存")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            # 保存数据
+            result = await self._batch_process(
+                model_class=RetailNetInflowRateRanking,
+                data_list=processed_data,
+                mapping=RETAIL_NET_INFLOW_RATE_RANKING_MAPPING,
+                unique_fields=['stock_code', 'update_time']
+            )
+            
+            # 更新缓存，确保数据是字典格式
+            cache_key = 'retail_net_inflow_rate_rank'
+            
+            # 直接使用处理过的数据，不需要重新转换
+            await self._set_to_cache(cache_key, processed_data, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存净流入额排名数据出错: {str(e)}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+
+    async def get_retail_net_inflow_rate_rank(self, date_str: Optional[str] = None) -> List[Dict]:
+        """
+        获取散户净流入率排名数据
+        
+        Args:
+            date_str: 日期字符串，格式为'YYYY-MM-DD'，如果为None则获取最新日期数据
+            
+        Returns:
+            List[Dict]: 散户净流入率排名数据列表
+        """
+        try:
+            # 构建缓存键
+            cache_key = f'retail_net_inflow_rate_rank_{date_str or "latest"}'
+            
+            # 1. 先从缓存获取
+            cached_data = await self._get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"散户净流入率排名数据 - 缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"散户净流入率排名数据 - 缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            if date_str:
+                # 尝试解析日期
+                target_date = self._parse_datetime(date_str)
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(RetailNetInflowRateRanking.objects.filter(update_time=target_date).order_by('-retail_net_inflow_rate'))
+                )
+            else:
+                # 获取最新日期
+                latest_date_record = await asyncio.to_thread(
+                    lambda: RetailNetInflowRateRanking.objects.order_by('-update_time').values('update_time').first()
+                )
+                
+                if not latest_date_record:
+                    return []
+                
+                latest_date = latest_date_record['update_time']
+                
+                # 查询数据库
+                records = await asyncio.to_thread(
+                    lambda: list(RetailNetInflowRateRanking.objects.filter(update_time=latest_date).order_by('-retail_net_inflow_rate'))
+                )
+            
+            if not records:
+                return []
+            
+            # 将查询结果转换为字典列表
+            result = []
+            for record in records:
+                item_dict = {}
+                for field in get_model_fields(RetailNetInflowRateRanking):
+                    value = getattr(record, field)
+                    # 处理日期和时间
+                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                        item_dict[field] = self._parse_datetime(value)
+                        if isinstance(item_dict[field], datetime):
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                    # 处理数值
+                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                        item_dict[field] = self._parse_number(value)
+                    else:
+                        item_dict[field] = value
+                result.append(item_dict)
+            
+            # 更新缓存
+            await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['medium'])
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取 散户净流入率排名数据 出错: {str(e)}")
+            return []
+    
+

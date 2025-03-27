@@ -51,7 +51,7 @@ class InstitutionalShareholdingDao(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -63,7 +63,7 @@ class InstitutionalShareholdingDao(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -105,9 +105,9 @@ class InstitutionalShareholdingDao(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -229,7 +229,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             data_list = []
             if not response_data:
                 logger.warning("未获取到机构持股汇总数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理不同格式的响应
             if isinstance(response_data, str):
@@ -249,7 +249,7 @@ class InstitutionalShareholdingDao(BaseDAO):
                                 response_data.append(dict(zip(header, values)))
                     except Exception as e:
                         logger.error(f"解析机构持股汇总数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保response_data是列表类型
             if isinstance(response_data, dict):
@@ -304,7 +304,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存机构持股汇总数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_institution_holding_summary(self, year: int, quarter: int) -> List[Dict]:
         """
@@ -358,7 +358,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             data_list = []
             if not response_data:
                 logger.warning("未获取到基金重仓数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理不同格式的响应
             if isinstance(response_data, str):
@@ -378,7 +378,7 @@ class InstitutionalShareholdingDao(BaseDAO):
                                 response_data.append(dict(zip(header, values)))
                     except Exception as e:
                         logger.error(f"解析基金重仓数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保response_data是列表类型
             if isinstance(response_data, dict):
@@ -430,7 +430,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存基金重仓数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_fund_heavy_positions(self, year: int, quarter: int) -> List[Dict]:
         """
@@ -484,7 +484,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             data_list = []
             if not response_data:
                 logger.warning("未获取到社保重仓数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理不同格式的响应
             if isinstance(response_data, str):
@@ -504,7 +504,7 @@ class InstitutionalShareholdingDao(BaseDAO):
                                 response_data.append(dict(zip(header, values)))
                     except Exception as e:
                         logger.error(f"解析社保重仓数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保response_data是列表类型
             if isinstance(response_data, dict):
@@ -556,7 +556,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存社保重仓数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_social_security_heavy_positions(self, year: int, quarter: int) -> List[Dict]:
         """
@@ -610,7 +610,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             data_list = []
             if not response_data:
                 logger.warning("未获取到QFII重仓股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理不同格式的响应
             if isinstance(response_data, str):
@@ -630,7 +630,7 @@ class InstitutionalShareholdingDao(BaseDAO):
                                 response_data.append(dict(zip(header, values)))
                     except Exception as e:
                         logger.error(f"解析QFII重仓股数据失败: {str(e)}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保response_data是列表类型
             if isinstance(response_data, dict):
@@ -682,7 +682,7 @@ class InstitutionalShareholdingDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存QFII重仓股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_qfii_heavy_positions(self, year: int, quarter: int) -> List[Dict]:
         """

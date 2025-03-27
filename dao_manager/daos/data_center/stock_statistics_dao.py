@@ -51,7 +51,7 @@ class StockStatisticsDao(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -63,7 +63,7 @@ class StockStatisticsDao(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -105,9 +105,9 @@ class StockStatisticsDao(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -227,13 +227,13 @@ class StockStatisticsDao(BaseDAO):
                     data_list = json.loads(response)
                 except json.JSONDecodeError:
                     logger.error("解析阶段高低点数据失败，返回的不是有效的JSON格式")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             else:
                 data_list = response
             
             if not data_list:
                 logger.warning("未获取到阶段高低点数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据，使用BaseDAO中的_parse_datetime和_parse_number方法
             processed_data_list = []
@@ -278,7 +278,7 @@ class StockStatisticsDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存阶段高低点数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def save_new_high_stocks(self) -> Dict:
         """
@@ -300,13 +300,13 @@ class StockStatisticsDao(BaseDAO):
                     data_list = json.loads(response)
                 except json.JSONDecodeError:
                     logger.error("解析盘中创新高个股数据失败，返回的不是有效的JSON格式")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             else:
                 data_list = response
             
             if not data_list:
                 logger.warning("未获取到盘中创新高个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据，使用BaseDAO中的_parse_datetime和_parse_number方法
             processed_data_list = []
@@ -342,7 +342,7 @@ class StockStatisticsDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存盘中创新高个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     
     async def get_new_high_stocks(self) -> List[Dict]:
@@ -397,13 +397,13 @@ class StockStatisticsDao(BaseDAO):
                     data_list = json.loads(response)
                 except json.JSONDecodeError:
                     logger.error("解析盘中创新低个股数据失败，返回的不是有效的JSON格式")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             else:
                 data_list = response
             
             if not data_list:
                 logger.warning("未获取到盘中创新低个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据，使用BaseDAO中的_parse_datetime和_parse_number方法
             processed_data_list = []
@@ -439,7 +439,7 @@ class StockStatisticsDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存盘中创新低个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_new_low_stocks(self) -> List[Dict]:
         """

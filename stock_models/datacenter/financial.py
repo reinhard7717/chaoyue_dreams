@@ -18,6 +18,7 @@ class WeeklyRankChange(BaseModel):
     
     class Meta:
         verbose_name = "周涨跌排名"
+        db_table = "weekly_rank_change"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -40,6 +41,7 @@ class MonthlyRankChange(BaseModel):
     
     class Meta:
         verbose_name = "月涨跌排名"
+        db_table = "monthly_rank_change"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -63,6 +65,7 @@ class WeeklyStrongStock(BaseModel):
     
     class Meta:
         verbose_name = "本周强势股"
+        db_table = "weekly_strong_stock"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -86,6 +89,7 @@ class MonthlyStrongStock(BaseModel):
     
     class Meta:
         verbose_name = "本月强势股"
+        db_table = "monthly_strong_stock"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -107,6 +111,7 @@ class CircMarketValueRank(BaseModel):
     
     class Meta:
         verbose_name = "流通市值排行"
+        db_table = "circulating_market_value_rank"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -128,6 +133,7 @@ class PERatioRank(BaseModel):
     
     class Meta:
         verbose_name = "市盈率排行"
+        db_table = "pe_ratio_rank"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -149,6 +155,7 @@ class PBRatioRank(BaseModel):
     
     class Meta:
         verbose_name = "市净率排行"
+        db_table = "pb_ratio_rank"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -190,6 +197,7 @@ class ROERank(BaseModel):
     
     class Meta:
         verbose_name = "ROE排行"
+        db_table = "roe_rank"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),

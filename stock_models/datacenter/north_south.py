@@ -16,6 +16,7 @@ class NorthSouthFundOverview(BaseModel):
     
     class Meta:
         verbose_name = "南北向资金流向概览"
+        db_table = "north_south_fund_overview"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -32,6 +33,7 @@ class NorthFundTrend(BaseModel):
     
     class Meta:
         verbose_name = "北向资金历史走势"
+        db_table = "north_fund_trend"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -48,6 +50,7 @@ class SouthFundTrend(BaseModel):
     
     class Meta:
         verbose_name = "南向资金历史走势"
+        db_table = "south_fund_trend"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -70,6 +73,7 @@ class NorthStockHolding(BaseModel):
     
     class Meta:
         verbose_name = "北向持股明细"
+        db_table = "north_stock_holding"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),

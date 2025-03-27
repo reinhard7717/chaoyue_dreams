@@ -11,7 +11,6 @@ from asgiref.sync import sync_to_async
 from api_manager.apis.datacenter_api import DataCenterAPI
 from api_manager.mappings.datacenter_mappings import *
 from dao_manager.base_dao import BaseDAO
-from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, StockCapitalFlow
 from stock_models.datacenter.north_south import NorthFundTrend, NorthSouthFundOverview, NorthStockHolding, SouthFundTrend
 
 logger = logging.getLogger('dao')
@@ -51,7 +50,7 @@ class NorthSouthDao(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -63,7 +62,7 @@ class NorthSouthDao(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -105,9 +104,9 @@ class NorthSouthDao(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -226,7 +225,7 @@ class NorthSouthDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到南北向资金流向概览数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据中的日期和数值
             for data in data_list:
@@ -253,7 +252,7 @@ class NorthSouthDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存南北向资金流向概览数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_north_south_fund_overview(self) -> List[Dict]:
         """
@@ -300,7 +299,7 @@ class NorthSouthDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到北向资金历史走势数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据中的日期和数值
             for data in data_list:
@@ -329,7 +328,7 @@ class NorthSouthDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存北向资金历史走势数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_north_fund_trend(self) -> List[Dict]:
         """
@@ -376,7 +375,7 @@ class NorthSouthDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到南向资金历史走势数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据中的日期和数值
             for data in data_list:
@@ -405,7 +404,7 @@ class NorthSouthDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存南向资金历史走势数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_south_fund_trend(self) -> List[Dict]:
         """
@@ -452,7 +451,7 @@ class NorthSouthDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到北向持股明细数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 处理数据中的日期和数值
             for data in data_list:
@@ -482,7 +481,7 @@ class NorthSouthDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存北向持股明细数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_north_stock_holding(self, period: str) -> List[Dict]:
         """

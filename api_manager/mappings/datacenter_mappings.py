@@ -75,7 +75,7 @@ INSTITUTION_TRADE_DETAIL_MAPPING = {
 
 # 个股统计相关映射
 STAGE_HIGH_LOW_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "g5": "high_price_5d",             # 近5日最高价
@@ -98,7 +98,7 @@ STAGE_HIGH_LOW_MAPPING = {
 
 
 NEW_HIGH_STOCK_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -121,7 +121,7 @@ NEW_LOW_STOCK_MAPPING = NEW_HIGH_STOCK_MAPPING
 
 # 市场数据相关映射
 VOLUME_INCREASE_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -136,7 +136,7 @@ VOLUME_INCREASE_MAPPING = {
 
 # 与VOLUME_INCREASE_MAPPING相同的字段，可以共用
 VOLUME_DECREASE_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -150,7 +150,7 @@ VOLUME_DECREASE_MAPPING = {
 
 
 CONTINUOUS_VOLUME_INCREASE_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -167,7 +167,7 @@ CONTINUOUS_VOLUME_INCREASE_MAPPING = {
 
 # 与CONTINUOUS_VOLUME_INCREASE_MAPPING相同的字段，可以共用
 CONTINUOUS_VOLUME_DECREASE_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -183,7 +183,7 @@ CONTINUOUS_VOLUME_DECREASE_MAPPING = {
 
 
 CONTINUOUS_RISE_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -199,7 +199,7 @@ CONTINUOUS_RISE_MAPPING = {
 
 # 与CONTINUOUS_RISE_MAPPING相同的字段，可以共用
 CONTINUOUS_FALL_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "c": "close_price",                # 收盘价
@@ -215,7 +215,7 @@ CONTINUOUS_FALL_MAPPING = {
 
 # 财务指标相关映射
 WEEKLY_RANK_CHANGE_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "dm": "stock_code",                # 代码
     "mc": "stock_name",                # 名称
     "zdf": "weekly_change_rate",       # 周涨跌幅
@@ -229,7 +229,7 @@ WEEKLY_RANK_CHANGE_MAPPING = {
 
 # 与WEEKLY_RANK_CHANGE_MAPPING相同的字段，可以共用
 MONTHLY_RANK_CHANGE_MAPPING = {
-    "t": "trade_date",                        # 日期
+    "t": "trade_date",                  # 日期
     "dm": "stock_code",                 # 代码
     "mc": "stock_name",                 # 名称
     "zdf": "monthly_change_rate",       # 月涨跌幅
@@ -242,7 +242,7 @@ MONTHLY_RANK_CHANGE_MAPPING = {
 }
 
 WEEKLY_STRONG_STOCK_MAPPING = {
-    "t": "trade_date",                         # 日期
+    "t": "trade_date",                   # 日期
     "dm": "stock_code",                  # 代码
     "mc": "stock_name",                  # 名称
     "zdf": "weekly_change_rate",         # 周涨跌幅
@@ -257,7 +257,7 @@ WEEKLY_STRONG_STOCK_MAPPING = {
 
 # 与WEEKLY_STRONG_STOCK_MAPPING相同的字段，可以共用
 MONTHLY_STRONG_STOCK_MAPPING = {
-    "t": "trade_date",                          # 日期
+    "t": "trade_date",                    # 日期
     "dm": "stock_code",                   # 代码
     "mc": "stock_name",                   # 名称
     "zdf": "monthly_change_rate",         # 月涨跌幅
@@ -271,7 +271,7 @@ MONTHLY_STRONG_STOCK_MAPPING = {
 }
 
 CIRC_MARKET_VALUE_RANK_MAPPING = {
-    "t": "trade_date",                         # 日期
+    "t": "trade_date",                   # 日期
     "dm": "stock_code",                  # 代码
     "mc": "stock_name",                  # 名称
     "c": "close_price",                  # 收盘价
@@ -283,7 +283,7 @@ CIRC_MARKET_VALUE_RANK_MAPPING = {
 }
 
 PE_RATIO_RANK_MAPPING = {
-    "t": "trade_date",                # 日期
+    "t": "trade_date",          # 日期
     "dm": "stock_code",         # 代码
     "mc": "stock_name",         # 名称
     "c": "close_price",         # 收盘价
@@ -295,7 +295,7 @@ PE_RATIO_RANK_MAPPING = {
 }
 
 PB_RATIO_RANK_MAPPING = {
-    "t": "trade_date",                    # 日期
+    "t": "trade_date",              # 日期
     "dm": "stock_code",             # 代码
     "mc": "stock_name",             # 名称
     "c": "close_price",             # 收盘价
@@ -337,12 +337,9 @@ ROE_RANK_MAPPING = {
     "hygpzs": "industry_stock_count"       # 同行业股票总数量
 }
 
-# api_manager/mappings/datacenter_mappings.py
-# 在现有映射后添加以下内容
-
 # 机构持股相关映射
 INSTITUTION_HOLDING_SUMMARY_MAPPING = {
-    "t": "trade_date",                                 # 统计日期
+    "t": "trade_date",                           # 统计日期
     "dm": "stock_code",                          # 股票代码
     "mc": "stock_name",                          # 股票名称
     "jgcgs": "institution_count",                # 机构持股家数
@@ -366,7 +363,7 @@ INSTITUTION_HOLDING_SUMMARY_MAPPING = {
 
 
 FUND_HEAVY_POSITION_MAPPING = {
-    "t": "trade_date",                          # 统计日期
+    "t": "trade_date",                    # 统计日期
     "dm": "stock_code",                   # 股票代码
     "mc": "stock_name",                   # 股票名称
     "jjsl": "fund_count",                 # 持有基金数
@@ -385,7 +382,7 @@ FUND_HEAVY_POSITION_MAPPING = {
 
 
 SOCIAL_SECURITY_HEAVY_POSITION_MAPPING = {
-    "t": "trade_date",                          # 统计日期
+    "t": "trade_date",                    # 统计日期
     "dm": "stock_code",                   # 股票代码
     "mc": "stock_name",                   # 股票名称
     "sbsl": "social_security_count",      # 持有社保基金数
@@ -404,7 +401,7 @@ SOCIAL_SECURITY_HEAVY_POSITION_MAPPING = {
 
 
 QFII_HEAVY_POSITION_MAPPING = {
-    "t": "trade_date",                          # 统计日期
+    "t": "trade_date",                    # 统计日期
     "dm": "stock_code",                   # 股票代码
     "mc": "stock_name",                   # 股票名称
     "qfiis": "qfii_count",                # 持有QFII数
@@ -422,55 +419,225 @@ QFII_HEAVY_POSITION_MAPPING = {
 }
 
 
-# 资金流向相关映射
+# 证监会行业资金流向映射
 INDUSTRY_CAPITAL_FLOW_MAPPING = {
-    "t": "trade_date",                             # 日期
-    "hymc": "industry_name",                 # 行业名称
-    "zjjlr": "net_inflow",                   # 资金净流入(万元)
-    "zljlr": "main_force_net_inflow",        # 主力净流入(万元)
-    "shjlr": "retail_net_inflow",            # 散户净流入(万元)
-    "jlrl": "net_inflow_rate",               # 净流入率(%)
-    "zljlrl": "main_force_net_inflow_rate",  # 主力净流入率(%)
-    "shjlrl": "retail_net_inflow_rate",      # 散户净流入率(%)
-    "jlrpj": "average_net_inflow",           # 净流入均额(万元)
-    "zdf": "change_rate"                     # 行业涨跌幅(%)
+    "t": "update_time",  # 服务器更新时间
+    "mc": "industry_name",  # 行业名称
+    "dm": "industry_code",  # 行业代码
+    "jj": "average_price",  # 均价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "lrzj": "inflow_capital",  # 流入资金（元）
+    "lczj": "outflow_capital",  # 流出资金（元）
+    "jlr": "net_inflow",  # 净流入（元）
+    "jlrl": "net_inflow_rate",  # 净流入率（%）
+    "lzgmc": "leading_stock_name",  # 领涨股名称
+    "lzgdm": "leading_stock_code",  # 领涨股代码
+    "lzgjlrl": "leading_stock_net_inflow_rate"  # 领涨股净流入率（%）
 }
 
-
+# 概念板块资金流向映射
 CONCEPT_CAPITAL_FLOW_MAPPING = {
-    "t": "trade_date",                             # 日期
-    "gnmc": "concept_name",                  # 概念名称
-    "zjjlr": "net_inflow",                   # 资金净流入(万元)
-    "zljlr": "main_force_net_inflow",        # 主力净流入(万元)
-    "shjlr": "retail_net_inflow",            # 散户净流入(万元)
-    "jlrl": "net_inflow_rate",               # 净流入率(%)
-    "zljlrl": "main_force_net_inflow_rate",  # 主力净流入率(%)
-    "shjlrl": "retail_net_inflow_rate",      # 散户净流入率(%)
-    "jlrpj": "average_net_inflow",           # 净流入均额(万元)
-    "zdf": "change_rate"                     # 概念涨跌幅(%)
+    "t": "update_time",  # 服务器更新时间
+    "mc": "concept_name",  # 概念板块名称
+    "dm": "concept_code",  # 概念板块代码
+    "jj": "average_price",  # 均价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "lrzj": "inflow_capital",  # 流入资金（元）
+    "lczj": "outflow_capital",  # 流出资金（元）
+    "jlr": "net_inflow",  # 净流入（元）
+    "jlrl": "net_inflow_rate",  # 净流入率（%）
+    "lzgmc": "leading_stock_name",  # 领涨股名称
+    "lzgdm": "leading_stock_code",  # 领涨股代码
+    "lzgjlrl": "leading_stock_net_inflow_rate"  # 领涨股净流入率（%）
 }
 
-
-STOCK_CAPITAL_FLOW_MAPPING = {
-    "t": "trade_date",                             # 日期
-    "dm": "stock_code",                      # 股票代码
-    "mc": "stock_name",                      # 股票名称
-    "zjjlr": "net_inflow",                   # 资金净流入(万元)
-    "zljlr": "main_force_net_inflow",        # 主力净流入(万元)
-    "shjlr": "retail_net_inflow",            # 散户净流入(万元)
-    "jlrl": "net_inflow_rate",               # 净流入率(%)
-    "zljlrl": "main_force_net_inflow_rate",  # 主力净流入率(%)
-    "shjlrl": "retail_net_inflow_rate",      # 散户净流入率(%)
-    "zdf": "change_rate",                    # 涨跌幅(%)
-    "cje": "trading_amount",                 # 成交额(万元)
-    "zsz": "total_market_value",             # 总市值(万元)
-    "hs": "turnover_rate"                    # 换手率(%)
+# 净流入额排名映射
+NET_INFLOW_RANKING_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "cje": "transaction_amount",  # 成交额（元）
+    "lczj": "outflow_capital",  # 流出资金（元）
+    "lrzj": "inflow_capital",  # 流入资金（元）
+    "jlr": "net_inflow",  # 净流入（元）
+    "jlrl": "net_inflow_rate"  # 净流入率（%）
 }
+
+# 净流入率排名映射
+NET_INFLOW_RATE_RANKING_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "cje": "transaction_amount",  # 成交额（元）
+    "lczj": "outflow_capital",  # 流出资金（元）
+    "lrzj": "inflow_capital",  # 流入资金（元）
+    "jlr": "net_inflow",  # 净流入（元）
+    "jlrl": "net_inflow_rate"  # 净流入率（%）
+}
+
+# 主力净流入额排名映射
+MAIN_FORCE_NET_INFLOW_RANKING_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "cje": "transaction_amount",  # 成交额（元）
+    "zllczj": "main_force_outflow",  # 主力流出资金（元）
+    "zllrzj": "main_force_inflow",  # 主力流入资金（元）
+    "zljlr": "main_force_net_inflow",  # 主力净流入（元）
+    "zljlrl": "main_force_net_inflow_rate"  # 主力净流入率（%）
+}
+
+# 主力净流入率排名映射
+MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "cje": "transaction_amount",  # 成交额（元）
+    "zllczj": "main_force_outflow",  # 主力流出资金（元）
+    "zllrzj": "main_force_inflow",  # 主力流入资金（元）
+    "zljlr": "main_force_net_inflow",  # 主力净流入（元）
+    "zljlrl": "main_force_net_inflow_rate"  # 主力净流入率（%）
+}
+
+# 散户净流入额排名映射
+RETAIL_NET_INFLOW_RANKING_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "cje": "transaction_amount",  # 成交额（元）
+    "shlczj": "retail_outflow",  # 散户流出资金（元）
+    "shlrzj": "retail_inflow",  # 散户流入资金（元）
+    "shjlr": "retail_net_inflow",  # 散户净流入（元）
+    "shjlrl": "retail_net_inflow_rate"  # 散户净流入率（%）
+}
+
+# 散户净流入率排名映射
+RETAIL_NET_INFLOW_RATE_RANKING_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "cje": "transaction_amount",  # 成交额（元）
+    "shlczj": "retail_outflow",  # 散户流出资金（元）
+    "shlrzj": "retail_inflow",  # 散户流入资金（元）
+    "shjlr": "retail_net_inflow",  # 散户净流入（元）
+    "shjlrl": "retail_net_inflow_rate"  # 散户净流入率（%）
+}
+
+# 证监会行业资金路线图映射
+INDUSTRY_CAPITAL_FLOW_ROUTE_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "industry_name",  # 行业名
+    "dm": "industry_code",  # 行业代码
+    "ac3": "change_3days",  # 近三日涨跌幅（%）
+    "net3": "net_inflow_3days",  # 近三日净流入（元）
+    "ra3": "inflow_rate_3days",  # 近三日净流入率（%）
+    "ac5": "change_5days",  # 近五日涨跌幅（%）
+    "net5": "net_inflow_5days",  # 近五日净流入（元）
+    "ra5": "inflow_rate_5days",  # 近五日净流入率（%）
+    "ac10": "change_10days",  # 近十日涨跌幅（%）
+    "net10": "net_inflow_10days",  # 近十日净流入（元）
+    "ra10": "inflow_rate_10days"  # 近十日净流入率（%）
+}
+
+# 概念板块资金路线图映射
+CONCEPT_CAPITAL_FLOW_ROUTE_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "concept_name",  # 概念板块名
+    "dm": "concept_code",  # 概念板块代码
+    "ac3": "change_3days",  # 近三日涨跌幅（%）
+    "net3": "net_inflow_3days",  # 近三日净流入（元）
+    "ra3": "inflow_rate_3days",  # 近三日净流入率（%）
+    "ac5": "change_5days",  # 近五日涨跌幅（%）
+    "net5": "net_inflow_5days",  # 近五日净流入（元）
+    "ra5": "inflow_rate_5days",  # 近五日净流入率（%）
+    "ac10": "change_10days",  # 近十日涨跌幅（%）
+    "net10": "net_inflow_10days",  # 近十日净流入（元）
+    "ra10": "inflow_rate_10days"  # 近十日净流入率（%）
+}
+
+# 个股阶段统计总览映射
+STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "zxj": "latest_price",  # 最新价（元）
+    "zdf": "change_percent",  # 涨跌幅（%）
+    "hsl": "turnover_rate",  # 换手率（%）
+    "jlrl3": "net_inflow_rate_3days",  # 3日净流入率（%）
+    "jlrl5": "net_inflow_rate_5days",  # 5日净流入率（%）
+    "jlrl10": "net_inflow_rate_10days",  # 10日净流入率（%）
+    "jlrl20": "net_inflow_rate_20days",  # 20日净流入率（%）
+    "jlrl60": "net_inflow_rate_60days"  # 60日净流入率（%）
+}
+
+# 个股阶段统计映射
+STOCK_PERIOD_STATISTICS_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "jdjsj": "period_end_price",  # 阶段结束价（元）
+    "jdzdf": "period_change_percent",  # 阶段涨跌幅（%）
+    "jdhsl": "period_turnover_rate",  # 阶段换手率（%）
+    "jdjlr": "period_net_inflow",  # 阶段净流入（元）
+    "jdjlrl": "period_net_inflow_rate",  # 阶段净流入率（%）
+    "jdzljlr": "period_main_force_net_inflow",  # 阶段主力净流入（元）
+    "jdzljlrl": "period_main_force_net_inflow_rate"  # 阶段主力净流入率（%）
+}
+
+# 主力连续净流入/流出映射
+MAIN_FORCE_CONTINUOUS_FLOW_MAPPING = {
+    "t": "update_time",  # 服务器更新时间
+    "mc": "stock_name",  # 名称
+    "dm": "stock_code",  # 代码
+    "ts": "flow_days",  # 流入/流出天数（天）
+    "zxj": "latest_price",  # 最新价（元）
+    "jdzdf": "period_change_percent",  # 阶段涨跌幅（%）
+    "jdhsl": "period_turnover_rate",  # 阶段换手率（%）
+    "jdjlr": "period_net_flow",  # 阶段净流入/流出（元）
+    "jdjlrl": "period_flow_rate",  # 阶段流入/流出率（%）
+    "zljlr": "main_force_net_flow"  # 主力净流入/流出（元）
+}
+
+# 新资金流向概览映射
+NEW_CAPITAL_FLOW_OVERVIEW_MAPPING = {
+    "type": "flow_type",  # 类型
+    "tname": "plate_name",  # 板块
+    "dir": "flow_direction",  # 资金方向
+    "netbuy": "net_buy_amount",  # 成交净买额(万)
+    "netin": "net_inflow_amount",  # 资金净流入(万)
+    "remain": "remaining_amount",  # 当日资金余额(万)
+    "up": "up_stocks",  # 上涨股票数
+    "ping": "flat_stocks",  # 持平股票数
+    "down": "down_stocks",  # 下跌股票数
+    "idx": "index_name",  # 相关指数
+    "idxdm": "index_code",  # 相关指数代码
+    "idxzd": "index_change_percent",  # 相关指数涨跌幅（%）
+    "status": "trade_status"  # 交易状态
+}
+
 
 
 # 南北向资金相关映射
 NORTH_SOUTH_FUND_OVERVIEW_MAPPING = {
-    "t": "trade_date",                       # 日期
+    "t": "trade_date",                 # 日期
     "hk2sh": "hk_to_shanghai",         # 沪股通(北向)(亿元)
     "hk2sz": "hk_to_shenzhen",         # 深股通(北向)(亿元)
     "bxzjlr": "northbound_net_inflow", # 北向资金净流入(亿元)

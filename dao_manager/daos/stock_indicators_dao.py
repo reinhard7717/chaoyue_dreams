@@ -50,9 +50,9 @@ class StockIndicatorsDAO(BaseDAO):
                 if model_field.endswith('_date') or model_field.endswith('_time') or model_field == 't':
                     mapped_data[model_field] = self._parse_datetime(value)
                 # 数值字段处理
-                elif isinstance(value, (int, float)) or (
+                elif (isinstance(value, (int, float)) or (
                     isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                ):
+                )) and 'code' not in model_field.lower():
                     mapped_data[model_field] = self._parse_number(value)
                 else:
                     mapped_data[model_field] = value
@@ -343,9 +343,9 @@ class StockIndicatorsDAO(BaseDAO):
                     if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
                         cache_dict[field.name] = self._parse_datetime(value)
                     # 数值字段处理
-                    elif isinstance(value, (int, float)) or (
+                    elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    ):
+                    )) and 'code' not in field.lower():
                         cache_dict[field.name] = self._parse_number(value)
                     else:
                         cache_dict[field.name] = value
@@ -384,9 +384,9 @@ class StockIndicatorsDAO(BaseDAO):
                         if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
                             cache_dict[field.name] = self._parse_datetime(value)
                         # 数值字段处理
-                        elif isinstance(value, (int, float)) or (
+                        elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        ):
+                        )) and 'code' not in field.lower():
                             cache_dict[field.name] = self._parse_number(value)
                         else:
                             cache_dict[field.name] = value
@@ -448,9 +448,9 @@ class StockIndicatorsDAO(BaseDAO):
                         if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
                             item_dict[field.name] = self._parse_datetime(value)
                         # 数值字段处理
-                        elif isinstance(value, (int, float)) or (
+                        elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        ):
+                        )) and 'code' not in field.lower():
                             item_dict[field.name] = self._parse_number(value)
                         else:
                             item_dict[field.name] = value
@@ -496,9 +496,9 @@ class StockIndicatorsDAO(BaseDAO):
                                     if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
                                         item_dict[field.name] = self._parse_datetime(value)
                                     # 数值字段处理
-                                    elif isinstance(value, (int, float)) or (
+                                    elif (isinstance(value, (int, float)) or (
                                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                                    ):
+                                    )) and 'code' not in field.lower():
                                         item_dict[field.name] = self._parse_number(value)
                                     else:
                                         item_dict[field.name] = value

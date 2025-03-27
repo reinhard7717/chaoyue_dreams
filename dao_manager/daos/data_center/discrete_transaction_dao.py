@@ -51,7 +51,7 @@ class DiscreteTransactionDao(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -63,7 +63,7 @@ class DiscreteTransactionDao(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -105,9 +105,9 @@ class DiscreteTransactionDao(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -226,7 +226,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到成交骤增个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
@@ -236,7 +236,7 @@ class DiscreteTransactionDao(BaseDAO):
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换成交骤增个股数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -265,7 +265,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'previous_volume': self._parse_number(data.get('pv', 0)),
                     'volume_change': self._parse_number(data.get('zjl', 0)),
                     'volume_change_rate': self._parse_number(data.get('zjf', 0)),
-                    'update_time': self._parse_datetime(current_date)
+                    # 'update_time': self._parse_datetime(current_date)
                 }
                 
                 # 验证必要字段
@@ -277,7 +277,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的成交骤增个股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -302,7 +302,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'previous_volume': int(item['previous_volume']),
                     'volume_change': int(item['volume_change']),
                     'volume_change_rate': float(item['volume_change_rate']),
-                    'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
+                    # 'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
                 }
                 cache_data.append(cache_item)
             
@@ -312,7 +312,7 @@ class DiscreteTransactionDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存成交骤增个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
        
     async def get_volume_increase(self) -> List[Dict]:
         """
@@ -360,7 +360,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到成交骤减个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
@@ -370,7 +370,7 @@ class DiscreteTransactionDao(BaseDAO):
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换成交骤减个股数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -399,7 +399,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'previous_volume': self._parse_number(data.get('pv', 0)),
                     'volume_change': self._parse_number(data.get('zjl', 0)),
                     'volume_change_rate': self._parse_number(data.get('zjf', 0)),
-                    'update_time': self._parse_datetime(current_date)
+                    # 'update_time': self._parse_datetime(current_date)
                 }
                 
                 # 验证必要字段
@@ -411,7 +411,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的成交骤减个股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -436,7 +436,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'previous_volume': int(item['previous_volume']),
                     'volume_change': int(item['volume_change']),
                     'volume_change_rate': float(item['volume_change_rate']),
-                    'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
+                    # 'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
                 }
                 cache_data.append(cache_item)
             
@@ -446,7 +446,7 @@ class DiscreteTransactionDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存成交骤减个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_volume_decrease(self) -> List[Dict]:
         """
@@ -494,7 +494,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到连续放量个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
@@ -504,7 +504,7 @@ class DiscreteTransactionDao(BaseDAO):
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换连续放量个股数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -535,7 +535,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'period_change_rate': self._parse_number(data.get('pzdf', 0)),
                     'period_has_ex_dividend': self._parse_number(data.get('ispcq', 0)),
                     'period_turnover_rate': self._parse_number(data.get('phs', 0)),
-                    'update_time': self._parse_datetime(current_date)
+                    # 'update_time': self._parse_datetime(current_date)
                 }
                 
                 # 验证必要字段
@@ -547,7 +547,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的连续放量个股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -574,7 +574,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'period_change_rate': float(item['period_change_rate']),
                     'period_has_ex_dividend': int(item['period_has_ex_dividend']),
                     'period_turnover_rate': float(item['period_turnover_rate']),
-                    'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
+                    # 'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
                 }
                 cache_data.append(cache_item)
             
@@ -584,7 +584,7 @@ class DiscreteTransactionDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存连续放量个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_continuous_volume_increase(self) -> List[Dict]:
         """
@@ -632,7 +632,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到连续缩量个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
@@ -642,7 +642,7 @@ class DiscreteTransactionDao(BaseDAO):
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换连续缩量个股数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -673,7 +673,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'period_change_rate': self._parse_number(data.get('pzdf', 0)),
                     'period_has_ex_dividend': self._parse_number(data.get('ispcq', 0)),
                     'period_turnover_rate': self._parse_number(data.get('phs', 0)),
-                    'update_time': self._parse_datetime(current_date)
+                    # 'update_time': self._parse_datetime(current_date)
                 }
                 
                 # 验证必要字段
@@ -685,7 +685,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的连续缩量个股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -712,7 +712,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'period_change_rate': float(item['period_change_rate']),
                     'period_has_ex_dividend': int(item['period_has_ex_dividend']),
                     'period_turnover_rate': float(item['period_turnover_rate']),
-                    'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
+                    # 'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
                 }
                 cache_data.append(cache_item)
             
@@ -722,7 +722,7 @@ class DiscreteTransactionDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存连续缩量个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
     async def get_continuous_volume_decrease(self) -> List[Dict]:
         """
@@ -770,7 +770,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到连续上涨个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
@@ -780,7 +780,7 @@ class DiscreteTransactionDao(BaseDAO):
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换连续上涨个股数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -810,7 +810,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'rising_days': self._parse_number(data.get('szday', 0)),
                     'period_change_rate': self._parse_number(data.get('pzdf', 0)),
                     'period_has_ex_dividend': self._parse_number(data.get('ispcq', 0)),
-                    'update_time': self._parse_datetime(current_date)
+                    # 'update_time': self._parse_datetime(current_date)
                 }
                 
                 # 验证必要字段
@@ -822,7 +822,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的连续上涨个股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -848,7 +848,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'rising_days': int(item['rising_days']),
                     'period_change_rate': float(item['period_change_rate']),
                     'period_has_ex_dividend': int(item['period_has_ex_dividend']),
-                    'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
+                    # 'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
                 }
                 cache_data.append(cache_item)
             
@@ -858,7 +858,7 @@ class DiscreteTransactionDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存连续上涨个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_continuous_rise(self) -> List[Dict]:
         """
@@ -906,7 +906,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到连续下跌个股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 检查是否是字符串类型（text/plain或text/html格式）
             if isinstance(data_list, str):
@@ -916,7 +916,7 @@ class DiscreteTransactionDao(BaseDAO):
                     data_list = json.loads(data_list)
                 except json.JSONDecodeError:
                     logger.error("转换连续下跌个股数据失败，无法解析为JSON")
-                    return {'created': 0, 'updated': 0, 'skipped': 0}
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -946,7 +946,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'falling_days': self._parse_number(data.get('szday', 0)),
                     'period_change_rate': self._parse_number(data.get('pzdf', 0)),
                     'period_has_ex_dividend': self._parse_number(data.get('ispcq', 0)),
-                    'update_time': self._parse_datetime(current_date)
+                    # 'update_time': self._parse_datetime(current_date)
                 }
                 
                 # 验证必要字段
@@ -958,7 +958,7 @@ class DiscreteTransactionDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的连续下跌个股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -984,7 +984,7 @@ class DiscreteTransactionDao(BaseDAO):
                     'falling_days': int(item['falling_days']),
                     'period_change_rate': float(item['period_change_rate']),
                     'period_has_ex_dividend': int(item['period_has_ex_dividend']),
-                    'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
+                    # 'update_time': item['update_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(item['update_time'], datetime) else item['update_time']
                 }
                 cache_data.append(cache_item)
             
@@ -994,7 +994,7 @@ class DiscreteTransactionDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存连续下跌个股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def get_continuous_fall(self) -> List[Dict]:
         """

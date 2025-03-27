@@ -29,6 +29,7 @@ class InstitutionHoldingSummary(BaseModel):
     
     class Meta:
         verbose_name = "机构持股汇总"
+        db_table = "institution_holding_summary"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),
@@ -57,6 +58,7 @@ class FundHeavyPosition(BaseModel):
     
     class Meta:
         verbose_name = "基金重仓"
+        db_table = "fund_heavy_position"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),
@@ -85,6 +87,7 @@ class SocialSecurityHeavyPosition(BaseModel):
     
     class Meta:
         verbose_name = "社保重仓"
+        db_table = "social_security_heavy_position"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),
@@ -113,6 +116,7 @@ class QFIIHeavyPosition(BaseModel):
     
     class Meta:
         verbose_name = "QFII重仓"
+        db_table = "qfii_heavy_position"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),

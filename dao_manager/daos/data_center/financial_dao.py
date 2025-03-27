@@ -51,7 +51,7 @@ class FinancialDao(BaseDAO):
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
@@ -63,7 +63,7 @@ class FinancialDao(BaseDAO):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -105,9 +105,9 @@ class FinancialDao(BaseDAO):
             await sync_to_async(process_batch)()
         
         result = {
-            'created': created_count,
-            'updated': updated_count,
-            'skipped': skipped_count
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
         }
     
         logger.info(f"完成{model_class.__name__}数据处理: {result}")
@@ -227,7 +227,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到周度排名变化数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -236,7 +236,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -263,7 +263,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -293,10 +293,7 @@ class FinancialDao(BaseDAO):
                         processed_item[model_field] = self._parse_number(value if value is not None else 0)
                     else:
                         processed_item[model_field] = value
-                
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
+                               
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -306,7 +303,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("保存周度排名变化数据 - 没有有效的数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -324,7 +321,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存周度排名变化数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_weekly_rank_change(self, order_by: str = 'zdf', ascending: bool = False) -> List[Dict]:
         """
@@ -380,7 +377,7 @@ class FinancialDao(BaseDAO):
 
             if not data_list:
                 logger.warning("未获取到月涨跌排名数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -389,7 +386,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -416,7 +413,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -448,9 +445,6 @@ class FinancialDao(BaseDAO):
                     else:
                         processed_item[model_field] = value
                 
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -460,7 +454,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("保存月涨跌排名数据 - 没有有效的数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -478,7 +472,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存月涨跌排名数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_monthly_rank_change(self, order_by: str = 'zdf', ascending: bool = False) -> List[Dict]:
         """
@@ -534,7 +528,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到本周强势股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -543,7 +537,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -570,7 +564,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -604,9 +598,6 @@ class FinancialDao(BaseDAO):
                     else:
                         processed_item[model_field] = value
                 
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -616,7 +607,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的本周强势股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -634,7 +625,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存本周强势股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_weekly_strong_stocks(self) -> List[Dict]:
         """
@@ -685,7 +676,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到本月强势股数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -694,7 +685,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -721,7 +712,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -754,10 +745,7 @@ class FinancialDao(BaseDAO):
                         processed_item[model_field] = self._parse_number(value if value is not None else 0)
                     else:
                         processed_item[model_field] = value
-                
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
+
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -767,7 +755,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的本月强势股数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -785,7 +773,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存本月强势股数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_monthly_strong_stocks(self) -> List[Dict]:
         """
@@ -836,7 +824,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到流通市值排行数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -845,7 +833,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -872,7 +860,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -905,10 +893,7 @@ class FinancialDao(BaseDAO):
                         processed_item[model_field] = self._parse_number(value if value is not None else 0)
                     else:
                         processed_item[model_field] = value
-                
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
+
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -918,7 +903,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的流通市值排行数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -936,7 +921,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存流通市值排行数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_circ_market_value_rank(self) -> List[Dict]:
         """
@@ -987,7 +972,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到市盈率排行数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -996,7 +981,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -1023,7 +1008,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -1055,10 +1040,7 @@ class FinancialDao(BaseDAO):
                         processed_item[model_field] = self._parse_number(value if value is not None else 0)
                     else:
                         processed_item[model_field] = value
-                
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
+                        
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -1068,7 +1050,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的市盈率排行数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -1086,7 +1068,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存市盈率排行数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_pe_ratio_rank(self) -> List[Dict]:
         """
@@ -1137,7 +1119,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到市净率排行数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -1146,7 +1128,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -1173,7 +1155,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -1207,9 +1189,6 @@ class FinancialDao(BaseDAO):
                     else:
                         processed_item[model_field] = value
                 
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
-                
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -1219,7 +1198,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的市净率排行数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -1237,7 +1216,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存市净率排行数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_pb_ratio_rank(self) -> List[Dict]:
         """
@@ -1288,7 +1267,7 @@ class FinancialDao(BaseDAO):
             
             if not data_list:
                 logger.warning("未获取到ROE排行数据")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 判断返回的是否是字符串，如果是需要转换为列表
             if isinstance(data_list, str):
@@ -1297,7 +1276,7 @@ class FinancialDao(BaseDAO):
                     # 检查是否是HTTP错误响应
                     if "404" in data_list or "500" in data_list:
                         logger.error(f"API返回错误: {data_list}")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     
                     # 尝试解析为JSON
                     import json
@@ -1324,7 +1303,7 @@ class FinancialDao(BaseDAO):
                         data_list = parsed_data
                     else:
                         logger.error("无法解析纯文本数据格式")
-                        return {'created': 0, 'updated': 0, 'skipped': 0}
+                        return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 确保data_list是列表类型
             if not isinstance(data_list, list):
@@ -1332,7 +1311,6 @@ class FinancialDao(BaseDAO):
             
             # 处理数据
             processed_data = []
-            update_time = datetime.now()
             
             for data in data_list:
                 if not isinstance(data, dict):
@@ -1362,9 +1340,6 @@ class FinancialDao(BaseDAO):
                     else:
                         processed_item[model_field] = value
                 
-                # 添加额外字段
-                processed_item['update_time'] = self._parse_datetime(update_time)
-                
                 # 验证必要字段
                 if not processed_item.get('stock_code'):
                     logger.warning(f"跳过缺少股票代码的数据: {data}")
@@ -1374,7 +1349,7 @@ class FinancialDao(BaseDAO):
             
             if not processed_data:
                 logger.warning("没有有效的ROE排行数据需要保存")
-                return {'created': 0, 'updated': 0, 'skipped': 0}
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             result = await self._batch_process(
@@ -1392,7 +1367,7 @@ class FinancialDao(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"保存ROE排行数据出错: {str(e)}")
-            return {'created': 0, 'updated': 0, 'skipped': 0}
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def get_roe_rank(self, report_period: str) -> List[Dict]:
         """

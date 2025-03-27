@@ -567,25 +567,71 @@ class DataCenterAPI(BaseAPI):
         return await self.get(f'data/all/orgqfiizc/{year}_{quarter}')
     
     # 资金流向相关API
-    
-    async def get_csrc_industry_capital_flow(self) -> Optional[List[Dict]]:
+
+    async def get_industry_capital_flow(self) -> Optional[List[Dict]]:
         """
-        获取证监会行业资金流向数据
+        获取证监会行业资金路线图数据
         
         Returns:
-            Optional[List[Dict]]: 证监会行业资金流向数据，如请求失败则返回None
+            Optional[List[Dict]]: 证监会行业资金路线图数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/zjhhy')
+        return await self.get('data/all/zjlx/zjhhyzjlx')
     
     async def get_concept_capital_flow(self) -> Optional[List[Dict]]:
         """
-        获取概念板块资金流向数据
+        获取概念板块资金路线图数据
         
         Returns:
-            Optional[List[Dict]]: 概念板块资金流向数据，如请求失败则返回None
+            Optional[List[Dict]]: 概念板块资金路线图数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/gnbk')
+        return await self.get('data/all/zjlx/gnbklx')
     
+    async def get_stock_period_statistics_overview(self) -> Optional[List[Dict]]:
+        """
+        获取个股阶段统计总览数据
+        
+        Returns:
+            Optional[List[Dict]]: 个股阶段统计总览数据，如请求失败则返回None
+        """
+        return await self.get('data/all/zjlx/ggjdtjzl')
+    
+    async def get_stock_period_statistics_3(self) -> Optional[List[Dict]]:
+        """
+        获取个股阶段统计数据
+        
+        Returns:
+            Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
+        """
+        return await self.get('data/all/zjlx/ggjdtj_3')
+    
+    async def get_stock_period_statistics_5(self) -> Optional[List[Dict]]:
+        """
+        获取个股阶段统计数据
+        
+        Returns:
+            Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
+        """
+        return await self.get('data/all/zjlx/ggjdtj_5')
+    
+    async def get_stock_period_statistics_10(self) -> Optional[List[Dict]]:
+        """
+        获取个股阶段统计数据
+        
+        Returns:
+            Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
+        """
+        return await self.get('data/all/zjlx/ggjdtj_10')
+    
+    async def get_stock_period_statistics_20(self) -> Optional[List[Dict]]:
+        """
+        获取个股阶段统计数据
+        
+        Returns:
+            Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
+        """
+        return await self.get('data/all/zjlx/ggjdtj_20')
+    
+
     async def get_net_inflow_amount_rank(self) -> Optional[List[Dict]]:
         """
         获取净流入额排名数据

@@ -170,76 +170,97 @@ API_ERROR_SETTINGS = {
 API_URL_PATTERNS = {
     # 实时数据类型 - 更新频率高，对时效性要求高
     'realtime': [
-        r'/data/time/real/',           # 实时交易数据
-        r'/data/time/real/trace/',     # 买卖五档、逐笔交易等
-        r'/data/all/pzyd',             # 盘中异动
-        r'/data/time/real/time/',      # 分时交易数据
-        r'/quotes/',                    # 实时报价
-        r'/tick/',                      # 实时逐笔
-        r'/min/',                       # 分钟线数据
-    ],
-    
+        r'data/time/real/',           # 实时交易数据
+        r'data/time/real/trace/',     # 买卖五档、逐笔交易等
+        r'data/all/pzyd',             # 盘中异动
+        r'data/time/real/time/',      # 分时交易数据
+        r'quotes/',                    # 实时报价
+        r'tick/',                      # 实时逐笔
+        r'min/',                       # 分钟线数据
+    ],    
     # 技术指标类型 - 计算密集型
     'technical': [
-        r'/data/time/real/kdj/',       # KDJ指标
-        r'/data/time/real/macd/',      # MACD指标
-        r'/data/time/real/ma/',        # 移动平均线
-        r'/data/time/real/boll/',      # 布林带
-        r'/data/time/history/kdj/',    # 历史KDJ
-        r'/data/time/history/macd/',   # 历史MACD
-        r'/data/time/history/ma/',     # 历史MA
-        r'/data/time/history/boll/',   # 历史BOLL
-        r'/indicators/',               # 通用技术指标
-    ],
-    
+        r'data/time/real/kdj/',       # KDJ指标
+        r'data/time/real/macd/',      # MACD指标
+        r'data/time/real/ma/',        # 移动平均线
+        r'data/time/real/boll/',      # 布林带
+        r'data/time/history/kdj/',    # 历史KDJ
+        r'data/time/history/macd/',   # 历史MACD
+        r'data/time/history/ma/',     # 历史MA
+        r'data/time/history/boll/',   # 历史BOLL
+        r'indicators/',               # 通用技术指标
+    ],    
     # 资金流向类型 - 资金相关数据
     'fund_flow': [
-        r'/data/time/zijin/',          # 资金流向相关接口
-        r'/data/time/zdtgc/',          # 涨跌停、强势股池等
-        r'/data/all/ld',               # 每日龙虎榜详情
-        r'/data/all/gg/',              # 个股上榜统计
-        r'/data/all/yyb/',             # 营业部上榜统计
-        r'/data/all/jgzz/',            # 机构席位追踪
-        r'/data/all/jgcj',             # 机构席位成交明细
-    ],
-    
+        r'data/time/zijin/',          # 资金流向相关接口
+        r'data/time/zdtgc/',          # 涨跌停、强势股池等
+        r'data/all/ld',               # 每日龙虎榜详情
+        r'data/all/gg/',              # 个股上榜统计
+        r'data/all/yyb/',             # 营业部上榜统计
+        r'data/all/jgzz/',            # 机构席位追踪
+        r'data/all/jgcj',             # 机构席位成交明细
+    ],    
     # 市场数据类型 - 市场整体数据
     'market': [
-        r'/data/all/jdgd',             # 阶段最高最低
-        r'/data/all/cxg',              # 盘中创新高个股
-        r'/data/all/cxd',              # 盘中创新低个股
-        r'/data/all/cjzz',             # 成交骤增个股
-        r'/data/all/cjzj',             # 成交骤减个股
-        r'/data/all/lxfl',             # 连续放量个股
-        r'/data/all/lxsl',             # 连续缩量个股
-        r'/data/all/lxsz',             # 连续上涨个股
-        r'/data/all/lxxd',             # 连续下跌个股
-        r'/data/all/zzdpm',            # 周涨跌排名
+        r'data/all/jdgd',             # 阶段最高最低
+        r'data/all/cxg',              # 盘中创新高个股
+        r'data/all/cxd',              # 盘中创新低个股
+        r'data/all/cjzz',             # 成交骤增个股
+        r'data/all/cjzj',             # 成交骤减个股
+        r'data/all/lxfl',             # 连续放量个股
+        r'data/all/lxsl',             # 连续缩量个股
+        r'data/all/lxsz',             # 连续上涨个股
+        r'data/all/lxxd',             # 连续下跌个股
+        r'data/all/zzdpm',            # 周涨跌排名
+        r'data/all/yzdpm',            # 月涨跌排名
+        r'data/all/bzqsg',             # 本周强势股
+        r'data/all/byqsg',             # 本月强势股
+        r'data/all/ltsz',              # 流通市值排行
+        r'data/all/syl',              # 市盈率排行
+        r'data/all/sjl',               # 市净率排行
+        r'data/all/roe',               # 净资产收益率排行(ROE排行)
+        r'data/all/finyl',             # 盈利能力
+        r'data/all/finyynl',           # 运营能力
+        r'data/all/fincznl',           # 成长能力
+        r'data/all/finchzhainl',       # 偿债能力
+        r'data/all/finxjll',           # 现金流量
+        r'data/all/finyjbb',           # 业绩报表
+        r'data/all/finyjyg',           # 业绩预告
+        r'data/all/finyjkb',           # 业绩快报
+        r'data/all/finlrxf',           # 利润细分
+        r'data/all/orgcghz',           # 机构持股汇总
+        r'data/all/orgjjzc',           # 基金重仓
+        r'data/all/orgsbzc',           # 社保重仓
+        r'data/all/orgqfiizc',         # QFII重仓
+        r'data/all/zjlx/zjhhy',        # 证监会行业
+        r'data/all/zjlx/gnbk',         # 概念板块
+
         r'/market/',                   # 市场概览
         r'/sector/',                   # 板块数据
         r'/industry/',                 # 行业数据
-    ],
-    
+        r'data/all/zjlx/jlrepm',       # 净流入额排名
+        r'data/all/zjlx/jlrlpm',       # 净流入率排名
+        r'data/all/zjlx/zljlrepm',     # 主力净流入额排名
+    ],    
     # 指数数据类型
     'index': [
-        r'/data/base/shsz',            # 沪深主要指数列表
-        r'/data/base/sh',              # 沪市指数列表
-        r'/data/base/sz',              # 深市指数列表
-        r'/data/time/real/shszzdbl',   # 沪深两市上涨下跌数概览
-        r'/index/',                    # 指数数据
-        r'/indices/',                  # 指数数据
-    ],
-    
+        r'data/base/shsz',            # 沪深主要指数列表
+        r'data/base/sh',              # 沪市指数列表
+        r'data/base/sz',              # 深市指数列表
+        r'data/time/real/shszzdbl',   # 沪深两市上涨下跌数概览
+        r'index/',                    # 指数数据
+        r'indices/',                  # 指数数据
+    ],    
     # 基础数据类型 - 更新频率低，数据稳定
     'basic': [
-        r'/data/base/gplist',          # 股票列表
-        r'/data/all/xgrl',             # 新股日历
-        r'/data/all/stgplist',         # 风险警示股票列表
-        r'/data/time/f10/',            # 公司F10信息
-        r'/basic/',                    # 基础数据
-        r'/profile/',                  # 公司简介
-        r'/company/',                  # 公司信息
-        r'/summary/',                  # 摘要信息
+        r'data/base/gplist',          # 股票列表
+        r'data/all/xgrl',             # 新股日历
+        r'data/all/stgplist',         # 风险警示股票列表
+        r'data/time/f10/',            # 公司F10信息
+        r'basic/',                    # 基础数据
+        r'profile/',                  # 公司简介
+        r'company/',                  # 公司信息
+        r'summary/',                  # 摘要信息
     ],
 }
 
@@ -410,6 +431,11 @@ LOGGING = {
     },
     'loggers': {
         'api': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'dao': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': True,

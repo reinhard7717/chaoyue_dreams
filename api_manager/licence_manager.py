@@ -31,7 +31,13 @@ class LicenceManager:
         初始化License管理器
         """
         if not self._initialized:
-            self._licenses = settings.API_LICENCES if hasattr(settings, 'API_LICENCES') else []
+            # 从settings中读取API_LICENCES配置
+            self._licenses = getattr(settings, 'API_LICENCES', [])
+            if not self._licenses:
+                logger.warning("未在settings中找到API_LICENCES配置，或配置为空列表")
+            else:
+                logger.info(f"从settings中加载了{len(self._licenses)}个license")
+            
             self._current_index = 0
             self._last_use_time = {}  # 记录每个license最后使用时间
             self._request_history = defaultdict(list)  # 记录每个license请求历史
@@ -103,8 +109,8 @@ class LicenceManager:
                 return licence
                 
             logger.error(f"所有license都达到速率限制或处于冷却状态，API类型：{api_type}，用户类型：{user_type}")
-            return ""  # 返回空字符串表示没有可用license    
-        
+            return ""  # 返回空字符串表示没有可用license
+    
     def _is_licence_available(self, licence, api_type='default', user_type='basic'):
         """
         检查license是否可用
@@ -160,53 +166,6 @@ class LicenceManager:
         cutoff_time = current_time - 60  # 只保留60秒内的记录
         self._request_history[licence] = [t for t in self._request_history[licence] if t > cutoff_time]
     
-    def get_least_used_licence(self, api_type='default', user_type='basic'):
-        """
-        获取最近使用次数最少的license
-        
-        Args:
-            api_type: API类型
-            user_type: 用户类型
-            
-        Returns:
-            str: license字符串
-        """
-        with self._lock:
-            if not self._licenses:
-                logger.error("没有可用的license")
-                return ""
-            
-            # 优先选择可用且从未使用过的license
-            never_used = [lic for lic in self._licenses 
-                         if lic not in self._last_use_time 
-                         and self._is_licence_available(lic, api_type, user_type)]
-            if never_used:
-                licence = never_used[0]
-                current_time = time.time()
-                self._last_use_time[licence] = current_time
-                self._request_history[licence].append(current_time)
-                self._request_counts[licence][api_type] += 1
-                return licence
-            
-            # 其次选择可用且使用时间最久远的license
-            available_licenses = [lic for lic in self._last_use_time 
-                                if self._is_licence_available(lic, api_type, user_type)]
-            if available_licenses:
-                oldest_license = min(available_licenses, key=lambda x: self._last_use_time[x])
-                current_time = time.time()
-                self._last_use_time[oldest_license] = current_time
-                self._request_history[oldest_license].append(current_time)
-                self._request_counts[oldest_license][api_type] += 1
-                return oldest_license
-            
-            # 如果没有可用的license，返回使用时间最久远的
-            if self._last_use_time:
-                oldest_license = min(self._last_use_time.keys(), key=lambda x: self._last_use_time[x])
-                return oldest_license
-            
-            # 如果还是没有，返回第一个license
-            return self._licenses[0] if self._licenses else ""
-    
     def report_error(self, licence):
         """
         报告license发生错误
@@ -244,19 +203,6 @@ class LicenceManager:
         with self._lock:
             if licence in self._error_count:
                 self._error_count[licence] = 0
-    
-    def set_licence_status(self, licence, active=True):
-        """
-        设置license状态
-        
-        Args:
-            licence: 要设置的license
-            active: 是否激活
-        """
-        with self._lock:
-            if licence in self._licenses:
-                self._is_active[licence] = active
-                logger.info(f"License {licence} 状态已设置为 {'激活' if active else '禁用'}")
     
     def get_licence_stats(self):
         """

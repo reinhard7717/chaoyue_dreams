@@ -15,6 +15,7 @@ class LhbDetail(BaseModel):
     
     class Meta:
         verbose_name = "龙虎榜明细"
+        db_table = "lhb_detail"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),
@@ -39,6 +40,7 @@ class LhbDaily(BaseModel):
     
     class Meta:
         verbose_name = "每日龙虎榜"
+        db_table = "lhb_daily"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -60,6 +62,7 @@ class StockOnList(BaseModel):
     
     class Meta:
         verbose_name = "个股上榜统计"
+        db_table = "stock_on_list"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),
@@ -81,6 +84,7 @@ class BrokerOnList(BaseModel):
     
     class Meta:
         verbose_name = "营业部上榜统计"
+        db_table = "broker_on_list"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['broker_name']),
@@ -102,6 +106,7 @@ class InstitutionTradeTrack(BaseModel):
     
     class Meta:
         verbose_name = "机构席位追踪"
+        db_table = "institution_trade_track"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),
@@ -120,6 +125,7 @@ class InstitutionTradeDetail(BaseModel):
     
     class Meta:
         verbose_name = "机构席位成交明细"
+        db_table = "institution_trade_detail"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['stock_code']),

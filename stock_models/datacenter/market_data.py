@@ -18,6 +18,7 @@ class VolumeIncrease(BaseModel):
     
     class Meta:
         verbose_name = "成交骤增个股"
+        db_table = "volume_increase"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -40,6 +41,7 @@ class VolumeDecrease(BaseModel):
     
     class Meta:
         verbose_name = "成交骤减个股"
+        db_table = "volume_decrease"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -64,6 +66,7 @@ class ContinuousVolumeIncrease(BaseModel):
     
     class Meta:
         verbose_name = "连续放量个股"
+        db_table = "continuous_volume_increase"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -88,6 +91,7 @@ class ContinuousVolumeDecrease(BaseModel):
     
     class Meta:
         verbose_name = "连续缩量个股"
+        db_table = "continuous_volume_decrease"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -111,6 +115,7 @@ class ContinuousRise(BaseModel):
     
     class Meta:
         verbose_name = "连续上涨个股"
+        db_table = "continuous_rise"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -134,6 +139,7 @@ class ContinuousFall(BaseModel):
     
     class Meta:
         verbose_name = "连续下跌个股"
+        db_table = "continuous_fall"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),

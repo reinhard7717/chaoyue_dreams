@@ -21,7 +21,7 @@ from api_manager.mappings.stock_basic import COMPANY_INFO_MAPPING, NEW_STOCK_CAL
 from dao_manager.base_dao import BaseDAO
 from stock_models.stock_basic import CompanyInfo, NewStockCalendar, STStockList, StockBasic
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("dao")
 
 class StockBasicDAO(BaseDAO):
     """
@@ -56,10 +56,10 @@ class StockBasicDAO(BaseDAO):
                 # 日期字段处理
                 if model_field.endswith('_date') or model_field.endswith('_time') or model_field == 't':
                     model_data[model_field] = self._parse_datetime(value)
-                # 数值字段处理
-                elif isinstance(value, (int, float)) or (
+                # 数值字段处理，但排除 stock_code 字段
+                elif (isinstance(value, (int, float)) or (
                     isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                ):
+                )) and model_field != 'stock_code':
                     model_data[model_field] = self._parse_number(value)
                 else:
                     model_data[model_field] = value
@@ -214,10 +214,10 @@ class StockBasicDAO(BaseDAO):
                 # 日期字段处理
                 if field.endswith('_date') or field.endswith('_time') or field == 't':
                     processed_data[field] = self._parse_datetime(value)
-                # 数值字段处理
-                elif isinstance(value, (int, float)) or (
+                # 数值字段处理，但排除 stock_code 字段
+                elif (isinstance(value, (int, float)) or (
                     isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                ):
+                )) and field != 'stock_code':
                     processed_data[field] = self._parse_number(value)
                 else:
                     processed_data[field] = value
@@ -735,7 +735,6 @@ class StockBasicDAO(BaseDAO):
                         failed_count += 1
                         continue
                     
-                    logger.debug(f"映射后的数据: {mapped_data}")
                     
                     # 保存到数据库
                     item = await self._save_to_db(StockBasic, mapped_data)
@@ -829,15 +828,49 @@ class StockBasicDAO(BaseDAO):
                 
                 # 保存到数据库
                 item = await self._save_to_db(NewStockCalendar, mapped_data)
-                saved_items.append(item)
-                
-                # 更新缓存
-                cache_key = f"new_stock:{data.get('dm')}"
-                await self.set_to_cache(cache_key, item)
+                if item:
+                    saved_items.append(item)
+                    
+                    # 将模型对象转换为字典
+                    item_dict = {}
+                    for field in item._meta.fields:
+                        value = getattr(item, field.name)
+                        # 日期字段处理
+                        if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
+                            item_dict[field.name] = self._parse_datetime(value)
+                        # 数值字段处理
+                        elif isinstance(value, (int, float)) or (
+                            isinstance(value, str) and value.replace('.', '', 1).isdigit()
+                        ):
+                            item_dict[field.name] = self._parse_number(value)
+                        else:
+                            item_dict[field.name] = value
+                    
+                    # 更新缓存
+                    cache_key = f"new_stock:{data.get('dm')}"
+                    await self.set_to_cache(cache_key, item_dict)
             
             # 更新全局缓存
-            cache_key = "new_stock:all"
-            await self.set_to_cache(cache_key, saved_items)
+            if saved_items:
+                cache_data = []
+                for item in saved_items:
+                    item_dict = {}
+                    for field in item._meta.fields:
+                        value = getattr(item, field.name)
+                        # 日期字段处理
+                        if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
+                            item_dict[field.name] = self._parse_datetime(value)
+                        # 数值字段处理
+                        elif isinstance(value, (int, float)) or (
+                            isinstance(value, str) and value.replace('.', '', 1).isdigit()
+                        ):
+                            item_dict[field.name] = self._parse_number(value)
+                        else:
+                            item_dict[field.name] = value
+                    cache_data.append(item_dict)
+                
+                cache_key = "new_stock:all"
+                await self.set_to_cache(cache_key, cache_data)
             
             return saved_items
             
@@ -847,7 +880,7 @@ class StockBasicDAO(BaseDAO):
     
     # ================= ST股票相关方法 =================
     
-    async def get_st_stock_by_code(self, stock_code: str) -> Optional[STStockList]:
+    async def get_st_stock_by_code(self, stock_code: str) -> Optional[Dict]:
         """
         根据股票代码获取ST股票信息
         
@@ -855,16 +888,83 @@ class StockBasicDAO(BaseDAO):
             stock_code: 股票代码
             
         Returns:
-            Optional[STStockList]: ST股票信息
+            Optional[Dict]: ST股票信息字典
         """
         cache_key = f"st_stock:{stock_code}"
-        return await self._get_generic_by_code(
-            model_class=STStockList,
-            stock_code=stock_code,
-            cache_key=cache_key,
-            api_method=self.api.get_st_stock_list,
-            mapping=ST_STOCK_LIST_MAPPING
-        )
+        try:
+            # 1. 尝试从缓存获取
+            cached_data = await self.get_from_cache(cache_key)
+            if cached_data:
+                logger.debug(f"缓存命中: {cache_key}")
+                return cached_data
+            
+            logger.debug(f"缓存未命中: {cache_key}")
+            
+            # 2. 从数据库获取
+            @sync_to_async
+            def get_db_item():
+                return STStockList.objects.filter(stock_code=stock_code).first()
+            
+            item = await get_db_item()
+            
+            if item:
+                # 将对象转换为字典格式并更新缓存
+                item_dict = {}
+                for field in item._meta.fields:
+                    value = getattr(item, field.name)
+                    # 日期字段处理
+                    if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
+                        item_dict[field.name] = self._parse_datetime(value)
+                    # 数值字段处理
+                    elif isinstance(value, (int, float)) or (
+                        isinstance(value, str) and value.replace('.', '', 1).isdigit()
+                    ):
+                        item_dict[field.name] = self._parse_number(value)
+                    else:
+                        item_dict[field.name] = value
+                
+                await self.set_to_cache(cache_key, item_dict)
+                return item_dict
+            
+            # 3. 从API获取
+            api_data = await self.api.get_st_stock_list()
+            if not api_data:
+                logger.warning(f"API返回数据为空: {stock_code}")
+                return None
+            
+            # 4. 映射数据
+            model_data = self._map_api_to_model(api_data, ST_STOCK_LIST_MAPPING)
+            if not model_data:
+                logger.warning(f"映射后的数据为空: {stock_code}")
+                return None
+            
+            # 5. 保存到数据库
+            item = await self._save_to_db(STStockList, model_data)
+            if not item:
+                logger.warning(f"保存数据失败: {stock_code}")
+                return None
+            
+            # 6. 更新缓存
+            item_dict = {}
+            for field in item._meta.fields:
+                value = getattr(item, field.name)
+                # 日期字段处理
+                if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
+                    item_dict[field.name] = self._parse_datetime(value)
+                # 数值字段处理
+                elif isinstance(value, (int, float)) or (
+                    isinstance(value, str) and value.replace('.', '', 1).isdigit()
+                ):
+                    item_dict[field.name] = self._parse_number(value)
+                else:
+                    item_dict[field.name] = value
+            
+            await self.set_to_cache(cache_key, item_dict)
+            return item_dict
+            
+        except Exception as e:
+            logger.error(f"获取数据失败: {e}")
+            return None
     
     async def get_all_st_stocks(self) -> List[STStockList]:
         """

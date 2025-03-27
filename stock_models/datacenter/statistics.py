@@ -27,6 +27,7 @@ class StageHighLow(BaseModel):
     
     class Meta:
         verbose_name = "阶段最高最低"
+        db_table = "stage_high_low"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -54,6 +55,7 @@ class NewHighStock(BaseModel):
     
     class Meta:
         verbose_name = "盘中创新高个股"
+        db_table = "new_high_stock"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
@@ -81,6 +83,7 @@ class NewLowStock(BaseModel):
     
     class Meta:
         verbose_name = "盘中创新低个股"
+        db_table = "new_low_stock"
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
