@@ -1,5 +1,5 @@
 资金走势对照
-API：https://ig507.com/data/time/zijin/zlzjzs/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/zlzjzs/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到每分钟资金走势对照，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -16,11 +16,11 @@ jlrl number 净流入率(%)
 lrl number 主力流入率(%)
 shlrl number 散户流入率(%)
 示例：
-https://ig507.com/data/time/zijin/zlzjzs/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/zlzjzs/000001?licence=您的licence
 [{"t":"2025-03-14 14:57:00","zdf":1.01,"lrzj":1173088478.9,"lczj":858551848.25,"jlr":314536630.65,"jlrl":15.5,"lrl":13.43,"shlrl":0.13}]
 
 资金流入趋势
-API：https://ig507.com/data/time/zijin/zjlrqs/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/zjlrqs/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到近十年每天资金流入趋势，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -38,11 +38,11 @@ zljlrl number 主力净流入率(%)
 hyjlr number 行业净流入(元)
 hyjlrl number 行业净流入率(%)
 示例：
-https://ig507.com/data/time/zijin/zjlrqs/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/zjlrqs/000001?licence=您的licence
 [{"t":"2025-03-14","zdf":1.01,"hsl":0.87,"jlr":314536630.65,"jlrl":15.5,"zljlr":272523336.69,"zljlrl":13.43,"hyjlr":6128900768.6,"hyjlrl":17.34}]
 
 最近10天资金流入趋势
-API：https://ig507.com/data/time/zijin/zjlrqs/last10/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/zjlrqs/last10/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到最近10天资金流入趋势，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -60,11 +60,11 @@ zljlrl number 主力净流入率(%)
 hyjlr number 行业净流入(元)
 hyjlrl number 行业净流入率(%)
 示例：
-https://ig507.com/data/time/zijin/zjlrqs/last10/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/zjlrqs/last10/000001?licence=您的licence
 [{"t":"2025-03-14","zdf":1.01,"hsl":0.87,"jlr":314536630.65,"jlrl":15.5,"zljlr":272523336.69,"zljlrl":13.43,"hyjlr":6128900768.6,"hyjlrl":17.34}]
 
 阶段主力动向
-API：https://ig507.com/data/time/zijin/jdzldx/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/jdzldx/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到近十年每天阶段主力动向，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -80,11 +80,11 @@ jlrl3 number 近3日主力净流入率(%）
 jlrl5 number 近5日主力净流入率(%）
 jlrl10 number 近10日主力净流入率(%）
 示例：
-https://ig507.com/data/time/zijin/jdzldx/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/jdzldx/000001?licence=您的licence
 [{"t":"2025-03-14","jlr3":813823985.2,"jlr5":685581479.41,"jlr10":875306952.32,"jlrl3":14.08,"jlrl5":9.46,"jlrl10":7.15}]
 
 最近10天阶段主力动向
-API：https://ig507.com/data/time/zijin/jdzldx/last10/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/jdzldx/last10/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到最近10天阶段主力动向，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -100,11 +100,11 @@ jlrl3 number 近3日主力净流入率(%）
 jlrl5 number 近5日主力净流入率(%）
 jlrl10 number 近10日主力净流入率(%）
 示例：
-https://ig507.com/data/time/zijin/jdzldx/last10/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/jdzldx/last10/000001?licence=您的licence
 [{"t":"2025-03-14","jlr3":813823985.2,"jlr5":685581479.41,"jlr10":875306952.32,"jlrl3":14.08,"jlrl5":9.46,"jlrl10":7.15}]
 
 历史成交分布
-API：https://ig507.com/data/time/zijin/lscjfb/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/lscjfb/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到近十年每天历史成交分布，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -127,11 +127,11 @@ xdjlr number 小单净流入(元)
 sdlr number 散单流入(元)
 sdjlr number 散单净流入(元)
 示例：
-https://ig507.com/data/time/zijin/lscjfb/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/lscjfb/000001?licence=您的licence
 [{"t":"2025-03-14","c":11.96,"zdf":1.01,"jlrl":15.5,"hsl":0.87,"qbjlr":314536630.65,"cddlr":1152327707.55,"cddjlr":272523336.69,"ddlr":661453803.14,"ddjlr":29717395.66,"xdlr":199022535.66,"xdjlr":9671709.14,"sdlr":23414978.8,"sdjlr":2624189.16}]
 
 最近10天成交分布
-API：https://ig507.com/data/time/zijin/lscjfb/last10/ 股票代码 ?licence= 您的licence
+API：https://ig507.com/data/time/zijin/lscjfb/last10/股票代码?licence=您的licence
 描述：根据《股票列表》得到的股票代码作为参数，得到最近10天成交分布，按时间倒序。
 更新频率：每天20:00。
 完成更新耗时：约8小时。
@@ -154,7 +154,7 @@ xdjlr number 小单净流入(元)
 sdlr number 散单流入(元)
 sdjlr number 散单净流入(元)
 示例：
-https://ig507.com/data/time/zijin/lscjfb/last10/000001?licence=您的licence试一下
+https://ig507.com/data/time/zijin/lscjfb/last10/000001?licence=您的licence
 [{"t":"2025-03-14","c":11.96,"zdf":1.01,"jlrl":15.5,"hsl":0.87,"qbjlr":314536630.65,"cddlr":1152327707.55,"cddjlr":272523336.69,"ddlr":661453803.14,"ddjlr":29717395.66,"xdlr":199022535.66,"xdjlr":9671709.14,"sdlr":23414978.8,"sdjlr":2624189.16}]
 
 涨停股池

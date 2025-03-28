@@ -1,10 +1,12 @@
 from django.db import models
+from django.utils.translation import gettext_lazy as _
+from stock_models.stock_basic import StockInfo
 
 class RealtimeData(models.Model):
     """
     股票实时交易数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="realtime_data", verbose_name=_("股票"))
     update_time = models.DateTimeField(verbose_name='更新时间')
     open_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='开盘价', null=True)
     five_min_change = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='五分钟涨跌幅', null=True)
@@ -32,19 +34,19 @@ class RealtimeData(models.Model):
     class Meta:
         verbose_name = '实时交易数据'
         verbose_name_plural = verbose_name
-        db_table = 'realtime_data'
-        unique_together = ('stock_code', 'update_time')
+        db_table = 'stock_realtime_data'
+        unique_together = ('stock', 'update_time')
         ordering = ['-update_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.update_time}"
+        return f"{self.stock.stock_code}-{self.update_time}"
 
 
 class Level5Data(models.Model):
     """
     买卖五档盘口数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="level5_data", verbose_name=_("股票"))
     update_time = models.DateTimeField(verbose_name='更新时间')
     
     # 委托数据
@@ -80,19 +82,19 @@ class Level5Data(models.Model):
     class Meta:
         verbose_name = '买卖五档盘口数据'
         verbose_name_plural = verbose_name
-        db_table = 'level5_data'
-        unique_together = ('stock_code', 'update_time')
+        db_table = 'stock_level5_data'
+        unique_together = ('stock', 'update_time')
         ordering = ['-update_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.update_time}"
+        return f"{self.stock.stock_code}-{self.update_time}"
 
 
 class TradeDetail(models.Model):
     """
     逐笔交易数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="trade_detail", verbose_name=_("股票"))
     trade_date = models.DateField(verbose_name='交易日期')
     trade_time = models.TimeField(verbose_name='交易时间')
     volume = models.IntegerField(verbose_name='成交量')
@@ -105,19 +107,19 @@ class TradeDetail(models.Model):
     class Meta:
         verbose_name = '逐笔交易数据'
         verbose_name_plural = verbose_name
-        db_table = 'trade_detail'
-        unique_together = ('stock_code', 'trade_date', 'trade_time', 'volume', 'price')
+        db_table = 'stock_trade_detail'
+        unique_together = ('stock', 'trade_date', 'trade_time', 'volume', 'price')
         ordering = ['-trade_date', '-trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.trade_date} {self.trade_time}"
+        return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
 
 class TimeDeal(models.Model):
     """
     分时成交数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="time_deal", verbose_name=_("股票"))
     trade_date = models.DateField(verbose_name='交易日期')
     trade_time = models.TimeField(verbose_name='交易时间')
     volume = models.IntegerField(verbose_name='成交量')
@@ -128,19 +130,19 @@ class TimeDeal(models.Model):
     class Meta:
         verbose_name = '分时成交数据'
         verbose_name_plural = verbose_name
-        db_table = 'time_deal'
-        unique_together = ('stock_code', 'trade_date', 'trade_time')
+        db_table = 'stock_time_deal'
+        unique_together = ('stock', 'trade_date', 'trade_time')
         ordering = ['-trade_date', '-trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.trade_date} {self.trade_time}"
+        return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
 
 class PricePercent(models.Model):
     """
     分价成交占比数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="price_percent", verbose_name=_("股票"))
     trade_date = models.DateField(verbose_name='交易日期')
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
     volume = models.IntegerField(verbose_name='成交量')
@@ -151,19 +153,19 @@ class PricePercent(models.Model):
     class Meta:
         verbose_name = '分价成交占比数据'
         verbose_name_plural = verbose_name
-        db_table = 'price_percent'
-        unique_together = ('stock_code', 'trade_date', 'price')
+        db_table = 'stock_price_percent'
+        unique_together = ('stock', 'trade_date', 'price')
         ordering = ['-trade_date', 'price']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.trade_date}-{self.price}"
+        return f"{self.stock.stock_code}-{self.trade_date}-{self.price}"
 
 
 class BigDeal(models.Model):
     """
     逐笔大单交易数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="big_deal", verbose_name=_("股票"))
     trade_date = models.DateField(verbose_name='交易日期')
     trade_time = models.TimeField(verbose_name='交易时间')
     volume = models.IntegerField(verbose_name='成交量')
@@ -176,20 +178,19 @@ class BigDeal(models.Model):
     class Meta:
         verbose_name = '逐笔大单交易数据'
         verbose_name_plural = verbose_name
-        db_table = 'big_deal'
-        unique_together = ('stock_code', 'trade_date', 'trade_time', 'volume', 'price')
+        db_table = 'stock_big_deal'
+        unique_together = ('stock', 'trade_date', 'trade_time', 'volume', 'price')
         ordering = ['-trade_date', '-trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.trade_date} {self.trade_time}"
+        return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
 
 class AbnormalMovement(models.Model):
     """
     盘中异动数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
-    stock_name = models.CharField(max_length=50, verbose_name='股票名称')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="abnormal_movement", verbose_name=_("股票"))
     movement_time = models.DateTimeField(verbose_name='异动时间')
     movement_type = models.CharField(max_length=20, verbose_name='异动类型')
     movement_info = models.CharField(max_length=100, verbose_name='相关信息')
@@ -200,8 +201,8 @@ class AbnormalMovement(models.Model):
         verbose_name = '盘中异动数据'
         verbose_name_plural = verbose_name
         db_table = 'abnormal_movement'
-        unique_together = ('stock_code', 'movement_time', 'movement_type')
+        unique_together = ('stock', 'movement_time', 'movement_type')
         ordering = ['-movement_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.stock_name}-{self.movement_time}-{self.movement_type}"
+        return f"{self.stock.stock_code}-{self.stock.stock_name}-{self.movement_time}-{self.movement_type}"

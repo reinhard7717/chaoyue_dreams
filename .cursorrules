@@ -35,7 +35,7 @@
 - 使用settings.py存放所有配置，尽量不使用其他配置文件。不使用.env文件。Redis和MySQL的配置需要分开。Redis需要配置密码。
 - 不在init文件中导入模型，使用Django的信号机制来实现模型导入。
 - 前端页面使用中国国内CDN引用外部文件
-- api接口返回text/plain或text/html格式，http协议。
+- api接口返回text/plain或text/html格式的JSON字符串，http协议。
 
 # 项目结构
 - api_manager

@@ -12,6 +12,18 @@ STOCK_BASIC_MAPPING = {
     "jys": "exchange"    # 交易所
 }
 
+# 指数、行业、概念树字段映射
+MARKET_CATEGORY_MAPPING = {
+    "name": "name",            # 名称
+    "code": "code",            # 代码
+    "type1": "type1",          # 一级分类
+    "type2": "type2",          # 二级分类
+    "level": "level",          # 层级
+    "pcode": "pcode",          # 父节点代码
+    "pname": "pname",          # 父节点名称
+    "isleaf": "isleaf"         # 是否为叶子节点
+}
+
 
 # 新股日历字段映射
 NEW_STOCK_CALENDAR_MAPPING = {

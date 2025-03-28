@@ -161,10 +161,38 @@ API_REQUEST_SETTINGS = {
 
 # API错误处理设置
 API_ERROR_SETTINGS = {
-    'error_threshold': 5,  # 错误阈值
-    'base_cooldown': 60,  # 基础冷却时间（秒）
-    'max_cooldown': 300,  # 最大冷却时间（秒）
-    'error_backoff': 2.0,  # 错误退避因子
+    'error_threshold': 100,           # 总错误次数阈值
+    'consecutive_error_threshold': 10, # 连续错误次数阈值
+    'base_cooldown': 60,              # 基础冷却时间（秒）
+    'max_cooldown': 3600,             # 最大冷却时间（秒）
+    'error_backoff': 1.5,             # 错误退避系数
+    'success_threshold': 50,          # 成功请求次数阈值（用于重置错误计数）
+    'error_types': {                  # 错误类型配置
+        'rate_limit': {
+            'max_retries': 5,
+            'base_delay': 5.0,
+            'delay_factor': 2.0,
+            'max_delay': 60.0
+        },
+        'network': {
+            'max_retries': 3,
+            'base_delay': 2.0,
+            'delay_factor': 1.5,
+            'max_delay': 10.0
+        },
+        'timeout': {
+            'max_retries': 3,
+            'base_delay': 2.0,
+            'delay_factor': 1.5,
+            'max_delay': 10.0
+        },
+        'server_error': {
+            'max_retries': 3,
+            'base_delay': 2.0,
+            'delay_factor': 1.5,
+            'max_delay': 10.0
+        }
+    }
 }
 
 API_URL_PATTERNS = {
@@ -275,70 +303,112 @@ API_RATE_LIMITS = {
         'basic': {
             'rate': 0.5,  # 每2秒1个请求
             'burst': 1,  # 不允许突发
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 40,  # 每秒40个请求
             'burst': 50,  # 允许突发到50个请求
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
     'basic': {  # 基础数据API
         'basic': {
             'rate': 0.5,  # 每2秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 40,  # 每秒40个请求
             'burst': 50,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
     'index': {  # 指数数据API
         'basic': {
             'rate': 0.5,  # 每2秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 40,  # 每秒40个请求
             'burst': 50,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
     'market': {  # 市场数据API
         'basic': {
             'rate': 0.5,  # 每2秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 0.167,  # 每6秒1个请求 - 根据API文档，市场数据请求频率限制为每分钟10次
             'burst': 2,  # 允许一定程度的突发
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
     'fund_flow': {  # 资金流向API
         'basic': {
             'rate': 0.5,  # 每2秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 40,  # 每秒40个请求
             'burst': 50,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
     'technical': {  # 技术指标API
         'basic': {
             'rate': 0.5,  # 每2秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 3,  # 每秒3个请求 - 根据API文档，技术指标API请求频率限制为每秒3次
             'burst': 5,  # 允许一定程度的突发，但历史数据请求限制为每秒3次
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
     'default': {  # 默认限制
         'basic': {
             'rate': 0.167,  # 每6秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
             'rate': 0.167,  # 每6秒1个请求
             'burst': 1,
+            'error_window': 300,  # 错误统计窗口（秒）
+            'min_success_rate': 0.8,  # 最小成功率阈值
+            'error_history_size': 100    # 错误历史记录大小
         },
     },
 }
@@ -446,3 +516,14 @@ LOGGING = {
 # 确保日志目录存在
 if not os.path.exists(os.path.join(BASE_DIR, 'logs')):
     os.makedirs(os.path.join(BASE_DIR, 'logs'))
+
+# 指数相关缓存配置
+INDEX_CACHE_TIMEOUT = {
+    'index_list': 86400,  # 指数列表缓存1天
+    'realtime_data': 60,  # 实时数据缓存1分钟
+    'market_overview': 120,  # 市场概览缓存2分钟
+    'time_series': 300,  # 分时数据缓存5分钟
+    'technical_indicators': 300,  # 技术指标缓存5分钟
+}
+
+

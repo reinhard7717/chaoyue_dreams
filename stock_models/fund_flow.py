@@ -1,20 +1,21 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from stock_models.stock_basic import StockInfo
 from utils.models import BaseModel
 
 class FundFlowMinute(BaseModel):
     """
     分钟级资金流向数据
     """
-    stock = models.ForeignKey('stock_models.StockBasic', on_delete=models.CASCADE, related_name="fund_flow_minutes", verbose_name=_("股票"))
-    trade_time = models.DateTimeField(verbose_name=_("交易时间"))
-    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"))
-    inflow_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("总流入资金(元)"))
-    outflow_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("总流出资金(元)"))
-    net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入(元)"))
-    net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("净流入率(%)"))
-    main_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("主力流入率(%)"))
-    retail_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("散户流入率(%)"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="fund_flow_minute", verbose_name=_("股票"))
+    trade_time = models.DateTimeField(verbose_name=_("交易时间"), null=True, blank=True)
+    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"), null=True, blank=True)
+    inflow_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("总流入资金(元)"), null=True, blank=True)
+    outflow_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("总流出资金(元)"), null=True, blank=True)
+    net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入(元)"), null=True, blank=True)
+    net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("净流入率(%)"), null=True, blank=True)
+    main_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("主力流入率(%)"), null=True, blank=True)
+    retail_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("散户流入率(%)"), null=True, blank=True)
     
     class Meta:
         verbose_name = _("分钟级资金流向")
@@ -33,16 +34,16 @@ class FundFlowDaily(BaseModel):
     """
     日级资金流向数据
     """
-    stock = models.ForeignKey('stock_models.StockBasic', on_delete=models.CASCADE, related_name="fund_flow_daily", verbose_name=_("股票"))
-    trade_date = models.DateField(verbose_name=_("交易日期"))
-    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"))
-    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("换手率(%)"))
-    net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入(元)"))
-    net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("净流入率(%)"))
-    main_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("主力净流入(元)"))
-    main_net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("主力净流入率(%)"))
-    industry_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("行业净流入(元)"))
-    industry_net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("行业净流入率(%)"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="fund_flow_daily", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"), null=True, blank=True)
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("换手率(%)"), null=True, blank=True)
+    net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入(元)"), null=True, blank=True)
+    net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("净流入率(%)"), null=True, blank=True)
+    main_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("主力净流入(元)"), null=True, blank=True)
+    main_net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("主力净流入率(%)"), null=True, blank=True)
+    industry_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("行业净流入(元)"), null=True, blank=True)
+    industry_net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("行业净流入率(%)"), null=True, blank=True)
     
     class Meta:
         verbose_name = _("日级资金流向")
@@ -61,14 +62,14 @@ class MainForcePhase(BaseModel):
     """
     阶段主力动向数据
     """
-    stock = models.ForeignKey('stock_models.StockBasic', on_delete=models.CASCADE, related_name="main_force_phase", verbose_name=_("股票"))
-    trade_date = models.DateField(verbose_name=_("交易日期"))
-    inflow_3day = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("近3日主力净流入(元)"))
-    inflow_5day = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("近5日主力净流入(元)"))
-    inflow_10day = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("近10日主力净流入(元)"))
-    inflow_rate_3day = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("近3日主力净流入率(%)"))
-    inflow_rate_5day = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("近5日主力净流入率(%)"))
-    inflow_rate_10day = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("近10日主力净流入率(%)"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="main_force_phase", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    inflow_3day = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("近3日主力净流入(元)"), null=True, blank=True)
+    inflow_5day = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("近5日主力净流入(元)"), null=True, blank=True)
+    inflow_10day = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("近10日主力净流入(元)"), null=True, blank=True)
+    inflow_rate_3day = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("近3日主力净流入率(%)"), null=True, blank=True)
+    inflow_rate_5day = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("近5日主力净流入率(%)"), null=True, blank=True)
+    inflow_rate_10day = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("近10日主力净流入率(%)"), null=True, blank=True)
     
     class Meta:
         verbose_name = _("阶段主力动向")
@@ -87,21 +88,21 @@ class TransactionDistribution(BaseModel):
     """
     历史成交分布数据
     """
-    stock = models.ForeignKey('stock_models.StockBasic', on_delete=models.CASCADE, related_name="transaction_distribution", verbose_name=_("股票"))
-    trade_date = models.DateField(verbose_name=_("交易日期"))
-    close_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("收盘价(元)"))
-    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"))
-    net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("净流入率(%)"))
-    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("换手率(%)"))
-    total_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("全部净流入(元)"))
-    super_large_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("超大单流入(元)"))
-    super_large_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("超大单净流入(元)"))
-    large_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("大单流入(元)"))
-    large_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("大单净流入(元)"))
-    small_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单流入(元)"))
-    small_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单净流入(元)"))
-    retail_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("散单流入(元)"))
-    retail_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("散单净流入(元)"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="transaction_distribution", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    close_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("收盘价(元)"), null=True, blank=True)
+    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"), null=True, blank=True)
+    net_inflow_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("净流入率(%)"), null=True, blank=True)
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("换手率(%)"), null=True, blank=True)
+    total_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("全部净流入(元)"), null=True, blank=True)
+    super_large_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("超大单流入(元)"), null=True, blank=True)
+    super_large_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("超大单净流入(元)"), null=True, blank=True)
+    large_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("大单流入(元)"), null=True, blank=True)
+    large_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("大单净流入(元)"), null=True, blank=True)
+    small_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单流入(元)"), null=True, blank=True)
+    small_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单净流入(元)"), null=True, blank=True)
+    retail_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("散单流入(元)"), null=True, blank=True)
+    retail_net_inflow = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("散单净流入(元)"), null=True, blank=True)
     
     class Meta:
         verbose_name = _("历史成交分布")
@@ -122,15 +123,16 @@ class StockPool(BaseModel):
     
     作为所有股票池模型的抽象基类，包含共同字段
     """
-    date = models.DateField(verbose_name=_("日期"))
-    code = models.CharField(max_length=20, verbose_name=_("股票代码"))
-    name = models.CharField(max_length=50, verbose_name=_("股票名称"))
-    price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("价格(元)"))
-    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"))
-    turnover = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("成交额(元)"))
-    circulating_market_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("流通市值(元)"))
-    total_market_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("总市值(元)"))
-    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("换手率(%)"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="stock_pool", verbose_name=_("股票"))
+    date = models.DateField(verbose_name=_("日期"), null=True, blank=True)
+    code = models.CharField(max_length=20, verbose_name=_("股票代码"), null=True, blank=True)
+    name = models.CharField(max_length=50, verbose_name=_("股票名称"), null=True, blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("价格(元)"), null=True, blank=True)
+    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"), null=True, blank=True)
+    turnover = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("成交额(元)"), null=True, blank=True)
+    circulating_market_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("流通市值(元)"), null=True, blank=True)
+    total_market_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("总市值(元)"), null=True, blank=True)
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("换手率(%)"), null=True, blank=True)
     
     class Meta:
         abstract = True
@@ -145,9 +147,10 @@ class LimitUpPool(StockPool):
     
     存储每日涨停股票数据，根据封板时间升序
     """
-    consecutive_limit_days = models.IntegerField(verbose_name=_("连板数"))
-    first_limit_time = models.TimeField(verbose_name=_("首次封板时间"))
-    last_limit_time = models.TimeField(verbose_name=_("最后封板时间"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="limit_up_pool", verbose_name=_("股票"))
+    consecutive_limit_days = models.IntegerField(verbose_name=_("连板数"), null=True, blank=True)
+    first_limit_time = models.TimeField(verbose_name=_("首次封板时间"), null=True, blank=True)
+    last_limit_time = models.TimeField(verbose_name=_("最后封板时间"), null=True, blank=True)
     limit_funds = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("封板资金(元)"))
     break_times = models.IntegerField(verbose_name=_("炸板次数"))
     limit_statistics = models.CharField(max_length=20, verbose_name=_("涨停统计"))
@@ -168,12 +171,13 @@ class LimitDownPool(StockPool):
     
     存储每日跌停股票数据，根据封单资金升序
     """
-    pe_ratio = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("动态市盈率"))
-    consecutive_limit_days = models.IntegerField(verbose_name=_("连续跌停次数"))
-    last_limit_time = models.TimeField(verbose_name=_("最后封板时间"))
-    limit_funds = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("封单资金(元)"))
-    turnover_on_limit = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("板上成交额(元)"))
-    open_times = models.IntegerField(verbose_name=_("开板次数"))
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="limit_down_pool", verbose_name=_("股票"))
+    pe_ratio = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("动态市盈率"), null=True, blank=True)
+    consecutive_limit_days = models.IntegerField(verbose_name=_("连续跌停次数"), null=True, blank=True)
+    last_limit_time = models.TimeField(verbose_name=_("最后封板时间"), null=True, blank=True)
+    limit_funds = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("封单资金(元)"), null=True, blank=True)
+    turnover_on_limit = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("板上成交额(元)"), null=True, blank=True)
+    open_times = models.IntegerField(verbose_name=_("开板次数"), null=True, blank=True)
     
     class Meta:
         verbose_name = _("跌停股池")
@@ -191,6 +195,7 @@ class StrongStockPool(StockPool):
     
     存储每日强势股票数据，根据涨幅倒序
     """
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="strong_stock_pool", verbose_name=_("股票"))
     limit_up_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("涨停价(元)"))
     change_speed = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨速(%)"))
     is_new_high = models.BooleanField(verbose_name=_("是否新高"))
@@ -213,6 +218,7 @@ class NewStockPool(StockPool):
     
     存储每日次新股票数据，根据开板几日升序
     """
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="new_stock_pool", verbose_name=_("股票"))
     limit_up_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("涨停价(元)"))
     is_new_high = models.BooleanField(verbose_name=_("是否新高"))
     limit_statistics = models.CharField(max_length=20, verbose_name=_("涨停统计"))
@@ -236,6 +242,7 @@ class BreakLimitPool(StockPool):
     
     存储每日炸板股票数据，根据首次封板时间升序
     """
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="break_limit_pool", verbose_name=_("股票"))
     limit_up_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("涨停价(元)"))
     change_speed = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨速(%)"))
     limit_statistics = models.CharField(max_length=20, verbose_name=_("涨停统计"))

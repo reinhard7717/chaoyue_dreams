@@ -1,13 +1,13 @@
 # models/datacenter/statistics.py
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 from utils.models import BaseModel
-
+from stock_models.stock_basic import StockInfo
 
 class StageHighLow(BaseModel):
     """阶段最高最低"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="stage_high_low", verbose_name=_("股票"))
     high_price_5d = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="近5日最高价")  # 原 g5
     low_price_5d = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="近5日最低价")  # 原 d5
     change_rate_5d = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="近5日涨跌幅")  # 原 zd5
@@ -31,15 +31,14 @@ class StageHighLow(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class NewHighStock(BaseModel):
     """盘中创新高个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="new_high_stock", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     high_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="最高价")  # 原 h
     low_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="最低价")  # 原 l
@@ -59,15 +58,14 @@ class NewHighStock(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class NewLowStock(BaseModel):
     """盘中创新低个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="new_low_stock", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     high_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="最高价")  # 原 h
     low_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="最低价")  # 原 l
@@ -87,5 +85,5 @@ class NewLowStock(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]

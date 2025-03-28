@@ -148,36 +148,42 @@ class Command(BaseCommand):
         index_dao = StockIndexDAO()
         
         # 获取所有指数基础信息
-        indexs = await index_dao._refresh_indexes()
+        indexs = await index_dao.get_all_indexes()
         self.stdout.write('  - 已获取所有指数基础信息')
-        
+
         for index in indexs:
             # 获取主要指数的实时数据
             await index_dao._fetch_and_save_realtime_data(index.code)
-        self.stdout.write('  - 已获取主要指数实时数据')
+            self.stdout.write(f'  - 已获取主要指数 {index.code} 实时数据')
             
-        # 获取市场概览
-        await index_dao._fetch_and_save_market_overview()
-        self.stdout.write('  - 已获取市场概览数据')
+        # # 获取市场概览
+        # await index_dao._fetch_and_save_market_overview()
+        # self.stdout.write('  - 已获取市场概览数据')
         
-        # 获取各周期K线数据
-        periods = ['5', '15', '30', '60', 'Day', 'Week', 'Month']
-        for period in periods:
-            for index in indexs:
-                await index_dao._fetch_and_save_time_series(period)
-                self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期K线数据')
-                await index_dao._fetch_and_save_kdj(index.code)
-                self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期KDJ数据')
-                await index_dao._fetch_and_save_macd(index.code)
-                self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期MACD数据')
-                await index_dao._fetch_and_save_boll(index.code)
-                self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期BOLL数据')
-                await index_dao._fetch_and_save_ma(index.code)
-                self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期MA数据')
-        
-        # 获取技术指标
-        await index_dao.refresh_main_indexes_technical_indicators('Day')
-        self.stdout.write('  - 已获取主要指数日线技术指标')
+        # # 获取各周期K线数据
+        # periods = ['5', '15', '30', '60', 'Day', 'Week', 'Month']
+        # for period in periods:
+        #     for index in indexs:
+        #         await index_dao._fetch_and_save_time_series(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期K线数据')
+        #         await index_dao._fetch_and_save_kdj(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期KDJ数据')
+        #         await index_dao._fetch_and_save_macd(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期MACD数据')
+        #         await index_dao._fetch_and_save_boll(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期BOLL数据')
+        #         await index_dao._fetch_and_save_ma(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期MA数据')
+        #         await index_dao._fetch_and_save_history_time_series(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期历史K线数据')
+        #         await index_dao._fetch_and_save_history_kdj(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期历史KDJ数据')
+        #         await index_dao._fetch_and_save_history_macd(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期历史MACD数据')
+        #         await index_dao._fetch_and_save_history_boll(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期历史BOLL数据')
+        #         await index_dao._fetch_and_save_history_ma(index.code, period)
+        #         self.stdout.write(f'  - 已获取主要指数 {index.code} {period} 周期历史MA数据')
 
     async def fetch_datacenter_data(self):
         """获取数据中心数据"""
@@ -193,123 +199,157 @@ class Command(BaseCommand):
         periods = ['5', '10', '30', '60']
 
         # 获取日级龙虎榜数据
-        # await lhb_dao.save_daily_lhb()
-        # self.stdout.write('  - 已获取日级龙虎榜数据')
+        await lhb_dao.save_daily_lhb()
+        self.stdout.write('  - 已获取日级龙虎榜数据')
         
-        
-        # for period in periods:
-            # # 获取保存近n日上榜个股
-            # await lhb_dao.save_stock_on_list(period)
-            # self.stdout.write(f'  - 保存近{period}日上榜个股')
+        for period in periods:
+            # 获取保存近n日上榜个股
+            await lhb_dao.save_stock_on_list(period)
+            self.stdout.write(f'  - 保存近{period}日上榜个股')
 
-            # # 获取保存近n日上榜营业部
-            # await lhb_dao.save_broker_on_list(period)
-            # self.stdout.write(f'  - 保存近{period}日上榜营业部')
+            # 获取保存近n日上榜营业部
+            await lhb_dao.save_broker_on_list(period)
+            self.stdout.write(f'  - 保存近{period}日上榜营业部')
 
-            # # 获取保存近n日机构交易跟踪
-            # await lhb_dao.save_institution_trade_track(period)
-            # self.stdout.write(f'  - 保存近{period}日机构交易跟踪')
+            # 获取保存近n日机构交易跟踪
+            await lhb_dao.save_institution_trade_track(period)
+            self.stdout.write(f'  - 保存近{period}日机构交易跟踪')
 
-            # # 获取保存近n日机构交易明细
-            # await lhb_dao.save_institution_trade_detail(period)
-            # self.stdout.write(f'  - 保存近{period}日机构交易明细')
+            # 获取保存近n日机构交易明细
+            await lhb_dao.save_institution_trade_detail(period)
+            self.stdout.write(f'  - 保存近{period}日机构交易明细')
 
-        # # 获取保存阶段高低榜
-        # await stock_statistics_dao.save_stage_high_low()
-        # self.stdout.write('  - 保存阶段高低榜')
+        # 获取保存阶段高低榜
+        await stock_statistics_dao.save_stage_high_low()
+        self.stdout.write('  - 保存阶段高低榜')
 
-        # # 保存盘中创新高个股数据
-        # await stock_statistics_dao.save_new_high_stocks()
-        # self.stdout.write('  - 保存盘中创新高个股数据')
+        # 保存盘中创新高个股数据
+        await stock_statistics_dao.save_new_high_stocks()
+        self.stdout.write('  - 保存盘中创新高个股数据')
 
-        # #  保存盘中创新低个股数据
-        # await stock_statistics_dao.save_new_low_stocks()
-        # self.stdout.write('  -  保存盘中创新低个股数据')
+        #  保存盘中创新低个股数据
+        await stock_statistics_dao.save_new_low_stocks()
+        self.stdout.write('  -  保存盘中创新低个股数据')
 
-        # # 保存成交骤增个股数据
-        # await discrete_transaction_dao.save_volume_increase()
-        # self.stdout.write('  - 保存成交骤增个股数据')
+        # 保存成交骤增个股数据
+        await discrete_transaction_dao.save_volume_increase()
+        self.stdout.write('  - 保存成交骤增个股数据')
 
-        # # 获取保存成交骤减个股数据
-        # await discrete_transaction_dao.save_volume_decrease()
-        # self.stdout.write('  - 保存成交骤减个股数据')
+        # 获取保存成交骤减个股数据
+        await discrete_transaction_dao.save_volume_decrease()
+        self.stdout.write('  - 保存成交骤减个股数据')
 
-        # # 保存连续放量上涨个股数据
-        # await discrete_transaction_dao.save_continuous_volume_increase()
-        # self.stdout.write('  - 保存连续放量上涨个股数据')
+        # 保存连续放量上涨个股数据
+        await discrete_transaction_dao.save_continuous_volume_increase()
+        self.stdout.write('  - 保存连续放量上涨个股数据')
 
-        # # 保存连续放量下跌个股数据
-        # await discrete_transaction_dao.save_continuous_volume_decrease()
-        # self.stdout.write('  - 保存连续放量下跌个股数据')
+        # 保存连续放量下跌个股数据
+        await discrete_transaction_dao.save_continuous_volume_decrease()
+        self.stdout.write('  - 保存连续放量下跌个股数据')
 
-        # # 保存连续上涨个股数据
-        # await discrete_transaction_dao.save_continuous_rise()
-        # self.stdout.write('  - 保存连续上涨个股数据')
+        # 保存连续上涨个股数据
+        await discrete_transaction_dao.save_continuous_rise()
+        self.stdout.write('  - 保存连续上涨个股数据')
 
-        # # 保存连续下跌个股数据
-        # await discrete_transaction_dao.save_continuous_fall()
-        # self.stdout.write('  - 保存连续下跌个股数据')
+        # 保存连续下跌个股数据
+        await discrete_transaction_dao.save_continuous_fall()
+        self.stdout.write('  - 保存连续下跌个股数据')
 
-        # # 保存周涨幅榜
-        # await financial_dao.save_weekly_rank_change()
-        # self.stdout.write('  - 保存周涨幅榜')
+        # 保存周涨幅榜
+        await financial_dao.save_weekly_rank_change()
+        self.stdout.write('  - 保存周涨幅榜')
 
-        # # 保存月涨幅榜
-        # await financial_dao.save_monthly_rank_change()
-        # self.stdout.write('  - 保存月涨幅榜')
+        # 保存月涨幅榜
+        await financial_dao.save_monthly_rank_change()
+        self.stdout.write('  - 保存月涨幅榜')
 
-        # # 保存周强势股
-        # await financial_dao.save_weekly_strong_stocks()
-        # self.stdout.write('  - 保存周强势股')
+        # 保存周强势股
+        await financial_dao.save_weekly_strong_stocks()
+        self.stdout.write('  - 保存周强势股')
 
-        # # 保存月强势股
-        # await financial_dao.save_monthly_strong_stocks()
-        # self.stdout.write('  - 保存月强势股')
+        # 保存月强势股
+        await financial_dao.save_monthly_strong_stocks()
+        self.stdout.write('  - 保存月强势股')
 
-        # # 保存流通市值榜
-        # await financial_dao.save_circ_market_value_rank()
-        # self.stdout.write('  - 保存流通市值榜')
+        # 保存流通市值榜
+        await financial_dao.save_circ_market_value_rank()
+        self.stdout.write('  - 保存流通市值榜')
 
-        # # 保存市盈率榜
-        # await financial_dao.save_pe_ratio_rank()
-        # self.stdout.write('  - 保存市盈率榜')
+        # 保存市盈率榜
+        await financial_dao.save_pe_ratio_rank()
+        self.stdout.write('  - 保存市盈率榜')
 
-        # # 保存市净率榜
-        # await financial_dao.save_pb_ratio_rank()
-        # self.stdout.write('  - 保存市净率榜')
+        # 保存市净率榜
+        await financial_dao.save_pb_ratio_rank()
+        self.stdout.write('  - 保存市净率榜')
 
-        # # 保存净资产收益率榜
-        # await financial_dao.save_roe_rank()
-        # self.stdout.write('  - 保存净资产收益率榜')
+        # 保存净资产收益率榜
+        await financial_dao.save_roe_rank()
+        self.stdout.write('  - 保存净资产收益率榜')
 
-        # # 保存机构持仓汇总
-        # await institutional_shareholding_dao.save_institution_holding_summary()
-        # self.stdout.write('  - 保存机构持仓汇总')
+        # 保存机构持仓汇总
+        await institutional_shareholding_dao.save_institution_holding_summary()
+        self.stdout.write('  - 保存机构持仓汇总')
 
-        # # 保存主力持仓
-        # await institutional_shareholding_dao.save_fund_heavy_positions()
-        # self.stdout.write('  - 保存主力持仓')
+        # 保存主力持仓
+        await institutional_shareholding_dao.save_fund_heavy_positions()
+        self.stdout.write('  - 保存主力持仓')
 
-        # # 保存社保持仓
-        # await institutional_shareholding_dao.save_social_security_heavy_positions()
-        # self.stdout.write('  - 保存社保持仓')
+        # 保存社保持仓
+        await institutional_shareholding_dao.save_social_security_heavy_positions()
+        self.stdout.write('  - 保存社保持仓')
 
-        # # 保存QFII持仓
-        # await institutional_shareholding_dao.save_qfii_heavy_positions()
-        # self.stdout.write('  - 保存QFII持仓')
+        # 保存QFII持仓
+        await institutional_shareholding_dao.save_qfii_heavy_positions()
+        self.stdout.write('  - 保存QFII持仓')
 
-        # # 保存行业资金流向
-        # await capital_flow_dao.save_industry_capital_flow()
-        # self.stdout.write('  - 保存行业资金流向')
+        # 保存行业资金流向
+        await capital_flow_dao.save_industry_capital_flow()
+        self.stdout.write('  - 保存行业资金流向')
         
         # 保存概念资金流向
         await capital_flow_dao.save_concept_capital_flow()
         self.stdout.write('  - 保存概念资金流向')
         
-        # 保存个股资金流向
-        await capital_flow_dao.save_stock_capital_flow()
-        self.stdout.write('  - 保存个股资金流向')
+        # 保存行业资金流向数据
+        await capital_flow_dao.save_industry_capital_flow()
+        self.stdout.write('  - 保存行业资金流向数据')
+
+        # 保存概念资金流向数据
+        await capital_flow_dao.save_concept_capital_flow()
+        self.stdout.write('  - 保存概念资金流向数据')
+
+        # 保存个股阶段统计总览数据
+        await capital_flow_dao.save_stock_period_statistics_overview()
+        self.stdout.write('  - 保存个股阶段统计总览数据')
+
+        # 保存净流入额排名数据
+        await capital_flow_dao.save_net_inflow_amount_rank()
+        self.stdout.write('  - 保存净流入额排名数据')
+
+        # 保存净流入率排名数据
+        await capital_flow_dao.save_net_inflow_rate_rank()
+        self.stdout.write('  - 保存净流入率排名数据')
+
+        # 保存主力净流入额排名数据
+        await capital_flow_dao.save_main_net_inflow_amount_rank()
+        self.stdout.write('  - 保存主力净流入额排名数据')
+
+        # 保存主力净流入率排名数据
+        await capital_flow_dao.save_main_net_inflow_rate_rank()
+        self.stdout.write('  - 保存主力净流入率排名数据')
+
+        # 保存散户净流入额排名数据
+        await capital_flow_dao.save_retail_net_inflow_amount_rank()
+        self.stdout.write('  - 保存散户净流入额排名数据')
+
+        # 保存散户净流入率排名数据
+        await capital_flow_dao.save_retail_net_inflow_rate_rank()
+        self.stdout.write('  - 保存散户净流入率排名数据')
         
+        
+
+
         # # 保存北向南向资金概况
         # await north_south_dao.save_north_south_fund_overview()
         # self.stdout.write('  - 保存北向南向资金概况')

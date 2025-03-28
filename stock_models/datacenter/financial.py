@@ -1,13 +1,14 @@
 # models/datacenter/financial.py
 from django.db import models
+from django.utils.translation import gettext_lazy as _
+from stock_models.stock_basic import StockInfo
 from utils.models import BaseModel
 
 
 class WeeklyRankChange(BaseModel):
     """周涨跌排名"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="weekly_rank_change", verbose_name=_("股票"))
     weekly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="周涨跌幅")  # 原 zdf
     weekly_volume = models.BigIntegerField(verbose_name="周成交量")  # 原 v
     weekly_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="周成交额")  # 原 amount
@@ -22,15 +23,14 @@ class WeeklyRankChange(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class MonthlyRankChange(BaseModel):
     """月涨跌排名"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="monthly_rank_change", verbose_name=_("股票"))
     monthly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="月涨跌幅")  # 原 zdf
     monthly_volume = models.BigIntegerField(verbose_name="月成交量")  # 原 v
     monthly_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="月成交额")  # 原 amount
@@ -45,15 +45,14 @@ class MonthlyRankChange(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class WeeklyStrongStock(BaseModel):
     """本周强势股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="weekly_strong_stock", verbose_name=_("股票"))
     weekly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="周涨跌幅")  # 原 zdf
     weekly_open_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="周开盘价")  # 原 o
     weekly_close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="周收盘价")  # 原 c
@@ -69,15 +68,14 @@ class WeeklyStrongStock(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class MonthlyStrongStock(BaseModel):
     """本月强势股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="monthly_strong_stock", verbose_name=_("股票"))
     monthly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="月涨跌幅")  # 原 zdf
     monthly_open_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="月开盘价")  # 原 o
     monthly_close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="月收盘价")  # 原 c
@@ -93,15 +91,14 @@ class MonthlyStrongStock(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class CircMarketValueRank(BaseModel):
     """流通市值排行"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="circ_market_value_rank", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=3, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     volume = models.BigIntegerField(verbose_name="成交量")  # 原 v
@@ -115,15 +112,14 @@ class CircMarketValueRank(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class PERatioRank(BaseModel):
     """市盈率排行"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="pe_ratio_rank", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=3, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     volume = models.BigIntegerField(verbose_name="成交量")  # 原 v
@@ -137,15 +133,14 @@ class PERatioRank(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class PBRatioRank(BaseModel):
     """市净率排行"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="pb_ratio_rank", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=3, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     volume = models.BigIntegerField(verbose_name="成交量")  # 原 v
@@ -159,14 +154,13 @@ class PBRatioRank(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
         ]
 
 
 class ROERank(BaseModel):
     """ROE排行"""
-    stock_code = models.CharField(max_length=10, verbose_name="股票代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="股票名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="roe_rank", verbose_name=_("股票"))
     roe = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="ROE")
     total_market_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="总市值")  # 原 zsz
     net_assets = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="净资产")  # 原 jzc
@@ -200,6 +194,6 @@ class ROERank(BaseModel):
         db_table = "roe_rank"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
             models.Index(fields=['industry_name']),
         ]

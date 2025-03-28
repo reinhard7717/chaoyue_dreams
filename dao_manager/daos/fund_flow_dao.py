@@ -20,7 +20,7 @@ from stock_models.fund_flow import (
     BreakLimitPool, FundFlowDaily, FundFlowMinute, LimitDownPool, LimitUpPool, 
     MainForcePhase, NewStockPool, StrongStockPool, TransactionDistribution
 )
-from stock_models.stock_basic import StockBasic
+from stock_models.stock_basic import StockInfo
 from dao_manager.base_dao import BaseDAO
 
 
@@ -172,7 +172,7 @@ class FundFlowDAO(BaseDAO):
                     # 数值字段处理
                     elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
+                    )) and 'code' not in field.name.lower():
                         item_dict[field.name] = self._parse_number(value)
                     else:
                         item_dict[field.name] = value
@@ -187,7 +187,7 @@ class FundFlowDAO(BaseDAO):
     async def _process_save_data(
         self, 
         model_class: Type[Model], 
-        stock: StockBasic, 
+        stock: StockInfo, 
         api_data: List[Dict[str, Any]], 
         mapping: Dict[str, str],
         unique_fields: List[str],
@@ -277,7 +277,7 @@ class FundFlowDAO(BaseDAO):
     
     # ================ 股票基本信息方法 ================
     
-    async def get_stock_by_code(self, code: str) -> Optional[StockBasic]:
+    async def get_stock_by_code(self, code: str) -> Optional[StockInfo]:
         """
         根据股票代码获取股票信息
         
@@ -287,7 +287,7 @@ class FundFlowDAO(BaseDAO):
             code: 股票代码
             
         Returns:
-            Optional[StockBasic]: 股票对象，如不存在返回None
+            Optional[StockInfo]: 股票对象，如不存在返回None
         """
         cache_key = self._build_cache_key('stock', code)
         
@@ -298,7 +298,7 @@ class FundFlowDAO(BaseDAO):
         
         # 从数据库获取
         try:
-            stock = await sync_to_async(lambda: StockBasic.objects.filter(code=code).first())()
+            stock = await sync_to_async(lambda: StockInfo.objects.filter(code=code).first())()
             
             if stock:
                 # 更新缓存
@@ -311,7 +311,7 @@ class FundFlowDAO(BaseDAO):
                 
                 @transaction.atomic
                 def create_stock():
-                    stock = StockBasic(code=code, name=name, exchange=exchange)
+                    stock = StockInfo(code=code, name=name, exchange=exchange)
                     stock.save()
                     return stock
                 
@@ -813,7 +813,7 @@ class FundFlowDAO(BaseDAO):
     
     # ================ 公共方法 ================
     
-    async def refresh_stock_info(self, stock_code: str, name: str, exchange: str) -> Optional[StockBasic]:
+    async def refresh_stock_info(self, stock_code: str, name: str, exchange: str) -> Optional[StockInfo]:
         """
         刷新股票基本信息
         
@@ -823,7 +823,7 @@ class FundFlowDAO(BaseDAO):
             exchange: 交易所代码
             
         Returns:
-            Optional[StockBasic]: 更新后的股票对象
+            Optional[StockInfo]: 更新后的股票对象
         """
         try:
             stock = await self.get_stock_by_code(stock_code)
@@ -832,7 +832,7 @@ class FundFlowDAO(BaseDAO):
                 # 创建新股票
                 @transaction.atomic
                 def create_stock():
-                    new_stock = StockBasic(code=stock_code, name=name, exchange=exchange)
+                    new_stock = StockInfo(code=stock_code, name=name, exchange=exchange)
                     new_stock.save()
                     return new_stock
                 
@@ -1059,7 +1059,7 @@ class StockPoolDAO(BaseDAO):
                     # 数值字段处理
                     elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
+                    )) and 'code' not in field.name.lower():
                         item_dict[field.name] = self._parse_number(value)
                     else:
                         item_dict[field.name] = value

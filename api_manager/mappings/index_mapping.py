@@ -15,27 +15,27 @@ INDEX_LIST_MAPPING = {
 
 # 指数实时数据字段映射
 INDEX_REALTIME_DATA_MAPPING = {
-    'o': 'open_price',           # 开盘价
-    'h': 'high_price',           # 最高价
-    'l': 'low_price',            # 最低价
-    'p': 'current_price',        # 当前价格
-    'yc': 'prev_close_price',    # 昨日收盘价
-    'pc': 'change_percent',      # 涨跌幅(%)
-    'ud': 'change_amount',       # 涨跌额
-    'v': 'volume',               # 成交量(手)
-    'cje': 'turnover',           # 成交额(元)
-    'hs': 'turnover_rate',       # 换手率(%)
-    'zf': 'amplitude',           # 振幅(%)
-    'lb': 'volume_ratio',        # 量比(%)
-    'fm': 'five_min_change',     # 五分钟涨跌幅(%)
-    'zs': 'change_speed',        # 涨速(%)
-    'lt': 'circulating_market_value',  # 流通市值(元)
-    'sz': 'total_market_value',  # 总市值(元)
-    'pe': 'pe_ratio',            # 市盈率
-    'sjl': 'pb_ratio',           # 市净率
-    'zdf60': 'change_60d',       # 60日涨跌幅(%)
-    'zdfnc': 'change_ytd',       # 年初至今涨跌幅(%)
-    't': 'update_time',          # 更新时间
+    'o': 'open_price',                  # 开盘价
+    'h': 'high_price',                  # 最高价
+    'l': 'low_price',                   # 最低价
+    'p': 'current_price',               # 当前价格
+    'yc': 'prev_close_price',           # 昨日收盘价
+    'ud': 'price_change',               # 涨跌额
+    'pc': 'price_change_percent',       # 涨跌幅(%)
+    'fm': 'five_minute_change_percent', # 五分钟涨跌幅(%)
+    'zf': 'amplitude',                  # 振幅(%)
+    'zs': 'change_speed',               # 涨速(%)
+    'zdf60': 'sixty_day_change_percent',# 60日涨跌幅(%)
+    'zdfnc': 'ytd_change_percent',      # 年初至今涨跌幅(%)
+    'v': 'volume',                      # 成交量(手)
+    'cje': 'turnover',                  # 成交额(元)
+    'hs': 'turnover_rate',              # 换手率(%)
+    'lb': 'volume_ratio',               # 量比(%)
+    'pe': 'pe_ratio',                   # 市盈率
+    'sjl': 'pb_ratio',                  # 市净率
+    'lt': 'circulating_market_value',   # 流通市值(元)
+    'sz': 'total_market_value',         # 总市值(元)
+    't': 'update_time',                 # 更新时间
 }
 
 # 市场概览数据字段映射

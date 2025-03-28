@@ -8,6 +8,8 @@ import re
 import time
 from typing import Dict, Any, Optional, List, Union
 from django.conf import settings
+from bs4 import BeautifulSoup
+from datetime import datetime
 
 from .licence_manager import LicenceManager
 
@@ -22,7 +24,7 @@ class BaseAPI:
         """
         初始化BaseAPI
         """
-        self.session = None
+        self._session = None
         self.base_url = settings.API_BASE_URL if hasattr(settings, 'API_BASE_URL') else ""
         self.headers = {}
         self.timeout = getattr(settings, 'API_REQUEST_TIMEOUT', 30)
@@ -41,6 +43,34 @@ class BaseAPI:
         self._retry_delay_factor = getattr(settings, 'API_RETRY_DELAY_FACTOR', 1.5)
         self._max_retry_delay = getattr(settings, 'API_MAX_RETRY_DELAY', 30.0)
         
+        # 错误类型配置
+        self._error_configs = {
+            'rate_limit': {
+                'max_retries': 5,
+                'base_delay': 5.0,
+                'delay_factor': 2.0,
+                'max_delay': 60.0
+            },
+            'network': {
+                'max_retries': 3,
+                'base_delay': 2.0,
+                'delay_factor': 1.5,
+                'max_delay': 10.0
+            },
+            'timeout': {
+                'max_retries': 3,
+                'base_delay': 2.0,
+                'delay_factor': 1.5,
+                'max_delay': 10.0
+            },
+            'server_error': {
+                'max_retries': 3,
+                'base_delay': 2.0,
+                'delay_factor': 1.5,
+                'max_delay': 10.0
+            }
+        }
+        
         # 频率限制错误模式匹配
         self._rate_limit_patterns = [
             r'503请求过于频繁',
@@ -54,8 +84,23 @@ class BaseAPI:
         
         # 默认使用专业版
         self._user_type = 'pro'
+
+        # 响应解析相关正则表达式
+        self._key_value_pattern = re.compile(r'([^:=\s]+)[:\s=]+(.+?)(?=\n|$)')
+        self._table_pattern = re.compile(r'<table.*?>(.*?)</table>', re.DOTALL)
+        self._row_pattern = re.compile(r'<tr.*?>(.*?)</tr>', re.DOTALL)
+        self._cell_pattern = re.compile(r'<t[dh].*?>(.*?)</t[dh]>', re.DOTALL)
         
         logger.info(f"初始化BaseAPI，基础URL: {self.base_url}，用户类型: {self._user_type}")
+    
+    @property
+    async def session(self):
+        """
+        获取或创建aiohttp会话
+        """
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
     
     def _detect_api_type(self, url: str) -> str:
         """
@@ -135,35 +180,27 @@ class BaseAPI:
         return self.licence_manager.get_licence(api_type=api_type, user_type=self._user_type, ignore_limits=True)
     
     async def _make_request(self, method: str, url: str, params: Dict = None, data: Dict = None, 
-                          retry_count: int = 0, original_url: str = None) -> Any:
+                          retry_count: int = 0, original_url: str = None, error_type: str = None,
+                          expected_type: str = None) -> Any:
         """
-        发送HTTP请求
+        发送HTTP请求，包含重试机制和错误处理
         
         Args:
-            method: 请求方法（GET、POST等）
+            method: HTTP方法
             url: 请求URL
             params: URL参数
             data: 请求体数据
             retry_count: 当前重试次数
-            original_url: 原始URL，用于重试时跟踪
+            original_url: 原始URL（用于重试）
+            error_type: 错误类型（用于重试）
+            expected_type: 期望的返回数据类型('list', 'dict', None等)
             
         Returns:
             Any: 响应数据
         """
-        # 保存原始URL用于重试
-        if original_url is None:
-            original_url = url
-            
-        # 检查是否超过最大重试次数
-        if retry_count > self._max_retry_count:
-            logger.error(f"请求 {original_url} 超过最大重试次数 {self._max_retry_count}")
-            return {"error": f"超过最大重试次数 {self._max_retry_count}", "url": original_url}
-        
-        session_created = False
         try:
-            if not self.session:
-                self.session = aiohttp.ClientSession()
-                session_created = True
+            # 获取会话
+            session = await self.session
             
             # 自动检测API类型
             api_type = self._detect_api_type(url)
@@ -187,13 +224,9 @@ class BaseAPI:
             url_with_licence = f"{url}{separator}licence={licence}"
             full_url = f"{base_url}/{url_with_licence}"
             
-            # 只在首次请求或重试时记录日志，避免日志过多
-            # if retry_count == 0:
-            #     logger.debug(f"请求URL: {full_url}, API类型: {api_type}, 用户类型: {self._user_type}")
-            # else:
-            #     logger.debug(f"重试请求({retry_count}/{self._max_retry_count}): {full_url}")
-            logger.warning(f"请求URL: {full_url}, API类型: {api_type}, 用户类型: {self._user_type}")
-            async with self.session.request(
+            logger.debug(f"请求URL: {full_url}, API类型: {api_type}, 用户类型: {self._user_type}")
+            
+            async with session.request(
                 method, 
                 full_url, 
                 params=params, 
@@ -212,10 +245,17 @@ class BaseAPI:
                     # 报告错误
                     self.licence_manager.report_error(licence)
                     
+                    # 获取频率限制配置
+                    error_config = self._error_configs['rate_limit']
+                    max_retries = error_config['max_retries']
+                    base_delay = error_config['base_delay']
+                    delay_factor = error_config['delay_factor']
+                    max_delay = error_config['max_delay']
+                    
                     # 计算下次重试时间
                     retry_after = response.headers.get('Retry-After')
-                    retry_delay = self._retry_delay * (self._retry_delay_factor ** retry_count)
-                    retry_delay = min(retry_delay, self._max_retry_delay)
+                    retry_delay = base_delay * (delay_factor ** retry_count)
+                    retry_delay = min(retry_delay, max_delay)
                     
                     # 如果服务器指定了重试时间，优先使用
                     if retry_after:
@@ -224,18 +264,24 @@ class BaseAPI:
                         except ValueError:
                             pass
                     
-                    logger.info(f"将在 {retry_delay:.1f} 秒后重试请求 ({retry_count + 1}/{self._max_retry_count})")
-                    await asyncio.sleep(retry_delay)
-                    
-                    # 递归调用自身重试请求
-                    return await self._make_request(
-                        method, 
-                        original_url, 
-                        params, 
-                        data, 
-                        retry_count + 1, 
-                        original_url
-                    )
+                    if retry_count < max_retries:
+                        logger.info(f"将在 {retry_delay:.1f} 秒后重试请求 ({retry_count + 1}/{max_retries})")
+                        await asyncio.sleep(retry_delay)
+                        
+                        # 递归调用自身重试请求
+                        return await self._make_request(
+                            method, 
+                            original_url, 
+                            params, 
+                            data, 
+                            retry_count + 1, 
+                            original_url,
+                            'rate_limit'
+                        )
+                    else:
+                        logger.error(f"达到最大重试次数({max_retries})，请求失败")
+                        return {"error": "请求频率过高，请稍后再试"}
+                        
                 elif response.status == 404:
                     logger.warning(f"资源不存在(404): {full_url}, 响应: {text}")
                     # 报告错误
@@ -245,14 +291,40 @@ class BaseAPI:
                         return json.loads(text)
                     except json.JSONDecodeError:
                         return text
+                elif response.status >= 500:
+                    logger.error(f"服务器错误 {response.status}: {full_url}, 响应: {text}")
+                    # 报告错误
+                    self.licence_manager.report_error(licence)
+                    
+                    # 获取服务器错误配置
+                    error_config = self._error_configs['server_error']
+                    max_retries = error_config['max_retries']
+                    base_delay = error_config['base_delay']
+                    delay_factor = error_config['delay_factor']
+                    max_delay = error_config['max_delay']
+                    
+                    if retry_count < max_retries:
+                        retry_delay = base_delay * (delay_factor ** retry_count)
+                        retry_delay = min(retry_delay, max_delay)
+                        logger.info(f"服务器错误，将在 {retry_delay:.1f} 秒后重试 ({retry_count + 1}/{max_retries})")
+                        await asyncio.sleep(retry_delay)
+                        return await self._make_request(
+                            method, 
+                            original_url, 
+                            params, 
+                            data, 
+                            retry_count + 1, 
+                            original_url,
+                            'server_error'
+                        )
+                    else:
+                        return {"error": "服务器错误，请稍后再试"}
                 elif response.status >= 400:
                     logger.error(f"HTTP错误 {response.status}: {full_url}, 响应: {text}")
                     # 报告错误
                     self.licence_manager.report_error(licence)
                     return text
                 else:
-                    # logger.debug(f"响应状态码: {response.status}, 响应内容类型: {content_type}")
-                    
                     # 成功请求，重置错误计数
                     self.licence_manager.reset_error_count(licence)
                     
@@ -263,42 +335,50 @@ class BaseAPI:
                         # 报告错误
                         self.licence_manager.report_error(licence)
                         
-                        # 计算下次重试时间
-                        retry_delay = self._retry_delay * (self._retry_delay_factor ** retry_count)
-                        retry_delay = min(retry_delay, self._max_retry_delay)
+                        # 获取频率限制配置
+                        error_config = self._error_configs['rate_limit']
+                        max_retries = error_config['max_retries']
+                        base_delay = error_config['base_delay']
+                        delay_factor = error_config['delay_factor']
+                        max_delay = error_config['max_delay']
                         
-                        logger.info(f"将在 {retry_delay:.1f} 秒后重试请求 ({retry_count + 1}/{self._max_retry_count})")
-                        await asyncio.sleep(retry_delay)
-                        
-                        # 递归调用自身重试请求
-                        return await self._make_request(
-                            method, 
-                            original_url, 
-                            params, 
-                            data, 
-                            retry_count + 1, 
-                            original_url
-                        )
+                        if retry_count < max_retries:
+                            retry_delay = base_delay * (delay_factor ** retry_count)
+                            retry_delay = min(retry_delay, max_delay)
+                            logger.info(f"将在 {retry_delay:.1f} 秒后重试请求 ({retry_count + 1}/{max_retries})")
+                            await asyncio.sleep(retry_delay)
+                            return await self._make_request(
+                                method, 
+                                original_url, 
+                                params, 
+                                data, 
+                                retry_count + 1, 
+                                original_url,
+                                'rate_limit'
+                            )
+                        else:
+                            return {"error": "请求频率过高，请稍后再试"}
                     
-                    # 如果内容类型是JSON或看起来像JSON，尝试解析
-                    if 'application/json' in content_type or text.strip().startswith('{') or text.strip().startswith('['):
-                        try:
-                            return json.loads(text)
-                        except json.JSONDecodeError:
-                            logger.warning(f"无法解析JSON响应: {text[:100]}...")
-                            return text
-                    return text
+                    # 解析响应内容
+                    parsed_data = self._parse_response(text, content_type, expected_type)
+                    return parsed_data
         except aiohttp.ClientError as e:
             logger.error(f"HTTP客户端错误: {str(e)}")
             # 报告错误
             if 'licence' in locals():
                 self.licence_manager.report_error(licence)
                 
-            # 针对网络相关错误，尝试重试
-            if retry_count < self._max_retry_count:
-                retry_delay = self._retry_delay * (self._retry_delay_factor ** retry_count)
-                retry_delay = min(retry_delay, self._max_retry_delay)
-                logger.info(f"网络错误，将在 {retry_delay:.1f} 秒后重试 ({retry_count + 1}/{self._max_retry_count})")
+            # 获取网络错误配置
+            error_config = self._error_configs['network']
+            max_retries = error_config['max_retries']
+            base_delay = error_config['base_delay']
+            delay_factor = error_config['delay_factor']
+            max_delay = error_config['max_delay']
+            
+            if retry_count < max_retries:
+                retry_delay = base_delay * (delay_factor ** retry_count)
+                retry_delay = min(retry_delay, max_delay)
+                logger.info(f"网络错误，将在 {retry_delay:.1f} 秒后重试 ({retry_count + 1}/{max_retries})")
                 await asyncio.sleep(retry_delay)
                 return await self._make_request(
                     method, 
@@ -306,20 +386,28 @@ class BaseAPI:
                     params, 
                     data, 
                     retry_count + 1, 
-                    original_url
+                    original_url,
+                    'network'
                 )
-            return f"HTTP客户端错误: {str(e)}"
+            else:
+                return {"error": f"网络错误: {str(e)}"}
         except asyncio.TimeoutError:
             logger.error(f"请求超时: {url}")
             # 报告错误
             if 'licence' in locals():
                 self.licence_manager.report_error(licence)
                 
-            # 针对超时错误，尝试重试
-            if retry_count < self._max_retry_count:
-                retry_delay = self._retry_delay * (self._retry_delay_factor ** retry_count)
-                retry_delay = min(retry_delay, self._max_retry_delay)
-                logger.info(f"请求超时，将在 {retry_delay:.1f} 秒后重试 ({retry_count + 1}/{self._max_retry_count})")
+            # 获取超时错误配置
+            error_config = self._error_configs['timeout']
+            max_retries = error_config['max_retries']
+            base_delay = error_config['base_delay']
+            delay_factor = error_config['delay_factor']
+            max_delay = error_config['max_delay']
+            
+            if retry_count < max_retries:
+                retry_delay = base_delay * (delay_factor ** retry_count)
+                retry_delay = min(retry_delay, max_delay)
+                logger.info(f"请求超时，将在 {retry_delay:.1f} 秒后重试 ({retry_count + 1}/{max_retries})")
                 await asyncio.sleep(retry_delay)
                 return await self._make_request(
                     method, 
@@ -327,69 +415,276 @@ class BaseAPI:
                     params, 
                     data, 
                     retry_count + 1, 
-                    original_url
+                    original_url,
+                    'timeout'
                 )
-            return "请求超时"
+            else:
+                return {"error": "请求超时"}
         except Exception as e:
             logger.error(f"API请求出错: {str(e)}")
             # 报告错误
             if 'licence' in locals():
                 self.licence_manager.report_error(licence)
-                
-            # 针对其他错误，尝试重试
-            if retry_count < self._max_retry_count:
-                retry_delay = self._retry_delay * (self._retry_delay_factor ** retry_count)
-                retry_delay = min(retry_delay, self._max_retry_delay)
-                logger.info(f"未知错误，将在 {retry_delay:.1f} 秒后重试 ({retry_count + 1}/{self._max_retry_count})")
-                await asyncio.sleep(retry_delay)
-                return await self._make_request(
-                    method, 
-                    original_url, 
-                    params, 
-                    data, 
-                    retry_count + 1, 
-                    original_url
-                )
-            return f"未知错误: {str(e)}"
-        finally:
-            # 如果是新创建的会话且只用于一次请求，则关闭它
-            if session_created:
-                await self.close()
+            return {"error": f"未知错误: {str(e)}"}
+
+    def _parse_response(self, response_text: str, content_type: str = '', expected_type: str = None) -> Any:
+        """
+        解析API响应，处理不同的数据格式
+        
+        Args:
+            response_text: API响应文本
+            content_type: 响应内容类型
+            expected_type: 期望的数据类型(list, dict, str等)
+            
+        Returns:
+            解析后的结构化数据
+        """
+        # 如果响应为空，返回空结果
+        if not response_text:
+            return {} if expected_type == 'dict' else [] if expected_type == 'list' else None
+        
+        # 尝试解析JSON
+        if response_text.strip().startswith('{') or response_text.strip().startswith('[') or 'application/json' in content_type:
+            try:
+                data = json.loads(response_text)
+                return data
+            except json.JSONDecodeError:
+                logger.warning(f"JSON解析失败: {response_text[:100]}...")
+        
+        # 检查是否为HTML响应
+        if '<html' in response_text.lower() or '<table' in response_text.lower() or 'text/html' in content_type:
+            return self._parse_html_response(response_text, expected_type)
+        
+        # 检查是否为键值对文本
+        if ('=' in response_text or ':' in response_text) and '\n' in response_text:
+            result = self._parse_key_value_text(response_text)
+            # 如果期望列表但解析出字典
+            if expected_type == 'list' and isinstance(result, dict) and result:
+                return [result]
+            return result
+        
+        # 检查是否为CSV格式
+        if ',' in response_text and '\n' in response_text:
+            return self._parse_csv_text(response_text)
+        
+        # 返回原始响应
+        logger.debug(f"无法识别的响应格式，返回原始内容")
+        return response_text
     
-    async def get(self, url: str, params: Dict = None) -> Any:
+    def _parse_html_response(self, html_content: str, expected_type: str = None) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        解析HTML响应
+        
+        Args:
+            html_content: HTML内容
+            expected_type: 期望的数据类型
+            
+        Returns:
+            解析后的数据结构
+        """
+        try:
+            # 使用BeautifulSoup解析
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # 查找表格
+            tables = soup.find_all('table')
+            if tables:
+                # 有表格，解析为列表
+                result = []
+                # 获取第一个表格(通常是主要数据)
+                table = tables[0]
+                
+                # 获取表头
+                headers = []
+                header_row = table.find('tr')
+                if header_row:
+                    headers = [th.get_text().strip() for th in header_row.find_all(['th', 'td'])]
+                
+                # 解析数据行
+                for row in table.find_all('tr')[1:] if headers else table.find_all('tr'):
+                    cells = [td.get_text().strip() for td in row.find_all(['td', 'th'])]
+                    if headers:
+                        # 使用表头作为键
+                        row_data = {headers[i]: self._convert_value(cells[i]) for i in range(min(len(headers), len(cells)))}
+                    else:
+                        # 没有表头，使用索引作为键
+                        row_data = {f"column_{i}": self._convert_value(cell) for i, cell in enumerate(cells)}
+                    
+                    result.append(row_data)
+                
+                return result
+            else:
+                # 无表格，尝试解析为键值对
+                result = {}
+                # 查找所有段落和div
+                elements = soup.find_all(['p', 'div', 'span'])
+                
+                for element in elements:
+                    text = element.get_text().strip()
+                    # 查找冒号或等号分隔的键值对
+                    match = re.search(r'([^:=]+)[:\s=]+(.+)', text)
+                    if match:
+                        key = match.group(1).strip()
+                        value = match.group(2).strip()
+                        result[key] = self._convert_value(value)
+                
+                # 如果期望列表但解析出字典
+                if expected_type == 'list' and isinstance(result, dict):
+                    return [result] if result else []
+                
+                return result
+        except Exception as e:
+            logger.error(f"HTML解析失败: {str(e)}")
+            return [] if expected_type == 'list' else {}
+    
+    def _parse_key_value_text(self, text_content: str) -> Dict[str, Any]:
+        """
+        解析键值对文本
+        
+        Args:
+            text_content: 文本内容
+            
+        Returns:
+            Dict[str, Any]: 解析后的字典
+        """
+        result = {}
+        
+        try:
+            # 按行分割
+            lines = text_content.strip().split('\n')
+            
+            for line in lines:
+                # 跳过空行
+                if not line.strip():
+                    continue
+                    
+                # 匹配键值对
+                match = self._key_value_pattern.search(line)
+                if match:
+                    key = match.group(1).strip()
+                    value = match.group(2).strip()
+                    result[key] = self._convert_value(value)
+        except Exception as e:
+            logger.error(f"键值对文本解析失败: {str(e)}")
+        
+        return result
+    
+    def _parse_csv_text(self, text_content: str) -> List[Dict[str, Any]]:
+        """
+        解析CSV格式文本
+        
+        Args:
+            text_content: CSV文本内容
+            
+        Returns:
+            List[Dict[str, Any]]: 解析后的数据列表
+        """
+        result = []
+        
+        try:
+            # 按行分割
+            lines = [line.strip() for line in text_content.strip().split('\n') if line.strip()]
+            
+            if not lines:
+                return result
+                
+            # 解析表头
+            headers = [h.strip() for h in lines[0].split(',')]
+            
+            # 解析数据行
+            for i in range(1, len(lines)):
+                values = lines[i].split(',')
+                row_data = {}
+                
+                for j in range(min(len(headers), len(values))):
+                    row_data[headers[j]] = self._convert_value(values[j].strip())
+                    
+                result.append(row_data)
+        except Exception as e:
+            logger.error(f"CSV文本解析失败: {str(e)}")
+        
+        return result
+    
+    def _convert_value(self, value_str: str) -> Any:
+        """
+        尝试将字符串值转换为适当的类型
+        
+        Args:
+            value_str: 字符串值
+            
+        Returns:
+            Any: 转换后的值
+        """
+        if not value_str or not isinstance(value_str, str):
+            return value_str
+            
+        # 去除两端空白
+        value_str = value_str.strip()
+        
+        # 尝试转换为数字
+        try:
+            # 检查是否包含小数点
+            if '.' in value_str:
+                # 尝试转换为浮点数
+                return float(value_str)
+            else:
+                # 尝试转换为整数
+                return int(value_str)
+        except ValueError:
+            pass
+            
+        # 尝试转换为布尔值
+        if value_str.lower() in ('true', 'yes', '是', 't', 'y'):
+            return True
+        elif value_str.lower() in ('false', 'no', '否', 'f', 'n'):
+            return False
+            
+        # 尝试转换为日期时间
+        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%H:%M:%S']:
+            try:
+                return datetime.strptime(value_str, fmt)
+            except ValueError:
+                pass
+                
+        # 无法转换，保持字符串类型
+        return value_str
+    
+    async def get(self, url: str, params: Dict = None, expected_type: str = None) -> Any:
         """
         发送GET请求
         
         Args:
             url: 请求URL
             params: URL参数
+            expected_type: 期望的返回数据类型('list', 'dict', None等)
             
         Returns:
             Any: 响应数据
         """
-        return await self._make_request('GET', url, params=params)
+        return await self._make_request('GET', url, params=params, expected_type=expected_type)
     
-    async def post(self, url: str, data: Dict = None) -> Any:
+    async def post(self, url: str, data: Dict = None, expected_type: str = None) -> Any:
         """
         发送POST请求
         
         Args:
             url: 请求URL
             data: 请求体数据
+            expected_type: 期望的返回数据类型('list', 'dict', None等)
             
         Returns:
             Any: 响应数据
         """
-        return await self._make_request('POST', url, data=data)
+        return await self._make_request('POST', url, data=data, expected_type=expected_type)
     
     async def close(self):
         """
         关闭HTTP会话
         """
-        if self.session:
-            await self.session.close()
-            self.session = None
-            # logger.debug("HTTP会话已关闭")
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+            logger.debug("HTTP会话已关闭")
             
     async def __aenter__(self):
         """

@@ -1,8 +1,9 @@
 # models/datacenter/north_south.py
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 from utils.models import BaseModel
 from datetime import datetime
-
+from stock_models.stock_basic import StockInfo
 
 class NorthSouthFundOverview(BaseModel):
     """南北向资金流向概览"""
@@ -60,8 +61,7 @@ class SouthFundTrend(BaseModel):
 class NorthStockHolding(BaseModel):
     """北向持股明细"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock_code = models.CharField(max_length=10, verbose_name="股票代码")  # 原 dm
-    stock_name = models.CharField(max_length=50, verbose_name="股票名称")  # 原 mc
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="north_stock_holding", verbose_name=_("股票"))
     holding_shares = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="持股数量(万股)")  # 原 cgs
     float_share_ratio = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="占流通股比例(%)")  # 原 zltgbl
     holding_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="持股市值(万元)")  # 原 cgsz
@@ -77,6 +77,6 @@ class NorthStockHolding(BaseModel):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=['trade_date']),
-            models.Index(fields=['stock_code']),
+            models.Index(fields=['stock']),
             models.Index(fields=['period']),
         ]

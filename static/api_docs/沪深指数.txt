@@ -1,5 +1,5 @@
 沪深主要指数列表接口
-API：https://ig507.com/data/base/shsz?licence= 您的licence
+API：https://ig507.com/data/base/shsz?licence=您的licence
 描述：获取沪深两市主要的指数代码和名称，用于后续接口的参数传入。
 更新频率：每天15:35点。
 完成更新耗时：约10分钟。
@@ -11,12 +11,11 @@ dm string 指数代码，如：sh000001（注意，股票代码可以不带“sh
 mc string 股票名称，如：上证指数
 jys string 交易所，"sh"表示上证，"sz"表示深证，"shsz"表示同时含有沪深两市成分股的指数
 示例：
-
-https://ig507.com/data/base/shsz?licence=您的licence试一下
+https://ig507.com/data/base/shsz?licence=您的licence
 [{"dm":"sh000001","mc":"上证指数","jys":"sh"},{"dm":"sz399001","mc":"深证成指","jys":"sz"},{"dm":"sz899050","mc":"北证50","jys":"sz"},{"dm":"sz399006","mc":"创业板指","jys":"sz"}]
 
 沪市指数列表接口
-API：https://ig507.com/data/base/sh?licence= 您的licence
+API：https://ig507.com/data/base/sh?licence=您的licence
 描述：获取沪市下的所有指数代码和名称，用于后续接口的参数传入。
 更新频率：每天15:35点。
 完成更新耗时：约10分钟。
@@ -28,12 +27,11 @@ dm string 指数代码，如：sh000001（注意，股票代码可以不带“sh
 mc string 股票名称，如：上证指数
 jys string 交易所，"sh"表示上证，"sz"表示深证（因为此接口只有沪市指数，所以参数返回只有"sh"）
 示例：
-
-https://ig507.com/data/base/sh?licence=您的licence试一下
+https://ig507.com/data/base/sh?licence=您的licence
 [{"dm":"sh000912","mc":"300消费","jys":"sh"}]
 
 深市指数列表接口
-API：https://ig507.com/data/base/sz?licence= 您的licence
+API：https://ig507.com/data/base/sz?licence=您的licence
 描述：获取深市下的所有指数代码和名称，用于后续接口的参数传入。
 更新频率：每天15:35点。
 完成更新耗时：约10分钟。
@@ -45,20 +43,17 @@ dm string 指数代码，如：sz399001（注意，股票代码可以不带“sh
 mc string 股票名称，如：深证成指
 jys string 交易所，"sh"表示上证，"sz"表示深证（因为此接口只有深市指数，所以参数返回只有"sz"）
 示例：
-
-https://ig507.com/data/base/sz?licence=您的licence试一下
+https://ig507.com/data/base/sz?licence=您的licence
 [{"dm":"sz399809","mc":"保险主题","jys":"sz"}]
 
 指数实时数据接口
-API：https://ig507.com/data/time/real/ 指数代码（包含sh/sz前缀，如：sh000001） ?licence= 您的licence
+API：https://ig507.com/data/time/real/ 指数代码（包含sh/sz前缀，如：sh000001） ?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）获取实时交易数据，您可以理解为日线的最新数据。
 更新频率：交易时间段每1分钟。
 完成更新耗时：约10秒。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 fm number 五分钟涨跌幅（%）
 h number 最高价
@@ -81,21 +76,19 @@ sjl number 市净率
 zdf60 number 60日涨跌幅（%）
 zdfnc number 年初至今涨跌幅（%）
 t string 更新时间yyyy-MM-dd HH:mm:ss
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/time/real/sh000001?licence=您的licence
 {"o":3207.93,"fm":0.01,"h":3244.64,"hs":0.76,"lb":1.10,"l":3203.82,"lt":40865592606956.00,"pe":0.00,"pc":1.36,"p":3243.45,"sz":47908130387628.00,"cje":378636070327.50,"ud":43.54,"v":318869689,"yc":3199.91,"zf":1.28,"zs":0.02,"sjl":0.00,"zdf60":-1.38,"zdfnc":-10.89,"t":"
 2022-09-06 16:18:55"}
+
 沪深两市上涨下跌数概览
-API：https://ig507.com/data/time/real/shszzdbl ?licence= 您的licence
+API：https://ig507.com/data/time/real/shszzdbl ?licence=您的licence
 描述：获取沪深两市的股票上涨、下跌总数以及各比例区间的上涨下跌数。
 更新频率：交易时间段每2分钟。
 完成更新耗时：约10秒。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 totalUp number 上涨总数
 totalDown number 下跌总数
@@ -111,21 +104,18 @@ down2To4 number 下跌-2%~-4%的数量
 down4To6 number 下跌-4%~-6%的数量
 down6To8 number 下跌-6%~-8%的数量
 down8ToDt number 下跌-8%~跌停的数量
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 https://ig507.com/data/time/real/shszzdbl?licence=您的licence
 {"totalUp":1777,"totalDown":2252,"zt":59,"dt":14,"up8ToZt":64,"up6To8":32,"up4To6":118,"up2To4":355,"up0To2":1356,"down0To2":1265,"down2To4":625,"down4To6":248,"down6To8":82,"down8ToDt":32}
 
 最新分时交易
-API：https://ig507.com/data/time/real/time/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/real/time/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）以及分时级别获取分时交易数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 d string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 o number 开盘价（元）
@@ -138,8 +128,7 @@ zf number 振幅（%）
 hs number 换手率（%）
 zd number 涨跌幅（%）
 zde number 涨跌额（元）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/real/time/sh000001/5?licence=您的licence
 {"d":"2021-01-22 14:55:00","o":3605.974,"h":3607.371,"l":3605.547,"c":3606.646,"v":863544700}
@@ -166,22 +155,19 @@ https://ig507.com/data/time/real/time/sh000001/Year?licence=您的licence
 {"d":"2021-01-22","o":3474.679,"h":3636.244,"l":3457.206,"c":3606.750,"v":520551028900}
 
 最新分时KDJ(9,3,3)
-API：https://ig507.com/data/time/real/kdj/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/real/kdj/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）以及分时级别获取分时KDJ数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 k number K值
 d number D值
 j number J值
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/real/kdj/sh000001/5?licence=您的licence
 {"t":"2021-01-22 15:00:00","k":66.98,"d":70.33,"j":60.28}
@@ -199,15 +185,13 @@ https://ig507.com/data/time/real/kdj/sh000001/Day?licence=您的licence
 {"t":"2021-01-22","k":73.20,"d":72.27,"j":75.06}
 
 最新分时MACD
-API：https://ig507.com/data/time/real/macd/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/real/macd/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）以及分时级别获取分时MACD数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 diff number DIFF值
@@ -215,8 +199,7 @@ dea number DEA值
 macd number MACD值
 ema12 number EMA（12）值
 ema26 number EMA（26）值
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/real/macd/sh000001/5?licence=您的licence
 {"t":"2021-01-22 15:00:00","diff":1.750,"dea":1.242,"macd":1.017,"ema12":3605.7203,"ema26":3603.9699}
@@ -234,15 +217,13 @@ https://ig507.com/data/time/real/macd/sh000001/Day?licence=您的licence
 {"t":"2021-01-22","diff":51.699,"dea":49.509,"macd":4.380,"ema12":3571.0134,"ema26":3519.3144}
 
 最新分时MA
-API：https://ig507.com/data/time/real/ma/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/real/ma/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）以及分时级别获取分时MA数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。目前提供了ma3，ma5，ma10，ma15，ma20，ma30，ma60，ma120，ma200，ma250这些常用的移动平均线。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 ma3 number MA3，没有则为null
@@ -255,8 +236,7 @@ ma60 number MA60，没有则为null
 ma120 number MA200，没有则为null
 ma200 number MA200，没有则为null
 ma250 number MA250，没有则为null
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/real/ma/sh000001/5?licence=您的licence
 {"t":"2021-01-22 15:00:00","ma5":3607.70,"ma10":3606.19,"ma15":3604.25,"ma20":3603.50,"ma30":3600.51,"ma60":3605.56,"ma120":3601.62,"ma200":3594.02}
@@ -274,22 +254,19 @@ https://ig507.com/data/time/real/ma/sh000001/Day?licence=您的licence
 {"t":"2021-01-22","ma5":3594.74,"ma10":3584.45,"ma15":3571.55,"ma20":3531.69,"ma30":3480.23,"ma60":3420.78,"ma120":3372.17,"ma200":3216.13}
 
 最新分时BOLL(20,2)
-API：https://ig507.com/data/time/real/boll/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/real/boll/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）以及分时级别获取分时BOLL数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 u number 上轨
 d number 下轨
 m number 中轨
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/real/boll/sh000001/5?licence=您的licence
 {"t":"2021-01-22 15:00:00","u":3612.04,"d":3594.97,"m":3603.50}
@@ -307,15 +284,13 @@ https://ig507.com/data/time/real/boll/sh000001/Day?licence=您的licence
 {"t":"2021-01-22","u":3683.92,"d":3379.46,"m":3531.69}
 
 历史分时交易
-API：https://ig507.com/data/time/history/trade/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/history/trade/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）和分时级别获取历史交易数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒3次。
 返回格式：[{},..]
-
 返回字段说明：
-
 字段 类型 说明
 d string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 o number 开盘价（元）
@@ -328,8 +303,7 @@ zf number 振幅（%）
 hs number 换手率（%）
 zd number 涨跌幅（%）
 zde number 涨跌额（元）
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/history/trade/sh000001/5?licence=您的licence
 [{"d":"2020-12-23 13:50:00","o":3374.057,"h":3374.057,"l":3371.174,"c":3372.564,"v":392435900}]
@@ -347,22 +321,19 @@ https://ig507.com/data/time/history/trade/sh000001/Day?licence=您的licence
 [{"d":"1990-12-19","o":96.050,"h":99.980,"l":95.790,"c":99.980,"v":126000}]
 
 历史分时KDJ(9,3,3)
-API：https://ig507.com/data/time/history/kdj/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/history/kdj/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）和分时级别获取历史kdj数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒3次。
 返回格式：[{},..]
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 k number K值
 d number D值
 j number J值
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/history/kdj/sh000001/5?licence=您的licence
 [{"t":"2020-12-23 14:30:00","k":82.8800,"d":82.8800,"j":82.88}]
@@ -380,15 +351,13 @@ https://ig507.com/data/time/history/kdj/sh000001/Day?licence=您的licence
 [{"t":"1990-12-31","k":100.0000,"d":100.0000,"j":100.00}]
 
 历史分时MACD
-API：https://ig507.com/data/time/history/macd/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/history/macd/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）和分时级别获取历史macd数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒3次。
 返回格式：[{},..]
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 diff number DIFF值
@@ -396,8 +365,7 @@ dea number DEA值
 macd number MACD值
 ema12 number EMA（12）值
 ema26 number EMA（26）值
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/history/macd/sh000001/5?licence=您的licence
 [{"t":"2020-12-23 13:50:00","diff":0.000,"dea":0.000,"macd":0.000,"ema12":3372.564,"ema26":3372.564}]
@@ -415,15 +383,13 @@ https://ig507.com/data/time/history/macd/sh000001/Day?licence=您的licence
 [{"t":"1990-12-19","diff":0.000,"dea":0.000,"macd":0.000,"ema12":99.980,"ema26":99.980}]
 
 历史分时MA
-API：https://ig507.com/data/time/history/ma/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/history/ma/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）和分时级别获取历史macd数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。目前提供了ma3，ma5，ma10，ma15，ma20，ma30，ma60，ma120，ma200，ma250这些常用的移动平均线。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒3次。
 返回格式：[{},..]
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 ma3 number MA3，没有则为null
@@ -436,8 +402,7 @@ ma60 number MA60，没有则为null
 ma120 number MA200，没有则为null
 ma200 number MA200，没有则为null
 ma250 number MA250，没有则为null
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/history/ma/sh000001/5?licence=您的licence
 [{"t":"2021-01-06 14:55:00","ma5":3544.74,"ma10":3539.21,"ma15":3537.77,"ma20":3535.97,"ma30":3532.01,"ma60":3531.47,"ma120":3516.88,"ma200":3493.25}]
@@ -455,22 +420,19 @@ https://ig507.com/data/time/history/ma/sh000001/Day?licence=您的licence
 [{"t":"1994-07-20","ma5":407.81,"ma10":419.78,"ma15":429.29,"ma20":442.11,"ma30":463.29,"ma60":520.79,"ma120":618.83,"ma200":720.99}]
 
 历史分时BOLL(20,2)
-API：https://ig507.com/data/time/history/boll/ 指数代码（包含sh/sz前缀，如：sh000001） / 分时级别 ?licence= 您的licence
+API：https://ig507.com/data/time/history/boll/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）和分时级别获取历史boll数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。
 请求频率限制：基础版2秒1次，专业版上限1秒3次。
 返回格式：[{},..]
-
 返回字段说明：
-
 字段 类型 说明
 t string 交易时间，短分时级别格式为yyyy-MM-dd HH:mm:ss，日线级别为yyyy-MM-dd
 u number 上轨
 d number 下轨
 m number 中轨
-示例（下方为假数据，请使用licence获取真实数据）：
-
+示例
 5分钟分时级别：
 https://ig507.com/data/time/history/boll/sh000001/5?licence=您的licence
 [{"t":"2020-12-24 09:55:00","u":3391.39,"d":3361.73,"m":3376.56}]

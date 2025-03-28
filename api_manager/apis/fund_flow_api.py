@@ -29,7 +29,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/zlzjzs/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的资金走势对照数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的资金走势对照数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -49,7 +49,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/zjlrqs/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的资金流入趋势数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的资金流入趋势数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -69,7 +69,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/zjlrqs/last10/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的最近10天资金流入趋势数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的最近10天资金流入趋势数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -89,7 +89,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/jdzldx/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的阶段主力动向数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的阶段主力动向数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -109,7 +109,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/jdzldx/last10/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的最近10天阶段主力动向数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的最近10天阶段主力动向数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -129,7 +129,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/lscjfb/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的历史成交分布数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的历史成交分布数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -149,7 +149,7 @@ class FundFlowAPI(BaseAPI):
         endpoint = f"data/time/zijin/lscjfb/last10/{stock_code}"
         logger.info(f"正在获取股票[{stock_code}]的最近10天成交分布数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取股票[{stock_code}]的最近10天成交分布数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -177,7 +177,7 @@ class StockPoolAPI(BaseAPI):
         endpoint = f"data/time/zdtgc/ztgc/{date}"
         logger.info(f"正在获取日期[{date}]的涨停股池数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取日期[{date}]的涨停股池数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -197,7 +197,7 @@ class StockPoolAPI(BaseAPI):
         endpoint = f"data/time/zdtgc/dtgc/{date}"
         logger.info(f"正在获取日期[{date}]的跌停股池数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取日期[{date}]的跌停股池数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -217,7 +217,7 @@ class StockPoolAPI(BaseAPI):
         endpoint = f"data/time/zdtgc/qsgc/{date}"
         logger.info(f"正在获取日期[{date}]的强势股池数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取日期[{date}]的强势股池数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -237,7 +237,7 @@ class StockPoolAPI(BaseAPI):
         endpoint = f"data/time/zdtgc/cxgc/{date}"
         logger.info(f"正在获取日期[{date}]的次新股池数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取日期[{date}]的次新股池数据，共{len(result)}条")
             return result
         except Exception as e:
@@ -257,7 +257,7 @@ class StockPoolAPI(BaseAPI):
         endpoint = f"data/time/zdtgc/zbgc/{date}"
         logger.info(f"正在获取日期[{date}]的炸板股池数据")
         try:
-            result = await self.get(endpoint)
+            result = await self.get(endpoint, expected_type='list')
             logger.info(f"成功获取日期[{date}]的炸板股池数据，共{len(result)}条")
             return result
         except Exception as e:

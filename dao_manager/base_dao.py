@@ -1,9 +1,10 @@
 # dao_manager/basedao.py
 
+import decimal
 import json
 import logging
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic
-from datetime import date, datetime, timedelta
+from datetime import datetime, date, time
 
 from django.db import models
 from django.core.cache import cache
@@ -602,6 +603,92 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.warning(f"解析数字失败: {value}, 使用默认值{default}, 错误: {str(e)}")
             return default
+
+    def _serialize_model(self, model_instance) -> dict:
+        """
+        将Django模型实例序列化为可JSON化的字典
+        
+        Args:
+            model_instance: Django模型实例
+            
+        Returns:
+            dict: 序列化后的字典
+        """
+        import datetime  # 确保正确导入
+        from decimal import Decimal  # 导入Decimal类
+        
+        if model_instance is None:
+            return None
+            
+        # 如果已经是字典，直接返回
+        if isinstance(model_instance, dict):
+            return model_instance
+        
+        # 确保是模型实例    
+        if not hasattr(model_instance, '_meta'):
+            raise TypeError(f"Expected Django model instance, got {type(model_instance)}")
+            
+        result = {}
+        
+        # 遍历所有字段
+        for field in model_instance._meta.fields:
+            field_name = field.name
+            value = getattr(model_instance, field_name)
+            
+            # 处理None值
+            if value is None:
+                result[field_name] = None
+                continue
+                
+            # 处理各种类型
+            if isinstance(value, (str, int, float, bool)):
+                # 基本类型可直接使用
+                result[field_name] = value
+                
+            elif isinstance(value, datetime.datetime):
+                # 日期时间转ISO格式字符串
+                result[field_name] = value.isoformat()
+                
+            elif isinstance(value, datetime.date):
+                # 日期转ISO格式字符串
+                result[field_name] = value.isoformat()
+                
+            elif isinstance(value, datetime.time):
+                # 时间转ISO格式字符串
+                result[field_name] = value.isoformat()
+                
+            elif isinstance(value, Decimal):
+                # Decimal转浮点数
+                result[field_name] = float(value)
+                
+            elif hasattr(value, 'pk') and hasattr(value, '_meta'):
+                # 处理外键关系-只保存主键
+                result[field_name] = value.pk
+                
+            elif isinstance(value, (list, tuple)):
+                # 列表或元组-尝试序列化内部元素
+                try:
+                    result[field_name] = [
+                        self._serialize_model(item) if hasattr(item, '_meta') else item 
+                        for item in value
+                    ]
+                except:
+                    # 无法序列化的列表元素
+                    result[field_name] = str(value)
+                    
+            elif hasattr(value, '__dict__'):
+                # 尝试使用__dict__
+                try:
+                    result[field_name] = value.__dict__
+                except:
+                    result[field_name] = str(value)
+                    
+            else:
+                # 其他类型转为字符串
+                result[field_name] = str(value)
+        
+        return result
+
 
     @staticmethod
     def _get_model_fields(model_class):

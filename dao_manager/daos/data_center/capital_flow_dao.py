@@ -19,7 +19,7 @@ from api_manager.mappings.datacenter_mappings import (
     NEW_CAPITAL_FLOW_OVERVIEW_MAPPING
 )
 from dao_manager.base_dao import BaseDAO
-from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, NetInflowRanking, NetInflowRateRanking, MainForceNetInflowRanking, MainForceNetInflowRateRanking, RetailNetInflowRanking, RetailNetInflowRateRanking, IndustryCapitalFlowRoute, ConceptCapitalFlowRoute, StockPeriodStatisticsOverview, StockPeriodStatistics, MainForceContinuousFlow, NewCapitalFlowOverview
+from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, NetInflowRanking, NetInflowRateRanking, MainForceNetInflowRanking, MainForceNetInflowRateRanking, RetailNetInflowRanking, RetailNetInflowRateRanking, ConceptCapitalFlowRoute, StockPeriodStatisticsOverview, StockPeriodStatistics, MainForceContinuousFlow, NewCapitalFlowOverview
 
 logger = logging.getLogger('dao')
 
@@ -168,7 +168,7 @@ class CapitalFlowDao(BaseDAO):
                     # 数值字段处理
                     elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
+                    )) and 'code' not in field.name.lower():
                         cache_data[field] = self._parse_number(value)
                     else:
                         cache_data[field] = value
@@ -186,7 +186,7 @@ class CapitalFlowDao(BaseDAO):
                         # 数值字段处理
                         elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        )) and 'code' not in field.lower():
+                        )) and 'code' not in field.name.lower():
                             item_dict[field] = self._parse_number(value)
                         else:
                             item_dict[field] = value
@@ -202,7 +202,7 @@ class CapitalFlowDao(BaseDAO):
                     # 数值字段处理
                     elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
+                    )) and 'code' not in field.name.lower():
                         cache_data[field] = self._parse_number(value)
                     else:
                         cache_data[field] = value
@@ -219,7 +219,7 @@ class CapitalFlowDao(BaseDAO):
                         # 数值字段处理
                         elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        )) and 'code' not in field.lower():
+                        )) and 'code' not in field.name.lower():
                             item_dict[field] = self._parse_number(value)
                         else:
                             item_dict[field] = value
@@ -383,7 +383,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -548,7 +548,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -710,7 +710,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -872,7 +872,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -1034,7 +1034,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -1196,7 +1196,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -1358,7 +1358,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -1520,7 +1520,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value
@@ -1682,7 +1682,7 @@ class CapitalFlowDao(BaseDAO):
                         if isinstance(item_dict[field], datetime):
                             item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
-                    elif (isinstance(value, (int, float))) and 'code' not in field.lower():
+                    elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
                     else:
                         item_dict[field] = value

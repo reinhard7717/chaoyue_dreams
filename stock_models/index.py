@@ -2,13 +2,13 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from utils.models import BaseModel
 
-
 class IndexInfo(BaseModel):
     """
     股票指数基本信息模型
     
     用于存储沪深股市指数的基本信息，包括指数代码、名称和所属交易所
     """
+
     code = models.CharField(max_length=20, unique=True, verbose_name=_("指数代码"))
     name = models.CharField(max_length=50, verbose_name=_("指数名称"))
     exchange = models.CharField(max_length=10, verbose_name=_("交易所代码"))
@@ -16,15 +16,15 @@ class IndexInfo(BaseModel):
     class Meta:
         verbose_name = _("股票指数")
         verbose_name_plural = _("股票指数")
-        db_table = "stock_index"
+        db_table = "index_info"
         indexes = [
             models.Index(fields=['code']),
             models.Index(fields=['exchange']),
         ]
-    
+
+
     def __str__(self):
         return f"{self.name}({self.code})"
-
 
 class IndexRealTimeData(BaseModel):
     """
@@ -33,40 +33,80 @@ class IndexRealTimeData(BaseModel):
     用于存储股票指数的实时交易数据，对应指数实时数据接口
     """
     index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="realtime_data", verbose_name=_("股票指数"))
-    open_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("开盘价"))
-    high_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("最高价"))
-    low_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("最低价"))
-    current_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("当前价格"))
-    prev_close_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("昨日收盘价"))
-    change_percent = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"))
-    change_amount = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("涨跌额"))
-    volume = models.BigIntegerField(verbose_name=_("成交量(手)"))
-    turnover = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("成交额(元)"))
-    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("换手率(%)"))
-    amplitude = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("振幅(%)"))
-    volume_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("量比(%)"))
-    five_min_change = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("五分钟涨跌幅(%)"))
-    change_speed = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("涨速(%)"))
-    circulating_market_value = models.DecimalField(max_digits=20, decimal_places=2, null=True, verbose_name=_("流通市值(元)"))
-    total_market_value = models.DecimalField(max_digits=20, decimal_places=2, null=True, verbose_name=_("总市值(元)"))
-    pe_ratio = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("市盈率"))
-    pb_ratio = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("市净率"))
-    change_60d = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("60日涨跌幅(%)"))
-    change_ytd = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("年初至今涨跌幅(%)"))
-    update_time = models.DateTimeField(verbose_name=_("更新时间"))
+    # 指数基本信息
+    update_time = models.DateTimeField(verbose_name="更新时间", null=True, blank=True)
+    
+    # 价格相关数据
+    open_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="开盘价", null=True, blank=True) 
+    high_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最高价", null=True, blank=True)
+    low_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最低价", null=True, blank=True)
+    current_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="当前价格", null=True, blank=True)
+    prev_close_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="昨日收盘价", null=True, blank=True)
+    
+    # 涨跌相关数据
+    price_change = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="涨跌额", null=True, blank=True)
+    price_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅(%)", null=True, blank=True)
+    five_minute_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="五分钟涨跌幅(%)", null=True, blank=True)
+    amplitude = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="振幅(%)", null=True, blank=True)
+    change_speed = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨速(%)", null=True, blank=True)
+    sixty_day_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="60日涨跌幅(%)", null=True, blank=True)
+    ytd_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="年初至今涨跌幅(%)", null=True, blank=True)
+    
+    # 交易相关数据
+    volume = models.BigIntegerField(verbose_name="成交量(手)", null=True, blank=True)
+    turnover = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="成交额(元)", null=True, blank=True)
+    turnover_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="换手率(%)", null=True, blank=True)
+    volume_ratio = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="量比(%)", null=True, blank=True)
+    
+    # 估值相关数据
+    pe_ratio = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="市盈率", null=True, blank=True)
+    pb_ratio = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="市净率", null=True, blank=True)
+    circulating_market_value = models.DecimalField(max_digits=24, decimal_places=2, verbose_name="流通市值(元)", null=True, blank=True)
+    total_market_value = models.DecimalField(max_digits=24, decimal_places=2, verbose_name="总市值(元)", null=True, blank=True)
     
     class Meta:
-        verbose_name = _("指数实时数据")
-        verbose_name_plural = _("指数实时数据")
-        db_table = "stock_index_realtime_data"
+        verbose_name = "指数实时数据"
+        verbose_name_plural = verbose_name
+        db_table = "index_realtime_data"
         indexes = [
-            models.Index(fields=['index']),
+            models.Index(fields=['index', 'update_time']),
             models.Index(fields=['update_time']),
         ]
+        ordering = ['-update_time']
+        unique_together = ['index', 'update_time']
     
     def __str__(self):
         return f"{self.index.name}实时数据({self.update_time})"
-
+    
+    @classmethod
+    def from_api_response(cls, index, data):
+        """从API响应创建或更新模型实例"""
+        from django.utils.dateparse import parse_datetime
+        
+        return cls(
+            index=index,
+            update_time=parse_datetime(data['t']),
+            open_price=data['o'],
+            high_price=data['h'],
+            low_price=data['l'],
+            current_price=data['p'],
+            prev_close_price=data['yc'],
+            price_change=data['ud'],
+            price_change_percent=data['pc'],
+            five_minute_change_percent=data['fm'],
+            amplitude=data['zf'],
+            change_speed=data['zs'],
+            sixty_day_change_percent=data['zdf60'],
+            ytd_change_percent=data['zdfnc'],
+            volume=data['v'],
+            turnover=data['cje'],
+            turnover_rate=data['hs'],
+            volume_ratio=data['lb'],
+            pe_ratio=data['pe'] if data['pe'] != 0 else None,
+            pb_ratio=data['sjl'] if data['sjl'] != 0 else None,
+            circulating_market_value=data['lt'],
+            total_market_value=data['sz'],
+        )
 
 class MarketOverview(BaseModel):
     """
@@ -101,7 +141,6 @@ class MarketOverview(BaseModel):
     def __str__(self):
         return f"市场概览({self.update_time})"
 
-
 class IndexTimeSeriesData(BaseModel):
     """
     时间序列数据模型
@@ -125,7 +164,7 @@ class IndexTimeSeriesData(BaseModel):
     class Meta:
         verbose_name = _("时间序列数据")
         verbose_name_plural = _("时间序列数据")
-        db_table = "time_series_data"
+        db_table = "index_time_series_data"
         unique_together = [['index', 'time_level', 'trade_time']]
         indexes = [
             models.Index(fields=['index']),
@@ -152,7 +191,7 @@ class IndexKDJData(BaseModel):
     class Meta:
         verbose_name = _("KDJ指标数据")
         verbose_name_plural = _("KDJ指标数据")
-        db_table = "kdj_data"
+        db_table = "index_kdj_data"
         unique_together = [['index', 'time_level', 'trade_time']]
         indexes = [
             models.Index(fields=['index']),
@@ -162,7 +201,6 @@ class IndexKDJData(BaseModel):
     
     def __str__(self):
         return f"{self.index.name} KDJ {self.time_level}({self.trade_time})"
-
 
 class IndexMACDData(BaseModel):
     """
@@ -182,7 +220,7 @@ class IndexMACDData(BaseModel):
     class Meta:
         verbose_name = _("MACD指标数据")
         verbose_name_plural = _("MACD指标数据")
-        db_table = "macd_data"
+        db_table = "index_macd_data"
         unique_together = [['index', 'time_level', 'trade_time']]
         indexes = [
             models.Index(fields=['index']),
@@ -192,7 +230,6 @@ class IndexMACDData(BaseModel):
     
     def __str__(self):
         return f"{self.index.name} MACD {self.time_level}({self.trade_time})"
-
 
 class IndexMAData(BaseModel):
     """
@@ -217,7 +254,7 @@ class IndexMAData(BaseModel):
     class Meta:
         verbose_name = _("MA指标数据")
         verbose_name_plural = _("MA指标数据")
-        db_table = "ma_data"
+        db_table = "index_ma_data"
         unique_together = [['index', 'time_level', 'trade_time']]
         indexes = [
             models.Index(fields=['index']),
@@ -227,7 +264,6 @@ class IndexMAData(BaseModel):
     
     def __str__(self):
         return f"{self.index.name} MA {self.time_level}({self.trade_time})"
-
 
 class IndexBOLLData(BaseModel):
     """
@@ -245,7 +281,7 @@ class IndexBOLLData(BaseModel):
     class Meta:
         verbose_name = _("BOLL指标数据")
         verbose_name_plural = _("BOLL指标数据")
-        db_table = "boll_data"
+        db_table = "index_boll_data"
         unique_together = [['index', 'time_level', 'trade_time']]
         indexes = [
             models.Index(fields=['index']),

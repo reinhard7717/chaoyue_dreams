@@ -24,34 +24,11 @@ class DataCenterAPI(BaseAPI):
         """
         try:
             logger.info("开始请求龙虎榜数据API")
-            response = await self.get('data/all/ld')
+            response = await self.get('data/all/ld', expected_type='dict')
             
             if not response:
                 logger.warning("龙虎榜API返回空响应")
                 return None
-                
-            # 如果返回的是字符串，尝试解析为字典
-            if isinstance(response, str):
-                try:
-                    # 尝试解析JSON字符串
-                    response = json.loads(response)
-                except json.JSONDecodeError:
-                    # 如果不是JSON格式，尝试解析为字典
-                    try:
-                        # 这里可以添加特定的解析逻辑，将文档格式转换为字典
-                        # 例如：按行分割，提取关键信息等
-                        lines = response.split('\n')
-                        result = {}
-                        for line in lines:
-                            if ':' in line:
-                                key, value = line.split(':', 1)
-                                result[key.strip()] = value.strip()
-                        response = result
-                    except Exception as e:
-                        logger.error(f"解析龙虎榜数据失败: {str(e)}")
-                        return None
-            
-            logger.debug(f"龙虎榜API返回数据: {response}")
             return response
             
         except Exception as e:
@@ -75,7 +52,7 @@ class DataCenterAPI(BaseAPI):
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return None
             
-            return await self.get(f'data/all/gg/{days}')
+            return await self.get(f'data/all/gg/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"获取近{days}日上榜个股数据出错: {str(e)}")
             return None
@@ -97,7 +74,7 @@ class DataCenterAPI(BaseAPI):
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return None
             
-            return await self.get(f'data/all/yyb/{days}')
+            return await self.get(f'data/all/yyb/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"获取近{days}日营业部上榜统计数据出错: {str(e)}")
             return None
@@ -119,7 +96,7 @@ class DataCenterAPI(BaseAPI):
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return None
             
-            return await self.get(f'data/all/jgzz/{days}')
+            return await self.get(f'data/all/jgzz/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"获取近{days}日个股机构交易追踪数据出错: {str(e)}")
             return None
@@ -141,7 +118,7 @@ class DataCenterAPI(BaseAPI):
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return []
                 
-            return await self.get(f'data/all/jgcj/{days}')
+            return await self.get(f'data/all/jgcj/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"请求机构席位成交明细数据出错: {str(e)}")
             return []
@@ -155,7 +132,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 阶段最高最低数据，如请求失败则返回None
         """
-        return await self.get('data/all/jdgd')
+        return await self.get('data/all/jdgd', expected_type='list')
     
     async def get_new_high_stocks(self) -> Optional[List[Dict]]:
         """
@@ -164,7 +141,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 盘中创新高个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/cxg')
+        return await self.get('data/all/cxg', expected_type='list')
     
     async def get_new_low_stocks(self) -> Optional[List[Dict]]:
         """
@@ -173,7 +150,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 盘中创新低个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/cxd')
+        return await self.get('data/all/cxd', expected_type='list')
     
     # 盘中数据和连续交易相关API
     
@@ -184,7 +161,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 成交骤增个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/cjzz')
+        return await self.get('data/all/cjzz', expected_type='list')
     
     async def get_volume_decrease(self) -> Optional[List[Dict]]:
         """
@@ -193,7 +170,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 成交骤减个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/cjzj')
+        return await self.get('data/all/cjzj', expected_type='list')
     
     async def get_continuous_volume_increase(self) -> Optional[List[Dict]]:
         """
@@ -202,7 +179,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 连续放量个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/lxfl')
+        return await self.get('data/all/lxfl', expected_type='list')
     
     async def get_continuous_volume_decrease(self) -> Optional[List[Dict]]:
         """
@@ -211,7 +188,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 连续缩量个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/lxsl')
+        return await self.get('data/all/lxsl', expected_type='list')
     
     async def get_continuous_rise(self) -> Optional[List[Dict]]:
         """
@@ -220,7 +197,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 连续上涨个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/lxsz')
+        return await self.get('data/all/lxsz', expected_type='list')
     
     async def get_continuous_fall(self) -> Optional[List[Dict]]:
         """
@@ -229,7 +206,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 连续下跌个股数据，如请求失败则返回None
         """
-        return await self.get('data/all/lxxd')
+        return await self.get('data/all/lxxd', expected_type='list')
     
     # 财务指标相关API
     
@@ -241,7 +218,7 @@ class DataCenterAPI(BaseAPI):
             Optional[List[Dict]]: 周涨跌排名数据，如请求失败则返回None
         """
         try:
-            data = await self.get('data/all/zzdpm')
+            data = await self.get('data/all/zzdpm', expected_type='list')
             
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
@@ -261,7 +238,7 @@ class DataCenterAPI(BaseAPI):
             Optional[List[Dict]]: 月涨跌排名数据，如请求失败则返回None
         """
         try:
-            data = await self.get('data/all/yzdpm')
+            data = await self.get('data/all/yzdpm', expected_type='list')
             
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
@@ -281,7 +258,7 @@ class DataCenterAPI(BaseAPI):
             Optional[List[Dict]]: 本周强势股数据，如请求失败则返回None
         """
         try:
-            data = await self.get('data/all/bzqsg')
+            data = await self.get('data/all/bzqsg', expected_type='list')
             
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
@@ -301,7 +278,7 @@ class DataCenterAPI(BaseAPI):
             Optional[List[Dict]]: 本月强势股数据，如请求失败则返回None
         """
         try:
-            data = await self.get('data/all/byqsg')
+            data = await self.get('data/all/byqsg', expected_type='list')
             
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
@@ -320,7 +297,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 流通市值排行数据，如请求失败则返回None
         """
-        return await self.get('data/all/ltsz')
+        return await self.get('data/all/ltsz', expected_type='list')
     
     async def get_pe_ratio_rank(self) -> Optional[List[Dict]]:
         """
@@ -329,7 +306,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 市盈率排行数据，如请求失败则返回None
         """
-        return await self.get('data/all/syl')
+        return await self.get('data/all/syl', expected_type='list')
     
     async def get_pb_ratio_rank(self) -> Optional[List[Dict]]:
         """
@@ -338,7 +315,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 市净率排行数据，如请求失败则返回None
         """
-        return await self.get('data/all/sjl')
+        return await self.get('data/all/sjl', expected_type='list')
     
     async def get_roe_rank(self) -> Optional[List[Dict]]:
         """
@@ -347,7 +324,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: ROE排行数据，如请求失败则返回None
         """
-        return await self.get('data/all/roe')
+        return await self.get('data/all/roe', expected_type='list')
     
     # 财务报表相关API
     
@@ -366,7 +343,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finyl/{year}_{quarter}')
+        return await self.get(f'data/all/finyl/{year}_{quarter}', expected_type='list')
     
     async def get_financial_operation(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -383,7 +360,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finyynl/{year}_{quarter}')
+        return await self.get(f'data/all/finyynl/{year}_{quarter}', expected_type='list')
     
     async def get_financial_growth(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -400,7 +377,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/fincznl/{year}_{quarter}')
+        return await self.get(f'data/all/fincznl/{year}_{quarter}', expected_type='list')
     
     async def get_financial_debt(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -417,7 +394,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finchzhainl/{year}_{quarter}')
+        return await self.get(f'data/all/finchzhainl/{year}_{quarter}', expected_type='list')
     
     async def get_financial_cash_flow(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -434,7 +411,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finxjll/{year}_{quarter}')
+        return await self.get(f'data/all/finxjll/{year}_{quarter}', expected_type='list')
     
     async def get_financial_report(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -451,7 +428,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finyjbb/{year}_{quarter}')
+        return await self.get(f'data/all/finyjbb/{year}_{quarter}', expected_type='list')
     
     async def get_financial_forecast(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -468,7 +445,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finyjyg/{year}_{quarter}')
+        return await self.get(f'data/all/finyjyg/{year}_{quarter}', expected_type='list')
     
     async def get_financial_express(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -485,7 +462,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/finyjkb/{year}_{quarter}')
+        return await self.get(f'data/all/finyjkb/{year}_{quarter}', expected_type='list')
     
     async def get_financial_profit_detail(self) -> Optional[List[Dict]]:
         """
@@ -494,7 +471,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 利润细分数据，如请求失败则返回None
         """
-        return await self.get('data/all/finlrxf')
+        return await self.get('data/all/finlrxf', expected_type='list')
     
     # 机构持股相关API
     
@@ -513,7 +490,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/orgcghz/{year}_{quarter}')
+        return await self.get(f'data/all/orgcghz/{year}_{quarter}', expected_type='list')
     
     async def get_fund_heavy_positions(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -530,7 +507,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/orgjjzc/{year}_{quarter}')
+        return await self.get(f'data/all/orgjjzc/{year}_{quarter}', expected_type='list')
     
     async def get_social_security_heavy_positions(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -547,7 +524,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/orgsbzc/{year}_{quarter}')
+        return await self.get(f'data/all/orgsbzc/{year}_{quarter}', expected_type='list')
     
     async def get_qfii_heavy_positions(self, year: int, quarter: int) -> Optional[List[Dict]]:
         """
@@ -564,7 +541,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的季度: {quarter}，必须是 1、2、3、4 之一")
             return None
         
-        return await self.get(f'data/all/orgqfiizc/{year}_{quarter}')
+        return await self.get(f'data/all/orgqfiizc/{year}_{quarter}', expected_type='list')
     
     # 资金流向相关API
 
@@ -575,7 +552,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 证监会行业资金路线图数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/zjhhyzjlx')
+        return await self.get('data/all/zjlx/zjhhyzjlx', expected_type='list')
     
     async def get_concept_capital_flow(self) -> Optional[List[Dict]]:
         """
@@ -584,7 +561,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 概念板块资金路线图数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/gnbklx')
+        return await self.get('data/all/zjlx/gnbklx', expected_type='list')
     
     async def get_stock_period_statistics_overview(self) -> Optional[List[Dict]]:
         """
@@ -593,7 +570,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 个股阶段统计总览数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/ggjdtjzl')
+        return await self.get('data/all/zjlx/ggjdtjzl', expected_type='list')
     
     async def get_stock_period_statistics_3(self) -> Optional[List[Dict]]:
         """
@@ -602,7 +579,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/ggjdtj_3')
+        return await self.get('data/all/zjlx/ggjdtj_3', expected_type='list')
     
     async def get_stock_period_statistics_5(self) -> Optional[List[Dict]]:
         """
@@ -611,7 +588,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/ggjdtj_5')
+        return await self.get('data/all/zjlx/ggjdtj_5', expected_type='list')
     
     async def get_stock_period_statistics_10(self) -> Optional[List[Dict]]:
         """
@@ -620,7 +597,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/ggjdtj_10')
+        return await self.get('data/all/zjlx/ggjdtj_10', expected_type='list')
     
     async def get_stock_period_statistics_20(self) -> Optional[List[Dict]]:
         """
@@ -629,7 +606,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/ggjdtj_20')
+        return await self.get('data/all/zjlx/ggjdtj_20', expected_type='list')
     
 
     async def get_net_inflow_amount_rank(self) -> Optional[List[Dict]]:
@@ -639,7 +616,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 净流入额排名数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/jlrepm')
+        return await self.get('data/all/zjlx/jlrepm', expected_type='list')
     
     async def get_net_inflow_rate_rank(self) -> Optional[List[Dict]]:
         """
@@ -648,7 +625,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 净流入率排名数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/jlrlpm')
+        return await self.get('data/all/zjlx/jlrlpm', expected_type='list')
     
     async def get_main_net_inflow_amount_rank(self) -> Optional[List[Dict]]:
         """
@@ -657,7 +634,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 主力净流入额排名数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/zljlrepm')
+        return await self.get('data/all/zjlx/zljlrepm', expected_type='list')
     
     async def get_main_net_inflow_rate_rank(self) -> Optional[List[Dict]]:
         """
@@ -666,7 +643,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 主力净流入率排名数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/zljlrlpm')
+        return await self.get('data/all/zjlx/zljlrlpm', expected_type='list')
     
     async def get_retail_net_inflow_amount_rank(self) -> Optional[List[Dict]]:
         """
@@ -675,7 +652,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 散户净流入额排名数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/shjlrepm')
+        return await self.get('data/all/zjlx/shjlrepm', expected_type='list')
     
     async def get_retail_net_inflow_rate_rank(self) -> Optional[List[Dict]]:
         """
@@ -684,7 +661,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 散户净流入率排名数据，如请求失败则返回None
         """
-        return await self.get('data/all/zjlx/shjlrlpm')
+        return await self.get('data/all/zjlx/shjlrlpm', expected_type='list')
     
     # 南北向资金相关API
     
@@ -695,7 +672,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[List[Dict]]: 南北向资金流向概览数据，如请求失败则返回None
         """
-        return await self.get('data/all/nxbx/zjgl')
+        return await self.get('data/all/nxbx/zjgl', expected_type='list')
     
     async def get_north_fund_history_trend(self, period: str) -> Optional[List[Dict]]:
         """
@@ -711,7 +688,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的时间段: {period}，必须是 1m、6m、1y、all 之一")
             return None
         
-        return await self.get(f'data/all/nxbx/bxzjlszs/{period}')
+        return await self.get(f'data/all/nxbx/bxzjlszs/{period}', expected_type='list')
     
     async def get_south_fund_history_trend(self, period: str) -> Optional[List[Dict]]:
         """
@@ -727,7 +704,7 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的时间段: {period}，必须是 1m、6m、1y、all 之一")
             return None
         
-        return await self.get(f'data/all/nxbx/nxzjlszs/{period}')
+        return await self.get(f'data/all/nxbx/nxzjlszs/{period}', expected_type='list')
     
     async def get_north_fund_history_overview(self) -> Optional[Dict]:
         """
@@ -736,7 +713,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[Dict]: 北向资金历史总览数据，如请求失败则返回None
         """
-        return await self.get('data/all/nxbx/bxzjlsgl')
+        return await self.get('data/all/nxbx/bxzjlsgl', expected_type='dict')
     
     async def get_south_fund_history_overview(self) -> Optional[Dict]:
         """
@@ -745,7 +722,7 @@ class DataCenterAPI(BaseAPI):
         Returns:
             Optional[Dict]: 南向资金历史总览数据，如请求失败则返回None
         """
-        return await self.get('data/all/nxbx/nxzjlsgl')
+        return await self.get('data/all/nxbx/nxzjlsgl', expected_type='dict')
     
     async def get_north_stock_period_rank(self, period: str) -> Optional[List[Dict]]:
         """
@@ -762,4 +739,4 @@ class DataCenterAPI(BaseAPI):
             logger.error(f"无效的周期: {period}，必须是 {', '.join(valid_periods)} 之一")
             return None
         
-        return await self.get(f'data/all/nxbx/bxggpm/{period}')
+        return await self.get(f'data/all/nxbx/bxggpm/{period}', expected_type='list')

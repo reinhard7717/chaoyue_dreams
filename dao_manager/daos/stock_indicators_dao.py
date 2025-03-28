@@ -345,7 +345,7 @@ class StockIndicatorsDAO(BaseDAO):
                     # 数值字段处理
                     elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
+                    )) and 'code' not in field.name.lower():
                         cache_dict[field.name] = self._parse_number(value)
                     else:
                         cache_dict[field.name] = value
@@ -386,7 +386,7 @@ class StockIndicatorsDAO(BaseDAO):
                         # 数值字段处理
                         elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        )) and 'code' not in field.lower():
+                        )) and 'code' not in field.name.lower():
                             cache_dict[field.name] = self._parse_number(value)
                         else:
                             cache_dict[field.name] = value
@@ -450,7 +450,7 @@ class StockIndicatorsDAO(BaseDAO):
                         # 数值字段处理
                         elif (isinstance(value, (int, float)) or (
                             isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                        )) and 'code' not in field.lower():
+                        )) and 'code' not in field.name.lower():
                             item_dict[field.name] = self._parse_number(value)
                         else:
                             item_dict[field.name] = value
@@ -498,7 +498,7 @@ class StockIndicatorsDAO(BaseDAO):
                                     # 数值字段处理
                                     elif (isinstance(value, (int, float)) or (
                                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                                    )) and 'code' not in field.lower():
+                                    )) and 'code' not in field.name.lower():
                                         item_dict[field.name] = self._parse_number(value)
                                     else:
                                         item_dict[field.name] = value

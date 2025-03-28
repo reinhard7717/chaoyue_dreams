@@ -1,10 +1,12 @@
 from django.db import models
+from django.utils.translation import gettext_lazy as _
+from stock_models.stock_basic import StockInfo
 
 class TimeTrade(models.Model):
     """
     分时交易数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="time_trade", verbose_name=_("股票"))
     time_level = models.CharField(max_length=10, verbose_name='分时级别')
     trade_time = models.DateTimeField(verbose_name='交易时间')
     open_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='开盘价', null=True)
@@ -25,18 +27,18 @@ class TimeTrade(models.Model):
         verbose_name = '分时交易数据'
         verbose_name_plural = verbose_name
         db_table = 'time_trade'
-        unique_together = ('stock_code', 'time_level', 'trade_time')
-        ordering = ['stock_code', 'time_level', 'trade_time']
+        unique_together = ('stock', 'time_level', 'trade_time')
+        ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.time_level}-{self.trade_time}"
+        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
 
 class KDJIndicator(models.Model):
     """
     KDJ指标数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="kdj_indicator", verbose_name=_("股票"))
     time_level = models.CharField(max_length=10, verbose_name='分时级别')
     trade_time = models.DateTimeField(verbose_name='交易时间')
     k_value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='K值', null=True)
@@ -50,18 +52,18 @@ class KDJIndicator(models.Model):
         verbose_name = 'KDJ指标数据'
         verbose_name_plural = verbose_name
         db_table = 'kdj_indicator'
-        unique_together = ('stock_code', 'time_level', 'trade_time')
-        ordering = ['stock_code', 'time_level', 'trade_time']
+        unique_together = ('stock', 'time_level', 'trade_time')
+        ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.time_level}-{self.trade_time}"
+        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
 
 class MACDIndicator(models.Model):
     """
     MACD指标数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="macd_indicator", verbose_name=_("股票"))
     time_level = models.CharField(max_length=10, verbose_name='分时级别')
     trade_time = models.DateTimeField(verbose_name='交易时间')
     diff = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='DIFF值', null=True)
@@ -77,18 +79,18 @@ class MACDIndicator(models.Model):
         verbose_name = 'MACD指标数据'
         verbose_name_plural = verbose_name
         db_table = 'macd_indicator'
-        unique_together = ('stock_code', 'time_level', 'trade_time')
-        ordering = ['stock_code', 'time_level', 'trade_time']
+        unique_together = ('stock', 'time_level', 'trade_time')
+        ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.time_level}-{self.trade_time}"
+        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
 
 class MAIndicator(models.Model):
     """
     MA指标数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="ma_indicator", verbose_name=_("股票"))
     time_level = models.CharField(max_length=10, verbose_name='分时级别')
     trade_time = models.DateTimeField(verbose_name='交易时间')
     ma3 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA3', null=True)
@@ -109,18 +111,18 @@ class MAIndicator(models.Model):
         verbose_name = 'MA指标数据'
         verbose_name_plural = verbose_name
         db_table = 'ma_indicator'
-        unique_together = ('stock_code', 'time_level', 'trade_time')
-        ordering = ['stock_code', 'time_level', 'trade_time']
+        unique_together = ('stock', 'time_level', 'trade_time')
+        ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.time_level}-{self.trade_time}"
+        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
 
 class BOLLIndicator(models.Model):
     """
     BOLL指标数据模型
     """
-    stock_code = models.CharField(max_length=10, verbose_name='股票代码')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="boll_indicator", verbose_name=_("股票"))
     time_level = models.CharField(max_length=10, verbose_name='分时级别')
     trade_time = models.DateTimeField(verbose_name='交易时间')
     upper = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='上轨', null=True)
@@ -134,8 +136,8 @@ class BOLLIndicator(models.Model):
         verbose_name = 'BOLL指标数据'
         verbose_name_plural = verbose_name
         db_table = 'boll_indicator'
-        unique_together = ('stock_code', 'time_level', 'trade_time')
-        ordering = ['stock_code', 'time_level', 'trade_time']
+        unique_together = ('stock', 'time_level', 'trade_time')
+        ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
-        return f"{self.stock_code}-{self.time_level}-{self.trade_time}"
+        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"

@@ -4,6 +4,11 @@ import asyncio
 from typing import Dict, List, Any, Optional, Tuple, Set, TypeVar, Generic, Type
 from datetime import datetime, date, time
 import json
+from django.utils import timezone
+from asgiref.sync import sync_to_async
+from django.conf import settings
+from utils.cache_manager import CacheManager
+from utils.models import ModelJSONEncoder
 
 from django.db import transaction, models
 from django.core.cache import cache
@@ -12,6 +17,7 @@ from django.db.models import Q, F
 from api_manager.apis.stock_realtime_api import StockRealtimeAPI
 from api_manager.mappings.stock_realtime import ABNORMAL_MOVEMENT_MAPPING, BIG_DEAL_MAPPING, LEVEL5_DATA_MAPPING, PRICE_PERCENT_MAPPING, REALTIME_DATA_MAPPING, TIME_DEAL_MAPPING, TRADE_DETAIL_MAPPING
 from dao_manager.base_dao import BaseDAO
+from stock_models.stock_basic import StockInfo
 from stock_models.stock_realtime import AbnormalMovement, BigDeal, Level5Data, PricePercent, RealtimeData, TimeDeal, TradeDetail
 
 logger = logging.getLogger(__name__)
@@ -25,124 +31,12 @@ class StockRealtimeDAO(BaseDAO):
         """初始化StockRealtimeDAO"""
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
         self.api = StockRealtimeAPI()
+        self.cache_manager = CacheManager()  # 初始化缓存管理器
         logger.info("初始化StockRealtimeDAO")
-    
-    # ================= 通用方法 =================
-    
-    def _map_api_to_model(self, api_data: Dict[str, Any], mapping: Dict[str, str]) -> Dict[str, Any]:
-        """
-        将API数据映射为模型数据，并进行格式转换
-        
-        Args:
-            api_data: API返回的数据
-            mapping: 字段映射关系
-            
-        Returns:
-            Dict[str, Any]: 映射后的模型数据
-        """
-        result = {}
-        for model_field, api_field in mapping.items():
-            if api_field in api_data and api_data[api_field] is not None:
-                value = api_data[api_field]
-                # 日期字段处理
-                if model_field.endswith('_date') or model_field.endswith('_time') or model_field == 't':
-                    result[model_field] = self._parse_datetime(value)
-                # 数值字段处理
-                elif (isinstance(value, (int, float)) or (
-                    isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                )) and 'code' not in model_field.lower():
-                    result[model_field] = self._parse_number(value)
-                else:
-                    result[model_field] = value
-        return result
-    
-    async def get_from_cache(self, cache_key: str):
-        """
-        从缓存获取数据
-        
-        Args:
-            cache_key: 缓存键
-            
-        Returns:
-            缓存的数据，如不存在则返回None
-        """
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            if isinstance(cached_data, str):
-                try:
-                    return json.loads(cached_data)
-                except json.JSONDecodeError:
-                    return None
-            return cached_data
-        return None
-        
-    async def set_to_cache(self, cache_key: str, data, timeout: int = 60):
-        """
-        设置数据到缓存
-        
-        Args:
-            cache_key: 缓存键
-            data: 要缓存的数据
-            timeout: 缓存超时时间(秒)
-        """
-        cache.set(cache_key, data, timeout)
-        
-    async def delete_from_cache(self, cache_key: str):
-        """
-        从缓存删除数据
-        
-        Args:
-            cache_key: 缓存键
-        """
-        cache.delete(cache_key)
-    
-    def _parse_date(self, date_str: str) -> Optional[date]:
-        """
-        解析日期字符串为日期对象
-        
-        Args:
-            date_str: 日期字符串，格式如"2023-05-10"
-            
-        Returns:
-            Optional[date]: 解析后的日期对象，解析失败则返回None
-        """
-        if not date_str:
-            return None
-            
-        try:
-            return datetime.strptime(date_str, '%Y-%m-%d').date()
-        except ValueError:
-            try:
-                return datetime.strptime(date_str, '%Y%m%d').date()
-            except ValueError:
-                logger.warning(f"无法解析日期: {date_str}")
-                return None
-    
-    def _parse_time(self, time_str: str) -> Optional[time]:
-        """
-        解析时间字符串为时间对象
-        
-        Args:
-            time_str: 时间字符串，格式如"15:00:00"
-            
-        Returns:
-            Optional[time]: 解析后的时间对象，解析失败则返回None
-        """
-        if not time_str:
-            return None
-            
-        try:
-            return datetime.strptime(time_str, '%H:%M:%S').time()
-        except ValueError:
-            try:
-                return datetime.strptime(time_str, '%H%M%S').time()
-            except ValueError:
-                logger.warning(f"无法解析时间: {time_str}")
-                return None
     
     # ================= RealtimeData相关方法 =================
     
-    async def get_latest_by_code(self, stock_code: str) -> Optional[RealtimeData]:
+    async def get_latest_realtime_data_by_code(self, stock_code: str) -> Optional[RealtimeData]:
         """
         获取股票最新的实时交易数据
         
@@ -156,31 +50,35 @@ class StockRealtimeDAO(BaseDAO):
         cache_key = f"realtime:{stock_code}:latest"
         cached_data = await self.get_from_cache(cache_key)
         if cached_data:
-            return cached_data
+            realtime_dict = json.loads(cached_data)
+            realtime = RealtimeData(**realtime_dict)
+            return realtime
         
         # 2. 缓存未命中，从数据库查询
         try:
-            realtime_data = await RealtimeData.objects.filter(
-                stock_code=stock_code
-            ).order_by('-update_time').afirst()
+            stock = await self.get_stock_by_code(stock_code)
+            if not stock:
+                return None
             
-            if realtime_data:
-                # 将对象转换为字典格式并存入缓存
-                cache_dict = {}
-                for field in realtime_data._meta.fields:
-                    value = getattr(realtime_data, field.name)
-                    # 日期字段处理
-                    if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
-                        cache_dict[field.name] = self._parse_datetime(value)
-                    # 数值字段处理
-                    elif (isinstance(value, (int, float)) or (
-                        isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
-                        cache_dict[field.name] = self._parse_number(value)
-                    else:
-                        cache_dict[field.name] = value
-                await self.set_to_cache(cache_key, cache_dict, 60)  # 实时数据缓存时间较短，60秒
-                return realtime_data
+            try:
+                data = await sync_to_async(
+                    lambda: RealtimeData.objects.filter(stock=stock).order_by('-update_time').first()
+                )()
+                
+                # 检查数据是否过期（超过2分钟）
+                if data and (timezone.now() - data.update_time).total_seconds() < 120:
+                    cache.set(cache_key, data, settings.INDEX_CACHE_TIMEOUT['realtime_data'])
+                    return data
+                
+                # 数据不存在或已过期，从API获取新数据
+                logger.info(f"股票[{stock_code}]实时数据不存在或已过期，从API获取")
+                data = await self._fetch_and_save_realtime_data(stock_code)
+                if data:
+                    cache.set(cache_key, data, settings.INDEX_CACHE_TIMEOUT['realtime_data'])
+                return data
+            except Exception as e:
+                logger.error(f"获取股票[{stock_code}]实时数据失败: {str(e)}")
+                return None
         except Exception as e:
             logger.error(f"从数据库获取实时交易数据出错: {e}")
         
@@ -210,7 +108,89 @@ class StockRealtimeDAO(BaseDAO):
         
         return None
     
-    async def get_realtime_data_batch(self, stock_codes: List[str]) -> Dict[str, RealtimeData]:
+    async def _fetch_and_save_realtime_data(self, stock_code: str) -> Optional[RealtimeData]:
+        """
+        从API获取实时交易数据并保存到数据库
+        
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            Optional[RealtimeData]: 保存后的实时交易数据，保存失败则返回None
+        """
+        try:
+            # 获取指数信息
+            try:
+                stock = await self.get_stock_by_code(stock_code)
+            except Exception as e:
+                logger.error(f"self.get_stock_by_code({stock_code}) 获取股票信息失败: {str(e)}")
+                return None
+            if not stock:
+                logger.warning(f"股票代码[{stock_code}]不存在，无法获取实时数据")
+                return None
+            # 调用API获取实时数据
+            api_data = await self.api.get_realtime_data(stock_code)
+            if not api_data:
+                logger.warning(f"API未返回股票[{stock_code}]的实时数据")
+                return None
+                      
+            # 在数据库事务中保存数据
+            @transaction.atomic
+            def save_data():
+                # 处理API返回的数据
+                if isinstance(api_data, str):
+                    try:
+                        # 尝试解析JSON字符串
+                        import json
+                        mapped_data = json.loads(api_data)
+                    except Exception as e:
+                        logger.error(f"解析实时数据失败: {str(e)}")
+                        return None
+                else:
+                    # 处理JSON格式的数据
+                    mapped_data = api_data
+                
+                # 将映射后的数据转换为标准字典格式，并处理日期和数字字段
+                data_dict = {
+                    'stock': stock,
+                    'update_time': self._parse_datetime(mapped_data.get('t')),
+                    'open_price': self._parse_number(mapped_data.get('o')),
+                    'five_min_change': self._parse_number(mapped_data.get('fm')),
+                    'high_price': self._parse_number(mapped_data.get('h')),
+                    'turnover_rate': self._parse_number(mapped_data.get('hs')),
+                    'volume_ratio': self._parse_number(mapped_data.get('lb')),
+                    'low_price': self._parse_number(mapped_data.get('l')),
+                    'tradable_market_value': self._parse_number(mapped_data.get('lt')),
+                    'pe_ratio': self._parse_number(mapped_data.get('pe')),
+                    'price_change_percent': self._parse_number(mapped_data.get('pc')),
+                    'current_price': self._parse_number(mapped_data.get('p')),
+                    'total_market_value': self._parse_number(mapped_data.get('sz')),
+                    'turnover_value': self._parse_number(mapped_data.get('cje')),
+                    'price_change': self._parse_number(mapped_data.get('ud')),
+                    'volume': self._parse_number(mapped_data.get('v')),
+                    'prev_close_price': self._parse_number(mapped_data.get('yc')),
+                    'amplitude': self._parse_number(mapped_data.get('zf')),
+                    'increase_speed': self._parse_number(mapped_data.get('zs')),
+                    'pb_ratio': self._parse_number(mapped_data.get('sjl')),
+                    'price_change_60d': self._parse_number(mapped_data.get('zdf60')),
+                    'price_change_ytd': self._parse_number(mapped_data.get('zdfnc')),
+                }
+                
+                # 创建实时数据记录
+                realtime_data = RealtimeData.objects.create(**data_dict)
+                cache_manager.save_stock_realtime(stock_code, data_dict)
+            
+            # 执行保存操作并返回结果
+            result = await sync_to_async(save_data)()
+            logger.info(f"成功保存股票[{stock_code}]的实时数据")
+            
+            
+            return result
+        except Exception as e:
+            logger.error(f"保存股票[{stock_code}]实时数据失败: {str(e)}")
+            return None
+    
+    async def get_multiple_latest_realtime_datas(self, stock_codes: List[str]) -> Dict[str, RealtimeData]:
         """
         批量获取多只股票的实时交易数据
         
@@ -274,7 +254,7 @@ class StockRealtimeDAO(BaseDAO):
                     # 数值字段处理
                     elif (isinstance(value, (int, float)) or (
                         isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
+                    )) and 'code' not in field.name.lower():
                         cache_dict[field.name] = self._parse_number(value)
                     else:
                         cache_dict[field.name] = value
@@ -298,89 +278,6 @@ class StockRealtimeDAO(BaseDAO):
         
         return result
     
-    async def refresh_realtime_data(self, stock_code: str) -> Optional[RealtimeData]:
-        """
-        强制从API刷新股票实时数据
-        
-        Args:
-            stock_code: 股票代码
-            
-        Returns:
-            Optional[RealtimeData]: 最新的实时交易数据
-        """
-        # 清除缓存
-        cache_key = f"realtime:{stock_code}:latest"
-        await self.delete_from_cache(cache_key)
-        
-        # 从API获取最新数据
-        try:
-            api_data = await self.api.get_realtime_data(stock_code)
-            
-            if api_data:
-                # 映射并保存到数据库
-                mapped_data = self._map_api_to_model(api_data, REALTIME_DATA_MAPPING)
-                mapped_data['stock_code'] = stock_code
-                
-                # 检查是否存在相同数据
-                exists = await self._check_if_realtime_data_exists(stock_code, mapped_data.get('update_time'))
-                
-                if exists:
-                    # 检查数据是否有变化
-                    if not await self._check_if_realtime_data_identical(exists, mapped_data):
-                        # 数据有变化，更新
-                        realtime_data = await self._update_realtime_data_db(exists.id, mapped_data)
-                    else:
-                        # 数据相同，直接返回
-                        realtime_data = exists
-                else:
-                    # 不存在，创建新记录
-                    realtime_data = await self._save_realtime_data_to_db(mapped_data)
-                
-                # 将对象转换为字典格式并存入缓存
-                cache_dict = {}
-                for field in realtime_data._meta.fields:
-                    value = getattr(realtime_data, field.name)
-                    # 日期字段处理
-                    if field.name.endswith('_date') or field.name.endswith('_time') or field.name == 't':
-                        cache_dict[field.name] = self._parse_datetime(value)
-                    # 数值字段处理
-                    elif (isinstance(value, (int, float)) or (
-                        isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    )) and 'code' not in field.lower():
-                        cache_dict[field.name] = self._parse_number(value)
-                    else:
-                        cache_dict[field.name] = value
-                await self.set_to_cache(cache_key, cache_dict, 60)
-                return realtime_data
-        except Exception as e:
-            logger.error(f"刷新实时交易数据出错: {e}")
-        
-        return None
-
-    async def refresh_stocks_realtime(self, stock_codes: List[str]) -> Dict[str, RealtimeData]:
-        """
-        刷新多只股票的实时数据
-        
-        Args:
-            stock_codes: 股票代码列表
-        
-        Returns:
-            Dict[str, RealtimeData]: 股票代码到实时数据的映射
-        """
-        logger.info(f"刷新{len(stock_codes)}只股票的实时数据")
-        results = {}
-        
-        for stock_code in stock_codes:
-            try:
-                data = await self.refresh_realtime_data(stock_code)
-                if data:
-                    results[stock_code] = data
-            except Exception as e:
-                logger.error(f"刷新股票[{stock_code}]实时数据出错: {str(e)}")
-        
-        logger.info(f"刷新股票实时数据完成，成功{len(results)}只")
-        return results
-
     async def _check_if_realtime_data_exists(self, stock_code: str, update_time: datetime) -> Optional[RealtimeData]:
         """
         检查指定时间的实时数据是否已存在
