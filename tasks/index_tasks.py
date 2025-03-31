@@ -50,7 +50,7 @@ def save_index_all_latest_time_series(self):
     logger.info("保存指数时间序列数据完成")
     return "保存指数时间序列数据完成"
 
-@celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_time_series')
+@celery_app.task(bind=True, name='tasks.index_tasks.save_index_history_time_series_chunk')
 def save_index_history_time_series_chunk(self, index_chunk):
     """
     保存指数历史时间序列数据块
@@ -62,8 +62,8 @@ def save_index_history_time_series_chunk(self, index_chunk):
     logger.info(f"保存指数历史时间序列数据块完成: {[index.code for index in index_chunk]}")
     return f"保存指数历史时间序列数据块完成: {[index.code for index in index_chunk]}"
 
-@celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_time_series_chunk')
-def save_index_all_history_time_series(self):
+@celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_time_series')
+async def save_index_all_history_time_series(self):
     """
     保存指数历史时间序列数据(并行版本)
     """
@@ -71,7 +71,7 @@ def save_index_all_history_time_series(self):
     index_dao = StockIndexDAO()
     logger.info("开始并行保存指数历史时间序列数据")
 
-    indexes = index_dao.get_all_indexes() # 获取所有指数对象列表
+    indexes = await index_dao.get_all_indexes() # 获取所有指数对象列表
     if not indexes:
         logger.info("没有需要更新历史时间序列数据的指数")
         return "没有需要更新历史时间序列数据的指数"
