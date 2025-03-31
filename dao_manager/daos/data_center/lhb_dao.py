@@ -13,7 +13,10 @@ import json
 from api_manager.apis.datacenter_api import DataCenterAPI
 from api_manager.mappings.datacenter_mappings import *
 from dao_manager.base_dao import BaseDAO
-from stock_models.datacenter.lhb import BrokerOnList, InstitutionTradeDetail, InstitutionTradeTrack, LhbDaily, StockOnList
+from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from stock_models.datacenter.lhb import BrokerOnList, InstitutionTradeDetail, InstitutionTradeTrack, LhbDaily, LhbDetail, StockOnList
+from stock_models.stock_basic import StockInfo
+from utils.cache_manager import CacheManager
 
 logger = logging.getLogger('dao')
 
@@ -31,6 +34,11 @@ def get_model_fields(model_class):
 
 class LhbDAO(BaseDAO):
 
+    def __init__(self):
+        self.api = DataCenterAPI()
+        self.stock_dao = StockBasicDAO()
+        self.cache_manager = CacheManager()
+
     # 缓存时间配置（秒）
     CACHE_TIMEOUT = {
         'short': 60,  # 1分钟
@@ -38,83 +46,7 @@ class LhbDAO(BaseDAO):
         'long': 3600,  # 1小时
         'daily': 86400,  # 1天
     }
-
-    async def _batch_process(self, model_class, data_list, mapping, unique_fields, **extra_fields) -> Dict:
-        """
-        简化的通用异步数据存储方法，实现批量处理（检查-创建-更新-略过）
-        
-        Args:
-            model_class: Django模型类
-            data_list: 要处理的数据列表，每项都是模型对应的字段字典
-            unique_fields: 用于确定唯一记录的字段列表
-            
-        Returns:
-            dict: 包含创建、更新和略过的记录数
-        """
-        if not data_list:
-            logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-        
-        # 如果传入的不是列表，转换为列表
-        if not isinstance(data_list, list):
-            data_list = [data_list]
-        
-        # 统计计数
-        created_count = 0
-        updated_count = 0
-        skipped_count = 0
-        
-        # 批量处理，分组进行以减小事务范围
-        batch_size = 1000
-        for i in range(0, len(data_list), batch_size):
-            batch = data_list[i:i+batch_size]
-            
-            @transaction.atomic
-            def process_batch():
-                nonlocal created_count, updated_count, skipped_count
-                
-                for item in batch:
-                    # 构建查询条件
-                    filter_kwargs = {field: item.get(field) for field in unique_fields if field in item}
-                    
-                    # 查找现有记录
-                    existing = model_class.objects.filter(**filter_kwargs).first()
-                    
-                    if existing:
-                        # 检查数据是否有变化
-                        has_changes = False
-                        for field, value in item.items():
-                            if hasattr(existing, field) and getattr(existing, field) != value:
-                                has_changes = True
-                                break
-                        
-                        if has_changes:
-                            # 更新记录
-                            for field, value in item.items():
-                                if hasattr(existing, field):
-                                    setattr(existing, field, value)
-                            existing.save()
-                            updated_count += 1
-                        else:
-                            # 数据相同，略过
-                            skipped_count += 1
-                    else:
-                        # 创建新记录
-                        model_class.objects.create(**item)
-                        created_count += 1
-            
-            # 执行批处理
-            await sync_to_async(process_batch)()
-        
-        result = {
-            '创建': created_count,
-            '更新': updated_count,
-            '跳过': skipped_count
-        }
-    
-        logger.info(f"完成{model_class.__name__}数据处理: {result}")
-        return result
-    
+   
     async def _get_from_cache(self, cache_key: str) -> Optional[Any]:
         """
         从缓存获取数据
@@ -214,9 +146,7 @@ class LhbDAO(BaseDAO):
             logger.debug(f"缓存数据出错，数据内容: {data}")
             raise
  
-
-    # 龙虎榜相关DAO方法
-    
+    # 龙虎榜相关DAO方法    
     async def save_daily_lhb(self) -> Dict:
         """
         保存今日龙虎榜概览
@@ -229,83 +159,48 @@ class LhbDAO(BaseDAO):
             async with DataCenterAPI() as api:
                 logger.info("开始获取龙虎榜数据")
                 data = await api.get_daily_lhb()
-            
             if not data:
                 logger.warning("未获取到龙虎榜数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
-            # 验证并处理数据格式
-            if isinstance(data, str):
-                # 处理text/plain或text/html格式的响应
-                try:
-                    # 尝试解析为JSON
-                    data = json.loads(data)
-                except json.JSONDecodeError:
-                    # 如果不是JSON格式，尝试解析为字典
-                    try:
-                        lines = data.split('\n')
-                        parsed_data = {}
-                        for line in lines:
-                            if ':' in line:
-                                key, value = line.split(':', 1)
-                                parsed_data[key.strip()] = value.strip()
-                        data = parsed_data
-                    except Exception as e:
-                        logger.error(f"解析龙虎榜文本数据失败: {str(e)}")
-                        return {'创建': 0, '更新': 0, '跳过': 0}
-            
             if not isinstance(data, dict):
                 logger.error(f"龙虎榜数据格式错误，期望dict类型，实际类型: {type(data)}")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-            
-            # 处理日期格式
-            trade_date = None
-            if 't' in data:
-                trade_date = self._parse_datetime(data['t'])
-                logger.debug(f"处理后的日期: {trade_date}")
-            else:
-                trade_date = self._parse_datetime(datetime.now())
-                logger.warning("龙虎榜数据中没有日期字段，使用当前日期")
-            
-            # 验证必要字段
-            if not trade_date:
-                logger.error("无法获取有效的交易日期")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            
+            data_dicts = []
             # 转换为标准字典格式并应用字段映射
-            mapped_data = {}
-            for api_field, model_field in LHB_DAILY_MAPPING.items():
-                if api_field in data:
-                    value = data[api_field]
-                    # 处理日期字段
-                    if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_date':
-                        mapped_data[model_field] = self._parse_datetime(value)
-                    # 处理数值字段
-                    elif isinstance(value, (int, float)) or (
-                        isinstance(value, str) and value.replace('.', '', 1).isdigit()
-                    ):
-                        mapped_data[model_field] = self._parse_number(value)
-                    # 处理列表类型的字段（如decline_deviation_7pct等）
-                    elif isinstance(value, list):
-                        mapped_data[model_field] = json.dumps(value, ensure_ascii=False)
-                    else:
-                        mapped_data[model_field] = value
-            
-            # 确保trade_date字段存在
-            mapped_data['trade_date'] = trade_date
+            trade_date = self._parse_datetime(data.get('t'))
+            json_list_dpl7 = data.get('dpl7')
+            json_list_z20 = data.get('z20')
+            json_list_zpl7 = data.get('zpl7')
+            json_list_h20 = data.get('h20')
+            json_list_st15 = data.get('st15')
+            json_list_st12 = data.get('st12')
+            json_list_std15 = data.get('std15')
+            json_list_std12 = data.get('std12')
+            json_list_zf15 = data.get('zf15')
+            json_list_df15 = data.get('df15')
+            json_list_wxz = data.get('wxz')
+            json_list_wxztp = data.get('wxztp')
+            json_lists = json_list_dpl7 + json_list_z20 + json_list_zpl7 + json_list_h20 + json_list_st15 + json_list_st12 + json_list_std15 + json_list_std12 + json_list_zf15 + json_list_df15 + json_list_wxz + json_list_wxztp
+            for data_lhb in json_lists:
+                stock = self.stock_dao.get_stock_by_code(data_lhb.get('dm'))
+                data_dict = {
+                    'stock': stock,
+                    'trade_date': trade_date,
+                    'close_price': data.get('c'),
+                    'value': data.get('val'),
+                    'volume': data.get('v'),
+                    'amount': data.get('e'),
+                }
+                data_dicts.append(data_dict)
             
             # 保存数据
             logger.info("开始保存龙虎榜数据")
-            result = await self._batch_process(
-                model_class=LhbDaily,
-                data_list=[mapped_data],
-                mapping=LHB_DAILY_MAPPING,
-                unique_fields=['trade_date']
+            result = await self._save_all_to_db(
+                model_class=LhbDetail,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_date']
             )
-            
-            # 清除相关缓存
-            logger.info("清除龙虎榜数据缓存")
-            await self._set_to_cache('daily_lhb', mapped_data, self.CACHE_TIMEOUT['daily'])
             
             logger.info(f"龙虎榜数据保存完成，结果: {result}")
             return result
@@ -314,7 +209,7 @@ class LhbDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data if 'data' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
     
-    async def get_daily_lhb(self) -> Optional[Dict]:
+    async def get_daily_lhb(self) -> List[LhbDetail]:
         """
         获取今日龙虎榜概览
         
@@ -330,13 +225,13 @@ class LhbDAO(BaseDAO):
         # 缓存未命中，查数据库
         try:
             # 获取最新一条记录
-            latest = await asyncio.to_thread(
-                lambda: LhbDaily.objects.order_by('-t').first()
+            lhbs = await asyncio.to_thread(
+                lambda: LhbDetail.objects.order_by('-t')
             )
             
             if latest:
                 # 将数据库查询结果转换为字典
-                result = {field: getattr(latest, field) for field in get_model_fields(LhbDaily)}
+                result = {field: getattr(latest, field) for field in get_model_fields(LhbDetail)}
                 # 存入缓存
                 await self._set_to_cache(cache_key, result, self.CACHE_TIMEOUT['daily'])
                 return result

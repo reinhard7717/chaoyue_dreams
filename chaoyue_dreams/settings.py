@@ -86,7 +86,7 @@ CACHES = {
         'LOCATION': 'redis://39.101.65.133:6379/0',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'SERIALIZER': 'django_redis.serializers.json.JSONSerializer',  # 使用JSON序列化
+            'SERIALIZER': 'utils.custom_serializer.CustomJSONSerializer',  # 使用JSON序列化
             'PASSWORD': 'Asdf1234',  # Redis密码
             'SOCKET_CONNECT_TIMEOUT': 5,
             'SOCKET_TIMEOUT': 5,

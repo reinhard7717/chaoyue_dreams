@@ -6,6 +6,7 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.views import LoginView
 from .forms import UserLoginForm, UserProfileForm, FavoriteStockForm
 from .models import FavoriteStock, UserProfile
+from stock_models.stock_basic import StockInfo
 
 def home(request):
     """
@@ -105,12 +106,19 @@ def add_favorite_stock(request):
             favorite_stock = form.save(commit=False)
             favorite_stock.user = request.user
             favorite_stock.save()
-            messages.success(request, _(f'已成功添加自选股：{favorite_stock.stock_name}'))
+            messages.success(request, _(f'已成功添加自选股：{favorite_stock.stock.stock_name}'))
             return redirect('favorite_stock_list')
     else:
         form = FavoriteStockForm()
     
-    return render(request, 'users/favorite_stock_form.html', {'form': form, 'title': '添加自选股'})
+    # 获取所有股票列表
+    stocks = StockInfo.objects.all().order_by('stock_code')
+    
+    return render(request, 'users/favorite_stock_form.html', {
+        'form': form, 
+        'title': '添加自选股',
+        'stocks': stocks
+    })
 
 @login_required
 def edit_favorite_stock(request, pk):
@@ -123,12 +131,19 @@ def edit_favorite_stock(request, pk):
         form = FavoriteStockForm(request.POST, instance=favorite_stock)
         if form.is_valid():
             form.save()
-            messages.success(request, _(f'已成功更新自选股：{favorite_stock.stock_name}'))
+            messages.success(request, _(f'已成功更新自选股：{favorite_stock.stock.stock_name}'))
             return redirect('favorite_stock_list')
     else:
         form = FavoriteStockForm(instance=favorite_stock)
     
-    return render(request, 'users/favorite_stock_form.html', {'form': form, 'title': '编辑自选股'})
+    # 获取所有股票列表
+    stocks = StockInfo.objects.all().order_by('stock_code')
+    
+    return render(request, 'users/favorite_stock_form.html', {
+        'form': form, 
+        'title': '编辑自选股',
+        'stocks': stocks
+    })
 
 @login_required
 def delete_favorite_stock(request, pk):
@@ -136,7 +151,7 @@ def delete_favorite_stock(request, pk):
     删除自选股
     """
     favorite_stock = get_object_or_404(FavoriteStock, pk=pk, user=request.user)
-    stock_name = favorite_stock.stock_name
+    stock_name = favorite_stock.stock.stock_name
     favorite_stock.delete()
     messages.success(request, _(f'已成功删除自选股：{stock_name}'))
     return redirect('favorite_stock_list')

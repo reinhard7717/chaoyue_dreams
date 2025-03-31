@@ -4,6 +4,8 @@ from django.utils.translation import gettext_lazy as _
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from stock_models.stock_basic import StockInfo
+
 # 先使用Django自带的用户模型
 # class User(AbstractUser):
 #     """
@@ -70,10 +72,7 @@ class FavoriteStock(models.Model):
     """
     # 关联用户
     user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_('用户'), related_name='favorite_stocks')
-    # 股票代码
-    stock_code = models.CharField(_('股票代码'), max_length=10)
-    # 股票名称
-    stock_name = models.CharField(_('股票名称'), max_length=50)
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="favorite_stocks", verbose_name=_("股票"))
     # 添加时间
     added_at = models.DateTimeField(_('添加时间'), auto_now_add=True)
     # 备注
@@ -88,10 +87,10 @@ class FavoriteStock(models.Model):
         verbose_name_plural = _('自选股')
         ordering = ['-is_pinned', '-added_at']
         # 确保一个用户不会添加重复的股票
-        unique_together = ['user', 'stock_code']
+        unique_together = ['user', 'stock']
 
     def __str__(self):
-        return f"{self.user.username} - {self.stock_name}({self.stock_code})"
+        return f"{self.user.username} - {self.stock.stock_name}({self.stock.stock_code})"
 
 # 监听信号，当用户创建后自动创建用户资料
 @receiver(post_save, sender=User)

@@ -3,6 +3,9 @@
 import decimal
 import json
 import logging
+from django.db.models import Q
+import operator
+from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic
 from datetime import datetime, date, time
 
@@ -257,63 +260,115 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"数据库筛选错误: {str(e)}")
             return []
-    
-    async def _save_to_db(self, data: Dict[str, Any]) -> T:
+
+    async def _save_all_to_db(self, model_class, data_list, unique_fields, **extra_fields) -> Dict:
         """
-        保存单个实体到数据库
+        优化的通用异步数据批量处理方法，使用bulk_create和bulk_update提高性能
         
         Args:
-            data: 实体数据
+            model_class: Django模型类
+            data_list: 要处理的数据列表，每项都是模型对应的字段字典
+            unique_fields: 用于确定唯一记录的字段列表
             
         Returns:
-            T: 保存后的实体对象
+            dict: 包含创建、更新和跳过的记录数
         """
-        try:
-            # 获取主键字段名
-            pk_name = self.model_class._meta.pk.name
-            
-            # 检查实体是否已存在
-            if pk_name in data:
-                pk_value = data[pk_name]
-                try:
-                    instance = await sync_to_async(self.model_class.objects.filter(**{pk_name: pk_value}).first)()
-                    if instance:
-                        # 更新已存在的实体
-                        for key, value in data.items():
-                            setattr(instance, key, value)
-                        await sync_to_async(instance.save)()
-                        logger.debug(f"更新实体: {pk_value}")
-                        return instance
-                except Exception as e:
-                    logger.error(f"查询实体错误: {str(e)}")
-            
-            # 创建新实体
-            instance = self.model_class(**data)
-            await sync_to_async(instance.save)()
-            logger.debug(f"创建新实体: {instance}")
-            return instance
-        except Exception as e:
-            logger.error(f"保存实体错误: {str(e)}")
-            raise
-    
-    async def _save_all_to_db(self, data_list: List[Dict[str, Any]]) -> List[T]:
-        """
-        保存多个实体到数据库
+        if not data_list:
+            logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
         
-        Args:
-            data_list: 实体数据列表
+        # 如果传入的不是列表，转换为列表
+        if not isinstance(data_list, list):
+            data_list = [data_list]
+        
+        # 统计计数
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        
+        # 批量处理，分组进行以减小事务范围
+        batch_size = 10000
+        for i in range(0, len(data_list), batch_size):
+            batch = data_list[i:i+batch_size]
             
-        Returns:
-            List[T]: 保存后的实体对象列表
-        """
-        instances = []
-        for data in data_list:
-            try:
-                instance = await self._save_to_db(data)
-                instances.append(instance)
-            except Exception as e:
-                logger.error(f"保存实体错误: {str(e)}")
-        return instances
+            @transaction.atomic
+            def process_batch():
+                nonlocal created_count, updated_count, skipped_count
+                
+                # 1. 构建所有需要查询的条件
+                existing_items = {}
+                query_filters = []
+                
+                for item in batch:
+                    filter_kwargs = {field: item.get(field) for field in unique_fields if field in item}
+                    # 构建复合查询条件
+                    query_condition = Q(**filter_kwargs)
+                    query_filters.append(query_condition)
+                    
+                    # 保存查询条件，用于后续匹配
+                    key = tuple((field, item.get(field)) for field in unique_fields if field in item)
+                    existing_items[key] = item
+                
+                # 2. 批量查询所有可能存在的记录
+                existing_records = {}
+                if query_filters:
+                    query = model_class.objects.filter(reduce(operator.or_, query_filters))
+                    for record in query:
+                        # 创建唯一键以匹配记录
+                        key = tuple((field, getattr(record, field)) for field in unique_fields)
+                        existing_records[key] = record
+                
+                # 3. 分离需要创建和需要更新的记录
+                to_create = []
+                to_update = []
+                update_fields = set()
+                
+                for key, item in existing_items.items():
+                    if key in existing_records:
+                        # 记录已存在，检查是否需要更新
+                        record = existing_records[key]
+                        has_changes = False
+                        
+                        for field, value in item.items():
+                            if hasattr(record, field) and getattr(record, field) != value:
+                                setattr(record, field, value)
+                                has_changes = True
+                                update_fields.add(field)
+                        
+                        if has_changes:
+                            to_update.append(record)
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
+                        # 记录不存在，创建新记录
+                        to_create.append(model_class(**item))
+                        created_count += 1
+                
+                # 4. 批量创建新记录
+                if to_create:
+                    model_class.objects.bulk_create(to_create)
+                
+                # 5. 批量更新已有记录
+                if to_update and update_fields:
+                    # 排除主键和不可更新字段
+                    update_fields = [f for f in update_fields if f not in unique_fields 
+                                    and f not in getattr(model_class._meta, 'read_only_fields', [])]
+                    if update_fields:
+                        model_class.objects.bulk_update(to_update, update_fields)
+            
+            # 执行批处理
+            await sync_to_async(process_batch)()
+        
+        result = {
+            '创建': created_count,
+            '更新': updated_count,
+            '跳过': skipped_count
+        }
+
+        logger.info(f"完成{model_class.__name__}数据批量处理: {result}")
+        return result
+
     
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """

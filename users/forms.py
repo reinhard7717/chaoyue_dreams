@@ -120,10 +120,9 @@ class FavoriteStockForm(forms.ModelForm):
     """
     class Meta:
         model = FavoriteStock
-        fields = ('stock_code', 'stock_name', 'note', 'tags', 'is_pinned')
+        fields = ('stock', 'note', 'tags', 'is_pinned')
         widgets = {
-            'stock_code': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入股票代码'}),
-            'stock_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入股票名称'}),
+            'stock': forms.Select(attrs={'class': 'form-control'}),
             'note': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入备注信息'}),
             'tags': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入标签，多个标签用空格分隔'}),
             'is_pinned': forms.CheckboxInput(attrs={'class': 'form-check-input'}),

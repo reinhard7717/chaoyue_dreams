@@ -82,7 +82,7 @@ https://ig507.com/data/time/real/sh000001?licence=您的licence
 2022-09-06 16:18:55"}
 
 沪深两市上涨下跌数概览
-API：https://ig507.com/data/time/real/shszzdbl ?licence=您的licence
+API：https://ig507.com/data/time/real/shszzdbl?licence=您的licence
 描述：获取沪深两市的股票上涨、下跌总数以及各比例区间的上涨下跌数。
 更新频率：交易时间段每2分钟。
 完成更新耗时：约10秒。
@@ -109,7 +109,7 @@ https://ig507.com/data/time/real/shszzdbl?licence=您的licence
 {"totalUp":1777,"totalDown":2252,"zt":59,"dt":14,"up8ToZt":64,"up6To8":32,"up4To6":118,"up2To4":355,"up0To2":1356,"down0To2":1265,"down2To4":625,"down4To6":248,"down6To8":82,"down8ToDt":32}
 
 最新分时交易
-API：https://ig507.com/data/time/real/time/ 指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
+API：https://ig507.com/data/time/real/time/指数代码（包含sh/sz前缀，如：sh000001）/分时级别?licence=您的licence
 描述：根据《指数列表》得到的指数代码（包含sh/sz前缀，如：sh000001）以及分时级别获取分时交易数据，交易时间升序。目前 分时级别 支持5分钟、15分钟、30分钟、60分钟、日周月年级别，对应的值分别是 5、15、30、60、Day、Week、Month、Year 。
 更新频率：分钟级别数据盘中更新，分时越小越优先更新，如5分钟级别会每5分钟更新，15分钟级别会每15分钟更新，以此类推，日线及以上级别每天15:35更新。
 完成更新耗时：分钟级别数据耗时约1分钟，日线及以上级别每天15:35更新，总耗时约30分钟。

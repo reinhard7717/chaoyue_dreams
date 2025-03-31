@@ -2,7 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from stock_models.stock_basic import StockInfo
 
-class RealtimeData(models.Model):
+class StockRealtimeData(models.Model):
     """
     股票实时交易数据模型
     """
@@ -29,8 +29,6 @@ class RealtimeData(models.Model):
     price_change_60d = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='60日涨跌幅', null=True)
     price_change_ytd = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='年初至今涨跌幅', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    
     class Meta:
         verbose_name = '实时交易数据'
         verbose_name_plural = verbose_name
@@ -42,7 +40,7 @@ class RealtimeData(models.Model):
         return f"{self.stock.stock_code}-{self.update_time}"
 
 
-class Level5Data(models.Model):
+class StockLevel5Data(models.Model):
     """
     买卖五档盘口数据模型
     """
@@ -77,8 +75,6 @@ class Level5Data(models.Model):
     sell_price5 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='卖5价', null=True)
     sell_volume5 = models.IntegerField(verbose_name='卖5量', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    
     class Meta:
         verbose_name = '买卖五档盘口数据'
         verbose_name_plural = verbose_name
@@ -90,7 +86,7 @@ class Level5Data(models.Model):
         return f"{self.stock.stock_code}-{self.update_time}"
 
 
-class TradeDetail(models.Model):
+class StockTradeDetail(models.Model):
     """
     逐笔交易数据模型
     """
@@ -101,8 +97,6 @@ class TradeDetail(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
     trade_direction = models.SmallIntegerField(verbose_name='交易方向', 
                                               choices=[(0, '中性盘'), (1, '买入'), (2, '卖出')])
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     
     class Meta:
         verbose_name = '逐笔交易数据'
@@ -115,7 +109,7 @@ class TradeDetail(models.Model):
         return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
 
-class TimeDeal(models.Model):
+class StockTimeDeal(models.Model):
     """
     分时成交数据模型
     """
@@ -124,8 +118,6 @@ class TimeDeal(models.Model):
     trade_time = models.TimeField(verbose_name='交易时间')
     volume = models.IntegerField(verbose_name='成交量')
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     
     class Meta:
         verbose_name = '分时成交数据'
@@ -138,7 +130,7 @@ class TimeDeal(models.Model):
         return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
 
-class PricePercent(models.Model):
+class StockPricePercent(models.Model):
     """
     分价成交占比数据模型
     """
@@ -147,8 +139,6 @@ class PricePercent(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
     volume = models.IntegerField(verbose_name='成交量')
     percentage = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='占比')
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     
     class Meta:
         verbose_name = '分价成交占比数据'
@@ -161,7 +151,7 @@ class PricePercent(models.Model):
         return f"{self.stock.stock_code}-{self.trade_date}-{self.price}"
 
 
-class BigDeal(models.Model):
+class StockBigDeal(models.Model):
     """
     逐笔大单交易数据模型
     """
@@ -172,8 +162,6 @@ class BigDeal(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
     trade_direction = models.SmallIntegerField(verbose_name='交易方向', 
                                               choices=[(0, '中性盘'), (1, '买入'), (2, '卖出')])
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     
     class Meta:
         verbose_name = '逐笔大单交易数据'
@@ -186,7 +174,7 @@ class BigDeal(models.Model):
         return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
 
-class AbnormalMovement(models.Model):
+class StockAbnormalMovement(models.Model):
     """
     盘中异动数据模型
     """
@@ -194,8 +182,6 @@ class AbnormalMovement(models.Model):
     movement_time = models.DateTimeField(verbose_name='异动时间')
     movement_type = models.CharField(max_length=20, verbose_name='异动类型')
     movement_info = models.CharField(max_length=100, verbose_name='相关信息')
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     
     class Meta:
         verbose_name = '盘中异动数据'

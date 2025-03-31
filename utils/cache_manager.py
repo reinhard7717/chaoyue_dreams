@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django_redis import get_redis_connection
 from redis.client import Pipeline
 
-from stock_models.stock_realtime import RealtimeData
+from stock_models.stock_realtime import StockRealtimeData
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class CacheManager:
     
     def _serialize(self, data: Any) -> bytes:
         """序列化数据，大数据自动压缩"""
-        json_data = json.dumps(data)
+        json_data = json.dumps(data, ensure_ascii=False)
         
         # 检查是否需要压缩
         if len(json_data) > self.COMPRESSION_THRESHOLD:
@@ -311,7 +311,7 @@ def save_stock_realtime(stock_code: str, data: dict):
     cache_manager.set(key, data)
 
 # 2. 获取股票实时数据并转换为模型实例
-def get_stock_realtime(stock_code: str) -> Optional['RealtimeData']:
+def get_stock_realtime(stock_code: str) -> Optional['StockRealtimeData']:
     from .models import StockRealTimeData  # 导入模型
     
     key = cache_manager.generate_key('rt', 'stock', stock_code, 'quote')

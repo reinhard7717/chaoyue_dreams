@@ -24,13 +24,21 @@ class FavoriteStockAdmin(admin.ModelAdmin):
     """
     自选股管理
     """
-    list_display = ('user', 'stock_code', 'stock_name', 'is_pinned', 'added_at')
+    list_display = ('user', 'get_stock_code', 'get_stock_name', 'is_pinned', 'added_at')
     list_filter = ('is_pinned', 'user')
-    search_fields = ('stock_code', 'stock_name', 'user__username')
+    search_fields = ('stock__stock_code', 'stock__stock_name', 'user__username')
     readonly_fields = ('added_at',)
     
     fieldsets = (
-        (None, {'fields': ('user', 'stock_code', 'stock_name')}),
+        (None, {'fields': ('user', 'stock')}),
         (_('自选股设置'), {'fields': ('is_pinned', 'note', 'tags')}),
         (_('添加时间'), {'fields': ('added_at',)}),
     )
+    
+    def get_stock_code(self, obj):
+        return obj.stock.stock_code if obj.stock else '-'
+    get_stock_code.short_description = '股票代码'
+    
+    def get_stock_name(self, obj):
+        return obj.stock.stock_name if obj.stock else '-'
+    get_stock_name.short_description = '股票名称'

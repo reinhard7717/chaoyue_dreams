@@ -2,7 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from stock_models.stock_basic import StockInfo
 
-class TimeTrade(models.Model):
+class StockTimeTrade(models.Model):
     """
     分时交易数据模型
     """
@@ -20,21 +20,17 @@ class TimeTrade(models.Model):
     price_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌幅', null=True)
     price_change = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌额', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = '分时交易数据'
         verbose_name_plural = verbose_name
-        db_table = 'time_trade'
+        db_table = 'stock_time_trade'
         unique_together = ('stock', 'time_level', 'trade_time')
         ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
-
-class KDJIndicator(models.Model):
+class StockKDJIndicator(models.Model):
     """
     KDJ指标数据模型
     """
@@ -45,21 +41,17 @@ class KDJIndicator(models.Model):
     d_value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='D值', null=True)
     j_value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='J值', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = 'KDJ指标数据'
         verbose_name_plural = verbose_name
-        db_table = 'kdj_indicator'
+        db_table = 'stock_kdj_indicator'
         unique_together = ('stock', 'time_level', 'trade_time')
         ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
-
-class MACDIndicator(models.Model):
+class StockMACDIndicator(models.Model):
     """
     MACD指标数据模型
     """
@@ -72,21 +64,17 @@ class MACDIndicator(models.Model):
     ema12 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='EMA(12)值', null=True)
     ema26 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='EMA(26)值', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = 'MACD指标数据'
         verbose_name_plural = verbose_name
-        db_table = 'macd_indicator'
+        db_table = 'stock_macd_indicator'
         unique_together = ('stock', 'time_level', 'trade_time')
         ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
-
-class MAIndicator(models.Model):
+class StockMAIndicator(models.Model):
     """
     MA指标数据模型
     """
@@ -104,21 +92,17 @@ class MAIndicator(models.Model):
     ma200 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA200', null=True)
     ma250 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA250', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = 'MA指标数据'
         verbose_name_plural = verbose_name
-        db_table = 'ma_indicator'
+        db_table = 'stock_ma_indicator'
         unique_together = ('stock', 'time_level', 'trade_time')
         ordering = ['stock', 'time_level', 'trade_time']
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
-
-class BOLLIndicator(models.Model):
+class StockBOLLIndicator(models.Model):
     """
     BOLL指标数据模型
     """
@@ -129,13 +113,10 @@ class BOLLIndicator(models.Model):
     lower = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='下轨', null=True)
     mid = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='中轨', null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = 'BOLL指标数据'
         verbose_name_plural = verbose_name
-        db_table = 'boll_indicator'
+        db_table = 'stock_boll_indicator'
         unique_together = ('stock', 'time_level', 'trade_time')
         ordering = ['stock', 'time_level', 'trade_time']
     

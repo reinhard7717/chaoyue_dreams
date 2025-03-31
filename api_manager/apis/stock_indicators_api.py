@@ -175,6 +175,7 @@ class StockIndicatorsAPI(BaseAPI):
         Args:
             stock_code: 股票代码
             time_level: 分时级别，可以是TimeLevel枚举或对应的字符串
+        Url: /data/time/history/boll/{stock_code}/{time_level}
             
         Returns:
             List[Dict[str, Any]]: 历史BOLL指标数据列表

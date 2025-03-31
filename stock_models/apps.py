@@ -8,4 +8,4 @@ class StockModelsConfig(AppConfig):
 
     def ready(self):
         from . import stock_basic, stock_realtime, index, fund_flow
-        from .datacenter import financial
+        from .datacenter import financial, lhb

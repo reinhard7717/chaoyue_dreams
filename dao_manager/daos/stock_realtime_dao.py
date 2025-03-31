@@ -15,10 +15,9 @@ from django.core.cache import cache
 from django.db.models import Q, F
 
 from api_manager.apis.stock_realtime_api import StockRealtimeAPI
-from api_manager.mappings.stock_realtime import ABNORMAL_MOVEMENT_MAPPING, BIG_DEAL_MAPPING, LEVEL5_DATA_MAPPING, PRICE_PERCENT_MAPPING, REALTIME_DATA_MAPPING, TIME_DEAL_MAPPING, TRADE_DETAIL_MAPPING
 from dao_manager.base_dao import BaseDAO
 from stock_models.stock_basic import StockInfo
-from stock_models.stock_realtime import AbnormalMovement, BigDeal, Level5Data, PricePercent, RealtimeData, TimeDeal, TradeDetail
+from stock_models.stock_realtime import StockAbnormalMovement, StockBigDeal, StockLevel5Data, StockPricePercent, StockRealtimeData, StockTimeDeal, StockTradeDetail
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +34,7 @@ class StockRealtimeDAO(BaseDAO):
         logger.info("初始化StockRealtimeDAO")
     
     # ================= RealtimeData相关方法 =================
-    
-    async def get_latest_realtime_data_by_code(self, stock_code: str) -> Optional[RealtimeData]:
+    async def get_latest_realtime_data(self, stock_code: str) -> Optional[StockRealtimeData]:
         """
         获取股票最新的实时交易数据
         
@@ -44,14 +42,14 @@ class StockRealtimeDAO(BaseDAO):
             stock_code: 股票代码
             
         Returns:
-            Optional[RealtimeData]: 最新的实时交易数据，如不存在则返回None
+            Optional[StockRealtimeData]: 最新的实时交易数据，如不存在则返回None
         """
         # 1. 首先从缓存获取
         cache_key = f"realtime:{stock_code}:latest"
         cached_data = await self.get_from_cache(cache_key)
         if cached_data:
             realtime_dict = json.loads(cached_data)
-            realtime = RealtimeData(**realtime_dict)
+            realtime = StockRealtimeData(**realtime_dict)
             return realtime
         
         # 2. 缓存未命中，从数据库查询
@@ -62,7 +60,7 @@ class StockRealtimeDAO(BaseDAO):
             
             try:
                 data = await sync_to_async(
-                    lambda: RealtimeData.objects.filter(stock=stock).order_by('-update_time').first()
+                    lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-update_time').first()
                 )()
                 
                 # 检查数据是否过期（超过2分钟）
@@ -108,7 +106,7 @@ class StockRealtimeDAO(BaseDAO):
         
         return None
     
-    async def _fetch_and_save_realtime_data(self, stock_code: str) -> Optional[RealtimeData]:
+    async def fetch_and_save_realtime_data(self, stock_code: str) -> Optional[StockRealtimeData]:
         """
         从API获取实时交易数据并保存到数据库
         
@@ -116,7 +114,7 @@ class StockRealtimeDAO(BaseDAO):
             stock_code: 股票代码
 
         Returns:
-            Optional[RealtimeData]: 保存后的实时交易数据，保存失败则返回None
+            Optional[StockRealtimeData]: 保存后的实时交易数据，保存失败则返回None
         """
         try:
             # 获取指数信息
@@ -124,73 +122,181 @@ class StockRealtimeDAO(BaseDAO):
                 stock = await self.get_stock_by_code(stock_code)
             except Exception as e:
                 logger.error(f"self.get_stock_by_code({stock_code}) 获取股票信息失败: {str(e)}")
-                return None
+                return {'创建': 0, '更新': 0, '跳过': 0}
             if not stock:
                 logger.warning(f"股票代码[{stock_code}]不存在，无法获取实时数据")
-                return None
+                return {'创建': 0, '更新': 0, '跳过': 0}
             # 调用API获取实时数据
             api_data = await self.api.get_realtime_data(stock_code)
             if not api_data:
-                logger.warning(f"API未返回股票[{stock_code}]的实时数据")
-                return None
-                      
-            # 在数据库事务中保存数据
-            @transaction.atomic
-            def save_data():
-                # 处理API返回的数据
-                if isinstance(api_data, str):
-                    try:
-                        # 尝试解析JSON字符串
-                        import json
-                        mapped_data = json.loads(api_data)
-                    except Exception as e:
-                        logger.error(f"解析实时数据失败: {str(e)}")
-                        return None
-                else:
-                    # 处理JSON格式的数据
-                    mapped_data = api_data
-                
-                # 将映射后的数据转换为标准字典格式，并处理日期和数字字段
-                data_dict = {
+                logger.warning(f"API未返回股票[{stock}]的实时数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            
+            data_dicts = []
+            data_dict = {
                     'stock': stock,
-                    'update_time': self._parse_datetime(mapped_data.get('t')),
-                    'open_price': self._parse_number(mapped_data.get('o')),
-                    'five_min_change': self._parse_number(mapped_data.get('fm')),
-                    'high_price': self._parse_number(mapped_data.get('h')),
-                    'turnover_rate': self._parse_number(mapped_data.get('hs')),
-                    'volume_ratio': self._parse_number(mapped_data.get('lb')),
-                    'low_price': self._parse_number(mapped_data.get('l')),
-                    'tradable_market_value': self._parse_number(mapped_data.get('lt')),
-                    'pe_ratio': self._parse_number(mapped_data.get('pe')),
-                    'price_change_percent': self._parse_number(mapped_data.get('pc')),
-                    'current_price': self._parse_number(mapped_data.get('p')),
-                    'total_market_value': self._parse_number(mapped_data.get('sz')),
-                    'turnover_value': self._parse_number(mapped_data.get('cje')),
-                    'price_change': self._parse_number(mapped_data.get('ud')),
-                    'volume': self._parse_number(mapped_data.get('v')),
-                    'prev_close_price': self._parse_number(mapped_data.get('yc')),
-                    'amplitude': self._parse_number(mapped_data.get('zf')),
-                    'increase_speed': self._parse_number(mapped_data.get('zs')),
-                    'pb_ratio': self._parse_number(mapped_data.get('sjl')),
-                    'price_change_60d': self._parse_number(mapped_data.get('zdf60')),
-                    'price_change_ytd': self._parse_number(mapped_data.get('zdfnc')),
+                    'update_time': self._parse_datetime(api_data.get('t')),
+                    'open_price': self._parse_number(api_data.get('o')),
+                    'five_min_change': self._parse_number(api_data.get('fm')),
+                    'high_price': self._parse_number(api_data.get('h')),
+                    'turnover_rate': self._parse_number(api_data.get('hs')),
+                    'volume_ratio': self._parse_number(api_data.get('lb')),
+                    'low_price': self._parse_number(api_data.get('l')),
+                    'tradable_market_value': self._parse_number(api_data.get('lt')),
+                    'pe_ratio': self._parse_number(api_data.get('pe')),
+                    'price_change_percent': self._parse_number(api_data.get('pc')),
+                    'current_price': self._parse_number(api_data.get('p')),
+                    'total_market_value': self._parse_number(api_data.get('sz')),
+                    'turnover_value': self._parse_number(api_data.get('cje')),
+                    'price_change': self._parse_number(api_data.get('ud')),
+                    'volume': self._parse_number(api_data.get('v')),
+                    'prev_close_price': self._parse_number(api_data.get('yc')),
+                    'amplitude': self._parse_number(api_data.get('zf')),
+                    'increase_speed': self._parse_number(api_data.get('zs')),
+                    'pb_ratio': self._parse_number(api_data.get('sjl')),
+                    'price_change_60d': self._parse_number(api_data.get('zdf60')),
+                    'price_change_ytd': self._parse_number(api_data.get('zdfnc')),
                 }
-                
-                # 创建实时数据记录
-                realtime_data = RealtimeData.objects.create(**data_dict)
-                cache_manager.save_stock_realtime(stock_code, data_dict)
-            
-            # 执行保存操作并返回结果
-            result = await sync_to_async(save_data)()
-            logger.info(f"成功保存股票[{stock_code}]的实时数据")
-            
-            
+            data_dicts.append(data_dict)
+
+            # 保存数据
+            logger.info(f"开始保存{stock}股票最新实时数据")
+            result = await self._save_all_to_db(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+
+            # 创建实时数据记录
+            realtime_data = StockRealtimeData.objects.create(**data_dict)
+            self.cache_manager.save_stock_realtime(stock_code, data_dict)           
+
             return result
         except Exception as e:
-            logger.error(f"保存股票[{stock_code}]实时数据失败: {str(e)}")
+            logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}")
             return None
-    
-    async def get_multiple_latest_realtime_datas(self, stock_codes: List[str]) -> Dict[str, RealtimeData]:
+
+    async def fetch_and_save_favorite_stocks_realtime_data(self) -> Dict[str, StockRealtimeData]:
+        """
+        获取并保存所有自选股票的最新实时数据
+        
+        Returns:
+            Dict[str, StockRealtimeData]: 股票代码到实时数据的映射
+        """
+        try:
+            # 获取指数信息
+            favorite_stocks = await self.user_dao.get_all_favorite_stocks()
+            if not favorite_stocks:
+                logger.warning(f"自选股（get_all_favorite_stocks）不存在，无法获取实时数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            # 调用API获取实时数据
+            data_dicts = []
+            for stock in favorite_stocks:
+                api_data = await self.api.get_realtime_data(stock.stock_code)
+                data_dict = {
+                    'stock': stock,
+                    'update_time': self._parse_datetime(api_data.get('t')),
+                    'open_price': self._parse_number(api_data.get('o')),
+                    'five_min_change': self._parse_number(api_data.get('fm')),
+                    'high_price': self._parse_number(api_data.get('h')),
+                    'turnover_rate': self._parse_number(api_data.get('hs')),
+                    'volume_ratio': self._parse_number(api_data.get('lb')),
+                    'low_price': self._parse_number(api_data.get('l')),
+                    'tradable_market_value': self._parse_number(api_data.get('lt')),
+                    'pe_ratio': self._parse_number(api_data.get('pe')),
+                    'price_change_percent': self._parse_number(api_data.get('pc')),
+                    'current_price': self._parse_number(api_data.get('p')),
+                    'total_market_value': self._parse_number(api_data.get('sz')),
+                    'turnover_value': self._parse_number(api_data.get('cje')),
+                    'price_change': self._parse_number(api_data.get('ud')),
+                    'volume': self._parse_number(api_data.get('v')),
+                    'prev_close_price': self._parse_number(api_data.get('yc')),
+                    'amplitude': self._parse_number(api_data.get('zf')),
+                    'increase_speed': self._parse_number(api_data.get('zs')),
+                    'pb_ratio': self._parse_number(api_data.get('sjl')),
+                    'price_change_60d': self._parse_number(api_data.get('zdf60')),
+                    'price_change_ytd': self._parse_number(api_data.get('zdfnc')),
+                }
+                data_dicts.append(data_dict)
+                # 创建实时数据记录
+                realtime_data = StockRealtimeData.objects.create(**data_dict)
+                self.cache_manager.save_stock_realtime(stock.stock_code, data_dict)
+            if not api_data:
+                logger.warning(f"API未返回自选股（get_all_favorite_stocks）的实时数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            # 保存数据
+            logger.info(f"开始保存{stock}股票最新实时数据")
+            result = await self._save_all_to_db(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            return result
+        except Exception as e:
+            logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}")
+            return None
+        
+    async def fetch_and_save_all_realtime_data(self) -> Dict[str, StockRealtimeData]:
+        """
+        获取并保存所有股票的最新实时数据
+        
+        Returns:
+            Dict[str, StockRealtimeData]: 股票代码到实时数据的映射
+        """
+        try:
+            # 获取指数信息
+            stocks = await self.stock_basic_dao.get_stock_list()
+            if not stocks:
+                logger.warning(f"股票列表不存在，无法获取实时数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            # 调用API获取实时数据
+            data_dicts = []
+            for stock in stocks:
+                api_data = await self.api.get_realtime_data(stock.stock_code)
+                data_dict = {
+                    'stock': stock,
+                    'update_time': self._parse_datetime(api_data.get('t')),
+                    'open_price': self._parse_number(api_data.get('o')),
+                    'five_min_change': self._parse_number(api_data.get('fm')),
+                    'high_price': self._parse_number(api_data.get('h')),
+                    'turnover_rate': self._parse_number(api_data.get('hs')),
+                    'volume_ratio': self._parse_number(api_data.get('lb')),
+                    'low_price': self._parse_number(api_data.get('l')),
+                    'tradable_market_value': self._parse_number(api_data.get('lt')),
+                    'pe_ratio': self._parse_number(api_data.get('pe')),
+                    'price_change_percent': self._parse_number(api_data.get('pc')),
+                    'current_price': self._parse_number(api_data.get('p')),
+                    'total_market_value': self._parse_number(api_data.get('sz')),
+                    'turnover_value': self._parse_number(api_data.get('cje')),
+                    'price_change': self._parse_number(api_data.get('ud')),
+                    'volume': self._parse_number(api_data.get('v')),
+                    'prev_close_price': self._parse_number(api_data.get('yc')),
+                    'amplitude': self._parse_number(api_data.get('zf')),
+                    'increase_speed': self._parse_number(api_data.get('zs')),
+                    'pb_ratio': self._parse_number(api_data.get('sjl')),
+                    'price_change_60d': self._parse_number(api_data.get('zdf60')),
+                    'price_change_ytd': self._parse_number(api_data.get('zdfnc')),
+                }
+                data_dicts.append(data_dict)
+                # 创建实时数据记录
+                realtime_data = StockRealtimeData.objects.create(**data_dict)
+                self.cache_manager.save_stock_realtime(stock.stock_code, data_dict)
+            if not api_data:
+                logger.warning(f"API未返回{stock}的实时数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            # 保存数据
+            logger.info(f"开始保存{stock}股票最新实时数据")
+            result = await self._save_all_to_db(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            return result
+        except Exception as e:
+            logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}")
+            return None
+
+    async def get_multiple_latest_realtime_datas(self, stock_codes: List[str]) -> Dict[str, StockRealtimeData]:
         """
         批量获取多只股票的实时交易数据
         
@@ -198,7 +304,7 @@ class StockRealtimeDAO(BaseDAO):
             stock_codes: 股票代码列表
             
         Returns:
-            Dict[str, RealtimeData]: 股票代码到实时数据的映射
+            Dict[str, StockRealtimeData]: 股票代码到实时数据的映射
         """
         if not stock_codes:
             return {}
@@ -237,7 +343,7 @@ class StockRealtimeDAO(BaseDAO):
         
         # 2. 从数据库批量获取缺失的股票数据
         try:
-            latest_data_queryset = RealtimeData.objects.filter(
+            latest_data_queryset = StockRealtimeData.objects.filter(
                 stock_code__in=missing_codes
             ).order_by('stock_code', '-update_time').distinct('stock_code')
             
@@ -278,7 +384,7 @@ class StockRealtimeDAO(BaseDAO):
         
         return result
     
-    async def _check_if_realtime_data_exists(self, stock_code: str, update_time: datetime) -> Optional[RealtimeData]:
+    async def _check_if_realtime_data_exists(self, stock_code: str, update_time: datetime) -> Optional[StockRealtimeData]:
         """
         检查指定时间的实时数据是否已存在
         
@@ -287,13 +393,13 @@ class StockRealtimeDAO(BaseDAO):
             update_time: 更新时间
             
         Returns:
-            Optional[RealtimeData]: 存在的实时数据，不存在则返回None
+            Optional[StockRealtimeData]: 存在的实时数据，不存在则返回None
         """
         if not update_time:
             return None
             
         try:
-            return await RealtimeData.objects.filter(
+            return await StockRealtimeData.objects.filter(
                 stock_code=stock_code,
                 update_time=update_time
             ).afirst()
@@ -301,7 +407,7 @@ class StockRealtimeDAO(BaseDAO):
             logger.error(f"检查实时数据是否存在出错: {e}")
             return None
 
-    async def _check_if_realtime_data_identical(self, existing: RealtimeData, new_data: Dict[str, Any]) -> bool:
+    async def _check_if_realtime_data_identical(self, existing: StockRealtimeData, new_data: Dict[str, Any]) -> bool:
         """
         检查新旧实时数据是否相同
         
@@ -329,58 +435,8 @@ class StockRealtimeDAO(BaseDAO):
                     
         return True
     
-    @transaction.atomic
-    async def _save_realtime_data_to_db(self, data: Dict[str, Any]) -> RealtimeData:
-        """
-        保存实时数据到数据库
-        
-        Args:
-            data: 要保存的数据
-            
-        Returns:
-            RealtimeData: 保存后的实时数据
-        """
-        try:
-            obj = RealtimeData(**data)
-            await obj.asave()
-            logger.debug(f"保存实时数据成功: {obj.stock_code}")
-            return obj
-        except Exception as e:
-            logger.error(f"保存实时数据出错: {e}")
-            raise e
-    
-    @transaction.atomic
-    async def _update_realtime_data_db(self, record_id: int, data: Dict[str, Any]) -> Optional[RealtimeData]:
-        """
-        更新数据库中的实时数据
-        
-        Args:
-            record_id: 记录ID
-            data: 要更新的数据
-            
-        Returns:
-            Optional[RealtimeData]: 更新后的实时数据，更新失败则返回None
-        """
-        try:
-            record = await RealtimeData.objects.filter(id=record_id).afirst()
-            if record:
-                # 更新字段
-                for key, value in data.items():
-                    setattr(record, key, value)
-                
-                await record.asave()
-                logger.debug(f"更新实时数据成功: {record.stock_code}")
-                return record
-            else:
-                logger.warning(f"要更新的实时数据记录不存在: {record_id}")
-                return None
-        except Exception as e:
-            logger.error(f"更新实时数据出错: {e}")
-            return None
-    
     # ================= Level5Data相关方法 =================
-    
-    async def get_level5_data_by_code(self, stock_code: str) -> Optional[Level5Data]:
+    async def get_level5_data_by_code(self, stock_code: str) -> Optional[StockLevel5Data]:
         """
         获取股票最新的Level5数据
         
@@ -388,7 +444,7 @@ class StockRealtimeDAO(BaseDAO):
             stock_code: 股票代码
             
         Returns:
-            Optional[Level5Data]: 最新的Level5数据，如不存在则返回None
+            Optional[StockLevel5Data]: 最新的Level5数据，如不存在则返回None
         """
         # 1. 首先从缓存获取
         cache_key = f"level5:{stock_code}:latest"
@@ -398,7 +454,7 @@ class StockRealtimeDAO(BaseDAO):
         
         # 2. 缓存未命中，从数据库查询
         try:
-            level5_data = await Level5Data.objects.filter(
+            level5_data = await StockLevel5Data.objects.filter(
                 stock_code=stock_code
             ).order_by('-update_time').afirst()
             
@@ -435,7 +491,66 @@ class StockRealtimeDAO(BaseDAO):
         
         return None
     
-    async def refresh_level5_data(self, stock_code: str) -> Optional[Level5Data]:
+    async def fetch_and_save_level5_data(self, stock_code: str) -> Optional[StockLevel5Data]:
+        """
+        从API获取Level5数据并保存到数据库
+
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            Optional[StockLevel5Data]: 保存后的Level5数据
+        """
+        try:
+            stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+            if not stock:
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            data_dicts = []
+            api_data = await self.api.get_level5_data(stock.stock_code)
+            data_dict = {
+                'stock': stock,
+                'update_time': self._parse_datetime(api_data.get('t')),  # 交易时间
+                'order_diff': self._parse_number(api_data.get('vc')),
+                'order_ratio': self._parse_number(api_data.get('vb')),
+                'buy_price1': self._parse_number(api_data.get('pb1')),
+                'buy_volume1': self._parse_number(api_data.get('vb1')),
+                'buy_price2': self._parse_number(api_data.get('pb2')),
+                'buy_volume2': self._parse_number(api_data.get('vb2')),
+                'buy_price3': self._parse_number(api_data.get('pb3')),
+                'buy_volume3': self._parse_number(api_data.get('vb3')),
+                'buy_price4': self._parse_number(api_data.get('pb4')),
+                'buy_volume4': self._parse_number(api_data.get('vb4')),
+                'buy_price5': self._parse_number(api_data.get('pb5')),
+                'buy_volume5': self._parse_number(api_data.get('vb5')),
+                'sell_price1': self._parse_number(api_data.get('ps1')),
+                'sell_volume1': self._parse_number(api_data.get('vs1')),
+                'sell_price2': self._parse_number(api_data.get('ps2')),
+                'sell_volume2': self._parse_number(api_data.get('vs2')),
+                'sell_price3': self._parse_number(api_data.get('ps3')),
+                'sell_volume3': self._parse_number(api_data.get('vs3')),
+                'sell_price4': self._parse_number(api_data.get('ps4')),
+                'sell_volume4': self._parse_number(api_data.get('vs4')),
+                'sell_price5': self._parse_number(api_data.get('ps5')),
+                'sell_volume5': self._parse_number(api_data.get('vs5')),
+            }
+            data_dicts.append(data_dict)
+            if not api_data:
+                logger.warning(f"API未返回{stock}的Level5数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+           # 保存数据
+            logger.info(f"开始保存{stock}股票Level5数据")
+            result = await self._save_all_to_db(
+                model_class=StockLevel5Data,
+                data_list=data_dicts,
+                unique_fields=['stock', 'update_time']
+            )
+            logger.info(f"{stock}股票Level5数据保存完成，结果: {result}")
+            return result            
+        except Exception as e:
+            logger.error(f"从API获取Level5数据出错: {e}")
+            return None
+    
+    async def refresh_level5_data(self, stock_code: str) -> Optional[StockLevel5Data]:
         """
         强制从API刷新股票Level5数据
         
@@ -443,7 +558,7 @@ class StockRealtimeDAO(BaseDAO):
             stock_code: 股票代码
             
         Returns:
-            Optional[Level5Data]: 最新的Level5数据
+            Optional[StockLevel5Data]: 最新的Level5数据
         """
         # 清除缓存
         cache_key = f"level5:{stock_code}:latest"
@@ -488,7 +603,7 @@ class StockRealtimeDAO(BaseDAO):
         
         return None
     
-    async def refresh_stocks_level5(self, stock_codes: List[str]) -> Dict[str, Level5Data]:
+    async def refresh_stocks_level5(self, stock_codes: List[str]) -> Dict[str, StockLevel5Data]:
         """
         刷新多只股票的Level5数据
         
@@ -496,7 +611,7 @@ class StockRealtimeDAO(BaseDAO):
             stock_codes: 股票代码列表
         
         Returns:
-            Dict[str, Level5Data]: 股票代码到Level5数据的映射
+            Dict[str, StockLevel5Data]: 股票代码到Level5数据的映射
         """
         logger.info(f"刷新{len(stock_codes)}只股票的Level5数据")
         results = {}
@@ -512,7 +627,7 @@ class StockRealtimeDAO(BaseDAO):
         logger.info(f"刷新股票Level5数据完成，成功{len(results)}只")
         return results
     
-    async def _check_if_level5_data_exists(self, stock_code: str, update_time: datetime) -> Optional[Level5Data]:
+    async def _check_if_level5_data_exists(self, stock_code: str, update_time: datetime) -> Optional[StockLevel5Data]:
         """
         检查指定时间的Level5数据是否已存在
         
@@ -521,13 +636,13 @@ class StockRealtimeDAO(BaseDAO):
             update_time: 更新时间
             
         Returns:
-            Optional[Level5Data]: 存在的Level5数据，不存在则返回None
+            Optional[StockLevel5Data]: 存在的Level5数据，不存在则返回None
         """
         if not update_time:
             return None
             
         try:
-            return await Level5Data.objects.filter(
+            return await StockLevel5Data.objects.filter(
                 stock_code=stock_code,
                 update_time=update_time
             ).afirst()
@@ -535,7 +650,7 @@ class StockRealtimeDAO(BaseDAO):
             logger.error(f"检查Level5数据是否存在出错: {e}")
             return None
     
-    async def _check_if_level5_data_identical(self, existing: Level5Data, new_data: Dict[str, Any]) -> bool:
+    async def _check_if_level5_data_identical(self, existing: StockLevel5Data, new_data: Dict[str, Any]) -> bool:
         """
         检查新旧Level5数据是否相同
         
@@ -569,7 +684,7 @@ class StockRealtimeDAO(BaseDAO):
         return True
     
     @transaction.atomic
-    async def _save_level5_data_to_db(self, data: Dict[str, Any]) -> Level5Data:
+    async def _save_level5_data_to_db(self, data: Dict[str, Any]) -> StockLevel5Data:
         """
         保存Level5数据到数据库
         
@@ -577,10 +692,10 @@ class StockRealtimeDAO(BaseDAO):
             data: 要保存的数据
             
         Returns:
-            Level5Data: 保存后的Level5数据
+            StockLevel5Data: 保存后的Level5数据
         """
         try:
-            obj = Level5Data(**data)
+            obj = StockLevel5Data(**data)
             await obj.asave()
             logger.debug(f"保存Level5数据成功: {obj.stock_code}")
             return obj
@@ -589,7 +704,7 @@ class StockRealtimeDAO(BaseDAO):
             raise e
     
     @transaction.atomic
-    async def _update_level5_data_db(self, record_id: int, data: Dict[str, Any]) -> Optional[Level5Data]:
+    async def _update_level5_data_db(self, record_id: int, data: Dict[str, Any]) -> Optional[StockLevel5Data]:
         """
         更新数据库中的Level5数据
         
@@ -598,10 +713,10 @@ class StockRealtimeDAO(BaseDAO):
             data: 要更新的数据
             
         Returns:
-            Optional[Level5Data]: 更新后的Level5数据，更新失败则返回None
+            Optional[StockLevel5Data]: 更新后的Level5数据，更新失败则返回None
         """
         try:
-            record = await Level5Data.objects.filter(id=record_id).afirst()
+            record = await StockLevel5Data.objects.filter(id=record_id).afirst()
             if record:
                 # 更新字段
                 for key, value in data.items():
@@ -619,7 +734,7 @@ class StockRealtimeDAO(BaseDAO):
             
     # ================= TradeDetail相关方法 =================
     
-    async def get_trade_details_by_code_and_date(self, stock_code: str, trade_date: Optional[date] = None) -> List[TradeDetail]:
+    async def get_trade_details_by_code_and_date(self, stock_code: str, trade_date: Optional[date] = None) -> List[StockTradeDetail]:
         """
         获取股票指定日期的交易明细
         
@@ -628,7 +743,7 @@ class StockRealtimeDAO(BaseDAO):
             trade_date: 交易日期，默认为当天
             
         Returns:
-            List[TradeDetail]: 交易明细列表
+            List[StockTradeDetail]: 交易明细列表
         """
         if not trade_date:
             trade_date = datetime.now().date()
@@ -641,7 +756,7 @@ class StockRealtimeDAO(BaseDAO):
             
         # 2. 缓存未命中，从数据库查询
         try:
-            trade_details = await TradeDetail.objects.filter(
+            trade_details = await StockTradeDetail.objects.filter(
                 stock_code=stock_code,
                 trade_date=trade_date
             ).order_by('trade_time').all()
@@ -669,7 +784,7 @@ class StockRealtimeDAO(BaseDAO):
             
         return []
     
-    async def _process_and_save_trades(self, stock_code: str, api_data_list: List[Dict[str, Any]]) -> List[TradeDetail]:
+    async def _process_and_save_trades(self, stock_code: str, api_data_list: List[Dict[str, Any]]) -> List[StockTradeDetail]:
         """
         处理并保存交易明细数据
         
@@ -678,7 +793,7 @@ class StockRealtimeDAO(BaseDAO):
             api_data_list: API返回的交易明细数据列表
             
         Returns:
-            List[TradeDetail]: 保存后的交易明细列表
+            List[StockTradeDetail]: 保存后的交易明细列表
         """
         result = []
         
@@ -709,7 +824,7 @@ class StockRealtimeDAO(BaseDAO):
                     continue
                 
                 # 检查记录是否已存在
-                existing = await TradeDetail.objects.filter(
+                existing = await StockTradeDetail.objects.filter(
                     stock_code=stock_code,
                     trade_date=mapped_data['trade_date'],
                     trade_time=mapped_data['trade_time'],
@@ -721,7 +836,7 @@ class StockRealtimeDAO(BaseDAO):
                     result.append(existing)
                 else:
                     # 创建新记录
-                    trade_detail = TradeDetail(**mapped_data)
+                    trade_detail = StockTradeDetail(**mapped_data)
                     await trade_detail.asave()
                     result.append(trade_detail)
             except Exception as e:
@@ -731,7 +846,7 @@ class StockRealtimeDAO(BaseDAO):
     
     # ================= TimeDeal相关方法 =================
     
-    async def get_daily_time_deals(self, stock_code: str, trade_date: Optional[date] = None) -> List[TimeDeal]:
+    async def get_daily_time_deals(self, stock_code: str, trade_date: Optional[date] = None) -> List[StockTimeDeal]:
         """
         获取股票指定日期的分时成交数据
         
@@ -740,7 +855,7 @@ class StockRealtimeDAO(BaseDAO):
             trade_date: 交易日期，默认为当天
             
         Returns:
-            List[TimeDeal]: 分时成交数据列表
+            List[StockTimeDeal]: 分时成交数据列表
         """
         if not trade_date:
             trade_date = datetime.now().date()
@@ -753,7 +868,7 @@ class StockRealtimeDAO(BaseDAO):
             
         # 从数据库获取
         try:
-            time_deals = await TimeDeal.objects.filter(
+            time_deals = await StockTimeDeal.objects.filter(
                 stock_code=stock_code,
                 trade_date=trade_date
             ).order_by('trade_time').all()
@@ -782,7 +897,7 @@ class StockRealtimeDAO(BaseDAO):
             
         return []
     
-    async def _batch_save_time_deals(self, stock_code: str, api_data_list: List[Dict[str, Any]]) -> List[TimeDeal]:
+    async def _batch_save_time_deals(self, stock_code: str, api_data_list: List[Dict[str, Any]]) -> List[StockTimeDeal]:
         """
         批量保存分时成交数据
         
@@ -791,7 +906,7 @@ class StockRealtimeDAO(BaseDAO):
             api_data_list: API返回的分时成交数据列表
             
         Returns:
-            List[TimeDeal]: 保存后的分时成交数据列表
+            List[StockTimeDeal]: 保存后的分时成交数据列表
         """
         results = []
         
@@ -813,7 +928,7 @@ class StockRealtimeDAO(BaseDAO):
                     continue
                     
                 # 检查记录是否已存在
-                existing = await TimeDeal.objects.filter(
+                existing = await StockTimeDeal.objects.filter(
                     stock_code=stock_code,
                     trade_date=mapped_data['trade_date'],
                     trade_time=mapped_data['trade_time']
@@ -838,7 +953,7 @@ class StockRealtimeDAO(BaseDAO):
                         results.append(existing)
                 else:
                     # 创建新记录
-                    time_deal = TimeDeal(**mapped_data)
+                    time_deal = StockTimeDeal(**mapped_data)
                     await time_deal.asave()
                     results.append(time_deal)
             except Exception as e:
@@ -848,5 +963,5 @@ class StockRealtimeDAO(BaseDAO):
     
     # ================= 其他相关方法 =================
     
-    # 在这里继续实现PricePercent、BigDeal、AbnormalMovement相关的方法
+    # 在这里继续实现PricePercent、StockBigDeal、AbnormalMovement相关的方法
     # 由于代码过长，这些方法的实现与上面的方法类似，按照相同的模式实现即可

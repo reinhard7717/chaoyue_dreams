@@ -7,8 +7,8 @@ from utils.models import BaseModel
 
 class WeeklyRankChange(BaseModel):
     """周涨跌排名"""
-    trade_date = models.DateField(verbose_name="日期")  # 原 t
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="weekly_rank_change", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name="日期")  # 原 t
     weekly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="周涨跌幅")  # 原 zdf
     weekly_volume = models.BigIntegerField(verbose_name="周成交量")  # 原 v
     weekly_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="周成交额")  # 原 amount
@@ -29,8 +29,8 @@ class WeeklyRankChange(BaseModel):
 
 class MonthlyRankChange(BaseModel):
     """月涨跌排名"""
-    trade_date = models.DateField(verbose_name="日期")  # 原 t
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="monthly_rank_change", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name="日期")  # 原 t
     monthly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="月涨跌幅")  # 原 zdf
     monthly_volume = models.BigIntegerField(verbose_name="月成交量")  # 原 v
     monthly_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="月成交额")  # 原 amount
@@ -51,8 +51,8 @@ class MonthlyRankChange(BaseModel):
 
 class WeeklyStrongStock(BaseModel):
     """本周强势股"""
-    trade_date = models.DateField(verbose_name="日期")  # 原 t
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="weekly_strong_stock", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name="日期")  # 原 t
     weekly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="周涨跌幅")  # 原 zdf
     weekly_open_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="周开盘价")  # 原 o
     weekly_close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="周收盘价")  # 原 c
@@ -74,8 +74,8 @@ class WeeklyStrongStock(BaseModel):
 
 class MonthlyStrongStock(BaseModel):
     """本月强势股"""
-    trade_date = models.DateField(verbose_name="日期")  # 原 t
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="monthly_strong_stock", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name="日期")  # 原 t
     monthly_change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="月涨跌幅")  # 原 zdf
     monthly_open_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="月开盘价")  # 原 o
     monthly_close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="月收盘价")  # 原 c
@@ -97,8 +97,8 @@ class MonthlyStrongStock(BaseModel):
 
 class CircMarketValueRank(BaseModel):
     """流通市值排行"""
-    trade_date = models.DateField(verbose_name="日期")  # 原 t
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="circ_market_value_rank", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name="日期")  # 原 t
     close_price = models.DecimalField(max_digits=10, decimal_places=3, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     volume = models.BigIntegerField(verbose_name="成交量")  # 原 v

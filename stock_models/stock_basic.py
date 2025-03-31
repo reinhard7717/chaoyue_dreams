@@ -10,18 +10,15 @@ class StockInfo(models.Model):
     stock_name = models.CharField(max_length=50, verbose_name='股票名称', null=True, blank=True)  # 原 mc
     exchange = models.CharField(max_length=10, verbose_name='交易所', null=True, blank=True)  # 原 jys
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = '股票基础信息'
         verbose_name_plural = verbose_name
         db_table = 'stock_info'
         ordering = ['stock_code']
+        managed = True
     
     def __str__(self):
         return f"{self.stock_code}-{self.stock_name}"
-
 
 class NewStockCalendar(models.Model):
     """新股日历模型"""
@@ -59,16 +56,11 @@ class NewStockCalendar(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code}-{self.stock_short_name}"
 
-
 class STStockList(models.Model):
     """风险警示股票列表模型"""
-    id = models.BigAutoField(primary_key=True, auto_created=True)
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="st_stock_list", verbose_name=_("股票"))
     stock_name = models.CharField(max_length=50, verbose_name='股票名称')  # 原 mc
     exchange = models.CharField(max_length=10, verbose_name='交易所')  # 原 jys
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     
     class Meta:
         verbose_name = '风险警示股票列表'
@@ -78,7 +70,6 @@ class STStockList(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.stock_name}"
-
 
 class CompanyInfo(models.Model):
     """公司简介模型"""
@@ -94,9 +85,6 @@ class CompanyInfo(models.Model):
     registered_capital = models.CharField(max_length=50, verbose_name='注册资本', null=True, blank=True)  # 原 rprice
     institution_type = models.CharField(max_length=50, verbose_name='机构类型', null=True, blank=True)  # 原 instype
     organization_form = models.CharField(max_length=50, verbose_name='组织形式', null=True, blank=True)  # 原 organ
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     
     class Meta:
         verbose_name = '公司简介'
@@ -114,9 +102,6 @@ class StockBelongsIndex(models.Model):
     index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="belongs_index", verbose_name=_("股票指数"))
     entry_date = models.DateField(verbose_name='进入日期', null=True, blank=True)  # 原 ind
     exit_date = models.DateField(verbose_name='退出日期', null=True, blank=True)  # 原 outd
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     
     class Meta:
         verbose_name = '股票所属指数'
@@ -142,9 +127,6 @@ class QuarterlyProfit(models.Model):
     other_comprehensive_income = models.CharField(max_length=50, verbose_name='其他综合收益（万元）', null=True, blank=True)  # 原 otherp
     total_comprehensive_income = models.CharField(max_length=50, verbose_name='综合收益总额（万元）')  # 原 totalcp
     
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
     class Meta:
         verbose_name = '季度利润'
         verbose_name_plural = verbose_name
@@ -154,7 +136,6 @@ class QuarterlyProfit(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.report_date}"
-
 
 class MarketCategory(models.Model):
     """市场分类树模型，用于存储指数、行业、概念等分类信息"""
@@ -171,14 +152,10 @@ class MarketCategory(models.Model):
     type1_name = models.CharField(_('一级分类名称'), max_length=50, blank=True, null=True)
     type2_name = models.CharField(_('二级分类名称'), max_length=50, blank=True, null=True)
     
-    # 添加时间戳字段，便于追踪数据更新
-    created_at = models.DateTimeField(_('创建时间'), auto_now_add=True, null=True, blank=True)
-    updated_at = models.DateTimeField(_('更新时间'), auto_now=True, null=True, blank=True)
-    
     class Meta:
         verbose_name = _('市场分类')
         verbose_name_plural = _('市场分类')
-        db_table = 'stock_models_marketcategory'
+        db_table = 'market_category'
         indexes = [
             models.Index(fields=['type1', 'type2']),
             models.Index(fields=['level', 'isleaf']),

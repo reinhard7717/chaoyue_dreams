@@ -9,6 +9,7 @@ from utils.models import BaseModel
 class LhbDetail(BaseModel):
     """龙虎榜明细数据"""
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="lhb_detail", verbose_name=_("股票"))
+    trade_date = models.DateField(verbose_name="日期", null=True, blank=True)
     close_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="收盘价")  # 原 c
     value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="对应值")  # 原 val
     volume = models.DecimalField(max_digits=20, decimal_places=4, verbose_name="成交量(万股)")  # 原 v
@@ -19,7 +20,7 @@ class LhbDetail(BaseModel):
         db_table = "lhb_detail"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['stock']),
+            models.Index(fields=['stock', 'trade_date']),
         ]
 
 

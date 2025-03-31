@@ -118,7 +118,7 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/real/time/{index_code}/{time_level}"
         logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新分时交易数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
+            result = await self.get(endpoint, expected_type='dict')
             logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新分时交易数据")
             return result
         except Exception as e:
@@ -162,7 +162,7 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/real/kdj/{index_code}/{time_level}"
         logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新KDJ数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
+            result = await self.get(endpoint, expected_type='dict')
             logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新KDJ数据")
             return result
         except Exception as e:
@@ -206,7 +206,7 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/real/macd/{index_code}/{time_level}"
         logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新MACD数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
+            result = await self.get(endpoint, expected_type='dict')
             logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新MACD数据")
             return result
         except Exception as e:
@@ -250,7 +250,7 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/real/ma/{index_code}/{time_level}"
         logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新MA数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
+            result = await self.get(endpoint, expected_type='dict')
             logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新MA数据")
             return result
         except Exception as e:
@@ -294,7 +294,7 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/real/boll/{index_code}/{time_level}"
         logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新BOLL数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
+            result = await self.get(endpoint, expected_type='dict')
             logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新BOLL数据")
             return result
         except Exception as e:

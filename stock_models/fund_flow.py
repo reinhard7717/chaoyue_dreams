@@ -21,7 +21,7 @@ class FundFlowMinute(BaseModel):
         verbose_name = _("分钟级资金流向")
         verbose_name_plural = _("分钟级资金流向")
         db_table = "fund_flow_minute"
-        unique_together = [['stock', 'trade_time']]
+        unique_together = ['stock', 'trade_time']
         indexes = [
             models.Index(fields=['stock']),
             models.Index(fields=['trade_time']),
@@ -49,7 +49,7 @@ class FundFlowDaily(BaseModel):
         verbose_name = _("日级资金流向")
         verbose_name_plural = _("日级资金流向")
         db_table = "fund_flow_daily"
-        unique_together = [['stock', 'trade_date']]
+        unique_together = ['stock', 'trade_date']
         indexes = [
             models.Index(fields=['stock']),
             models.Index(fields=['trade_date']),
@@ -75,7 +75,7 @@ class MainForcePhase(BaseModel):
         verbose_name = _("阶段主力动向")
         verbose_name_plural = _("阶段主力动向")
         db_table = "main_force_phase"
-        unique_together = [['stock', 'trade_date']]
+        unique_together = ['stock', 'trade_date']
         indexes = [
             models.Index(fields=['stock']),
             models.Index(fields=['trade_date']),
@@ -108,7 +108,7 @@ class TransactionDistribution(BaseModel):
         verbose_name = _("历史成交分布")
         verbose_name_plural = _("历史成交分布")
         db_table = "transaction_distribution"
-        unique_together = [['stock', 'trade_date']]
+        unique_together = ['stock', 'trade_date']
         indexes = [
             models.Index(fields=['stock']),
             models.Index(fields=['trade_date']),
@@ -159,7 +159,7 @@ class LimitUpPool(StockPool):
         verbose_name = _("涨停股池")
         verbose_name_plural = _("涨停股池")
         db_table = "limit_up_pool"
-        unique_together = [['date', 'code']]
+        unique_together = ['date', 'code']
     
     def __str__(self):
         return f"涨停股{self.name}({self.date})"
@@ -183,7 +183,7 @@ class LimitDownPool(StockPool):
         verbose_name = _("跌停股池")
         verbose_name_plural = _("跌停股池")
         db_table = "limit_down_pool"
-        unique_together = [['date', 'code']]
+        unique_together = ['date', 'code']
     
     def __str__(self):
         return f"跌停股{self.name}({self.date})"
@@ -206,7 +206,7 @@ class StrongStockPool(StockPool):
         verbose_name = _("强势股池")
         verbose_name_plural = _("强势股池")
         db_table = "strong_stock_pool"
-        unique_together = [['date', 'code']]
+        unique_together = ['date', 'code']
     
     def __str__(self):
         return f"强势股{self.name}({self.date})"
@@ -230,7 +230,7 @@ class NewStockPool(StockPool):
         verbose_name = _("次新股池")
         verbose_name_plural = _("次新股池")
         db_table = "new_stock_pool"
-        unique_together = [['date', 'code']]
+        unique_together = ['date', 'code']
     
     def __str__(self):
         return f"次新股{self.name}({self.date})"
@@ -253,7 +253,7 @@ class BreakLimitPool(StockPool):
         verbose_name = _("炸板股池")
         verbose_name_plural = _("炸板股池")
         db_table = "break_limit_pool"
-        unique_together = [['date', 'code']]
+        unique_together = ['date', 'code']
     
     def __str__(self):
         return f"炸板股{self.name}({self.date})"
