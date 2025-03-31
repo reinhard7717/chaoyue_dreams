@@ -543,13 +543,14 @@ INDEX_CACHE_TIMEOUT = {
 
 # Celery配置
 # Redis配置
-REDIS_HOST = '39.101.65.133'
+REDIS_HOST = '127.0.0.1'  # 修改为 127.0.0.1
 REDIS_PORT = 6379
 REDIS_PASSWORD = 'Asdf1234'
 
 # Celery基础配置
 CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
 CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2'  # 使用Redis作为结果后端
+
 
 # 任务序列化与结果序列化
 CELERY_ACCEPT_CONTENT = ['json']  # 指定接受的内容类型
