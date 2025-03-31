@@ -51,14 +51,14 @@ def save_index_all_latest_time_series(self):
     return "保存指数时间序列数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_history_time_series_chunk')
-def save_index_history_time_series_chunk(self, index_chunk):
+async def save_index_history_time_series_chunk(self, index_chunk):
     """
     保存指数历史时间序列数据块
     """
     from dao_manager.daos.index_dao import StockIndexDAO
     index_dao = StockIndexDAO()
     logger.info(f"开始保存指数历史时间序列数据块: {[index.code for index in index_chunk]}") # 打印指数代码，方便查看日志
-    asyncio.run(index_dao.fetch_and_save_history_time_series_by_indexs(index_chunk)) # 使用新的方法处理指数对象块
+    await index_dao.fetch_and_save_all_history_time_series(index_chunk) # 确保这里被 await
     logger.info(f"保存指数历史时间序列数据块完成: {[index.code for index in index_chunk]}")
     return f"保存指数历史时间序列数据块完成: {[index.code for index in index_chunk]}"
 
