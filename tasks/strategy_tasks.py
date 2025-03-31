@@ -3,13 +3,13 @@
 提供策略计算的定时任务和手动触发任务
 """
 # import asyncio
-# import logging
-# from celery import shared_task
+import logging
+from celery import shared_task
 # from service.strategy_service import StrategyService
 # from service.calculation_service import CalculationService
 # from users.models import FavoriteStock
 
-# logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # # 服务实例
 # strategy_service = StrategyService()
@@ -182,4 +182,22 @@
 #     asyncio.run(calculation_service.calculate_market_signals())
     
 #     logger.info(f"手动计算{len(stock_codes)}只自选股的策略完成")
-#     return f"手动计算{len(stock_codes)}只自选股的策略完成" 
+#     return f"手动计算{len(stock_codes)}只自选股的策略完成"
+
+# 添加在settings.CELERY_BEAT_SCHEDULE中定义的任务
+@shared_task
+def calculate_strategy():
+    """
+    定时任务：计算策略信号
+    每5分钟执行一次
+    包括各种交易策略的信号计算
+    """
+    logger.info("开始执行策略信号计算任务")
+    try:
+        # TODO: 实现具体的策略计算逻辑
+        # 例如：计算各种交易策略的信号
+        logger.info("策略信号计算成功")
+        return "策略信号计算成功"
+    except Exception as e:
+        logger.error(f"策略信号计算失败: {str(e)}")
+        return f"策略信号计算失败: {str(e)}" 

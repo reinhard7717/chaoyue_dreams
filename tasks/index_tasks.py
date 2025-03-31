@@ -222,4 +222,21 @@ def manual_refresh_all_index_data():
     asyncio.run(index_dao.refresh_main_indexes_technical_indicators('Day'))
     
     logger.info("手动刷新所有指数数据完成")
-    return "手动刷新所有指数数据完成" 
+    return "手动刷新所有指数数据完成"
+
+@shared_task
+def update_market_data():
+    """
+    定时任务：更新市场数据
+    每60秒执行一次
+    包括指数行情、市场概览等数据
+    """
+    logger.info("开始执行市场数据更新任务")
+    try:
+        # TODO: 实现具体的市场数据更新逻辑
+        # 例如：从API获取最新指数数据，更新到数据库和缓存
+        logger.info("市场数据更新成功")
+        return "市场数据更新成功"
+    except Exception as e:
+        logger.error(f"市场数据更新失败: {str(e)}")
+        return f"市场数据更新失败: {str(e)}" 

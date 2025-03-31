@@ -23,7 +23,7 @@ from django.views.generic import RedirectView
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('users/', include('users.urls')),  # 用户相关URL
-    path('tasks/', include('tasks.urls')),  # 任务管理URL
+    # path('tasks/', include('tasks.urls')),  # 任务管理URL
     path('', RedirectView.as_view(url='/users/', permanent=False)),  # 将根路径重定向到用户主页
 ]
 

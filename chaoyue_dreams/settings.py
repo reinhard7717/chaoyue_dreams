@@ -28,6 +28,8 @@ INSTALLED_APPS = [
     'utils',
     'users.apps.UsersConfig',  # 添加用户应用
     'tasks',  # 添加任务应用
+    'django_celery_results',  # 添加Celery结果存储应用
+    'django_celery_beat',  # 添加Celery定时任务应用
 ]
 
 # 自定义用户模型 - 暂时注释掉，等数据库初始化完成后再启用
@@ -498,6 +500,14 @@ LOGGING = {
             'backupCount': 5,
             'formatter': 'verbose',
         },
+        'celery': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'celery.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
     },
     'loggers': {
         'api': {
@@ -507,6 +517,11 @@ LOGGING = {
         },
         'dao': {
             'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'celery': {
+            'handlers': ['console', 'celery'],
             'level': 'INFO',
             'propagate': True,
         },
@@ -527,27 +542,64 @@ INDEX_CACHE_TIMEOUT = {
 }
 
 # Celery配置
-CELERY_BROKER_URL = 'redis://:Asdf1234@39.101.65.133:6379/1'  # 使用Redis作为消息代理
-CELERY_RESULT_BACKEND = 'redis://:Asdf1234@39.101.65.133:6379/2'  # 使用Redis作为结果后端
-CELERY_ACCEPT_CONTENT = ['json']  # 指定序列化格式
+# Redis配置
+REDIS_HOST = '39.101.65.133'
+REDIS_PORT = 6379
+REDIS_PASSWORD = 'Asdf1234'
+
+# Celery基础配置
+CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
+CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2'  # 使用Redis作为结果后端
+
+# 任务序列化与结果序列化
+CELERY_ACCEPT_CONTENT = ['json']  # 指定接受的内容类型
 CELERY_TASK_SERIALIZER = 'json'  # 任务序列化格式
 CELERY_RESULT_SERIALIZER = 'json'  # 结果序列化格式
 CELERY_TIMEZONE = 'Asia/Shanghai'  # 时区设置
-CELERY_ENABLE_UTC = True  # 启用UTC
-
-# Celery Worker配置
-CELERY_WORKER_CONCURRENCY = 10  # worker进程数
-CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # 每个worker处理的最大任务数
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # 预取任务数
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 200000  # 每个worker的最大内存使用量（KB）
-
-# Celery Task配置
-CELERY_TASK_ACKS_LATE = True  # 任务执行完成后再确认
-CELERY_TASK_REJECT_ON_WORKER_LOST = True  # worker异常退出时拒绝任务
-CELERY_TASK_TIME_LIMIT = 3600  # 任务超时时间（秒）
-CELERY_TASK_SOFT_TIME_LIMIT = 3000  # 软超时时间（秒）
+CELERY_ENABLE_UTC = False  # 禁用UTC
 
 # Celery Beat配置
-CELERY_BEAT_MAX_LOOP_INTERVAL = 300  # beat最大循环间隔（秒）
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器
+CELERY_BEAT_SCHEDULE = {
+    'update_market_data': {  # 更新市场数据
+        'task': 'tasks.auto_tasks.update_market_data',
+        'schedule': 60.0,  # 每60秒执行一次
+        'args': (),
+    },
+    'update_stock_data': {  # 更新股票数据
+        'task': 'tasks.auto_tasks.update_stock_data',
+        'schedule': 180.0,  # 每3分钟执行一次
+        'args': (),
+    },
+    'calculate_strategy': {  # 计算策略信号
+        'task': 'tasks.auto_tasks.calculate_strategy',
+        'schedule': 300.0,  # 每5分钟执行一次
+        'args': (),
+    },
+}
+
+# 结果存储设置
+CELERY_RESULT_EXPIRES = 86400  # 结果过期时间（秒）
+CELERY_RESULT_EXTENDED = True  # 扩展的结果信息
+CELERY_RESULT_COMPRESSION = 'gzip'  # 结果压缩算法
+CELERY_RESULT_DB_TABLENAMES = {  # 自定义结果表名
+    'task': 'celery_tasks',
+    'group': 'celery_groups',
+}
+
+# Celery监控和日志设置
+CELERY_SEND_TASK_SENT_EVENT = True  # 发送任务发送事件
+CELERY_SEND_EVENTS = True  # 发送worker事件
+CELERY_EVENT_QUEUE_TTL = 60  # 事件队列TTL
+CELERY_EVENT_QUEUE_EXPIRES = 60  # 事件队列过期时间
+CELERY_EVENT_SERIALIZER = 'json'  # 事件序列化格式
+
+# Celery安全设置
+CELERY_SECURITY_KEY = os.path.join(BASE_DIR, 'private.key')  # 安全密钥
+CELERY_SECURITY_CERTIFICATE = os.path.join(BASE_DIR, 'public.crt')  # 安全证书
+CELERY_SECURITY_CERT_STORE = os.path.join(BASE_DIR, 'ca.crt')  # 证书存储
+
+# Celery应用名称
+CELERY_APP_NAME = 'chaoyue_dreams'
 
 
