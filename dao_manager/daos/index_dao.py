@@ -1304,9 +1304,9 @@ class StockIndexDAO(BaseDAO):
                     'index': index,
                     'time_level': period,
                     'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'k_value': float(api_data.get('k')),  # K值
-                    'd_value': float(api_data.get('d')),  # D值
-                    'j_value': float(api_data.get('j')),  # J值
+                    'k_value': self._parse_number(api_data.get('k')),  # K值
+                    'd_value': self._parse_number(api_data.get('d')),  # D值
+                    'j_value': self._parse_number(api_data.get('j')),  # J值
                 }
                 data_dicts.append(data_dict)
             # 保存数据
@@ -1338,9 +1338,9 @@ class StockIndexDAO(BaseDAO):
                     'index': index,
                     'time_level': time_level,
                     'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'k_value': float(api_data.get('k')),  # K值
-                    'd_value': float(api_data.get('d')),  # D值
-                    'j_value': float(api_data.get('j')),  # J值
+                    'k_value': self._parse_number(api_data.get('k')),  # K值
+                    'd_value': self._parse_number(api_data.get('d')),  # D值
+                    'j_value': self._parse_number(api_data.get('j')),  # J值
                 }
                 data_dicts.append(data_dict)
         # 保存数据
