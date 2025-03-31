@@ -78,10 +78,10 @@ class StockIndexAPI(BaseAPI):
             Dict[str, Any]: 指数实时数据
         """
         endpoint = f"data/time/real/{index_code}"
-        logger.info(f"正在获取指数[{index_code}]实时数据")
+        # logger.info(f"正在获取指数[{index_code}]实时数据")
         try:
             result = await self.get(endpoint, expected_type='dict')
-            logger.info(f"成功获取指数[{index_code}]实时数据")
+            # logger.info(f"成功获取指数[{index_code}]实时数据")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]实时数据失败: {str(e)}")
@@ -116,10 +116,10 @@ class StockIndexAPI(BaseAPI):
             Dict[str, Any]: 最新分时交易数据
         """
         endpoint = f"data/time/real/time/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新分时交易数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新分时交易数据")
         try:
             result = await self.get(endpoint, expected_type='dict')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新分时交易数据")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新分时交易数据")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新分时交易数据失败: {str(e)}")
@@ -137,10 +137,10 @@ class StockIndexAPI(BaseAPI):
             List[Dict[str, Any]]: 历史分时交易数据列表
         """
         endpoint = f"data/time/history/trade/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史分时交易数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史分时交易数据")
         try:
             result = await self.get(endpoint, expected_type='list')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史分时交易数据，共{len(result)}条")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史分时交易数据，共{len(result)}条")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史分时交易数据失败: {str(e)}")
@@ -160,10 +160,10 @@ class StockIndexAPI(BaseAPI):
             Dict[str, Any]: 最新KDJ指标数据
         """
         endpoint = f"data/time/real/kdj/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新KDJ数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新KDJ数据")
         try:
             result = await self.get(endpoint, expected_type='dict')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新KDJ数据")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新KDJ数据")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新KDJ数据失败: {str(e)}")
@@ -181,10 +181,10 @@ class StockIndexAPI(BaseAPI):
             List[Dict[str, Any]]: 历史KDJ指标数据列表
         """
         endpoint = f"data/time/history/kdj/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史KDJ数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史KDJ数据")
         try:
             result = await self.get(endpoint, expected_type='list')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史KDJ数据，共{len(result)}条")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史KDJ数据，共{len(result)}条")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史KDJ数据失败: {str(e)}")
@@ -204,10 +204,10 @@ class StockIndexAPI(BaseAPI):
             Dict[str, Any]: 最新MACD指标数据
         """
         endpoint = f"data/time/real/macd/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新MACD数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新MACD数据")
         try:
             result = await self.get(endpoint, expected_type='dict')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新MACD数据")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新MACD数据")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新MACD数据失败: {str(e)}")
@@ -225,10 +225,10 @@ class StockIndexAPI(BaseAPI):
             List[Dict[str, Any]]: 历史MACD指标数据列表
         """
         endpoint = f"data/time/history/macd/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史MACD数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史MACD数据")
         try:
             result = await self.get(endpoint, expected_type='list')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史MACD数据，共{len(result)}条")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史MACD数据，共{len(result)}条")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史MACD数据失败: {str(e)}")
@@ -248,10 +248,10 @@ class StockIndexAPI(BaseAPI):
             Dict[str, Any]: 最新MA指标数据
         """
         endpoint = f"data/time/real/ma/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新MA数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新MA数据")
         try:
             result = await self.get(endpoint, expected_type='dict')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新MA数据")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新MA数据")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新MA数据失败: {str(e)}")
@@ -269,10 +269,10 @@ class StockIndexAPI(BaseAPI):
             List[Dict[str, Any]]: 历史MA指标数据列表
         """
         endpoint = f"data/time/history/ma/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史MA数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史MA数据")
         try:
             result = await self.get(endpoint, expected_type='list')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史MA数据，共{len(result)}条")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史MA数据，共{len(result)}条")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史MA数据失败: {str(e)}")
@@ -292,10 +292,10 @@ class StockIndexAPI(BaseAPI):
             Dict[str, Any]: 最新BOLL指标数据
         """
         endpoint = f"data/time/real/boll/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新BOLL数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别最新BOLL数据")
         try:
             result = await self.get(endpoint, expected_type='dict')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新BOLL数据")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别最新BOLL数据")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新BOLL数据失败: {str(e)}")
@@ -313,10 +313,10 @@ class StockIndexAPI(BaseAPI):
             List[Dict[str, Any]]: 历史BOLL指标数据列表
         """
         endpoint = f"data/time/history/boll/{index_code}/{time_level}"
-        logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史BOLL数据")
+        # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史BOLL数据")
         try:
             result = await self.get(endpoint, expected_type='list')
-            logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史BOLL数据，共{len(result)}条")
+            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史BOLL数据，共{len(result)}条")
             return result
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史BOLL数据失败: {str(e)}")

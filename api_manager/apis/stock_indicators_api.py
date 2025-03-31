@@ -45,7 +45,7 @@ class StockIndicatorsAPI(BaseAPI):
             Dict[str, Any]: 最新分时交易数据
         """
         endpoint = f"/data/time/real/time/{stock_code}/{time_level}"
-        logger.info(f"获取最新分时交易数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取最新分时交易数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
@@ -60,7 +60,7 @@ class StockIndicatorsAPI(BaseAPI):
             Dict[str, Any]: 最新KDJ指标数据
         """
         endpoint = f"/data/time/real/kdj/{stock_code}/{time_level}"
-        logger.info(f"获取最新KDJ指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取最新KDJ指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_macd(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
@@ -75,7 +75,7 @@ class StockIndicatorsAPI(BaseAPI):
             Dict[str, Any]: 最新MACD指标数据
         """
         endpoint = f"/data/time/real/macd/{stock_code}/{time_level}"
-        logger.info(f"获取最新MACD指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取最新MACD指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_ma(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
@@ -90,7 +90,7 @@ class StockIndicatorsAPI(BaseAPI):
             Dict[str, Any]: 最新MA指标数据
         """
         endpoint = f"/data/time/real/ma/{stock_code}/{time_level}"
-        logger.info(f"获取最新MA指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取最新MA指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_boll(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
@@ -105,7 +105,7 @@ class StockIndicatorsAPI(BaseAPI):
             Dict[str, Any]: 最新BOLL指标数据
         """
         endpoint = f"/data/time/real/boll/{stock_code}/{time_level}"
-        logger.info(f"获取最新BOLL指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取最新BOLL指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_history_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
@@ -120,7 +120,7 @@ class StockIndicatorsAPI(BaseAPI):
             List[Dict[str, Any]]: 历史分时交易数据列表
         """
         endpoint = f"/data/time/history/trade/{stock_code}/{time_level}"
-        logger.info(f"获取历史分时交易数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取历史分时交易数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_history_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
@@ -135,7 +135,7 @@ class StockIndicatorsAPI(BaseAPI):
             List[Dict[str, Any]]: 历史KDJ指标数据列表
         """
         endpoint = f"/data/time/history/kdj/{stock_code}/{time_level}"
-        logger.info(f"获取历史KDJ指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取历史KDJ指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_history_macd(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
@@ -150,7 +150,7 @@ class StockIndicatorsAPI(BaseAPI):
             List[Dict[str, Any]]: 历史MACD指标数据列表
         """
         endpoint = f"/data/time/history/macd/{stock_code}/{time_level}"
-        logger.info(f"获取历史MACD指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取历史MACD指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_history_ma(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
@@ -165,7 +165,7 @@ class StockIndicatorsAPI(BaseAPI):
             List[Dict[str, Any]]: 历史MA指标数据列表
         """
         endpoint = f"/data/time/history/ma/{stock_code}/{time_level}"
-        logger.info(f"获取历史MA指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取历史MA指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
     
     async def get_history_boll(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
@@ -181,5 +181,5 @@ class StockIndicatorsAPI(BaseAPI):
             List[Dict[str, Any]]: 历史BOLL指标数据列表
         """
         endpoint = f"/data/time/history/boll/{stock_code}/{time_level}"
-        logger.info(f"获取历史BOLL指标数据: {stock_code}, 级别: {time_level}")
+        # logger.info(f"获取历史BOLL指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='list')
