@@ -2443,16 +2443,16 @@ class StockIndexDAO(BaseDAO):
                             'index': index,
                             'time_level': time_level,
                             'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'ma3': Decimal(str(api_data.get('ma3'))),  # K值
-                            'ma5': Decimal(str(api_data.get('ma5'))),  # D值
-                            'ma10': Decimal(str(api_data.get('ma10'))),  # J值
-                            'ma15': Decimal(str(api_data.get('ma15'))),  # J值
-                            'ma20': Decimal(str(api_data.get('ma20'))),  # J值
-                            'ma30': Decimal(str(api_data.get('ma30'))),  # J值
-                            'ma60': Decimal(str(api_data.get('ma60'))),  # J值
-                            'ma120': Decimal(str(api_data.get('ma120'))),  # J值
-                            'ma200': Decimal(str(api_data.get('ma200'))),  # J值
-                            'ma250': Decimal(str(api_data.get('ma250'))),  # J值
+                            'ma3': self._parse_number(api_data.get('ma3')),  # K值
+                            'ma5': self._parse_number(api_data.get('ma5')),  # D值
+                            'ma10': self._parse_number(api_data.get('ma10')),  # J值
+                            'ma15': self._parse_number(api_data.get('ma15')),  # J值
+                            'ma20': self._parse_number(api_data.get('ma20')),  # J值
+                            'ma30': self._parse_number(api_data.get('ma30')),  # J值
+                            'ma60': self._parse_number(api_data.get('ma60')),  # J值
+                            'ma120': self._parse_number(api_data.get('ma120')),  # J值
+                            'ma200': self._parse_number(api_data.get('ma200')),  # J值
+                            'ma250': self._parse_number(api_data.get('ma250')),  # J值
                         }
                         data_dicts.append(data_dict)
             
