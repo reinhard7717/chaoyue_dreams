@@ -513,7 +513,7 @@ LOGGING = {
         'api': {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
         'dao': {
             'handlers': ['console', 'file'],
@@ -523,7 +523,7 @@ LOGGING = {
         'celery': {
             'handlers': ['console', 'celery'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
     },
 }

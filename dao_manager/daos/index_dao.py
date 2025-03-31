@@ -1004,7 +1004,7 @@ class StockIndexDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             
-            logger.info(f"所有指数各级别历史KDJ指标数据保存完成，总结果: {total_result}")
+            logger.info(f"所有指数各级别历史时间序列数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
             logger.error(f"获取并保存指数[{index_code}]的历史时间序列数据失败: {str(e)}")
