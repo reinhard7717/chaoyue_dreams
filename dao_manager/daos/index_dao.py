@@ -550,14 +550,6 @@ class StockIndexDAO(BaseDAO):
                         logger.error(f"保存指数数据失败 {index_data.get('dm', 'unknown')}: {str(e)}")
             
             result = await sync_to_async(save_indexes)()
-            # 如果成功保存数据，也更新缓存
-            if result:
-                cache_key = self.cache_manager.generate_key('index', 'all')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('index')
-                )
             logger.info(f"成功保存{len(all_indexes)}个指数数据")
             return result
         except Exception as e:
@@ -620,14 +612,6 @@ class StockIndexDAO(BaseDAO):
             )
             
             logger.info(f"{index_code}指数实时数据保存完成，结果: {result}")
-            # 如果成功保存数据，也更新缓存
-            if result:
-                cache_key = self.cache_manager.generate_key('rt', 'index', index_code, 'realtime')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('rt')
-                )
             return result
         except Exception as e:
             logger.error(f"获取并保存指数[{index_code}]实时数据失败: {str(e)}")
@@ -672,13 +656,6 @@ class StockIndexDAO(BaseDAO):
                     'update_time': self._parse_datetime(api_data.get('t')),  # 更新时间
                 }
                 data_dicts.append(data_dict)
-                # 如果成功保存数据，也更新缓存
-                cache_key = self.cache_manager.generate_key('rt', 'index', index.code, 'realtime')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('rt')
-                )
             # 保存数据
             logger.info(f"开始保存所有指数实时数据")
             result = await self._save_all_to_db(
@@ -1255,14 +1232,6 @@ class StockIndexDAO(BaseDAO):
             )
             
             logger.info(f"{index_code}指数{time_level}级别KDJ指标数据保存完成，结果: {result}")
-            # 如果成功保存数据，也更新缓存
-            if result:
-                cache_key = self.cache_manager.generate_key('rt', 'index', index_code, 'kdj')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('rt')
-                )
             return result
         except Exception as e:
             logger.error(f"获取并保存指数KDJ指标数据失败: {str(e)}")
@@ -1668,14 +1637,6 @@ class StockIndexDAO(BaseDAO):
             )
             
             logger.info(f"{index_code}指数{time_level}级别MACD指标数据保存完成，结果: {result}")
-            # 如果成功保存数据，也更新缓存
-            if result:
-                cache_key = self.cache_manager.generate_key('rt', 'index', index_code, 'macd')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('rt')
-                )
             return result
         except Exception as e:
             logger.error(f"获取并保存指数MACD指标数据失败: {str(e)}")
@@ -2105,14 +2066,6 @@ class StockIndexDAO(BaseDAO):
             )
             
             logger.info(f"{index_code}指数{time_level}级别MA指标数据保存完成，结果: {result}")
-            # 如果成功保存数据，也更新缓存
-            if result:
-                cache_key = self.cache_manager.generate_key('rt', 'index', index_code, 'ma')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('rt')
-                )
             return result
         except Exception as e:
             logger.error(f"获取并保存指数MA指标数据失败: {str(e)}")
@@ -2572,14 +2525,6 @@ class StockIndexDAO(BaseDAO):
             )
             
             logger.info(f"{index_code}指数{time_level}级别BOLL指标数据保存完成，结果: {result}")
-            # 如果成功保存数据，也更新缓存
-            if result:
-                cache_key = self.cache_manager.generate_key('rt', 'index', index_code, 'boll')
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(result),
-                    timeout=self.cache_manager.get_timeout('rt')
-                )
             return result
         except Exception as e:
             logger.error(f"获取并保存指数BOLL指标数据失败: {str(e)}")
