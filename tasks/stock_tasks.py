@@ -12,7 +12,7 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
 from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 from dao_manager.daos.user_dao import UserDAO
-from users.models import FavoriteStock
+
 
 logger = logging.getLogger(__name__)
 
