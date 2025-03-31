@@ -6,15 +6,6 @@ import sys
 import asyncio
 import logging
 from celery import shared_task
-from api_manager.apis.datacenter_api import DataCenterAPI
-# 导入相关API和DAO
-from dao_manager.daos.data_center.capital_flow_dao import CapitalFlowDao
-from dao_manager.daos.data_center.north_south_dao import NorthSouthDao
-from dao_manager.daos.data_center.discrete_transaction_dao import DiscreteTransactionDao
-from dao_manager.daos.data_center.financial_dao import FinancialDao
-from dao_manager.daos.data_center.institutional_shareholding_dao import InstitutionalShareholdingDao
-from dao_manager.daos.data_center.lhb_dao import LhbDAO
-from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
 from datetime import datetime
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
@@ -26,12 +17,6 @@ if sys.version_info >= (3, 12):
 
 logger = logging.getLogger(__name__)
 
-# API和DAO实例
-datacenter_api = DataCenterAPI()
-
-discrete_transaction_dao = DiscreteTransactionDao()
-
-stock_statistics_dao = StockStatisticsDao()
 
 @shared_task
 def refresh_financial_data():
@@ -39,6 +24,7 @@ def refresh_financial_data():
     刷新财务数据
     每天21:00执行
     """
+    from dao_manager.daos.data_center.financial_dao import FinancialDao
     financial_dao = FinancialDao()
     logger.info("开始刷新财务数据")
     asyncio.run(financial_dao.save_weekly_rank_change())
@@ -56,6 +42,7 @@ def refresh_capital_flow_data():
     刷新资金流向数据
     每天21:30执行
     """
+    from dao_manager.daos.data_center.capital_flow_dao import CapitalFlowDao
     capital_flow_dao = CapitalFlowDao()
     logger.info("开始刷新资金流向数据")
     asyncio.run(capital_flow_dao.save_industry_capital_flow())
@@ -70,6 +57,7 @@ def refresh_lhb_data():
     刷新龙虎榜数据
     每天21:45执行
     """
+    from dao_manager.daos.data_center.lhb_dao import LhbDAO
     lhb_dao = LhbDAO()
     periods = ['5', '10', '30', '60']
     logger.info("开始刷新龙虎榜数据")
@@ -99,6 +87,7 @@ def refresh_institution_data():
     刷新机构持股数据
     每周一22:00执行
     """
+    from dao_manager.daos.data_center.institutional_shareholding_dao import InstitutionalShareholdingDao
     institutional_shareholding_dao = InstitutionalShareholdingDao()
     logger.info("开始刷新机构持股数据")
     
@@ -139,6 +128,7 @@ def refresh_north_south_data():
     刷新北向南向资金数据
     每天22:15执行
     """
+    from dao_manager.daos.data_center.north_south_dao import NorthSouthDao
     north_south_dao = NorthSouthDao()
     logger.info("开始刷新北向南向资金数据")
     asyncio.run(north_south_dao.save_north_south_fund_overview())
@@ -154,6 +144,7 @@ def refresh_statistics_data():
     刷新统计数据
     每天22:30执行
     """
+    from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
     logger.info("开始刷新统计数据")
     stock_statistics_dao = StockStatisticsDao()
     asyncio.run(stock_statistics_dao.save_stage_high_low())

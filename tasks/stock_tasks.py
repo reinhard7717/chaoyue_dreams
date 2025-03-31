@@ -5,25 +5,17 @@
 import asyncio
 import logging
 from celery import shared_task
-from api_manager.apis.stock_basic_api import StockBasicAPI
-from api_manager.apis.stock_realtime_api import StockRealtimeAPI
-from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
-from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
-from dao_manager.daos.user_dao import UserDAO
+
+
+
+
 
 
 logger = logging.getLogger(__name__)
 
 # API和DAO实例
-stock_basic_api = StockBasicAPI()
-stock_realtime_api = StockRealtimeAPI()
-stock_indicators_api = StockIndicatorsAPI()
-stock_basic_dao = StockBasicDAO()
-stock_realtime_dao = StockRealtimeDAO()
-stock_indicators_dao = StockIndicatorsDAO()
-user_dao = UserDAO()
+
+
 
 @shared_task
 def refresh_stock_basic_info():
@@ -31,6 +23,8 @@ def refresh_stock_basic_info():
     刷新股票基础信息
     每天早上7点执行
     """
+    from dao_manager.daos.stock_basic_dao import StockBasicDAO
+    stock_basic_dao = StockBasicDAO()
     logger.info("开始刷新股票基础信息")
     asyncio.run(stock_basic_dao.refresh_all_stocks())
     logger.info("刷新股票基础信息完成")
@@ -42,6 +36,8 @@ def refresh_stock_industry_info():
     刷新股票行业信息
     每周一早上7:30执行
     """
+    from dao_manager.daos.stock_basic_dao import StockBasicDAO
+    stock_basic_dao = StockBasicDAO()
     logger.info("开始刷新股票行业信息")
     asyncio.run(stock_basic_dao.refresh_stock_industry())
     logger.info("刷新股票行业信息完成")
@@ -53,6 +49,8 @@ def refresh_stock_concept_info():
     刷新股票概念信息
     每周一早上8:00执行
     """
+    from dao_manager.daos.stock_basic_dao import StockBasicDAO
+    stock_basic_dao = StockBasicDAO()
     logger.info("开始刷新股票概念信息")
     asyncio.run(stock_basic_dao.refresh_stock_concept())
     logger.info("刷新股票概念信息完成")
@@ -64,6 +62,10 @@ def refresh_favorites_realtime_data():
     刷新自选股的实时数据
     交易时间段每分钟执行
     """
+    from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
+    stock_realtime_dao = StockRealtimeDAO()
+    from dao_manager.daos.user_dao import UserDAO
+    user_dao = UserDAO()
     logger.info("开始刷新自选股的实时数据")
     # 获取所有自选股的代码
     favorite_stocks = asyncio.run(user_dao.get_all_favorite_stocks())
