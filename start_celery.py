@@ -21,8 +21,6 @@ def start_celery_worker(concurrency=4):
         'info',
         '--concurrency',
         str(concurrency),
-        '--pool',
-        'prefork',  # 使用prefork池
         '--max-tasks-per-child',
         '1000',  # 每个worker处理的最大任务数
         '--max-memory-per-child',
@@ -60,6 +58,11 @@ def start_celery_worker(concurrency=4):
         _, stderr = process.communicate()
         if stderr:
             print(f"Error: {stderr}", file=sys.stderr)
+        
+        # 检查是否有错误
+        if process.returncode != 0:
+            print(f"Celery worker启动失败，错误代码: {process.returncode}")
+            sys.exit(1)
         
         return process.returncode
         
@@ -112,6 +115,11 @@ def start_celery_beat():
         _, stderr = process.communicate()
         if stderr:
             print(f"Error: {stderr}", file=sys.stderr)
+        
+        # 检查是否有错误
+        if process.returncode != 0:
+            print(f"Celery beat启动失败，错误代码: {process.returncode}")
+            sys.exit(1)
         
         return process.returncode
         

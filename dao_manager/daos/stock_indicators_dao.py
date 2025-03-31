@@ -16,6 +16,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.user_dao import UserDAO
 from stock_models.stock_indicators import StockBOLLIndicator, StockKDJIndicator, StockMACDIndicator, StockMAIndicator, StockTimeTrade
+
 from utils.cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)

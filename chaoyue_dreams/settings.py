@@ -527,8 +527,8 @@ INDEX_CACHE_TIMEOUT = {
 }
 
 # Celery配置
-CELERY_BROKER_URL = 'redis://39.101.65.133:6379/1'  # 使用Redis作为消息代理
-CELERY_RESULT_BACKEND = 'redis://39.101.65.133:6379/2'  # 使用Redis作为结果后端
+CELERY_BROKER_URL = 'redis://:Asdf1234@39.101.65.133:6379/1'  # 使用Redis作为消息代理
+CELERY_RESULT_BACKEND = 'redis://:Asdf1234@39.101.65.133:6379/2'  # 使用Redis作为结果后端
 CELERY_ACCEPT_CONTENT = ['json']  # 指定序列化格式
 CELERY_TASK_SERIALIZER = 'json'  # 任务序列化格式
 CELERY_RESULT_SERIALIZER = 'json'  # 结果序列化格式
@@ -541,7 +541,7 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # 每个worker处理的最大任务数
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # 预取任务数
 CELERY_WORKER_MAX_MEMORY_PER_CHILD = 200000  # 每个worker的最大内存使用量（KB）
 
-# Celery任务配置
+# Celery Task配置
 CELERY_TASK_ACKS_LATE = True  # 任务执行完成后再确认
 CELERY_TASK_REJECT_ON_WORKER_LOST = True  # worker异常退出时拒绝任务
 CELERY_TASK_TIME_LIMIT = 3600  # 任务超时时间（秒）
