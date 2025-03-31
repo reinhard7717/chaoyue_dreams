@@ -1010,6 +1010,21 @@ class StockIndexDAO(BaseDAO):
             logger.error(f"获取并保存指数[{index_code}]的历史时间序列数据失败: {str(e)}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
+    async def fetch_and_save_history_time_series_by_indexs(self, indexs: List[str]) -> Dict:
+        """
+        获取并保存指数历史时间序列数据
+        Args:
+            indexs: 指数代码列表
+        Returns:
+            Dict: 保存的时间序列数据对象列表
+        """
+        try:
+            for index in indexs:
+                await self.fetch_and_save_history_time_series_by_index_code(index.code)
+        except Exception as e:
+            logger.error(f"获取并保存所有指数历史时间序列数据失败: {str(e)}")
+            return []
+        
     async def fetch_and_save_history_time_series_by_time_level(self, time_level: str) -> Dict:
         """
         获取并保存指数历史时间序列数据
