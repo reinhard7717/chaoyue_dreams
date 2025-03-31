@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_realtime_data')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_realtime_data():
+def save_index_all_latest_realtime_data(self):
     """
     保存指数最新实时数据
     """
@@ -26,7 +26,7 @@ def save_index_all_latest_realtime_data():
     return "保存指数最新实时数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_market_overview')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_market_overview():
+def save_index_all_latest_market_overview(self):
     """
     保存指数最新市场概览数据
     """
@@ -38,7 +38,7 @@ def save_index_all_latest_market_overview():
     return "保存指数最新市场概览数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_time_series')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_time_series():
+def save_index_all_latest_time_series(self):
     """
     保存指数时间序列数据
     """
@@ -50,7 +50,7 @@ def save_index_all_latest_time_series():
     return "保存指数时间序列数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_time_series')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_history_time_series():
+def save_index_all_history_time_series(self):
     """
     保存指数历史时间序列数据
     """
@@ -62,7 +62,7 @@ def save_index_all_history_time_series():
     return "保存指数历史时间序列数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_kdj')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_kdj():
+def save_index_all_latest_kdj(self):
     """
     保存指数最新KDJ数据
     """
@@ -74,7 +74,7 @@ def save_index_all_latest_kdj():
     return "保存指数最新KDJ数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_kdj')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_history_kdj():
+def save_index_all_history_kdj(self):
     """
     保存指数历史KDJ数据
     """
@@ -86,7 +86,7 @@ def save_index_all_history_kdj():
     return "保存指数历史KDJ数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_macd')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_macd():
+def save_index_all_latest_macd(self):
     """
     保存指数最新MACD数据
     """
@@ -98,7 +98,7 @@ def save_index_all_latest_macd():
     return "保存指数最新MACD数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_macd')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_history_macd():
+def save_index_all_history_macd(self):
     """
     保存指数历史MACD数据
     """
@@ -110,7 +110,7 @@ def save_index_all_history_macd():
     return "保存指数历史MACD数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_boll')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_boll():
+def save_index_all_latest_boll(self):
     """
     保存指数最新BOLL数据
     """
@@ -122,7 +122,7 @@ def save_index_all_latest_boll():
     return "保存指数最新BOLL数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_boll')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_history_boll():
+def save_index_all_history_boll(self):
     """
     保存指数历史BOLL数据
     """
@@ -134,7 +134,7 @@ def save_index_all_history_boll():
     return "保存指数历史BOLL数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_latest_ma')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_latest_ma():
+def save_index_all_latest_ma(self):
     """
     保存指数最新MA数据
     """
@@ -146,7 +146,7 @@ def save_index_all_latest_ma():
     return "保存指数最新MA数据完成"
 
 @celery_app.task(bind=True, name='tasks.index_tasks.save_index_all_history_ma')  # 使用 @celery_app.task 装饰器，并指定任务名称
-def save_index_all_history_ma():
+def save_index_all_history_ma(self):
     """
     保存指数历史MA数据
     """
