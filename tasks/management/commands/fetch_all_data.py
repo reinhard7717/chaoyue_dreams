@@ -472,14 +472,14 @@ class Command(BaseCommand):
         # await stock_indicators_dao.fetch_and_save_all_history_ma()
         # self.stdout.write('  - 已获取所有股票历史MA指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_history_time_trade()
-        self.stdout.write('  - 已获取所有股票历史时间序列数据')
+        # await stock_indicators_dao.fetch_and_save_all_history_time_trade()
+        # self.stdout.write('  - 已获取所有股票历史时间序列数据')
 
         # await stock_indicators_dao.fetch_and_save_all_latest_boll()
         # self.stdout.write('  - 已获取所有股票最新BOLL指标数据')
 
-        # await stock_indicators_dao.fetch_and_save_all_latest_kdj()
-        # self.stdout.write('  - 已获取所有股票最新KDJ指标数据')
+        await stock_indicators_dao.fetch_and_save_all_latest_kdj()
+        self.stdout.write('  - 已获取所有股票最新KDJ指标数据')
 
         # await stock_indicators_dao.fetch_and_save_all_latest_macd()
         # self.stdout.write('  - 已获取所有股票最新MACD指标数据')

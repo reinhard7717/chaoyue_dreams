@@ -45,7 +45,6 @@ class StockBasicDAO(BaseDAO):
         self.cache_manager = CacheManager()  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()
         self.cache_key = StockCashKey()
-        # logger.info("初始化StockBasicDAO")
         
     # ================= 股票基本信息相关方法 =================
     

@@ -120,6 +120,7 @@ class CacheManager:
         """序列化数据，大数据自动压缩"""
         try:
             # 步骤1: 使用自定义编码器将数据转换为JSON字符串
+            logging.info(f"data: {data}")
             json_data = json.dumps(data, ensure_ascii=False, cls=CustomJSONEncoder)
             
             # 步骤2: 获取要存储的UTF-8字节

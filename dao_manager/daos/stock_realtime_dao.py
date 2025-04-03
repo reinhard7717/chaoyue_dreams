@@ -39,7 +39,6 @@ class StockRealtimeDAO(BaseDAO):
         self.data_format_process = StockRealtimeDataFormatProcess()
         self.cache_get = StockRealtimeCacheGet()
         self.cache_set = StockRealtimeCacheSet()
-        logger.info("初始化StockRealtimeDAO")
 
     # ================= RealtimeData相关方法 =================
     async def get_latest_realtime_data(self, stock_code: str) -> Optional[StockRealtimeData]:

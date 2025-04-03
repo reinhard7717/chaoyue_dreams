@@ -534,7 +534,7 @@ LOGGING = {
         'dao': {
             'handlers': ['console', 'dao'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
         'celery': {
             'handlers': ['console', 'celery'],

@@ -46,7 +46,6 @@ class BaseDAO(Generic[T]):
         self.cache_timeout = cache_timeout
         # 只有当model_class不为None时才设置model_name
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
-        logger.info(f"初始化{self.model_name}DAO")
     
     def _get_cache_key(self, key_suffix: str) -> str:
         """

@@ -894,7 +894,8 @@ class StockIndexDAO(BaseDAO):
                 api_data = await self.api.get_index_realtime_data(index.code)
                 data_dict = await self.data_format_process.set_realtime_data(index, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.realtime_data(index.code, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.realtime_data(index.code, cache_dict)
             # 保存数据
             logger.info(f"开始保存所有指数实时数据")
             result = await self._save_all_to_db(
@@ -1016,7 +1017,8 @@ class StockIndexDAO(BaseDAO):
                 api_data = await self.api.get_latest_time_series(index_code, time_level)
                 data_dict = await self.data_format_process.set_time_series(index, time_level, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.latest_time_series(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_time_series(index_code, time_level, cache_dict)
             # 保存数据
             logger.info(f"开始保存{index_code}指数最新时间序列数据")
             result = await self._save_all_to_db(
@@ -1029,7 +1031,7 @@ class StockIndexDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取并保存指数[{index_code}]的最新时间序列数据失败: {str(e)}")
             return []
-    
+
     async def fetch_and_save_latest_time_series_by_time_level(self, time_level: str) -> Dict:
         """
         获取并保存指数最新时间序列数据
@@ -1052,7 +1054,8 @@ class StockIndexDAO(BaseDAO):
                 api_data = await self.api.get_latest_time_series(index.code, time_level)
                 data_dict = await self.data_format_process.set_time_series(index, time_level, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.latest_time_series(index.code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_time_series(index.code, time_level, cache_dict)
             # 保存数据
             logger.info(f"开始保存{time_level}指数最新时间序列数据")
             result = await self._save_all_to_db(
@@ -1118,7 +1121,6 @@ class StockIndexDAO(BaseDAO):
                 unique_fields=['index', 'trade_time', 'time_level']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_time_series(index_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1184,14 +1186,12 @@ class StockIndexDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_time_series(index_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史时间序列数据保存完成，总结果: {total_result}")
             return total_result
@@ -1377,7 +1377,6 @@ class StockIndexDAO(BaseDAO):
                 unique_fields=['index', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_kdj(index_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1417,7 +1416,8 @@ class StockIndexDAO(BaseDAO):
                     data_dicts.append(data_dict)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if data_index < self.cache_limit:
-                        await self.cache_set.history_kdj(index.code, time_level, data_dict)
+                        cache_dict = data_dict.copy()
+                        await self.cache_set.history_kdj(index.code, time_level, cache_dict)
             
                 # 当数据量超过10万时，保存一次
                 if len(data_dicts) >= 10000:
@@ -1433,8 +1433,6 @@ class StockIndexDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                
-            
             # 保存剩余数据
             if data_dicts:
                 logger.info(f"开始保存剩余{len(data_dicts)}条数据")
@@ -1448,14 +1446,12 @@ class StockIndexDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_kdj(index_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史KDJ指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -1499,7 +1495,6 @@ class StockIndexDAO(BaseDAO):
             if not api_data:
                 logger.warning(f"API未返回指数[{index_code}]的{time_level}级别MACD指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-
             data_dicts = []
             try:
                 data_dict = await self.data_format_process.set_macd_data(index, time_level, api_data)
@@ -1508,7 +1503,6 @@ class StockIndexDAO(BaseDAO):
             except Exception as e:
                 logger.error(f"解析指数MACD指标数据失败: {str(e)}")
                 return []
-            
             # 保存数据
             logger.info(f"开始保存{index_code}指数{time_level}级别MACD指标数据")
             result = await self._save_all_to_db(
@@ -1516,7 +1510,8 @@ class StockIndexDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['index', 'time_level', 'trade_time']
             )
-            
+            cache_dict = data_dict.copy()
+            await self.cache_set.latest_macd(index_code, time_level, cache_dict)
             logger.info(f"{index_code}指数{time_level}级别MACD指标数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -1541,7 +1536,8 @@ class StockIndexDAO(BaseDAO):
         for index in indexs:
             api_data = await self.api.get_latest_macd(index.code, time_level)
             data_dict = await self.data_format_process.set_macd_data(index, time_level, api_data)
-            await self.cache_set.latest_macd(index.code, time_level, data_dict)
+            cache_dict = data_dict.copy()
+            await self.cache_set.latest_macd(index.code, time_level, cache_dict)
             data_dicts.append(data_dict)
         # 保存数据
         logger.info(f"开始保存所有指数{time_level}级别MACD指标数据")
@@ -1570,7 +1566,8 @@ class StockIndexDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_latest_macd(index_code, time_level)
                 data_dict = await self.data_format_process.set_macd_data(index, time_level, api_data)
-                await self.cache_set.latest_macd(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_macd(index_code, time_level, cache_dict)
                 data_dicts.append(data_dict)
             # 保存数据
             logger.info(f"开始保存{index_code}指数各级别MACD指标数据")
@@ -1598,7 +1595,8 @@ class StockIndexDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_latest_macd(index.code, time_level)
                 data_dict = await self.data_format_process.set_macd_data(index, time_level, api_data)
-                await self.cache_set.latest_macd(index.code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_macd(index.code, time_level, cache_dict)
                 data_dicts.append(data_dict)
         # 保存数据
         logger.info(f"开始保存所有指数各级别MACD指标数据")
@@ -1639,7 +1637,8 @@ class StockIndexDAO(BaseDAO):
                 data_dict = await self.data_format_process.set_macd_data(index, time_level, api_data)
                 data_dicts.append(data_dict)
                 processed_indices_in_batch.add(index.code)
-                await self.cache_set.history_macd(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.history_macd(index_code, time_level, cache_dict)
                     
             # 保存数据
             logger.info(f"开始保存{index_code}指数{time_level}级别历史MACD指标数据")
@@ -1649,7 +1648,6 @@ class StockIndexDAO(BaseDAO):
                 unique_fields=['index', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
              # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_macd(index_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1657,7 +1655,6 @@ class StockIndexDAO(BaseDAO):
             # --- 修剪调用结束 ---
             trim_results_log[f"{index_code}_{time_level}_final"] = f"移除 {removed_count}" if removed_count is not None else "失败"
 
-            logger.info(f"最终缓存修剪完成。")
             # --- 最终修剪结束 ---
             logger.info(f"{index_code}指数{time_level}级别历史MACD指标数据保存完成，结果: {result}")
             return result
@@ -1694,7 +1691,8 @@ class StockIndexDAO(BaseDAO):
                     data_dicts.append(data_dict)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if data_index < self.cache_limit:
-                        await self.cache_set.history_macd(index_code, time_level, data_dict)
+                        cache_dict = data_dict.copy()
+                        await self.cache_set.history_macd(index_code, time_level, cache_dict)
             
                 # 当数据量超过10万时，保存一次
                 if len(data_dicts) >= 10000:
@@ -1724,7 +1722,6 @@ class StockIndexDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level_to_trim in processed_indices_in_batch:
                 # --- 生成 KDJ 缓存键 ---
                 cache_key = await self.cache_key.history_macd(index_code, time_level_to_trim)
@@ -1732,7 +1729,6 @@ class StockIndexDAO(BaseDAO):
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
                 trim_results_log[f"{index_code}_{time_level_to_trim}_final"] = f"移除 {removed_count}" if removed_count is not None else "失败"
-            logger.info(f"最终缓存修剪完成。")
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史MACD指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -1781,7 +1777,8 @@ class StockIndexDAO(BaseDAO):
             data_dicts = []
             try:
                 data_dict = await self.data_format_process.set_ma_data(index, time_level, api_data)
-                await self.cache_set.latest_ma(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_ma(index_code, time_level, cache_dict)
                 data_dicts.append(data_dict)
             except Exception as e:
                 logger.error(f"解析指数MA指标数据失败: {str(e)}")
@@ -1819,7 +1816,8 @@ class StockIndexDAO(BaseDAO):
         for index in indexs:
             api_data = await self.api.get_latest_ma(index.code, time_level)
             data_dict = await self.data_format_process.set_ma_data(index, time_level, api_data)
-            await self.cache_set.latest_ma(index.code, time_level, data_dict)
+            cache_dict = data_dict.copy()
+            await self.cache_set.latest_ma(index.code, time_level, cache_dict)
             data_dicts.append(data_dict)
         # 保存数据
         logger.info(f"开始保存所有指数{time_level}级别MA指标数据")
@@ -1850,7 +1848,8 @@ class StockIndexDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_latest_ma(index_code, time_level)
                 data_dict = await self.data_format_process.set_ma_data(index, time_level, api_data)
-                await self.cache_set.latest_ma(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_ma(index_code, time_level, cache_dict)
                 data_dicts.append(data_dict)
             # 保存数据
             logger.info(f"开始保存{index_code}指数各级别MA指标数据")
@@ -1878,7 +1877,8 @@ class StockIndexDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_latest_ma(index.code, time_level)
                 data_dict = await self.data_format_process.set_ma_data(index, time_level, api_data)
-                await self.cache_set.latest_ma(index.code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_ma(index.code, time_level, cache_dict)
                 data_dicts.append(data_dict)
         # 保存数据
         logger.info(f"开始保存所有指数各级别MA指标数据")
@@ -1916,7 +1916,8 @@ class StockIndexDAO(BaseDAO):
             for index, api_data in enumerate(api_datas):
                 data_dict = await self.data_format_process.set_ma_data(index, time_level, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.history_ma(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.history_ma(index_code, time_level, cache_dict)
             # 保存数据
             logger.info(f"开始保存{index_code}指数{time_level}级别历史MA指标数据")
             result = await self._save_all_to_db(
@@ -1925,7 +1926,6 @@ class StockIndexDAO(BaseDAO):
                 unique_fields=['index', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_ma(index_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1968,7 +1968,8 @@ class StockIndexDAO(BaseDAO):
                     processed_indices_in_batch.add(index.code)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if data_index < self.cache_limit:
-                        await self.cache_set.history_ma(index_code, time_level, data_dict)
+                        cache_dict = data_dict.copy()
+                        await self.cache_set.history_ma(index_code, time_level, cache_dict)
             
                 # 当数据量超过10万时，保存一次
                 if len(data_dicts) >= 10000:
@@ -1999,7 +2000,6 @@ class StockIndexDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level_to_trim in processed_indices_in_batch:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_ma(index_code, time_level_to_trim)
@@ -2007,7 +2007,6 @@ class StockIndexDAO(BaseDAO):
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
                 trim_results_log[f"{index_code}_{time_level_to_trim}_final"] = f"移除 {removed_count}" if removed_count is not None else "失败"
-            logger.info(f"最终缓存修剪完成。")
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史MA指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -2056,7 +2055,8 @@ class StockIndexDAO(BaseDAO):
             data_dicts = []
             try:
                 data_dict = await self.data_format_process.set_boll_data(index, time_level, api_data)
-                await self.cache_set.latest_boll(index_code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_boll(index_code, time_level, cache_dict)
                 data_dicts.append(data_dict)
             except Exception as e:
                 logger.error(f"解析指数BOLL指标数据失败: {str(e)}")
@@ -2094,7 +2094,8 @@ class StockIndexDAO(BaseDAO):
         for index in indexs:
             api_data = await self.api.get_latest_boll(index.code, time_level)
             data_dict = await self.data_format_process.set_boll_data(index, time_level, api_data)
-            await self.cache_set.latest_boll(index.code, time_level, data_dict)
+            cache_dict = data_dict.copy()
+            await self.cache_set.latest_boll(index.code, time_level, cache_dict)
             data_dicts.append(data_dict)
         # 保存数据
         logger.info(f"开始保存所有指数{time_level}级别BOLL指标数据")
@@ -2123,7 +2124,8 @@ class StockIndexDAO(BaseDAO):
             for period in TIME_LEVELS:
                 api_data = await self.api.get_latest_boll(index_code, period)
                 data_dict = await self.data_format_process.set_boll_data(index, period, api_data)
-                await self.cache_set.latest_boll(index_code, period, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_boll(index_code, period, cache_dict)
                 data_dicts.append(data_dict)
             # 保存数据
             logger.info(f"开始保存{index_code}指数各级别BOLL指标数据")
@@ -2151,7 +2153,8 @@ class StockIndexDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_latest_boll(index.code, time_level)
                 data_dict = await self.data_format_process.set_boll_data(index, time_level, api_data)
-                await self.cache_set.latest_boll(index.code, time_level, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_boll(index.code, time_level, cache_dict)
                 data_dicts.append(data_dict)
         # 保存数据
         logger.info(f"开始保存所有指数各级别BOLL指标数据")
@@ -2186,7 +2189,8 @@ class StockIndexDAO(BaseDAO):
             try:
                 for api_data in api_datas:
                     data_dict = await self.data_format_process.set_boll_data(index, time_level, api_data)
-                    await self.cache_set.history_boll(index_code, time_level, data_dict)
+                    cache_dict = data_dict.copy()
+                    await self.cache_set.history_boll(index_code, time_level, cache_dict)
                     data_dicts.append(data_dict)
             except Exception as e:
                 logger.error(f"解析历史指数BOLL指标数据失败: {str(e)}")
@@ -2200,7 +2204,6 @@ class StockIndexDAO(BaseDAO):
                 unique_fields=['index', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_boll(index_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -2238,7 +2241,8 @@ class StockIndexDAO(BaseDAO):
                     data_dicts.append(data_dict)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if data_index < self.cache_limit:
-                        await self.cache_set.history_boll(index_code, time_level, data_dict)
+                        cache_dict = data_dict.copy()
+                        await self.cache_set.history_boll(index_code, time_level, cache_dict)
                 # 当数据量超过10万时，保存一次
                 if len(data_dicts) >= 10000:
                     logger.warning(f"数据量达到{len(data_dicts)}，开始保存批次数据")
@@ -2266,14 +2270,12 @@ class StockIndexDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_ma(index_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史BOLL指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -2296,185 +2298,3 @@ class StockIndexDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取并保存所有指数历史BOLL指标数据失败: {str(e)}")
             return []
-    
-    # ================================ 刷新指数技术指标数据 ================================
-    # 刷新指数KDJ指标数据
-    async def refresh_kdj_data(self, index_code: str, time_level: str) -> List[IndexKDJData]:
-        """
-        刷新指数KDJ指标数据
-        
-        Args:
-            index_code: 指数代码
-            time_level: 时间级别
-            
-        Returns:
-            List[IndexKDJData]: 更新后的KDJ指标数据对象列表
-        """
-        try:
-            data = await self._fetch_and_save_kdj(index_code, time_level)
-            if data:
-                # 清除所有相关的缓存键
-                cache_keys = [k for k in cache._cache.keys() if k.startswith(f'kdj_{index_code}_{time_level}')]
-                for key in cache_keys:
-                    cache.delete(key)
-            return data
-        except Exception as e:
-            logger.error(f"刷新指数[{index_code}]的{time_level}级别KDJ指标数据失败: {str(e)}")
-            return []
-    
-    # 刷新指数MACD指标数据
-    async def refresh_macd_data(self, index_code: str, time_level: str) -> List[IndexMACDData]:
-        """
-        刷新指数MACD指标数据
-        
-        Args:
-            index_code: 指数代码
-            time_level: 时间级别
-            
-        Returns:
-            List[IndexMACDData]: 更新后的MACD指标数据对象列表
-        """
-        try:
-            data = await self._fetch_and_save_macd(index_code, time_level)
-            if data:
-                # 清除所有相关的缓存键
-                cache_keys = [k for k in cache._cache.keys() if k.startswith(f'macd_{index_code}_{time_level}')]
-                for key in cache_keys:
-                    cache.delete(key)
-            return data
-        except Exception as e:
-            logger.error(f"刷新指数[{index_code}]的{time_level}级别MACD指标数据失败: {str(e)}")
-            return []
-
-    # 刷新指数MA指标数据
-    async def refresh_ma_data(self, index_code: str, time_level: str) -> List[IndexMAData]:
-        """
-        刷新指数MA指标数据
-        
-        Args:
-            index_code: 指数代码
-            time_level: 时间级别
-            
-        Returns:
-            List[IndexMAData]: 更新后的MA指标数据对象列表
-        """
-        try:
-            data = await self._fetch_and_save_ma(index_code, time_level)
-            if data:
-                # 清除所有相关的缓存键
-                cache_keys = [k for k in cache._cache.keys() if k.startswith(f'ma_{index_code}_{time_level}')]
-                for key in cache_keys:
-                    cache.delete(key)
-            return data
-        except Exception as e:
-            logger.error(f"刷新指数[{index_code}]的{time_level}级别MA指标数据失败: {str(e)}")
-            return []
-    
-    # 刷新指数BOLL指标数据
-    async def refresh_boll_data(self, index_code: str, time_level: str) -> List[IndexBOLLData]:
-        """
-        刷新指数BOLL指标数据
-        
-        Args:
-            index_code: 指数代码
-            time_level: 时间级别
-            
-        Returns:
-            List[IndexBOLLData]: 更新后的BOLL指标数据对象列表
-        """
-        try:
-            data = await self._fetch_and_save_boll(index_code, time_level)
-            if data:
-                # 清除所有相关的缓存键
-                cache_keys = [k for k in cache._cache.keys() if k.startswith(f'boll_{index_code}_{time_level}')]
-                for key in cache_keys:
-                    cache.delete(key)
-            return data
-        except Exception as e:
-            logger.error(f"刷新指数[{index_code}]的{time_level}级别BOLL指标数据失败: {str(e)}")
-            return []
-        
-    # 刷新主要指数的实时数据
-    async def refresh_main_indexes_realtime(self) -> List[IndexRealTimeData]:
-        """
-        刷新主要指数的实时数据
-        
-        Returns:
-            List[IndexRealTimeData]: 刷新后的实时数据列表
-        """
-        logger.info("刷新主要指数的实时数据")
-        main_indexes = ['000001', '399001', '399006', '000016', '000300', '000905', '000852']
-        results = []
-        
-        for index_code in main_indexes:
-            try:
-                data = await self.refresh_index_realtime_data(index_code)
-                if data:
-                    results.append(data)
-            except Exception as e:
-                logger.error(f"刷新指数[{index_code}]实时数据出错: {str(e)}")
-        
-        logger.info(f"刷新主要指数实时数据完成，共{len(results)}条")
-        return results
-
-    # 刷新主要指数的时间序列数据
-    async def refresh_main_indexes_time_series(self, period: str) -> Dict[str, List[IndexTimeSeriesData]]:
-        """
-        刷新主要指数的时间序列数据
-        
-        Args:
-            period: 时间周期，如"5"、"15"、"30"、"60"、"Day"、"Week"、"Month"
-        
-        Returns:
-            Dict[str, List[IndexTimeSeriesData]]: 指数代码到时间序列数据的映射
-        """
-        logger.info(f"刷新主要指数的{period}周期时间序列数据")
-        main_indexes = ['000001', '399001', '399006', '000016', '000300', '000905', '000852']
-        results = {}
-        
-        for index_code in main_indexes:
-            try:
-                data = await self.refresh_time_series_data(index_code, period)
-                if data:
-                    results[index_code] = data
-            except Exception as e:
-                logger.error(f"刷新指数[{index_code}]的{period}周期时间序列数据出错: {str(e)}")
-        
-        logger.info(f"刷新主要指数{period}周期时间序列数据完成，共{len(results)}个指数")
-        return results
-
-    # 刷新主要指数的技术指标数据
-    async def refresh_main_indexes_technical_indicators(self, period: str) -> Dict[str, Dict[str, List]]:
-        """
-        刷新主要指数的技术指标数据
-        
-        Args:
-            period: 时间周期，如"Day"、"Week"、"Month"
-        
-        Returns:
-            Dict[str, Dict[str, List]]: 指数代码到技术指标数据的映射，格式为:
-                                    {index_code: {'kdj': [...], 'macd': [...], 'ma': [...], 'boll': [...]}}
-        """
-        logger.info(f"刷新主要指数的{period}周期技术指标数据")
-        main_indexes = ['000001', '399001', '399006', '000016', '000300', '000905', '000852']
-        results = {}
-        
-        indicators = {
-            'kdj': self.refresh_kdj_data,
-            'macd': self.refresh_macd_data,
-            'ma': self.refresh_ma_data,
-            'boll': self.refresh_boll_data
-        }
-        
-        for index_code in main_indexes:
-            results[index_code] = {}
-            for indicator_name, refresh_method in indicators.items():
-                try:
-                    data = await refresh_method(index_code, period)
-                    if data:
-                        results[index_code][indicator_name] = data
-                except Exception as e:
-                    logger.error(f"刷新指数[{index_code}]的{period}周期{indicator_name}指标出错: {str(e)}")
-        
-        logger.info(f"刷新主要指数{period}周期技术指标数据完成，共{len(results)}个指数")
-        return results
