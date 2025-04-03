@@ -147,32 +147,32 @@ class Command(BaseCommand):
         self.stdout.write('获取指数数据...')
         index_dao = StockIndexDAO()
         
-        # 获取所有指数基础信息
-        indexs = await index_dao.get_all_indexes()
-        self.stdout.write('  - 已获取所有指数基础信息')
+        # # 获取所有指数基础信息
+        # indexs = await index_dao.get_all_indexes()
+        # self.stdout.write('  - 已获取所有指数基础信息')
 
-        await index_dao.fetch_and_save_all_realtime_data()
-        self.stdout.write('  - 已获取所有指数实时数据')
+        # await index_dao.fetch_and_save_all_realtime_data()
+        # self.stdout.write('  - 已获取所有指数实时数据')
             
-        # 获取市场概览
-        await index_dao.fetch_and_save_market_overview()
-        self.stdout.write('  - 已获取市场概览数据')
+        # # 获取市场概览
+        # await index_dao.fetch_and_save_market_overview()
+        # self.stdout.write('  - 已获取市场概览数据')
 
-        # 获取指数技术指标数据
-        await index_dao.fetch_and_save_all_history_boll()
-        self.stdout.write('  - 已获取所有指数历史BOLL指标数据')
+        # # 获取指数技术指标数据
+        # await index_dao.fetch_and_save_all_history_boll()
+        # self.stdout.write('  - 已获取所有指数历史BOLL指标数据')
 
-        await index_dao.fetch_and_save_all_history_ma()
-        self.stdout.write('  - 已获取所有指数历史MA指标数据')
+        # await index_dao.fetch_and_save_all_history_ma()
+        # self.stdout.write('  - 已获取所有指数历史MA指标数据')
 
-        await index_dao.fetch_and_save_all_history_macd()
-        self.stdout.write('  - 已获取所有指数历史MACD指标数据')
+        # await index_dao.fetch_and_save_all_history_macd()
+        # self.stdout.write('  - 已获取所有指数历史MACD指标数据')
 
-        await index_dao.fetch_and_save_all_history_kdj()
-        self.stdout.write('  - 已获取所有指数历史KDJ指标数据')
+        # await index_dao.fetch_and_save_all_history_kdj()
+        # self.stdout.write('  - 已获取所有指数历史KDJ指标数据')
 
-        await index_dao.fetch_and_save_all_history_time_series()
-        self.stdout.write('  - 已获取所有指数历史时间序列数据')
+        # await index_dao.fetch_and_save_all_history_time_series()
+        # self.stdout.write('  - 已获取所有指数历史时间序列数据')
 
     async def fetch_datacenter_data(self):
         """获取数据中心数据"""
@@ -460,35 +460,35 @@ class Command(BaseCommand):
         # 获取不同周期的K线数据
         periods = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
 
-        await stock_indicators_dao.fetch_and_save_all_history_boll()
-        self.stdout.write('  - 已获取所有股票历史BOLL指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_history_boll()
+        # self.stdout.write('  - 已获取所有股票历史BOLL指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_history_kdj()
-        self.stdout.write('  - 已获取所有股票历史KDJ指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_history_kdj()
+        # self.stdout.write('  - 已获取所有股票历史KDJ指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_history_macd()
-        self.stdout.write('  - 已获取所有股票历史MACD指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_history_macd()
+        # self.stdout.write('  - 已获取所有股票历史MACD指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_history_ma()
-        self.stdout.write('  - 已获取所有股票历史MA指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_history_ma()
+        # self.stdout.write('  - 已获取所有股票历史MA指标数据')
 
         await stock_indicators_dao.fetch_and_save_all_history_time_trade()
         self.stdout.write('  - 已获取所有股票历史时间序列数据')
 
-        await stock_indicators_dao.fetch_and_save_all_latest_boll()
-        self.stdout.write('  - 已获取所有股票最新BOLL指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_latest_boll()
+        # self.stdout.write('  - 已获取所有股票最新BOLL指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_latest_kdj()
-        self.stdout.write('  - 已获取所有股票最新KDJ指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_latest_kdj()
+        # self.stdout.write('  - 已获取所有股票最新KDJ指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_latest_macd()
-        self.stdout.write('  - 已获取所有股票最新MACD指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_latest_macd()
+        # self.stdout.write('  - 已获取所有股票最新MACD指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_latest_ma()
-        self.stdout.write('  - 已获取所有股票最新MA指标数据')
+        # await stock_indicators_dao.fetch_and_save_all_latest_ma()
+        # self.stdout.write('  - 已获取所有股票最新MA指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_latest_time_trade()
-        self.stdout.write('  - 已获取所有股票最新时间序列数据')
+        # await stock_indicators_dao.fetch_and_save_all_latest_time_trade()
+        # self.stdout.write('  - 已获取所有股票最新时间序列数据')
 
 
     # async def calculate_strategy(self, stock_codes=None):

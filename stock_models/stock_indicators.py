@@ -18,7 +18,7 @@ class StockTimeTrade(models.Model):
     amplitude = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='振幅', null=True)
     turnover_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='换手率', null=True)
     price_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌幅', null=True)
-    price_change = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌额', null=True)
+    price_change_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌额', null=True)
     
     class Meta:
         verbose_name = '分时交易数据'
@@ -29,6 +29,9 @@ class StockTimeTrade(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 class StockKDJIndicator(models.Model):
     """
@@ -73,6 +76,9 @@ class StockMACDIndicator(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 class StockMAIndicator(models.Model):
     """
@@ -101,6 +107,9 @@ class StockMAIndicator(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 class StockBOLLIndicator(models.Model):
     """
@@ -122,3 +131,6 @@ class StockBOLLIndicator(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
+    
+    def __code__(self):
+        return self.stock.stock_code

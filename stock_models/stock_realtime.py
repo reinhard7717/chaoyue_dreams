@@ -39,7 +39,6 @@ class StockRealtimeData(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code}-{self.update_time}"
 
-
 class StockLevel5Data(models.Model):
     """
     买卖五档盘口数据模型
@@ -84,7 +83,6 @@ class StockLevel5Data(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.update_time}"
-
 
 class StockTradeDetail(models.Model):
     """

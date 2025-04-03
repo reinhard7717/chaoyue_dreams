@@ -1,25 +1,27 @@
+import json
 import logging
 import asyncio
 from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
 from datetime import datetime, date
-from decimal import Decimal
-
-from django.db import transaction
-from django.core.cache import cache
 from asgiref.sync import sync_to_async
-from django.db.models import Q
-from django.db.models.base import Model
+from utils import cache_constants as cc # 导入常量
+from django.utils import timezone
 
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI, TimeLevel
 from api_manager.mappings.stock_indicators_mapping import BOLL_INDICATOR_MAPPING, KDJ_INDICATOR_MAPPING, MA_INDICATOR_MAPPING, MACD_INDICATOR_MAPPING, TIME_TRADE_MAPPING
 from dao_manager.base_dao import BaseDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.user_dao import UserDAO
+from stock_models.stock_basic import StockInfo
 from stock_models.stock_indicators import StockBOLLIndicator, StockKDJIndicator, StockMACDIndicator, StockMAIndicator, StockTimeTrade
 
+from utils.cache_get import StockIndicatorsCacheGet
 from utils.cache_manager import CacheManager
+from utils.cache_set import StockIndicatorsCacheSet
+from utils.cash_key import StockCashKey
+from utils.data_format_process import StockIndicatorsDataFormatProcess
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("dao")
 
 TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
 
@@ -35,33 +37,68 @@ class StockIndicatorsDAO(BaseDAO):
         self.cache_manager = CacheManager()
         self.stock_basic_dao = StockBasicDAO()
         self.cache_timeout = 300  # 默认缓存5分钟
+        self.cache_limit = 200 # 定义缓存数量上限
         self.user_dao = UserDAO()
+        self.cache_key = StockCashKey()
+        self.data_format_process = StockIndicatorsDataFormatProcess()
+        self.cache_get = StockIndicatorsCacheGet()
+        self.cache_set = StockIndicatorsCacheSet()
 
         logger.info("初始化StockIndicatorsDAO")
-    
+      
     # ================= 分时成交数据相关方法 =================
-    
     async def get_latest_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockTimeTrade]:
         """
         获取最新的分时成交数据
-        
         Args:
             stock_code: 股票代码
             time_level: 时间级别
-            
         Returns:
             Optional[StockTimeTrade]: 最新的分时成交数据
         """
-        return await self._get_latest_indicator(
-            model_class=StockTimeTrade,
-            stock_code=stock_code,
-            time_level=time_level,
-            api_method=self.api.get_time_trade_data,
-            mapping=TIME_TRADE_MAPPING,
-            cache_prefix="time_trade"
-        )
+        cache_data = await self.cache_get.latest_time_trade(stock_code, time_level)
+        if cache_data:
+            time_trade_dict = json.loads(cache_data)
+            time_trade = StockTimeTrade(**time_trade_dict)
+            return time_trade
+        
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
+        try:
+            data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.latest_time_trade(stock_code, time_level, data)
+                return data
+        except Exception as e:
+            logger.error(f"从数据库获取最新股票[{stock}]{time_level}级别分时成交数据失败: {str(e)}")
+            return None
+        
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]{time_level}级别分时成交数据不存在或已过期，从API获取")
+        await self.fetch_and_save_latest_time_trade(stock_code, time_level)
+        data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+        return data
     
-    # 还需要修改
+    async def get_all_latest_time_trade_by_stock_code(self, stock_code: str) -> Optional[StockTimeTrade]:
+        """
+        获取指定股票的最新分时成交数据
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            Optional[StockTimeTrade]: 指定股票的最新分时成交数据
+        """
+        datas = []
+        for time_level in TIME_LEVELS:
+            data = await self.get_latest_time_trade(stock_code, time_level)
+            if data:
+                datas.append(data)
+        return datas
+
     async def get_favorite_stocks_latest_time_trade(self) -> Optional[StockTimeTrade]:
         """
         获取自选股最新分时成交数据
@@ -70,29 +107,20 @@ class StockIndicatorsDAO(BaseDAO):
             Optional[StockTimeTrade]: 自选股最新分时成交数据
         """
         # 获取自选股
+        datas = []
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         # 获取自选股最新分时成交数据
         for stock in favorite_stocks:
-            # 使用CacheManager生成标准化缓存键
-            cache_key = self.cache_manager.generate_key('st', 'stock_time_trade', stock.stock_code)
-            cached_data = self.cache_manager.get(cache_key)
-            if cached_data:
-                return cached_data
-        # 从数据库中获取    
-        stock_time_trade = await sync_to_async(StockTimeTrade.objects.filter)(stock_code=stock.stock_code, time_level='Day')
-        if stock_time_trade:
-            # 序列化对象列表
-            serialized_stock_time_trade = self._serialize_model(stock_time_trade)
-            # 使用CacheManager缓存数据
-            self.cache_manager.set(cache_key, serialized_stock_time_trade, timeout=self.cache_manager.get_timeout('st'))
-            return serialized_stock_time_trade
-        return None
+            for time_level in TIME_LEVELS:
+                data = await self.get_latest_time_trade(stock.stock_code, time_level)
+                if data:
+                    datas.append(data)
+        return datas
 
     async def get_history_time_trades(self, stock_code: str, time_level: Union[TimeLevel, str], 
-                                    limit: int = 1000) -> List[StockTimeTrade]:
+                                    start_time: datetime, end_time: datetime, limit: int = 1000) -> List[StockTimeTrade]:
         """
         获取历史分时成交数据
-        
         Args:
             stock_code: 股票代码
             time_level: 时间级别
@@ -101,56 +129,49 @@ class StockIndicatorsDAO(BaseDAO):
         Returns:
             List[StockTimeTrade]: 历史分时成交数据列表
         """
-        return await self._get_history_indicators(
-            model_class=StockTimeTrade,
-            stock_code=stock_code,
-            time_level=time_level,
-            api_method=self.api.get_time_trade_data,
-            mapping=TIME_TRADE_MAPPING,
-            cache_prefix="time_trade",
-            limit=limit
-        )
+        cache_data = await self.cache_get.history_data(stock_code, time_level, start_time, end_time)
+        if cache_data:
+            return cache_data
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
+        try:
+            data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level, trade_time__range=(start_time, end_time)).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.history_time_trade(stock_code, time_level, data)
+                return data
+        except Exception as e:
+            logger.error(f"从数据库获取最新股票[{stock}]{time_level}级别分时成交数据失败: {str(e)}")
+            return None
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]{time_level}级别分时成交数据不存在或已过期，从API获取")
+        await self.fetch_and_save_history_time_trade(stock_code, time_level, start_time, end_time)
+        data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level, trade_time__range=(start_time, end_time)).order_by('-trade_time').first())()
+        return data
     
-    async def fetch_and_save_latest_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_latest_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict:
         """
         从API获取并保存最新分时成交数据
-        
         Args:
             stock_code: 股票代码
             time_level: 时间级别
-            
         Returns:
             Optional[StockTimeTrade]: 保存的数据
         """
         # 获取股票信息
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
-            return []
+            return {'创建': 0, '更新': 0, '跳过': 0}
         try:
             api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                
             if not api_data:
                 logger.warning(f"API未返回{stock}的{time_level}级别时间序列数据")
-                return []
-            
+                return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                'volume': self._parse_number(api_data.get('v')),  # 成交量
-                'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
-            }
+            data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
-
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别分时成交数据")
             result = await self._save_all_to_db(
@@ -158,7 +179,7 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
+            await self.cache_set.latest_time_trade(stock_code, time_level, data_dict)
             logger.info(f"{stock}股票{time_level}级别分时成交数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -166,13 +187,11 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_time_trade_by_stock_code(self, stock_code: str) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_latest_time_trade_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存最新股票分时成交数据
-        
         Args:
             stock_code: 股票代码
-        
         Returns:
             Optional[StockTimeTrade]: 保存的数据
         """
@@ -185,26 +204,15 @@ class StockIndicatorsDAO(BaseDAO):
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                    'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                    'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                    'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                    'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                    'volume': self._parse_number(api_data.get('v')),  # 成交量
-                    'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                    'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                    'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                    'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                    'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
-                }
-                data_dicts.append(data_dict)
+                data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                if data_dict.get('trade_time') is None:
+                    logger.debug(f"未获取到{stock}股票{time_level}级别时间序列数据")
+                else:
+                    data_dicts.append(data_dict)
+                    await self.cache_set.latest_time_trade(stock.stock_code, time_level, data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别时间序列数据")
                 return []
-            
             # 保存数据
             logger.info(f"开始保存{stock}股票分时成交数据")
             result = await self._save_all_to_db(
@@ -212,7 +220,6 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
             logger.info(f"{stock}股票分时成交数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -220,55 +227,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_time_trade_by_time_level(self, time_level: str) -> Optional[StockTimeTrade]:
-        """
-        从API获取并保存最新股票分时成交数据
-        
-        Args:
-            time_level: 时间级别
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                        'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                        'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                        'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                        'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                        'volume': self._parse_number(api_data.get('v')),  # 成交量
-                        'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                        'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                        'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                        'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                        'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回{time_level}级别的所有股票时间序列数据")
-                return []
-            
-            # 保存数据
-            logger.info("开始保存自选股分时成交数据")
-            result = await self._save_all_to_db(
-                model_class=StockTimeTrade,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"自选股分时成交数据保存完成，结果: {result}")
-            return result
-        except Exception as e:
-            logger.error(f"保存自选股分时成交数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-
-    async def fetch_and_save_favorite_stocks_latest_time_trade(self) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_favorite_stocks_latest_time_trade(self) -> Dict:
         """
         从API获取并保存最新自选股分时成交数据
             
@@ -277,54 +236,26 @@ class StockIndicatorsDAO(BaseDAO):
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                        'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                        'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                        'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                        'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                        'volume': self._parse_number(api_data.get('v')),  # 成交量
-                        'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                        'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                        'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                        'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                        'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回自选股（get_all_favorite_stocks）的{time_level}级别时间序列数据")
-                return []
-            # 保存数据
-            logger.info("开始保存自选股分时成交数据")
-            result = await self._save_all_to_db(
-                model_class=StockTimeTrade,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"自选股分时成交数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股分时成交数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_latest_time_trade(self) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_all_latest_time_trade(self) -> Dict:
         """
         从API获取并保存所有最新股票分时成交数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
+        total_result = {'创建': 0, '更新': 0, '跳过': 0}
         for stock in stocks:
-            await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
-        return {'创建': 0, '更新': 0, '跳过': 0}
+            result = await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
+            total_result['创建'] += result['创建']
+            total_result['更新'] += result['更新']
+            total_result['跳过'] += result['跳过']
+        return total_result
 
-    async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Dict:
         """
         从API获取并保存历史股票分时成交数据
         
@@ -339,41 +270,34 @@ class StockIndicatorsDAO(BaseDAO):
         # 获取股票信息
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
-            return []
+            return {'创建': 0, '更新': 0, '跳过': 0}
         try:
             api_datas = await self.api.get_history_trade(stock.stock_code, time_level)
-                
             if not api_datas:
-                logger.warning(f"API未返回{stock}的{time_level}级别历史时间序列数据")
-                return []
-            
+                logger.warning(f"API未返回 {stock} 的 {time_level} 级别历史时间序列数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
+            processed_indices_in_batch = set() # 跟踪当前批次涉及的指数代码
+            trim_results_log = {} # 收集修剪日志
             for api_data in api_datas:
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                    'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                    'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                    'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                    'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                    'volume': self._parse_number(api_data.get('v')),  # 成交量
-                    'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                    'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                    'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                    'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                    'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
-                }
+                data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
-
+                await self.cache_set.history_time_trade(stock_code, time_level, data_dict)
+                processed_indices_in_batch.add(stock_code)
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别历史分时成交数据")
+            logger.info(f"开始保存 {stock} 股票 {time_level} 级别历史分时成交数据")
             result = await self._save_all_to_db(
                 model_class=StockTimeTrade,
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            # --- 生成缓存键 ---
+            cache_key = await self.cache_key.history_time_trade(stock_code, time_level)
+            # --- 单行调用修剪方法 ---
+            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
             logger.info(f"{stock}股票{time_level}级别历史分时成交数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -381,41 +305,31 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_time_trade_by_stock_code(self, stock_code: str) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_history_time_trade_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存历史股票分时成交数据
-        
         Args:
             stock_code: 股票代码
         """
         # 获取股票信息
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
-            return []
+            return {'创建': 0, '更新': 0, '跳过': 0}
         try:
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for time_level in TIME_LEVELS:
-                api_datas = await self.api.get_history_trade(stock.stock_code, time_level)
-                for api_item in api_datas:
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': api_item.get('t'),
-                        'trade_time': self._parse_datetime(api_item.get('d')),  # 交易时间
-                        'open_price': self._parse_number(api_item.get('o')),  # 开盘价
-                        'high_price': self._parse_number(api_item.get('h')),  # 最高价
-                        'low_price': self._parse_number(api_item.get('l')),  # 最低价
-                        'close_price': self._parse_number(api_item.get('c')),  # 收盘价
-                        'volume': self._parse_number(api_item.get('v')),  # 成交量
-                        'turnover': self._parse_number(api_item.get('e')),  # 成交额
-                        'amplitude': self._parse_number(api_item.get('zf')),  # 振幅
-                        'turnover_rate': self._parse_number(api_item.get('hs')),  # 换手率
-                        'price_change_percent': self._parse_number(api_item.get('zd')),  # 涨跌幅
-                        'price_change_amount': self._parse_number(api_item.get('zde')),  # 涨跌额   
-                    }
+                api_datas = await self.api.get_history_trade(stock_code, time_level)
+                logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
+                for index, api_data in enumerate(api_datas):
+                    data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
+                    # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
+                    if index < self.cache_limit:
+                        # logger.info(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据, data_dict: {data_dict}")
+                        await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 100000:
+                if len(data_dicts) >= 10000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockTimeTrade,
@@ -428,7 +342,7 @@ class StockIndicatorsDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+                # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
             
@@ -445,194 +359,73 @@ class StockIndicatorsDAO(BaseDAO):
                 # 累加最终结果
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            for time_level in TIME_LEVELS:
+                # --- 生成缓存键 ---
+                cache_key = await self.cache_key.history_time_trade(stock_code, time_level)
+                # --- 单行调用修剪方法 ---
+                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+            logger.info(f"最终缓存修剪完成。")
+            # --- 最终修剪结束 ---
+            logger.info(f"所有股票历史分时成交数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
             logger.error(f"保存{stock}股票分时成交数据出错: {str(e)}")
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_time_trade_by_time_level(self, time_level: str) -> Optional[StockTimeTrade]:
-        """
-        从API获取并保存历史股票分时成交数据
-        
-        Args:
-            time_level: 时间级别
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_trade(stock.stock_code, time_level)
-                    for api_item in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': api_item.get('t'),
-                            'trade_time': self._parse_datetime(api_item.get('d')),  # 交易时间
-                            'open_price': self._parse_number(api_item.get('o')),  # 开盘价
-                            'high_price': self._parse_number(api_item.get('h')),  # 最高价
-                            'low_price': self._parse_number(api_item.get('l')),  # 最低价
-                            'close_price': self._parse_number(api_item.get('c')),  # 收盘价
-                            'volume': self._parse_number(api_item.get('v')),  # 成交量
-                            'turnover': self._parse_number(api_item.get('e')),  # 成交额
-                            'amplitude': self._parse_number(api_item.get('zf')),  # 振幅
-                            'turnover_rate': self._parse_number(api_item.get('hs')),  # 换手率
-                            'price_change_percent': self._parse_number(api_item.get('zd')),  # 涨跌幅
-                            'price_change_amount': self._parse_number(api_item.get('zde')),  # 涨跌额   
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockTimeTrade,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockTimeTrade,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
-            return total_result
-        except Exception as e:
-            logger.error(f"保存自选股分时成交数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-    
-    async def fetch_and_save_all_history_time_trade(self) -> Optional[StockTimeTrade]:
+    async def fetch_and_save_all_history_time_trade(self) -> Dict:
         """
         从API获取并保存所有历史股票分时成交数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_trade(stock.stock_code, time_level)
-                    for api_item in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': api_item.get('t'),
-                            'trade_time': self._parse_datetime(api_item.get('d')),  # 交易时间
-                            'open_price': self._parse_number(api_item.get('o')),  # 开盘价
-                            'high_price': self._parse_number(api_item.get('h')),  # 最高价
-                            'low_price': self._parse_number(api_item.get('l')),  # 最低价
-                            'close_price': self._parse_number(api_item.get('c')),  # 收盘价
-                            'volume': self._parse_number(api_item.get('v')),  # 成交量
-                            'turnover': self._parse_number(api_item.get('e')),  # 成交额
-                            'amplitude': self._parse_number(api_item.get('zf')),  # 振幅
-                            'turnover_rate': self._parse_number(api_item.get('hs')),  # 换手率
-                            'price_change_percent': self._parse_number(api_item.get('zd')),  # 涨跌幅
-                            'price_change_amount': self._parse_number(api_item.get('zde')),  # 涨跌额   
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockTimeTrade,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockTimeTrade,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_time_trade_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存{stock}股票历史分时成交数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
+            return []
     
-    async def refresh_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockTimeTrade]:
-        """
-        刷新分时成交数据
-        
-        Args:
-            stock_code: 股票代码
-            time_level: 时间级别
-            
-        Returns:
-            Optional[StockTimeTrade]: 最新的分时成交数据
-        """
-        return await self._refresh_indicator(
-            model_class=StockTimeTrade,
-            stock_code=stock_code,
-            time_level=time_level,
-            api_method=self.api.get_time_trade_data,
-            mapping=TIME_TRADE_MAPPING,
-            cache_prefix="time_trade"
-        )
-    
+
     # ================= KDJ指标相关方法 =================
     
     async def get_latest_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockKDJIndicator]:
         """
         获取最新的KDJ指标数据
-        
         Args:
             stock_code: 股票代码
             time_level: 时间级别
-            
         Returns:
             Optional[StockKDJIndicator]: 最新的KDJ指标数据
         """
-        return await self._get_latest_indicator(
-            model_class=StockKDJIndicator,
-            stock_code=stock_code,
-            time_level=time_level,
-            api_method=self.api.get_kdj_data,
-            mapping=KDJ_INDICATOR_MAPPING,
-            cache_prefix="kdj"
-        )
+        cache_data = await self.cache_get.latest_kdj(stock_code, time_level)
+        logger.info(f"cache_data: {cache_data}")
+        if cache_data:
+            return cache_data
+        
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
+        try:
+            data = await sync_to_async(lambda: StockKDJIndicator.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.latest_kdj(stock_code, time_level, data)
+                return data
+        except Exception as e:
+            logger.error(f"从数据库获取最新股票[{stock}]{time_level}级别KDJ指标数据失败: {str(e)}")
+            return None
+        
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]{time_level}级别KDJ指标数据不存在或已过期，从API获取")
+        await self.fetch_and_save_latest_kdj(stock_code, time_level)
+        data = await sync_to_async(lambda: StockKDJIndicator.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+        return data
     
-    async def fetch_and_save_latest_kdj(self, stock_code: str, time_level: str) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_latest_kdj(self, stock_code: str, time_level: str) -> Dict:
         """
         从API获取并保存最新KDJ指标数据
         
@@ -652,15 +445,9 @@ class StockIndicatorsDAO(BaseDAO):
                 return []
             
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                'k_value': self._parse_number(api_data.get('k')),  # K值
-                'd_value': self._parse_number(api_data.get('d')),  # D值
-                'j_value': self._parse_number(api_data.get('j')),  # J值
-            }
+            data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
+            await self.cache_set.latest_kdj(stock_code, time_level, data_dict)
 
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别KDJ指标数据")
@@ -677,7 +464,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_kdj_by_stock_code(self, stock_code: str) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_latest_kdj_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存最新KDJ指标数据
         
@@ -693,15 +480,12 @@ class StockIndicatorsDAO(BaseDAO):
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_kdj(stock.stock_code, time_level)
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'k_value': self._parse_number(api_data.get('k')),  # K值
-                    'd_value': self._parse_number(api_data.get('d')),  # D值
-                    'j_value': self._parse_number(api_data.get('j')),  # J值
-                }
-                data_dicts.append(data_dict)
+                data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+                if data_dict.get('trade_time') is None:
+                    logger.debug(f"未获取到{stock}股票{time_level}级别KDJ指标数据")
+                else:
+                    data_dicts.append(data_dict)
+                    await self.cache_set.latest_kdj(stock_code, time_level, data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别KDJ指标数据")
                 return []
@@ -716,11 +500,11 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"{stock}股票KDJ指标数据保存完成，结果: {result}")
             return result
         except Exception as e:
-            logger.error(f"保存{stock}股票KDJ指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            logger.error(f"fetch_and_save_latest_kdj_by_stock_code.保存{stock}股票KDJ指标数据出错: {str(e)}")
+            # logger.error(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_kdj_by_time_level(self, time_level: str) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_latest_kdj_by_time_level(self, time_level: str) -> Dict:
         """
         从API获取并保存最新KDJ指标数据
         
@@ -733,14 +517,7 @@ class StockIndicatorsDAO(BaseDAO):
             for stock in stocks:
                 for time_level in TIME_LEVELS:
                     api_data = await self.api.get_kdj(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'k_value': self._parse_number(api_data.get('k')),  # K值
-                        'd_value': self._parse_number(api_data.get('d')),  # D值
-                        'j_value': self._parse_number(api_data.get('j')),  # J值
-                    }
+                    data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{time_level}级别的所有股票KDJ指标数据")
@@ -760,79 +537,28 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_favorite_stocks_latest_kdj(self) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_favorite_stocks_latest_kdj(self) -> Dict:
         """
         从API获取并保存自选股最新KDJ指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_kdj(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'k_value': self._parse_number(api_data.get('k')),  # K值
-                        'd_value': self._parse_number(api_data.get('d')),  # D值
-                        'j_value': self._parse_number(api_data.get('j')),  # J值
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回自选股（get_all_favorite_stocks）的{time_level}级别KDJ指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            
-            # 保存数据
-            logger.info("开始保存自选股KDJ指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockKDJIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"自选股KDJ指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_kdj_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股KDJ指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_latest_kdj(self) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_all_latest_kdj(self) -> Dict:
         """
         从API获取并保存所有股票最新KDJ指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_kdj(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'k_value': self._parse_number(api_data.get('k')),  # K值
-                        'd_value': self._parse_number(api_data.get('d')),  # D值
-                        'j_value': self._parse_number(api_data.get('j')),  # J值
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回{stock}股票的{time_level}级别KDJ指标数据")
-                return []
-            # 保存数据
-            logger.info(f"开始保存{stock}股票KDJ指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockKDJIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"{stock}股票KDJ指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_kdj_by_stock_code(stock.stock_code)
         except Exception as e:
-            logger.error(f"保存{stock}股票KDJ指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            logger.error(f"保存所有股票KDJ指标数据出错: {str(e)}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
     # ================= 历史KDJ指标相关方法 =================
@@ -840,26 +566,39 @@ class StockIndicatorsDAO(BaseDAO):
                              limit: int = 1000) -> List[StockKDJIndicator]:
         """
         获取历史KDJ指标数据
-        
         Args:
             stock_code: 股票代码
             time_level: 时间级别
             limit: 返回记录数量限制
-            
         Returns:
             List[StockKDJIndicator]: 历史KDJ指标数据列表
         """
-        return await self._get_history_indicators(
-            model_class=StockKDJIndicator,
-            stock_code=stock_code,
-            time_level=time_level,
-            api_method=self.api.get_kdj_data,
-            mapping=KDJ_INDICATOR_MAPPING,
-            cache_prefix="kdj",
-            limit=limit
-        )
+        cache_datas = await self.cache_get.history_kdj_by_limit(stock_code, time_level, limit)
+        logger.info(f"get_history_kdj.cache_datas: {cache_datas}")
+        if cache_datas:
+            return cache_datas
+        
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
+        try:
+            data = await sync_to_async(lambda: StockKDJIndicator.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.latest_kdj(stock_code, time_level, data)
+                return data
+        except Exception as e:
+            logger.error(f"从数据库获取最新股票[{stock}]{time_level}级别KDJ指标数据失败: {str(e)}")
+            return None
+        
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]{time_level}级别KDJ指标数据不存在或已过期，从API获取")
+        await self.fetch_and_save_latest_kdj(stock_code, time_level)
+        data = await sync_to_async(lambda: StockKDJIndicator.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+        return data
     
-    async def fetch_and_save_history_kdj(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_history_kdj(self, stock_code: str, time_level: str, limit: int = 1000) -> Dict:
         """
         从API获取并保存历史KDJ指标数据
         """
@@ -867,23 +606,15 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
-            api_data = await self.api.get_history_kdj(stock.stock_code, time_level)
-                
-            if not api_data:
+            api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
+            if not api_datas:
                 logger.warning(f"API未返回{stock}的{time_level}级别KDJ指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-            
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                'k_value': self._parse_number(api_data.get('k')),  # K值
-                'd_value': self._parse_number(api_data.get('d')),  # D值
-                'j_value': self._parse_number(api_data.get('j')),  # J值
-            }
-            data_dicts.append(data_dict)
-
+            for api_data in api_datas:
+                data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+                data_dicts.append(data_dict)
+                await self.cache_set.history_kdj(stock_code, time_level, data_dicts)
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别KDJ指标数据")
             result = await self._save_all_to_db(
@@ -891,7 +622,13 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            # --- 生成缓存键 ---
+            cache_key = await self.cache_key.history_kdj(stock_code, time_level)
+            # --- 单行调用修剪方法 ---
+            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
             logger.info(f"{stock}股票{time_level}级别KDJ指标数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -899,31 +636,31 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_kdj_by_stock_code(self, stock_code: str) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_history_kdj_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存股票历史KDJ指标数据
+        Args:
+            stock_code: 股票代码
+        Returns:
+            Dict: 保存结果
         """
         # 获取股票信息
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票历史KDJ指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
-                for api_data in api_datas:
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'k_value': self._parse_number(api_data.get('k')),  # K值
-                        'd_value': self._parse_number(api_data.get('d')),  # D值
-                        'j_value': self._parse_number(api_data.get('j')),  # J值
-                    }
+                for index, api_data in enumerate(api_datas):
+                    data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
+                    if index < self.cache_limit:
+                        await self.cache_set.history_kdj(stock_code, time_level, data_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 100000:
+                if len(data_dicts) >= 10000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockKDJIndicator,
@@ -936,7 +673,7 @@ class StockIndicatorsDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+                # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史KDJ指标数据")
             
@@ -949,11 +686,19 @@ class StockIndicatorsDAO(BaseDAO):
                     unique_fields=['stock', 'time_level', 'trade_time']
                 )
                 logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
                 # 累加最终结果
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            for time_level in TIME_LEVELS:
+                # --- 生成缓存键 ---
+                cache_key = await self.cache_key.history_kdj(stock_code, time_level)
+                # --- 单行调用修剪方法 ---
+                await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+            logger.info(f"最终缓存修剪完成。")
+            # --- 最终修剪结束 ---
             logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
@@ -961,206 +706,30 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_kdj_by_time_level(self, time_level: str) -> Optional[StockKDJIndicator]:
-        """
-        从API获取并保存所有股票历史KDJ指标数据
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'k_value': self._parse_number(api_data.get('k')),  # K值
-                            'd_value': self._parse_number(api_data.get('d')),  # D值
-                            'j_value': self._parse_number(api_data.get('j')),  # J值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockKDJIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史KDJ指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockKDJIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
-            return total_result
-        except Exception as e:
-            logger.error(f"保存{time_level}级别历史KDJ指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-
-    async def fetch_and_save_favorite_stocks_history_kdj(self) -> Optional[StockKDJIndicator]:
+    async def fetch_and_save_favorite_stocks_history_kdj(self) -> Dict:
         """
         从API获取并保存自选股历史KDJ指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'k_value': self._parse_number(api_data.get('k')),  # K值
-                            'd_value': self._parse_number(api_data.get('d')),  # D值
-                            'j_value': self._parse_number(api_data.get('j')),  # J值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockKDJIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史KDJ指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockKDJIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_kdj_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股历史KDJ指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_history_kdj(self) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_all_history_kdj(self) -> Dict:
         """
         从API获取并保存所有股票历史KDJ指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'k_value': self._parse_number(api_data.get('k')),  # K值
-                            'd_value': self._parse_number(api_data.get('d')),  # D值
-                            'j_value': self._parse_number(api_data.get('j')),  # J值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockKDJIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史KDJ指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockKDJIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_kdj_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票历史KDJ指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
         
-    async def refresh_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockKDJIndicator]:
-        """
-        刷新KDJ指标数据
-        
-        Args:
-            stock_code: 股票代码
-            time_level: 时间级别
-            
-        Returns:
-            Optional[StockKDJIndicator]: 最新的KDJ指标数据
-        """
-        return await self._refresh_indicator(
-            model_class=StockKDJIndicator,
-            stock_code=stock_code,
-            time_level=time_level,
-            api_method=self.api.get_kdj_data,
-            mapping=KDJ_INDICATOR_MAPPING,
-            cache_prefix="kdj"
-        )
-    
     # ================= MACD指标相关方法 =================
     
     async def get_latest_macd(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockMACDIndicator]:
@@ -1174,6 +743,10 @@ class StockIndicatorsDAO(BaseDAO):
         Returns:
             Optional[StockMACDIndicator]: 最新的MACD指标数据
         """
+        cache_data = await self.cache_get.latest_macd(stock_code, time_level)
+        if cache_data:
+            return cache_data
+        
         return await self._get_latest_indicator(
             model_class=StockMACDIndicator,
             stock_code=stock_code,
@@ -1183,7 +756,7 @@ class StockIndicatorsDAO(BaseDAO):
             cache_prefix="macd"
         )
 
-    async def fetch_and_save_latest_macd(self, stock_code: str, time_level: str) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_latest_macd(self, stock_code: str, time_level: str) -> Dict:
         """
         从API获取并保存最新MACD指标数据
         """
@@ -1199,16 +772,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-            }
+            data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
 
             # 保存数据
@@ -1226,7 +790,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_macd_by_stock_code(self, stock_code: str) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_latest_macd_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存所有股票最新MACD指标数据
         """
@@ -1235,20 +799,16 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票最新MACD指标数据")
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_macd(stock.stock_code, time_level)
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                    'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                    'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                    'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                    'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                }
-                data_dicts.append(data_dict)
+                data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
+                if data_dict.get('trade_time') is None:
+                    logger.debug(f"未获取到{stock}股票{time_level}级别MACD指标数据")
+                else:
+                    data_dicts.append(data_dict)
+                    await self.cache_set.latest_macd(stock_code, time_level, data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别最新MACD指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}            
@@ -1267,7 +827,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_macd_by_time_level(self, time_level: str) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_latest_macd_by_time_level(self, time_level: str) -> Dict:
         """
         从API获取并保存所有股票最新MACD指标数据
         """
@@ -1277,16 +837,7 @@ class StockIndicatorsDAO(BaseDAO):
             for stock in stocks:
                 for time_level in TIME_LEVELS:
                     api_data = await self.api.get_macd(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                        'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                        'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                        'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                        'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                    }
+                    data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{time_level}级别的所有股票最新MACD指标数据")
@@ -1306,83 +857,28 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_favorite_stocks_latest_macd(self) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_favorite_stocks_latest_macd(self) -> Dict:
         """
         从API获取并保存自选股最新MACD指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_macd(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                        'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                        'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                        'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                        'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回自选股（get_all_favorite_stocks）的{time_level}级别最新MACD指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            
-            # 保存数据
-            logger.info("开始保存自选股最新MACD指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockMACDIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"自选股最新MACD指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_macd_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股最新MACD指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_latest_macd(self) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_all_latest_macd(self) -> Dict:
         """
         从API获取并保存所有股票最新MACD指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_macd(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                        'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                        'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                        'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                        'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回所有股票的{time_level}级别最新MACD指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
-            logger.info(f"开始保存所有股票最新MACD指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockMACDIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"所有股票最新MACD指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_macd_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票最新MACD指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
     # ================= 历史MACD指标相关方法 =================
@@ -1409,7 +905,7 @@ class StockIndicatorsDAO(BaseDAO):
             limit=limit
         )
     
-    async def fetch_and_save_history_macd(self, stock_code: str, time_level: str) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_history_macd(self, stock_code: str, time_level: str) -> Dict:
         """
         从API获取并保存历史MACD指标数据
         Args:
@@ -1422,24 +918,17 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
-            api_data = await self.api.get_history_macd(stock.stock_code, time_level)
+            api_datas = await self.api.get_history_macd(stock.stock_code, time_level)
                 
-            if not api_data:
+            if not api_datas:
                 logger.warning(f"API未返回{stock}的{time_level}级别历史MACD指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-            }
-            data_dicts.append(data_dict)
+            for api_data in api_datas:
+                data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
+                data_dicts.append(data_dict)
+                await self.cache_set.history_macd(stock_code, time_level, data_dict)
 
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别历史MACD指标数据")
@@ -1448,7 +937,13 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            # --- 生成缓存键 ---
+            cache_key = await self.cache_key.history_macd(stock_code, time_level)
+            # --- 单行调用修剪方法 ---
+            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
             logger.info(f"{stock}股票{time_level}级别历史MACD指标数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -1456,7 +951,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_macd_by_stock_code(self, stock_code: str) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_history_macd_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存所有股票历史MACD指标数据
         Args:
@@ -1469,24 +964,18 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票历史MACD指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for time_level in TIME_LEVELS:
-                api_datas = await self.api.get_history_macd(stock.stock_code, time_level)
-                for api_data in api_datas:
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                        'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                        'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                        'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                        'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                    }
+                api_datas = await self.api.get_history_macd(stock_code, time_level)
+                for index, api_data in enumerate(api_datas):
+                    data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
+                    if index <= self.cache_limit:
+                        await self.cache_set.history_macd(stock_code, time_level, data_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 100000:
+                if len(data_dicts) >= 10000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockMACDIndicator,
@@ -1499,7 +988,7 @@ class StockIndicatorsDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+                # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史MACD指标数据")
             
@@ -1516,202 +1005,44 @@ class StockIndicatorsDAO(BaseDAO):
                 # 累加最终结果
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            for time_level in TIME_LEVELS:
+                # --- 生成缓存键 ---
+                cache_key = await self.cache_key.history_macd(stock_code, time_level)
+                # --- 单行调用修剪方法 ---
+                await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+            logger.info(f"最终缓存修剪完成。")
+            # --- 最终修剪结束 ---
             logger.info(f"所有股票历史MACD指标数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
             logger.error(f"保存{stock}股票历史MACD指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_macd_by_time_level(self, time_level: str) -> Optional[StockMACDIndicator]:
-        """
-        从API获取并保存所有股票历史MACD指标数据
-        Args:
-            time_level: 时间级别
-        Returns:
-            Optional[StockMACDIndicator]: 保存结果
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_macd(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                            'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                            'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                            'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                            'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockMACDIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史MACD指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockMACDIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史MACD指标数据保存完成，总结果: {total_result}")
-            return total_result
-        except Exception as e:
-            logger.error(f"保存{time_level}级别历史MACD指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-
-    async def fetch_and_save_favorite_stocks_history_macd(self) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_favorite_stocks_history_macd(self) -> Dict:
         """
         从API获取并保存自选股历史MACD指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_macd(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                            'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                            'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                            'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                            'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockMACDIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史MACD指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockMACDIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史MACD指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_macd_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股历史MACD指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_history_macd(self) -> Optional[StockMACDIndicator]:
+    async def fetch_and_save_all_history_macd(self) -> Dict:
         """
         从API获取并保存所有股票历史MACD指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_macd(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-                            'dea': self._parse_number(api_data.get('dea')),  # DEA值
-                            'macd': self._parse_number(api_data.get('macd')),  # MACD值
-                            'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-                            'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockMACDIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史MACD指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockMACDIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史MACD指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_macd_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票历史MACD指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
         
     async def refresh_macd(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockMACDIndicator]:
@@ -1756,7 +1087,7 @@ class StockIndicatorsDAO(BaseDAO):
             cache_prefix="ma"
         )
     
-    async def fetch_and_save_latest_ma(self, stock_code: str, time_level: str) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_latest_ma(self, stock_code: str, time_level: str) -> Dict:
         """
         从API获取并保存股票历史MA指标数据
         Args:
@@ -1777,21 +1108,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                'ma3': self._parse_number(api_data.get('ma3')),  # MA3值
-                'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-                'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-                'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-                'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-                'ma30': self._parse_number(api_data.get('ma30')),  # MA30值 
-                'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-                'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-                'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-                'ma250': self._parse_number(api_data.get('ma250')),  # MA250值
-            }
+            data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
 
             # 保存数据
@@ -1809,7 +1126,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_ma_by_stock_code(self, stock_code: str) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_latest_ma_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存股票历史MA指标数据
         Args:
@@ -1822,25 +1139,16 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票最新MA指标数据")
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_ma(stock.stock_code, time_level)
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'ma3': self._parse_number(api_data.get('ma3')),  # MA3值
-                    'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-                    'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-                    'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-                    'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-                    'ma30': self._parse_number(api_data.get('ma30')),  # MA30值
-                    'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-                    'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-                    'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-                    'ma250': self._parse_number(api_data.get('ma250')),  # MA250值
-                }
-                data_dicts.append(data_dict)
+                data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
+                if data_dict.get('trade_time') is None:
+                    logger.debug(f"未获取到{stock}股票{time_level}级别MA指标数据")
+                else:
+                    data_dicts.append(data_dict)
+                    await self.cache_set.latest_ma(stock_code, time_level, data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别最新MA指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
@@ -1859,7 +1167,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_ma_by_time_level(self, time_level: str) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_latest_ma_by_time_level(self, time_level: str) -> Dict:
         """
         从API获取并保存所有股票历史MA指标数据
         Args:
@@ -1873,21 +1181,7 @@ class StockIndicatorsDAO(BaseDAO):
             for stock in stocks:
                 for time_level in TIME_LEVELS:
                     api_data = await self.api.get_ma(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'ma3': self._parse_number(api_data.get('ma3')),  # MA3值
-                        'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-                        'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-                        'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-                        'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-                        'ma30': self._parse_number(api_data.get('ma30')),  # MA30值
-                        'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-                        'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-                        'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-                        'ma250': self._parse_number(api_data.get('ma250')),  # MA250值
-                    }
+                    data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{time_level}级别的所有股票最新MA指标数据")
@@ -1907,91 +1201,28 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_favorite_stocks_latest_ma(self) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_favorite_stocks_latest_ma(self) -> Dict:
         """
         从API获取并保存自选股最新MA指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_ma(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'ma3': self._parse_number(api_data.get('ma3')),  # MA3值
-                        'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-                        'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-                        'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-                        'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-                        'ma30': self._parse_number(api_data.get('ma30')),  # MA30值
-                        'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-                        'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-                        'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-                        'ma250': self._parse_number(api_data.get('ma250')),  # MA250值
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回自选股（get_all_favorite_stocks）的{time_level}级别最新MA指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
-            logger.info("开始保存自选股最新MA指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockMAIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"自选股最新MA指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_ma_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股最新MA指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_latest_ma(self) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_all_latest_ma(self) -> Dict:
         """
         从API获取并保存所有股票最新MA指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_ma(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'ma3': self._parse_number(api_data.get('ma3')),  # MA3值
-                        'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-                        'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-                        'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-                        'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-                        'ma30': self._parse_number(api_data.get('ma30')),  # MA30值
-                        'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-                        'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-                        'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-                        'ma250': self._parse_number(api_data.get('ma250')),  # MA250值
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回所有股票的{time_level}级别最新MA指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
-            logger.info(f"开始保存所有股票最新MA指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockMAIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )            
-            logger.info(f"所有股票最新MA指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_ma_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票最新MA指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
             
     # ================= 历史MA指标相关方法 =================
@@ -2018,7 +1249,7 @@ class StockIndicatorsDAO(BaseDAO):
             limit=limit
         )
     
-    async def fetch_and_save_history_ma(self, stock_code: str, time_level: str) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_history_ma(self, stock_code: str, time_level: str) -> Dict:
         """
         从API获取并保存股票历史MA指标数据
         Args:
@@ -2038,23 +1269,8 @@ class StockIndicatorsDAO(BaseDAO):
             
             data_dicts = []
             for api_data in api_datas:
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'ma3': self._parse_number(api_data.get('ma3')),  # MA3值    
-                    'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-                    'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-                    'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-                    'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-                    'ma30': self._parse_number(api_data.get('ma30')),  # MA30值
-                    'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-                    'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-                    'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-                    'ma250': self._parse_number(api_data.get('ma250')),  # MA250值   
-                }
+                data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
-
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别历史MA指标数据")
             result = await self._save_all_to_db(
@@ -2062,7 +1278,13 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            # --- 生成缓存键 ---
+            cache_key = await self.cache_key.history_ma(stock_code, time_level)
+            # --- 单行调用修剪方法 ---
+            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
             logger.info(f"{stock}股票{time_level}级别历史MA指标数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -2070,7 +1292,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_ma_by_stock_code(self, stock_code: str) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_history_ma_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存股票历史MA指标数据
         Args:
@@ -2083,29 +1305,18 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票历史MA指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_ma(stock_code, time_level)
-                for api_item in api_datas:
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_item.get('t')),  # 交易时间
-                        'ma3': self._parse_number(api_item.get('ma3')),  # MA3值
-                        'ma5': self._parse_number(api_item.get('ma5')),  # MA5值
-                        'ma10': self._parse_number(api_item.get('ma10')),  # MA10值
-                        'ma15': self._parse_number(api_item.get('ma15')),  # MA15值
-                        'ma20': self._parse_number(api_item.get('ma20')),  # MA20值
-                        'ma30': self._parse_number(api_item.get('ma30')),  # MA30值
-                        'ma60': self._parse_number(api_item.get('ma60')),  # MA60值
-                        'ma120': self._parse_number(api_item.get('ma120')),  # MA120值
-                        'ma200': self._parse_number(api_item.get('ma200')),  # MA200值
-                        'ma250': self._parse_number(api_item.get('ma250')),  # MA250值
-                    }
+                for index, api_item in enumerate(api_datas):
+                    data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_item)
                     data_dicts.append(data_dict)
+                    if index <= self.cache_limit:
+                        await self.cache_set.history_ma(stock_code, time_level, data_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 100000:
+                if len(data_dicts) >= 10000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockMAIndicator,
@@ -2118,7 +1329,7 @@ class StockIndicatorsDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+                # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
                 if not api_datas:
                     logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
             
@@ -2135,7 +1346,16 @@ class StockIndicatorsDAO(BaseDAO):
                 # 累加最终结果
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            for time_level in TIME_LEVELS:
+                # --- 生成缓存键 ---
+                cache_key = await self.cache_key.history_ma(stock_code, time_level)
+                # --- 单行调用修剪方法 ---
+                await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+            logger.info(f"最终缓存修剪完成。")
+            # --- 最终修剪结束 ---
             logger.info(f"所有股票历史MA指标数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
@@ -2143,209 +1363,28 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_ma_by_time_level(self, time_level: str) -> Optional[StockMAIndicator]:
-        """
-        从API获取并保存所有股票历史MA指标数据
-        Args:
-            time_level: 时间级别
-        Returns:
-            Optional[StockMAIndicator]: 保存结果
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_ma(stock.stock_code, time_level)
-                    for api_item in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_item.get('t')),  # 交易时间
-                            'ma3': self._parse_number(api_item.get('ma3')),  # MA3值
-                            'ma5': self._parse_number(api_item.get('ma5')),  # MA5值
-                            'ma10': self._parse_number(api_item.get('ma10')),  # MA10值
-                            'ma15': self._parse_number(api_item.get('ma15')),  # MA15值
-                            'ma20': self._parse_number(api_item.get('ma20')),  # MA20值
-                            'ma30': self._parse_number(api_item.get('ma30')),  # MA30值
-                            'ma60': self._parse_number(api_item.get('ma60')),  # MA60值
-                            'ma120': self._parse_number(api_item.get('ma120')),  # MA120值
-                            'ma200': self._parse_number(api_item.get('ma200')),  # MA200值
-                            'ma250': self._parse_number(api_item.get('ma250')),  # MA250值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockMAIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockMAIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史MA指标数据保存完成，总结果: {total_result}")
-            return total_result
-        except Exception as e:
-            logger.error(f"保存{time_level}级别所有股票历史MA指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-
-    async def fetch_and_save_favorite_stocks_history_ma(self) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_favorite_stocks_history_ma(self) -> Dict:
         """
         从API获取并保存自选股历史MA指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_ma(stock.stock_code, time_level)
-                    for api_item in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_item.get('t')),  # 交易时间
-                            'ma3': self._parse_number(api_item.get('ma3')),  # MA3值
-                            'ma5': self._parse_number(api_item.get('ma5')),  # MA5值
-                            'ma10': self._parse_number(api_item.get('ma10')),  # MA10值
-                            'ma15': self._parse_number(api_item.get('ma15')),  # MA15值
-                            'ma20': self._parse_number(api_item.get('ma20')),  # MA20值
-                            'ma30': self._parse_number(api_item.get('ma30')),  # MA30值
-                            'ma60': self._parse_number(api_item.get('ma60')),  # MA60值
-                            'ma120': self._parse_number(api_item.get('ma120')),  # MA120值
-                            'ma200': self._parse_number(api_item.get('ma200')),  # MA200值
-                            'ma250': self._parse_number(api_item.get('ma250')),  # MA250值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockMAIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockMAIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史MA指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_ma_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股历史MA指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_all_history_ma(self) -> Optional[StockMAIndicator]:
+    async def fetch_and_save_all_history_ma(self) -> Dict:
         """
         从API获取并保存所有股票历史MA指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_ma(stock.stock_code, time_level)
-                    for api_item in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_item.get('t')),  # 交易时间
-                            'ma3': self._parse_number(api_item.get('ma3')),  # MA3值
-                            'ma5': self._parse_number(api_item.get('ma5')),  # MA5值
-                            'ma10': self._parse_number(api_item.get('ma10')),  # MA10值
-                            'ma15': self._parse_number(api_item.get('ma15')),  # MA15值
-                            'ma20': self._parse_number(api_item.get('ma20')),  # MA20值
-                            'ma30': self._parse_number(api_item.get('ma30')),  # MA30值
-                            'ma60': self._parse_number(api_item.get('ma60')),  # MA60值
-                            'ma120': self._parse_number(api_item.get('ma120')),  # MA120值
-                            'ma200': self._parse_number(api_item.get('ma200')),  # MA200值
-                            'ma250': self._parse_number(api_item.get('ma250')),  # MA250值
-                        }
-                        data_dicts.append(data_dict)
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockMAIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockMAIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史MA指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_ma_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票历史MA指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def refresh_ma(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockMAIndicator]:
@@ -2389,7 +1428,7 @@ class StockIndicatorsDAO(BaseDAO):
             cache_prefix="boll"
         )
     
-    async def fetch_and_save_latest_boll(self, stock_code: str, time_level: str) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_latest_boll(self, stock_code: str, time_level: str) -> Dict:
         """
         从API获取并保存股票最新BOLL指标数据
         Args:
@@ -2410,15 +1449,9 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                'upper': self._parse_number(api_data.get('upper')),  # 上轨
-                'lower': self._parse_number(api_data.get('lower')),  # 下轨
-                'mid': self._parse_number(api_data.get('mid')),  # 中轨
-            }
+            data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
+            await self.cache_set.latest_boll(stock.stock_code, time_level, data_dict)
 
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别最新BOLL指标数据")
@@ -2435,7 +1468,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_latest_boll_by_stock_code(self, stock_code: str) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_latest_boll_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存股票最新BOLL指标数据
         Args:
@@ -2445,21 +1478,20 @@ class StockIndicatorsDAO(BaseDAO):
         """
         # 获取股票信息
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        # logger.warning(f"stock: {stock}, type: {type(stock)}")
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票最新BOLL指标数据")
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_boll(stock.stock_code, time_level)
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'upper': self._parse_number(api_data.get('u')),  # 上轨
-                    'lower': self._parse_number(api_data.get('d')),  # 下轨
-                    'mid': self._parse_number(api_data.get('m')),  # 中轨
-                }
+                if not api_data:
+                    continue
+                data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
+                # logger.warning(f"api_data: {api_data}, data_dict: {data_dict}")
+                await self.cache_set.latest_boll(stock.stock_code, time_level, data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别最新BOLL指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
@@ -2477,121 +1509,30 @@ class StockIndicatorsDAO(BaseDAO):
             logger.error(f"保存{stock}股票最新BOLL指标数据出错: {str(e)}")
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
-
-    async def fetch_and_save_latest_boll_by_time_level(self, time_level: str) -> Optional[StockBOLLIndicator]:
-        """
-        从API获取并保存所有股票最新BOLL指标数据
-        Args:
-            time_level: 时间级别
-        Returns:
-            Optional[StockBOLLIndicator]: 保存结果
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_boll(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'upper': self._parse_number(api_data.get('u')),  # 上轨
-                        'lower': self._parse_number(api_data.get('d')),  # 下轨
-                        'mid': self._parse_number(api_data.get('m')),  # 中轨
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回{time_level}级别的所有股票最新BOLL指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
-            logger.info(f"开始保存{time_level}级别所有股票最新BOLL指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockBOLLIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"{time_level}级别所有股票最新BOLL指标数据保存完成，结果: {result}")
-            return result
-        except Exception as e:
-            logger.error(f"保存{time_level}级别所有股票最新BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
         
-    async def fetch_and_save_favorite_stocks_latest_boll(self) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_favorite_stocks_latest_boll(self) -> Dict:
         """
         从API获取并保存自选股最新BOLL指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_boll(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'upper': self._parse_number(api_data.get('u')),  # 上轨
-                        'lower': self._parse_number(api_data.get('d')),  # 下轨
-                        'mid': self._parse_number(api_data.get('m')),  # 中轨
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回自选股（get_all_favorite_stocks）的{time_level}级别最新BOLL指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
-            logger.info("开始保存自选股最新BOLL指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockBOLLIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"自选股最新BOLL指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_boll_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股最新BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
         
-    async def fetch_and_save_all_latest_boll(self) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_all_latest_boll(self) -> Dict:
         """
         从API获取并保存所有股票最新BOLL指标数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
+        # logger.warning(f"stocks: {stocks}, type: {type(stocks)}")
         try:
-            data_dicts = []
             for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_data = await self.api.get_boll(stock.stock_code, time_level)
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'upper': self._parse_number(api_data.get('u')),  # 上轨
-                        'lower': self._parse_number(api_data.get('d')),  # 下轨
-                        'mid': self._parse_number(api_data.get('m')),  # 中轨
-                    }
-                    data_dicts.append(data_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回所有股票的{time_level}级别最新BOLL指标数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            
-            # 保存数据
-            logger.info(f"开始保存所有股票最新BOLL指标数据")
-            result = await self._save_all_to_db(
-                model_class=StockBOLLIndicator,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            
-            logger.info(f"所有股票最新BOLL指标数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_latest_boll_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票最新BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
     # ================= 历史BOLL指标相关方法 =================
@@ -2618,7 +1559,7 @@ class StockIndicatorsDAO(BaseDAO):
             limit=limit
         )
     
-    async def fetch_and_save_history_boll(self, stock_code: str, time_level: str) -> Optional[StockBOLLIndicator]: 
+    async def fetch_and_save_history_boll(self, stock_code: str, time_level: str) -> Dict: 
         """
         从API获取并保存股票历史BOLL指标数据
         Args:
@@ -2640,15 +1581,9 @@ class StockIndicatorsDAO(BaseDAO):
             
             data_dicts = []
             for api_data in api_datas:
-                data_dict = {
-                    'stock': stock,
-                    'time_level': time_level,
-                    'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                    'upper': self._parse_number(api_data.get('upper')),  # 上轨
-                    'lower': self._parse_number(api_data.get('lower')),  # 下轨
-                    'mid': self._parse_number(api_data.get('mid')),  # 中轨
-                }
+                data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
+                await self.cache_set.history_boll(stock.stock_code, time_level, data_dict)
 
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别历史BOLL指标数据")
@@ -2657,7 +1592,13 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            # --- 生成缓存键 ---
+            cache_key = await self.cache_key.history_boll(stock_code, time_level)
+            # --- 单行调用修剪方法 ---
+            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
             logger.info(f"{stock}股票{time_level}级别历史BOLL指标数据保存完成，结果: {result}")
             return result
         except Exception as e:
@@ -2665,7 +1606,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
         
-    async def fetch_and_save_history_boll_by_stock_code(self, stock_code: str) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_history_boll_by_stock_code(self, stock_code: str) -> Dict:
         """
         从API获取并保存股票历史BOLL指标数据
         """
@@ -2674,23 +1615,19 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
+            logger.info(f"开始获取{stock.stock_code}股票历史BOLL指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_boll(stock_code, time_level)
-                for api_data in api_datas:
-                    data_dict = {
-                        'stock': stock,
-                        'time_level': time_level,
-                        'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                        'upper': self._parse_number(api_data.get('u')),  # 上轨
-                        'lower': self._parse_number(api_data.get('d')),  # 下轨
-                        'mid': self._parse_number(api_data.get('m')),  # 中轨
-                    }
+                for data_index, api_data in enumerate(api_datas):
+                    data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
+                    if data_index < self.cache_limit:
+                        await self.cache_set.history_boll(stock.stock_code, time_level, data_dict)
                     
                     # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
+                    if len(data_dicts) >= 10000:
                         logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                         batch_result = await self._save_all_to_db(
                             model_class=StockBOLLIndicator,
@@ -2706,7 +1643,7 @@ class StockIndicatorsDAO(BaseDAO):
                         # 清空数据列表，准备下一批
                         data_dicts = []
                     
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+                    # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
                 if not api_datas:
                     logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
             
@@ -2723,207 +1660,44 @@ class StockIndicatorsDAO(BaseDAO):
                 # 累加最终结果
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
-            
+            # --- 函数末尾执行最终修剪 ---
+            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
+            for time_level in TIME_LEVELS:
+                # --- 生成缓存键 ---
+                cache_key = await self.cache_key.history_boll(stock_code, time_level)
+                # --- 单行调用修剪方法 ---
+                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+            logger.info(f"最终缓存修剪完成。")
+            # --- 最终修剪结束 ---
             logger.info(f"所有股票历史BOLL指标数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
             logger.error(f"保存{stock}股票历史BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
-    async def fetch_and_save_history_boll_by_time_level(self, time_level: str) -> Optional[StockBOLLIndicator]:
-        """
-        从API获取并保存所有股票历史BOLL指标数据
-        Args:
-            time_level: 时间级别
-        Returns:
-            Optional[StockBOLLIndicator]: 保存结果
-        """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for stock in stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_boll(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'upper': self._parse_number(api_data.get('u')),  # 上轨
-                            'lower': self._parse_number(api_data.get('d')),  # 下轨
-                            'mid': self._parse_number(api_data.get('m')),  # 中轨
-                        }
-                        data_dicts.append(data_dict)
-                    
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockBOLLIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockBOLLIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史BOLL指标数据保存完成，总结果: {total_result}")
-            return total_result
-        except Exception as e:
-            logger.error(f"保存{time_level}级别所有股票历史BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-
-    async def fetch_and_save_favorite_stocks_history_boll(self) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_favorite_stocks_history_boll(self) -> Dict:
         """
         从API获取并保存自选股历史BOLL指标数据
         """
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for stock in favorite_stocks:
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_boll(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'upper': self._parse_number(api_data.get('u')),  # 上轨
-                            'lower': self._parse_number(api_data.get('d')),  # 下轨
-                            'mid': self._parse_number(api_data.get('m')),  # 中轨
-                        }
-                        data_dicts.append(data_dict)
-                    
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockBOLLIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockBOLLIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史BOLL指标数据保存完成，总结果: {total_result}")
-            return total_result
+                await self.fetch_and_save_history_boll_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存自选股历史BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
             
-    async def fetch_and_save_all_history_boll(self) -> Optional[StockBOLLIndicator]:
+    async def fetch_and_save_all_history_boll(self) -> Dict:
         """
         从API获取并保存所有股票历史BOLL指标数据
         """
-        stocks = await self.stock_basic_dao.get_stock_list()
         try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            
+            stocks = await self.stock_basic_dao.get_stock_list()
             for stock in stocks:
-                logger.warning(f"开始获取{stock.stock_code}股票历史BOLL指标数据")
-                for time_level in TIME_LEVELS:
-                    api_datas = await self.api.get_history_boll(stock.stock_code, time_level)
-                    for api_data in api_datas:
-                        data_dict = {
-                            'stock': stock,
-                            'time_level': time_level,
-                            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-                            'upper': self._parse_number(api_data.get('u')),  # 上轨
-                            'lower': self._parse_number(api_data.get('d')),  # 下轨
-                            'mid': self._parse_number(api_data.get('m')),  # 中轨
-                        }
-                        data_dicts.append(data_dict)                    
-                    # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 100000:
-                        logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                        batch_result = await self._save_all_to_db(
-                            model_class=StockBOLLIndicator,
-                            data_list=data_dicts,
-                            unique_fields=['stock', 'time_level', 'trade_time']
-                        )
-                        logger.info(f"批次数据保存完成，结果: {batch_result}")
-                        # 累加结果
-                        for key in total_result:
-                            total_result[key] += batch_result.get(key, 0)
-                        # 清空数据列表，准备下一批
-                        data_dicts = []
-                    logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-                if not api_datas:
-                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
-            # 保存剩余数据
-            if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
-                final_result = await self._save_all_to_db(
-                    model_class=StockBOLLIndicator,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'time_level', 'trade_time']
-                )
-                logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
-                # 累加最终结果
-                for key in total_result:
-                    total_result[key] += final_result.get(key, 0)
-            
-            logger.info(f"所有股票历史BOLL指标数据保存完成，总结果: {total_result}")
-            return total_result
-        
+                await self.fetch_and_save_history_boll_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存所有股票历史BOLL指标数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def refresh_boll(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockBOLLIndicator]:

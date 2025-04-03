@@ -1,0 +1,456 @@
+import logging
+from typing import Any, Dict, List
+# from dao_manager.base_dao import BaseDAO
+from utils import cache_constants as cc
+from utils.cache_manager import CacheManager
+from utils.cash_key import IndexCashKey, StockCashKey
+from utils.data_format_process import IndexDataFormatProcess
+import json
+
+logger = logging.getLogger("dao")
+
+class CacheSet():
+    def __init__(self):
+        self.cache_manager = CacheManager()
+        self.cache_key_index = IndexCashKey()
+        self.cache_key_stock = StockCashKey()
+        self.data_format_process = IndexDataFormatProcess()
+
+    async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+        if not data_to_cache:
+            logger.warning(f"试图缓存指数[{index_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
+            return False
+        try:
+            # 1. 生成缓存键
+            # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
+            # 最新数据点可能更新较频繁，考虑使用实时数据的超时
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
+            logger.info(f"准备缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}, timeout: {cache_timeout}s")
+            # 3. 调用 CacheManager 设置缓存
+            success = self.cache_manager.set(
+                key=cache_key,
+                data=data_to_cache,
+                timeout=cache_timeout
+            )
+            if success:
+                logger.info(f"指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
+                return True
+            else:
+                logger.warning(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                return False
+        except Exception as e:
+            logger.error(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            return False
+
+    async def _stock_latest_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+        if not data_to_cache:
+            logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
+            return False
+        try:
+            # 1. 生成缓存键
+            # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
+            # 最新数据点可能更新较频繁，考虑使用实时数据的超时
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
+            logger.info(f"准备缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}, timeout: {cache_timeout}s")
+            # 3. 调用 CacheManager 设置缓存
+            # logger.warning(f"data_to_cache: {data_to_cache}, type: {type(data_to_cache)}, len: {len(data_to_cache)}, cache_key: {cache_key}")
+            success = self.cache_manager.set(
+                key=cache_key,
+                data=data_to_cache,
+                timeout=cache_timeout
+            )
+            if success:
+                logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
+                return True
+            else:
+                logger.warning(f"缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                return False
+        except Exception as e:
+            logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            return False
+
+    # --- 修正后的写入缓存方法 (使用 ZADD) ---
+    async def _history_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+        from dao_manager.base_dao import BaseDAO
+        from utils.cache_manager import CustomJSONEncoder  # 直接导入自定义编码器
+        
+        base_dao = BaseDAO()
+        if not data_to_cache:
+            logger.warning(f"试图缓存指数[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
+            return False
+            
+        # 1. 提取时间并转换为时间戳 (分数)
+        trade_time_str = data_to_cache.get('trade_time')
+        if not trade_time_str:
+            logger.error(f"缓存失败: 数据点缺少 'trade_time' 字段。数据: {data_to_cache}")
+            return False
+        try:
+            trade_datetime = base_dao._parse_datetime(trade_time_str)
+            score = trade_datetime.timestamp() # 获取 Unix 时间戳 (float)
+        except (ValueError, TypeError) as e:
+            logger.error(f"缓存失败: 无法将 'trade_time' ({trade_time_str}) 转换为时间戳: {e}")
+            return False
+        
+        # 生成缓存超时时间
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
+        # logger.info(f"_history_data.准备将时间序列数据点添加到缓存 (ZSET), key: {cache_key}, score: {score}, timeout: {cache_timeout}s")
+        
+        try:
+            # 使用json.dumps将字典转换为JSON字符串，使用正确导入的CustomJSONEncoder
+            data_str = json.dumps(data_to_cache, ensure_ascii=False, cls=CustomJSONEncoder)
+            
+            # 使用字符串作为映射的键
+            mapping = {data_str: score}
+            
+            # logger.info(f"mapping: {mapping}")
+            added_count = self.cache_manager.zadd(
+                key=cache_key,
+                mapping=mapping,
+                timeout=cache_timeout
+            )
+            
+            if added_count is not None:
+                return True
+            else:
+                logger.warning(f"添加到缓存 (ZSET) 失败 (CacheManager.zadd 返回 None), key: {cache_key}")
+                return False
+        except Exception as e:
+            logger.error(f"添加到缓存 (ZSET) 时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
+            return False
+
+
+
+class IndexCacheSet(CacheSet):
+
+    async def indexes(self, indexes: List[Dict]) -> bool:
+        """
+        将提供的指数数据列表（简单字典格式）设置到缓存中。
+
+        此方法用于手动将准备好的、符合缓存结构的数据放入缓存。
+        数据格式应与 fetch_and_save_indexes 写入缓存的格式一致。
+
+        Args:
+            indexes_data: 包含指数信息的字典列表，格式应为
+                          [{'code': 'xxx', 'name': 'yyy', 'exchange': 'zzz'}, ...]
+                          注意：不应包含 id, created_at 等数据库特有字段。
+        Returns:
+            bool: 操作是否成功。
+        """
+        # 1. 输入验证 (可选但推荐)
+        if not isinstance(indexes, list):
+            logger.error("set_indexes_to_cache 失败: 输入数据不是列表")
+            return False
+        # 可以添加更详细的验证，例如检查列表中的元素是否为字典，是否包含必要的键等
+        data_dicts = []
+        for item in indexes:
+            data_dict = await self.data_format_process.set_index_data(item)
+            data_dicts.append(data_dict)
+        logger.debug(f"从数据库获取股票指数列表，共{len(indexes)}条")
+        # 2. 生成缓存键 (与 get_all_indexes/fetch_and_save_indexes 保持一致)
+        cache_key = self.cache_manager.generate_key(
+            cache_type=cc.TYPE_STATIC,
+            entity_type=cc.ENTITY_INDEX,
+            entity_id=cc.ID_ALL
+        )
+        # 3. 获取缓存超时时间
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        logger.info(f"准备将 {len(data_dicts)} 条指数数据设置到缓存, key: {cache_key}, timeout: {cache_timeout}s")
+        # 4. 调用 CacheManager 设置缓存
+        try:
+            # 直接使用传入的 indexes_data，因为它已经是期望的格式
+            success = self.cache_manager.set(
+                key=cache_key,
+                data=data_dicts,
+                timeout=cache_timeout
+            )
+            if success:
+                logger.info(f"指数数据成功设置到缓存, key: {cache_key}")
+                return True
+            else:
+                # cache_manager.set 内部通常会记录错误，这里记录一个警告
+                logger.warning(f"设置指数数据到缓存失败 (CacheManager.set 返回 False), key: {cache_key}")
+                return False
+        except Exception as e:
+            logger.error(f"设置指数数据到缓存时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
+            return False
+
+    async def realtime_data(self, index_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的指数实时数据字典缓存到 Redis。
+        Args:
+            index_code: 指数代码，用于生成缓存键。
+            data_to_cache: 经过处理的、可JSON序列化的实时数据字典。
+                           这个字典的结构应该适合直接用于前端展示或后续处理，
+                           并且与 get_realtime_from_cache 方法期望的格式一致。
+        Returns:
+            bool: 缓存操作是否成功。
+        """
+        if not data_to_cache:
+            logger.warning(f"试图缓存指数[{index_code}]的空实时数据，操作跳过。")
+            return False
+        try:
+            # 1. 生成缓存键
+            cache_key = await self.cache_key_index.realtime_data(index_code)
+            # 2. 获取缓存超时时间 (实时数据通常较短)
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME)
+            # 3. 调用 CacheManager 设置缓存
+            # data_to_cache 应该是可以直接序列化的字典
+            success = self.cache_manager.set(
+                key=cache_key,
+                data=data_to_cache,
+                timeout=cache_timeout
+            )
+            if success:
+                logger.info(f"指数[{index_code}]实时数据缓存成功, key: {cache_key}")
+                return True
+            else:
+                logger.warning(f"缓存指数[{index_code}]实时数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                return False
+        except Exception as e:
+            logger.error(f"缓存指数[{index_code}]实时数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
+            return False
+
+    async def latest_time_series(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        Returns:
+            bool: 缓存操作是否成功。
+        """
+        # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
+        cache_key = await self.cache_key_index.latest_time_series(index_code, time_level)
+        return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def history_time_series(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_index.history_time_series(index_code, time_level)
+        return await self._history_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def latest_macd(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        Returns:
+            bool: 缓存操作是否成功。
+        """
+        # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
+        cache_key = await self.cache_key_index.latest_macd(index_code, time_level)
+        return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def history_macd(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将单个时间序列数据点添加到 Redis 有序集合中进行缓存。
+        使用数据点的时间戳作为分数，数据本身序列化后作为成员。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 包含单个时间序列数据点的字典，必须包含可转换为时间戳的时间字段 (如 'trade_time')。
+        Returns:
+            bool: 操作是否成功。
+        """
+        cache_key = await self.cache_key_index.history_macd(index_code, time_level)
+        return await self._history_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def latest_kdj(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        Returns:
+            bool: 缓存操作是否成功。
+        """
+        # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
+        cache_key = await self.cache_key_index.latest_kdj(index_code, time_level)
+        return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def history_kdj(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将单个时间序列数据点添加到 Redis 有序集合中进行缓存。
+        使用数据点的时间戳作为分数，数据本身序列化后作为成员。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 包含单个时间序列数据点的字典，必须包含可转换为时间戳的时间字段 (如 'trade_time')。
+        Returns:
+            bool: 操作是否成功。
+        """
+        cache_key = await self.cache_key_index.history_kdj(index_code, time_level)
+        return await self._history_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def latest_ma(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        """
+        cache_key = await self.cache_key_index.latest_ma(index_code, time_level)
+        return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def history_ma(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将单个时间序列数据点添加到 Redis 有序集合中进行缓存。
+        使用数据点的时间戳作为分数，数据本身序列化后作为成员。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 包含单个时间序列数据点的字典，必须包含可转换为时间戳的时间字段 (如 'trade_time')。
+        Returns:
+            bool: 操作是否成功。
+        """
+        cache_key = await self.cache_key_index.history_ma(index_code, time_level)
+        return await self._history_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def latest_boll(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        """
+        # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
+        cache_key = await self.cache_key_index.latest_boll(index_code, time_level)
+        return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
+
+    async def history_boll(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将单个时间序列数据点添加到 Redis 有序集合中进行缓存。
+        使用数据点的时间戳作为分数，数据本身序列化后作为成员。
+        Args:
+            index_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 包含单个时间序列数据点的字典，必须包含可转换为时间戳的时间字段 (如 'trade_time')。
+        Returns:
+            bool: 操作是否成功。
+        """
+        cache_key = await self.cache_key_index.history_boll(index_code, time_level)
+        return await self._history_data(index_code, time_level, data_to_cache, cache_key)
+
+class StockIndicatorsCacheSet(CacheSet):
+
+    async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            stock_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        Returns:
+            bool: 缓存操作是否成功。
+        """
+        # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
+        cache_key = await self.cache_key_stock.latest_time_trade(stock_code, time_level)
+        return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
+
+    async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_time_trade(stock_code, time_level)
+        return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+
+    async def latest_kdj(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新KDJ指标数据缓存到 Redis。
+        Args:
+            stock_code: 股票代码
+            time_level: 时间级别 (e.g., '5', '30', 'Day')
+            data_to_cache: 经过处理的、可JSON序列化的最新KDJ指标数据字典
+        Returns:
+            bool: 缓存操作是否成功
+        """
+        try:
+            # 确保数据是JSON格式
+            if isinstance(data_to_cache, dict):
+                data_to_cache = json.dumps(data_to_cache)
+            elif not isinstance(data_to_cache, str):
+                logger.error(f"缓存KDJ数据格式错误: {type(data_to_cache)}")
+                return False
+                
+            cache_key = await self.cache_key_stock.latest_kdj(stock_code, time_level)
+            return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
+        except Exception as e:
+            logger.error(f"缓存KDJ数据失败: {str(e)}")
+            return False
+    
+    async def history_kdj(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_kdj(stock_code, time_level)
+        return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+    
+    async def latest_macd(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_macd(stock_code, time_level)
+        return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
+    
+    async def history_macd(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_macd(stock_code, time_level)
+        return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+    
+    async def latest_ma(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_ma(stock_code, time_level)
+        logger.warning(f"latest_ma.data_to_cache: {data_to_cache}, cache_key: {cache_key}")
+        return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
+    
+    async def history_ma(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_ma(stock_code, time_level)
+        return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+
+    async def latest_boll(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_boll(stock_code, time_level)
+        # logger.warning(f"latest_boll.data_to_cache: {data_to_cache}")
+        return_data = await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
+        return return_data
+
+    async def history_boll(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_boll(stock_code, time_level)
+        return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+
+class StockRealtimeCacheSet(CacheSet):
+
+    async def latest_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_realtime_data(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+    
+    async def history_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_realtime_data(stock_code)
+        return await self._history_data(stock_code, data_to_cache, cache_key)
+    
+    async def latest_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_level5_data(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+    
+    async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.history_level5_data(stock_code)
+        return await self._history_data(stock_code, data_to_cache, cache_key)
+    
+    async def onebyone_trade(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_onebyone_trade(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+    
+    async def time_deal(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_time_deal(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+
+    async def real_percent(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_real_percent(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+    
+    async def big_deal(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_big_deal(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+    
+    async def abnormal_movement(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = await self.cache_key_stock.latest_abnormal_movement(stock_code)
+        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+

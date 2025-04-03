@@ -29,6 +29,9 @@ class FundFlowMinute(BaseModel):
     
     def __str__(self):
         return f"{self.stock.name}分钟级资金流向({self.trade_time})"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 class FundFlowDaily(BaseModel):
     """
@@ -58,6 +61,9 @@ class FundFlowDaily(BaseModel):
     def __str__(self):
         return f"{self.stock.name}日级资金流向({self.trade_date})"
 
+    def __code__(self):
+        return self.stock.stock_code
+
 class MainForcePhase(BaseModel):
     """
     阶段主力动向数据
@@ -83,6 +89,9 @@ class MainForcePhase(BaseModel):
     
     def __str__(self):
         return f"{self.stock.name}阶段主力动向({self.trade_date})"
+
+    def __code__(self):
+        return self.stock.stock_code
 
 class TransactionDistribution(BaseModel):
     """
@@ -116,6 +125,9 @@ class TransactionDistribution(BaseModel):
     
     def __str__(self):
         return f"{self.stock.name}历史成交分布({self.trade_date})"
+
+    def __code__(self):
+        return self.stock.stock_code
 
 class StockPool(BaseModel):
     """
@@ -163,6 +175,9 @@ class LimitUpPool(StockPool):
     
     def __str__(self):
         return f"涨停股{self.name}({self.date})"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 
 class LimitDownPool(StockPool):
@@ -188,6 +203,9 @@ class LimitDownPool(StockPool):
     def __str__(self):
         return f"跌停股{self.name}({self.date})"
 
+    def __code__(self):
+        return self.stock.stock_code
+
 
 class StrongStockPool(StockPool):
     """
@@ -210,6 +228,9 @@ class StrongStockPool(StockPool):
     
     def __str__(self):
         return f"强势股{self.name}({self.date})"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 
 class NewStockPool(StockPool):
@@ -234,6 +255,9 @@ class NewStockPool(StockPool):
     
     def __str__(self):
         return f"次新股{self.name}({self.date})"
+    
+    def __code__(self):
+        return self.stock.stock_code
 
 
 class BreakLimitPool(StockPool):
@@ -257,3 +281,6 @@ class BreakLimitPool(StockPool):
     
     def __str__(self):
         return f"炸板股{self.name}({self.date})"
+    
+    def __code__(self):
+        return self.stock.stock_code

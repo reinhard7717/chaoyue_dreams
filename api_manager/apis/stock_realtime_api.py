@@ -85,10 +85,8 @@ class StockRealtimeAPI(BaseAPI):
     async def get_big_deal(self, stock_code: str) -> List[Dict[str, Any]]:
         """
         获取当天逐笔大单交易数据
-        
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 当天逐笔大单交易数据列表
         """

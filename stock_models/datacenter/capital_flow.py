@@ -1,6 +1,7 @@
 # models/datacenter/capital_flow.py
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from stock_models.index import IndexInfo
 from stock_models.stock_basic import MarketCategory, StockInfo
 from utils.models import BaseModel
 from decimal import Decimal
@@ -30,6 +31,9 @@ class IndustryCapitalFlow(BaseModel):
             models.Index(fields=['change_percent'], name='icf_change_percent_idx'),
         ]
 
+    def __code__(self):
+        return self.industry.code
+
 # 概念板块资金流向
 class ConceptCapitalFlow(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -55,6 +59,9 @@ class ConceptCapitalFlow(BaseModel):
             models.Index(fields=['change_percent'], name='ccf_change_percent_idx'),
         ]
 
+    def __code__(self):
+        return self.concept.code
+
 # 净流入额排名
 class NetInflowRanking(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -78,6 +85,9 @@ class NetInflowRanking(BaseModel):
             models.Index(fields=['net_inflow'], name='nir_net_inflow_idx'),
             models.Index(fields=['change_percent'], name='nir_change_percent_idx'),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
 
 # 净流入率排名
 class NetInflowRateRanking(BaseModel):
@@ -103,6 +113,9 @@ class NetInflowRateRanking(BaseModel):
             models.Index(fields=['change_percent'], name='nirr_change_percent_idx'),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
 # 主力净流入额排名
 class MainForceNetInflowRanking(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -126,6 +139,9 @@ class MainForceNetInflowRanking(BaseModel):
             models.Index(fields=['main_force_net_inflow'], name='mfnir_main_force_inflow_idx'),
             models.Index(fields=['change_percent'], name='mfnir_change_percent_idx'),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
 
 # 主力净流入率排名
 class MainForceNetInflowRateRanking(BaseModel):
@@ -151,6 +167,9 @@ class MainForceNetInflowRateRanking(BaseModel):
             models.Index(fields=['change_percent'], name='mfnirr_change_percent_idx'),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
 # 散户净流入额排名
 class RetailNetInflowRanking(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -175,6 +194,9 @@ class RetailNetInflowRanking(BaseModel):
             models.Index(fields=['change_percent'], name='rnir_change_percent_idx'),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
 # 散户净流入率排名
 class RetailNetInflowRateRanking(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -198,6 +220,9 @@ class RetailNetInflowRateRanking(BaseModel):
             models.Index(fields=['retail_net_inflow_rate'], name='rnirr_retail_inflow_rate_idx'),
             models.Index(fields=['change_percent'], name='rnirr_change_percent_idx'),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
 
 # 证监会行业资金路线图
 class IndustryCapitalFlowRoute(BaseModel):
@@ -225,6 +250,9 @@ class IndustryCapitalFlowRoute(BaseModel):
             models.Index(fields=['net_inflow_10days'], name='icfr_net_inflow_10days_idx'),
         ]
 
+    def __code__(self):
+        return self.industry.code
+
 # 概念板块资金路线图
 class ConceptCapitalFlowRoute(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -251,6 +279,9 @@ class ConceptCapitalFlowRoute(BaseModel):
             models.Index(fields=['net_inflow_10days'], name='ccfr_net_inflow_10days_idx'),
         ]
 
+    def __code__(self):
+        return self.concept.code
+
 # 个股阶段统计总览
 class StockPeriodStatisticsOverview(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -274,6 +305,9 @@ class StockPeriodStatisticsOverview(BaseModel):
             models.Index(fields=['net_inflow_rate_3days'], name='spso_inflow_rate_3days_idx'),
             models.Index(fields=['net_inflow_rate_10days'], name='spso_inflow_rate_10days_idx'),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
 
 # 个股阶段统计
 class StockPeriodStatistics(BaseModel):
@@ -299,6 +333,9 @@ class StockPeriodStatistics(BaseModel):
             models.Index(fields=['period_net_inflow_rate'], name='sps_period_net_inflow_rate_idx'),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
 # 主力连续净流入/流出
 class MainForceContinuousFlow(BaseModel):
     update_time = models.DateTimeField(verbose_name="更新时间")
@@ -322,8 +359,12 @@ class MainForceContinuousFlow(BaseModel):
             models.Index(fields=['main_force_net_flow'], name='mfcf_main_force_net_flow_idx'),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
 # 新资金流向概览
 class NewCapitalFlowOverview(BaseModel):
+    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="new_capital_flow_overview", verbose_name=_("股票指数"))
     update_time = models.DateTimeField(verbose_name="更新时间")
     flow_type = models.CharField(max_length=20, verbose_name="类型")
     plate_name = models.CharField(max_length=50, verbose_name="板块")
@@ -334,8 +375,6 @@ class NewCapitalFlowOverview(BaseModel):
     up_stocks = models.IntegerField(verbose_name="上涨股票数")
     flat_stocks = models.IntegerField(verbose_name="持平股票数")
     down_stocks = models.IntegerField(verbose_name="下跌股票数")
-    index_name = models.CharField(max_length=50, verbose_name="相关指数")
-    index_code = models.CharField(max_length=20, verbose_name="相关指数代码")
     index_change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="相关指数涨跌幅")
     trade_status = models.IntegerField(verbose_name="交易状态")
 
@@ -349,4 +388,8 @@ class NewCapitalFlowOverview(BaseModel):
             models.Index(fields=['flow_direction'], name='ncfo_flow_direction_idx'),
             models.Index(fields=['net_inflow_amount'], name='ncfo_net_inflow_amount_idx'),
         ]
+
+    def __code__(self):
+        return self.index.code
+
 

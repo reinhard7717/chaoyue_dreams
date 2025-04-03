@@ -25,6 +25,10 @@ class VolumeIncrease(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class VolumeDecrease(BaseModel):
     """成交骤减个股"""
@@ -46,6 +50,10 @@ class VolumeDecrease(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['stock']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
 
 
 class ContinuousVolumeIncrease(BaseModel):
@@ -71,6 +79,10 @@ class ContinuousVolumeIncrease(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class ContinuousVolumeDecrease(BaseModel):
     """连续缩量个股"""
@@ -95,6 +107,10 @@ class ContinuousVolumeDecrease(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class ContinuousRise(BaseModel):
     """连续上涨个股"""
@@ -118,6 +134,9 @@ class ContinuousRise(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
 
 class ContinuousFall(BaseModel):
     """连续下跌个股"""
@@ -140,3 +159,9 @@ class ContinuousFall(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['stock']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
+
+

@@ -8,11 +8,14 @@ from decimal import Decimal
 from typing import Dict, List, Any, Optional
 from django.contrib.auth.models import User
 from users.models import FavoriteStock
+from utils.cash_key import StockCashKey
+from utils.data_format_process import StockInfoFormatProcess
 from utils.models import ModelJSONEncoder
 from django.db import transaction
 from django.core.cache import cache
 from asgiref.sync import sync_to_async
 from utils.cache_manager import CacheManager
+from utils import cache_constants as cc # 导入常量
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
 if sys.version_info >= (3, 12):
@@ -40,85 +43,10 @@ class StockBasicDAO(BaseDAO):
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
         self.api = StockBasicAPI()
         self.cache_manager = CacheManager()  # 初始化缓存管理器
-        logger.info("初始化StockBasicDAO")
-    
-    def _serialize_model(self, model_instance) -> dict:
-        """
-        将Django模型实例序列化为可JSON化的字典
+        self.data_format_process = StockInfoFormatProcess()
+        self.cache_key = StockCashKey()
+        # logger.info("初始化StockBasicDAO")
         
-        Args:
-            model_instance: Django模型实例
-            
-        Returns:
-            dict: 序列化后的字典
-        """
-        if model_instance is None:
-            return None
-            
-        # 如果已经是字典，直接返回
-        if isinstance(model_instance, dict):
-            return model_instance
-        
-        # 确保是模型实例    
-        if not hasattr(model_instance, '_meta'):
-            raise TypeError(f"Expected Django model instance, got {type(model_instance)}")
-            
-        result = {}
-        
-        # 遍历所有字段
-        for field in model_instance._meta.fields:
-            field_name = field.name
-            value = getattr(model_instance, field_name)
-            
-            # 处理None值
-            if value is None:
-                result[field_name] = None
-                continue
-                
-            # 处理各种类型
-            if isinstance(value, (str, int, float, bool)):
-                # 基本类型可直接使用
-                result[field_name] = value
-                
-            elif isinstance(value, datetime):
-                # 日期时间转ISO格式字符串
-                result[field_name] = value.isoformat()
-                
-            elif isinstance(value, Decimal):
-                # Decimal转浮点数
-                result[field_name] = float(value)
-                
-            elif hasattr(value, 'pk') and hasattr(value, '_meta'):
-                # 处理外键关系-只保存主键
-                result[field_name] = value.pk
-                
-            elif isinstance(value, (list, tuple)):
-                # 列表或元组-尝试序列化内部元素
-                try:
-                    result[field_name] = [
-                        self._serialize_model(item) if hasattr(item, '_meta') else item 
-                        for item in value
-                    ]
-                except:
-                    # 无法序列化的列表元素
-                    result[field_name] = str(value)
-                    
-            elif hasattr(value, '__dict__'):
-                # 尝试使用__dict__
-                try:
-                    result[field_name] = value.__dict__
-                except:
-                    result[field_name] = str(value)
-                    
-            else:
-                # 其他类型转为字符串
-                result[field_name] = str(value)
-        
-        # 移除Django内部字段
-        result.pop('_state', None)
-        
-        return result
-    
     # ================= 股票基本信息相关方法 =================
     
     async def get_stock_list(self) -> List[StockInfo]:
@@ -128,71 +56,29 @@ class StockBasicDAO(BaseDAO):
         Returns:
             List[StockInfo]: 股票基本信息列表
         """
-        # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'stock', 'all')
-        
-        # 添加更详细的日志
-        logger.info("开始获取股票列表数据")
-        
-        # 1. 首先尝试从缓存获取
-        cached_data = self.cache_manager.get(cache_key)
-        if cached_data:
-            logger.info(f"从缓存获取股票列表成功，共{len(cached_data)}条数据")
-            # 将缓存的字典数据转换回模型对象
-            return [StockInfo(**item) for item in cached_data]
-        
-        # 2. 缓存未命中，从数据库查询
         try:
-            @sync_to_async
-            def get_db_items():
-                return list(StockInfo.objects.all())
-            
-            items = await get_db_items()
-            
-            if items:
-                logger.info(f"从数据库获取股票列表成功，共{len(items)}条数据")
-                # 序列化模型实例
-                items_dict = [self._serialize_model(item) for item in items]
-                # 保存到缓存
-                self.cache_manager.set(cache_key, items_dict, 
-                                      timeout=self.cache_manager.get_timeout('st'))
-                return items
+            # 尝试从缓存获取
+            cached_data = await self.get_cache_all_stocks()
+            # logger.warning(f"cached_data: {cached_data[0]}, type: {type(cached_data)}, len: {len(cached_data)}")
+            if cached_data:
+                logger.debug("从缓存获取股票列表")
+                # 将缓存数据转换为模型实例列表
+                return [StockInfo(**stock_dict) for stock_dict in cached_data]
         except Exception as e:
-            logger.error(f"从数据库获取股票列表失败: {e}")
-        
-        # 3. 数据库未找到或为空，从API获取
+            logger.error(f"从缓存获取股票列表失败: {e}")
         try:
-            # 直接调用API获取数据
-            api_datas = await self.api.get_stock_list()
-            
-            if not api_datas:
-                logger.warning(f"API未返回股票列表数据")
-                return []
-            
-            data_dicts = []
-            for api_data in api_datas:
-                data_dict = {
-                    'stock_code': api_data.get('dm'),
-                    'stock_name': api_data.get('mc'),
-                    'exchange': api_data.get('jys'),
-                }
-                data_dicts.append(data_dict)
-
-            # 保存数据
-            logger.info(f"开始保存股票列表数据")
-            result = await self._save_all_to_db(
-                model_class=StockInfo,
-                data_list=data_dicts,
-                unique_fields=['stock_code']
-            )
-            
-            logger.info(f"股票列表数据保存完成，结果: {result}")
-            return result
-            
+            # 从数据库读取
+            stocks = await sync_to_async(list)(StockInfo.objects.all())
+            if stocks:
+                await self.set_cache_stocks(stocks)
         except Exception as e:
-            logger.error(f"从API获取股票列表失败: {e}")
-            logger.exception("获取股票列表异常详情")
-            return []
+            logger.error(f"从数据库读取股票列表失败: {e}")
+        
+        # 如果数据库中没有数据，从API获取并保存
+        logger.info("数据库中没有股票数据，从API获取")
+        await self.fetch_and_save_stocks()
+        stocks = await sync_to_async(list)(StockInfo.objects.all())
+        return stocks
 
     async def get_stock_by_code(self, stock_code: str) -> Optional[StockInfo]:
         """
@@ -205,47 +91,28 @@ class StockBasicDAO(BaseDAO):
             Optional[StockInfo]: 股票信息
         """
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'stock', stock_code)
-        
-        # 尝试从缓存获取
-        cached_data = self.cache_manager.get_model(cache_key, StockInfo)
-        if cached_data:
-            return cached_data
+        cache_key = await self.cache_key.stock_data(stock_code)
+        # 尝试从缓存获取，指定模型类进行自动转换
+        stock = self.cache_manager.get_model(cache_key, StockInfo)
+        if stock:
+            # logger.warning(f"get_stock_by_code从缓存获取股票: {cache_key}, {stock}, type: {type(stock)}")
+            return stock
             
         # 从数据库获取
-        try:
-            @sync_to_async
-            def get_db_item():
-                return StockInfo.objects.filter(stock_code=stock_code).first()
-            
-            item = await get_db_item()
-            
-            if item:
-                # 序列化并缓存
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(item),
-                    timeout=self.cache_manager.get_timeout('st')
-                )
-                return item
-            
-            # 如果数据库中没有数据，从API获取并保存
-            logger.info(f"股票代码[{stock_code}]不存在，从API获取")
-            stock = await self._fetch_and_save_stock(stock_code)
-            if stock:
-                # 序列化并缓存
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(stock),
-                    timeout=self.cache_manager.get_timeout('st')
-                )
-                return stock
-            
-            return None
-        except Exception as e:
-            logger.error(f"获取股票[{stock_code}]失败: {e}")
-            return None
-    
+        stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+        # 如果数据库中有数据，缓存并返回
+        if stock:
+            # logger.debug(f"从数据库获取股票指数列表，共{len(index)}条")
+            cache_data = await self.data_format_process.set_stock_info_data(stock)
+            # logger.warning(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock}, type: {type(stock)}")
+            # *** 正确调用 CacheManager 缓存数据 ***
+            success = self.cache_manager.set(
+                key=cache_key,          # 第一个参数：缓存键 (字符串)
+                data=cache_data,     # 第二个参数：要缓存的数据 (字典)
+                timeout=self.cache_manager.get_timeout('st') # 超时时间
+            )
+            return stock
+
     async def get_favorite_stocks_by_user(self, user: User) -> List[FavoriteStock]:  
         """
         获取用户自选股
@@ -272,10 +139,11 @@ class StockBasicDAO(BaseDAO):
             if items:
                 # 序列化并缓存
                 items_dict = [self._serialize_model(item) for item in items]
-                self.cache_manager.set(
-                    cache_key, 
-                    items_dict,
-                    timeout=self.cache_manager.get_timeout('st')
+                # *** 正确调用 CacheManager 缓存数据 ***
+                success = self.cache_manager.set(
+                    key=cache_key,          # 第一个参数：缓存键 (字符串)
+                    data=items_dict,     # 第二个参数：要缓存的数据 (字典)
+                    timeout=self.cache_manager.get_timeout('st') # 超时时间
                 )
                 return items
             
@@ -307,10 +175,11 @@ class StockBasicDAO(BaseDAO):
             if items:
                 # 序列化并缓存
                 items_dict = [self._serialize_model(item) for item in items]
-                self.cache_manager.set(
-                    cache_key, 
-                    items_dict,
-                    timeout=self.cache_manager.get_timeout('st')
+                # *** 正确调用 CacheManager 缓存数据 ***
+                success = self.cache_manager.set(
+                    key=cache_key,          # 第一个参数：缓存键 (字符串)
+                    data=items_dict,     # 第二个参数：要缓存的数据 (字典)
+                    timeout=self.cache_manager.get_timeout('st') # 超时时间
                 )
                 return items
             
@@ -318,6 +187,163 @@ class StockBasicDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取所有自选股失败: {e}")
             return []
+
+    async def get_cache_all_stocks(self) -> Optional[List[Dict]]:
+        """从缓存中获取所有股票列表"""
+        try:
+            # 生成缓存键
+            cache_key = await self.cache_key.stocks_data()
+            logger.info(f"尝试从缓存获取所有股票列表, key: {cache_key}")
+            
+            # 从缓存获取数据
+            cache_data = self.cache_manager.get(cache_key)
+            
+            # 检查缓存数据类型并正确处理
+            if cache_data is None:
+                logger.warning(f"缓存中没有股票列表数据, key: {cache_key}")
+                return None
+                
+            # 如果已经是列表类型，直接返回
+            if isinstance(cache_data, list):
+                logger.info(f"从缓存获取到股票列表，共{len(cache_data)}条")
+                return cache_data
+                
+            # 如果是字符串，尝试解析为JSON
+            if isinstance(cache_data, str):
+                try:
+                    data = json.loads(cache_data)
+                    logger.info(f"从缓存获取的字符串成功解析为JSON，共{len(data)}条")
+                    return data
+                except json.JSONDecodeError as e:
+                    logger.error(f"从缓存获取的字符串JSON解析失败: {str(e)}")
+                    return None
+            
+            # 如果是字节对象，先解码为字符串
+            if isinstance(cache_data, bytes):
+                try:
+                    cache_data = cache_data.decode('utf-8')
+                    data = json.loads(cache_data)
+                    logger.info(f"从缓存获取的字节数据成功解析为JSON，共{len(data)}条")
+                    return data
+                except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                    logger.error(f"从缓存获取的字节数据解析失败: {str(e)}")
+                    return None
+            
+            # 其他类型，尝试转换为字符串后解析
+            try:
+                cache_data_str = str(cache_data)
+                data = json.loads(cache_data_str)
+                logger.info(f"从缓存获取的其他类型数据成功解析为JSON，共{len(data)}条")
+                return data
+            except json.JSONDecodeError as e:
+                logger.error(f"从缓存获取的其他类型数据JSON解析失败: {str(e)}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"从缓存获取所有股票列表时发生错误: {str(e)}", exc_info=True)
+            return None
+        
+    async def set_cache_stocks(self, stocks: List[Dict]) -> bool:
+        """
+        将提供的股票数据列表（简单字典格式）设置到缓存中。
+
+        此方法用于手动将准备好的、符合缓存结构的数据放入缓存。
+        数据格式应与 fetch_and_save_indexes 写入缓存的格式一致。
+
+        Args:
+            stocks: 包含股票信息的字典列表，格式应为
+                   [{'stock_code': 'xxx', 'stock_name': 'yyy', 'exchange': 'zzz'}, ...]
+                   注意：不应包含 id, created_at 等数据库特有字段。
+        Returns:
+            bool: 操作是否成功。
+        """
+        # 1. 输入验证
+        if not isinstance(stocks, list):
+            logger.error("set_stocks_to_cache 失败: 输入数据不是列表")
+            return False
+            
+        try:
+            # 2. 生成缓存键
+            cache_key = await self.cache_key.stocks_data()
+            
+            # 3. 获取缓存超时时间
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+            
+            # 4. 处理数据
+            data_dicts = []
+            for item in stocks:
+                if isinstance(item, StockInfo):
+                    # 如果是StockInfo对象，转换为字典
+                    data_dict = await self.data_format_process.set_stock_info_data(item)
+                elif isinstance(item, dict):
+                    # 如果已经是字典，确保包含必要的字段
+                    if not all(key in item for key in ['stock_code', 'stock_name', 'exchange']):
+                        logger.error(f"股票数据缺少必要字段: {item}")
+                        continue
+                    data_dict = item
+                else:
+                    logger.error(f"无效的股票数据类型: {type(item)}")
+                    continue
+                data_dicts.append(data_dict)
+            
+            if not data_dicts:
+                logger.error("没有有效的股票数据可以缓存")
+                return False
+                
+            logger.info(f"准备将 {len(data_dicts)} 条股票数据设置到缓存, key: {cache_key}, timeout: {cache_timeout}s")
+            
+            # 5. 将整个列表序列化为一个JSON字符串
+            # json_data = json.dumps(data_dicts)
+            
+            # *** 正确调用 CacheManager 缓存数据 ***
+            success = self.cache_manager.set(
+                key=cache_key,          # 第一个参数：缓存键 (字符串)
+                data=data_dicts,     # 第二个参数：要缓存的数据 (字典)
+                timeout=self.cache_manager.get_timeout('st') # 超时时间
+            )
+            
+            if success:
+                logger.info(f"股票数据成功设置到缓存, key: {cache_key}")
+                return True
+            else:
+                logger.warning(f"设置股票数据到缓存失败 (CacheManager.set 返回 False), key: {cache_key}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"设置股票数据到缓存时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
+            return False
+
+    async def fetch_and_save_stocks(self) -> Dict:
+        """
+        刷新所有股票数据
+        
+        从API获取股票列表并保存到数据库
+        """
+        try:
+            # 获取股票列表
+            api_datas = await self.api.get_stock_list()
+            if not api_datas:
+                logger.warning("没有获取到股票数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            data_dicts = []
+            for api_data in api_datas:
+                # logger.warning(f"api_data: {api_data}, type: {type(api_data)}")
+                data_dict = await self.data_format_process.set_stock_info_data(api_data)
+                data_dicts.append(data_dict)
+            # 保存数据
+            logger.info(f"开始保存股票数据，共{len(data_dicts)}条")
+            result = await self._save_all_to_db(
+                model_class=StockInfo,
+                data_list=data_dicts,
+                unique_fields=['stock_code']
+            )
+            logger.info(f"股票数据保存完成，结果: {result}")
+            # 4. 创建缓存键并保存缓存 (核心修改部分)
+            await self.set_cache_stocks(data_dicts)
+            return result
+        except Exception as e:
+            logger.error(f"fetch_and_save_stocks刷新股票数据失败: {str(e)}")
+            raise
 
         
     # ================= 新股日历相关方法 =================
@@ -456,60 +482,6 @@ class StockBasicDAO(BaseDAO):
             logger.error(f"获取所有新股数据失败: {e}")
             return []
     
-    async def refresh_new_stock_data(self) -> List[Dict]:
-        """
-        刷新新股数据
-        
-        Returns:
-            List[Dict]: 刷新后的新股数据列表
-        """
-        try:
-            # 从API获取数据
-            data_list = await self.api.get_new_stock_calendar()
-            
-            if not data_list:
-                logger.warning('获取新股数据失败')
-                return []
-            
-            # 批量保存到数据库
-            saved_items = []
-            for data in data_list:
-                # 映射数据
-                mapped_data = self._map_api_to_model(data, NEW_STOCK_CALENDAR_MAPPING)
-                
-                # 处理日期字段
-                self._process_date_fields(mapped_data)
-                
-                # 保存到数据库
-                item = await self._save_to_db(NewStockCalendar, mapped_data)
-                if item:
-                    saved_items.append(item)
-                    
-                    # 更新单个缓存
-                    stock_code = mapped_data.get('stock_code')
-                    if stock_code:
-                        single_cache_key = self.cache_manager.generate_key('st', 'new_stock', stock_code)
-                        self.cache_manager.set(
-                            single_cache_key, 
-                            self._serialize_model(item),
-                            timeout=self.cache_manager.get_timeout('st')
-                        )
-            
-            # 更新全局缓存
-            if saved_items:
-                all_cache_key = self.cache_manager.generate_key('st', 'new_stock', 'all')
-                items_dict = [self._serialize_model(item) for item in saved_items]
-                self.cache_manager.set(
-                    all_cache_key, 
-                    items_dict,
-                    timeout=self.cache_manager.get_timeout('st')
-                )
-            
-            return saved_items
-            
-        except Exception as e:
-            logger.error(f'刷新新股数据出错: {str(e)}')
-            return []
     
     # ================= ST股票相关方法 =================
     
@@ -706,82 +678,3 @@ class StockBasicDAO(BaseDAO):
             logger.error(f"获取公司信息失败: {e}")
             return None
     
-    async def refresh_company_info(self, stock_code: str) -> bool:
-        """
-        刷新指定股票的公司信息
-        
-        Args:
-            stock_code: 股票代码
-            
-        Returns:
-            bool: 操作是否成功
-        """
-        try:
-            logger.info(f"开始刷新公司信息: {stock_code}")
-            
-            # 从API获取公司信息
-            company_data = await self.api.get_company_info(stock_code)
-            
-            if not company_data:
-                logger.warning(f"从API获取的公司信息为空: {stock_code}")
-                return False
-            
-            logger.debug(f"API返回的公司信息: {company_data}")
-            
-            # 映射数据
-            mapped_data = self._map_api_to_model(company_data, COMPANY_INFO_MAPPING)
-            
-            # 确保股票代码字段存在
-            mapped_data['stock_code'] = stock_code
-            
-            # 如果映射后的数据为空或只包含股票代码，返回失败
-            if not mapped_data or len(mapped_data) <= 1:
-                logger.warning(f"映射后的公司信息为空或不完整，原始数据: {company_data}")
-                return False
-                
-            logger.debug(f"映射后的公司信息: {mapped_data}")
-            
-            # 保存到数据库
-            try:
-                # 将数据转换为字典格式，并处理日期和数字字段
-                data_dict = {
-                    'stock_code': mapped_data['stock_code'],
-                    'company_name': mapped_data.get('company_name', ''),
-                    'company_english_name': mapped_data.get('company_english_name', ''),
-                    'market': mapped_data.get('market', ''),
-                    'concepts': mapped_data.get('concepts', ''),
-                    'listing_date': self._parse_datetime(mapped_data.get('listing_date')),
-                    'issue_price': self._parse_number(mapped_data.get('issue_price')),
-                    'lead_underwriter': mapped_data.get('lead_underwriter', ''),
-                    'establishment_date': mapped_data.get('establishment_date', ''),
-                    'registered_capital': self._parse_number(mapped_data.get('registered_capital')),
-                    'institution_type': mapped_data.get('institution_type', ''),
-                    'organization_form': mapped_data.get('organization_form', '')
-                }
-                
-                # 使用自定义的_save_to_db方法保存数据
-                saved_item = await self._save_to_db(CompanyInfo, data_dict)
-                
-                if not saved_item:
-                    logger.error(f"保存公司信息失败: {stock_code}")
-                    return False
-                
-                # 更新缓存
-                cache_key = self.cache_manager.generate_key('st', 'company', stock_code)
-                # 序列化并缓存
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(saved_item),
-                    timeout=self.cache_manager.get_timeout('st')
-                )
-                
-                logger.info(f"成功刷新公司信息: {stock_code}")
-                return True
-            except Exception as e:
-                logger.error(f"保存公司信息时出错: {e}")
-                logger.exception(f"保存公司信息时出错，数据: {mapped_data}")
-                return False
-        except Exception as e:
-            logger.error(f"刷新公司信息出错: {e}")
-            logger.exception(f"刷新公司信息异常详情: {stock_code}")
-            return False

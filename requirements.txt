@@ -39,3 +39,5 @@ scikit-learn==1.6.1
 pillow==11.0.0
 
 aiohttp==3.9.3
+
+python-dateutil

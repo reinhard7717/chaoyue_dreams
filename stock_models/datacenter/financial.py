@@ -26,6 +26,10 @@ class WeeklyRankChange(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class MonthlyRankChange(BaseModel):
     """月涨跌排名"""
@@ -47,6 +51,10 @@ class MonthlyRankChange(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['stock']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
 
 
 class WeeklyStrongStock(BaseModel):
@@ -71,6 +79,10 @@ class WeeklyStrongStock(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class MonthlyStrongStock(BaseModel):
     """本月强势股"""
@@ -94,7 +106,8 @@ class MonthlyStrongStock(BaseModel):
             models.Index(fields=['stock']),
         ]
 
-
+    def __code__(self):
+        return self.stock.stock_code
 class CircMarketValueRank(BaseModel):
     """流通市值排行"""
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="circ_market_value_rank", verbose_name=_("股票"))
@@ -114,6 +127,10 @@ class CircMarketValueRank(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['stock']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
 
 
 class PERatioRank(BaseModel):
@@ -136,6 +153,10 @@ class PERatioRank(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class PBRatioRank(BaseModel):
     """市净率排行"""
@@ -156,6 +177,10 @@ class PBRatioRank(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['stock']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
 
 
 class ROERank(BaseModel):
@@ -197,3 +222,6 @@ class ROERank(BaseModel):
             models.Index(fields=['stock']),
             models.Index(fields=['industry_name']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code

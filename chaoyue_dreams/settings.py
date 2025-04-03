@@ -478,12 +478,12 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
+            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
         'simple': {
-            'format': '{levelname} {asctime} {message}',
-            'style': '{',
+            'format': '%(asctime)s - %(levelname)s - %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
     },
     'handlers': {
@@ -499,6 +499,16 @@ LOGGING = {
             'maxBytes': 1024 * 1024 * 5,  # 5MB
             'backupCount': 5,
             'formatter': 'verbose',
+            'encoding': 'utf-8',  # 设置编码为utf-8
+        },
+        'dao': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'dao.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'celery': {
             'level': 'INFO',
@@ -507,17 +517,23 @@ LOGGING = {
             'maxBytes': 1024 * 1024 * 5,  # 5MB
             'backupCount': 5,
             'formatter': 'verbose',
+            'encoding': 'utf-8',  # 设置编码为utf-8
         },
     },
     'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
         'api': {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
         'dao': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
+            'handlers': ['console', 'dao'],
+            'level': 'DEBUG',
             'propagate': True,
         },
         'celery': {
@@ -543,7 +559,7 @@ INDEX_CACHE_TIMEOUT = {
 
 # Celery配置
 # Redis配置
-REDIS_HOST = '127.0.0.1'  # 修改为 127.0.0.1
+REDIS_HOST = '39.101.65.133'  # 修改为 127.0.0.1
 REDIS_PORT = 6379
 REDIS_PASSWORD = 'Asdf1234'
 

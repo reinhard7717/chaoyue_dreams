@@ -19,6 +19,9 @@ class StockInfo(models.Model):
     
     def __str__(self):
         return f"{self.stock_code}-{self.stock_name}"
+    
+    def __code__(self):
+        return self.stock_code
 
 class NewStockCalendar(models.Model):
     """新股日历模型"""
@@ -56,6 +59,9 @@ class NewStockCalendar(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code}-{self.stock_short_name}"
 
+    def __code__(self):
+        return self.stock.stock_code
+
 class STStockList(models.Model):
     """风险警示股票列表模型"""
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="st_stock_list", verbose_name=_("股票"))
@@ -70,6 +76,9 @@ class STStockList(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.stock_name}"
+
+    def __code__(self):
+        return self.stock.stock_code
 
 class CompanyInfo(models.Model):
     """公司简介模型"""
@@ -94,6 +103,9 @@ class CompanyInfo(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code}-{self.company_name}"
 
+    def __code__(self):
+        return self.stock.stock_code
+
 class StockBelongsIndex(models.Model):
     """所属指数模型"""
     id = models.BigAutoField(primary_key=True, auto_created=True)
@@ -111,6 +123,9 @@ class StockBelongsIndex(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.index.name}"
+
+    def __code__(self):
+        return self.stock.stock_code
 
 class QuarterlyProfit(models.Model):
     """季度利润模型"""
@@ -136,6 +151,9 @@ class QuarterlyProfit(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.report_date}"
+
+    def __code__(self):
+        return self.stock.stock_code
 
 class MarketCategory(models.Model):
     """市场分类树模型，用于存储指数、行业、概念等分类信息"""

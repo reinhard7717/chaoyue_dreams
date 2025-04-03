@@ -7,5 +7,5 @@ class StockModelsConfig(AppConfig):
     verbose_name = '股票模型'
 
     def ready(self):
-        from . import stock_basic, stock_realtime, index, fund_flow
+        from . import stock_basic, stock_realtime, index, fund_flow, stock_indicators
         from .datacenter import financial, lhb

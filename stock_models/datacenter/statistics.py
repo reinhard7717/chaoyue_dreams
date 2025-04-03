@@ -34,6 +34,10 @@ class StageHighLow(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class NewHighStock(BaseModel):
     """盘中创新高个股"""
@@ -61,6 +65,10 @@ class NewHighStock(BaseModel):
             models.Index(fields=['stock']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class NewLowStock(BaseModel):
     """盘中创新低个股"""
@@ -87,3 +95,8 @@ class NewLowStock(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['stock']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
+

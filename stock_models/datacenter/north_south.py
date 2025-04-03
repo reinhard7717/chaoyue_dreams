@@ -80,3 +80,9 @@ class NorthStockHolding(BaseModel):
             models.Index(fields=['stock']),
             models.Index(fields=['period']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
+
+

@@ -22,10 +22,11 @@ class IndexInfo(BaseModel):
             models.Index(fields=['exchange']),
         ]
 
-
     def __str__(self):
         return f"{self.name}({self.code})"
-
+    
+    def __code__(self):
+        return self.code
 class IndexRealTimeData(BaseModel):
     """
     股票指数实时数据模型
@@ -34,7 +35,7 @@ class IndexRealTimeData(BaseModel):
     """
     index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="realtime_data", verbose_name=_("股票指数"))
     # 指数基本信息
-    update_time = models.DateTimeField(verbose_name="更新时间", null=True, blank=True)
+    trade_time = models.DateTimeField(verbose_name="交易时间", null=True, blank=True)
     
     # 价格相关数据
     open_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="开盘价", null=True, blank=True) 
@@ -69,14 +70,17 @@ class IndexRealTimeData(BaseModel):
         verbose_name_plural = verbose_name
         db_table = "index_realtime_data"
         indexes = [
-            models.Index(fields=['index', 'update_time']),
-            models.Index(fields=['update_time']),
+            models.Index(fields=['index', 'trade_time']),
+            models.Index(fields=['trade_time']),
         ]
-        ordering = ['-update_time']
-        unique_together = ['index', 'update_time']
+        ordering = ['-trade_time']
+        unique_together = ['index', 'trade_time']
     
     def __str__(self):
-        return f"{self.index.name}实时数据({self.update_time})"
+        return f"{self.index.name}实时数据({self.trade_time})"
+
+    def __code__(self):
+        return self.index.code
     
     @classmethod
     def from_api_response(cls, index, data):
@@ -85,7 +89,7 @@ class IndexRealTimeData(BaseModel):
         
         return cls(
             index=index,
-            update_time=parse_datetime(data['t']),
+            trade_time=parse_datetime(data['t']),
             open_price=data['o'],
             high_price=data['h'],
             low_price=data['l'],
@@ -114,32 +118,32 @@ class MarketOverview(BaseModel):
     
     用于存储沪深两市的股票上涨、下跌总数等市场概览数据
     """
-    total_up = models.IntegerField(verbose_name=_("上涨总数"))
-    total_down = models.IntegerField(verbose_name=_("下跌总数"))
-    limit_up = models.IntegerField(verbose_name=_("涨停总数"))
-    limit_down = models.IntegerField(verbose_name=_("跌停总数"))
-    up_8_to_limit = models.IntegerField(verbose_name=_("上涨8%~涨停数量"))
-    up_6_to_8 = models.IntegerField(verbose_name=_("上涨6%~8%数量"))
-    up_4_to_6 = models.IntegerField(verbose_name=_("上涨4%~6%数量"))
-    up_2_to_4 = models.IntegerField(verbose_name=_("上涨2%~4%数量"))
-    up_0_to_2 = models.IntegerField(verbose_name=_("上涨0%~2%数量"))
-    down_0_to_2 = models.IntegerField(verbose_name=_("下跌0%~2%数量"))
-    down_2_to_4 = models.IntegerField(verbose_name=_("下跌2%~4%数量"))
-    down_4_to_6 = models.IntegerField(verbose_name=_("下跌4%~6%数量"))
-    down_6_to_8 = models.IntegerField(verbose_name=_("下跌6%~8%数量"))
-    down_8_to_limit = models.IntegerField(verbose_name=_("下跌8%~跌停数量"))
-    update_time = models.DateTimeField(verbose_name=_("更新时间"))
+    total_up = models.IntegerField(verbose_name=_("上涨总数"), null=True, blank=True)
+    total_down = models.IntegerField(verbose_name=_("下跌总数"), null=True, blank=True)
+    limit_up = models.IntegerField(verbose_name=_("涨停总数"), null=True, blank=True)
+    limit_down = models.IntegerField(verbose_name=_("跌停总数"), null=True, blank=True)
+    up_8_to_limit = models.IntegerField(verbose_name=_("上涨8%~涨停数量"), null=True, blank=True)
+    up_6_to_8 = models.IntegerField(verbose_name=_("上涨6%~8%数量"), null=True, blank=True)
+    up_4_to_6 = models.IntegerField(verbose_name=_("上涨4%~6%数量"), null=True, blank=True)
+    up_2_to_4 = models.IntegerField(verbose_name=_("上涨2%~4%数量"), null=True, blank=True)
+    up_0_to_2 = models.IntegerField(verbose_name=_("上涨0%~2%数量"), null=True, blank=True)
+    down_0_to_2 = models.IntegerField(verbose_name=_("下跌0%~2%数量"), null=True, blank=True)
+    down_2_to_4 = models.IntegerField(verbose_name=_("下跌2%~4%数量"), null=True, blank=True)
+    down_4_to_6 = models.IntegerField(verbose_name=_("下跌4%~6%数量"), null=True, blank=True)
+    down_6_to_8 = models.IntegerField(verbose_name=_("下跌6%~8%数量"), null=True, blank=True)
+    down_8_to_limit = models.IntegerField(verbose_name=_("下跌8%~跌停数量"), null=True, blank=True)
+    trade_time = models.DateTimeField(verbose_name=_("交易时间"), null=True, blank=True)
     
     class Meta:
         verbose_name = _("市场概览")
         verbose_name_plural = _("市场概览")
         db_table = "market_overview"
         indexes = [
-            models.Index(fields=['update_time']),
+            models.Index(fields=['trade_time']),
         ]
     
     def __str__(self):
-        return f"市场概览({self.update_time})"
+        return f"市场概览({self.trade_time})"
 
 class IndexTimeSeriesData(BaseModel):
     """
@@ -175,6 +179,9 @@ class IndexTimeSeriesData(BaseModel):
     def __str__(self):
         return f"{self.index.name}{self.time_level}({self.trade_time})"
 
+    def __code__(self):
+        return self.index.code
+
 class IndexKDJData(BaseModel):
     """
     KDJ指标数据模型
@@ -201,6 +208,9 @@ class IndexKDJData(BaseModel):
     
     def __str__(self):
         return f"{self.index.name} KDJ {self.time_level}({self.trade_time})"
+
+    def __code__(self):
+        return self.index.code
 
 class IndexMACDData(BaseModel):
     """
@@ -230,6 +240,9 @@ class IndexMACDData(BaseModel):
     
     def __str__(self):
         return f"{self.index.name} MACD {self.time_level}({self.trade_time})"
+
+    def __code__(self):
+        return self.index.code
 
 class IndexMAData(BaseModel):
     """
@@ -265,6 +278,9 @@ class IndexMAData(BaseModel):
     def __str__(self):
         return f"{self.index.name} MA {self.time_level}({self.trade_time})"
 
+    def __code__(self):
+        return self.index.code
+
 class IndexBOLLData(BaseModel):
     """
     BOLL指标数据模型
@@ -291,3 +307,6 @@ class IndexBOLLData(BaseModel):
     
     def __str__(self):
         return f"{self.index.name} BOLL {self.time_level}({self.trade_time})"
+
+    def __code__(self):
+        return self.index.code

@@ -185,7 +185,7 @@ class BaseAPI:
             return data
             
         except json.JSONDecodeError as e:
-            logger.warning(f"JSON解析错误: {str(e)}, 文本: {text[:100]}...")
+            # logger.warning(f"JSON解析错误: {str(e)}, 文本: {text[:100]}...")
             
             # 根据期望类型返回默认值
             if expected_type == 'dict':

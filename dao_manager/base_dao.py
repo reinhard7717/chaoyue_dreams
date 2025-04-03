@@ -9,6 +9,9 @@ from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic
 from datetime import datetime, date, time
 
+from django.conf import settings
+import pytz
+
 from django.db import models
 from django.core.cache import cache
 from django.conf import settings
@@ -23,7 +26,6 @@ T = TypeVar('T', bound=models.Model)
 class BaseDAO(Generic[T]):
     """
     基础数据访问对象(DAO)类，提供通用的CRUD操作和缓存机制
-    
     实现三层缓存架构：
     1. Redis缓存
     2. MySQL数据库
@@ -287,7 +289,7 @@ class BaseDAO(Generic[T]):
         skipped_count = 0
         
         # 批量处理，分组进行以减小事务范围
-        batch_size = 10000
+        batch_size = 2000
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i:i+batch_size]
             
@@ -369,7 +371,6 @@ class BaseDAO(Generic[T]):
         logger.info(f"完成{model_class.__name__}数据批量处理: {result}")
         return result
 
-    
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """
         更新实体
@@ -510,8 +511,6 @@ class BaseDAO(Generic[T]):
             Optional[datetime]: 解析后的datetime对象，解析失败则返回default
         """
         # 获取系统时区
-        from django.conf import settings
-        import pytz
         self.tz = pytz.timezone(settings.TIME_ZONE) if hasattr(settings, 'TIME_ZONE') else pytz.UTC
         
         if default is None and hasattr(self, 'model') and hasattr(self.model, 'created_at'):
@@ -568,18 +567,18 @@ class BaseDAO(Generic[T]):
                 '%Y-%m-%d %H:%M',
                 '%Y/%m/%d %H:%M:%S',
                 '%Y/%m/%d %H:%M',
-                '%d/%m/%Y %H:%M:%S',
-                '%d/%m/%Y %H:%M',
-                '%d-%m-%Y %H:%M:%S',
-                '%d-%m-%Y %H:%M',
                 '%Y-%m-%d',
-                '%Y/%m/%d',
-                '%d/%m/%Y',
-                '%d-%m-%Y',
-                '%d-%b-%Y',
-                '%d %b %Y',
-                '%b %d, %Y',
-                '%B %d, %Y',
+                # '%d/%m/%Y %H:%M:%S',
+                # '%d/%m/%Y %H:%M',
+                # '%d-%m-%Y %H:%M:%S',
+                # '%d-%m-%Y %H:%M',
+                # '%Y/%m/%d',
+                # '%d/%m/%Y',
+                # '%d-%m-%Y',
+                # '%d-%b-%Y',
+                # '%d %b %Y',
+                # '%b %d, %Y',
+                # '%B %d, %Y',
                 '%Y年%m月%d日',
                 '%Y年%m月%d日 %H时%M分%S秒',
             ]
@@ -658,91 +657,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.warning(f"解析数字失败: {value}, 使用默认值{default}, 错误: {str(e)}")
             return default
-
-    def _serialize_model(self, model_instance) -> dict:
-        """
-        将Django模型实例序列化为可JSON化的字典
-        
-        Args:
-            model_instance: Django模型实例
-            
-        Returns:
-            dict: 序列化后的字典
-        """
-        import datetime  # 确保正确导入
-        from decimal import Decimal  # 导入Decimal类
-        
-        if model_instance is None:
-            return None
-            
-        # 如果已经是字典，直接返回
-        if isinstance(model_instance, dict):
-            return model_instance
-        
-        # 确保是模型实例    
-        if not hasattr(model_instance, '_meta'):
-            raise TypeError(f"Expected Django model instance, got {type(model_instance)}")
-            
-        result = {}
-        
-        # 遍历所有字段
-        for field in model_instance._meta.fields:
-            field_name = field.name
-            value = getattr(model_instance, field_name)
-            
-            # 处理None值
-            if value is None:
-                result[field_name] = None
-                continue
-                
-            # 处理各种类型
-            if isinstance(value, (str, int, float, bool)):
-                # 基本类型可直接使用
-                result[field_name] = value
-                
-            elif isinstance(value, datetime.datetime):
-                # 日期时间转ISO格式字符串
-                result[field_name] = value.isoformat()
-                
-            elif isinstance(value, datetime.date):
-                # 日期转ISO格式字符串
-                result[field_name] = value.isoformat()
-                
-            elif isinstance(value, datetime.time):
-                # 时间转ISO格式字符串
-                result[field_name] = value.isoformat()
-                
-            elif isinstance(value, Decimal):
-                # Decimal转浮点数
-                result[field_name] = float(value)
-                
-            elif hasattr(value, 'pk') and hasattr(value, '_meta'):
-                # 处理外键关系-只保存主键
-                result[field_name] = value.pk
-                
-            elif isinstance(value, (list, tuple)):
-                # 列表或元组-尝试序列化内部元素
-                try:
-                    result[field_name] = [
-                        self._serialize_model(item) if hasattr(item, '_meta') else item 
-                        for item in value
-                    ]
-                except:
-                    # 无法序列化的列表元素
-                    result[field_name] = str(value)
-                    
-            elif hasattr(value, '__dict__'):
-                # 尝试使用__dict__
-                try:
-                    result[field_name] = value.__dict__
-                except:
-                    result[field_name] = str(value)
-                    
-            else:
-                # 其他类型转为字符串
-                result[field_name] = str(value)
-        
-        return result
 
 
     @staticmethod

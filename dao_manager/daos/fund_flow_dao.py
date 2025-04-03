@@ -16,6 +16,7 @@ from api_manager.mappings.fund_flow_mapping import (
     LIMIT_DOWN_POOL_MAPPING, LIMIT_UP_POOL_MAPPING, MAIN_FORCE_PHASE_MAPPING, 
     NEW_STOCK_POOL_MAPPING, STRONG_STOCK_POOL_MAPPING, TRANSACTION_DISTRIBUTION_MAPPING
 )
+from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from stock_models.fund_flow import (
     BreakLimitPool, FundFlowDaily, FundFlowMinute, LimitDownPool, LimitUpPool, 
     MainForcePhase, NewStockPool, StrongStockPool, TransactionDistribution
@@ -45,6 +46,7 @@ class FundFlowDAO(BaseDAO):
     def __init__(self):
         """初始化DAO对象，创建API实例"""
         self.api = FundFlowAPI()
+        self.stock_basic_dao = StockBasicDAO()
     
     # ================ 通用方法 ================
     
@@ -552,7 +554,7 @@ class FundFlowDAO(BaseDAO):
     
     # ================ 数据获取和保存方法 ================
     
-    async def _fetch_and_save_fund_flow_minute(self, stock_code: str) -> List[FundFlowMinute]:
+    async def fetch_and_save_fund_flow_minute(self, stock_code: str) -> List[FundFlowMinute]:
         """
         获取并保存股票的分钟级资金流向数据
         
@@ -562,32 +564,49 @@ class FundFlowDAO(BaseDAO):
         Returns:
             List[FundFlowMinute]: 保存的分钟级资金流向数据列表
         """
-        try:
-            # 获取股票对象
-            stock = await self.get_stock_by_code(stock_code)
-            if not stock:
-                logger.warning(f"股票[{stock_code}]不存在，无法获取资金流向数据")
-                return []
-            
-            # 从API获取数据
-            api_data = await self.api.get_fund_flow_trend(stock_code)
-            if not api_data:
-                logger.warning(f"获取股票[{stock_code}]的分钟级资金流向数据失败")
-                return []
-            
-            # 使用通用保存方法
-            return await self._process_save_data(
-                model_class=FundFlowMinute,
-                stock=stock,
-                api_data=api_data,
-                mapping=FUND_FLOW_TREND_MAPPING,
-                unique_fields=['trade_time'],
-                cache_prefix='fund_flow_minute',
-                stock_code=stock_code
-            )
-        except Exception as e:
-            logger.error(f"获取并保存股票[{stock_code}]的分钟级资金流向数据失败: {str(e)}")
+        # 获取股票信息
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
             return []
+        try:
+            api_data = await self.api.get_fund_flow_trend(stock.stock_code, time_level)
+                
+            if not api_data:
+                logger.warning(f"API未返回{stock}的{time_level}级别时间序列数据")
+                return []
+            
+            data_dicts = []
+            data_dict = {
+                'stock': stock,
+                'time_level': time_level,
+                'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
+                'open_price': self._parse_number(api_data.get('o')),  # 开盘价
+                'high_price': self._parse_number(api_data.get('h')),  # 最高价
+                'low_price': self._parse_number(api_data.get('l')),  # 最低价
+                'close_price': self._parse_number(api_data.get('c')),  # 收盘价
+                'volume': self._parse_number(api_data.get('v')),  # 成交量
+                'turnover': self._parse_number(api_data.get('e')),  # 成交额
+                'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
+                'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
+                'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
+                'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
+            }
+            data_dicts.append(data_dict)
+
+            # 保存数据
+            logger.info(f"开始保存{stock}股票{time_level}级别分时成交数据")
+            result = await self._save_all_to_db(
+                model_class=StockTimeTrade,
+                data_list=data_dicts,
+                unique_fields=['stock', 'time_level', 'trade_time']
+            )
+            
+            logger.info(f"{stock}股票{time_level}级别分时成交数据保存完成，结果: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"保存{stock}股票{time_level}级别  分时成交数据出错: {str(e)}")
+            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
     
     async def _fetch_and_save_fund_flow_daily(self, stock_code: str) -> List[FundFlowDaily]:
         """

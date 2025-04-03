@@ -139,9 +139,9 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/history/trade/{index_code}/{time_level}"
         # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史分时交易数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
-            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史分时交易数据，共{len(result)}条")
-            return result
+            api_data = await self.get(endpoint, expected_type='list')
+            api_data.sort(key=lambda x: x['t'], reverse=True)
+            return api_data
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史分时交易数据失败: {str(e)}")
             raise
@@ -183,9 +183,9 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/history/kdj/{index_code}/{time_level}"
         # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史KDJ数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
-            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史KDJ数据，共{len(result)}条")
-            return result
+            api_data = await self.get(endpoint, expected_type='list')
+            api_data.sort(key=lambda x: x['t'], reverse=True)
+            return api_data
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史KDJ数据失败: {str(e)}")
             raise
@@ -227,9 +227,9 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/history/macd/{index_code}/{time_level}"
         # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史MACD数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
-            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史MACD数据，共{len(result)}条")
-            return result
+            api_data = await self.get(endpoint, expected_type='list')
+            api_data.sort(key=lambda x: x['t'], reverse=True)
+            return api_data
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史MACD数据失败: {str(e)}")
             raise
@@ -271,9 +271,9 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/history/ma/{index_code}/{time_level}"
         # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史MA数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
-            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史MA数据，共{len(result)}条")
-            return result
+            api_data = await self.get(endpoint, expected_type='list')
+            api_data.sort(key=lambda x: x['t'], reverse=True)
+            return api_data
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史MA数据失败: {str(e)}")
             raise
@@ -315,9 +315,9 @@ class StockIndexAPI(BaseAPI):
         endpoint = f"data/time/history/boll/{index_code}/{time_level}"
         # logger.info(f"正在获取指数[{index_code}]的{time_level}级别历史BOLL数据")
         try:
-            result = await self.get(endpoint, expected_type='list')
-            # logger.info(f"成功获取指数[{index_code}]的{time_level}级别历史BOLL数据，共{len(result)}条")
-            return result
+            api_data = await self.get(endpoint, expected_type='list')
+            api_data.sort(key=lambda x: x['t'], reverse=True)
+            return api_data
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史BOLL数据失败: {str(e)}")
             raise

@@ -23,6 +23,10 @@ class LhbDetail(BaseModel):
             models.Index(fields=['stock', 'trade_date']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class LhbDaily(BaseModel):
     """每日龙虎榜数据"""
@@ -48,6 +52,10 @@ class LhbDaily(BaseModel):
             models.Index(fields=['trade_date']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class StockOnList(BaseModel):
     """个股上榜统计"""
@@ -69,6 +77,10 @@ class StockOnList(BaseModel):
             models.Index(fields=['stock']),
             models.Index(fields=['stats_days']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
 
 
 class BrokerOnList(BaseModel):
@@ -92,6 +104,10 @@ class BrokerOnList(BaseModel):
             models.Index(fields=['stats_days']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class InstitutionTradeTrack(BaseModel):
     """机构席位追踪"""
@@ -113,6 +129,10 @@ class InstitutionTradeTrack(BaseModel):
             models.Index(fields=['stats_days']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class InstitutionTradeDetail(BaseModel):
     """机构席位成交明细"""
@@ -130,3 +150,9 @@ class InstitutionTradeDetail(BaseModel):
             models.Index(fields=['stock']),
             models.Index(fields=['trade_date']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
+
+

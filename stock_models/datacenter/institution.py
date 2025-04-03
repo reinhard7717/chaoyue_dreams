@@ -38,6 +38,10 @@ class InstitutionHoldingSummary(BaseModel):
             models.Index(fields=['year', 'quarter']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class FundHeavyPosition(BaseModel):
     """基金重仓"""
@@ -65,6 +69,10 @@ class FundHeavyPosition(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['year', 'quarter']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
 
 
 class SocialSecurityHeavyPosition(BaseModel):
@@ -94,6 +102,10 @@ class SocialSecurityHeavyPosition(BaseModel):
             models.Index(fields=['year', 'quarter']),
         ]
 
+    def __code__(self):
+        return self.stock.stock_code
+
+
 
 class QFIIHeavyPosition(BaseModel):
     """QFII重仓"""
@@ -121,3 +133,9 @@ class QFIIHeavyPosition(BaseModel):
             models.Index(fields=['trade_date']),
             models.Index(fields=['year', 'quarter']),
         ]
+
+    def __code__(self):
+        return self.stock.stock_code
+
+
+
