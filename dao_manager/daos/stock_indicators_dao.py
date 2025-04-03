@@ -396,7 +396,6 @@ class StockIndicatorsDAO(BaseDAO):
             Optional[StockKDJIndicator]: 最新的KDJ指标数据
         """
         cache_data = await self.cache_get.latest_kdj(stock_code, time_level)
-        logger.info(f"cache_data: {cache_data}")
         if cache_data:
             return cache_data
         
@@ -1392,7 +1391,6 @@ class StockIndicatorsDAO(BaseDAO):
                     continue
                 data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
-                # logger.warning(f"api_data: {api_data}, data_dict: {data_dict}")
                 cache_dict = data_dict.copy()
                 await self.cache_set.latest_boll(stock.stock_code, time_level, cache_dict)
             if not data_dicts:

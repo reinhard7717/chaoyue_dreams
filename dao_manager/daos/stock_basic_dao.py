@@ -58,7 +58,6 @@ class StockBasicDAO(BaseDAO):
         try:
             # 尝试从缓存获取
             cached_data = await self.get_cache_all_stocks()
-            # logger.warning(f"cached_data: {cached_data[0]}, type: {type(cached_data)}, len: {len(cached_data)}")
             if cached_data:
                 logger.debug("从缓存获取股票列表")
                 # 将缓存数据转换为模型实例列表
@@ -326,7 +325,6 @@ class StockBasicDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
             for api_data in api_datas:
-                # logger.warning(f"api_data: {api_data}, type: {type(api_data)}")
                 data_dict = await self.data_format_process.set_stock_info_data(api_data)
                 data_dicts.append(data_dict)
             # 保存数据

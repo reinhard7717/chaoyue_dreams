@@ -126,7 +126,6 @@ class IndexDataFormatProcess(BaseDAO):
 class StockInfoFormatProcess(BaseDAO):
     async def set_stock_info_data(self, api_data: Dict) -> Optional[List[Dict]]:
         if isinstance(api_data, StockInfo):
-            # logger.warning(f"api_data: {api_data}, type: {type(api_data)}, {isinstance(api_data, StockInfo)}")
             data_dict = {
                 'stock_code': api_data.stock_code,  # 股票代码
                 'stock_name': api_data.stock_name,  # 股票名称
