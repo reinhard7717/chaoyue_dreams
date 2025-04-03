@@ -292,7 +292,6 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_time_trade(stock_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -360,14 +359,13 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_time_trade(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
+            
             # --- 最终修剪结束 ---
             logger.info(f"所有股票历史分时成交数据保存完成，总结果: {total_result}")
             return total_result
@@ -623,7 +621,6 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_kdj(stock_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -690,14 +687,13 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_kdj(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
+            
             # --- 最终修剪结束 ---
             logger.info(f"所有股票历史KDJ指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -938,7 +934,6 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_macd(stock_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1006,14 +1001,13 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_macd(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
+            
             # --- 最终修剪结束 ---
             logger.info(f"所有股票历史MACD指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -1279,7 +1273,6 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_ma(stock_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1347,14 +1340,13 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_ma(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
+            
             # --- 最终修剪结束 ---
             logger.info(f"所有股票历史MA指标数据保存完成，总结果: {total_result}")
             return total_result
@@ -1593,7 +1585,6 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             # --- 生成缓存键 ---
             cache_key = await self.cache_key.history_boll(stock_code, time_level)
             # --- 单行调用修剪方法 ---
@@ -1661,14 +1652,13 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            logger.info(f"所有数据处理和保存完毕，开始对所有处理过的指数执行最终缓存修剪 (limit={self.cache_limit})...")
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key = await self.cache_key.history_boll(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            logger.info(f"最终缓存修剪完成。")
+            
             # --- 最终修剪结束 ---
             logger.info(f"所有股票历史BOLL指标数据保存完成，总结果: {total_result}")
             return total_result

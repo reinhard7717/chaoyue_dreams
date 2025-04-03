@@ -33,7 +33,7 @@ class CacheSet():
                 timeout=cache_timeout
             )
             if success:
-                logger.info(f"指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
+                # logger.info(f"指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
             else:
                 logger.warning(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
@@ -60,7 +60,7 @@ class CacheSet():
                 timeout=cache_timeout
             )
             if success:
-                logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
+                # logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
             else:
                 logger.warning(f"缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
@@ -201,7 +201,7 @@ class IndexCacheSet(CacheSet):
                 timeout=cache_timeout
             )
             if success:
-                logger.info(f"指数[{index_code}]实时数据缓存成功, key: {cache_key}")
+                # logger.info(f"指数[{index_code}]实时数据缓存成功, key: {cache_key}")
                 return True
             else:
                 logger.warning(f"缓存指数[{index_code}]实时数据失败 (CacheManager.set 返回 False), key: {cache_key}")
