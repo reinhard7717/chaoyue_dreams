@@ -24,6 +24,7 @@ import logging
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from datetime import datetime
+from asgiref.sync import sync_to_async
 
 from dao_manager.daos.data_center.discrete_transaction_dao import DiscreteTransactionDao
 from dao_manager.daos.data_center.financial_dao import FinancialDao
@@ -463,7 +464,8 @@ class Command(BaseCommand):
         stock_codes = await stock_basic_dao.get_stock_list()
         for stock in stock_codes:
             for period in periods:
-                had_data = StockTimeTrade.objects.filter(stock=stock, time_level=period).exists()
+                # 使用sync_to_async包装同步的数据库查询
+                had_data = await sync_to_async(StockTimeTrade.objects.filter(stock=stock, time_level=period).exists)()
                 if not had_data:
                     await stock_indicators_dao.fetch_and_save_history_time_trade(stock.stock_code, period)
                     self.stdout.write(f'  - 已获取 {stock} {period} 历史时间序列数据')
