@@ -30,6 +30,7 @@ from dao_manager.daos.data_center.financial_dao import FinancialDao
 from dao_manager.daos.data_center.institutional_shareholding_dao import InstitutionalShareholdingDao
 from dao_manager.daos.data_center.lhb_dao import LhbDAO
 from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
+from stock_models.stock_indicators import StockTimeTrade
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
 if sys.version_info >= (3, 12):
@@ -459,9 +460,13 @@ class Command(BaseCommand):
 
         # 获取不同周期的K线数据
         periods = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
-
-        # await stock_indicators_dao.fetch_and_save_all_history_boll()
-        # self.stdout.write('  - 已获取所有股票历史BOLL指标数据')
+        stock_codes = await stock_basic_dao.get_stock_list()
+        for stock in stock_codes:
+            for period in periods:
+                had_data = StockTimeTrade.objects.filter(stock=stock, time_level=period).exists()
+                if not had_data:
+                    await stock_indicators_dao.fetch_and_save_history_time_trade(stock.stock_code, period)
+                    self.stdout.write(f'  - 已获取 {stock} {period} 历史时间序列数据')
 
         # await stock_indicators_dao.fetch_and_save_all_history_kdj()
         # self.stdout.write('  - 已获取所有股票历史KDJ指标数据')
@@ -472,8 +477,8 @@ class Command(BaseCommand):
         # await stock_indicators_dao.fetch_and_save_all_history_ma()
         # self.stdout.write('  - 已获取所有股票历史MA指标数据')
 
-        await stock_indicators_dao.fetch_and_save_all_history_time_trade()
-        self.stdout.write('  - 已获取所有股票历史时间序列数据')
+        # await stock_indicators_dao.fetch_and_save_all_history_time_trade()
+        # self.stdout.write('  - 已获取所有股票历史时间序列数据')
 
         # await stock_indicators_dao.fetch_and_save_all_latest_boll()
         # self.stdout.write('  - 已获取所有股票最新BOLL指标数据')
