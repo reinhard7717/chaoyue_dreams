@@ -11,6 +11,7 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from utils.cache_get import StockRealtimeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
+from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
 from utils.models import ModelJSONEncoder
 
@@ -39,6 +40,7 @@ class StockRealtimeDAO(BaseDAO):
         self.data_format_process = StockRealtimeDataFormatProcess()
         self.cache_get = StockRealtimeCacheGet()
         self.cache_set = StockRealtimeCacheSet()
+        self.cache_key = StockCashKey()
 
     # ================= RealtimeData相关方法 =================
     async def get_latest_realtime_data(self, stock_code: str) -> Optional[StockRealtimeData]:

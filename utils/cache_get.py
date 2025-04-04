@@ -315,6 +315,10 @@ class StockIndicatorsCacheGet(CacheGet):
     async def history_time_trade(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = await self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, start_time, end_time, cache_key)
+    
+    async def history_time_trade_by_limit(self, stock_code: str, time_level: str, limit: int) -> Optional[List[Dict[str, Any]]]:
+        cache_key = await self.cache_key_stock.history_time_trade(stock_code, time_level)
+        return await self._history_data_by_limit(cache_key, limit)
 
     async def latest_kdj(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
         cache_key = await self.cache_key_stock.latest_kdj(stock_code, time_level)

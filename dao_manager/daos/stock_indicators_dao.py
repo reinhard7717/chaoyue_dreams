@@ -149,6 +149,25 @@ class StockIndicatorsDAO(BaseDAO):
         data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level, trade_time__range=(start_time, end_time)).order_by('-trade_time').first())()
         return data
     
+    async def get_history_time_trades_by_limit(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> List[StockTimeTrade]:
+        """
+        获取指定股票和时间级别的最新分时成交数据
+        """
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
+        # 从Redis获取数据
+        cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level, limit)
+        if cache_data:
+            return cache_data
+        # 从数据库获取数据
+        try:
+            data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+            return data
+        except Exception as e:
+            logger.error(f"从数据库获取最新股票[{stock}]{time_level}级别分时成交数据失败: {str(e)}")
+            return None
+        
     async def fetch_and_save_latest_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict:
         """
         从API获取并保存最新分时成交数据
@@ -1600,4 +1619,5 @@ class StockIndicatorsDAO(BaseDAO):
         except Exception as e:
             logger.error(f"保存所有股票历史BOLL指标数据出错: {str(e)}")
             return {'创建': 0, '更新': 0, '跳过': 0}
+
 
