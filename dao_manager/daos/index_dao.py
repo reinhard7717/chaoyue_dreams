@@ -48,7 +48,18 @@ class StockIndexDAO(BaseDAO):
         self.data_format_process = IndexDataFormatProcess()
         self.cache_set = IndexCacheSet()
         self.cache_get = IndexCacheGet()
-        
+
+    # 新增 close 方法
+    async def close(self):
+        """关闭内部持有的 API Client Session"""
+        if hasattr(self, 'api') and self.api:
+            # logger.debug("Closing StockIndexDAO's internal API client...") # 可选日志
+            await self.api.close() # 调用 StockIndexAPI 的 close 方法
+            # logger.debug("StockIndexDAO's internal API client closed.") # 可选日志
+        else:
+            # logger.debug("StockIndexDAO has no API client to close or it's already None.") # 可选日志
+            pass
+
     # ================ 读取方法 ================
     
     async def get_all_indexes(self) -> List[IndexInfo]:

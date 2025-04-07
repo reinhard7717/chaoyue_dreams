@@ -47,7 +47,18 @@ class StockBasicDAO(BaseDAO):
         self.data_format_process = StockInfoFormatProcess()
         self.cache_key = StockCashKey()
         self.cache_get = StockInfoCacheGet()
-        
+
+    # 新增 close 方法
+    async def close(self):
+        """关闭内部持有的 API Client Session"""
+        if hasattr(self, 'api') and self.api:
+            # logger.debug("Closing StockBasicDAO's internal API client...") # 可选日志
+            await self.api.close() # 调用 StockBasicAPI 的 close 方法
+            # logger.debug("StockBasicDAO's internal API client closed.") # 可选日志
+        else:
+            # logger.debug("StockBasicDAO has no API client to close or it's already None.") # 可选日志
+            pass
+    
     # ================= 股票基本信息相关方法 =================
     
     async def get_stock_list(self) -> List[StockInfo]:

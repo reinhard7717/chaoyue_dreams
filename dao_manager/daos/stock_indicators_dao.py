@@ -47,7 +47,17 @@ class StockIndicatorsDAO(BaseDAO):
         self.data_format_process = StockIndicatorsDataFormatProcess()
         self.cache_get = StockIndicatorsCacheGet()
         self.cache_set = StockIndicatorsCacheSet()
-      
+
+    # 新增 close 方法
+    async def close(self):
+        """关闭内部持有的 API Client Session"""
+        if hasattr(self, 'api') and self.api:
+            # logger.debug("Closing StockIndicatorsDAO's internal API client...") # 可选日志
+            await self.api.close() # 调用 StockIndicatorsAPI 的 close 方法
+            # logger.debug("StockIndicatorsDAO's internal API client closed.") # 可选日志
+        else:
+            # logger.debug("StockIndicatorsDAO has no API client to close or it's already None.") # 可选日志
+            pass
     # ================= 分时成交数据相关方法 =================
     async def get_latest_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockTimeTrade]:
         """

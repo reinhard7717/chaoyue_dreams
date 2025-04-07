@@ -42,6 +42,17 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()
         self.cache_key = StockCashKey()
 
+    # 新增 close 方法
+    async def close(self):
+        """关闭内部持有的 API Client Session"""
+        if hasattr(self, 'api') and self.api:
+            # logger.debug("Closing StockRealtimeDAO's internal API client...") # 可选日志
+            await self.api.close() # 调用 StockRealtimeAPI 的 close 方法
+            # logger.debug("StockRealtimeDAO's internal API client closed.") # 可选日志
+        else:
+            # logger.debug("StockRealtimeDAO has no API client to close or it's already None.") # 可选日志
+            pass
+
     # ================= RealtimeData相关方法 =================
     async def get_latest_realtime_data(self, stock_code: str) -> Optional[StockRealtimeData]:
         """
@@ -51,66 +62,31 @@ class StockRealtimeDAO(BaseDAO):
         Returns:
             Optional[StockRealtimeData]: 最新的实时交易数据，如不存在则返回None
         """
-        # 1. 首先从缓存获取
         cache_data = await self.cache_get.latest_realtime_data(stock_code)
         if cache_data:
-            realtime_dict = json.loads(cache_data)
-            realtime = StockRealtimeData(**realtime_dict)
-            return realtime
+            realtime_data_dict = json.loads(cache_data)
+            realtime_data = StockRealtimeData(**realtime_data_dict)
+            return realtime_data
         
-        # 2. 缓存未命中，从数据库查询
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
         try:
-            stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-            if not stock:
-                return None
-            
-            try:
-                data = await sync_to_async(
-                    lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first()
-                )()
-                
-                # 检查数据是否过期（超过2分钟）
-                if data and (timezone.now() - data.trade_time).total_seconds() < 120:
-                    cache.set(cache_key, data, settings.INDEX_CACHE_TIMEOUT['realtime_data'])
-                    return data
-                
-                # 数据不存在或已过期，从API获取新数据
-                logger.info(f"股票[{stock_code}]实时数据不存在或已过期，从API获取")
-                data = await self.fetch_and_save_realtime_data(stock_code)
-                if data:
-                    cache.set(cache_key, data, settings.INDEX_CACHE_TIMEOUT['realtime_data'])
+            data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.latest_realtime_data(stock_code, data)
                 return data
-            except Exception as e:
-                logger.error(f"获取股票[{stock_code}]实时数据失败: {str(e)}")
-                return None
         except Exception as e:
-            logger.error(f"从数据库获取实时交易数据出错: {e}")
+            logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}")
+            return None
         
-        # 3. 数据库未找到，从API获取
-        try:
-            api_data = await self.api.get_realtime_data(stock_code)
-            
-            if api_data:
-                # 转换日期时间格式
-                if 't' in api_data and api_data['t']:
-                    try:
-                        api_data['t'] = datetime.strptime(api_data['t'], '%Y-%m-%d %H:%M:%S')
-                    except ValueError:
-                        logger.warning(f"日期时间格式转换失败: {api_data['t']}")
-                
-                # 映射并保存到数据库
-                mapped_data = self._map_api_to_model(api_data, REALTIME_DATA_MAPPING)
-                mapped_data['stock_code'] = stock_code
-                
-                realtime_data = await self._save_realtime_data_to_db(mapped_data)
-                
-                # 保存到缓存
-                await self.set_to_cache(cache_key, realtime_data, 60)
-                return realtime_data
-        except Exception as e:
-            logger.error(f"从API获取实时交易数据出错: {e}")
-        
-        return None
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]实时数据不存在或已过期，从API获取")
+        await self.fetch_and_save_realtime_data(stock_code)
+        data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
+        return data
     
     async def fetch_and_save_realtime_data(self, stock_code: str) -> Dict:
         """
@@ -182,57 +158,36 @@ class StockRealtimeDAO(BaseDAO):
     async def get_level5_data_by_code(self, stock_code: str) -> Optional[StockLevel5Data]:
         """
         获取股票最新的Level5数据
-        
         Args:
             stock_code: 股票代码
-            
         Returns:
             Optional[StockLevel5Data]: 最新的Level5数据，如不存在则返回None
         """
-        # 1. 首先从缓存获取
-        cache_key = f"level5:{stock_code}:latest"
-        cached_data = await self.get_from_cache(cache_key)
-        if cached_data:
-            return cached_data
+        cache_data = await self.cache_get.latest_level5_data(stock_code)
+        if cache_data:
+            level5_data_dict = json.loads(cache_data)
+            level5_data = StockLevel5Data(**level5_data_dict)
+            return level5_data
         
-        # 2. 缓存未命中，从数据库查询
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
         try:
-            level5_data = await StockLevel5Data.objects.filter(
-                stock_code=stock_code
-            ).order_by('-trade_time').afirst()
-            
-            if level5_data:
-                # 存入缓存并返回
-                await self.set_to_cache(cache_key, level5_data, 60)  # 实时数据缓存时间较短，60秒
-                return level5_data
+            data = await sync_to_async(lambda: StockLevel5Data.objects.filter(stock=stock).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.latest_level5_data(stock_code, data)
+                return data
         except Exception as e:
-            logger.error(f"从数据库获取Level5数据出错: {e}")
+            logger.error(f"从数据库获取最新股票[{stock}]Level5数据失败: {str(e)}")
+            return None
         
-        # 3. 数据库未找到，从API获取
-        try:
-            api_data = await self.api.get_level5_data(stock_code)
-            
-            if api_data:
-                # 转换日期时间格式
-                if 't' in api_data and api_data['t']:
-                    try:
-                        api_data['t'] = datetime.strptime(api_data['t'], '%Y-%m-%d %H:%M:%S')
-                    except ValueError:
-                        logger.warning(f"日期时间格式转换失败: {api_data['t']}")
-                
-                # 映射并保存到数据库
-                mapped_data = self._map_api_to_model(api_data, LEVEL5_DATA_MAPPING)
-                mapped_data['stock_code'] = stock_code
-                
-                level5_data = await self._save_level5_data_to_db(mapped_data)
-                
-                # 保存到缓存
-                await self.set_to_cache(cache_key, level5_data, 60)
-                return level5_data
-        except Exception as e:
-            logger.error(f"从API获取Level5数据出错: {e}")
-        
-        return None
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]Level5数据不存在或已过期，从API获取")
+        await self.fetch_and_save_level5_data(stock_code)
+        data = await sync_to_async(lambda: StockLevel5Data.objects.filter(stock=stock).order_by('-trade_time').first())()
+        return data
     
     async def fetch_and_save_level5_data(self, stock_code: str) -> Dict:
         """
@@ -295,52 +250,40 @@ class StockRealtimeDAO(BaseDAO):
     async def get_trade_details_by_code_and_date(self, stock_code: str, trade_date: Optional[date] = None) -> List[StockTradeDetail]:
         """
         获取股票指定日期的交易明细
-        
         Args:
             stock_code: 股票代码
             trade_date: 交易日期，默认为当天
-            
         Returns:
             List[StockTradeDetail]: 交易明细列表
         """
         if not trade_date:
             trade_date = datetime.now().date()
             
-        # 1. 首先从缓存获取
-        cache_key = f"trade_detail:{stock_code}:{trade_date}"
-        cached_data = await self.get_from_cache(cache_key)
-        if cached_data:
-            return cached_data
-            
-        # 2. 缓存未命中，从数据库查询
+        cache_data = await self.cache_get.history_onebyone_trade(stock_code, trade_date)
+        if cache_data:
+            trade_detail_dict = json.loads(cache_data)
+            trade_detail = StockTradeDetail(**trade_detail_dict)
+            return trade_detail
+        
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
         try:
-            trade_details = await StockTradeDetail.objects.filter(
-                stock_code=stock_code,
-                trade_date=trade_date
-            ).order_by('trade_time').all()
-            
-            if trade_details:
-                # 存入缓存并返回
-                await self.set_to_cache(cache_key, trade_details, 300)  # 交易明细缓存时间较长，5分钟
-                return trade_details
+            data = await sync_to_async(lambda: StockTradeDetail.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.onebyone_trade(stock_code, trade_date, data)
+                return data
         except Exception as e:
-            logger.error(f"从数据库获取交易明细出错: {e}")
-            
-        # 3. 数据库未找到，从API获取
-        try:
-            api_data_list = await self.api.get_trade_details(stock_code, trade_date.strftime('%Y-%m-%d'))
-            
-            if api_data_list:
-                # 处理并保存到数据库
-                trade_details = await self._process_and_save_trades(stock_code, api_data_list)
-                
-                # 保存到缓存
-                await self.set_to_cache(cache_key, trade_details, 300)
-                return trade_details
-        except Exception as e:
-            logger.error(f"从API获取交易明细出错: {e}")
-            
-        return []
+            logger.error(f"从数据库获取最新股票[{stock}]交易明细数据失败: {str(e)}")
+            return None
+        
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]交易明细数据不存在或已过期，从API获取")
+        await self.fetch_and_save_trade_detail(stock_code)
+        data = await sync_to_async(lambda: StockTradeDetail.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
+        return data
     
     async def fetch_and_save_trade_detail(self, stock_code: str) -> Dict:
         """
@@ -408,53 +351,40 @@ class StockRealtimeDAO(BaseDAO):
     async def get_daily_time_deals(self, stock_code: str, trade_date: Optional[date] = None) -> List[StockTimeDeal]:
         """
         获取股票指定日期的分时成交数据
-        
         Args:
             stock_code: 股票代码
             trade_date: 交易日期，默认为当天
-            
         Returns:
             List[StockTimeDeal]: 分时成交数据列表
         """
         if not trade_date:
             trade_date = datetime.now().date()
             
-        # 首先从缓存获取
-        cache_key = f"time_deal:{stock_code}:{trade_date}"
-        cached_data = await self.get_from_cache(cache_key)
-        if cached_data:
-            return cached_data
-            
-        # 从数据库获取
+        cache_data = await self.cache_get.history_time_deal(stock_code)
+        if cache_data:
+            time_deal_dict = json.loads(cache_data)
+            time_deal = StockTimeDeal(**time_deal_dict)
+            return time_deal
+        
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
         try:
-            time_deals = await StockTimeDeal.objects.filter(
-                stock_code=stock_code,
-                trade_date=trade_date
-            ).order_by('trade_time').all()
-            
-            if time_deals and len(time_deals) > 0:
-                # 存入缓存
-                await self.set_to_cache(cache_key, time_deals, 300)  # 5分钟缓存
-                return time_deals
+            data = await sync_to_async(lambda: StockTimeDeal.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
+            # 检查数据是否过期（超过2分钟）
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
+                await self.cache_set.time_deal(stock_code, trade_date, data)
+                return data
         except Exception as e:
-            logger.error(f"从数据库获取分时成交数据出错: {e}")
-            
-        # 从API获取
-        try:
-            # 格式化日期为字符串
-            date_str = trade_date.strftime('%Y-%m-%d')
-            api_data = await self.api.get_time_deals(stock_code, date_str)
-            
-            if api_data and len(api_data) > 0:
-                time_deals = await self._batch_save_time_deals(stock_code, api_data)
-                
-                # 存入缓存
-                await self.set_to_cache(cache_key, time_deals, 300)
-                return time_deals
-        except Exception as e:
-            logger.error(f"从API获取分时成交数据出错: {e}")
-            
-        return []
+            logger.error(f"从数据库获取最新股票[{stock}]分时成交数据失败: {str(e)}")
+            return None
+        
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]分时成交数据不存在或已过期，从API获取")
+        await self.fetch_and_save_time_deals(stock_code)
+        data = await sync_to_async(lambda: StockTimeDeal.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
+        return data
 
     async def fetch_and_save_time_deals(self, stock_code: str) -> Dict:
         """
