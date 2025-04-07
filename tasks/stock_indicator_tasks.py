@@ -10,6 +10,8 @@ from celery import Celery, group # 导入 group
 from celery.utils.log import get_task_logger
 
 logger = logging.getLogger(__name__)
+TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
+
 
 # --- 新增：处理单个股票的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_realtime_data')
@@ -51,7 +53,6 @@ def process_single_stock_realtime_data(self, stock_code: str):
         # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
 
     return task_result # 返回单个任务的结果
-
 
 # --- 修改后的主任务 (分发器) ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.save_stock_all_latest_realtime_data')
@@ -121,6 +122,119 @@ def save_stock_all_latest_realtime_data(self):
             except Exception as close_err:
                 logger.error(f"关闭主任务 DAO 时出错: {close_err}", exc_info=True)
         logger.info("主任务执行流程结束: save_stock_all_latest_realtime_data (分发器)")
+
+# --- 新增：处理单个股票单个时间级别历史数据的子任务 ---
+@celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_history_trade')
+def process_single_stock_history_trade(self, stock_code: str, time_level: str):
+    """
+    获取并保存单个股票在指定时间级别的历史分时/K线数据 (子任务)
+    """
+    # logger.info(f"子任务启动: process_single_stock_history_trade for {stock_code} ({time_level})")
+    # 导入 DAO，注意路径根据你的项目结构调整
+    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
+
+    stock_indicators_dao = None # 初始化
+    task_result = f"保存历史数据失败 for {stock_code} ({time_level})" # 默认失败结果
+
+    try:
+        # 在任务内部实例化 DAO
+        stock_indicators_dao = StockIndicatorsDAO()
+        # 在同步的 Celery 任务中运行异步 DAO 方法
+        # 注意：这里假设 fetch_and_save_history_time_trade_by_stock_code 是 async
+        asyncio.run(stock_indicators_dao.fetch_and_save_history_time_trade_by_stock_code(stock_code, time_level))
+        # task_result = f"成功保存历史数据 for {stock_code} ({time_level})"
+        logger.info(task_result)
+    except Exception as e:
+        logger.error(f"保存历史数据时发生错误 for {stock_code} ({time_level}): {e}", exc_info=True)
+        task_result = f"保存历史数据失败 for {stock_code} ({time_level}): {e}"
+        # 可以选择性地失败任务
+        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        # raise Ignore()
+    finally:
+        # 确保 DAO 被关闭
+        if stock_indicators_dao:
+            try:
+                # 假设 close 是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_indicators_dao, 'close', None)):
+                     asyncio.run(stock_indicators_dao.close())
+                elif callable(getattr(stock_indicators_dao, 'close', None)):
+                     stock_indicators_dao.close()
+                logger.debug(f"DAO for {stock_code} ({time_level}) closed.")
+            except Exception as close_err:
+                logger.error(f"关闭 DAO for {stock_code} ({time_level}) 时出错: {close_err}", exc_info=True)
+        # logger.info(f"子任务结束: process_single_stock_history_trade for {stock_code} ({time_level})")
+
+    return task_result
+
+# --- 修改后的主任务 (分发器) ---
+# 注意：移除了原签名中的 stock_code 参数，因为逻辑是处理所有股票
+@celery_app.task(bind=True, name='tasks.stock_indicators.dispatch_history_time_trade_saving')
+def dispatch_history_time_trade_saving(self):
+    """
+    分发任务以并发保存所有股票在所有时间级别的历史分时/K线数据 (主任务/分发器)
+    """
+    logger.info("主任务启动: dispatch_history_time_trade_saving (分发器)")
+    # 导入 DAO，注意路径根据你的项目结构调整
+    from dao_manager.daos.stock_basic_dao import StockBasicDAO
+
+    stock_basic_dao = None # 初始化
+    try:
+        stock_basic_dao = StockBasicDAO()
+
+        # 获取股票列表 (假设 get_stock_list 是 async)
+        try:
+            stocks = asyncio.run(stock_basic_dao.get_stock_list())
+            logger.info(f"获取到 {len(stocks)} 支股票列表")
+        except Exception as e:
+             logger.error(f"获取股票列表时出错: {e}", exc_info=True)
+             raise # 获取列表失败，则无法继续，直接抛出异常使主任务失败
+
+        if not stocks:
+            logger.warning("未获取到任何股票信息，任务结束")
+            return "未获取到股票列表，无法分发任务"
+
+        # 创建子任务签名列表
+        tasks_signatures = []
+        for stock in stocks:
+            for time_level in TIME_LEVELS:
+                # 为每个 stock_code 和 time_level 组合创建签名
+                tasks_signatures.append(process_single_stock_history_trade.s(stock.stock_code, time_level))
+
+        if not tasks_signatures:
+             logger.warning("没有生成任何子任务签名，任务结束")
+             return "没有有效的股票或时间级别组合，未分发任务"
+
+        # 创建任务组
+        task_group = group(tasks_signatures)
+        logger.info(f"已创建包含 {len(tasks_signatures)} 个历史数据保存子任务的任务组")
+
+        # 异步执行任务组
+        group_result = task_group.apply_async()
+
+        logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
+
+        # 返回分发成功的消息
+        return f"成功分发 {len(tasks_signatures)} 个历史数据保存子任务，Group ID: {group_result.id}"
+
+    except Exception as e:
+        logger.error(f"主任务执行期间发生错误: {e}", exc_info=True)
+        # 让 Celery 知道主任务（分发器）失败了
+        # raise
+        return f"分发历史数据保存任务失败: {e}"
+    finally:
+        # 关闭主任务中使用的 DAO
+        if stock_basic_dao:
+            try:
+                 # 假设 close 是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_basic_dao, 'close', None)):
+                     asyncio.run(stock_basic_dao.close())
+                elif callable(getattr(stock_basic_dao, 'close', None)):
+                     stock_basic_dao.close()
+                logger.debug("主任务 DAO closed.")
+            except Exception as close_err:
+                logger.error(f"关闭主任务 DAO 时出错: {close_err}", exc_info=True)
+        logger.info("主任务执行流程结束: dispatch_history_time_trade_saving (分发器)")
+
 
 
 @celery_app.task(bind=True, name='tasks.stock_indicators.save_stock_all_latest_kdj')
@@ -255,38 +369,7 @@ async def _run_save_stock_all_latest_boll():
         if stock_indicators_dao:
             await stock_indicators_dao.close()
 
-@celery_app.task(bind=True, name='tasks.stock_indicators.save_all_history_time_trade')
-def save_all_history_time_trade(stock_code: str):
-    """
-    保存股票历史实时数据
-    """
-    logger.info("任务启动: save_all_history_time_trade")
-    task_result = "任务出现意外未能正常完成" # 默认结果
-    try:
-        # 使用 asyncio.run 运行整个异步逻辑块
-        task_result = asyncio.run(_run_save_stock_all_history_time_trade())
-        logger.info(f"任务成功完成: {task_result}")
-    except Exception as e:
-        logger.error(f"任务执行期间发生错误: {e}", exc_info=True)
-        task_result = f"保存股票历史实时数据失败: {e}"
-    finally:
-        logger.info("任务执行流程结束: save_all_history_time_trade")
 
-async def _run_save_stock_all_history_time_trade():
-    """封装所有异步操作的辅助函数"""
-    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-    stock_indicators_dao = StockIndicatorsDAO()
-    try:
-        await stock_indicators_dao.fetch_and_save_all_history_time_trade()
-        return "保存股票历史实时数据完成"
-    except Exception as e:
-        logger.error(f"异步保存股票历史实时数据出错: {e}", exc_info=True)
-        # 将异常重新抛出，由外层捕获
-        raise
-    finally:
-        # 确保无论成功或失败都关闭 DAO
-        if stock_indicators_dao:
-            await stock_indicators_dao.close()
 
 @celery_app.task(bind=True, name='tasks.stock_indicators.save_all_history_kdj')
 def save_all_history_kdj(stock_code: str):
@@ -419,6 +502,115 @@ async def _run_save_stock_all_history_boll():
         # 确保无论成功或失败都关闭 DAO
         if stock_indicators_dao:
             await stock_indicators_dao.close()
+
+# --- 新增：处理单个股票单个时间级别指标计算的子任务 ---
+@celery_app.task(bind=True, name='tasks.indicator_calculation.calculate_single_stock_indicator')
+def calculate_single_stock_indicator(self, stock_code: str, time_level: str):
+    """
+    计算并保存单个股票在指定时间级别的指标 (子任务)
+    """
+    # logger.info(f"子任务启动: calculate_single_stock_indicator for {stock_code} ({time_level})")
+    # 导入 Service，注意路径根据你的项目结构调整
+    from services.indicator_services import BaseIndicatorService
+
+    indicator_services = None # 初始化
+    task_result = f"计算指标失败 for {stock_code} ({time_level})" # 默认失败结果
+
+    try:
+        # 在任务内部实例化 Service
+        indicator_services = BaseIndicatorService()
+        # 在同步的 Celery 任务中运行异步 Service 方法
+        # 注意：这里假设 calculate_and_save_stock_indicators 是 async
+        asyncio.run(indicator_services.calculate_and_save_stock(stock_code, time_level))
+        task_result = f"成功计算并保存指标 for {stock_code} ({time_level})"
+        logger.info(task_result)
+    except Exception as e:
+        logger.error(f"计算指标时发生错误 for {stock_code} ({time_level}): {e}", exc_info=True)
+        task_result = f"计算指标失败 for {stock_code} ({time_level}): {e}"
+        # 可以选择性地失败任务
+        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        # raise Ignore()
+    finally:
+        # 如果 IndicatorServices 需要显式关闭资源（比如内部持有的DAO），在这里处理
+        # 例如:
+        # if indicator_services and hasattr(indicator_services, 'close') and callable(indicator_services.close):
+        #     try:
+        #         # 假设 close 是同步的，如果是异步则用 asyncio.run
+        #         indicator_services.close()
+        #         logger.debug(f"IndicatorServices for {stock_code} ({time_level}) closed.")
+        #     except Exception as close_err:
+        #         logger.error(f"关闭 IndicatorServices for {stock_code} ({time_level}) 时出错: {close_err}", exc_info=True)
+        logger.info(f"子任务结束: calculate_single_stock_indicator for {stock_code} ({time_level})")
+
+    return task_result
+
+# --- 新增：分发指标计算任务的主任务 ---
+@celery_app.task(bind=True, name='tasks.indicator_calculation.dispatch_all')
+def dispatch_indicator_calculation(self):
+    """
+    分发任务以并发计算所有股票在所有时间级别的指标 (主任务/分发器)
+    """
+    logger.info("主任务启动: dispatch_indicator_calculation (分发器)")
+    # 导入 DAO，注意路径根据你的项目结构调整
+    from dao_manager.daos.stock_basic_dao import StockBasicDAO
+
+    stock_basic_dao = None # 初始化
+    try:
+        stock_basic_dao = StockBasicDAO()
+
+        # 获取股票列表 (假设 get_stock_list 是 async)
+        try:
+            stocks = asyncio.run(stock_basic_dao.get_stock_list())
+            logger.info(f"获取到 {len(stocks)} 支股票列表")
+        except Exception as e:
+             logger.error(f"获取股票列表时出错: {e}", exc_info=True)
+             raise # 获取列表失败，则无法继续，直接抛出异常使主任务失败
+
+        if not stocks:
+            logger.warning("未获取到任何股票信息，任务结束")
+            return "未获取到股票列表，无法分发任务"
+
+        # 创建子任务签名列表
+        tasks_signatures = []
+        for stock in stocks:
+            for time_level in TIME_LEVELS:
+                # 为每个 stock_code 和 time_level 组合创建签名
+                tasks_signatures.append(calculate_single_stock_indicator.s(stock.stock_code, time_level))
+
+        if not tasks_signatures:
+             logger.warning("没有生成任何子任务签名，任务结束")
+             return "没有有效的股票或时间级别组合，未分发任务"
+
+        # 创建任务组
+        task_group = group(tasks_signatures)
+        logger.info(f"已创建包含 {len(tasks_signatures)} 个指标计算子任务的任务组")
+
+        # 异步执行任务组
+        group_result = task_group.apply_async()
+
+        logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
+
+        # 返回分发成功的消息
+        return f"成功分发 {len(tasks_signatures)} 个指标计算子任务，Group ID: {group_result.id}"
+
+    except Exception as e:
+        logger.error(f"主任务执行期间发生错误: {e}", exc_info=True)
+        # 让 Celery 知道主任务（分发器）失败了
+        # raise
+        return f"分发指标计算任务失败: {e}"
+    finally:
+        # 关闭主任务中使用的 DAO
+        if stock_basic_dao:
+            try:
+                 # 假设 close 是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_basic_dao, 'close', None)):
+                     asyncio.run(stock_basic_dao.close())
+                elif callable(getattr(stock_basic_dao, 'close', None)):
+                     stock_basic_dao.close()
+                logger.debug("主任务 DAO closed.")
+            except Exception as close_err:
+                logger.error(f"关闭主任务 DAO 时出错: {close_err}", exc_info=True)
+        logger.info("主任务执行流程结束: dispatch_indicator_calculation (分发器)")
 
 
 

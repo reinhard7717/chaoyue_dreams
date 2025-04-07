@@ -531,7 +531,7 @@ class CacheManager:
             removed_count = self.redis_client.zremrangebyrank(key, 0, end_rank)
 
             if removed_count is not None:
-                logger.info(f"ZTRIMBYRANK 成功: key={key}, 移除了 {removed_count} 个成员。")
+                # logger.info(f"ZTRIMBYRANK 成功: key={key}, 移除了 {removed_count} 个成员。")
                 return removed_count
             else:
                 # 理论上 zremrangebyrank 失败的可能性较低，除非连接问题
