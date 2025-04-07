@@ -352,7 +352,7 @@ class StockIndicatorsDAO(BaseDAO):
                         # logger.info(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据, data_dict: {data_dict}")
                         await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 10000:
+                if len(data_dicts) >= 20000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockTimeTrade,
@@ -685,7 +685,7 @@ class StockIndicatorsDAO(BaseDAO):
                     if index < self.cache_limit:
                         await self.cache_set.history_kdj(stock_code, time_level, cache_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 10000:
+                if len(data_dicts) >= 20000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockKDJIndicator,
@@ -971,7 +971,7 @@ class StockIndicatorsDAO(BaseDAO):
                         cache_dict = data_dict.copy()
                         await self.cache_set.history_macd(stock_code, time_level, cache_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 10000:
+                if len(data_dicts) >= 20000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockMACDIndicator,
@@ -1262,7 +1262,7 @@ class StockIndicatorsDAO(BaseDAO):
                         cache_dict = data_dict.copy()
                         await self.cache_set.history_ma(stock_code, time_level, cache_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 10000:
+                if len(data_dicts) >= 20000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db(
                         model_class=StockMAIndicator,
@@ -1554,7 +1554,7 @@ class StockIndicatorsDAO(BaseDAO):
                         await self.cache_set.history_boll(stock.stock_code, time_level, cache_dict)
                     
                     # 当数据量超过10万时，保存一次
-                    if len(data_dicts) >= 10000:
+                    if len(data_dicts) >= 20000:
                         logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                         batch_result = await self._save_all_to_db(
                             model_class=StockBOLLIndicator,
