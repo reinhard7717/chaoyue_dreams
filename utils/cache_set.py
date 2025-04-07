@@ -158,7 +158,7 @@ class CacheSet():
 
     async def _format_conversion(self, data_to_cache: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in data_to_cache.items():
-            if isinstance(value, datetime.datetime):
+            if isinstance(value, datetime):
                 # 将 datetime 对象转换为 ISO 8601 格式的字符串
                 data_to_cache[key] = value.isoformat()
                 # logger.debug(f"Converted datetime for key '{key}' to ISO string: {data_to_cache[key]}")

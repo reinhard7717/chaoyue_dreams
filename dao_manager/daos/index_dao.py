@@ -3,7 +3,7 @@
 from decimal import Decimal
 import json
 import logging
-import datetime
+from datetime import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List, Optional, Set, Union, Type
@@ -374,8 +374,8 @@ class StockIndexDAO(BaseDAO):
         return data
 
     async def get_history_time_series_data(self, index_code: str, time_level: str, 
-                                  start_time: Optional[datetime.datetime] = None,
-                                  end_time: Optional[datetime.datetime] = None,
+                                  start_time: Optional[datetime] = None,
+                                  end_time: Optional[datetime] = None,
                                   limit: int = 100) -> List[IndexTimeSeriesData]:
         """
         获取指数的时间序列数据
@@ -423,8 +423,8 @@ class StockIndexDAO(BaseDAO):
             return []
 
     async def get_history_kdj_data(self, index_code: str, time_level: str, 
-                                  start_time: Optional[datetime.datetime] = None,
-                                  end_time: Optional[datetime.datetime] = None,
+                                  start_time: Optional[datetime] = None,
+                                  end_time: Optional[datetime] = None,
                                   limit: int = 100) -> List[IndexTimeSeriesData]:
         """
         获取指数KDJ指标数据
@@ -473,8 +473,8 @@ class StockIndexDAO(BaseDAO):
             return []
     
     async def get_history_macd_data(self, index_code: str, time_level: str, 
-                                  start_time: Optional[datetime.datetime] = None,
-                                  end_time: Optional[datetime.datetime] = None,
+                                  start_time: Optional[datetime] = None,
+                                  end_time: Optional[datetime] = None,
                                   limit: int = 100) -> List[IndexTimeSeriesData]:
         """
         获取指数MACD指标数据
@@ -523,8 +523,8 @@ class StockIndexDAO(BaseDAO):
             return []
     
     async def get_history_ma_data(self, index_code: str, time_level: str, 
-                        start_time: Optional[datetime.datetime] = None,
-                        end_time: Optional[datetime.datetime] = None,
+                        start_time: Optional[datetime] = None,
+                        end_time: Optional[datetime] = None,
                         limit: int = 100) -> List[IndexMAData]:
         """
         获取指数MA指标数据
@@ -573,8 +573,8 @@ class StockIndexDAO(BaseDAO):
             return []
     
     async def get_history_boll_data(self, index_code: str, time_level: str, 
-                        start_time: Optional[datetime.datetime] = None,
-                        end_time: Optional[datetime.datetime] = None,
+                        start_time: Optional[datetime] = None,
+                        end_time: Optional[datetime] = None,
                         limit: int = 100) -> List[IndexBOLLData]:
         """
         获取指数BOLL指标数据
@@ -629,8 +629,8 @@ class StockIndexDAO(BaseDAO):
                                           indicator_name: str,
                                           model_class: Type[models.Model],
                                           fetch_and_save_method: callable,
-                                          start_time: Optional[datetime.datetime] = None,
-                                          end_time: Optional[datetime.datetime] = None,
+                                          start_time: Optional[datetime] = None,
+                                          end_time: Optional[datetime] = None,
                                           limit: int = 100) -> List[Any]:
         """
         获取技术指标数据的通用方法
@@ -949,7 +949,7 @@ class StockIndexDAO(BaseDAO):
                     'down_4_to_6': int(api_data.get('down4To6')), # 下跌4%~6%数量
                     'down_6_to_8': int(api_data.get('down6To8')), # 下跌6%~8%数量
                     'down_8_to_limit': int(api_data.get('down8ToDt')), # 下跌8%~跌停数量
-                    'trade_time': datetime.datetime.now()
+                    'trade_time': datetime.now()
                 }
                 
                 # 创建实时数据记录
