@@ -120,7 +120,7 @@ class StockBasicDAO(BaseDAO):
             return stock
             
         # 从数据库获取
-        logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
+        # logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
         stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
         # 如果数据库中有数据，缓存并返回
         if stock:
