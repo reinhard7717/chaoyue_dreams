@@ -13,7 +13,6 @@ from api_manager.apis.stock_indicators_api import StockIndicatorsAPI, TimeLevel
 from api_manager.mappings.stock_indicators_mapping import BOLL_INDICATOR_MAPPING, KDJ_INDICATOR_MAPPING, MA_INDICATOR_MAPPING, MACD_INDICATOR_MAPPING, TIME_TRADE_MAPPING
 from dao_manager.base_dao import BaseDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
-from stock_models.stock_indicators import StockTimeTrade
 from users.models import FavoriteStock
 from utils.cache_manager import CacheManager
 

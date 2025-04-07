@@ -15,10 +15,6 @@ from asgiref.sync import sync_to_async
 
 # 假设模型在 'your_app.models'
 from stock_models.stock_basic import StockInfo
-# 导入所有指标模型
-from stock_models.stock_indicators import (
-    StockTimeTrade, StockKDJIndicator, StockMACDIndicator, StockMAIndicator, StockBOLLIndicator
-)
 # 假设你的 CacheManager 和 CacheKey 在 utils 中
 from utils.cache_manager import CacheManager
 from utils.cash_key import StockCashKey # 假设有这个类用于生成缓存键

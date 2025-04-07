@@ -33,8 +33,7 @@ from dao_manager.daos.data_center.financial_dao import FinancialDao
 from dao_manager.daos.data_center.institutional_shareholding_dao import InstitutionalShareholdingDao
 from dao_manager.daos.data_center.lhb_dao import LhbDAO
 from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
-from stock_models.stock_basic import StockInfo
-from stock_models.stock_indicators import StockTimeTrade
+from stock_models.stock_basic import StockInfo, StockTimeTrade
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
 if sys.version_info >= (3, 12):

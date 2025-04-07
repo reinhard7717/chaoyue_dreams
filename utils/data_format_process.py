@@ -2,10 +2,8 @@
 from typing import Dict, List, Optional
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexInfo
-from stock_models.stock_basic import StockInfo
+from stock_models.stock_basic import StockInfo, StockTimeTrade
 import logging
-
-from stock_models.stock_indicators import StockTimeTrade
 
 logger = logging.getLogger(__name__)
 
