@@ -279,12 +279,15 @@ class StockIndicatorsDAO(BaseDAO):
         从API获取并保存所有最新股票分时成交数据
         """
         stocks = await self.stock_basic_dao.get_stock_list()
-        total_result = {'创建': 0, '更新': 0, '跳过': 0}
+        total_result = {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
         for stock in stocks:
             result = await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
-            total_result['创建'] += result['创建']
-            total_result['更新'] += result['更新']
-            total_result['跳过'] += result['跳过']
+            # 使用 .get() 进行累加，提供默认值 0
+            total_result['创建'] += result.get('创建', 0)
+            total_result['更新'] += result.get('更新', 0)
+            total_result['未更改'] += result.get('未更改', 0)
+            total_result['失败'] += result.get('失败', 0)
+            total_result['跳过'] += result.get('跳过', 0)
         return total_result
 
     async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Dict:

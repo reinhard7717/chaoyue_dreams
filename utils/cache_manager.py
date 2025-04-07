@@ -214,7 +214,7 @@ class CacheManager:
                 timeout = self.get_timeout(prefix)
             # logger.warning(f"缓存保存数据111: {key}, 数据长度: {len(json.dumps(data))}")
             serialized_data = self._serialize(data)
-            logger.warning(f"缓存保存数据222: 数据长度: {len(serialized_data)}, key: {key}")
+            # logger.warning(f"缓存保存数据222: 数据长度: {len(serialized_data)}, key: {key}")
             if nx:
                 return self.redis_client.set(key, serialized_data, ex=timeout, nx=True)
             else:
