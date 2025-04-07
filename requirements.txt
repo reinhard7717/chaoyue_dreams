@@ -42,6 +42,8 @@ aiohttp==3.9.3
 
 python-dateutil
 
+django-bulk-update-or-create
+
 # 指标计算库
 finta
 

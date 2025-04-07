@@ -307,7 +307,6 @@ class StockIndicatorsDAO(BaseDAO):
         
         return total_result
 
-
     async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Dict:
         """
         从API获取并保存历史股票分时成交数据
@@ -384,7 +383,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # 当数据量超过10万时，保存一次
                 if len(data_dicts) >= 20000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                    batch_result = await self._save_all_to_db(
+                    batch_result = await self._save_all_to_db_refactored(
                         model_class=StockTimeTrade,
                         data_list=data_dicts,
                         unique_fields=['stock', 'time_level', 'trade_time']
@@ -401,7 +400,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
-                final_result = await self._save_all_to_db(
+                final_result = await self._save_all_to_db_refactored(
                     model_class=StockTimeTrade,
                     data_list=data_dicts,
                     unique_fields=['stock', 'time_level', 'trade_time']

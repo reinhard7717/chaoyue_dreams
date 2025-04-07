@@ -415,6 +415,137 @@ class BaseDAO(Generic[T]):
         # logger.info(f"完成{model_class.__name__}数据批量处理: {result}")
         return result
 
+    async def _save_all_to_db_refactored(
+        self, # 假设这是类的一部分
+        model_class: Type[models.Model],
+        data_list: List[Dict[str, Any]],
+        unique_fields: List[str],
+        # ignore_conflicts_on_create 参数不再需要，upsert 逻辑会处理
+        **extra_fields: Any,
+    ) -> Dict[str, int]:
+        """
+        使用 django-bulk-update-or-create 改造后的通用异步数据批量处理方法。
+        利用数据库原生的 UPSERT 功能 (如 MySQL 的 INSERT ... ON DUPLICATE KEY UPDATE) 提高性能。
+
+        Args:
+            model_class: Django模型类
+            data_list: 要处理的数据列表，每项都是模型对应的字段字典
+            unique_fields: 用于匹配现有记录的字段列表 (应对应数据库唯一约束)
+            **extra_fields: 额外的字段，将添加到所有创建/更新的记录中
+
+        Returns:
+            dict: 包含处理尝试的总数和失败的记录数。
+                注意：此实现不区分创建和更新计数，且不跟踪未更改的记录。
+                失败计数是基于批次的，如果一个批次失败，整个批次计为失败。
+                如果需要更精确的创建/更新计数，需要检查所用库版本是否提供相应方法。
+        """
+        if not data_list:
+            logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
+            # 返回与原始结构类似的字典，但计数逻辑已改变
+            return {"尝试处理": 0, "失败": 0, "创建": 0, "更新": 0} # 添加创建/更新占位符
+
+        if not isinstance(data_list, list):
+            data_list = [data_list] # 确保是列表
+
+        total_attempted = len(data_list)
+        failed_count = 0
+        # 创建和更新计数在此简化实现中无法精确获取，除非库明确返回
+        created_count = 0 # 占位符
+        updated_count = 0 # 占位符
+
+        # --- 确定 update_fields ---
+        # 假设 data_list 不为空且所有字典具有相似（但不一定完全相同）的结构
+        # 我们合并所有遇到的键，然后排除 unique_fields
+        all_keys = set()
+        for item in data_list:
+            all_keys.update(item.keys())
+        all_keys.update(extra_fields.keys()) # 包含 extra_fields 的键
+
+        update_fields = list(all_keys - set(unique_fields))
+
+        # 可选：从 update_fields 中移除主键（通常不需要更新主键）
+        pk_name = model_class._meta.pk.name
+        if pk_name in update_fields:
+            update_fields.remove(pk_name)
+        # 可选：移除其他只读或不应更新的字段
+        # read_only_fields = getattr(model_class._meta, "read_only_fields", [])
+        # update_fields = [f for f in update_fields if f not in read_only_fields]
+
+        if not update_fields:
+            logger.warning(
+                f"模型 {model_class.__name__} 没有可用于更新的字段（除了唯一字段 {unique_fields}）。"
+                f" 这意味着只会尝试创建新记录，现有记录不会被修改。"
+            )
+            # 即使没有更新字段，库通常也能处理仅创建的情况
+
+        batch_size = 2000 # 保持与原逻辑一致的批处理大小，用于事务和错误范围控制
+        for i in range(0, len(data_list), batch_size):
+            batch = data_list[i : i + batch_size]
+            current_batch_size = len(batch)
+
+            # --- 准备包含 extra_fields 的批处理数据 ---
+            # 确保 extra_fields 不会意外覆盖 item 中已有的同名字段的值
+            # （Python 字典合并行为：后面的键值对会覆盖前面的）
+            batch_data_prepared = [{**item, **extra_fields} for item in batch]
+
+            @transaction.atomic # 每个批次仍在事务中执行
+            def process_batch_sync():
+                nonlocal failed_count # , created_count, updated_count # 如果能获取计数，也声明 nonlocal
+                try:
+                    # --- 核心改动: 调用 bulk_update_or_create ---
+                    # 检查你使用的库版本文档，确认方法名和参数
+                    # `match_field` 通常用于指定唯一键字段
+                    # `update_fields` 指定当记录存在时要更新的字段
+                    model_class.objects.bulk_update_or_create(
+                        objs=batch_data_prepared,
+                        match_field=unique_fields,
+                        update_fields=update_fields,
+                        batch_size=None, # 传递给库的 batch_size，None 表示处理整个 objs 列表
+                        # yield_objects=False, # 通常不需要返回对象本身
+                        # case_insensitive_match=False # 根据需要设置
+                    )
+                    # --- 处理计数 (如果库支持) ---
+                    # 如果你的库版本/fork 提供了计数方法，例如:
+                    # counts = model_class.objects.bulk_update_or_create_counts(...)
+                    # created_count += counts.created
+                    # updated_count += counts.updated
+                    # logger.info(f"批次 {i // batch_size + 1} 处理成功: {counts}")
+                    # 如果不支持，我们无法在此处精确更新 created/updated 计数
+
+                except (IntegrityError, DatabaseError) as e:
+                    # 数据库层面的错误 (如约束冲突、连接问题)
+                    logger.error(
+                        f"批次 {i // batch_size + 1} (大小: {current_batch_size}) "
+                        f"使用 bulk_update_or_create 时遇到数据库错误: {str(e)}"
+                    )
+                    failed_count += current_batch_size # 整个批次标记为失败
+                except Exception as e:
+                    # 其他潜在错误 (如数据准备、库内部错误)
+                    logger.error(
+                        f"批次 {i // batch_size + 1} (大小: {current_batch_size}) "
+                        f"使用 bulk_update_or_create 时遇到意外错误: {str(e)}",
+                        exc_info=True # 记录完整的 traceback
+                    )
+                    failed_count += current_batch_size # 整个批次标记为失败
+
+            # 使用 sync_to_async 运行同步的数据库操作
+            await sync_to_async(process_batch_sync)()
+
+        # --- 最终结果 ---
+        # 注意：创建和更新计数在此简化版本中为 0，除非 process_batch_sync 中有逻辑填充它们
+        successful_count = total_attempted - failed_count
+        result = {
+            "尝试处理": total_attempted,
+            "成功": successful_count, # 添加成功计数以提供更多信息
+            "失败": failed_count,
+            "创建": created_count, # 保持字段存在，但值可能不精确
+            "更新": updated_count, # 保持字段存在，但值可能不精确
+            # "未更改" 计数通常无法通过此方法获得
+        }
+
+        logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用 bulk_update_or_create): {result}")
+        return result
+
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """
         更新实体

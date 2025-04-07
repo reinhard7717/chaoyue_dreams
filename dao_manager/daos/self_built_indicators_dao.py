@@ -9,7 +9,8 @@ from decimal import Decimal, InvalidOperation
 
 import pandas as pd
 import numpy as np
-from django.db import transaction, models, Q
+from django.db import transaction, models
+from django.db.models import Q
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 

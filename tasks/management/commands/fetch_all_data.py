@@ -33,6 +33,7 @@ from dao_manager.daos.data_center.financial_dao import FinancialDao
 from dao_manager.daos.data_center.institutional_shareholding_dao import InstitutionalShareholdingDao
 from dao_manager.daos.data_center.lhb_dao import LhbDAO
 from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
+from services.indicator_services import BaseIndicatorService
 from stock_models.stock_basic import StockInfo, StockTimeTrade
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
@@ -195,6 +196,10 @@ class Command(BaseCommand):
         if data_type in ('all', 'stock_trade_fetch_redis'):
             await self.fetch_stock_trade_data_from_db()
             self.stdout.write(self.style.SUCCESS('完成股票交易数据缓存刷新'))
+
+        if data_type in ('all', 'calculate_stock'):
+            await self.calculate_stock_indicators()
+            self.stdout.write(self.style.SUCCESS('完成股票指标数据计算'))
 
     async def fetch_stock_basic(self, stock_codes=None):
         """获取股票基础信息"""
@@ -655,7 +660,15 @@ class Command(BaseCommand):
                     #    logger.info(f"缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, cache_data: {cache_data}")
                        await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
             
-            
+    async def calculate_stock_indicators(self):
+        """计算股票指标数据"""
+        self.stdout.write('计算股票指标数据...')
+        indicator_services = BaseIndicatorService()
+        stock_basic_dao = StockBasicDAO()
+        all_stocks = await stock_basic_dao.get_stock_list()
+        for stock in all_stocks:
+            await indicator_services.calculate_and_save_stock(stock.stock_code, 'Day')
+        self.stdout.write(self.style.SUCCESS('完成股票指标数据计算'))
             
         
 
