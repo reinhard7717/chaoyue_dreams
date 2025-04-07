@@ -125,7 +125,7 @@ def save_stock_all_latest_realtime_data(self):
 
 # --- 新增：处理单个股票单个时间级别历史数据的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_history_trade')
-def process_single_stock_history_trade(self, stock_code: str, time_level: str):
+def process_single_stock_history_trade(self, stock_code: str):
     """
     获取并保存单个股票在指定时间级别的历史分时/K线数据 (子任务)
     """
@@ -134,19 +134,19 @@ def process_single_stock_history_trade(self, stock_code: str, time_level: str):
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
 
     stock_indicators_dao = None # 初始化
-    task_result = f"保存历史数据失败 for {stock_code} ({time_level})" # 默认失败结果
+    task_result = f"保存历史数据失败 for {stock_code}" # 默认失败结果
 
     try:
         # 在任务内部实例化 DAO
         stock_indicators_dao = StockIndicatorsDAO()
         # 在同步的 Celery 任务中运行异步 DAO 方法
         # 注意：这里假设 fetch_and_save_history_time_trade_by_stock_code 是 async
-        asyncio.run(stock_indicators_dao.fetch_and_save_history_time_trade_by_stock_code(stock_code, time_level))
+        asyncio.run(stock_indicators_dao.fetch_and_save_history_time_trade_by_stock_code(stock_code))
         # task_result = f"成功保存历史数据 for {stock_code} ({time_level})"
         logger.info(task_result)
     except Exception as e:
-        logger.error(f"保存历史数据时发生错误 for {stock_code} ({time_level}): {e}", exc_info=True)
-        task_result = f"保存历史数据失败 for {stock_code} ({time_level}): {e}"
+        logger.error(f"保存历史数据时发生错误 for {stock_code} : {e}", exc_info=True)
+        task_result = f"保存历史数据失败 for {stock_code}: {e}"
         # 可以选择性地失败任务
         # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
         # raise Ignore()
@@ -159,9 +159,9 @@ def process_single_stock_history_trade(self, stock_code: str, time_level: str):
                      asyncio.run(stock_indicators_dao.close())
                 elif callable(getattr(stock_indicators_dao, 'close', None)):
                      stock_indicators_dao.close()
-                logger.debug(f"DAO for {stock_code} ({time_level}) closed.")
+                logger.debug(f"DAO for {stock_code} closed.")
             except Exception as close_err:
-                logger.error(f"关闭 DAO for {stock_code} ({time_level}) 时出错: {close_err}", exc_info=True)
+                logger.error(f"关闭 DAO for {stock_code} 时出错: {close_err}", exc_info=True)
         # logger.info(f"子任务结束: process_single_stock_history_trade for {stock_code} ({time_level})")
 
     return task_result
@@ -196,10 +196,7 @@ def save_stock_all_history_time_trade(self):
         # 创建子任务签名列表
         tasks_signatures = []
         for stock in stocks:
-            for time_level in TIME_LEVELS:
-                # 为每个 stock_code 和 time_level 组合创建签名
-                tasks_signatures.append(process_single_stock_history_trade.s(stock.stock_code, time_level))
-
+            tasks_signatures.append(process_single_stock_history_trade.s(stock.stock_code))
         if not tasks_signatures:
              logger.warning("没有生成任何子任务签名，任务结束")
              return "没有有效的股票或时间级别组合，未分发任务"
