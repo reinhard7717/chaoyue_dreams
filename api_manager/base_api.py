@@ -265,7 +265,7 @@ class BaseAPI:
                             self.retry_delay * (self.retry_delay_factor ** retry_count),
                             self.max_retry_delay
                         )
-                        logger.info(f"将在 {retry_delay:.1f} 秒后重试请求 ({retry_count + 1}/{self.max_retry_count})")
+                        # logger.info(f"将在 {retry_delay:.1f} 秒后重试请求 ({retry_count + 1}/{self.max_retry_count})")
                         await asyncio.sleep(retry_delay)
                         return await self._make_request(
                             method, original_url, params, data, headers, expected_type, retry_count + 1
