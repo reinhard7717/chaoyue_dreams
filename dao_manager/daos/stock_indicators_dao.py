@@ -367,37 +367,42 @@ class StockIndicatorsDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
-        try:
-            data_dicts = []
-            total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_LEVELS:
+        
+        data_dicts = []
+        total_result = {'创建': 0, '更新': 0, '跳过': 0}
+        for time_level in TIME_LEVELS:
+            try:
                 api_datas = await self.api.get_history_trade(stock_code, time_level)
-                logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
+            except Exception as e:
+                logger.error(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据出错111: {str(e)}")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
+            try:
                 for index, api_data in enumerate(api_datas):
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
-                    # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
-                    if index < self.cache_limit:
-                        # logger.info(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据, data_dict: {data_dict}")
-                        await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
-                # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 20000:
-                    logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                    batch_result = await self._save_all_to_db_native_upsert(
-                        model_class=StockTimeTrade,
-                        data_list=data_dicts,
-                        unique_fields=['stock', 'time_level', 'trade_time']
-                    )
-                    logger.info(f"批次数据保存完成，结果: {batch_result}")
-                    # 累加结果
-                    for key in total_result:
-                        total_result[key] += batch_result.get(key, 0)
-                    # 清空数据列表，准备下一批
-                    data_dicts = []
-        except Exception as e:
-            logger.error(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据出错111: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
+                # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
+                if index < self.cache_limit:
+                    # logger.info(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据, data_dict: {data_dict}")
+                    await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
+            except Exception as e:
+                logger.error(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据出错222: {str(e)}")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+            # 当数据量超过10万时，保存一次
+            if len(data_dicts) >= 20000:
+                logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
+                batch_result = await self._save_all_to_db_native_upsert(
+                    model_class=StockTimeTrade,
+                    data_list=data_dicts,
+                    unique_fields=['stock', 'time_level', 'trade_time']
+                )
+                logger.info(f"批次数据保存完成，结果: {batch_result}")
+                # 累加结果
+                for key in total_result:
+                    total_result[key] += batch_result.get(key, 0)
+                # 清空数据列表，准备下一批
+                data_dicts = []
+            # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
         try:
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
@@ -426,7 +431,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"所有股票历史分时成交数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
-            logger.error(f"保存{stock}股票分时成交数据出错222: {str(e)}")
+            logger.error(f"保存{stock}股票分时成交数据出错: {str(e)}")
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
