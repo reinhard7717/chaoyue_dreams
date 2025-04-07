@@ -516,7 +516,7 @@ class CacheManager:
 
             if current_size is None or current_size <= keep_latest:
                 # 键不存在或大小未超限，无需修剪
-                logger.debug(f"ZTRIMBYRANK 无需修剪: key={key}, current_size={current_size}, keep_latest={keep_latest}")
+                # logger.debug(f"ZTRIMBYRANK 无需修剪: key={key}, current_size={current_size}, keep_latest={keep_latest}")
                 return 0
 
             # 计算需要移除的数量
@@ -525,7 +525,7 @@ class CacheManager:
             # 例如，保留 200，当前 210，移除 10 个，移除排名 0 到 9
             end_rank = remove_count - 1
 
-            logger.info(f"ZTRIMBYRANK: 准备移除 key={key} 中排名 0 到 {end_rank} 的 {remove_count} 个成员，保留最新 {keep_latest} 个。")
+            # logger.info(f"ZTRIMBYRANK: 准备移除 key={key} 中排名 0 到 {end_rank} 的 {remove_count} 个成员，保留最新 {keep_latest} 个。")
 
             # 执行移除操作
             removed_count = self.redis_client.zremrangebyrank(key, 0, end_rank)
