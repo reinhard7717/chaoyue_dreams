@@ -843,7 +843,6 @@ class StockIndexDAO(BaseDAO):
                 data_dict = await self.data_format_process.set_index_data(index_data)
                 data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存指数数据")
             result = await self._save_all_to_db(
                 model_class=IndexInfo,
                 data_list=data_dicts,
@@ -887,7 +886,6 @@ class StockIndexDAO(BaseDAO):
             await self.cache_set.realtime_data(index_code, cache_dict)
             # logger.info(f"data_dict: {data_dict}")
             # 保存数据
-            logger.info(f"开始保存{index_code}指数实时数据")
             result = await self._save_all_to_db(
                 model_class=IndexRealTimeData,
                 data_list=data_dicts,
@@ -989,7 +987,6 @@ class StockIndexDAO(BaseDAO):
             data_dict = await self.data_format_process.set_time_series(index, time_level, api_data)
             data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数实时数据")
             result = await self._save_all_to_db(
                 model_class=IndexTimeSeriesData,
                 data_list=data_dicts,
@@ -1026,7 +1023,6 @@ class StockIndexDAO(BaseDAO):
                 cache_dict = data_dict.copy()
                 await self.cache_set.latest_time_series(index_code, time_level, cache_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数最新时间序列数据")
             result = await self._save_all_to_db(
                 model_class=IndexTimeSeriesData,
                 data_list=data_dicts,
@@ -1083,7 +1079,6 @@ class StockIndexDAO(BaseDAO):
                 processed_indices_in_batch.add(index_code) # 记录本批次处理了哪个指数
                 await self.cache_set.history_time_series(index_code, time_level, data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数历史时间序列数据")
             result = await self._save_all_to_db(
                 model_class=IndexTimeSeriesData,
                 data_list=data_dicts,
@@ -1145,7 +1140,6 @@ class StockIndexDAO(BaseDAO):
             
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=IndexTimeSeriesData,
                     data_list=data_dicts,
@@ -1246,7 +1240,6 @@ class StockIndexDAO(BaseDAO):
                 return []
             
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别KDJ指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexKDJData,
                 data_list=data_dicts,
@@ -1276,7 +1269,6 @@ class StockIndexDAO(BaseDAO):
             await self.cache_set.latest_kdj(index.code, time_level, data_dict)
             data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数{time_level}级别KDJ指标数据")
         result = await self._save_all_to_db(
             model_class=IndexKDJData,
             data_list=data_dicts,
@@ -1305,7 +1297,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_kdj(index_code, period, data_dict)
                 data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数各级别KDJ指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexKDJData,
                 data_list=data_dicts,
@@ -1333,7 +1324,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_kdj(index.code, time_level, data_dict)
                 data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数各级别KDJ指标数据")
         result = await self._save_all_to_db(
             model_class=IndexKDJData,
             data_list=data_dicts,
@@ -1371,7 +1361,6 @@ class StockIndexDAO(BaseDAO):
                 # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                 await self.cache_set.history_kdj(index.code, time_level, data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别历史KDJ指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexKDJData,
                 data_list=data_dicts,
@@ -1436,7 +1425,6 @@ class StockIndexDAO(BaseDAO):
                     data_dicts = []
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=IndexKDJData,
                     data_list=data_dicts,
@@ -1505,7 +1493,6 @@ class StockIndexDAO(BaseDAO):
                 logger.error(f"解析指数MACD指标数据失败: {str(e)}")
                 return []
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别MACD指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexMACDData,
                 data_list=data_dicts,
@@ -1541,7 +1528,6 @@ class StockIndexDAO(BaseDAO):
             await self.cache_set.latest_macd(index.code, time_level, cache_dict)
             data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数{time_level}级别MACD指标数据")
         result = await self._save_all_to_db(
             model_class=IndexMACDData,
             data_list=data_dicts,
@@ -1571,7 +1557,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_macd(index_code, time_level, cache_dict)
                 data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数各级别MACD指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexMACDData,
                 data_list=data_dicts,
@@ -1600,7 +1585,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_macd(index.code, time_level, cache_dict)
                 data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数各级别MACD指标数据")
         result = await self._save_all_to_db(
             model_class=IndexMACDData,
             data_list=data_dicts,
@@ -1642,7 +1626,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.history_macd(index_code, time_level, cache_dict)
                     
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别历史MACD指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexMACDData,
                 data_list=data_dicts,
@@ -1708,11 +1691,8 @@ class StockIndexDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                
-            
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=IndexMACDData,
                     data_list=data_dicts,
@@ -1786,7 +1766,6 @@ class StockIndexDAO(BaseDAO):
                 return []
             
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别MA指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexMAData,
                 data_list=data_dicts,
@@ -1821,7 +1800,6 @@ class StockIndexDAO(BaseDAO):
             await self.cache_set.latest_ma(index.code, time_level, cache_dict)
             data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数{time_level}级别MA指标数据")
         result = await self._save_all_to_db(
             model_class=IndexMAData,
             data_list=data_dicts,
@@ -1853,7 +1831,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_ma(index_code, time_level, cache_dict)
                 data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数各级别MA指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexMAData,
                 data_list=data_dicts,
@@ -1882,7 +1859,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_ma(index.code, time_level, cache_dict)
                 data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数各级别MA指标数据")
         result = await self._save_all_to_db(
             model_class=IndexMAData,
             data_list=data_dicts,
@@ -1920,7 +1896,6 @@ class StockIndexDAO(BaseDAO):
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_ma(index_code, time_level, cache_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别历史MA指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexMAData,
                 data_list=data_dicts,
@@ -1986,11 +1961,8 @@ class StockIndexDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                
-            
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=IndexMAData,
                     data_list=data_dicts,
@@ -2064,7 +2036,6 @@ class StockIndexDAO(BaseDAO):
                 return []
             
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别BOLL指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexBOLLData,
                 data_list=data_dicts,
@@ -2099,7 +2070,6 @@ class StockIndexDAO(BaseDAO):
             await self.cache_set.latest_boll(index.code, time_level, cache_dict)
             data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数{time_level}级别BOLL指标数据")
         result = await self._save_all_to_db(
             model_class=IndexBOLLData,
             data_list=data_dicts,
@@ -2129,7 +2099,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_boll(index_code, period, cache_dict)
                 data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存{index_code}指数各级别BOLL指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexBOLLData,
                 data_list=data_dicts,
@@ -2158,7 +2127,6 @@ class StockIndexDAO(BaseDAO):
                 await self.cache_set.latest_boll(index.code, time_level, cache_dict)
                 data_dicts.append(data_dict)
         # 保存数据
-        logger.info(f"开始保存所有指数各级别BOLL指标数据")
         result = await self._save_all_to_db(
             model_class=IndexBOLLData,
             data_list=data_dicts,
@@ -2198,7 +2166,6 @@ class StockIndexDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
-            logger.info(f"开始保存{index_code}指数{time_level}级别历史MA指标数据")
             result = await self._save_all_to_db(
                 model_class=IndexBOLLData,
                 data_list=data_dicts,
@@ -2260,7 +2227,6 @@ class StockIndexDAO(BaseDAO):
                     # 清空数据列表，准备下一批
             # 保存剩余数据
             if data_dicts:
-                logger.warning(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=IndexBOLLData,
                     data_list=data_dicts,

@@ -122,7 +122,6 @@ class StockBasicDAO(BaseDAO):
         # 从数据库获取
         logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
         stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
-        logger.info(f"get_stock_by_code,stock: {stock}, type: {type(stock)}")
         # 如果数据库中有数据，缓存并返回
         if stock:
             cache_data = self.data_format_process.set_stock_info_data(stock)
@@ -347,7 +346,6 @@ class StockBasicDAO(BaseDAO):
                 data_dict = self.data_format_process.set_stock_info_data(api_data)
                 data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存股票数据，共{len(data_dicts)}条")
             result = await self._save_all_to_db(
                 model_class=StockInfo,
                 data_list=data_dicts,

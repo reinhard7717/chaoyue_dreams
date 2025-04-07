@@ -195,7 +195,6 @@ class LhbDAO(BaseDAO):
                 data_dicts.append(data_dict)
             
             # 保存数据
-            logger.info("开始保存龙虎榜数据")
             result = await self._save_all_to_db(
                 model_class=LhbDetail,
                 data_list=data_dicts,

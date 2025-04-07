@@ -204,7 +204,6 @@ class StockIndicatorsDAO(BaseDAO):
             data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别分时成交数据")
             result = await self._save_all_to_db(
                 model_class=StockTimeTrade,
                 data_list=data_dicts,
@@ -246,7 +245,6 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.warning(f"API未返回{stock}股票的{time_level}级别时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
-            logger.info(f"开始保存{stock}股票分时成交数据")
             result = await self._save_all_to_db(
                 model_class=StockTimeTrade,
                 data_list=data_dicts,
@@ -342,7 +340,6 @@ class StockIndicatorsDAO(BaseDAO):
                 await self.cache_set.history_time_trade(stock_code, time_level, data_dict)
                 processed_indices_in_batch.add(stock_code)
             # 保存数据
-            logger.info(f"开始保存 {stock} 股票 {time_level} 级别历史分时成交数据")
             result = await self._save_all_to_db(
                 model_class=StockTimeTrade,
                 data_list=data_dicts,
@@ -404,7 +401,6 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=StockTimeTrade,
                     data_list=data_dicts,
@@ -503,7 +499,6 @@ class StockIndicatorsDAO(BaseDAO):
             await self.cache_set.latest_kdj(stock_code, time_level, cache_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别KDJ指标数据")
             result = await self._save_all_to_db(
                 model_class=StockKDJIndicator,
                 data_list=data_dicts,
@@ -549,7 +544,6 @@ class StockIndicatorsDAO(BaseDAO):
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
             # 保存数据
-            logger.info(f"开始保存{stock}股票KDJ指标数据，data_dicts: {data_dicts}")
             result = await self._save_all_to_db(
                 model_class=StockKDJIndicator,
                 data_list=data_dicts,
@@ -580,7 +574,6 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.warning(f"API未返回{time_level}级别的所有股票KDJ指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
-            logger.info(f"开始保存{time_level}级别KDJ指标数据")
             result = await self._save_all_to_db(
                 model_class=StockKDJIndicator,
                 data_list=data_dicts,
@@ -674,7 +667,6 @@ class StockIndicatorsDAO(BaseDAO):
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_kdj(stock_code, time_level, cache_dict)
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别KDJ指标数据")
             result = await self._save_all_to_db(
                 model_class=StockKDJIndicator,
                 data_list=data_dicts,
@@ -737,7 +729,6 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=StockKDJIndicator,
                     data_list=data_dicts,
@@ -832,7 +823,6 @@ class StockIndicatorsDAO(BaseDAO):
             data_dicts.append(data_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别最新MACD指标数据")
             result = await self._save_all_to_db(
                 model_class=StockMACDIndicator,
                 data_list=data_dicts,
@@ -871,7 +861,6 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.warning(f"API未返回{stock}股票的{time_level}级别最新MACD指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}            
             # 保存数据
-            logger.info(f"开始保存{stock}股票最新MACD指标数据")
             result = await self._save_all_to_db(
                 model_class=StockMACDIndicator,
                 data_list=data_dicts,
@@ -960,7 +949,6 @@ class StockIndicatorsDAO(BaseDAO):
                 await self.cache_set.history_macd(stock_code, time_level, cache_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别历史MACD指标数据")
             result = await self._save_all_to_db(
                 model_class=StockMACDIndicator,
                 data_list=data_dicts,
@@ -1024,7 +1012,6 @@ class StockIndicatorsDAO(BaseDAO):
             
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=StockMACDIndicator,
                     data_list=data_dicts,
@@ -1123,7 +1110,6 @@ class StockIndicatorsDAO(BaseDAO):
             await self.cache_set.latest_ma(stock_code, time_level, cache_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别最新MA指标数据")
             result = await self._save_all_to_db(
                 model_class=StockMAIndicator,
                 data_list=data_dicts,
@@ -1165,7 +1151,6 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.warning(f"API未返回{stock}股票的{time_level}级别最新MA指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
-            logger.info(f"开始保存{stock}股票最新MA指标数据")
             result = await self._save_all_to_db(
                 model_class=StockMAIndicator,
                 data_list=data_dicts,
@@ -1252,7 +1237,6 @@ class StockIndicatorsDAO(BaseDAO):
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_ma(stock_code, time_level, cache_dict)
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别历史MA指标数据")
             result = await self._save_all_to_db(
                 model_class=StockMAIndicator,
                 data_list=data_dicts,
@@ -1315,7 +1299,6 @@ class StockIndicatorsDAO(BaseDAO):
                     return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=StockMAIndicator,
                     data_list=data_dicts,
@@ -1414,7 +1397,6 @@ class StockIndicatorsDAO(BaseDAO):
             await self.cache_set.latest_boll(stock.stock_code, time_level, cache_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别最新BOLL指标数据")
             result = await self._save_all_to_db(
                 model_class=StockBOLLIndicator,
                 data_list=data_dicts,
@@ -1456,7 +1438,6 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.warning(f"API未返回{stock}股票的{time_level}级别最新BOLL指标数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
-            logger.info(f"开始保存{stock}股票最新BOLL指标数据")
             result = await self._save_all_to_db(
                 model_class=StockBOLLIndicator,
                 data_list=data_dicts,
@@ -1547,7 +1528,6 @@ class StockIndicatorsDAO(BaseDAO):
                 await self.cache_set.history_boll(stock.stock_code, time_level, cache_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别历史BOLL指标数据")
             result = await self._save_all_to_db(
                 model_class=StockBOLLIndicator,
                 data_list=data_dicts,
@@ -1610,7 +1590,6 @@ class StockIndicatorsDAO(BaseDAO):
                     return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
-                logger.info(f"开始保存剩余{len(data_dicts)}条数据")
                 final_result = await self._save_all_to_db(
                     model_class=StockBOLLIndicator,
                     data_list=data_dicts,
