@@ -546,6 +546,128 @@ class BaseDAO(Generic[T]):
         logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用 bulk_update_or_create): {result}")
         return result
 
+    async def _save_all_to_db_native_upsert(
+        self, # 假设这是类的一部分
+        model_class: Type[models.Model],
+        data_list: List[Dict[str, Any]],
+        unique_fields: List[str], # 用于冲突检测的字段 (应有唯一约束)
+        # extra_fields 仍然有用
+        **extra_fields: Any,
+    ) -> Dict[str, int]:
+        """
+        使用 Django 5 原生的 bulk_create 实现 Upsert (Update or Create) 的批量处理方法。
+        不再依赖外部库 django-bulk-update-or-create。
+
+        Args:
+            model_class: Django模型类
+            data_list: 要处理的数据列表，每项都是模型对应的字段字典
+            unique_fields: 用于确定唯一记录并检测冲突的字段列表 (必须在数据库中有唯一约束)
+            **extra_fields: 额外的字段，将添加到所有创建/更新的记录中
+
+        Returns:
+            dict: 包含处理尝试的总数和失败的记录数。
+                注意：Django 原生 bulk_create 在 upsert 模式下不直接返回创建/更新计数。
+        """
+        if not data_list:
+            logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0} # 简化返回结构
+
+        if not isinstance(data_list, list):
+            data_list = [data_list]
+
+        total_attempted = len(data_list)
+        failed_count = 0
+
+        # --- 确定 update_fields ---
+        # 这些是当记录存在时，需要被更新的字段
+        all_keys = set()
+        if data_list: # 确保 data_list 不为空
+            # 从第一个数据项获取基础键，并合并 extra_fields 的键
+            all_keys = set(data_list[0].keys()) | set(extra_fields.keys())
+            # 可以选择遍历所有项来获取所有可能的键，但这可能效率稍低
+            # for item in data_list:
+            #     all_keys.update(item.keys())
+            # all_keys.update(extra_fields.keys())
+
+        # update_fields 是所有字段中排除了 unique_fields 的部分
+        update_fields = list(all_keys - set(unique_fields))
+
+        # 可选：从 update_fields 中移除主键（通常不需要更新主键）
+        pk_name = model_class._meta.pk.name
+        if pk_name in update_fields:
+            update_fields.remove(pk_name)
+        # 可选：移除其他不应更新的字段
+        # read_only_fields = getattr(model_class._meta, "read_only_fields", [])
+        # update_fields = [f for f in update_fields if f not in read_only_fields]
+
+        if not update_fields:
+            logger.warning(
+                f"模型 {model_class.__name__} 没有可用于更新的字段（除了唯一字段 {unique_fields}）。"
+                f" bulk_create 在 update_conflicts=True 模式下仍会尝试，但现有记录不会被修改。"
+            )
+            # 即使 update_fields 为空，只要 unique_fields 设置正确，创建逻辑仍然有效
+
+        batch_size = 2000 # 保持批处理大小
+        for i in range(0, len(data_list), batch_size):
+            batch = data_list[i : i + batch_size]
+            current_batch_size = len(batch)
+
+            # --- 准备模型实例列表 ---
+            # bulk_create 需要的是模型实例列表，而不是字典列表
+            objs_to_process = []
+            for item in batch:
+                # 合并 extra_fields 到每个 item
+                # 确保 extra_fields 不会意外覆盖 item 中已有的同名字段的值
+                prepared_data = {**item, **extra_fields}
+                objs_to_process.append(model_class(**prepared_data))
+
+            @transaction.atomic # 每个批次仍在事务中执行
+            def process_batch_sync():
+                nonlocal failed_count
+                try:
+                    # --- 核心改动: 使用原生 bulk_create 进行 Upsert ---
+                    model_class.objects.bulk_create(
+                        objs_to_process,
+                        update_conflicts=True,       # 启用 Upsert
+                        unique_fields=unique_fields, # 指定冲突判断字段
+                        update_fields=update_fields, # 指定冲突时更新的字段
+                        batch_size=current_batch_size # 可以传递 batch_size 给 bulk_create
+                    )
+                    # bulk_create 在此模式下不直接返回详细的创建/更新计数
+                    # logger.info(f"批次 {i // batch_size + 1} 处理成功")
+
+                except (IntegrityError, DatabaseError) as e:
+                    # 捕获数据库层面的错误
+                    # 注意：如果 unique_fields 没有在数据库层面设置唯一约束，这里可能不会按预期触发冲突
+                    # 或者如果 update_fields 包含无法更新的字段（如外键指向不存在的对象），也可能报错
+                    logger.error(
+                        f"批次 {i // batch_size + 1} (大小: {current_batch_size}) "
+                        f"使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}"
+                    )
+                    failed_count += current_batch_size # 整个批次标记为失败
+                except Exception as e:
+                    # 捕获其他潜在错误 (如数据准备阶段的类型错误)
+                    logger.error(
+                        f"批次 {i // batch_size + 1} (大小: {current_batch_size}) "
+                        f"使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}",
+                        exc_info=True # 记录完整的 traceback
+                    )
+                    failed_count += current_batch_size # 整个批次标记为失败
+
+            # 使用 sync_to_async 运行同步的数据库操作
+            await sync_to_async(process_batch_sync)()
+
+        # --- 最终结果 ---
+        successful_count = total_attempted - failed_count
+        result = {
+            "尝试处理": total_attempted,
+            "失败": failed_count,
+            "创建/更新成功": successful_count, # 合并计数
+        }
+
+        logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用原生 bulk_create upsert): {result}")
+        return result
+
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """
         更新实体

@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 
 class IndexVwap(models.Model):
     """VWAP (成交量加权平均价) 指标存储模型"""

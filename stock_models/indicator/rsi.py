@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 
 class IndexRsiFIB(models.Model):
     """RSI 指标存储模型 (斐波那契周期)"""

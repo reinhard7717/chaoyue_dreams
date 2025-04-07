@@ -2,6 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from stock_models.stock_basic import StockInfo
 from utils.models import BaseModel
+from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 
 class FundFlowMinute(BaseModel):
     """

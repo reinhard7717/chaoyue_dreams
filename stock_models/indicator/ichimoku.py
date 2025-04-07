@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 
 class IndexIchimoku(models.Model):
     """Ichimoku Cloud (一目均衡表) 指标存储模型"""

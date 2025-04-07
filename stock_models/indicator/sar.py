@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 
 class IndexSar(models.Model):
     """SAR 指标存储模型""" # SAR 参数不是简单的周期

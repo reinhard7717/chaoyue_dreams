@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'tasks',  # 添加任务应用
     'django_celery_results',  # 添加Celery结果存储应用
     'django_celery_beat',  # 添加Celery定时任务应用
+    'bulk_update_or_create',
 ]
 
 # 自定义用户模型 - 暂时注释掉，等数据库初始化完成后再启用
