@@ -115,7 +115,7 @@ class StockBasicDAO(BaseDAO):
         # 如果数据库中有数据，缓存并返回
         if stock:
             cache_data = self.data_format_process.set_stock_info_data(stock)
-            logger.info(f"get_stock_by_code,cache_data: {cache_data}, type: {type(cache_data)}")
+            # logger.info(f"get_stock_by_code,cache_data: {cache_data}, type: {type(cache_data)}")
             # *** 正确调用 CacheManager 缓存数据 ***
             success = self.cache_manager.set(
                 key=cache_key,          # 第一个参数：缓存键 (字符串)

@@ -191,7 +191,7 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.warning(f"API未返回{stock}的{time_level}级别时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
-            data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+            data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
             # 保存数据
             logger.info(f"开始保存{stock}股票{time_level}级别分时成交数据")
@@ -225,7 +225,7 @@ class StockIndicatorsDAO(BaseDAO):
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
                     logger.debug(f"未获取到{stock}股票{time_level}级别时间序列数据")
                 else:
@@ -304,7 +304,7 @@ class StockIndicatorsDAO(BaseDAO):
             processed_indices_in_batch = set() # 跟踪当前批次涉及的指数代码
             trim_results_log = {} # 收集修剪日志
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 await self.cache_set.history_time_trade(stock_code, time_level, data_dict)
                 processed_indices_in_batch.add(stock_code)
@@ -345,7 +345,7 @@ class StockIndicatorsDAO(BaseDAO):
                 api_datas = await self.api.get_history_trade(stock_code, time_level)
                 logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
                 for index, api_data in enumerate(api_datas):
-                    data_dict = await self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                    data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if index < self.cache_limit:
@@ -464,7 +464,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return []
             
             data_dicts = []
-            data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+            data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
             cache_dict = data_dict.copy()
             await self.cache_set.latest_kdj(stock_code, time_level, cache_dict)
@@ -500,7 +500,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_kdj(stock.stock_code, time_level)
-                data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
                 # logger.info(f"data_dict: {data_dict}")
                 if data_dict.get('trade_time') is None:
                     logger.debug(f"未获取到{stock}股票{time_level}级别KDJ指标数据")
@@ -541,7 +541,7 @@ class StockIndicatorsDAO(BaseDAO):
             for stock in stocks:
                 for time_level in TIME_LEVELS:
                     api_data = await self.api.get_kdj(stock.stock_code, time_level)
-                    data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+                    data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{time_level}级别的所有股票KDJ指标数据")
@@ -636,7 +636,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_kdj(stock_code, time_level, cache_dict)
@@ -679,7 +679,7 @@ class StockIndicatorsDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
                 for index, api_data in enumerate(api_datas):
-                    data_dict = await self.data_format_process.set_kdj_data(stock, time_level, api_data)
+                    data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
                     cache_dict = data_dict.copy()
                     if index < self.cache_limit:
@@ -795,7 +795,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
+            data_dict = self.data_format_process.set_macd_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
 
             # 保存数据
@@ -827,7 +827,7 @@ class StockIndicatorsDAO(BaseDAO):
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_macd(stock.stock_code, time_level)
-                data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_macd_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
                     logger.debug(f"未获取到{stock}股票{time_level}级别MACD指标数据")
                 else:
@@ -921,7 +921,7 @@ class StockIndicatorsDAO(BaseDAO):
             
             data_dicts = []
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_macd_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_macd(stock_code, time_level, cache_dict)
@@ -965,7 +965,7 @@ class StockIndicatorsDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_macd(stock_code, time_level)
                 for index, api_data in enumerate(api_datas):
-                    data_dict = await self.data_format_process.set_macd_data(stock, time_level, api_data)
+                    data_dict = self.data_format_process.set_macd_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
                     if index <= self.cache_limit:
                         cache_dict = data_dict.copy()
@@ -1083,7 +1083,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
+            data_dict = self.data_format_process.set_ma_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
             cache_dict = data_dict.copy()
             await self.cache_set.latest_ma(stock_code, time_level, cache_dict)
@@ -1120,7 +1120,7 @@ class StockIndicatorsDAO(BaseDAO):
             data_dicts = []
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_ma(stock.stock_code, time_level)
-                data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_ma_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
                     logger.debug(f"未获取到{stock}股票{time_level}级别MA指标数据")
                 else:
@@ -1213,7 +1213,7 @@ class StockIndicatorsDAO(BaseDAO):
             
             data_dicts = []
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_ma_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_ma(stock_code, time_level, cache_dict)
@@ -1256,7 +1256,7 @@ class StockIndicatorsDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_ma(stock_code, time_level)
                 for index, api_item in enumerate(api_datas):
-                    data_dict = await self.data_format_process.set_ma_data(stock, time_level, api_item)
+                    data_dict = self.data_format_process.set_ma_data(stock, time_level, api_item)
                     data_dicts.append(data_dict)
                     if index <= self.cache_limit:
                         cache_dict = data_dict.copy()
@@ -1374,7 +1374,7 @@ class StockIndicatorsDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
-            data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
+            data_dict = self.data_format_process.set_boll_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
             cache_dict = data_dict.copy()
             await self.cache_set.latest_boll(stock.stock_code, time_level, cache_dict)
@@ -1414,7 +1414,7 @@ class StockIndicatorsDAO(BaseDAO):
                 api_data = await self.api.get_boll(stock.stock_code, time_level)
                 if not api_data:
                     continue
-                data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_boll_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 cache_dict = data_dict.copy()
                 await self.cache_set.latest_boll(stock.stock_code, time_level, cache_dict)
@@ -1507,7 +1507,7 @@ class StockIndicatorsDAO(BaseDAO):
             
             data_dicts = []
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
+                data_dict = self.data_format_process.set_boll_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 cache_dict = data_dict.copy()
                 await self.cache_set.history_boll(stock.stock_code, time_level, cache_dict)
@@ -1547,7 +1547,7 @@ class StockIndicatorsDAO(BaseDAO):
             for time_level in TIME_LEVELS:
                 api_datas = await self.api.get_history_boll(stock_code, time_level)
                 for data_index, api_data in enumerate(api_datas):
-                    data_dict = await self.data_format_process.set_boll_data(stock, time_level, api_data)
+                    data_dict = self.data_format_process.set_boll_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
                     if data_index < self.cache_limit:
                         cache_dict = data_dict.copy()
