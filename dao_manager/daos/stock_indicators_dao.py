@@ -394,7 +394,11 @@ class StockIndicatorsDAO(BaseDAO):
                         total_result[key] += batch_result.get(key, 0)
                     # 清空数据列表，准备下一批
                     data_dicts = []
-                # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+        except Exception as e:
+            logger.error(f"保存{stock.stock_code}股票{time_level}级别历史分时成交数据出错111: {str(e)}")
+            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+        try:
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
                 return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
@@ -422,7 +426,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"所有股票历史分时成交数据保存完成，总结果: {total_result}")
             return total_result
         except Exception as e:
-            logger.error(f"保存{stock}股票分时成交数据出错: {str(e)}")
+            logger.error(f"保存{stock}股票分时成交数据出错222: {str(e)}")
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
