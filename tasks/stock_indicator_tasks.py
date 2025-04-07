@@ -17,7 +17,7 @@ def process_single_stock_realtime_data(self, stock_code: str):
     """
     获取并保存单个股票的最新实时数据 (子任务)
     """
-    logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
+    # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
     # 导入 DAO，注意路径根据你的项目结构调整
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
 
@@ -28,8 +28,8 @@ def process_single_stock_realtime_data(self, stock_code: str):
         stock_indicators_dao = StockIndicatorsDAO()
         # 在同步的 Celery 任务中运行异步 DAO 方法
         asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_by_stock_code(stock_code))
-        task_result = f"成功处理股票 {stock_code} 最新实时数据"
-        logger.info(task_result)
+        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
+        # logger.info(task_result)
     except Exception as e:
         logger.error(f"处理股票 {stock_code} 数据时发生错误: {e}", exc_info=True)
         task_result = f"处理股票 {stock_code} 数据失败: {e}"
@@ -48,7 +48,7 @@ def process_single_stock_realtime_data(self, stock_code: str):
                 logger.debug(f"DAO for {stock_code} closed.")
             except Exception as close_err:
                 logger.error(f"关闭股票 {stock_code} 的 DAO 时出错: {close_err}", exc_info=True)
-        logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
+        # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
 
     return task_result # 返回单个任务的结果
 
