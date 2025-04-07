@@ -250,7 +250,7 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            logger.info(f"{stock}股票分时成交数据保存完成，结果: {result}")
+            logger.info(f"{stock} 股票分时成交数据保存完成，结果: {result}")
             return result
         except Exception as e:
             logger.error(f"保存{stock}股票分时成交数据出错: {str(e)}")

@@ -386,11 +386,8 @@ class StockRealtimeDAO(BaseDAO):
     async def fetch_and_save_time_deals(self, stock_code: str) -> Dict:
         """
         批量保存分时成交数据
-        
         Args:
             stock_code: 股票代码
-            api_data_list: API返回的分时成交数据列表
-            
         Returns:
             List[StockTimeDeal]: 保存后的分时成交数据列表
         """
@@ -409,7 +406,7 @@ class StockRealtimeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'trade_time']
             )
-            logger.info(f"{stock}股票分时成交数据保存完成，结果: {result}")
+            logger.info(f"{stock} 股票分时成交数据保存完成，结果: {result}")
             return result
         except Exception as e:
             logger.error(f"保存分时成交数据出错: {e}")

@@ -59,7 +59,7 @@ class BaseAPI:
             r'请稍后再试',
         ]
         
-        logger.info(f"初始化BaseAPI，基础URL: {self.base_url}，可用license数: {len(self.licences)}")
+        # logger.info(f"初始化BaseAPI，基础URL: {self.base_url}，可用license数: {len(self.licences)}")
     
     @property
     async def session(self):
