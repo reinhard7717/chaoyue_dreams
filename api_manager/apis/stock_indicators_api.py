@@ -108,7 +108,8 @@ class StockIndicatorsAPI(BaseAPI):
         """
         endpoint = f"/data/time/history/trade/{stock_code}/{time_level}"
         api_data = await self.get(endpoint, expected_type='list')
-        api_data.sort(key=lambda x: x['d'], reverse=True)
+        if isinstance(api_data, list):
+            api_data.sort(key=lambda x: x['d'], reverse=True)
         # logger.info(f"获取历史分时交易数据: {stock_code}, 级别: {time_level}, 数据量: {len(api_data)}")
         return api_data
     
