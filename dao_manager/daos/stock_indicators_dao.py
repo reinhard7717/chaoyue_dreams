@@ -276,19 +276,39 @@ class StockIndicatorsDAO(BaseDAO):
 
     async def fetch_and_save_all_latest_time_trade(self) -> Dict:
         """
-        从API获取并保存所有最新股票分时成交数据
+        从API获取并保存所有最新股票分时成交数据，使用异步并发处理
         """
+        import asyncio
+        
+        # 获取所有股票列表
         stocks = await self.stock_basic_dao.get_stock_list()
         total_result = {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
-        for stock in stocks:
-            result = await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
-            # 使用 .get() 进行累加，提供默认值 0
-            total_result['创建'] += result.get('创建', 0)
-            total_result['更新'] += result.get('更新', 0)
-            total_result['未更改'] += result.get('未更改', 0)
-            total_result['失败'] += result.get('失败', 0)
-            total_result['跳过'] += result.get('跳过', 0)
+        
+        # 将股票列表分成每组100个
+        batch_size = 100
+        stock_batches = [stocks[i:i+batch_size] for i in range(0, len(stocks), batch_size)]
+        
+        # 定义处理单个股票的任务
+        async def process_stock(stock):
+            return await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
+        
+        # 并发处理每个批次
+        for batch in stock_batches:
+            # 为每个批次创建任务列表
+            tasks = [process_stock(stock) for stock in batch]
+            # 并发执行该批次的所有任务
+            batch_results = await asyncio.gather(*tasks)
+            
+            # 聚合批次结果
+            for result in batch_results:
+                total_result['创建'] += result.get('创建', 0)
+                total_result['更新'] += result.get('更新', 0)
+                total_result['未更改'] += result.get('未更改', 0)
+                total_result['失败'] += result.get('失败', 0)
+                total_result['跳过'] += result.get('跳过', 0)
+        
         return total_result
+
 
     async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Dict:
         """
@@ -421,7 +441,7 @@ class StockIndicatorsDAO(BaseDAO):
                 await self.fetch_and_save_history_time_trade_by_stock_code(stock.stock_code)
         except Exception as e:
             logger.error(f"保存{stock}股票历史分时成交数据出错: {str(e)}")
-            return []
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     # ================= KDJ指标相关方法 =================
     async def get_latest_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Optional[StockKDJIndicator]:
