@@ -168,8 +168,8 @@ def process_single_stock_history_trade(self, stock_code: str, time_level: str):
 
 # --- 修改后的主任务 (分发器) ---
 # 注意：移除了原签名中的 stock_code 参数，因为逻辑是处理所有股票
-@celery_app.task(bind=True, name='tasks.stock_indicators.dispatch_history_time_trade_saving')
-def dispatch_history_time_trade_saving(self):
+@celery_app.task(bind=True, name='tasks.stock_indicators.save_stock_all_history_time_trade')
+def save_stock_all_history_time_trade(self):
     """
     分发任务以并发保存所有股票在所有时间级别的历史分时/K线数据 (主任务/分发器)
     """
