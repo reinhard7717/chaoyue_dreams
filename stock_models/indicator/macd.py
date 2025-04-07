@@ -59,7 +59,49 @@ class StockMACDIndicator(models.Model):
     
     def __code__(self):
         return self.stock.stock_code
+
+class IndexMACDFIB(models.Model):
+    """
+    MACD指标数据模型 (包含标准MACD和斐波那契周期EMA)
+    """
+    index = models.ForeignKey('IndexInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="macd_fib", verbose_name=_("股票"))
+    time_level = models.CharField(max_length=10, verbose_name='分时级别', db_index=True) # 建议为常用查询字段加索引
+    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True) # 建议为常用查询字段加索引
+
+    # 标准 MACD (12, 26, 9) 相关值
+    diff = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='DIFF(12,26)', null=True, blank=True) # 增加精度
+    dea = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='DEA(9)', null=True, blank=True) # 增加精度
+    macd = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='MACD柱', null=True, blank=True) # 增加精度
+
+    # 新增：基于斐波那契周期的 EMA 值
+    ema5 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(5)", null=True, blank=True)
+    ema8 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(8)", null=True, blank=True)
+    ema13 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(13)", null=True, blank=True)
+    ema21 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(21)", null=True, blank=True)
+    ema34 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(34)", null=True, blank=True)
+    ema55 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(55)", null=True, blank=True)
+    ema89 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(89)", null=True, blank=True)
+    ema144 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(144)", null=True, blank=True)
+    ema233 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="EMA(233)", null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'MACD及EMA指标数据' # 更新名称以反映内容
+        verbose_name_plural = verbose_name
+        db_table = 'index_macd_fib' # 表名可以保持不变
+        unique_together = ('index', 'time_level', 'trade_time')
+        ordering = ['index', 'time_level', 'trade_time']
+        # 为常用查询添加索引
+        indexes = [
+            models.Index(fields=['index', 'time_level', 'trade_time']),
+            models.Index(fields=['trade_time']),
+        ]
     
+    def __str__(self):
+        return f"{self.index.code}-{self.time_level}-{self.trade_time}"
+    
+    def __code__(self):
+        return self.index.code
+
 class StockMACDFIB(models.Model):
     """
     MACD指标数据模型 (包含标准MACD和斐波那契周期EMA)

@@ -207,6 +207,37 @@ class MarketCategory(models.Model):
         """获取二级分类显示名称"""
         return self.type2_name or f"类型{self.type2}"
 
+class StockTimeTrade(models.Model):
+    """
+    分时交易数据模型
+    """
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="time_trade", verbose_name=_("股票"))
+    time_level = models.CharField(max_length=10, verbose_name='分时级别')
+    trade_time = models.DateTimeField(verbose_name='交易时间')
+    open_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='开盘价', null=True)
+    high_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='最高价', null=True)
+    low_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='最低价', null=True)
+    close_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='收盘价', null=True)
+    volume = models.BigIntegerField(verbose_name='成交量', null=True)
+    turnover = models.DecimalField(max_digits=20, decimal_places=2, verbose_name='成交额', null=True)
+    amplitude = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='振幅', null=True)
+    turnover_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='换手率', null=True)
+    price_change_percent = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌幅', null=True)
+    price_change_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='涨跌额', null=True)
+    
+    class Meta:
+        verbose_name = '分时交易数据'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade'
+        unique_together = ('stock', 'time_level', 'trade_time')
+        ordering = ['stock', 'time_level', 'trade_time']
+    
+    def __str__(self):
+        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
+    
+    def __code__(self):
+        return self.stock.stock_code
+
 
 # 创建分类查找辅助类
 class CategoryTypeManager:

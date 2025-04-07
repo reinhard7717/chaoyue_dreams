@@ -557,10 +557,8 @@ class FundFlowDAO(BaseDAO):
     async def fetch_and_save_fund_flow_minute(self, stock_code: str) -> List[FundFlowMinute]:
         """
         获取并保存股票的分钟级资金流向数据
-        
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[FundFlowMinute]: 保存的分钟级资金流向数据列表
         """
@@ -569,42 +567,38 @@ class FundFlowDAO(BaseDAO):
         if not stock:
             return []
         try:
-            api_data = await self.api.get_fund_flow_trend(stock.stock_code, time_level)
+            api_data = await self.api.get_fund_flow_trend(stock.stock_code)
                 
             if not api_data:
-                logger.warning(f"API未返回{stock}的{time_level}级别时间序列数据")
+                logger.warning(f"API未返回{stock}的分钟级资金流向数据")
                 return []
             
             data_dicts = []
             data_dict = {
                 'stock': stock,
-                'time_level': time_level,
                 'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                'volume': self._parse_number(api_data.get('v')),  # 成交量
-                'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
+                'change_percent': api_data.get('change_percent'),
+                'inflow_amount': api_data.get('inflow_amount'),
+                'outflow_amount': api_data.get('outflow_amount'),
+                'net_inflow': api_data.get('net_inflow'),
+                'net_inflow_rate': api_data.get('net_inflow_rate'),
+                'main_inflow_rate': api_data.get('main_inflow_rate'),
+                'retail_inflow_rate': api_data.get('retail_inflow_rate'),
             }
             data_dicts.append(data_dict)
 
             # 保存数据
-            logger.info(f"开始保存{stock}股票{time_level}级别分时成交数据")
+            logger.info(f"开始保存{stock}股票分钟级资金流向数据")
             result = await self._save_all_to_db(
-                model_class=StockTimeTrade,
+                model_class=FundFlowMinute,
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             
-            logger.info(f"{stock}股票{time_level}级别分时成交数据保存完成，结果: {result}")
+            logger.info(f"{stock}股票分钟级资金流向数据保存完成，结果: {result}")
             return result
         except Exception as e:
-            logger.error(f"保存{stock}股票{time_level}级别  分时成交数据出错: {str(e)}")
+            logger.error(f"保存{stock}股票分钟级资金流向数据出错: {str(e)}")
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
     

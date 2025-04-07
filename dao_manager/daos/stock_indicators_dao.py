@@ -16,8 +16,7 @@ from api_manager.mappings.stock_indicators_mapping import BOLL_INDICATOR_MAPPING
 from dao_manager.base_dao import BaseDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.user_dao import UserDAO
-from stock_models.stock_basic import StockInfo
-from stock_models.stock_indicators import StockTimeTrade
+from stock_models.stock_basic import StockInfo, StockTimeTrade
 
 from utils.cache_get import StockIndicatorsCacheGet
 from utils.cache_manager import CacheManager
@@ -236,13 +235,13 @@ class StockIndicatorsDAO(BaseDAO):
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
-                    logger.debug(f"未获取到{stock}股票{time_level}级别时间序列数据")
+                    logger.debug(f"未获取到{stock} {time_level}级别时间序列数据, data_dict: {data_dict}")
                 else:
                     data_dicts.append(data_dict)
                     cache_dict = data_dict.copy()
                     await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
             if not data_dicts:
-                logger.warning(f"API未返回{stock}股票的{time_level}级别时间序列数据")
+                logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
             result = await self._save_all_to_db(

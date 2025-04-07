@@ -132,7 +132,7 @@ class StockBasicDAO(BaseDAO):
                 data=cache_data,     # 第二个参数：要缓存的数据 (字典)
                 timeout=self.cache_manager.get_timeout('st') # 超时时间
             )
-            logger.info(f"get_stock_by_code,success: {success}")
+            # logger.info(f"get_stock_by_code,success: {success}")
             return stock
 
     async def get_favorite_stocks_by_user(self, user: User) -> List[FavoriteStock]:  

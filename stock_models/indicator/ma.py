@@ -38,7 +38,6 @@ class IndexMAData(models.Model):
     def __code__(self):
         return self.index.code
 
-
 class StockMAIndicator(models.Model):
     """
     MA指标数据模型
@@ -80,6 +79,28 @@ class StockMAIndicator(models.Model):
     def __code__(self):
         return self.stock.stock_code
 
+class IndexEmaFIB(models.Model):
+    """EMA 指标存储模型 (斐波那契周期)"""
+    index = models.ForeignKey('IndexInfo', on_delete=models.CASCADE, related_name="ema_fib", verbose_name="股票")
+    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
+    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
+    # 根据 FIB_PERIODS 动态添加或显式定义字段
+    ema5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(5)")
+    ema8 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(8)")
+    ema13 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(13)")
+    ema21 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(21)")
+    ema34 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(34)")
+    ema55 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(55)")
+    ema89 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(89)")
+    ema144 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(144)")
+    ema233 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(233)")
+
+    class Meta:
+        verbose_name = "EMA指标(斐波那契)"
+        db_table = 'index_ema_fib'
+        verbose_name_plural = verbose_name
+        unique_together = ('index', 'trade_time', 'time_level')
+        indexes = [ models.Index(fields=['index', 'time_level', 'trade_time']), ]
 
 class StockEmaFIB(models.Model):
     """EMA 指标存储模型 (斐波那契周期)"""
@@ -104,7 +125,59 @@ class StockEmaFIB(models.Model):
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
+class IndexAmountMaFIB(models.Model):
+    """成交额移动平均线 (Amount MA) 指标存储模型 (斐波那契周期)"""
+    index = models.ForeignKey('IndexInfo', on_delete=models.CASCADE, related_name="amount_ma_fib", verbose_name="股票")
+    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
+    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
+    # 存储成交额的移动平均值，需要足够大的位数和小数位
+    # 可以选择存储 SMA 或 EMA，这里以 SMA 为例命名
+    amt_ma5 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(5)")
+    amt_ma8 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(8)")
+    amt_ma13 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(13)")
+    amt_ma21 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(21)")
+    amt_ma34 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(34)")
+    amt_ma55 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(55)")
+    amt_ma89 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(89)")
+    amt_ma144 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(144)")
+    amt_ma233 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(233)")
+
+    class Meta:
+        verbose_name = "成交额MA指标(斐波那契)"
+        db_table = 'index_amount_ma_fib'
+        verbose_name_plural = verbose_name
+        unique_together = ('index', 'trade_time', 'time_level')
+        indexes = [
+            models.Index(fields=['index', 'time_level', 'trade_time']),
+        ]
+
+class StockAmountMaFIB(models.Model):
+    """成交额移动平均线 (Amount MA) 指标存储模型 (斐波那契周期)"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, related_name="amount_ma_fib", verbose_name="股票")
+    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
+    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
+
+    # 存储成交额的移动平均值，需要足够大的位数和小数位
+    # 可以选择存储 SMA 或 EMA，这里以 SMA 为例命名
+    amt_ma5 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(5)")
+    amt_ma8 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(8)")
+    amt_ma13 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(13)")
+    amt_ma21 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(21)")
+    amt_ma34 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(34)")
+    amt_ma55 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(55)")
+    amt_ma89 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(89)")
+    amt_ma144 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(144)")
+    amt_ma233 = models.DecimalField(max_digits=22, decimal_places=4, null=True, blank=True, verbose_name="成交额MA(233)")
+
+    class Meta:
+        verbose_name = "成交额MA指标(斐波那契)"
+        db_table = 'stock_amount_ma_fib'
+        verbose_name_plural = verbose_name
+        unique_together = ('stock', 'trade_time', 'time_level')
+        indexes = [
+            models.Index(fields=['stock', 'time_level', 'trade_time']),
+        ]
 
 
 

@@ -12,10 +12,25 @@ from typing import List, Optional, Dict, Type
 from asgiref.sync import sync_to_async
 
 # 模型和 DAO 导入
+from stock_models.indicator.cci import StockCciFIB
+from stock_models.indicator.cmf import StockCmfFIB
+from stock_models.indicator.dmi import StockDmiFIB
+from stock_models.indicator.mfi import StockMfiFIB
+from stock_models.indicator.mom import StockMomFIB
+from stock_models.indicator.roc import StockAmountRocFIB, StockRocFIB
+from stock_models.indicator.sar import StockSar
+from stock_models.indicator.vroc import StockVrocFIB
+from stock_models.indicator.vwap import StockVwap
+from stock_models.indicator.wr import StockWrFIB
 from stock_models.stock_basic import StockInfo
-from stock_models.stock_indicators import (
-    StockAmountMaIndicator, StockAmountRocIndicator, StockAtrIndicator, StockCciIndicator, StockCmfIndicator, StockDmiIndicator, StockEmaIndicator, StockMfiIndicator, StockMomIndicator, StockObvIndicator, StockRocIndicator, StockRsiIndicator, StockSarIndicator, StockTimeTrade, StockKDJIndicator, StockMACDIndicator, StockMAIndicator, StockBOLLIndicator, StockVrocIndicator, StockVwapIndicator, StockWrIndicator
-)
+from stock_models.indicator.atr import StockAtrFIB
+from stock_models.indicator.boll import StockBOLLIndicator
+from stock_models.indicator.kdj import StockKDJFIB
+from stock_models.indicator.macd import StockMACDFIB
+from stock_models.indicator.ma import StockAmountMaFIB, StockEmaFIB
+from stock_models.indicator.rsi import StockRsiFIB
+from stock_models.indicator.obv import StockObvFIB
+
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO, TIME_LEVELS
 # 导入新的 DAO
@@ -46,7 +61,6 @@ class BaseIndicatorService:
     async def _fetch_kline_data_from_dao(self, stock_code: str, kline_period: str) -> pd.DataFrame | None:
         """
         通过 StockIndicatorsDAO 获取历史 K 线数据并转换为 DataFrame。
-        (此方法逻辑与上一个版本相同)
         """
         try:
             klines_list: List[Dict] = await self.stock_indicators_dao.get_history_time_trades_by_limit(
@@ -193,7 +207,7 @@ class HighPriorityIndicatorService(BaseIndicatorService):
 
     # --- EMA ---
     async def calculate_and_save_ema_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockEmaIndicator
+        self.indicator_model = StockEmaFIB
         self.indicator_name = "EMA"
         self.finta_required_columns = ['close'] # EMA 只需要收盘价
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -210,13 +224,13 @@ class HighPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 EMA 时出错: {e}"); return None
 
     async def get_ema_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockEmaIndicator
+        self.indicator_model = StockEmaFIB
         self.indicator_name = "EMA"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- RSI ---
     async def calculate_and_save_rsi_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockRsiIndicator
+        self.indicator_model = StockRsiFIB
         self.indicator_name = "RSI"
         self.finta_required_columns = ['close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -233,13 +247,13 @@ class HighPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 RSI 时出错: {e}"); return None
 
     async def get_rsi_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockRsiIndicator
+        self.indicator_model = StockRsiFIB
         self.indicator_name = "RSI"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- ATR ---
     async def calculate_and_save_atr_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockAtrIndicator
+        self.indicator_model = StockAtrFIB
         self.indicator_name = "ATR"
         self.finta_required_columns = ['high', 'low', 'close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -257,13 +271,13 @@ class HighPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 ATR 时出错: {e}"); return None
 
     async def get_atr_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockAtrIndicator
+        self.indicator_model = StockAtrFIB
         self.indicator_name = "ATR"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- OBV ---
     async def calculate_and_save_obv_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockObvIndicator
+        self.indicator_model = StockObvFIB
         self.indicator_name = "OBV"
         self.finta_required_columns = ['close', 'volume']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -278,7 +292,7 @@ class HighPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 OBV 时出错: {e}"); return None
 
     async def get_obv_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockObvIndicator
+        self.indicator_model = StockObvFIB
         self.indicator_name = "OBV"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
@@ -289,7 +303,7 @@ class MediumPriorityIndicatorService(BaseIndicatorService):
 
     # --- DMI ---
     async def calculate_and_save_dmi_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockDmiIndicator
+        self.indicator_model = StockDmiFIB
         self.indicator_name = "DMI"
         self.finta_required_columns = ['high', 'low', 'close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -333,13 +347,13 @@ class MediumPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 DMI/ADX 时出错: {e}"); return None
 
     async def get_dmi_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockDmiIndicator
+        self.indicator_model = StockDmiFIB
         self.indicator_name = "DMI"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- CCI ---
     async def calculate_and_save_cci_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockCciIndicator
+        self.indicator_model = StockCciFIB
         self.indicator_name = "CCI"
         self.finta_required_columns = ['high', 'low', 'close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -357,13 +371,13 @@ class MediumPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 CCI 时出错: {e}"); return None
 
     async def get_cci_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockCciIndicator
+        self.indicator_model = StockCciFIB
         self.indicator_name = "CCI"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- WR ---
     async def calculate_and_save_wr_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockWrIndicator
+        self.indicator_model = StockWrFIB
         self.indicator_name = "WR"
         self.finta_required_columns = ['high', 'low', 'close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -381,13 +395,13 @@ class MediumPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 WR 时出错: {e}"); return None
 
     async def get_wr_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockWrIndicator
+        self.indicator_model = StockWrFIB
         self.indicator_name = "WR"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- CMF ---
     async def calculate_and_save_cmf_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockCmfIndicator
+        self.indicator_model = StockCmfFIB
         self.indicator_name = "CMF"
         self.finta_required_columns = ['high', 'low', 'close', 'volume']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -409,13 +423,13 @@ class MediumPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 CMF 时出错: {e}"); return None
 
     async def get_cmf_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockCmfIndicator
+        self.indicator_model = StockCmfFIB
         self.indicator_name = "CMF"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- MFI ---
     async def calculate_and_save_mfi_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockMfiIndicator
+        self.indicator_model = StockMfiFIB
         self.indicator_name = "MFI"
         self.finta_required_columns = ['high', 'low', 'close', 'volume']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -434,7 +448,7 @@ class MediumPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 MFI 时出错: {e}"); return None
 
     async def get_mfi_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockMfiIndicator
+        self.indicator_model = StockMfiFIB
         self.indicator_name = "MFI"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
@@ -446,7 +460,7 @@ class LowPriorityIndicatorService(BaseIndicatorService):
 
     # --- SAR ---
     async def calculate_and_save_sar_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockSarIndicator
+        self.indicator_model = StockSar
         self.indicator_name = "SAR"
         self.finta_required_columns = ['high', 'low'] # SAR 主要需要高低价
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -462,13 +476,13 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 SAR 时出错: {e}"); return None
 
     async def get_sar_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockSarIndicator
+        self.indicator_model = StockSar
         self.indicator_name = "SAR"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- ROC ---
     async def calculate_and_save_roc_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockRocIndicator
+        self.indicator_model = StockRocFIB
         self.indicator_name = "ROC"
         self.finta_required_columns = ['close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -485,13 +499,13 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 ROC 时出错: {e}"); return None
 
     async def get_roc_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockRocIndicator
+        self.indicator_model = StockRocFIB
         self.indicator_name = "ROC"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- MOM ---
     async def calculate_and_save_mom_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockMomIndicator
+        self.indicator_model = StockMomFIB
         self.indicator_name = "MOM"
         self.finta_required_columns = ['close']
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -508,13 +522,13 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 MOM 时出错: {e}"); return None
 
     async def get_mom_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockMomIndicator
+        self.indicator_model = StockMomFIB
         self.indicator_name = "MOM"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- VROC ---
     async def calculate_and_save_vroc_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockVrocIndicator
+        self.indicator_model = StockVrocFIB
         self.indicator_name = "VROC"
         self.finta_required_columns = ['volume'] # VROC 只需要成交量
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -540,13 +554,13 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 VROC 时出错: {e}"); return None
 
     async def get_vroc_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockVrocIndicator
+        self.indicator_model = StockVrocFIB
         self.indicator_name = "VROC"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- Amount MA ---
     async def calculate_and_save_amount_ma_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockAmountMaIndicator
+        self.indicator_model = StockAmountMaFIB
         self.indicator_name = "AmountMA"
         self.finta_required_columns = ['amount'] # 需要成交额
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -566,13 +580,13 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 Amount MA 时出错: {e}"); return None
 
     async def get_amount_ma_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockAmountMaIndicator
+        self.indicator_model = StockAmountMaFIB
         self.indicator_name = "AmountMA"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- Amount ROC ---
     async def calculate_and_save_amount_roc_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockAmountRocIndicator
+        self.indicator_model = StockAmountRocFIB
         self.indicator_name = "AmountROC"
         self.finta_required_columns = ['amount'] # 需要成交额
         await self.calculate_and_save_stock(stock_code, kline_period)
@@ -591,13 +605,13 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 Amount ROC 时出错: {e}"); return None
 
     async def get_amount_roc_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockAmountRocIndicator
+        self.indicator_model = StockAmountRocFIB
         self.indicator_name = "AmountROC"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 
     # --- VWAP ---
     async def calculate_and_save_vwap_stock(self, stock_code: str, kline_period: str):
-        self.indicator_model = StockVwapIndicator
+        self.indicator_model = StockVwap
         self.indicator_name = "VWAP"
         # VWAP 需要 HLC 和 Volume
         self.finta_required_columns = ['high', 'low', 'close', 'volume']
@@ -615,7 +629,7 @@ class LowPriorityIndicatorService(BaseIndicatorService):
         except Exception as e: logger.error(f"计算 VWAP 时出错: {e}"); return None
 
     async def get_vwap_indicators(self, stock_code: str, kline_period: str, start_date=None, end_date=None):
-        self.indicator_model = StockVwapIndicator
+        self.indicator_model = StockVwap
         self.indicator_name = "VWAP"
         return await self.get_indicators(stock_code, kline_period, start_date, end_date)
 

@@ -9,4 +9,4 @@ class StockModelsConfig(AppConfig):
     def ready(self):
         from . import stock_basic, stock_realtime, index, fund_flow, stock_indicators
         from .datacenter import capital_flow, financial, institution, lhb, market_data, north_south, statistics
-        from .indicator import boll, kdj, ma, macd, obv, rsi, atr
+        from .indicator import atr, boll, cci, cmf, dmi, ichimoku, kdj, ma, macd, mfi, mom, obv, roc, rsi, sar, vroc, vwap, wr
