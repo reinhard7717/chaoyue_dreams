@@ -2184,7 +2184,7 @@ class StockIndexDAO(BaseDAO):
             api_datas = await self.api.get_history_boll(index_code, time_level)
             if not api_datas:
                 logger.warning(f"API未返回指数[{index_code}]的{time_level}级别历史指数BOLL指标数据")
-                return []
+                return {'创建': 0, '更新': 0, '跳过': 0}
             # 处理API返回的数据
             data_dicts = []
             try:
@@ -2195,7 +2195,7 @@ class StockIndexDAO(BaseDAO):
                     data_dicts.append(data_dict)
             except Exception as e:
                 logger.error(f"解析历史指数BOLL指标数据失败: {str(e)}")
-                return []
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             # 保存数据
             logger.info(f"开始保存{index_code}指数{time_level}级别历史MA指标数据")

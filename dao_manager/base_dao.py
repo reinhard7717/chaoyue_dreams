@@ -412,7 +412,7 @@ class BaseDAO(Generic[T]):
             "失败": failed_count, # 新增 失败 计数
         }
 
-        logger.info(f"完成{model_class.__name__}数据批量处理: {result}")
+        # logger.info(f"完成{model_class.__name__}数据批量处理: {result}")
         return result
 
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:

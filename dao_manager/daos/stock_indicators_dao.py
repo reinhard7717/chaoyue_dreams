@@ -230,7 +230,7 @@ class StockIndicatorsDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取时间序列数据")
-            return []
+            return {'创建': 0, '更新': 0, '跳过': 0}
         try:
             data_dicts = []
             for time_level in TIME_LEVELS:
@@ -244,7 +244,7 @@ class StockIndicatorsDAO(BaseDAO):
                     await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别时间序列数据")
-                return []
+                return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
             logger.info(f"开始保存{stock}股票分时成交数据")
             result = await self._save_all_to_db(
@@ -381,7 +381,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
-            
+                return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
                 logger.info(f"开始保存剩余{len(data_dicts)}条数据")
@@ -474,7 +474,7 @@ class StockIndicatorsDAO(BaseDAO):
                 
             if not api_data:
                 logger.warning(f"API未返回{stock}的{time_level}级别KDJ指标数据")
-                return []
+                return {'创建': 0, '更新': 0, '跳过': 0}
             
             data_dicts = []
             data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
@@ -508,7 +508,7 @@ class StockIndicatorsDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取KDJ指标数据")
-            return []
+            return {'创建': 0, '更新': 0, '跳过': 0}
         data_dicts = []
         try:
             for time_level in TIME_LEVELS:
@@ -523,7 +523,7 @@ class StockIndicatorsDAO(BaseDAO):
                     await self.cache_set.latest_kdj(stock_code, time_level, cache_dict)
             if not data_dicts:
                 logger.warning(f"API未返回{stock}股票的{time_level}级别KDJ指标数据")
-                return []
+                return {'创建': 0, '更新': 0, '跳过': 0}
         except Exception as e:
             logger.error(f"fetch_and_save_latest_kdj_by_stock_code.获取和缓存{stock}股票KDJ指标数据出错: {str(e)}")
             return {'创建': 0, '更新': 0, '跳过': 0}
@@ -714,7 +714,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史KDJ指标数据")
-            
+                return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
                 logger.info(f"开始保存剩余{len(data_dicts)}条数据")
@@ -1000,6 +1000,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
             if not api_datas:
                 logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史MACD指标数据")
+                return {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
             
             # 保存剩余数据
             if data_dicts:
@@ -1291,7 +1292,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
                 if not api_datas:
                     logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
                 logger.info(f"开始保存剩余{len(data_dicts)}条数据")
@@ -1586,7 +1587,7 @@ class StockIndicatorsDAO(BaseDAO):
                     # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
                 if not api_datas:
                     logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史BOLL指标数据")
-            
+                    return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存剩余数据
             if data_dicts:
                 logger.info(f"开始保存剩余{len(data_dicts)}条数据")
