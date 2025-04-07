@@ -546,10 +546,7 @@ class BaseDAO(Generic[T]):
         logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用 bulk_update_or_create): {result}")
         return result
 
-    async def _save_all_to_db_native_upsert(
-        self, # 假设这是类的一部分
-        model_class: Type[models.Model],
-        data_list: List[Dict[str, Any]],
+    async def _save_all_to_db_native_upsert( self, model_class: Type[models.Model], data_list: List[Dict[str, Any]],
         unique_fields: List[str], # 用于冲突检测的字段 (应有唯一约束)
         # extra_fields 仍然有用
         **extra_fields: Any,
@@ -625,15 +622,14 @@ class BaseDAO(Generic[T]):
             def process_batch_sync():
                 nonlocal failed_count
                 try:
-                    # --- 核心改动: 使用原生 bulk_create 进行 Upsert ---
+                    # --- 核心改动: 移除 unique_fields 参数 ---
                     model_class.objects.bulk_create(
                         objs_to_process,
                         update_conflicts=True,       # 启用 Upsert
-                        unique_fields=unique_fields, # 指定冲突判断字段
+                        # unique_fields=unique_fields, # <-- 移除这一行
                         update_fields=update_fields, # 指定冲突时更新的字段
-                        batch_size=current_batch_size # 可以传递 batch_size 给 bulk_create
+                        batch_size=current_batch_size
                     )
-                    # bulk_create 在此模式下不直接返回详细的创建/更新计数
                     # logger.info(f"批次 {i // batch_size + 1} 处理成功")
 
                 except (IntegrityError, DatabaseError) as e:
