@@ -283,7 +283,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in INDUSTRY_CAPITAL_FLOW_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -307,7 +307,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=IndustryCapitalFlow,
                 data_list=processed_data,
                 mapping=INDUSTRY_CAPITAL_FLOW_MAPPING,
-                unique_fields=['industry_code', 'update_time']
+                unique_fields=['industry_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -350,22 +350,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(IndustryCapitalFlow.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
+                    lambda: list(IndustryCapitalFlow.objects.filter(trade_time=target_date).order_by('-net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: IndustryCapitalFlow.objects.order_by('-update_time').values('update_time').first()
+                    lambda: IndustryCapitalFlow.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(IndustryCapitalFlow.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
+                    lambda: list(IndustryCapitalFlow.objects.filter(trade_time=latest_date).order_by('-net_inflow_rate'))
                 )
             
             if not records:
@@ -378,10 +378,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(IndustryCapitalFlow):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -445,7 +445,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in CONCEPT_CAPITAL_FLOW_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -454,7 +454,7 @@ class CapitalFlowDao(BaseDAO):
                             processed_item[model_field] = data.get(api_field, '')
                 
                 # 添加更新时间字段
-                processed_item['update_time'] = self._parse_datetime(current_date)
+                processed_item['trade_time'] = self._parse_datetime(current_date)
                 
                 # 验证必要字段
                 if not processed_item.get('concept_name'):
@@ -472,7 +472,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=ConceptCapitalFlow,
                 data_list=processed_data,
                 mapping=CONCEPT_CAPITAL_FLOW_MAPPING,
-                unique_fields=['concept_code', 'update_time']
+                unique_fields=['concept_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -515,22 +515,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(ConceptCapitalFlow.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
+                    lambda: list(ConceptCapitalFlow.objects.filter(trade_time=target_date).order_by('-net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: ConceptCapitalFlow.objects.order_by('-update_time').values('update_time').first()
+                    lambda: ConceptCapitalFlow.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(ConceptCapitalFlow.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
+                    lambda: list(ConceptCapitalFlow.objects.filter(trade_time=latest_date).order_by('-net_inflow_rate'))
                 )
             
             if not records:
@@ -543,10 +543,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(ConceptCapitalFlow):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -610,7 +610,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -634,7 +634,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=StockPeriodStatisticsOverview,
                 data_list=processed_data,
                 mapping=STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -677,22 +677,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(StockPeriodStatisticsOverview.objects.filter(update_time=target_date).order_by('-main_force_net_inflow'))
+                    lambda: list(StockPeriodStatisticsOverview.objects.filter(trade_time=target_date).order_by('-main_force_net_inflow'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: StockPeriodStatisticsOverview.objects.order_by('-update_time').values('update_time').first()
+                    lambda: StockPeriodStatisticsOverview.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(StockPeriodStatisticsOverview.objects.filter(update_time=latest_date).order_by('-main_force_net_inflow'))
+                    lambda: list(StockPeriodStatisticsOverview.objects.filter(trade_time=latest_date).order_by('-main_force_net_inflow'))
                 )
             
             if not records:
@@ -705,10 +705,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(StockPeriodStatisticsOverview):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -772,7 +772,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in NET_INFLOW_RANKING_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -796,7 +796,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=NetInflowRanking,
                 data_list=processed_data,
                 mapping=NET_INFLOW_RANKING_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -839,22 +839,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(NetInflowRanking.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
+                    lambda: list(NetInflowRanking.objects.filter(trade_time=target_date).order_by('-net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: NetInflowRanking.objects.order_by('-update_time').values('update_time').first()
+                    lambda: NetInflowRanking.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(NetInflowRanking.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
+                    lambda: list(NetInflowRanking.objects.filter(trade_time=latest_date).order_by('-net_inflow_rate'))
                 )
             
             if not records:
@@ -867,10 +867,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(NetInflowRanking):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -934,7 +934,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in NET_INFLOW_RATE_RANKING_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -958,7 +958,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=NetInflowRateRanking,
                 data_list=processed_data,
                 mapping=NET_INFLOW_RATE_RANKING_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -1001,22 +1001,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(NetInflowRateRanking.objects.filter(update_time=target_date).order_by('-net_inflow_rate'))
+                    lambda: list(NetInflowRateRanking.objects.filter(trade_time=target_date).order_by('-net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: NetInflowRateRanking.objects.order_by('-update_time').values('update_time').first()
+                    lambda: NetInflowRateRanking.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(NetInflowRateRanking.objects.filter(update_time=latest_date).order_by('-net_inflow_rate'))
+                    lambda: list(NetInflowRateRanking.objects.filter(trade_time=latest_date).order_by('-net_inflow_rate'))
                 )
             
             if not records:
@@ -1029,10 +1029,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(NetInflowRateRanking):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -1096,7 +1096,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in MAIN_FORCE_NET_INFLOW_RANKING_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -1120,7 +1120,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=MainForceNetInflowRanking,
                 data_list=processed_data,
                 mapping=MAIN_FORCE_NET_INFLOW_RANKING_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -1163,22 +1163,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(MainForceNetInflowRanking.objects.filter(update_time=target_date).order_by('-main_force_net_inflow_rate'))
+                    lambda: list(MainForceNetInflowRanking.objects.filter(trade_time=target_date).order_by('-main_force_net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: MainForceNetInflowRanking.objects.order_by('-update_time').values('update_time').first()
+                    lambda: MainForceNetInflowRanking.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(MainForceNetInflowRanking.objects.filter(update_time=latest_date).order_by('-main_force_net_inflow_rate'))
+                    lambda: list(MainForceNetInflowRanking.objects.filter(trade_time=latest_date).order_by('-main_force_net_inflow_rate'))
                 )
             
             if not records:
@@ -1191,10 +1191,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(MainForceNetInflowRanking):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -1258,7 +1258,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -1282,7 +1282,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=MainForceNetInflowRateRanking,
                 data_list=processed_data,
                 mapping=MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -1325,22 +1325,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(MainForceNetInflowRateRanking.objects.filter(update_time=target_date).order_by('-main_force_net_inflow_rate'))
+                    lambda: list(MainForceNetInflowRateRanking.objects.filter(trade_time=target_date).order_by('-main_force_net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: MainForceNetInflowRateRanking.objects.order_by('-update_time').values('update_time').first()
+                    lambda: MainForceNetInflowRateRanking.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(MainForceNetInflowRateRanking.objects.filter(update_time=latest_date).order_by('-main_force_net_inflow_rate'))
+                    lambda: list(MainForceNetInflowRateRanking.objects.filter(trade_time=latest_date).order_by('-main_force_net_inflow_rate'))
                 )
             
             if not records:
@@ -1353,10 +1353,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(MainForceNetInflowRateRanking):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -1420,7 +1420,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in RETAIL_NET_INFLOW_RANKING_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -1444,7 +1444,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=RetailNetInflowRanking,
                 data_list=processed_data,
                 mapping=RETAIL_NET_INFLOW_RANKING_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -1487,22 +1487,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(RetailNetInflowRanking.objects.filter(update_time=target_date).order_by('-retail_net_inflow_rate'))
+                    lambda: list(RetailNetInflowRanking.objects.filter(trade_time=target_date).order_by('-retail_net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: RetailNetInflowRanking.objects.order_by('-update_time').values('update_time').first()
+                    lambda: RetailNetInflowRanking.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(RetailNetInflowRanking.objects.filter(update_time=latest_date).order_by('-retail_net_inflow_rate'))
+                    lambda: list(RetailNetInflowRanking.objects.filter(trade_time=latest_date).order_by('-retail_net_inflow_rate'))
                 )
             
             if not records:
@@ -1515,10 +1515,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(RetailNetInflowRanking):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)
@@ -1582,7 +1582,7 @@ class CapitalFlowDao(BaseDAO):
                 for api_field, model_field in RETAIL_NET_INFLOW_RATE_RANKING_MAPPING.items():
                     if api_field in data:
                         # 日期字段处理
-                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'update_time':
+                        if model_field.endswith('_time') or model_field.endswith('_date') or model_field == 'trade_time':
                             processed_item[model_field] = self._parse_datetime(data.get(api_field, current_date))
                         # 数值字段处理
                         elif any(field in model_field for field in ['net_inflow', 'rate', 'change']):
@@ -1606,7 +1606,7 @@ class CapitalFlowDao(BaseDAO):
                 model_class=RetailNetInflowRateRanking,
                 data_list=processed_data,
                 mapping=RETAIL_NET_INFLOW_RATE_RANKING_MAPPING,
-                unique_fields=['stock_code', 'update_time']
+                unique_fields=['stock_code', 'trade_time']
             )
             
             # 更新缓存，确保数据是字典格式
@@ -1649,22 +1649,22 @@ class CapitalFlowDao(BaseDAO):
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(RetailNetInflowRateRanking.objects.filter(update_time=target_date).order_by('-retail_net_inflow_rate'))
+                    lambda: list(RetailNetInflowRateRanking.objects.filter(trade_time=target_date).order_by('-retail_net_inflow_rate'))
                 )
             else:
                 # 获取最新日期
                 latest_date_record = await asyncio.to_thread(
-                    lambda: RetailNetInflowRateRanking.objects.order_by('-update_time').values('update_time').first()
+                    lambda: RetailNetInflowRateRanking.objects.order_by('-trade_time').values('trade_time').first()
                 )
                 
                 if not latest_date_record:
                     return []
                 
-                latest_date = latest_date_record['update_time']
+                latest_date = latest_date_record['trade_time']
                 
                 # 查询数据库
                 records = await asyncio.to_thread(
-                    lambda: list(RetailNetInflowRateRanking.objects.filter(update_time=latest_date).order_by('-retail_net_inflow_rate'))
+                    lambda: list(RetailNetInflowRateRanking.objects.filter(trade_time=latest_date).order_by('-retail_net_inflow_rate'))
                 )
             
             if not records:
@@ -1677,10 +1677,10 @@ class CapitalFlowDao(BaseDAO):
                 for field in get_model_fields(RetailNetInflowRateRanking):
                     value = getattr(record, field)
                     # 处理日期和时间
-                    if field.endswith('_time') or field.endswith('_date') or field == 'update_time':
+                    if field.endswith('_time') or field.endswith('_date') or field == 'trade_time':
                         item_dict[field] = self._parse_datetime(value)
                         if isinstance(item_dict[field], datetime):
-                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'update_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
+                            item_dict[field] = item_dict[field].strftime('%Y-%m-%d') if field == 'trade_time' else item_dict[field].strftime('%Y-%m-%d %H:%M:%S')
                     # 处理数值
                     elif (isinstance(value, (int, float))) and 'code' not in field.name.lower():
                         item_dict[field] = self._parse_number(value)

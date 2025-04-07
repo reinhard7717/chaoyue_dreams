@@ -5,12 +5,15 @@ from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo
 import logging
 
+from stock_models.stock_indicators import StockTimeTrade
+
 logger = logging.getLogger(__name__)
 
 class IndexDataFormatProcess(BaseDAO):
 
     # ================ 数据格式 ================
-    async def set_index_data(self, api_data: Dict) -> Optional[List[Dict]]:
+    def set_index_data(self, api_data: Dict) -> Dict:
+        # logger.info(f"api_data: {api_data}")
         if isinstance(api_data, IndexInfo):
             data_dict = {
                 'code': api_data.code,  # 指数代码
@@ -25,7 +28,7 @@ class IndexDataFormatProcess(BaseDAO):
             }
         return data_dict
     
-    async def set_realtime_data(self, index: IndexInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_realtime_data(self, index: IndexInfo, api_data: Dict) -> Dict:
         data_dict = {
             'index': index,
             'open_price': self._parse_number(api_data.get('o')),  # 开盘价
@@ -48,13 +51,13 @@ class IndexDataFormatProcess(BaseDAO):
             'pb_ratio': self._parse_number(api_data.get('sjl')),  # 市净率
             'circulating_market_value': self._parse_number(api_data.get('lt')),  # 流通市值
             'total_market_value': self._parse_number(api_data.get('sz')),  # 总市值
-            'update_time': self._parse_datetime(api_data.get('t')),  # 更新时间
+            'trade_time': self._parse_datetime(api_data.get('t')),  # 更新时间
         }
         return data_dict
 
-    async def set_time_series(self, index: IndexInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_time_series(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
-            'index': index,
+            'index': index.id,
             'time_level': time_level,
             'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
             'open_price': self._parse_number(api_data.get('o')),  # 开盘价
@@ -70,7 +73,7 @@ class IndexDataFormatProcess(BaseDAO):
         }
         return data_dict
 
-    async def set_kdj_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_kdj_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'index': index,
             'time_level': time_level,
@@ -81,7 +84,7 @@ class IndexDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_macd_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_macd_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'index': index,
             'time_level': time_level,
@@ -94,7 +97,7 @@ class IndexDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_ma_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_ma_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'index': index,
             'time_level': time_level,
@@ -112,7 +115,7 @@ class IndexDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_boll_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_boll_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'index': index,
             'time_level': time_level,
@@ -124,7 +127,7 @@ class IndexDataFormatProcess(BaseDAO):
         return data_dict
 
 class StockInfoFormatProcess(BaseDAO):
-    async def set_stock_info_data(self, api_data: Dict) -> Optional[List[Dict]]:
+    def set_stock_info_data(self, api_data: Dict) -> Dict:
         if isinstance(api_data, StockInfo):
             data_dict = {
                 'stock_code': api_data.stock_code,  # 股票代码
@@ -141,25 +144,42 @@ class StockInfoFormatProcess(BaseDAO):
 
 class StockIndicatorsDataFormatProcess(BaseDAO):
         # ================= 数据 =================
-    async def set_time_trade_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
-        data_dict = {
-            'stock': stock,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-            'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-            'high_price': self._parse_number(api_data.get('h')),  # 最高价
-            'low_price': self._parse_number(api_data.get('l')),  # 最低价
-            'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-            'volume': self._parse_number(api_data.get('v')),  # 成交量
-            'turnover': self._parse_number(api_data.get('e')),  # 成交额
-            'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-            'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-            'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-            'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
-        }
+    def set_time_trade_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
+        if isinstance(api_data, StockTimeTrade):
+            data_dict = {
+                'stock': stock,
+                'time_level': time_level,
+                'trade_time': api_data.trade_time,  # 交易时间
+                'open_price': api_data.open_price,  # 开盘价
+                'high_price': api_data.high_price,  # 最高价
+                'low_price': api_data.low_price,  # 最低价
+                'close_price': api_data.close_price,  # 收盘价
+                'volume': api_data.volume,  # 成交量
+                'turnover': api_data.turnover,  # 成交额
+                'amplitude': api_data.amplitude,  # 振幅
+                'turnover_rate': api_data.turnover_rate,  # 换手率
+                'price_change_percent': api_data.price_change_percent,  # 涨跌幅
+                'price_change_amount': api_data.price_change_amount,  # 涨跌额   
+            }
+        else:
+            data_dict = {
+                'stock': stock,
+                'time_level': time_level,
+                'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
+                'open_price': self._parse_number(api_data.get('o')),  # 开盘价
+                'high_price': self._parse_number(api_data.get('h')),  # 最高价
+                'low_price': self._parse_number(api_data.get('l')),  # 最低价
+                'close_price': self._parse_number(api_data.get('c')),  # 收盘价
+                'volume': self._parse_number(api_data.get('v')),  # 成交量
+                'turnover': self._parse_number(api_data.get('e')),  # 成交额
+                'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
+                'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
+                'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
+                'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
+            }
         return data_dict
     
-    async def set_kdj_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_kdj_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'time_level': time_level,
@@ -170,7 +190,7 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_macd_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_macd_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'time_level': time_level,
@@ -183,7 +203,7 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_ma_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_ma_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'time_level': time_level,
@@ -201,7 +221,7 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_boll_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Optional[List[Dict]]:
+    def set_boll_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'time_level': time_level,
@@ -214,10 +234,10 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
 
 class StockRealtimeDataFormatProcess(BaseDAO):
         # ================ 数据格式 ================
-    async def set_realtime_data(self, stock: StockInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_realtime_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
-            'update_time': self._parse_datetime(api_data.get('t')),
+            'trade_time': self._parse_datetime(api_data.get('t')),
             'open_price': self._parse_number(api_data.get('o')),
             'five_min_change': self._parse_number(api_data.get('fm')),
             'high_price': self._parse_number(api_data.get('h')),
@@ -241,10 +261,10 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_level5_data(self, stock: StockInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_level5_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
-            'update_time': self._parse_datetime(api_data.get('t')),  # 交易时间
+            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
             'order_diff': self._parse_number(api_data.get('vc')),
             'order_ratio': self._parse_number(api_data.get('vb')),
             'buy_price1': self._parse_number(api_data.get('pb1')),
@@ -270,7 +290,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_onebyone_trade_data(self, stock: StockInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_onebyone_trade_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'trade_date': self._parse_datetime(api_data.get('d')),  # 交易时间
@@ -281,7 +301,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_time_deal_data(self, stock: StockInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_time_deal_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'trade_date': self._parse_datetime(api_data.get('d')),  # 交易时间
@@ -291,7 +311,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_real_percent_data(self, stock: StockInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_real_percent_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'trade_date': self._parse_datetime(api_data.get('d')),  # 交易时间
@@ -301,7 +321,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_big_deal_data(self, stock: StockInfo, api_data: Dict) -> Optional[List[Dict]]:
+    def set_big_deal_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'trade_date': self._parse_datetime(api_data.get('d')),  # 交易时间
@@ -312,8 +332,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
-    async def set_abnormal_movement_data(self, api_data: Dict) -> Optional[List[Dict]]:
-        stock = await self.stock_basic_dao.get_stock_by_code(api_data.get('dm'))
+    def set_abnormal_movement_data(self, stock: StockInfo, api_data: Dict) -> Dict:
         data_dict = {
             'stock': stock,
             'movement_time': self._parse_datetime(api_data.get('t')),  # 交易时间

@@ -3,17 +3,18 @@ import logging
 import asyncio
 import sys
 import functools
+from asgiref.sync import sync_to_async
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Any, Optional
 from django.contrib.auth.models import User
 from users.models import FavoriteStock
+from utils.cache_get import StockInfoCacheGet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockInfoFormatProcess
 from utils.models import ModelJSONEncoder
 from django.db import transaction
 from django.core.cache import cache
-from asgiref.sync import sync_to_async
 from utils.cache_manager import CacheManager
 from utils import cache_constants as cc # 导入常量
 
@@ -45,6 +46,7 @@ class StockBasicDAO(BaseDAO):
         self.cache_manager = CacheManager()  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()
         self.cache_key = StockCashKey()
+        self.cache_get = StockInfoCacheGet()
         
     # ================= 股票基本信息相关方法 =================
     
@@ -57,58 +59,70 @@ class StockBasicDAO(BaseDAO):
         """
         try:
             # 尝试从缓存获取
-            cached_data = await self.get_cache_all_stocks()
+            cached_data = await self.cache_get.all_stocks()
             if cached_data:
                 logger.debug("从缓存获取股票列表")
                 # 将缓存数据转换为模型实例列表
-                return [StockInfo(**stock_dict) for stock_dict in cached_data]
+                return_data = sorted([StockInfo(**stock_dict) for stock_dict in cached_data], key=lambda x: x.stock_code)
+                logger.info(f"从缓存获取股票列表成功，共{len(return_data)}只股票")
+                return return_data
         except Exception as e:
             logger.error(f"从缓存获取股票列表失败: {e}")
+        stocks = []
         try:
             # 从数据库读取
-            stocks = await sync_to_async(list)(StockInfo.objects.all())
+            get_stocks_sync = sync_to_async(
+                lambda: list(StockInfo.objects.order_by('stock_code')),
+                thread_sensitive=True # 对于 ORM 操作，通常建议设置为 True
+            )
+            stocks = await get_stocks_sync()
             if stocks:
                 await self.set_cache_stocks(stocks)
+                return stocks
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}")
         
         # 如果数据库中没有数据，从API获取并保存
         logger.info("数据库中没有股票数据，从API获取")
         await self.fetch_and_save_stocks()
-        stocks = await sync_to_async(list)(StockInfo.objects.all())
+        # 从数据库读取
+        get_stocks_sync = sync_to_async(
+            lambda: list(StockInfo.objects.order_by('stock_code')),
+            thread_sensitive=True # 对于 ORM 操作，通常建议设置为 True
+        )
+        stocks = await get_stocks_sync()
         return stocks
 
     async def get_stock_by_code(self, stock_code: str) -> Optional[StockInfo]:
         """
         根据股票代码获取股票信息
-        
         Args:
             stock_code: 股票代码
-            
         Returns:
             Optional[StockInfo]: 股票信息
         """
         # 使用CacheManager生成标准化缓存键
-        cache_key = await self.cache_key.stock_data(stock_code)
+        cache_key = self.cache_key.stock_data(stock_code)
         # 尝试从缓存获取，指定模型类进行自动转换
         stock = self.cache_manager.get_model(cache_key, StockInfo)
         if stock:
-            # logger.warning(f"get_stock_by_code从缓存获取股票: {cache_key}, {stock}, type: {type(stock)}")
             return stock
             
         # 从数据库获取
+        logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
         stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+        logger.info(f"get_stock_by_code,stock: {stock}, type: {type(stock)}")
         # 如果数据库中有数据，缓存并返回
         if stock:
-            # logger.debug(f"从数据库获取股票指数列表，共{len(index)}条")
-            cache_data = await self.data_format_process.set_stock_info_data(stock)
-            # logger.warning(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock}, type: {type(stock)}")
+            cache_data = self.data_format_process.set_stock_info_data(stock)
+            logger.info(f"get_stock_by_code,cache_data: {cache_data}, type: {type(cache_data)}")
             # *** 正确调用 CacheManager 缓存数据 ***
             success = self.cache_manager.set(
                 key=cache_key,          # 第一个参数：缓存键 (字符串)
                 data=cache_data,     # 第二个参数：要缓存的数据 (字典)
                 timeout=self.cache_manager.get_timeout('st') # 超时时间
             )
+            logger.info(f"get_stock_by_code,success: {success}")
             return stock
 
     async def get_favorite_stocks_by_user(self, user: User) -> List[FavoriteStock]:  
@@ -190,7 +204,7 @@ class StockBasicDAO(BaseDAO):
         """从缓存中获取所有股票列表"""
         try:
             # 生成缓存键
-            cache_key = await self.cache_key.stocks_data()
+            cache_key = self.cache_key.stocks_data()
             logger.info(f"尝试从缓存获取所有股票列表, key: {cache_key}")
             
             # 从缓存获取数据
@@ -244,10 +258,8 @@ class StockBasicDAO(BaseDAO):
     async def set_cache_stocks(self, stocks: List[Dict]) -> bool:
         """
         将提供的股票数据列表（简单字典格式）设置到缓存中。
-
         此方法用于手动将准备好的、符合缓存结构的数据放入缓存。
         数据格式应与 fetch_and_save_indexes 写入缓存的格式一致。
-
         Args:
             stocks: 包含股票信息的字典列表，格式应为
                    [{'stock_code': 'xxx', 'stock_name': 'yyy', 'exchange': 'zzz'}, ...]
@@ -259,20 +271,17 @@ class StockBasicDAO(BaseDAO):
         if not isinstance(stocks, list):
             logger.error("set_stocks_to_cache 失败: 输入数据不是列表")
             return False
-            
+        # 2. 生成缓存键
+        cache_key = self.cache_key.stocks_data()
         try:
-            # 2. 生成缓存键
-            cache_key = await self.cache_key.stocks_data()
-            
             # 3. 获取缓存超时时间
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
-            
             # 4. 处理数据
             data_dicts = []
             for item in stocks:
                 if isinstance(item, StockInfo):
                     # 如果是StockInfo对象，转换为字典
-                    data_dict = await self.data_format_process.set_stock_info_data(item)
+                    data_dict = self.data_format_process.set_stock_info_data(item)
                 elif isinstance(item, dict):
                     # 如果已经是字典，确保包含必要的字段
                     if not all(key in item for key in ['stock_code', 'stock_name', 'exchange']):
@@ -287,26 +296,25 @@ class StockBasicDAO(BaseDAO):
             if not data_dicts:
                 logger.error("没有有效的股票数据可以缓存")
                 return False
-                
             logger.info(f"准备将 {len(data_dicts)} 条股票数据设置到缓存, key: {cache_key}, timeout: {cache_timeout}s")
-            
-            # 5. 将整个列表序列化为一个JSON字符串
-            # json_data = json.dumps(data_dicts)
-            
+
             # *** 正确调用 CacheManager 缓存数据 ***
-            success = self.cache_manager.set(
-                key=cache_key,          # 第一个参数：缓存键 (字符串)
-                data=data_dicts,     # 第二个参数：要缓存的数据 (字典)
-                timeout=self.cache_manager.get_timeout('st') # 超时时间
+            set_cache_sync = sync_to_async(
+                self.cache_manager.set,       # 要包装的同步方法
+                thread_sensitive=False        # Redis 操作通常不需要线程敏感
             )
-            
+            # 调用包装后的异步函数
+            success = await set_cache_sync(
+                key=cache_key,
+                data=data_dicts,
+                timeout=self.cache_manager.get_timeout('st') # 假设 get_timeout 也是同步的，直接调用获取值
+            )
             if success:
                 logger.info(f"股票数据成功设置到缓存, key: {cache_key}")
                 return True
             else:
                 logger.warning(f"设置股票数据到缓存失败 (CacheManager.set 返回 False), key: {cache_key}")
                 return False
-                
         except Exception as e:
             logger.error(f"设置股票数据到缓存时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return False
@@ -325,7 +333,7 @@ class StockBasicDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_stock_info_data(api_data)
+                data_dict = self.data_format_process.set_stock_info_data(api_data)
                 data_dicts.append(data_dict)
             # 保存数据
             logger.info(f"开始保存股票数据，共{len(data_dicts)}条")

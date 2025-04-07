@@ -37,194 +37,14 @@ class StockTimeTrade(models.Model):
     def __code__(self):
         return self.stock.stock_code
 
-class StockKDJIndicator(models.Model):
-    """
-    KDJ指标数据模型
-    """
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="kdj_indicator", verbose_name=_("股票"))
-    time_level = models.CharField(max_length=10, verbose_name='分时级别')
-    trade_time = models.DateTimeField(verbose_name='交易时间')
-    k_value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='K值', null=True)
-    d_value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='D值', null=True)
-    j_value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='J值', null=True)
     
-    class Meta:
-        verbose_name = 'KDJ指标数据'
-        verbose_name_plural = verbose_name
-        db_table = 'stock_kdj_indicator'
-        unique_together = ('stock', 'time_level', 'trade_time')
-        ordering = ['stock', 'time_level', 'trade_time']
-    
-    def __str__(self):
-        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
 
-class StockMACDIndicator(models.Model):
-    """
-    MACD指标数据模型
-    """
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="macd_indicator", verbose_name=_("股票"))
-    time_level = models.CharField(max_length=10, verbose_name='分时级别')
-    trade_time = models.DateTimeField(verbose_name='交易时间')
-    diff = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='DIFF值', null=True)
-    dea = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='DEA值', null=True)
-    macd = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='MACD值', null=True)
-    ema12 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='EMA(12)值', null=True)
-    ema26 = models.DecimalField(max_digits=10, decimal_places=4, verbose_name='EMA(26)值', null=True)
-    
-    class Meta:
-        verbose_name = 'MACD指标数据'
-        verbose_name_plural = verbose_name
-        db_table = 'stock_macd_indicator'
-        unique_together = ('stock', 'time_level', 'trade_time')
-        ordering = ['stock', 'time_level', 'trade_time']
-    
-    def __str__(self):
-        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
-    
-    def __code__(self):
-        return self.stock.stock_code
-
-class StockMAIndicator(models.Model):
-    """
-    MA指标数据模型
-    """
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="ma_indicator", verbose_name=_("股票"))
-    time_level = models.CharField(max_length=10, verbose_name='分时级别')
-    trade_time = models.DateTimeField(verbose_name='交易时间')
-    ma3 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA3', null=True)
-    ma5 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA5', null=True)
-    ma10 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA10', null=True)
-    ma15 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA15', null=True)
-    ma20 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA20', null=True)
-    ma30 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA30', null=True)
-    ma60 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA60', null=True)
-    ma120 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA120', null=True)
-    ma200 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA200', null=True)
-    ma250 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='MA250', null=True)
-    
-    class Meta:
-        verbose_name = 'MA指标数据'
-        verbose_name_plural = verbose_name
-        db_table = 'stock_ma_indicator'
-        unique_together = ('stock', 'time_level', 'trade_time')
-        ordering = ['stock', 'time_level', 'trade_time']
-    
-    def __str__(self):
-        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
-    
-    def __code__(self):
-        return self.stock.stock_code
-
-class StockBOLLIndicator(models.Model):
-    """
-    BOLL指标数据模型
-    """
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="boll_indicator", verbose_name=_("股票"))
-    time_level = models.CharField(max_length=10, verbose_name='分时级别')
-    trade_time = models.DateTimeField(verbose_name='交易时间')
-    upper = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='上轨', null=True)
-    lower = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='下轨', null=True)
-    mid = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='中轨', null=True)
-    
-    class Meta:
-        verbose_name = 'BOLL指标数据'
-        verbose_name_plural = verbose_name
-        db_table = 'stock_boll_indicator'
-        unique_together = ('stock', 'time_level', 'trade_time')
-        ordering = ['stock', 'time_level', 'trade_time']
-    
-    def __str__(self):
-        return f"{self.stock.stock_code}-{self.time_level}-{self.trade_time}"
-    
-    def __code__(self):
-        return self.stock.stock_code
-
-class StockEmaIndicator(models.Model):
-    """EMA 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
-    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
-    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
-    # 根据 FIB_PERIODS 动态添加或显式定义字段
-    ema5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(5)")
-    ema8 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(8)")
-    ema13 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(13)")
-    ema21 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(21)")
-    ema34 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(34)")
-    ema55 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(55)")
-    ema89 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(89)")
-    ema144 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(144)")
-    ema233 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="EMA(233)")
-
-    class Meta:
-        verbose_name = "EMA指标(斐波那契)"
-        db_table = 'stock_ema_indicator'
-        verbose_name_plural = verbose_name
-        unique_together = ('stock', 'trade_time', 'time_level')
-        indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
-
-class StockRsiIndicator(models.Model):
-    """RSI 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
-    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
-    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
-    rsi5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(5)")
-    rsi8 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(8)")
-    rsi13 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(13)")
-    rsi21 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(21)")
-    rsi34 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(34)")
-    rsi55 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(55)")
-    rsi89 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(89)")
-    rsi144 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(144)")
-    rsi233 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="RSI(233)")
-
-    class Meta:
-        verbose_name = "RSI指标(斐波那契)"
-        db_table = 'stock_rsi_indicator'
-        verbose_name_plural = verbose_name
-        unique_together = ('stock', 'trade_time', 'time_level')
-        indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
-
-class StockAtrIndicator(models.Model):
-    """ATR 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
-    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
-    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
-    atr5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(5)")
-    atr8 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(8)")
-    atr13 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(13)")
-    atr21 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(21)")
-    atr34 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(34)")
-    atr55 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(55)")
-    atr89 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(89)")
-    atr144 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(144)")
-    atr233 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="ATR(233)")
-
-    class Meta:
-        verbose_name = "ATR指标(斐波那契)"
-        db_table = 'stock_atr_indicator'
-        verbose_name_plural = verbose_name
-        unique_together = ('stock', 'trade_time', 'time_level')
-        indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
-
-class StockObvIndicator(models.Model):
-    """OBV 指标存储模型""" # OBV 通常不带周期参数
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
-    trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
-    time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
-    obv = models.BigIntegerField(null=True, blank=True, verbose_name="OBV")
-
-    class Meta:
-        verbose_name = "OBV指标"
-        db_table = 'stock_obv_indicator'
-        verbose_name_plural = verbose_name
-        unique_together = ('stock', 'trade_time', 'time_level')
-        indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
 
 # --- 中优先级指标模型 (斐波那契周期) ---
-class StockDmiIndicator(models.Model):
+class StockDmiFIB(models.Model):
     """DMI 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="dmi_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
     plus_di13 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="+DI(13)") # 常用14，这里用13
@@ -258,14 +78,14 @@ class StockDmiIndicator(models.Model):
 
     class Meta:
         verbose_name = "DMI指标(斐波那契)"
-        db_table = 'stock_dmi_indicator'
+        db_table = 'stock_dmi_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
-class StockCciIndicator(models.Model):
+class StockCciFIB(models.Model):
     """CCI 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="cci_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
     cci5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="CCI(5)")
@@ -280,14 +100,14 @@ class StockCciIndicator(models.Model):
 
     class Meta:
         verbose_name = "CCI指标(斐波那契)"
-        db_table = 'stock_cci_indicator'
+        db_table = 'stock_cci_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
-class StockWrIndicator(models.Model):
+class StockWrFIB(models.Model):
     """WR 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="wr_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
     wr5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="WR(5)")
@@ -302,14 +122,14 @@ class StockWrIndicator(models.Model):
 
     class Meta:
         verbose_name = "WR指标(斐波那契)"
-        db_table = 'stock_wr_indicator'
+        db_table = 'stock_wr_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
-class StockCmfIndicator(models.Model):
+class StockCmfFIB(models.Model):
     """CMF 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="cmf_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
     cmf5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="CMF(5)")
@@ -324,14 +144,14 @@ class StockCmfIndicator(models.Model):
 
     class Meta:
         verbose_name = "CMF指标(斐波那契)"
-        db_table = 'stock_cmf_indicator'
+        db_table = 'stock_cmf_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
-class StockMfiIndicator(models.Model):
+class StockMfiFIB(models.Model):
     """MFI 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="mfi_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
     mfi5 = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="MFI(5)")
@@ -346,14 +166,14 @@ class StockMfiIndicator(models.Model):
 
     class Meta:
         verbose_name = "MFI指标(斐波那契)"
-        db_table = 'stock_mfi_indicator'
+        db_table = 'stock_mfi_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
-class StockIchimokuIndicator(models.Model):
+class StockIchimokuFIB(models.Model):
     """Ichimoku Cloud (一目均衡表) 指标存储模型"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="ichimoku_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
@@ -367,16 +187,16 @@ class StockIchimokuIndicator(models.Model):
 
     class Meta:
         verbose_name = "Ichimoku指标"
-        db_table = 'stock_ichimoku_indicator'
+        db_table = 'stock_ichimoku_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [
             models.Index(fields=['stock', 'time_level', 'trade_time']),
         ]
 
-class StockRocIndicator(models.Model):
+class StockRocFIB(models.Model):
     """ROC (变动速率) 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="roc_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
@@ -392,16 +212,16 @@ class StockRocIndicator(models.Model):
 
     class Meta:
         verbose_name = "ROC指标(斐波那契)"
-        db_table = 'stock_roc_indicator'
+        db_table = 'stock_roc_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [
             models.Index(fields=['stock', 'time_level', 'trade_time']),
         ]
 
-class StockMomIndicator(models.Model):
+class StockMomFIB(models.Model):
     """MOM (动量) 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="mom_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
@@ -417,16 +237,16 @@ class StockMomIndicator(models.Model):
 
     class Meta:
         verbose_name = "MOM指标(斐波那契)"
-        db_table = 'stock_mom_indicator'
+        db_table = 'stock_mom_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [
             models.Index(fields=['stock', 'time_level', 'trade_time']),
         ]
 
-class StockVrocIndicator(models.Model):
+class StockVrocFIB(models.Model):
     """VROC (成交量变动速率) 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="vroc_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
@@ -446,7 +266,7 @@ class StockVrocIndicator(models.Model):
 
     class Meta:
         verbose_name = "VROC指标(斐波那契)"
-        db_table = 'stock_vroc_indicator'
+        db_table = 'stock_vroc_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [
@@ -454,23 +274,23 @@ class StockVrocIndicator(models.Model):
         ]
 
 # --- 低优先级指标模型 (斐波那契周期) ---
-class StockSarIndicator(models.Model):
+class StockSarFIB(models.Model):
     """SAR 指标存储模型""" # SAR 参数不是简单的周期
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="sar_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
     sar = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, verbose_name="SAR")
 
     class Meta:
         verbose_name = "SAR指标"
-        db_table = 'stock_sar_indicator'
+        db_table = 'stock_sar_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['stock', 'time_level', 'trade_time']), ]
 
-class StockAmountMaIndicator(models.Model):
+class StockAmountMaFIB(models.Model):
     """成交额移动平均线 (Amount MA) 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="amount_ma_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
@@ -488,16 +308,16 @@ class StockAmountMaIndicator(models.Model):
 
     class Meta:
         verbose_name = "成交额MA指标(斐波那契)"
-        db_table = 'stock_amount_ma_indicator'
+        db_table = 'stock_amount_ma_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [
             models.Index(fields=['stock', 'time_level', 'trade_time']),
         ]
 
-class StockAmountRocIndicator(models.Model):
+class StockAmountRocFIB(models.Model):
     """成交额变动速率 (AROC) 指标存储模型 (斐波那契周期)"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="amount_roc_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期")
 
@@ -514,16 +334,16 @@ class StockAmountRocIndicator(models.Model):
 
     class Meta:
         verbose_name = "成交额ROC指标(斐波那契)"
-        db_table = 'stock_amount_roc_indicator'
+        db_table = 'stock_amount_roc_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level')
         indexes = [
             models.Index(fields=['stock', 'time_level', 'trade_time']),
         ]
 
-class StockVwapIndicator(models.Model):
+class StockVwapFIB(models.Model):
     """VWAP (成交量加权平均价) 指标存储模型"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, verbose_name="股票")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="vwap_fib", verbose_name="股票")
     trade_time = models.DateTimeField(db_index=True, verbose_name="时间戳")
     time_level = models.CharField(max_length=10, db_index=True, verbose_name="K线周期") # 例如 'Day', '5min', '15min' 等
 
@@ -532,7 +352,7 @@ class StockVwapIndicator(models.Model):
 
     class Meta:
         verbose_name = "VWAP指标"
-        db_table = 'stock_vwap_indicator'
+        db_table = 'stock_vwap_fib'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_time', 'time_level') # 确保每个时间点只有一个VWAP值
         indexes = [

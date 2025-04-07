@@ -1,8 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from utils.models import BaseModel
 
-class IndexInfo(BaseModel):
+class IndexInfo(models.Model):
     """
     股票指数基本信息模型
     
@@ -27,13 +26,14 @@ class IndexInfo(BaseModel):
     
     def __code__(self):
         return self.code
-class IndexRealTimeData(BaseModel):
+    
+class IndexRealTimeData(models.Model):
     """
     股票指数实时数据模型
     
     用于存储股票指数的实时交易数据，对应指数实时数据接口
     """
-    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="realtime_data", verbose_name=_("股票指数"))
+    index = models.ForeignKey('IndexInfo', on_delete=models.CASCADE, related_name="realtime_data", verbose_name=_("股票指数"))
     # 指数基本信息
     trade_time = models.DateTimeField(verbose_name="交易时间", null=True, blank=True)
     
@@ -112,7 +112,7 @@ class IndexRealTimeData(BaseModel):
             total_market_value=data['sz'],
         )
 
-class MarketOverview(BaseModel):
+class MarketOverview(models.Model):
     """
     市场概览数据模型
     
@@ -145,25 +145,24 @@ class MarketOverview(BaseModel):
     def __str__(self):
         return f"市场概览({self.trade_time})"
 
-class IndexTimeSeriesData(BaseModel):
+class IndexTimeSeriesData(models.Model):
     """
     时间序列数据模型
-    
     用于存储指数的分时交易数据
     """
-    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="time_series", verbose_name=_("股票指数"))
+    index = models.ForeignKey('IndexInfo', on_delete=models.CASCADE, related_name="time_series", verbose_name=_("股票指数"))
     time_level = models.CharField(max_length=10, verbose_name=_("时间级别"))  # 5, 15, 30, 60, Day, Week, Month, Year
     trade_time = models.DateTimeField(verbose_name=_("交易时间"))
-    open_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("开盘价"))
-    high_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("最高价"))
-    low_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("最低价"))
-    close_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("收盘价"))
-    volume = models.BigIntegerField(verbose_name=_("成交量(手)"))
-    turnover = models.DecimalField(max_digits=20, decimal_places=2, null=True, verbose_name=_("成交额(元)"))
-    amplitude = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("振幅(%)"))
-    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("换手率(%)"))
-    change_percent = models.DecimalField(max_digits=8, decimal_places=4, null=True, verbose_name=_("涨跌幅(%)"))
-    change_amount = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("涨跌额(元)"))
+    open_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name=_("开盘价"))
+    high_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name=_("最高价"))
+    low_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name=_("最低价"))
+    close_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name=_("收盘价"))
+    volume = models.BigIntegerField(verbose_name=_("成交量(手)"), null=True, blank=True)
+    turnover = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name=_("成交额(元)"))
+    amplitude = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name=_("振幅(%)"))
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name=_("换手率(%)"))
+    change_percent = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name=_("涨跌幅(%)"))
+    change_amount = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name=_("涨跌额(元)"))
     
     class Meta:
         verbose_name = _("时间序列数据")
@@ -182,131 +181,4 @@ class IndexTimeSeriesData(BaseModel):
     def __code__(self):
         return self.index.code
 
-class IndexKDJData(BaseModel):
-    """
-    KDJ指标数据模型
-    
-    存储股票指数的KDJ技术指标数据
-    """
-    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="kdj_data", verbose_name=_("股票指数"))
-    time_level = models.CharField(max_length=10, verbose_name=_("时间级别"))  # 5, 15, 30, 60, Day, Week, Month, Year
-    trade_time = models.DateTimeField(verbose_name=_("交易时间"))
-    k_value = models.DecimalField(max_digits=10, decimal_places=4, verbose_name=_("K值"))
-    d_value = models.DecimalField(max_digits=10, decimal_places=4, verbose_name=_("D值"))
-    j_value = models.DecimalField(max_digits=10, decimal_places=4, verbose_name=_("J值"))
-    
-    class Meta:
-        verbose_name = _("KDJ指标数据")
-        verbose_name_plural = _("KDJ指标数据")
-        db_table = "index_kdj_data"
-        unique_together = [['index', 'time_level', 'trade_time']]
-        indexes = [
-            models.Index(fields=['index']),
-            models.Index(fields=['time_level']),
-            models.Index(fields=['trade_time']),
-        ]
-    
-    def __str__(self):
-        return f"{self.index.name} KDJ {self.time_level}({self.trade_time})"
 
-    def __code__(self):
-        return self.index.code
-
-class IndexMACDData(BaseModel):
-    """
-    MACD指标数据模型
-    
-    存储股票指数的MACD技术指标数据
-    """
-    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="macd_data", verbose_name=_("股票指数"))
-    time_level = models.CharField(max_length=10, verbose_name=_("时间级别"))  # 5, 15, 30, 60, Day, Week, Month, Year
-    trade_time = models.DateTimeField(verbose_name=_("交易时间"))
-    diff = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("DIFF值"))
-    dea = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("DEA值"))
-    macd = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("MACD值"))
-    ema12 = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("EMA(12)值"))
-    ema26 = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("EMA(26)值"))
-    
-    class Meta:
-        verbose_name = _("MACD指标数据")
-        verbose_name_plural = _("MACD指标数据")
-        db_table = "index_macd_data"
-        unique_together = [['index', 'time_level', 'trade_time']]
-        indexes = [
-            models.Index(fields=['index']),
-            models.Index(fields=['time_level']),
-            models.Index(fields=['trade_time']),
-        ]
-    
-    def __str__(self):
-        return f"{self.index.name} MACD {self.time_level}({self.trade_time})"
-
-    def __code__(self):
-        return self.index.code
-
-class IndexMAData(BaseModel):
-    """
-    MA指标数据模型
-    
-    存储股票指数的MA技术指标数据
-    """
-    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="ma_data", verbose_name=_("股票指数"))
-    time_level = models.CharField(max_length=10, verbose_name=_("时间级别"))  # 5, 15, 30, 60, Day, Week, Month, Year
-    trade_time = models.DateTimeField(verbose_name=_("交易时间"))
-    ma3 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA3"))
-    ma5 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA5"))
-    ma10 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA10"))
-    ma15 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA15"))
-    ma20 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA20"))
-    ma30 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA30"))
-    ma60 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA60"))
-    ma120 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA120"))
-    ma200 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA200"))
-    ma250 = models.DecimalField(max_digits=12, decimal_places=4, null=True, verbose_name=_("MA250"))
-    
-    class Meta:
-        verbose_name = _("MA指标数据")
-        verbose_name_plural = _("MA指标数据")
-        db_table = "index_ma_data"
-        unique_together = [['index', 'time_level', 'trade_time']]
-        indexes = [
-            models.Index(fields=['index']),
-            models.Index(fields=['time_level']),
-            models.Index(fields=['trade_time']),
-        ]
-    
-    def __str__(self):
-        return f"{self.index.name} MA {self.time_level}({self.trade_time})"
-
-    def __code__(self):
-        return self.index.code
-
-class IndexBOLLData(BaseModel):
-    """
-    BOLL指标数据模型
-    
-    存储股票指数的BOLL技术指标数据
-    """
-    index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="boll_data", verbose_name=_("股票指数"))
-    time_level = models.CharField(max_length=10, verbose_name=_("时间级别"))  # 5, 15, 30, 60, Day, Week, Month, Year
-    trade_time = models.DateTimeField(verbose_name=_("交易时间"))
-    upper = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("上轨"))
-    middle = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("中轨"))
-    lower = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("下轨"))
-    
-    class Meta:
-        verbose_name = _("BOLL指标数据")
-        verbose_name_plural = _("BOLL指标数据")
-        db_table = "index_boll_data"
-        unique_together = [['index', 'time_level', 'trade_time']]
-        indexes = [
-            models.Index(fields=['index']),
-            models.Index(fields=['time_level']),
-            models.Index(fields=['trade_time']),
-        ]
-    
-    def __str__(self):
-        return f"{self.index.name} BOLL {self.time_level}({self.trade_time})"
-
-    def __code__(self):
-        return self.index.code

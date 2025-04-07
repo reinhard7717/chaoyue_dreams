@@ -212,7 +212,7 @@ class ROERank(BaseModel):
     net_margin_industry_rank = models.IntegerField(verbose_name="净利率行业排名")  # 原 jllpm
     industry_name = models.CharField(max_length=50, verbose_name="行业名")  # 原 hym
     industry_stock_count = models.IntegerField(verbose_name="同行业股票总数量")  # 原 hygpzs
-    update_time = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+    trade_time = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     
     class Meta:
         verbose_name = "ROE排行"

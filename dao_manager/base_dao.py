@@ -12,7 +12,7 @@ from datetime import datetime, date, time
 from django.conf import settings
 import pytz
 
-from django.db import models
+from django.db import DatabaseError, IntegrityError, models
 from django.core.cache import cache
 from django.conf import settings
 from django.db import transaction
@@ -262,109 +262,154 @@ class BaseDAO(Generic[T]):
             logger.error(f"数据库筛选错误: {str(e)}")
             return []
 
-    async def _save_all_to_db(self, model_class, data_list, unique_fields, **extra_fields) -> Dict:
+    async def _save_all_to_db(self, model_class, data_list, unique_fields,
+        ignore_conflicts_on_create=False,  # 新增参数，控制 bulk_create 是否忽略冲突
+        **extra_fields, ) -> Dict:
         """
-        优化的通用异步数据批量处理方法，使用bulk_create和bulk_update提高性能
-        
+        优化的通用异步数据批量处理方法，使用bulk_create和bulk_update提高性能, 并增强了错误处理和日志记录
         Args:
             model_class: Django模型类
             data_list: 要处理的数据列表，每项都是模型对应的字段字典
             unique_fields: 用于确定唯一记录的字段列表
-            
+            ignore_conflicts_on_create: (可选) Boolean, 默认为 False。如果为 True，在 bulk_create 时忽略唯一性冲突错误，跳过冲突记录。
+            **extra_fields: 额外的字段，将添加到所有创建/更新的记录中
         Returns:
-            dict: 包含创建、更新和跳过的记录数
+            dict: 包含创建、更新、跳过和失败的记录数
         """
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-        
+            return {"创建": 0, "更新": 0, "未更改": 0, "失败": 0}
+
         # 如果传入的不是列表，转换为列表
         if not isinstance(data_list, list):
             data_list = [data_list]
-        
-        # 统计计数
+
+        # 统计计数器，更清晰的命名
         created_count = 0
         updated_count = 0
-        skipped_count = 0
-        
-        # 批量处理，分组进行以减小事务范围
+        unchanged_count = 0  # 原 skipped_count 更名为 unchanged_count
+        failed_count = 0  # 新增 failed_count
+
         batch_size = 2000
-        for i in range(0, len(data_list), batch_size):
-            batch = data_list[i:i+batch_size]
-            
+        for batch_index, i in enumerate(range(0, len(data_list), batch_size)):
+            batch = data_list[i : i + batch_size]
+
             @transaction.atomic
             def process_batch():
-                nonlocal created_count, updated_count, skipped_count
-                
-                # 1. 构建所有需要查询的条件
+                nonlocal created_count, updated_count, unchanged_count, failed_count
+
                 existing_items = {}
                 query_filters = []
-                
+
                 for item in batch:
-                    filter_kwargs = {field: item.get(field) for field in unique_fields if field in item}
-                    # 构建复合查询条件
+                    filter_kwargs = {
+                        field: item.get(field) for field in unique_fields if field in item
+                    }
                     query_condition = Q(**filter_kwargs)
                     query_filters.append(query_condition)
-                    
-                    # 保存查询条件，用于后续匹配
-                    key = tuple((field, item.get(field)) for field in unique_fields if field in item)
+                    key = tuple(
+                        (field, item.get(field)) for field in unique_fields if field in item
+                    )
                     existing_items[key] = item
-                
-                # 2. 批量查询所有可能存在的记录
+
                 existing_records = {}
                 if query_filters:
                     query = model_class.objects.filter(reduce(operator.or_, query_filters))
                     for record in query:
-                        # 创建唯一键以匹配记录
-                        key = tuple((field, getattr(record, field)) for field in unique_fields)
+                        key = tuple(
+                            (field, getattr(record, field)) for field in unique_fields
+                        )
                         existing_records[key] = record
-                
-                # 3. 分离需要创建和需要更新的记录
+
                 to_create = []
                 to_update = []
                 update_fields = set()
-                
+
                 for key, item in existing_items.items():
                     if key in existing_records:
                         # 记录已存在，检查是否需要更新
                         record = existing_records[key]
                         has_changes = False
-                        
+
                         for field, value in item.items():
                             if hasattr(record, field) and getattr(record, field) != value:
                                 setattr(record, field, value)
                                 has_changes = True
                                 update_fields.add(field)
-                        
+
                         if has_changes:
                             to_update.append(record)
                             updated_count += 1
                         else:
-                            skipped_count += 1
+                            unchanged_count += 1  # 更名 skipped_count 为 unchanged_count
                     else:
                         # 记录不存在，创建新记录
-                        to_create.append(model_class(**item))
+                        create_data = {**item, **extra_fields} # 合并 extra_fields
+                        to_create.append(model_class(**create_data))
                         created_count += 1
-                
-                # 4. 批量创建新记录
+
+                # 批量创建新记录
                 if to_create:
-                    model_class.objects.bulk_create(to_create)
-                
-                # 5. 批量更新已有记录
+                    try:
+                        model_class.objects.bulk_create(
+                            to_create, ignore_conflicts=ignore_conflicts_on_create
+                        )  # 使用 ignore_conflicts 参数
+                    except IntegrityError as e:  # 更具体的异常处理
+                        error_msg = f"批次 {batch_index + 1} 批量创建记录时遇到唯一性冲突 (忽略冲突: {ignore_conflicts_on_create}): {str(e)}"
+                        logger.warning(error_msg) # 警告级别日志，因为可能是预期内的冲突
+                        if not ignore_conflicts_on_create: # 如果不忽略冲突，则计入失败
+                            failed_count += len(to_create)
+                            created_count -= len(to_create) # 修正 created_count
+                        else:
+                            unchanged_count += len(to_create) # 如果忽略冲突，则计入 unchanged_count (可以根据业务调整)
+                            created_count -= len(to_create) # 修正 created_count
+                    except DatabaseError as e: # 捕获数据库错误，例如连接问题
+                        error_msg = f"批次 {batch_index + 1} 批量创建记录时遇到数据库错误: {str(e)}"
+                        logger.error(error_msg) # 错误级别日志，数据库错误通常需要关注
+                        failed_count += len(to_create)
+                        created_count -= len(to_create) # 修正 created_count
+                    except Exception as e: # 捕获其他异常，例如字段类型错误等
+                        error_msg = f"批次 {batch_index + 1} 批量创建记录时遇到未知错误: {str(e)}, 数据示例: {to_create[:2]}" # 记录数据示例方便排查
+                        logger.error(error_msg)
+                        failed_count += len(to_create)
+                        created_count -= len(to_create) # 修正 created_count
+
+
+                # 批量更新已有记录
                 if to_update and update_fields:
                     # 排除主键和不可更新字段
-                    update_fields = [f for f in update_fields if f not in unique_fields 
-                                    and f not in getattr(model_class._meta, 'read_only_fields', [])]
-                    if update_fields:
-                        model_class.objects.bulk_update(to_update, update_fields)
-            
-            # 执行批处理
+                    update_fields_final = [
+                        f
+                        for f in update_fields
+                        if f not in unique_fields
+                        and f not in getattr(model_class._meta, "read_only_fields", [])
+                    ]
+                    if update_fields_final:
+                        try:
+                            model_class.objects.bulk_update(to_update, update_fields_final)
+                        except IntegrityError as e: # 更具体的异常处理
+                            error_msg = f"批次 {batch_index + 1} 批量更新记录时遇到唯一性冲突: {str(e)}"
+                            logger.error(error_msg)
+                            failed_count += len(to_update)
+                            updated_count -= len(to_update) # 修正 updated_count
+                        except DatabaseError as e: # 捕获数据库错误
+                            error_msg = f"批次 {batch_index + 1} 批量更新记录时遇到数据库错误: {str(e)}"
+                            logger.error(error_msg)
+                            failed_count += len(to_update)
+                            updated_count -= len(to_update) # 修正 updated_count
+                        except Exception as e: # 捕获其他异常
+                            error_msg = f"批次 {batch_index + 1} 批量更新记录时遇到未知错误: {str(e)}, 更新字段: {update_fields_final}, 数据示例: {to_update[:2]}" # 记录更新字段和数据示例
+                            logger.error(error_msg)
+                            failed_count += len(to_update)
+                            updated_count -= len(to_update) # 修正 updated_count
+
             await sync_to_async(process_batch)()
-        
+
         result = {
-            '创建': created_count,
-            '更新': updated_count,
-            '跳过': skipped_count
+            "创建": created_count,
+            "更新": updated_count,
+            "未更改": unchanged_count, # 更名 skipped 为 未更改
+            "失败": failed_count, # 新增 失败 计数
         }
 
         logger.info(f"完成{model_class.__name__}数据批量处理: {result}")

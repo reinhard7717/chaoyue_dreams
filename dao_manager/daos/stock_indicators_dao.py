@@ -4,6 +4,10 @@ import asyncio
 from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
 from datetime import datetime, date
 from asgiref.sync import sync_to_async
+from stock_models.indicator.boll import StockBOLLIndicator
+from stock_models.indicator.kdj import StockKDJIndicator
+from stock_models.indicator.ma import StockMAIndicator
+from stock_models.indicator.macd import StockMACDIndicator
 from utils import cache_constants as cc # 导入常量
 from django.utils import timezone
 
@@ -13,7 +17,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.user_dao import UserDAO
 from stock_models.stock_basic import StockInfo
-from stock_models.stock_indicators import StockBOLLIndicator, StockKDJIndicator, StockMACDIndicator, StockMAIndicator, StockTimeTrade
+from stock_models.stock_indicators import StockTimeTrade
 
 from utils.cache_get import StockIndicatorsCacheGet
 from utils.cache_manager import CacheManager
@@ -37,7 +41,7 @@ class StockIndicatorsDAO(BaseDAO):
         self.cache_manager = CacheManager()
         self.stock_basic_dao = StockBasicDAO()
         self.cache_timeout = 300  # 默认缓存5分钟
-        self.cache_limit = 200 # 定义缓存数量上限
+        self.cache_limit = 700 # 定义缓存数量上限
         self.user_dao = UserDAO()
         self.cache_key = StockCashKey()
         self.data_format_process = StockIndicatorsDataFormatProcess()
@@ -162,7 +166,7 @@ class StockIndicatorsDAO(BaseDAO):
             return cache_data
         # 从数据库获取数据
         try:
-            data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').first())()
+            data = await sync_to_async(lambda: StockTimeTrade.objects.filter(stock=stock, time_level=time_level).order_by('-trade_time').limit(limit))()
             return data
         except Exception as e:
             logger.error(f"从数据库获取最新股票[{stock}]{time_level}级别分时成交数据失败: {str(e)}")
@@ -286,7 +290,9 @@ class StockIndicatorsDAO(BaseDAO):
             Optional[StockTimeTrade]: 保存的数据
         """
         # 获取股票信息
+        logger.info(f"==> 进入 fetch_and_save: {stock_code} {time_level}") # 入口日志
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        logger.info(f"    完成 await get_stock_by_code: {stock_code}, 结果: {'找到' if stock else '未找到'}")
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
         try:
@@ -311,7 +317,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_time_trade(stock_code, time_level)
+            cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -379,7 +385,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_time_trade(stock_code, time_level)
+                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -643,7 +649,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_kdj(stock_code, time_level)
+            cache_key =  self.cache_key.history_kdj(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -711,7 +717,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_kdj(stock_code, time_level)
+                cache_key =  self.cache_key.history_kdj(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -929,7 +935,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_macd(stock_code, time_level)
+            cache_key =  self.cache_key.history_macd(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -998,7 +1004,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_macd(stock_code, time_level)
+                cache_key =  self.cache_key.history_macd(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -1220,7 +1226,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_ma(stock_code, time_level)
+            cache_key =  self.cache_key.history_ma(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -1289,7 +1295,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_ma(stock_code, time_level)
+                cache_key =  self.cache_key.history_ma(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -1515,7 +1521,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_boll(stock_code, time_level)
+            cache_key =  self.cache_key.history_boll(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -1584,7 +1590,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_boll(stock_code, time_level)
+                cache_key =  self.cache_key.history_boll(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---

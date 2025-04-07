@@ -35,7 +35,7 @@ INDEX_REALTIME_DATA_MAPPING = {
     'sjl': 'pb_ratio',                  # 市净率
     'lt': 'circulating_market_value',   # 流通市值(元)
     'sz': 'total_market_value',         # 总市值(元)
-    't': 'update_time',                 # 更新时间
+    't': 'trade_time',                 # 更新时间
 }
 
 # 市场概览数据字段映射

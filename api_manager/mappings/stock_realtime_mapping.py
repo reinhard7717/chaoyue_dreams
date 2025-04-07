@@ -25,12 +25,12 @@ REALTIME_DATA_MAPPING = {
     'sjl': 'pb_ratio',
     'zdf60': 'price_change_60d',
     'zdfnc': 'price_change_ytd',
-    't': 'update_time'
+    't': 'trade_time'
 }
 
 # 买卖五档盘口数据字段映射
 LEVEL5_DATA_MAPPING = {
-    't': 'update_time',
+    't': 'trade_time',
     'vc': 'order_diff',
     'vb': 'order_ratio',
     'pb1': 'buy_price1',

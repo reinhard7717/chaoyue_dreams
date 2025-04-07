@@ -35,7 +35,6 @@ class CacheGet():
             else:
                 logger.info(f"缓存未命中: 未找到指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
                 return None
-
         except Exception as e:
             logger.error(f"从缓存获取指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
@@ -126,16 +125,21 @@ class CacheGet():
 
 class IndexCacheGet(CacheGet):
     async def all_indexes(self) -> Optional[List[Dict]]:
-        """从缓存中获取所有指数列表"""
+        """
+        从缓存中获取所有指数列表，按照指数代码排序
+        
+        Returns:
+            Optional[List[Dict]]: 按指数代码排序的指数列表，如果缓存未命中则返回None
+        """
         try:
-            # 同样使用常量生成键
-            cache_key = self.cache_manager.generate_key(
-                cache_type=cc.TYPE_STATIC,
-                entity_type=cc.ENTITY_INDEX,
-                entity_id=cc.ID_ALL
-            )
-            # logger.info(f"尝试从缓存获取所有指数列表, key: {cache_key}")
-            return self.cache_manager.get(cache_key)
+            cache_key = self.cache_key_index.indexs_data()
+            # 获取缓存数据
+            cached_data = self.cache_manager.get(cache_key)
+            logger.info(f"cache_key：{cache_key}, cached_data: {cached_data}")
+            if cached_data:
+                # 对缓存数据按code字段排序
+                return sorted(cached_data, key=lambda x: x['code'])
+            return None
         except Exception as e:
             logger.error(f"从缓存获取所有指数列表时发生错误: {str(e)}", exc_info=True)
             return None
@@ -151,7 +155,7 @@ class IndexCacheGet(CacheGet):
         """
         try:
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
-            cache_key = await self.cache_key_index.realtime_data(index_code)
+            cache_key = self.cache_key_index.realtime_data(index_code)
             logger.info(f"尝试从缓存获取指数[{index_code}]实时数据, key: {cache_key}")
             # 2. 调用 CacheManager 获取数据
             # cache_manager.get 会自动处理反序列化和解压缩
@@ -183,12 +187,12 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新时间序列数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_key = await self.cache_key_index.latest_time_series(index_code, time_level)
+        cache_key = self.cache_key_index.latest_time_series(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, cache_key)
 
     async def history_time_series(self, index_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_index.history_time_series(index_code, time_level)
-        return await self._history_data(index_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_index.history_time_series(index_code, time_level)
+        return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
     async def latest_macd(self, index_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
@@ -199,7 +203,7 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新时间序列数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_key = await self.cache_key_index.latest_macd(index_code, time_level)
+        cache_key = self.cache_key_index.latest_macd(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, cache_key)
 
     async def history_macd(self, index_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
@@ -214,8 +218,8 @@ class IndexCacheGet(CacheGet):
             Optional[List[Dict[str, Any]]]: 时间范围内的数据点字典列表，按时间升序排列。
                                            如果未命中、范围内无数据或发生错误则返回 None 或空列表。
         """
-        cache_key = await self.cache_key_index.history_macd(index_code, time_level)
-        return await self._history_data(index_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_index.history_macd(index_code, time_level)
+        return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
     async def latest_kdj(self, index_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
@@ -226,7 +230,7 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新KDJ数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_key = await self.cache_key_index.latest_kdj(index_code, time_level)
+        cache_key = self.cache_key_index.latest_kdj(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, cache_key)
 
     async def history_kdj(self, index_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
@@ -241,8 +245,8 @@ class IndexCacheGet(CacheGet):
             Optional[List[Dict[str, Any]]]: 时间范围内的数据点字典列表，按时间升序排列。
             如果未命中、范围内无数据或发生错误则返回 None 或空列表。
         """
-        cache_key = await self.cache_key_index.history_kdj(index_code, time_level)
-        return await self._history_data(index_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_index.history_kdj(index_code, time_level)
+        return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
     async def latest_ma(self, index_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
@@ -253,7 +257,7 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新MA数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_key = await self.cache_key_index.latest_ma(index_code, time_level)
+        cache_key = self.cache_key_index.latest_ma(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, cache_key)
 
     async def history_ma(self, index_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
@@ -268,8 +272,8 @@ class IndexCacheGet(CacheGet):
             Optional[List[Dict[str, Any]]]: 时间范围内的数据点字典列表，按时间升序排列。
             如果未命中、范围内无数据或发生错误则返回 None 或空列表。
         """
-        cache_key = await self.cache_key_index.history_ma(index_code, time_level)
-        return await self._history_data(index_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_index.history_ma(index_code, time_level)
+        return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
     async def latest_boll(self, index_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
@@ -280,7 +284,7 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新BOLL数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_key = await self.cache_key_index.latest_boll(index_code, time_level)
+        cache_key = self.cache_key_index.latest_boll(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, cache_key)
 
     async def history_boll(self, index_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
@@ -295,11 +299,26 @@ class IndexCacheGet(CacheGet):
             Optional[List[Dict[str, Any]]]: 时间范围内的数据点字典列表，按时间升序排列。
             如果未命中、范围内无数据或发生错误则返回 None 或空列表。
         """
-        cache_key = await self.cache_key_index.history_boll(index_code, time_level)
-        return await self._history_data(index_code, time_level, start_time, end_time, cache_key)
-    
-class StockIndicatorsCacheGet(CacheGet):
+        cache_key = self.cache_key_index.history_boll(index_code, time_level)
+        return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
+
+class StockInfoCacheGet(CacheGet):
+    async def all_stocks(self) -> Optional[List[Dict]]:
+        """
+        从缓存中获取所有股票列表，按照股票代码排序
+        """
+        cache_key = self.cache_manager.generate_key(
+            cache_type=cc.TYPE_STATIC,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=cc.ID_ALL
+        )
+        cached_data = self.cache_manager.get(cache_key)
+        if cached_data:
+            return sorted(cached_data, key=lambda x: x['stock_code'])
+        return None
+
+class StockIndicatorsCacheGet(CacheGet):
     async def latest_time_trade(self, stock_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数和时间级别的最新时间序列数据点。
@@ -309,116 +328,113 @@ class StockIndicatorsCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新时间序列数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_key = await self.cache_key_stock.latest_time_trade(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
 
     async def history_time_trade(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_time_trade(stock_code, time_level)
-        return await self._history_data(stock_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
+        return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
     
     async def history_time_trade_by_limit(self, stock_code: str, time_level: str, limit: int) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_time_trade(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data_by_limit(cache_key, limit)
 
     async def latest_kdj(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_kdj(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_kdj(stock_code, time_level)
         data = await self._stock_latest_data(stock_code, time_level, cache_key)
-        logger.info(f"StockIndicatorsCacheGet.latest_kdj.cache_key: {cache_key}, data: {data}, type: {type(data)}")
         return data
 
     async def history_kdj_by_date_range(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_kdj(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_kdj(stock_code, time_level)
         data = await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
-        logger.info(f"StockIndicatorsCacheGet.history_kdj.cache_key: {cache_key}, data: {data}, type: {type(data)}")
         return data
 
     async def history_kdj_by_limit(self, stock_code: str, time_level: str, limit: int) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_kdj(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_kdj(stock_code, time_level)
         data = await self._history_data_by_limit(cache_key, limit)
-        logger.info(f"StockIndicatorsCacheGet.history_kdj.cache_key: {cache_key}, data: {data}, type: {type(data)}")
         return data
 
     async def latest_macd(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_macd(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_macd(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
 
     async def history_macd(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_macd(stock_code, time_level)
-        return await self._history_data(stock_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_macd(stock_code, time_level)
+        return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
 
     async def latest_ma(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_ma(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_ma(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
 
     async def history_ma(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_ma(stock_code, time_level)
-        return await self._history_data(stock_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_ma(stock_code, time_level)
+        return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
 
     async def latest_boll(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_boll(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_boll(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
 
     async def history_boll(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_boll(stock_code, time_level)
-        return await self._history_data(stock_code, time_level, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_boll(stock_code, time_level)
+        return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
 
 class StockRealtimeCacheGet(CacheGet):
 
     async def latest_realtime_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_realtime_data(stock_code)
+        cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
     
     async def history_realtime_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_realtime_data(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_realtime_data(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
     async def latest_onebyone_trade(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_onebyone_trade(stock_code)
+        cache_key = self.cache_key_stock.latest_onebyone_trade(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
     
     async def history_onebyone_trade(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_onebyone_trade(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_onebyone_trade(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
     async def latest_time_deal(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_time_deal(stock_code)
+        cache_key = self.cache_key_stock.latest_time_deal(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
 
     async def history_time_deal(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_time_deal(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_time_deal(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
     async def latest_real_percent(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_real_percent(stock_code)
+        cache_key = self.cache_key_stock.latest_real_percent(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
 
     async def history_real_percent(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_real_percent(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_real_percent(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
     
     async def latest_big_deal(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_big_deal(stock_code)
+        cache_key = self.cache_key_stock.latest_big_deal(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
 
     async def history_big_deal(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_big_deal(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_big_deal(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
     
     async def latest_abnormal_movement(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_abnormal_movement(stock_code)
+        cache_key = self.cache_key_stock.latest_abnormal_movement(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
 
     async def history_abnormal_movement(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_abnormal_movement(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_abnormal_movement(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
     
     async def latest_level5_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = await self.cache_key_stock.latest_level5_data(stock_code)
+        cache_key = self.cache_key_stock.latest_level5_data(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
 
     async def history_level5_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = await self.cache_key_stock.history_level5_data(stock_code)
-        return await self._history_data(stock_code, start_time, end_time, cache_key)
+        cache_key = self.cache_key_stock.history_level5_data(stock_code)
+        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
     
 
 

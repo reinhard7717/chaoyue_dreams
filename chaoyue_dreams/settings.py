@@ -78,6 +78,7 @@ DATABASES = {
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },
+        'CONN_MAX_AGE': 300,  # 连接池最大连接数
     }
 }
 
@@ -126,7 +127,7 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/users/login/'
 
 # API配置
-API_BASE_URL = 'https://ig507.com'
+API_BASE_URL = 'http://ig507.com'  # 修改为http方式
 API_LICENCES = [
     '6AEE029A-44A4-3404-A405-FB2C20085521',
     '03B3418F-04F6-5C44-A700-A245F74B8D77',

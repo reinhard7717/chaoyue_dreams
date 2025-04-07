@@ -5,12 +5,17 @@ import json
 import logging
 import datetime
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List, Optional, Set, Union, Type
 from django.db import transaction
 from django.core.cache import cache
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from stock_models.indicator.boll import IndexBOLLData
+from stock_models.indicator.kdj import IndexKDJData
+from stock_models.indicator.ma import IndexMAData
+from stock_models.indicator.macd import IndexMACDData
 from utils.cache_get import IndexCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import IndexCacheSet
@@ -21,7 +26,6 @@ from utils import cache_constants as cc # 导入常量
 
 from dao_manager.base_dao import BaseDAO
 from api_manager.apis.index_api import StockIndexAPI
-from api_manager.mappings.index_mapping import BOLL_MAPPING, INDEX_REALTIME_DATA_MAPPING, KDJ_MAPPING, MA_MAPPING, MACD_MAPPING, MARKET_OVERVIEW_MAPPING, TIME_SERIES_MAPPING
 from stock_models.index import *
 
 logger = logging.getLogger("dao")
@@ -49,29 +53,32 @@ class StockIndexDAO(BaseDAO):
     
     async def get_all_indexes(self) -> List[IndexInfo]:
         """
-        获取所有股票指数列表
+        获取所有股票指数列表，按照指数代码排序
         
         先尝试从缓存获取，如缓存未命中则从数据库读取，
         如数据库无数据则从API获取并保存
         
         Returns:
-            List[StockIndex]: 指数对象列表
+            List[StockIndex]: 按指数代码排序的指数对象列表
         """
         # 尝试从缓存获取
-        cached_data = await self.get_cache_all_indexes()
-        if cached_data:
-            logger.debug("从缓存获取股票指数列表")
-            # 将缓存数据转换为模型实例列表
-            return [IndexInfo(**index_dict) for index_dict in cached_data]
-        # 从数据库读取
-        indexes = await sync_to_async(list)(IndexInfo.objects.all())
+        # cached_data = await self.cache_get.all_indexes()
+        # if cached_data:
+        #     logger.debug("从缓存获取股票指数列表")
+        #     # logger.info(f"cached_data: {cached_data}")
+        #     # 将缓存数据转换为模型实例列表并排序
+        #     return sorted([IndexInfo(**index_dict) for index_dict in cached_data], key=lambda x: x.code)
+            
+        # 从数据库读取并排序
+        indexes = await sync_to_async(list)(IndexInfo.objects.all().order_by('code'))
         if indexes:
             await self.cache_set.indexes(indexes)
+            return indexes
         
         # 如果数据库中没有数据，从API获取并保存
         logger.info("数据库中没有指数数据，从API获取")
         await self.fetch_and_save_indexes()
-        indexes = await sync_to_async(list)(IndexInfo.objects.all())
+        indexes = await sync_to_async(list)(IndexInfo.objects.all().order_by('code'))
         return indexes
     
     async def get_index_by_code(self, code: str) -> Optional[IndexInfo]:
@@ -84,13 +91,13 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[StockIndex]: 指数对象，如不存在返回None
         """
-        # 使用CacheManager生成标准化缓存键
+        # # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_key.index_data(code)
-        # 尝试从缓存获取，指定模型类进行自动转换
-        index = self.cache_manager.get_model(cache_key, IndexInfo)
-        if index:
-            # logger.warning(f"get_index_by_code获取指数: {cache_key}, {index}, type: {type(index)}")
-            return index
+        # # 尝试从缓存获取，指定模型类进行自动转换
+        # index = self.cache_manager.get_model(cache_key, IndexInfo)
+        # if index:
+        #     # logger.warning(f"get_index_by_code获取指数: {cache_key}, {index}, type: {type(index)}")
+        #     return index
             
         # 从数据库获取
         index = await sync_to_async(IndexInfo.objects.get)(code=code)
@@ -127,9 +134,9 @@ class StockIndexDAO(BaseDAO):
         if not index:
             return None
         try:
-            data = await sync_to_async(lambda: IndexRealTimeData.objects.filter(index=index).order_by('-update_time').first())()
+            data = await sync_to_async(lambda: IndexRealTimeData.objects.filter(index=index).order_by('-trade_time').first())()
             # 检查数据是否过期（超过2分钟）
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 await self.cache_set.realtime_data(index_code, data)
                 return data
         except Exception as e:
@@ -139,7 +146,7 @@ class StockIndexDAO(BaseDAO):
         # 数据不存在或已过期，从API获取新数据
         logger.info(f"指数[{index_code}]实时数据不存在或已过期，从API获取")
         await self.fetch_and_save_realtime_data(index_code)
-        data = await sync_to_async(lambda: IndexRealTimeData.objects.filter(index=index).order_by('-update_time').first())()
+        data = await sync_to_async(lambda: IndexRealTimeData.objects.filter(index=index).order_by('-trade_time').first())()
         return data
             
     async def get_latest_market_overview(self) -> Optional[MarketOverview]:
@@ -160,11 +167,11 @@ class StockIndexDAO(BaseDAO):
         # 从数据库获取最新数据
         try:
             data = await sync_to_async(
-                lambda: MarketOverview.objects.order_by('-update_time').first()
+                lambda: MarketOverview.objects.order_by('-trade_time').first()
             )()
             
             # 检查数据是否过期（超过2分钟）
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 # *** 正确调用 CacheManager 缓存数据 ***
                 success = self.cache_manager.set(
                     key=cache_key,          # 第一个参数：缓存键 (字符串)
@@ -210,7 +217,7 @@ class StockIndexDAO(BaseDAO):
         try:
             # 从数据库获取最新数据
             data = await sync_to_async(lambda: IndexTimeSeriesData.objects.filter(index=index, time_level=time_level).order_by('-trade_time').first())()
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 await self.cache_set.latest_time_series(index_code, time_level, data)
                 return data
         except Exception as e:
@@ -243,7 +250,7 @@ class StockIndexDAO(BaseDAO):
         try:
             # 从数据库获取最新数据
             data = await sync_to_async(lambda: IndexKDJData.objects.filter(index=index, time_level=time_level).order_by('-trade_time').first())()
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 await self.cache_set.latest_kdj(index_code, time_level, data)
                 return data
         except Exception as e:
@@ -276,7 +283,7 @@ class StockIndexDAO(BaseDAO):
         try:
             # 从数据库获取最新数据
             data = await sync_to_async(lambda: IndexMACDData.objects.filter(index=index, time_level=time_level).order_by('-trade_time').first())()
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 await self.cache_set.latest_macd(index_code, time_level, data)
                 return data
         except Exception as e:
@@ -309,7 +316,7 @@ class StockIndexDAO(BaseDAO):
         try:
             # 从数据库获取最新数据
             data = await sync_to_async(lambda: IndexMAData.objects.filter(index=index, time_level=time_level).order_by('-trade_time').first())()
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 await self.cache_set.latest_ma(index_code, time_level, data)
                 return data
         except Exception as e:
@@ -342,7 +349,7 @@ class StockIndexDAO(BaseDAO):
         try:
             # 从数据库获取最新数据
             data = await sync_to_async(lambda: IndexBOLLData.objects.filter(index=index, time_level=time_level).order_by('-trade_time').first())()
-            if data and (timezone.now() - data.update_time).total_seconds() < 120:
+            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                 await self.cache_set.latest_boll(index_code, time_level, data)
                 return data
         except Exception as e:
@@ -839,23 +846,25 @@ class StockIndexDAO(BaseDAO):
             logger.error(f"刷新指数数据失败: {str(e)}")
             raise
     
-    async def fetch_and_save_realtime_data(self, index_code: str) -> Dict:
+    async def fetch_and_save_realtime_data_by_index_code(self, index_code: str) -> Dict:
         """
         获取并保存指数实时数据
-        
         Args:
             index_code: 指数代码
-            
         Returns:
             Optional[IndexRealTimeData]: 保存的实时数据对象
         """
+        # 获取指数信息
+        index = await self.get_index_by_code(index_code)
+        logger.info(f"index: {index}")
+        # breakpoint()
+        if not index:
+            logger.warning(f"指数代码[{index_code}]不存在，无法获取实时数据")
+            return {'创建': 0, '更新': 0, '跳过': 0}
         try:
-            # 获取指数信息
-            index = await self.get_index_by_code(index_code)
-            if not index:
-                logger.warning(f"指数代码[{index_code}]不存在，无法获取实时数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
+
             # 调用API获取实时数据
+            logger.info(f"开始获取{index_code}指数实时数据")
             data_dicts = []
             api_data = await self.api.get_index_realtime_data(index_code)
             if not api_data:
@@ -863,16 +872,17 @@ class StockIndexDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dict = await self.data_format_process.set_realtime_data(index, api_data)
             data_dicts.append(data_dict)
+            cache_dict = data_dict.copy()
+            await self.cache_set.realtime_data(index_code, cache_dict)
+            # logger.info(f"data_dict: {data_dict}")
             # 保存数据
             logger.info(f"开始保存{index_code}指数实时数据")
             result = await self._save_all_to_db(
                 model_class=IndexRealTimeData,
                 data_list=data_dicts,
-                unique_fields=['index', 'update_time']
+                unique_fields=['index', 'trade_time']
             )
             logger.info(f"{index_code}指数实时数据保存完成，结果: {result}")
-            # 缓存数据
-            await self.cache_set.realtime_data(index_code, data_dict)
             return result
         except Exception as e:
             logger.error(f"获取并保存指数[{index_code}]实时数据失败: {str(e)}")
@@ -889,22 +899,8 @@ class StockIndexDAO(BaseDAO):
                 logger.warning(f"指数不存在，无法获取实时数据")
                 return None
             # 调用API获取实时数据
-            data_dicts = []
             for index in indexs:
-                api_data = await self.api.get_index_realtime_data(index.code)
-                data_dict = await self.data_format_process.set_realtime_data(index, api_data)
-                data_dicts.append(data_dict)
-                cache_dict = data_dict.copy()
-                await self.cache_set.realtime_data(index.code, cache_dict)
-            # 保存数据
-            logger.info(f"开始保存所有指数实时数据")
-            result = await self._save_all_to_db(
-                model_class=IndexRealTimeData,
-                data_list=data_dicts,
-                unique_fields=['index', 'update_time']
-            )
-            logger.info(f"所有指数实时数据保存完成，结果: {result}")
-            return result
+                await self.fetch_and_save_realtime_data_by_index_code(index.code)
         except Exception as e:
             logger.error(f"获取并保存指数实时数据失败: {str(e)}")
             return None
@@ -942,7 +938,7 @@ class StockIndexDAO(BaseDAO):
                     'down_4_to_6': int(api_data.get('down4To6')), # 下跌4%~6%数量
                     'down_6_to_8': int(api_data.get('down6To8')), # 下跌6%~8%数量
                     'down_8_to_limit': int(api_data.get('down8ToDt')), # 下跌8%~跌停数量
-                    'update_time': datetime.datetime.now()
+                    'trade_time': datetime.datetime.now()
                 }
                 
                 # 创建实时数据记录
@@ -964,7 +960,7 @@ class StockIndexDAO(BaseDAO):
             index_code: 指数代码
             time_level: 时间级别
         Returns:
-            List[IndexTimeSeriesData]: 保存的时间序列数据对象列表
+            Dict: 保存结果统计
         """
         try:
             # 获取指数信息
@@ -998,16 +994,15 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_latest_time_series_by_index_code(self, index_code: str) -> Dict:
         """
         获取并保存指数最新时间序列数据
-        
         Args:
-            index_code: 指数代码
-            
+            index_code: 指数代码            
         Returns:
             Dict: 保存的时间序列数据对象列表
         """
         try:
             # 获取指数信息
             index = await self.get_index_by_code(index_code)
+            logger.info(f"index: {index.id}")
             if not index:
                 logger.warning(f"指数代码[{index_code}]不存在，无法获取时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
@@ -1030,43 +1025,6 @@ class StockIndexDAO(BaseDAO):
             return result
         except Exception as e:
             logger.error(f"获取并保存指数[{index_code}]的最新时间序列数据失败: {str(e)}")
-            return []
-
-    async def fetch_and_save_latest_time_series_by_time_level(self, time_level: str) -> Dict:
-        """
-        获取并保存指数最新时间序列数据
-
-        Args:
-            time_level: 时间级别
-
-        Returns:
-            Dict: 保存的时间序列数据对象列表
-        """
-        try:
-            # 获取指数信息
-            indexs = await self.get_all_indexes()
-            if not indexs:
-                logger.warning(f"指数不存在，无法获取时间序列数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            data_dicts = []
-            # 获取最新时间序列数据
-            for index in indexs:
-                api_data = await self.api.get_latest_time_series(index.code, time_level)
-                data_dict = await self.data_format_process.set_time_series(index, time_level, api_data)
-                data_dicts.append(data_dict)
-                cache_dict = data_dict.copy()
-                await self.cache_set.latest_time_series(index.code, time_level, cache_dict)
-            # 保存数据
-            logger.info(f"开始保存{time_level}指数最新时间序列数据")
-            result = await self._save_all_to_db(
-                model_class=IndexTimeSeriesData,
-                data_list=data_dicts,
-                unique_fields=['index', 'trade_time', 'time_level']
-            )
-            logger.info(f"{time_level}指数最新时间序列数据保存完成，结果: {result}")
-            return result
-        except Exception as e:
-            logger.error(f"获取并保存指数[{time_level}]的最新时间序列数据失败: {str(e)}")
             return []
 
     async def fetch_and_save_all_latest_time_series(self) -> Dict:
@@ -1122,7 +1080,7 @@ class StockIndexDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_time_series(index_code, time_level)
+            cache_key =  self.cache_key.history_time_series(index_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -1147,6 +1105,7 @@ class StockIndexDAO(BaseDAO):
             if not index:
                 logger.warning(f"指数代码[{index_code}]不存在，无法获取时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
+            logger.info(f"开始获取{index_code}指数历史时间序列数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             # 获取最新时间序列数据
@@ -1163,8 +1122,8 @@ class StockIndexDAO(BaseDAO):
                     batch_result = await self._save_all_to_db(
                         model_class=IndexTimeSeriesData,
                         data_list=data_dicts,
-                        unique_fields=['index', 'time_level', 'trade_time']
-                    )
+                unique_fields=['index', 'time_level', 'trade_time']
+            )
                     logger.info(f"批次数据保存完成，结果: {batch_result}")
                     # 累加结果
                     for key in total_result:
@@ -1188,7 +1147,7 @@ class StockIndexDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_time_series(index_code, time_level)
+                cache_key =  self.cache_key.history_time_series(index_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -1202,15 +1161,46 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_all_history_time_series(self) -> Dict:
         """
         获取并保存所有指数历史时间序列数据
+        使用线程池并行处理多个指数的数据获取和保存
+        
+        Returns:
+            Dict: 包含处理结果的字典
         """
         try:
             # 获取所有指数
             indexes = await self.get_all_indexes()
-            for index in indexes:
-                await self.fetch_and_save_history_time_series_by_index_code(index.code)
+            results = {"success": [], "failed": []}
+            
+            # 创建线程池，最大工作线程数为10
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # 创建Future对象列表
+                future_to_index = {
+                    executor.submit(
+                        asyncio.run,
+                        self.fetch_and_save_history_time_series_by_index_code(index.code)
+                    ): index.code
+                    for index in indexes
+                }
+                
+                # 处理完成的任务
+                for future in as_completed(future_to_index):
+                    index_code = future_to_index[future]
+                    try:
+                        future.result()
+                        results["success"].append(index_code)
+                        logger.info(f"成功获取并保存指数[{index_code}]的历史时间序列数据")
+                    except Exception as e:
+                        results["failed"].append({
+                            "code": index_code,
+                            "error": str(e)
+                        })
+                        logger.error(f"获取并保存指数[{index_code}]的历史时间序列数据失败: {str(e)}")
+            
+            return results
+            
         except Exception as e:
             logger.error(f"获取并保存所有指数历史时间序列数据失败: {str(e)}")
-            return []
+            return {"success": [], "failed": [], "error": str(e)}
 
     # ================ 指数KDJ指标数据 ================
     async def fetch_and_save_latest_kdj(self, index_code: str, time_level: str) -> Dict:
@@ -1378,7 +1368,7 @@ class StockIndexDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_kdj(index_code, time_level)
+            cache_key =  self.cache_key.history_kdj(index_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -1448,7 +1438,7 @@ class StockIndexDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_kdj(index_code, time_level)
+                cache_key =  self.cache_key.history_kdj(index_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -1649,7 +1639,7 @@ class StockIndexDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
              # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_macd(index_code, time_level)
+            cache_key =  self.cache_key.history_macd(index_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -1724,7 +1714,7 @@ class StockIndexDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level_to_trim in processed_indices_in_batch:
                 # --- 生成 KDJ 缓存键 ---
-                cache_key = await self.cache_key.history_macd(index_code, time_level_to_trim)
+                cache_key =  self.cache_key.history_macd(index_code, time_level_to_trim)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -1927,7 +1917,7 @@ class StockIndexDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_ma(index_code, time_level)
+            cache_key =  self.cache_key.history_ma(index_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -2002,7 +1992,7 @@ class StockIndexDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level_to_trim in processed_indices_in_batch:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_ma(index_code, time_level_to_trim)
+                cache_key =  self.cache_key.history_ma(index_code, time_level_to_trim)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
@@ -2205,7 +2195,7 @@ class StockIndexDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key = await self.cache_key.history_boll(index_code, time_level)
+            cache_key =  self.cache_key.history_boll(index_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
@@ -2272,7 +2262,7 @@ class StockIndexDAO(BaseDAO):
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_LEVELS:
                 # --- 生成缓存键 ---
-                cache_key = await self.cache_key.history_ma(index_code, time_level)
+                cache_key =  self.cache_key.history_ma(index_code, time_level)
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---

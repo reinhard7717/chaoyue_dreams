@@ -3,12 +3,17 @@ from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
 
 class IndexCashKey:
-
+    """
+    指数缓存键生成器
+    负责生成与指数相关的缓存键
+    """
+    
     def __init__(self):
+        """初始化缓存键生成器"""
         self.cache_manager = CacheManager()
 
     # ================ Cash_key 缓存键设置 ================
-    async def indexs_data(self) -> str:
+    def indexs_data(self) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_INDEX,
@@ -16,7 +21,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def index_data(self, index_code: str) -> str:
+    def index_data(self, index_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_INDEX,
@@ -25,7 +30,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def realtime_data(self, index_code: str) -> str:
+    def realtime_data(self, index_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
                 cache_type=cc.TYPE_REALTIME,    # 实时数据类型
                 entity_type=cc.ENTITY_INDEX,    # 实体类型为指数
@@ -34,7 +39,7 @@ class IndexCashKey:
             )
         return cache_key
     
-    async def latest_time_series(self, index_code: str, time_level: str) -> str:
+    def latest_time_series(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -44,7 +49,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def history_time_series(self, index_code: str, time_level: str) -> str:
+    def history_time_series(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -54,7 +59,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def latest_macd(self, index_code: str, time_level: str) -> str:
+    def latest_macd(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,      # 时间序列类型
             entity_type=cc.ENTITY_INDEX,        # 实体类型为指数
@@ -64,7 +69,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def history_macd(self, index_code: str, time_level: str) -> str:
+    def history_macd(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -74,7 +79,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def latest_kdj(self, index_code: str, time_level: str) -> str:
+    def latest_kdj(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -84,7 +89,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def history_kdj(self, index_code: str, time_level: str) -> str:
+    def history_kdj(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -94,7 +99,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def latest_ma(self, index_code: str, time_level: str) -> str:
+    def latest_ma(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -104,7 +109,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def history_ma(self, index_code: str, time_level: str) -> str:
+    def history_ma(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -114,7 +119,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def latest_boll(self, index_code: str, time_level: str) -> str:
+    def latest_boll(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -124,7 +129,7 @@ class IndexCashKey:
         )
         return cache_key
     
-    async def history_boll(self, index_code: str, time_level: str) -> str:
+    def history_boll(self, index_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_INDEX,
@@ -140,7 +145,7 @@ class StockCashKey:
         self.cache_manager = CacheManager()
 
     # ================= 缓存cache_key设置 =================
-    async def stocks_data(self) -> str:
+    def stocks_data(self) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_STOCK,
@@ -148,7 +153,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def stock_data(self, stock_code: str) -> str:
+    def stock_data(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_STOCK,
@@ -157,7 +162,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def latest_time_trade(self, stock_code: str, time_level: str) -> str:
+    def latest_time_trade(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -167,7 +172,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def latest_kdj(self, stock_code: str, time_level: str) -> str:
+    def latest_kdj(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -177,7 +182,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def latest_macd(self, stock_code: str, time_level: str) -> str:
+    def latest_macd(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -187,7 +192,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def latest_ma(self, stock_code: str, time_level: str) -> str:
+    def latest_ma(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -197,7 +202,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def latest_boll(self, stock_code: str, time_level: str) -> str:
+    def latest_boll(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -207,7 +212,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def history_time_trade(self, stock_code: str, time_level: str) -> str:
+    def history_time_trade(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
@@ -217,7 +222,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def history_kdj(self, stock_code: str, time_level: str) -> str:
+    def history_kdj(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
@@ -227,7 +232,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def history_macd(self, stock_code: str, time_level: str) -> str:
+    def history_macd(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
@@ -237,7 +242,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def history_ma(self, stock_code: str, time_level: str) -> str:
+    def history_ma(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
@@ -247,7 +252,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def history_boll(self, stock_code: str, time_level: str) -> str:
+    def history_boll(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
@@ -257,7 +262,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def latest_realtime_data(self, stock_code: str) -> str:
+    def latest_realtime_data(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -266,7 +271,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def history_realtime_data(self, stock_code: str) -> str:
+    def history_realtime_data(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -275,7 +280,7 @@ class StockCashKey:
         )
         return cache_key
 
-    async def latest_level5_data(self, stock_code: str) -> str:
+    def latest_level5_data(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -284,7 +289,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def history_level5_data(self, stock_code: str) -> str:
+    def history_level5_data(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -293,7 +298,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def latest_time_deal(self, stock_code: str) -> str:
+    def latest_time_deal(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -302,7 +307,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def history_time_deal(self, stock_code: str) -> str:
+    def history_time_deal(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -311,7 +316,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def latest_real_percent(self, stock_code: str) -> str:
+    def latest_real_percent(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -320,7 +325,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def history_real_percent(self, stock_code: str) -> str:
+    def history_real_percent(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -329,7 +334,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def latest_big_deal(self, stock_code: str) -> str:
+    def latest_big_deal(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -338,7 +343,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def history_big_deal(self, stock_code: str) -> str:
+    def history_big_deal(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -347,7 +352,7 @@ class StockCashKey:
         )
         return cache_key
     
-    async def latest_abnormal_movement(self, stock_code: str) -> str:
+    def latest_abnormal_movement(self, stock_code: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,

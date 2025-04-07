@@ -457,7 +457,7 @@ class LhbDAO(BaseDAO):
                 
                 # 添加附加字段
                 processed_item['stats_days'] = days
-                processed_item['update_time'] = self._parse_datetime(datetime.now())
+                processed_item['trade_time'] = self._parse_datetime(datetime.now())
                 
                 # 验证必要字段
                 if 'broker_name' not in processed_item or not processed_item['broker_name']:
@@ -598,7 +598,7 @@ class LhbDAO(BaseDAO):
                 
                 # 添加附加字段
                 processed_item['stats_days'] = days
-                processed_item['update_time'] = self._parse_datetime(datetime.now())
+                processed_item['trade_time'] = self._parse_datetime(datetime.now())
                 
                 # 验证必要字段
                 if 'stock_code' not in processed_item or not processed_item['stock_code']:
@@ -739,7 +739,7 @@ class LhbDAO(BaseDAO):
                             processed_item[model_field] = data[api_field]
                 
                 # 添加额外信息
-                processed_item['update_time'] = self._parse_datetime(datetime.now())
+                processed_item['trade_time'] = self._parse_datetime(datetime.now())
                 
                 # 验证必要字段
                 if 'stock_code' not in processed_item or not processed_item['stock_code'] or 'trade_type' not in processed_item or not processed_item['trade_type']:

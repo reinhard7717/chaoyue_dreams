@@ -8,7 +8,7 @@ from decimal import Decimal
 
 # 证监会行业资金流向
 class IndustryCapitalFlow(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     industry = models.ForeignKey(MarketCategory, on_delete=models.CASCADE, related_name="industry_capital_flow", verbose_name=_("行业"))
     average_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="均价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -25,7 +25,7 @@ class IndustryCapitalFlow(BaseModel):
         verbose_name = "证监会行业资金流向"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='icf_update_time_idx'),
+            models.Index(fields=['trade_time'], name='icf_trade_time_idx'),
             models.Index(fields=['industry'], name='icf_industry_code_idx'),
             models.Index(fields=['net_inflow'], name='icf_net_inflow_idx'),
             models.Index(fields=['change_percent'], name='icf_change_percent_idx'),
@@ -36,7 +36,7 @@ class IndustryCapitalFlow(BaseModel):
 
 # 概念板块资金流向
 class ConceptCapitalFlow(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     concept = models.ForeignKey(MarketCategory, on_delete=models.CASCADE, related_name="concept_capital_flow", verbose_name=_("概念板块"))
     average_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="均价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -53,7 +53,7 @@ class ConceptCapitalFlow(BaseModel):
         verbose_name = "概念板块资金流向"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='ccf_update_time_idx'),
+            models.Index(fields=['trade_time'], name='ccf_trade_time_idx'),
             models.Index(fields=['concept'], name='ccf_concept_code_idx'),
             models.Index(fields=['net_inflow'], name='ccf_net_inflow_idx'),
             models.Index(fields=['change_percent'], name='ccf_change_percent_idx'),
@@ -64,7 +64,7 @@ class ConceptCapitalFlow(BaseModel):
 
 # 净流入额排名
 class NetInflowRanking(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="net_inflow_ranking", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -80,7 +80,7 @@ class NetInflowRanking(BaseModel):
         verbose_name = "净流入额排名"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='nir_update_time_idx'),
+            models.Index(fields=['trade_time'], name='nir_trade_time_idx'),
             models.Index(fields=['stock'], name='nir_stock_idx'),
             models.Index(fields=['net_inflow'], name='nir_net_inflow_idx'),
             models.Index(fields=['change_percent'], name='nir_change_percent_idx'),
@@ -91,7 +91,7 @@ class NetInflowRanking(BaseModel):
 
 # 净流入率排名
 class NetInflowRateRanking(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="net_inflow_rate_ranking", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -107,7 +107,7 @@ class NetInflowRateRanking(BaseModel):
         verbose_name = "净流入率排名"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='nirr_update_time_idx'),
+            models.Index(fields=['trade_time'], name='nirr_trade_time_idx'),
             models.Index(fields=['stock'], name='nirr_stock_idx'),
             models.Index(fields=['net_inflow_rate'], name='nirr_net_inflow_rate_idx'),
             models.Index(fields=['change_percent'], name='nirr_change_percent_idx'),
@@ -118,7 +118,7 @@ class NetInflowRateRanking(BaseModel):
 
 # 主力净流入额排名
 class MainForceNetInflowRanking(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="main_force_net_inflow_ranking", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -134,7 +134,7 @@ class MainForceNetInflowRanking(BaseModel):
         verbose_name = "主力净流入额排名"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='mfnir_update_time_idx'),
+            models.Index(fields=['trade_time'], name='mfnir_trade_time_idx'),
             models.Index(fields=['stock'], name='mfnir_stock_idx'),
             models.Index(fields=['main_force_net_inflow'], name='mfnir_main_force_inflow_idx'),
             models.Index(fields=['change_percent'], name='mfnir_change_percent_idx'),
@@ -145,7 +145,7 @@ class MainForceNetInflowRanking(BaseModel):
 
 # 主力净流入率排名
 class MainForceNetInflowRateRanking(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="main_force_net_inflow_rate_ranking", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -161,7 +161,7 @@ class MainForceNetInflowRateRanking(BaseModel):
         verbose_name = "主力净流入率排名"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='mfnirr_update_time_idx'),
+            models.Index(fields=['trade_time'], name='mfnirr_trade_time_idx'),
             models.Index(fields=['stock'], name='mfnirr_stock_idx'),
             models.Index(fields=['main_force_net_inflow_rate'], name='mfnirr_inflow_rate_idx'),
             models.Index(fields=['change_percent'], name='mfnirr_change_percent_idx'),
@@ -172,7 +172,7 @@ class MainForceNetInflowRateRanking(BaseModel):
 
 # 散户净流入额排名
 class RetailNetInflowRanking(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="retail_net_inflow_ranking", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -188,7 +188,7 @@ class RetailNetInflowRanking(BaseModel):
         verbose_name = "散户净流入额排名"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='rnir_update_time_idx'),
+            models.Index(fields=['trade_time'], name='rnir_trade_time_idx'),
             models.Index(fields=['stock'], name='rnir_stock_idx'),
             models.Index(fields=['retail_net_inflow'], name='rnir_retail_net_inflow_idx'),
             models.Index(fields=['change_percent'], name='rnir_change_percent_idx'),
@@ -199,7 +199,7 @@ class RetailNetInflowRanking(BaseModel):
 
 # 散户净流入率排名
 class RetailNetInflowRateRanking(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="retail_net_inflow_rate_ranking", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -215,7 +215,7 @@ class RetailNetInflowRateRanking(BaseModel):
         verbose_name = "散户净流入率排名"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='rnirr_update_time_idx'),
+            models.Index(fields=['trade_time'], name='rnirr_trade_time_idx'),
             models.Index(fields=['stock'], name='rnirr_stock_idx'),
             models.Index(fields=['retail_net_inflow_rate'], name='rnirr_retail_inflow_rate_idx'),
             models.Index(fields=['change_percent'], name='rnirr_change_percent_idx'),
@@ -226,7 +226,7 @@ class RetailNetInflowRateRanking(BaseModel):
 
 # 证监会行业资金路线图
 class IndustryCapitalFlowRoute(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     industry = models.ForeignKey(MarketCategory, on_delete=models.CASCADE, related_name="industry_capital_flow_route", verbose_name=_("行业"))
     change_3days = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="近三日涨跌幅")
     net_inflow_3days = models.DecimalField(max_digits=20, decimal_places=4, verbose_name="近三日净流入")
@@ -243,7 +243,7 @@ class IndustryCapitalFlowRoute(BaseModel):
         verbose_name = "证监会行业资金路线图"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='icfr_update_time_idx'),
+            models.Index(fields=['trade_time'], name='icfr_trade_time_idx'),
             models.Index(fields=['industry'], name='icfr_industry_code_idx'),
             models.Index(fields=['net_inflow_3days'], name='icfr_net_inflow_3days_idx'),
             models.Index(fields=['net_inflow_5days'], name='icfr_net_inflow_5days_idx'),
@@ -255,7 +255,7 @@ class IndustryCapitalFlowRoute(BaseModel):
 
 # 概念板块资金路线图
 class ConceptCapitalFlowRoute(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     concept = models.ForeignKey(MarketCategory, on_delete=models.CASCADE, related_name="concept_capital_flow_route", verbose_name=_("概念板块"))
     change_3days = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="近三日涨跌幅")
     net_inflow_3days = models.DecimalField(max_digits=20, decimal_places=4, verbose_name="近三日净流入")
@@ -272,7 +272,7 @@ class ConceptCapitalFlowRoute(BaseModel):
         verbose_name = "概念板块资金路线图"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='ccfr_update_time_idx'),
+            models.Index(fields=['trade_time'], name='ccfr_trade_time_idx'),
             models.Index(fields=['concept'], name='ccfr_concept_code_idx'),
             models.Index(fields=['net_inflow_3days'], name='ccfr_net_inflow_3days_idx'),
             models.Index(fields=['net_inflow_5days'], name='ccfr_net_inflow_5days_idx'),
@@ -284,7 +284,7 @@ class ConceptCapitalFlowRoute(BaseModel):
 
 # 个股阶段统计总览
 class StockPeriodStatisticsOverview(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="stock_period_statistics_overview", verbose_name=_("股票"))
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
     change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="涨跌幅")
@@ -300,7 +300,7 @@ class StockPeriodStatisticsOverview(BaseModel):
         verbose_name = "个股阶段统计总览"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='spso_update_time_idx'),
+            models.Index(fields=['trade_time'], name='spso_trade_time_idx'),
             models.Index(fields=['stock'], name='spso_stock_idx'),
             models.Index(fields=['net_inflow_rate_3days'], name='spso_inflow_rate_3days_idx'),
             models.Index(fields=['net_inflow_rate_10days'], name='spso_inflow_rate_10days_idx'),
@@ -311,7 +311,7 @@ class StockPeriodStatisticsOverview(BaseModel):
 
 # 个股阶段统计
 class StockPeriodStatistics(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="stock_period_statistics", verbose_name=_("股票"))
     period_end_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="阶段结束价")
     period_change_percent = models.DecimalField(max_digits=8, decimal_places=2, verbose_name="阶段涨跌幅")
@@ -327,7 +327,7 @@ class StockPeriodStatistics(BaseModel):
         verbose_name = "个股阶段统计"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='sps_update_time_idx'),
+            models.Index(fields=['trade_time'], name='sps_trade_time_idx'),
             models.Index(fields=['stock'], name='sps_stock_idx'),
             models.Index(fields=['period_days'], name='sps_period_days_idx'),
             models.Index(fields=['period_net_inflow_rate'], name='sps_period_net_inflow_rate_idx'),
@@ -338,7 +338,7 @@ class StockPeriodStatistics(BaseModel):
 
 # 主力连续净流入/流出
 class MainForceContinuousFlow(BaseModel):
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="main_force_continuous_flow", verbose_name=_("股票"))
     flow_days = models.IntegerField(verbose_name="流入/流出天数")
     latest_price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="最新价")
@@ -353,7 +353,7 @@ class MainForceContinuousFlow(BaseModel):
         verbose_name = "主力连续净流入/流出"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='mfcf_update_time_idx'),
+            models.Index(fields=['trade_time'], name='mfcf_trade_time_idx'),
             models.Index(fields=['stock'], name='mfcf_stock_idx'),
             models.Index(fields=['flow_days'], name='mfcf_flow_days_idx'),
             models.Index(fields=['main_force_net_flow'], name='mfcf_main_force_net_flow_idx'),
@@ -365,7 +365,7 @@ class MainForceContinuousFlow(BaseModel):
 # 新资金流向概览
 class NewCapitalFlowOverview(BaseModel):
     index = models.ForeignKey(IndexInfo, on_delete=models.CASCADE, related_name="new_capital_flow_overview", verbose_name=_("股票指数"))
-    update_time = models.DateTimeField(verbose_name="更新时间")
+    trade_time = models.DateTimeField(verbose_name="更新时间")
     flow_type = models.CharField(max_length=20, verbose_name="类型")
     plate_name = models.CharField(max_length=50, verbose_name="板块")
     flow_direction = models.CharField(max_length=10, verbose_name="资金方向")
@@ -383,7 +383,7 @@ class NewCapitalFlowOverview(BaseModel):
         verbose_name = "新资金流向概览"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=['update_time'], name='ncfo_update_time_idx'),
+            models.Index(fields=['trade_time'], name='ncfo_trade_time_idx'),
             models.Index(fields=['flow_type'], name='ncfo_flow_type_idx'),
             models.Index(fields=['flow_direction'], name='ncfo_flow_direction_idx'),
             models.Index(fields=['net_inflow_amount'], name='ncfo_net_inflow_amount_idx'),

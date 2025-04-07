@@ -421,7 +421,7 @@ QFII_HEAVY_POSITION_MAPPING = {
 
 # 证监会行业资金流向映射
 INDUSTRY_CAPITAL_FLOW_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "industry_name",  # 行业名称
     "dm": "industry_code",  # 行业代码
     "jj": "average_price",  # 均价（元）
@@ -437,7 +437,7 @@ INDUSTRY_CAPITAL_FLOW_MAPPING = {
 
 # 概念板块资金流向映射
 CONCEPT_CAPITAL_FLOW_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "concept_name",  # 概念板块名称
     "dm": "concept_code",  # 概念板块代码
     "jj": "average_price",  # 均价（元）
@@ -453,7 +453,7 @@ CONCEPT_CAPITAL_FLOW_MAPPING = {
 
 # 净流入额排名映射
 NET_INFLOW_RANKING_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -468,7 +468,7 @@ NET_INFLOW_RANKING_MAPPING = {
 
 # 净流入率排名映射
 NET_INFLOW_RATE_RANKING_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -483,7 +483,7 @@ NET_INFLOW_RATE_RANKING_MAPPING = {
 
 # 主力净流入额排名映射
 MAIN_FORCE_NET_INFLOW_RANKING_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -498,7 +498,7 @@ MAIN_FORCE_NET_INFLOW_RANKING_MAPPING = {
 
 # 主力净流入率排名映射
 MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -513,7 +513,7 @@ MAIN_FORCE_NET_INFLOW_RATE_RANKING_MAPPING = {
 
 # 散户净流入额排名映射
 RETAIL_NET_INFLOW_RANKING_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -528,7 +528,7 @@ RETAIL_NET_INFLOW_RANKING_MAPPING = {
 
 # 散户净流入率排名映射
 RETAIL_NET_INFLOW_RATE_RANKING_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -543,7 +543,7 @@ RETAIL_NET_INFLOW_RATE_RANKING_MAPPING = {
 
 # 证监会行业资金路线图映射
 INDUSTRY_CAPITAL_FLOW_ROUTE_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "industry_name",  # 行业名
     "dm": "industry_code",  # 行业代码
     "ac3": "change_3days",  # 近三日涨跌幅（%）
@@ -559,7 +559,7 @@ INDUSTRY_CAPITAL_FLOW_ROUTE_MAPPING = {
 
 # 概念板块资金路线图映射
 CONCEPT_CAPITAL_FLOW_ROUTE_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "concept_name",  # 概念板块名
     "dm": "concept_code",  # 概念板块代码
     "ac3": "change_3days",  # 近三日涨跌幅（%）
@@ -575,7 +575,7 @@ CONCEPT_CAPITAL_FLOW_ROUTE_MAPPING = {
 
 # 个股阶段统计总览映射
 STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "zxj": "latest_price",  # 最新价（元）
@@ -590,7 +590,7 @@ STOCK_PERIOD_STATISTICS_OVERVIEW_MAPPING = {
 
 # 个股阶段统计映射
 STOCK_PERIOD_STATISTICS_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "jdjsj": "period_end_price",  # 阶段结束价（元）
@@ -604,7 +604,7 @@ STOCK_PERIOD_STATISTICS_MAPPING = {
 
 # 主力连续净流入/流出映射
 MAIN_FORCE_CONTINUOUS_FLOW_MAPPING = {
-    "t": "update_time",  # 服务器更新时间
+    "t": "trade_time",  # 服务器更新时间
     "mc": "stock_name",  # 名称
     "dm": "stock_code",  # 代码
     "ts": "flow_days",  # 流入/流出天数（天）

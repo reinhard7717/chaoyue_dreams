@@ -67,7 +67,7 @@ class StockOnList(BaseModel):
     buy_seat_count = models.IntegerField(verbose_name="买入席位数")  # 原 xb
     sell_seat_count = models.IntegerField(verbose_name="卖出席位")  # 原 xs
     stats_days = models.IntegerField(verbose_name="统计天数")  # 原 days (5, 10, 30, 60)
-    update_time = models.DateTimeField(default=datetime.now, verbose_name="更新时间")
+    trade_time = models.DateTimeField(default=datetime.now, verbose_name="更新时间")
     
     class Meta:
         verbose_name = "个股上榜统计"
@@ -93,7 +93,7 @@ class BrokerOnList(BaseModel):
     sell_count = models.IntegerField(verbose_name="卖出席位")  # 原 scount
     top3_stocks = models.CharField(max_length=200, verbose_name="买入前三股票")  # 原 top3
     stats_days = models.IntegerField(verbose_name="统计天数")  # 原 days (5, 10, 30, 60)
-    update_time = models.DateTimeField(default=datetime.now, verbose_name="更新时间")
+    trade_time = models.DateTimeField(default=datetime.now, verbose_name="更新时间")
     
     class Meta:
         verbose_name = "营业部上榜统计"
@@ -118,7 +118,7 @@ class InstitutionTradeTrack(BaseModel):
     sell_count = models.IntegerField(verbose_name="卖出次数")  # 原 scount
     net_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="净额(万)")  # 原 ende
     stats_days = models.IntegerField(verbose_name="统计天数")  # 原 days (5, 10, 30, 60)
-    update_time = models.DateTimeField(default=datetime.now, verbose_name="更新时间")
+    trade_time = models.DateTimeField(default=datetime.now, verbose_name="更新时间")
     
     class Meta:
         verbose_name = "机构席位追踪"

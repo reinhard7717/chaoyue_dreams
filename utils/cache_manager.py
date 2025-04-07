@@ -2,6 +2,7 @@ import json
 import zlib
 import logging
 import inspect
+import msgpack
 from typing import Any, Dict, List, Optional, Type, Union, TypeVar, Mapping # 引入 Mapping
 from datetime import datetime, timedelta
 from utils import cache_constants as cc # 导入常量
@@ -119,13 +120,9 @@ class CacheManager:
     def _serialize(self, data: Any) -> bytes:
         """序列化数据，大数据自动压缩"""
         try:
-            # 步骤1: 使用自定义编码器将数据转换为JSON字符串
-            json_data = json.dumps(data, ensure_ascii=False, cls=CustomJSONEncoder)
-            
-            # 步骤2: 获取要存储的UTF-8字节
-            utf8_bytes = json_data.encode('utf-8')
-            # logger.info(f"序列化数据: {data}")
-            return utf8_bytes
+            # 步骤3: 使用msgpack序列化
+            msgpack_data = msgpack.packb(data, use_bin_type=True)
+            return msgpack_data
         except Exception as e:
             logger.error(f"序列化失败: {e}", exc_info=True)
             # 应急方案：返回简单字符串
@@ -135,21 +132,10 @@ class CacheManager:
         """反序列化数据，自动处理压缩"""
         if not data:
             return None
-        
         try:
-            # 直接解码为JSON文本
-            json_text = data.decode('utf-8')
-            
-            # 解析JSON文本
-            try:
-                parsed_data = json.loads(json_text)
-                
-                # 还原特殊对象
-                result = self._restore_objects(parsed_data)
-                return result
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {e}, 文本前30个字符: {json_text[:30]}...")
-                return None
+            # 步骤1: 使用msgpack反序列化
+            msgpack_data = msgpack.unpackb(data, raw=False)
+            return msgpack_data
         except Exception as e:
             logger.error(f"反序列化失败: {e}", exc_info=True)
             return None
@@ -195,12 +181,12 @@ class CacheManager:
             
             result["stock"] = stock_info
         # 处理时间字段
-        if "update_time" in data and isinstance(data["update_time"], str):
+        if "trade_time" in data and isinstance(data["trade_time"], str):
             try:
-                result["update_time"] = datetime.fromisoformat(data["update_time"])
+                result["trade_time"] = datetime.fromisoformat(data["trade_time"])
             except Exception as e:
                 logger.error(f"解析时间字段失败: {e}")
-                result["update_time"] = data["update_time"]
+                result["trade_time"] = data["trade_time"]
         
         # 复制所有其他字段
         for key, value in data.items():
@@ -212,13 +198,11 @@ class CacheManager:
     def set(self, key: str, data: Any, timeout: Optional[int] = None, nx: bool = False) -> bool:
         """
         保存数据到缓存
-        
         Args:
             key: 缓存键
             data: 要缓存的数据
             timeout: 过期时间(秒)，默认根据键类型自动选择
             nx: 仅在键不存在时设置
-            
         Returns:
             操作是否成功
         """
@@ -228,9 +212,9 @@ class CacheManager:
                 # 根据键前缀自动选择过期时间
                 prefix = key.split(':')[0]
                 timeout = self.get_timeout(prefix)
-            # logger.warning(f"缓存保存数据111: {key}, 数据: {data}, type: {type(data)}")
+            # logger.warning(f"缓存保存数据111: {key}, 数据长度: {len(json.dumps(data))}")
             serialized_data = self._serialize(data)
-            # logger.warning(f"缓存保存数据222: {key}, 数据: {serialized_data}, type: {type(serialized_data)}")
+            logger.warning(f"缓存保存数据222: 数据长度: {len(serialized_data)}, key: {key}")
             if nx:
                 return self.redis_client.set(key, serialized_data, ex=timeout, nx=True)
             else:
@@ -252,7 +236,6 @@ class CacheManager:
         """
         try:
             data = self.redis_client.get(key)
-            # logger.warning(f"get获取数据: {key}, {data}")
             if data:
                 return_data = self._deserialize(data)
                 # logger.warning(f"return_data获取数据: {key}, {return_data}")
@@ -387,67 +370,52 @@ class CacheManager:
     
     # --- Sorted Set (有序集合) 操作 ---
 
-    def zadd(self, key: str, mapping: Mapping[Any, float], timeout: Optional[int] = None) -> Optional[int]:
+    # 修改 zadd 方法签名和内部逻辑
+    def zadd(self, key: str, mapping: Mapping[bytes, float], timeout: Optional[int] = None) -> Optional[int]:
         """
-        向有序集合添加一个或多个成员，或者更新已存在成员的分数。
-        同时会为该键设置或刷新过期时间。
-
+        向有序集合添加一个或多个成员(bytes)，或者更新已存在成员的分数。
         Args:
             key: 有序集合的键。
-            mapping: 一个字典，键是成员，值是分数 (float)。成员会被序列化。
-            timeout: 整个有序集合的过期时间(秒)。如果为 None，则根据键前缀自动选择。
-
+            mapping: 一个字典，键是成员(bytes)，值是分数(float)。
+            timeout: 过期时间(秒)。
         Returns:
-            Optional[int]: 成功添加的新成员数量 (不包括更新分数的成员)。如果发生错误则返回 None。
+            Optional[int]: 成功添加的新成员数量。错误则返回 None。
         """
-        if not mapping or not isinstance(mapping, dict):
-            logger.warning(f"ZADD 操作跳过: mapping 为空或不是字典, key: {key}")
-            return 0 # 返回0表示没有添加新成员
+        if not mapping:
+            logger.warning(f"ZADD 操作跳过: mapping 为空, key: {key}")
+            return 0
+        # 可选：验证 mapping 的键是否为 bytes
+        # if not all(isinstance(m, bytes) for m in mapping.keys()):
+        #     logger.error(f"ZADD 内部错误: mapping 的键必须是 bytes 类型, key: {key}")
+        #     return None # 或者抛出异常
 
+        # logger.info(f"ZADD 操作 (接收 bytes member): key={key}, mapping size={len(mapping)}")
         try:
-            # 序列化 mapping 中的成员 (键)
-            # serialized_mapping = {self._serialize(member): score for member, score in mapping.items()}
-
             # 确定超时时间
             if timeout is None:
                 prefix = key.split(':')[0]
                 timeout = self.get_timeout(prefix)
 
-            # 修改: 使用字符串键解决不可哈希问题
-            serialized_mapping = {}
-            for member, score in mapping.items():
-                # 先正确序列化成JSON字符串 
-                if isinstance(member, dict):
-                    # 字典无法直接作为键，先转为JSON字符串
-                    member_str = json.dumps(member, ensure_ascii=False, cls=CustomJSONEncoder)
-                    # 添加前缀以便后续反序列化时识别
-                    serialized_key = b'j:' + member_str.encode('utf-8')
-                else:
-                    # 对非字典对象使用常规序列化
-                    serialized_key = self._serialize(member)
-            
-            # 将序列化后的键与分数配对
-            serialized_mapping[serialized_key] = score
+            # *** 直接将接收到的 {bytes: float} mapping 传递给 redis 客户端 ***
+            # 不再需要内部序列化循环
+            # serialized_mapping = {self._serialize(member): score for member, score in mapping.items()} # <--- 删除或注释掉这行
 
-            # 使用 pipeline 保证 ZADD 和 EXPIRE 的原子性（或至少连续执行）
             pipe = self.redis_client.pipeline()
-            pipe.zadd(key, serialized_mapping)
+            # 直接使用传入的 mapping
+            pipe.zadd(key, mapping)
             pipe.expire(key, timeout)
             results = pipe.execute()
 
-            # results[0] 是 ZADD 命令的返回值 (添加的新成员数)
-            # results[1] 是 EXPIRE 命令的返回值 (通常是 True/False 或 1/0)
             if results and len(results) > 0 and isinstance(results[0], int):
-                #  logger.debug(f"ZADD 成功: key={key}, 添加/更新 {len(mapping)} 个成员, {mapping}, 新增 {results[0]} 个, timeout={timeout}s")
-                 return results[0] # 返回 ZADD 的结果
+                return results[0]
             else:
-                 logger.error(f"ZADD pipeline 执行结果异常: key={key}, results={results}")
-                 return None
+                logger.error(f"ZADD pipeline 执行结果异常: key={key}, results={results}")
+                return None
 
         except Exception as e:
             logger.error(f"ZADD 操作失败: key={key}, 错误: {str(e)}", exc_info=True)
             return None
-
+        
     def zrangebyscore(self, key: str, min_score: Union[float, str], max_score: Union[float, str]) -> Optional[List[Any]]:
         """
         通过分数范围获取有序集合的成员列表。

@@ -7,7 +7,7 @@ class StockRealtimeData(models.Model):
     股票实时交易数据模型
     """
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="realtime_data", verbose_name=_("股票"))
-    update_time = models.DateTimeField(verbose_name='更新时间')
+    trade_time = models.DateTimeField(verbose_name='更新时间')
     open_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='开盘价', null=True)
     five_min_change = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='五分钟涨跌幅', null=True)
     high_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='最高价', null=True)
@@ -33,18 +33,18 @@ class StockRealtimeData(models.Model):
         verbose_name = '实时交易数据'
         verbose_name_plural = verbose_name
         db_table = 'stock_realtime_data'
-        unique_together = ('stock', 'update_time')
-        ordering = ['-update_time']
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
     
     def __str__(self):
-        return f"{self.stock.stock_code}-{self.update_time}"
+        return f"{self.stock.stock_code}-{self.trade_time}"
 
 class StockLevel5Data(models.Model):
     """
     买卖五档盘口数据模型
     """
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="level5_data", verbose_name=_("股票"))
-    update_time = models.DateTimeField(verbose_name='更新时间')
+    trade_time = models.DateTimeField(verbose_name='更新时间')
     
     # 委托数据
     order_diff = models.IntegerField(verbose_name='委差', null=True)
@@ -78,11 +78,11 @@ class StockLevel5Data(models.Model):
         verbose_name = '买卖五档盘口数据'
         verbose_name_plural = verbose_name
         db_table = 'stock_level5_data'
-        unique_together = ('stock', 'update_time')
-        ordering = ['-update_time']
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
     
     def __str__(self):
-        return f"{self.stock.stock_code}-{self.update_time}"
+        return f"{self.stock.stock_code}-{self.trade_time}"
 
 class StockTradeDetail(models.Model):
     """

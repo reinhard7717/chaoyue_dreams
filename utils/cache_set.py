@@ -1,7 +1,13 @@
 import datetime
 import logging
+import pickle
 from typing import Any, Dict, List
+from asgiref.sync import sync_to_async
+import msgpack
+from datetime import datetime, date
+from decimal import Decimal # 导入 Decimal
 # from dao_manager.base_dao import BaseDAO
+from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo
 from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
@@ -10,6 +16,25 @@ from utils.data_format_process import IndexDataFormatProcess
 import json
 
 logger = logging.getLogger("dao")
+
+# 定义独立的辅助函数来处理 msgpack 不支持的类型
+def _msgpack_default_packer(obj):
+    """
+    为 msgpack 提供 default hook，处理 datetime 和 Decimal。
+    """
+    if isinstance(obj, datetime):
+        # 返回 ISO 格式字符串 (推荐) 或 timestamp
+        return obj.isoformat()
+    elif isinstance(obj, date):
+        return obj.isoformat()
+    elif isinstance(obj, Decimal):
+        # 将 Decimal 转换为字符串以保持精度
+        return str(obj)
+    # 对于其他无法序列化的类型，可以抛出错误或返回特定值
+    logger.warning(f"Msgpack无法序列化类型 {type(obj)}: {obj}")
+    # 或者 return str(obj) 作为最后的尝试
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not MSGPACK serializable")
+
 
 class CacheSet():
     def __init__(self):
@@ -27,7 +52,7 @@ class CacheSet():
             # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
             # 最新数据点可能更新较频繁，考虑使用实时数据的超时
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
-            logger.info(f"准备缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}, timeout: {cache_timeout}s")
+            # logger.info(f"准备缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}, timeout: {cache_timeout}s")
             # 3. 调用 CacheManager 设置缓存
             success = self.cache_manager.set(
                 key=cache_key,
@@ -53,9 +78,7 @@ class CacheSet():
             # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
             # 最新数据点可能更新较频繁，考虑使用实时数据的超时
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
-            # logger.info(f"准备缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}, timeout: {cache_timeout}s")
             # 3. 调用 CacheManager 设置缓存
-            # logger.warning(f"data_to_cache: {data_to_cache}, type: {type(data_to_cache)}, len: {len(data_to_cache)}, cache_key: {cache_key}")
             success = self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
@@ -93,25 +116,39 @@ class CacheSet():
             logger.error(f"缓存失败: 无法将 'trade_time' ({trade_time_str}) 转换为时间戳: {e}")
             return False
         
+        # 2. *** 准备要序列化的数据字典 (移除复杂对象) ***
+        data_to_serialize = data_to_cache.copy()
+        if 'stock' in data_to_serialize:
+            stock_obj = data_to_serialize.pop('stock', None)
+            if stock_obj and hasattr(stock_obj, 'stock_code'):
+                data_to_serialize['stock_code'] = stock_obj.stock_code
+
+        # 3. *** 在这里进行序列化，得到字节串 member ***
+        try:
+            # 使用定义的独立函数作为 default hook
+            member_bytes = msgpack.packb(data_to_serialize,
+                                         use_bin_type=True,
+                                         default=_msgpack_default_packer) # <--- 修改这里，去掉 self.
+        except (msgpack.PackException, TypeError) as e:
+            logger.error(f"缓存失败: 无法将数据序列化为 msgpack bytes: {e}, 数据: {data_to_serialize}", exc_info=True)
+            return False
+
+        # 4. *** 构建正确的 mapping，键是序列化后的字节串 ***
+        mapping_to_send = {member_bytes: score} # <--- 键是 bytes，值是 float，这在 Python 中是合法的
+        
         # 生成缓存超时时间
         cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
         # logger.info(f"_history_data.准备将时间序列数据点添加到缓存 (ZSET), key: {cache_key}, score: {score}, timeout: {cache_timeout}s")
-        
-        try:
-            # 使用json.dumps将字典转换为JSON字符串，使用正确导入的CustomJSONEncoder
-            data_str = json.dumps(data_to_cache, ensure_ascii=False, cls=CustomJSONEncoder)
-            
-            # 使用字符串作为映射的键
-            mapping = {data_str: score}
-            
+        try:           
             # logger.info(f"mapping: {mapping}")
-            added_count = self.cache_manager.zadd(
-                key=cache_key,
-                mapping=mapping,
-                timeout=cache_timeout
+            # 假设 zadd 是同步的，需要包装
+            zadd_sync = sync_to_async(
+                self.cache_manager.zadd,
+                thread_sensitive=False
             )
-            
-            if added_count is not None:
+            # 传递 {dict: float} 映射给包装器，包装器再传给原始 zadd
+            success = await zadd_sync(cache_key, mapping_to_send, cache_timeout)
+            if success is not None:
                 return True
             else:
                 logger.warning(f"添加到缓存 (ZSET) 失败 (CacheManager.zadd 返回 None), key: {cache_key}")
@@ -120,7 +157,7 @@ class CacheSet():
             logger.error(f"添加到缓存 (ZSET) 时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return False
 
-    async def _format_conversion_and_json_dumps(self, data_to_cache: Dict[str, Any]) -> Dict[str, Any]:
+    async def _format_conversion(self, data_to_cache: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in data_to_cache.items():
             if isinstance(value, datetime.datetime):
                 # 将 datetime 对象转换为 ISO 8601 格式的字符串
@@ -141,8 +178,14 @@ class CacheSet():
                 except Exception as e_inner:
                     logger.error(f"Error converting StockInfo for key '{key}' using __code__: {e_inner}")
                     return None
+            elif isinstance(value, IndexInfo):
+                # 调用 __code__ 方法获取股票代码字符串
+                index_code_str = value.__code__() # 如果是方法
+                # 或者: index_code_str = value.__code__ # 如果是属性
+                data_to_cache[key] = index_code_str
+                # logger.debug(f"Converted StockInfo for key '{key}' to code string: {data_to_cache[key]}")
         
-        return json.dumps(data_to_cache, ensure_ascii=False)
+        return data_to_cache
 
 class IndexCacheSet(CacheSet):
 
@@ -214,7 +257,7 @@ class IndexCacheSet(CacheSet):
             return False
         try:
             # 1. 生成缓存键
-            cache_key = await self.cache_key_index.realtime_data(index_code)
+            cache_key = self.cache_key_index.realtime_data(index_code)
             # 2. 获取缓存超时时间 (实时数据通常较短)
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME)
             # 3. 调用 CacheManager 设置缓存
@@ -247,11 +290,11 @@ class IndexCacheSet(CacheSet):
         """
         # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_time_series.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.latest_time_series(index_code, time_level)
+        cache_key = self.cache_key_index.latest_time_series(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
 
     async def history_time_series(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -263,11 +306,11 @@ class IndexCacheSet(CacheSet):
             data_to_cache: 经过处理的、可JSON序列化的时间序列数据字典。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"history_time_series.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.history_time_series(index_code, time_level)
+        cache_key = self.cache_key_index.history_time_series(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
     async def latest_macd(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -283,11 +326,11 @@ class IndexCacheSet(CacheSet):
         """
         # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_macd.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.latest_macd(index_code, time_level)
+        cache_key = self.cache_key_index.latest_macd(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
 
     async def history_macd(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -302,11 +345,11 @@ class IndexCacheSet(CacheSet):
             bool: 操作是否成功。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"history_macd.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.history_macd(index_code, time_level)
+        cache_key = self.cache_key_index.history_macd(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
     async def latest_kdj(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -322,11 +365,11 @@ class IndexCacheSet(CacheSet):
         """
         # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_kdj.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.latest_kdj(index_code, time_level)
+        cache_key = self.cache_key_index.latest_kdj(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
 
     async def history_kdj(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -341,11 +384,11 @@ class IndexCacheSet(CacheSet):
             bool: 操作是否成功。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"history_kdj.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.history_kdj(index_code, time_level)
+        cache_key = self.cache_key_index.history_kdj(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
     async def latest_ma(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -358,11 +401,11 @@ class IndexCacheSet(CacheSet):
                            格式应与 get_latest_time_series_from_cache 期望的格式一致。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_ma.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.latest_ma(index_code, time_level)
+        cache_key = self.cache_key_index.latest_ma(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
 
     async def history_ma(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -377,11 +420,11 @@ class IndexCacheSet(CacheSet):
             bool: 操作是否成功。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"history_ma.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.history_ma(index_code, time_level)
+        cache_key = self.cache_key_index.history_ma(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
     async def latest_boll(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -394,11 +437,11 @@ class IndexCacheSet(CacheSet):
                            格式应与 get_latest_time_series_from_cache 期望的格式一致。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_boll.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.latest_boll(index_code, time_level)
+        cache_key = self.cache_key_index.latest_boll(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
 
     async def history_boll(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -413,11 +456,11 @@ class IndexCacheSet(CacheSet):
             bool: 操作是否成功。
         """
         # ***核心修改：转换 StockInfo 和 datetime 对象***
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"history_boll.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_index.history_boll(index_code, time_level)
+        cache_key = self.cache_key_index.history_boll(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
 class StockIndicatorsCacheSet(CacheSet):
@@ -434,15 +477,15 @@ class StockIndicatorsCacheSet(CacheSet):
             bool: 缓存操作是否成功。
         """
         # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_time_trade.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_time_trade(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
 
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_time_trade(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
     async def latest_kdj(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -457,122 +500,122 @@ class StockIndicatorsCacheSet(CacheSet):
         """
         try:
             # ***核心修改：转换 StockInfo 和 datetime 对象***
-            data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+            data_to_cache = await self._format_conversion(data_to_cache)
             if data_to_cache is None:
                 logger.error(f"latest_kdj.data_to_cache转换失败。")
                 return False
-            cache_key = await self.cache_key_stock.latest_kdj(stock_code, time_level)
+            cache_key = self.cache_key_stock.latest_kdj(stock_code, time_level)
             return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
         except Exception as e:
             logger.error(f"缓存最新KDJ数据失败: {str(e)}")
             return False
     
     async def history_kdj(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_kdj(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_kdj(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
     
     async def latest_macd(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_macd.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_macd(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_macd(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
     
     async def history_macd(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_macd(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_macd(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
     
     async def latest_ma(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_ma.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_ma(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_ma(stock_code, time_level)
         # logger.warning(f"latest_ma.data_to_cache: {data_to_cache}, cache_key: {cache_key}")
         return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
     
     async def history_ma(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_ma(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_ma(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
     async def latest_boll(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_boll.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_boll(stock_code, time_level)
+        cache_key = self.cache_key_stock.latest_boll(stock_code, time_level)
         # logger.warning(f"latest_boll.data_to_cache: {data_to_cache}")
         return_data = await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
         return return_data
 
     async def history_boll(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_boll(stock_code, time_level)
+        cache_key = self.cache_key_stock.history_boll(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
 class StockRealtimeCacheSet(CacheSet):
 
     async def latest_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_realtime_data.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_realtime_data(stock_code)
+        cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
     
     async def history_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_realtime_data(stock_code)
+        cache_key = self.cache_key_stock.history_realtime_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
     
     async def latest_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_level5_data.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_level5_data(stock_code)
+        cache_key = self.cache_key_stock.latest_level5_data(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
     
     async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = await self.cache_key_stock.history_level5_data(stock_code)
+        cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
     
     async def onebyone_trade(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"onebyone_trade.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_onebyone_trade(stock_code)
+        cache_key = self.cache_key_stock.latest_onebyone_trade(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
     
     async def time_deal(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"time_deal.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_time_deal(stock_code)
+        cache_key = self.cache_key_stock.latest_time_deal(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
 
     async def real_percent(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"real_percent.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_real_percent(stock_code)
+        cache_key = self.cache_key_stock.latest_real_percent(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
     
     async def big_deal(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"big_deal.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_big_deal(stock_code)
+        cache_key = self.cache_key_stock.latest_big_deal(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
     
     async def abnormal_movement(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        data_to_cache = await self._format_conversion_and_json_dumps(data_to_cache)
+        data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"abnormal_movement.data_to_cache转换失败。")
             return False
-        cache_key = await self.cache_key_stock.latest_abnormal_movement(stock_code)
+        cache_key = self.cache_key_stock.latest_abnormal_movement(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
 

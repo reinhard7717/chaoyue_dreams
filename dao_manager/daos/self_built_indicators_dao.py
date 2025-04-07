@@ -309,7 +309,7 @@ class SelfBuiltIndicatorsDao:
         indicator_name = indicator_model_class._meta.model_name
         # 使用 cache_key_generator 生成缓存键
         try:
-            cache_key = await self.cache_key_generator.indicator_data(
+            cache_key =  self.cache_key_generator.indicator_data(
                 indicator_name, stock_code, kline_period, start_date, end_date
             )
         except AttributeError:

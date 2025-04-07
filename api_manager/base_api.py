@@ -18,7 +18,11 @@ class BaseAPI:
     def __init__(self):
         """初始化BaseAPI"""
         self._session = None
-        self.base_url = settings.API_BASE_URL if hasattr(settings, 'API_BASE_URL') else ""
+        # 修改为http方式
+        base_url = settings.API_BASE_URL if hasattr(settings, 'API_BASE_URL') else ""
+        if base_url.startswith('https://'):
+            base_url = base_url.replace('https://', 'http://')
+        self.base_url = base_url
         self.timeout = getattr(settings, 'API_REQUEST_TIMEOUT', 30)
         
         # license管理

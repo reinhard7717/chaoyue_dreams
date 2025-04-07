@@ -20,7 +20,9 @@
 """
 import sys
 import asyncio
+import concurrent.futures
 import logging
+from typing import List, Dict, Tuple, Optional, Any # 引入类型提示
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from datetime import datetime
@@ -31,6 +33,7 @@ from dao_manager.daos.data_center.financial_dao import FinancialDao
 from dao_manager.daos.data_center.institutional_shareholding_dao import InstitutionalShareholdingDao
 from dao_manager.daos.data_center.lhb_dao import LhbDAO
 from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
+from stock_models.stock_basic import StockInfo
 from stock_models.stock_indicators import StockTimeTrade
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
@@ -53,8 +56,66 @@ from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 # from service.strategy_service import StrategyService
 # from service.calculation_service import CalculationService
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("dao")
 
+# --- 新的异步工作函数 ---
+async def _process_single_stock_period_async(
+    stock: 'StockInfo',
+    period: str,
+    stock_indicators_dao: 'StockIndicatorsDAO',
+    semaphore: asyncio.Semaphore, # 传入 Semaphore
+    stdout_writer: callable
+) -> Tuple[str, str, str, Optional[str]]:
+    """
+    处理单个股票和周期的逻辑（异步执行）。
+    """
+    stock_code = stock.stock_code
+    status = "Skipped"
+    message = None
+    result_details = None # 用于存储 fetch_and_save 的结果
+
+    try:
+        # 1. 执行同步的 count 检查 (仍然需要 sync_to_async)
+        get_data_count_sync = sync_to_async(
+            lambda: StockTimeTrade.objects.filter(stock=stock, time_level=period).count(),
+            thread_sensitive=True
+        )
+        data_count = await get_data_count_sync()
+        # logger.info(f"[AsyncWorker] 数据库检查: 股票 {stock_code}, 周期 {period}, 数据量: {data_count}")
+
+        if data_count < 699:
+            # logger.info(f"[AsyncWorker] 数据量 ({data_count}) < 699 for {stock_code} {period}, 准备获取...")
+            # 2. 使用 Semaphore 控制并发
+            async with semaphore:
+                logger.info(f"[AsyncWorker] 获取信号量，开始处理: {stock_code} {period}")
+                try:
+                    # 3. *** 直接 await 异步的 fetch_and_save 方法 ***
+                    result_details = await stock_indicators_dao.fetch_and_save_history_time_trade(stock_code, period)
+                    status = "Fetched"
+                    message = f'已获取 {stock_code} {period} 历史时间序列数据'
+                    logger.info(f"[AsyncWorker] 处理完成: {stock_code} {period}, 结果: {result_details}")
+                    # stdout_writer(f'  - [Async] {message}') # 考虑并发写入问题
+                except Exception as fetch_exc:
+                    logger.error(f"[AsyncWorker] fetch_and_save 处理 {stock_code} {period} 时出错: {fetch_exc}", exc_info=True)
+                    status = "Error"
+                    message = str(fetch_exc)
+                    # stdout_writer(f'  - [Async] 处理 {stock_code} {period} 时出错: {fetch_exc}')
+        else:
+            pass
+            # message = f'数据量 ({data_count}) >= 699, 跳过'
+            # logger.info(f"[AsyncWorker] {stock_code} {period}: {message}")
+
+        # 返回包含 fetch 结果的元组（如果执行了）
+        return stock_code, period, status, message, result_details
+
+    except Exception as e:
+        # 捕获 count 检查或其他意外错误
+        logger.error(f"[AsyncWorker] 处理 {stock_code} {period} 的外层逻辑时出错: {e}", exc_info=True)
+        status = "Error"
+        message = f"外层错误: {e}"
+        # stdout_writer(f'  - [Async] 处理 {stock_code} {period} 时外层出错: {e}')
+        return stock_code, period, status, message, None
+    
 class Command(BaseCommand):
     help = '按照依赖顺序从API接口获取全部数据并计算策略'
 
@@ -128,6 +189,14 @@ class Command(BaseCommand):
         if data_type in ('all', 'strategy'):
             await self.calculate_strategy(stock_codes)
 
+        if data_type in ('all', 'stock_trade'):
+            await self.fetch_indicators_data()
+            self.stdout.write(self.style.SUCCESS('完成股票交易数据获取'))
+            
+        if data_type in ('all', 'stock_trade_fetch_redis'):
+            await self.fetch_stock_trade_data_from_db()
+            self.stdout.write(self.style.SUCCESS('完成股票交易数据缓存刷新'))
+
     async def fetch_stock_basic(self, stock_codes=None):
         """获取股票基础信息"""
         self.stdout.write('获取股票基础信息...')
@@ -150,11 +219,14 @@ class Command(BaseCommand):
         index_dao = StockIndexDAO()
         
         # # 获取所有指数基础信息
-        # indexs = await index_dao.get_all_indexes()
-        # self.stdout.write('  - 已获取所有指数基础信息')
+        indexs = await index_dao.get_all_indexes()
+        self.stdout.write('  - 已获取所有指数基础信息')
 
         # await index_dao.fetch_and_save_all_realtime_data()
         # self.stdout.write('  - 已获取所有指数实时数据')
+
+        await index_dao.fetch_and_save_all_latest_time_series()
+        self.stdout.write('  - 已获取所有指数最新时间序列数据')
             
         # # 获取市场概览
         # await index_dao.fetch_and_save_market_overview()
@@ -453,50 +525,140 @@ class Command(BaseCommand):
         await fund_flow_dao.refresh_north_south_fund_flow()
         self.stdout.write('  - 已获取北向南向资金流向')
 
-    async def fetch_indicators_data(self, stock_codes=None):
-        """获取股票指标数据"""
-        self.stdout.write('获取股票指标数据...')
+    async def fetch_indicators_data(self, stock_codes_filter=None):
+        """获取股票指标数据 (使用 asyncio 并发处理)"""
+        self.stdout.write('获取股票指标数据 (使用 asyncio 并发)...')
         stock_indicators_dao = StockIndicatorsDAO()
         stock_basic_dao = StockBasicDAO()
 
-        # 获取不同周期的K线数据
         periods = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
-        stock_codes = await stock_basic_dao.get_stock_list()
-        for stock in stock_codes:
+
+        try:
+            all_stocks = await stock_basic_dao.get_stock_list()
+            # ... (股票列表获取和过滤逻辑保持不变) ...
+            if not all_stocks:
+                self.stdout.write("未能获取到股票列表，操作终止。")
+                return
+            if stock_codes_filter:
+                target_stocks = [s for s in all_stocks if s.stock_code in stock_codes_filter]
+            else:
+                target_stocks = all_stocks
+            if not target_stocks:
+                self.stdout.write("没有符合条件的股票需要处理。")
+                return
+            self.stdout.write(f"目标股票数量: {len(target_stocks)}")
+
+        except Exception as e:
+            logger.error(f"获取股票列表失败: {e}", exc_info=True)
+            self.stdout.write(f"错误：获取股票列表失败: {e}")
+            return
+
+        # 创建 Semaphore 来限制并发数量
+        # 这个值需要根据 API 限制、数据库连接池大小、内存等因素调整
+        concurrency_limit = 5 # 示例值：同时最多运行 20 个 fetch_and_save 任务
+        semaphore = asyncio.Semaphore(concurrency_limit)
+        self.stdout.write(f"使用 asyncio.Semaphore 限制并发数为: {concurrency_limit}")
+
+        tasks = []
+        self.stdout.write(f"创建 {len(target_stocks) * len(periods)} 个处理任务...")
+
+        for stock in target_stocks:
             for period in periods:
-                # 使用sync_to_async包装同步的数据库查询
-                had_data = await sync_to_async(StockTimeTrade.objects.filter(stock=stock, time_level=period).exists)()
-                if not had_data:
-                    await stock_indicators_dao.fetch_and_save_history_time_trade(stock.stock_code, period)
-                    self.stdout.write(f'  - 已获取 {stock} {period} 历史时间序列数据')
+                # 创建异步任务，调用新的异步工作函数
+                task = asyncio.create_task(
+                    _process_single_stock_period_async(
+                        stock,
+                        period,
+                        stock_indicators_dao,
+                        semaphore, # 传递 semaphore
+                        self.stdout.write
+                    )
+                )
+                tasks.append(task)
 
-        # await stock_indicators_dao.fetch_and_save_all_history_kdj()
-        # self.stdout.write('  - 已获取所有股票历史KDJ指标数据')
+        self.stdout.write(f"已创建 {len(tasks)} 个任务，使用 asyncio.gather 等待完成...")
 
-        # await stock_indicators_dao.fetch_and_save_all_history_macd()
-        # self.stdout.write('  - 已获取所有股票历史MACD指标数据')
+        # 使用 asyncio.gather 等待所有任务完成
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # await stock_indicators_dao.fetch_and_save_all_history_ma()
-        # self.stdout.write('  - 已获取所有股票历史MA指标数据')
+        self.stdout.write("所有任务处理完成。")
 
-        # await stock_indicators_dao.fetch_and_save_all_history_time_trade()
-        # self.stdout.write('  - 已获取所有股票历史时间序列数据')
+        # 处理结果 (需要调整以适应新的返回值结构)
+        success_count = 0
+        skipped_count = 0
+        fetched_count = 0
+        error_count = 0
+        error_details = []
+        total_created = 0
+        total_updated = 0
 
-        # await stock_indicators_dao.fetch_and_save_all_latest_boll()
-        # self.stdout.write('  - 已获取所有股票最新BOLL指标数据')
+        for result in results:
+            if isinstance(result, Exception):
+                error_count += 1
+                logger.error(f"任务执行期间发生意外错误: {result}", exc_info=result)
+                error_details.append(f"未知任务错误: {result}")
+            else:
+                # 解包新的返回值结构
+                stock_code, period, status, message, result_details = result
+                if status == "Fetched":
+                    fetched_count += 1
+                    success_count += 1
+                    if isinstance(result_details, dict): # 累加创建和更新的数量
+                        total_created += result_details.get('创建', 0)
+                        total_updated += result_details.get('更新', 0)
+                    # self.stdout.write(f"  - 成功: {message}")
+                elif status == "Skipped":
+                    skipped_count += 1
+                    success_count += 1
+                elif status == "Error":
+                    error_count += 1
+                    error_details.append(f"{stock_code} ({period}): {message}")
+                    # self.stdout.write(f"  - 失败: {stock_code} ({period}): {message}")
 
-        # await stock_indicators_dao.fetch_and_save_all_latest_kdj()
-        # self.stdout.write('  - 已获取所有股票最新KDJ指标数据')
+        self.stdout.write("--- 处理结果统计 ---")
+        self.stdout.write(f"总任务数: {len(tasks)}")
+        self.stdout.write(f"成功任务数: {success_count} (其中获取: {fetched_count}, 跳过: {skipped_count})")
+        self.stdout.write(f"失败任务数: {error_count}")
+        if fetched_count > 0:
+             self.stdout.write(f"总计创建记录: {total_created}")
+             self.stdout.write(f"总计更新记录: {total_updated}")
+        if error_details:
+            self.stdout.write("错误详情:")
+            for detail in error_details[:10]:
+                self.stdout.write(f"  - {detail}")
+            if len(error_details) > 10:
+                self.stdout.write(f"  ... (还有 {len(error_details) - 10} 条错误未显示)")
 
-        # await stock_indicators_dao.fetch_and_save_all_latest_macd()
-        # self.stdout.write('  - 已获取所有股票最新MACD指标数据')
+    async def fetch_stock_trade_data_from_db(self):
+        """从数据库获取股票交易数据"""
+        self.stdout.write('从数据库获取股票交易数据...')
+        stock_indicators_dao = StockIndicatorsDAO()
+        stock_basic_dao = StockBasicDAO()
+        cache_limit = 233 * 3
+        TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
 
-        # await stock_indicators_dao.fetch_and_save_all_latest_ma()
-        # self.stdout.write('  - 已获取所有股票最新MA指标数据')
-
-        # await stock_indicators_dao.fetch_and_save_all_latest_time_trade()
-        # self.stdout.write('  - 已获取所有股票最新时间序列数据')
-
+        stocks = await stock_basic_dao.get_stock_list()
+        logger.info(f"重新缓存{len(stocks)}只股票历史分时成交数据")
+        for stock in stocks:
+            for time_level in TIME_LEVELS:
+                get_data_sync = sync_to_async(
+                    lambda: list( # <-- 将 QuerySet 转换为列表
+                        StockTimeTrade.objects.filter(stock=stock, time_level=time_level
+                        ).order_by('-trade_time')[:cache_limit] # <-- 使用切片语法替代 limit()
+                    ),
+                    thread_sensitive=True # 对于 ORM 操作，建议设置为 True
+                )
+                datas = await get_data_sync()
+                logger.info(f"重新缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(datas)}")
+                if datas:
+                    for item in datas:
+                       cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
+                    #    logger.info(f"缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, cache_data: {cache_data}")
+                       await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
+            
+            
+            
+        
 
     # async def calculate_strategy(self, stock_codes=None):
     #     """计算策略"""

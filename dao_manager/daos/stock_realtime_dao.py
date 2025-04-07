@@ -66,11 +66,11 @@ class StockRealtimeDAO(BaseDAO):
             
             try:
                 data = await sync_to_async(
-                    lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-update_time').first()
+                    lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first()
                 )()
                 
                 # 检查数据是否过期（超过2分钟）
-                if data and (timezone.now() - data.update_time).total_seconds() < 120:
+                if data and (timezone.now() - data.trade_time).total_seconds() < 120:
                     cache.set(cache_key, data, settings.INDEX_CACHE_TIMEOUT['realtime_data'])
                     return data
                 
@@ -199,7 +199,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             level5_data = await StockLevel5Data.objects.filter(
                 stock_code=stock_code
-            ).order_by('-update_time').afirst()
+            ).order_by('-trade_time').afirst()
             
             if level5_data:
                 # 存入缓存并返回
@@ -259,7 +259,7 @@ class StockRealtimeDAO(BaseDAO):
             result = await self._save_all_to_db(
                 model_class=StockLevel5Data,
                 data_list=data_dicts,
-                unique_fields=['stock', 'update_time']
+                unique_fields=['stock', 'trade_time']
             )
             logger.info(f"{stock}股票Level5数据保存完成，结果: {result}")
             return result            
