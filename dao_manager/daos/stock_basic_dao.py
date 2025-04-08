@@ -20,10 +20,9 @@ if sys.version_info >= (3, 12):
         # 为了兼容性，添加一个_DEBUG属性，其值由_is_debug_mode()函数确定
         asyncio.coroutines._DEBUG = asyncio.coroutines._is_debug_mode()
 
-from api_manager.apis.stock_basic_api import StockBasicAPI
+
 from api_manager.mappings.stock_basic import COMPANY_INFO_MAPPING, NEW_STOCK_CALENDAR_MAPPING, ST_STOCK_LIST_MAPPING, STOCK_BASIC_MAPPING
 from dao_manager.base_dao import BaseDAO
-from stock_models.stock_basic import CompanyInfo, NewStockCalendar, STStockList, StockInfo, StockInfo
 
 logger = logging.getLogger("dao")
 
@@ -41,6 +40,7 @@ class StockBasicDAO(BaseDAO):
         from utils.cash_key import StockCashKey
         from utils.data_format_process import StockInfoFormatProcess
         from utils.cache_manager import CacheManager
+        from api_manager.apis.stock_basic_api import StockBasicAPI
         self.api = StockBasicAPI()
         self.cache_manager = CacheManager()  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()
@@ -60,13 +60,14 @@ class StockBasicDAO(BaseDAO):
     
     # ================= 股票基本信息相关方法 =================
     
-    async def get_stock_list(self) -> List[StockInfo]:
+    async def get_stock_list(self) -> List['StockInfo']:
         """
         获取所有股票的基本信息
         
         Returns:
             List[StockInfo]: 股票基本信息列表
         """
+        from stock_models.stock_basic import StockInfo
         try:
             # 尝试从缓存获取
             cached_data = await self.cache_get.all_stocks()
@@ -103,7 +104,7 @@ class StockBasicDAO(BaseDAO):
         stocks = await get_stocks_sync()
         return stocks
 
-    async def get_stock_by_code(self, stock_code: str) -> Optional[StockInfo]:
+    async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
         """
         根据股票代码获取股票信息
         Args:
@@ -342,6 +343,7 @@ class StockBasicDAO(BaseDAO):
         
         从API获取股票列表并保存到数据库
         """
+        from stock_models.stock_basic import StockInfo
         try:
             # 获取股票列表
             api_datas = await self.api.get_stock_list()
@@ -369,7 +371,7 @@ class StockBasicDAO(BaseDAO):
         
     # ================= 新股日历相关方法 =================
     
-    async def get_new_stock_by_code(self, stock_code: str) -> Optional[NewStockCalendar]:
+    async def get_new_stock_by_code(self, stock_code: str) -> Optional['NewStockCalendar']:
         """
         根据股票代码获取新股信息
         
@@ -379,6 +381,7 @@ class StockBasicDAO(BaseDAO):
         Returns:
             Optional[NewStockCalendar]: 新股信息
         """
+        from stock_models.stock_basic import NewStockCalendar
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_manager.generate_key('st', 'new_stock', stock_code)
         
@@ -438,13 +441,14 @@ class StockBasicDAO(BaseDAO):
             logger.error(f"获取新股数据失败: {e}")
             return None
     
-    async def get_all_new_stocks(self) -> List[NewStockCalendar]:
+    async def get_all_new_stocks(self) -> List['NewStockCalendar']:
         """
         获取所有新股信息
         
         Returns:
             List[NewStockCalendar]: 新股信息列表
         """
+        from stock_models.stock_basic import NewStockCalendar
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_manager.generate_key('st', 'new_stock', 'all')
         
@@ -506,7 +510,7 @@ class StockBasicDAO(BaseDAO):
     
     # ================= ST股票相关方法 =================
     
-    async def get_st_stock_by_code(self, stock_code: str) -> Optional[STStockList]:
+    async def get_st_stock_by_code(self, stock_code: str) -> Optional['STStockList']:
         """
         根据股票代码获取ST股票信息
         
@@ -516,6 +520,7 @@ class StockBasicDAO(BaseDAO):
         Returns:
             Optional[STStockList]: ST股票信息
         """
+        from stock_models.stock_basic import STStockList
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_manager.generate_key('st', 'st_stock', stock_code)
         
@@ -574,13 +579,14 @@ class StockBasicDAO(BaseDAO):
             logger.error(f"获取ST股票数据失败: {e}")
             return None
     
-    async def get_all_st_stocks(self) -> List[STStockList]:
+    async def get_all_st_stocks(self) -> List['STStockList']:
         """
         获取所有ST股票信息
         
         Returns:
             List[STStockList]: ST股票信息列表
         """
+        from stock_models.stock_basic import STStockList
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_manager.generate_key('st', 'st_stock', 'all')
         
@@ -640,7 +646,7 @@ class StockBasicDAO(BaseDAO):
     
     # ================= 公司信息相关方法 =================
     
-    async def get_company_info_by_code(self, stock_code: str) -> Optional[CompanyInfo]:
+    async def get_company_info_by_code(self, stock_code: str) -> Optional['CompanyInfo']:
         """
         根据股票代码获取公司信息
         
@@ -650,6 +656,7 @@ class StockBasicDAO(BaseDAO):
         Returns:
             Optional[CompanyInfo]: 公司信息
         """
+        from stock_models.stock_basic import CompanyInfo
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_manager.generate_key('st', 'company', stock_code)
         
