@@ -112,6 +112,7 @@ class StockBasicDAO(BaseDAO):
         Returns:
             Optional[StockInfo]: 股票信息
         """
+        from stock_models.stock_basic import StockInfo
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_key.stock_data(stock_code)
         # 尝试从缓存获取，指定模型类进行自动转换
@@ -285,6 +286,7 @@ class StockBasicDAO(BaseDAO):
         Returns:
             bool: 操作是否成功。
         """
+        from stock_models.stock_basic import StockInfo
         # 1. 输入验证
         if not isinstance(stocks, list):
             logger.error("set_stocks_to_cache 失败: 输入数据不是列表")
