@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
 from datetime import datetime, date
 from asgiref.sync import sync_to_async
+from core.constants import TIME_TEADE_TIME_LEVELS
 from stock_models.indicator.boll import StockBOLLIndicator
 from stock_models.indicator.kdj import StockKDJIndicator
 from stock_models.indicator.ma import StockMAIndicator
@@ -26,7 +27,6 @@ from utils.data_format_process import StockIndicatorsDataFormatProcess
 
 logger = logging.getLogger("dao")
 
-TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
 
 class StockIndicatorsDAO(BaseDAO):
     """
@@ -104,7 +104,7 @@ class StockIndicatorsDAO(BaseDAO):
             Optional[StockTimeTrade]: 指定股票的最新分时成交数据
         """
         datas = []
-        for time_level in TIME_LEVELS:
+        for time_level in TIME_TEADE_TIME_LEVELS:
             data = await self.get_latest_time_trade(stock_code, time_level)
             if data:
                 datas.append(data)
@@ -122,7 +122,7 @@ class StockIndicatorsDAO(BaseDAO):
         favorite_stocks = await self.user_dao.get_all_favorite_stocks()
         # 获取自选股最新分时成交数据
         for stock in favorite_stocks:
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 data = await self.get_latest_time_trade(stock.stock_code, time_level)
                 if data:
                     datas.append(data)
@@ -237,7 +237,7 @@ class StockIndicatorsDAO(BaseDAO):
             return {'创建': 0, '更新': 0, '跳过': 0}
         data_dicts = []
         try:
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
@@ -375,7 +375,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_datas = await self.api.get_history_trade(stock_code, time_level)
                 logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
                 for index, api_data in enumerate(api_datas):
@@ -416,7 +416,7 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
@@ -530,7 +530,7 @@ class StockIndicatorsDAO(BaseDAO):
             return {'创建': 0, '更新': 0, '跳过': 0}
         data_dicts = []
         try:
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_data = await self.api.get_kdj(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
                 # logger.info(f"data_dict: {data_dict}")
@@ -570,7 +570,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             data_dicts = []
             for stock in stocks:
-                for time_level in TIME_LEVELS:
+                for time_level in TIME_TEADE_TIME_LEVELS:
                     api_data = await self.api.get_kdj(stock.stock_code, time_level)
                     data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
                     data_dicts.append(data_dict)
@@ -705,7 +705,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"开始获取{stock.stock_code}股票历史KDJ指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_datas = await self.api.get_history_kdj(stock.stock_code, time_level)
                 for index, api_data in enumerate(api_datas):
                     data_dict = self.data_format_process.set_kdj_data(stock, time_level, api_data)
@@ -743,7 +743,7 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_kdj(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
@@ -852,7 +852,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             logger.info(f"开始获取{stock.stock_code}股票最新MACD指标数据")
             data_dicts = []
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_data = await self.api.get_macd(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_macd_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
@@ -987,7 +987,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"开始获取{stock.stock_code}股票历史MACD指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_datas = await self.api.get_history_macd(stock_code, time_level)
                 for index, api_data in enumerate(api_datas):
                     data_dict = self.data_format_process.set_macd_data(stock, time_level, api_data)
@@ -1027,7 +1027,7 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_macd(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
@@ -1142,7 +1142,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             logger.info(f"开始获取{stock.stock_code}股票最新MA指标数据")
             data_dicts = []
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_data = await self.api.get_ma(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_ma_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
@@ -1275,7 +1275,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"开始获取{stock.stock_code}股票历史MA指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_datas = await self.api.get_history_ma(stock_code, time_level)
                 for index, api_item in enumerate(api_datas):
                     data_dict = self.data_format_process.set_ma_data(stock, time_level, api_item)
@@ -1314,7 +1314,7 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_ma(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
@@ -1430,7 +1430,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             logger.info(f"开始获取{stock.stock_code}股票最新BOLL指标数据")
             data_dicts = []
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_data = await self.api.get_boll(stock.stock_code, time_level)
                 if not api_data:
                     continue
@@ -1562,7 +1562,7 @@ class StockIndicatorsDAO(BaseDAO):
             logger.info(f"开始获取{stock.stock_code}股票历史BOLL指标数据")
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 api_datas = await self.api.get_history_boll(stock_code, time_level)
                 for data_index, api_data in enumerate(api_datas):
                     data_dict = self.data_format_process.set_boll_data(stock, time_level, api_data)
@@ -1605,7 +1605,7 @@ class StockIndicatorsDAO(BaseDAO):
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_boll(stock_code, time_level)
                 # --- 单行调用修剪方法 ---

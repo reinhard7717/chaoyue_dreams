@@ -9,8 +9,9 @@ from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 
 from celery import Celery, group # 导入 group
 from celery.utils.log import get_task_logger
 
+from core.constants import TIME_TEADE_TIME_LEVELS
+
 logger = logging.getLogger(__name__)
-TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
 
 
 # --- 新增：处理单个股票的子任务 ---
@@ -570,7 +571,7 @@ def dispatch_indicator_calculation(self):
         # 创建子任务签名列表
         tasks_signatures = []
         for stock in stocks:
-            for time_level in TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS:
                 # 为每个 stock_code 和 time_level 组合创建签名
                 tasks_signatures.append(calculate_single_stock_indicator.s(stock.stock_code, time_level))
 

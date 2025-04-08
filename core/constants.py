@@ -27,3 +27,5 @@ FINTA_OHLCV_MAP = {
     'turnover': 'turnover', # 保留成交额用于计算
     'trade_time': 'trade_time' # 用于设置索引
 }
+
+TIME_TEADE_TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']

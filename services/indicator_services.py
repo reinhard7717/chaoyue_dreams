@@ -9,6 +9,11 @@ import pandas_ta as ta
 # 仅忽略 FutureWarning
 # warnings.simplefilter(action='ignore', category=FutureWarning)
 # ---------------------------------------
+# --- 添加以下代码来忽略特定的 UserWarning ---
+# 仅忽略关于 "drop timezone information" 的 UserWarning
+warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
+# -------------------------------------------
+
 # 解决 pandas_ta 可能出现的 SettingWithCopyWarning，虽然通常不影响结果
 pd.options.mode.chained_assignment = None # default='warn'
 
