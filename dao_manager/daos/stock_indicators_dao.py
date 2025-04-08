@@ -234,37 +234,35 @@ class StockIndicatorsDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取时间序列数据")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-        try:
-            data_dicts = []
-            for time_level in TIME_LEVELS:
-                try:
-                    api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                    data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                    if data_dict.get('trade_time') is None:
-                        return {'创建': 0, '更新': 0, '跳过': 0}
-                    else:
-                        data_dicts.append(data_dict)
-                        cache_dict = data_dict.copy()
-                        await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
-                except Exception as e:
-                    logger.error(f"获取{stock}股票{time_level}级别时间序列数据出错111111: {str(e)}")
-                    pass
-            if not data_dicts:
-                logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockTimeTrade,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            # --- 函数末尾执行最终修剪 ---
-            # --- 生成缓存键 ---
+            return {'创建': 0, '更新': 0, '跳过': 0}4
+        data_dicts = []
+        for time_level in TIME_LEVELS:
+            try:
+                api_data = await self.api.get_time_trade(stock.stock_code, time_level)
+                data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                if data_dict.get('trade_time') is None:
+                    return {'创建': 0, '更新': 0, '跳过': 0}
+                else:
+                    data_dicts.append(data_dict)
+                    cache_dict = data_dict.copy()
+                    await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
+            except Exception as e:
+                logger.error(f"获取{stock}股票{time_level}级别时间序列数据出错111111: {str(e)}")
+             # --- 生成缓存键 ---
             cache_key =  self.cache_key.latest_time_trade(stock_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
+        if not data_dicts:
+            logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
+            return {'创建': 0, '更新': 0, '跳过': 0}
+        # 保存数据
+        result = await self._save_all_to_db_native_upsert(
+            model_class=StockTimeTrade,
+            data_list=data_dicts,
+            unique_fields=['stock', 'time_level', 'trade_time']
+        )
+        try:
             logger.info(f"{stock} 股票分时成交数据保存完成，结果: {result}")
             return result
         except Exception as e:
