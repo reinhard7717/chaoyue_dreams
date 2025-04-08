@@ -43,9 +43,7 @@ class StockIndicatorsAPI(BaseAPI):
         """
         endpoint = f"/data/time/real/time/{stock_code}/{time_level}"
         # logger.info(f"获取最新分时交易数据: {stock_code}, 级别: {time_level}")
-        api_data = await self.get(endpoint, expected_type='list')
-        api_data.sort(key=lambda x: x['d'], reverse=True)
-        return api_data
+        return await self.get(endpoint, expected_type='dict')
     
     async def get_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
         """
