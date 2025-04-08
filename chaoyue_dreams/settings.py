@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     'dao_manager',
     'stock_models',
     'utils',
+    'core',
     'users.apps.UsersConfig',  # 添加用户应用
     'tasks',  # 添加任务应用
     'django_celery_results',  # 添加Celery结果存储应用
@@ -512,6 +513,15 @@ LOGGING = {
             'formatter': 'verbose',
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
+        'services': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'services.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',  # 设置编码为utf-8
+        },
         'celery': {
             'level': 'INFO',
             'class': 'logging.handlers.RotatingFileHandler',
@@ -541,6 +551,11 @@ LOGGING = {
         'celery': {
             'handlers': ['console', 'celery'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'services': {
+            'handlers': ['console', 'services'],
+            'level': 'DEBUG',
             'propagate': False,
         },
     },

@@ -285,7 +285,7 @@ class SelfBuiltIndicatorsDao:
 
         # 2. 调用优化的保存方法
         unique_fields = ['stock', 'timestamp', 'period'] # 指标模型的唯一键字段
-        result = await self._save_all_to_db(
+        result = await self._save_all_to_db_native_upsert(
             model_class=indicator_model_class,
             data_list=data_list,
             unique_fields=unique_fields

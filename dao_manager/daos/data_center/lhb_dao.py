@@ -195,7 +195,7 @@ class LhbDAO(BaseDAO):
                 data_dicts.append(data_dict)
             
             # 保存数据
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=LhbDetail,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date']

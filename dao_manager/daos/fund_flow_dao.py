@@ -589,7 +589,7 @@ class FundFlowDAO(BaseDAO):
 
             # 保存数据
             logger.info(f"开始保存{stock}股票分钟级资金流向数据")
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=FundFlowMinute,
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']

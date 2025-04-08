@@ -112,7 +112,7 @@ class StockRealtimeDAO(BaseDAO):
             data_dicts.append(data_dict)
             await self.cache_set.latest_realtime_data(stock_code, data_dict)
             # 保存数据
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockRealtimeData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
@@ -209,7 +209,7 @@ class StockRealtimeDAO(BaseDAO):
                 logger.warning(f"API未返回{stock}的Level5数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
            # 保存数据
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockLevel5Data,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
@@ -307,7 +307,7 @@ class StockRealtimeDAO(BaseDAO):
                 data_dicts.append(data_dict)
                 await self.cache_set.onebyone_trade(stock.stock_code, data_dict)
             # 保存数据
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockTradeDetail,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'trade_time']
@@ -401,7 +401,7 @@ class StockRealtimeDAO(BaseDAO):
                 data_dict = await self.data_format_process.set_time_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
                 await self.cache_set.time_deal(stock_code, data_dict)
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeDeal,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'trade_time']
@@ -456,7 +456,7 @@ class StockRealtimeDAO(BaseDAO):
                 data_dict = await self.data_format_process.set_real_percent_data(stock, api_data)
                 data_dicts.append(data_dict)
                 await self.cache_set.real_percent(stock_code, data_dict)
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockPricePercent,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'price']
@@ -514,7 +514,7 @@ class StockRealtimeDAO(BaseDAO):
                 data_dict = await self.data_format_process.set_big_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
                 await self.cache_set.big_deal(stock_code, data_dict)
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockBigDeal,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'trade_time']
@@ -568,7 +568,7 @@ class StockRealtimeDAO(BaseDAO):
                 data_dict = await self.data_format_process.set_abnormal_movement_data(api_data)
                 data_dicts.append(data_dict)
                 await self.cache_set.abnormal_movement(data_dict)
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockAbnormalMovement,
                 data_list=data_dicts,
                 unique_fields=['stock', 'movement_time', 'movement_type']

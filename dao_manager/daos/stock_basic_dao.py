@@ -346,7 +346,7 @@ class StockBasicDAO(BaseDAO):
                 data_dict = self.data_format_process.set_stock_info_data(api_data)
                 data_dicts.append(data_dict)
             # 保存数据
-            result = await self._save_all_to_db(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=StockInfo,
                 data_list=data_dicts,
                 unique_fields=['stock_code']

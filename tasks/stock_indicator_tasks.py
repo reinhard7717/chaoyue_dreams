@@ -142,7 +142,7 @@ def process_single_stock_history_trade(self, stock_code: str):
         # 在同步的 Celery 任务中运行异步 DAO 方法
         # 注意：这里假设 fetch_and_save_history_time_trade_by_stock_code 是 async
         asyncio.run(stock_indicators_dao.fetch_and_save_history_time_trade_by_stock_code(stock_code))
-        # task_result = f"成功保存历史数据 for {stock_code} ({time_level})"
+        task_result = f"成功保存历史数据 for {stock_code}"
         logger.info(task_result)
     except Exception as e:
         logger.error(f"保存历史数据时发生错误 for {stock_code} : {e}", exc_info=True)
