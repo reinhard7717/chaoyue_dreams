@@ -7,7 +7,7 @@ from asgiref.sync import sync_to_async
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Any, Optional
-from django.contrib.auth.models import User
+
 from users.models import FavoriteStock
 from utils.cache_get import StockInfoCacheGet
 from utils.cash_key import StockCashKey
@@ -135,13 +135,19 @@ class StockBasicDAO(BaseDAO):
             # logger.info(f"get_stock_by_code,success: {success}")
             return stock
 
-    async def get_favorite_stocks_by_user(self, user: User) -> List[FavoriteStock]:  
+    async def get_favorite_stocks_by_user(self, user: 'User') -> List[FavoriteStock]:  
         """
         获取用户自选股
         
         Args:
             user: 用户
         """
+        from django.contrib.auth.models import User
+        # 检查传入的 user 类型，确保它是 User 实例 (可选但推荐)
+        if not isinstance(user, User):
+            logger.error(f"传入 get_favorite_stocks_by_user 的 user 类型错误: {type(user)}")
+            # 可以抛出异常或返回空列表
+            return []
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_manager.generate_key('st', 'favorite_stock', user.id)
         
