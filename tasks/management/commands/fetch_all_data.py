@@ -664,7 +664,7 @@ class Command(BaseCommand):
         """计算股票指标数据"""
         self.stdout.write('计算股票指标数据...')
         indicator_services = IndicatorService()
-        stock_basic_dao = StockBasicDAO()
+        # stock_basic_dao = StockBasicDAO()
         # all_stocks = await stock_basic_dao.get_stock_list()
         # for stock in all_stocks:
         #     await indicator_services.calculate_and_save_all_indicators(stock.stock_code, 'Day')
