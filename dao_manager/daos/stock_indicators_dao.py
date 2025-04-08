@@ -383,6 +383,8 @@ class StockIndicatorsDAO(BaseDAO):
                 logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
                 for index, api_data in enumerate(api_datas):
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                    if data_dict.get('trade_time') is None:
+                        return {'创建': 0, '更新': 0, '跳过': 0}
                     data_dicts.append(data_dict)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if index < self.cache_limit:
