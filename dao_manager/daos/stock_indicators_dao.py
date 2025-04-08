@@ -378,7 +378,7 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             data_dicts = []
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
-            for time_level in TIME_TEADE_TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS_LITE:
                 api_datas = await self.api.get_history_trade(stock_code, time_level)
                 logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
                 for index, api_data in enumerate(api_datas):
