@@ -1,5 +1,5 @@
 from django.db import models
-from django.contrib.auth.models import User
+# from django.contrib.auth.models import User
 from django.utils.translation import gettext_lazy as _
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -44,7 +44,7 @@ class UserProfile(models.Model):
     用户资料模型，扩展Django自带的用户模型
     """
     # 关联Django自带的用户模型
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile', verbose_name=_('用户'))
+    user = models.OneToOneField('User', on_delete=models.CASCADE, related_name='profile', verbose_name=_('用户'))
     # 用户手机号码
     phone = models.CharField(_('手机号码'), max_length=11, blank=True, null=True)
     # 用户头像
@@ -71,7 +71,7 @@ class FavoriteStock(models.Model):
     自选股模型，用于存储用户的自选股
     """
     # 关联用户
-    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_('用户'), related_name='favorite_stocks')
+    user = models.ForeignKey('User', on_delete=models.CASCADE, verbose_name=_('用户'), related_name='favorite_stocks')
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="favorite_stocks", verbose_name=_("股票"))
     # 添加时间
     added_at = models.DateTimeField(_('添加时间'), auto_now_add=True)
@@ -93,7 +93,7 @@ class FavoriteStock(models.Model):
         return f"{self.user.username} - {self.stock.stock_name}({self.stock.stock_code})"
 
 # 监听信号，当用户创建后自动创建用户资料
-@receiver(post_save, sender=User)
+@receiver(post_save, sender='User')
 def create_user_profile(sender, instance, created, **kwargs):
     """
     当用户创建后的操作
@@ -101,7 +101,7 @@ def create_user_profile(sender, instance, created, **kwargs):
     if created:
         UserProfile.objects.create(user=instance)
 
-@receiver(post_save, sender=User)
+@receiver(post_save, sender='User')
 def save_user_profile(sender, instance, **kwargs):
     """
     当用户保存后的操作
