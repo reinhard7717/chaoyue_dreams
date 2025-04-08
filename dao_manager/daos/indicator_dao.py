@@ -279,7 +279,7 @@ class IndicatorDAO(BaseDAO):
                  logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level}")
                  return None # 如果全是 NaN，返回 None
 
-            logger.debug(f"成功为 {stock_code} {time_level} 创建 OHLCV DataFrame，形状: {df.shape}")
+            # logger.debug(f"成功为 {stock_code} {time_level} 创建 OHLCV DataFrame，形状: {df.shape}")
             return df
 
         except Exception as e:

@@ -41,7 +41,7 @@ class IndicatorService:
     async def _get_ohlcv_data(self, stock_code: str, time_level: Union[TimeLevel, str], needed_bars: int) -> Optional[pd.DataFrame]:
         """获取足够用于计算的历史数据"""
         limit = needed_bars + 50 # 增加一些 buffer
-        logger.debug(f"为计算指标 {stock_code} {time_level}，尝试获取 {limit} 条历史数据")
+        # logger.debug(f"为计算指标 {stock_code} {time_level}，尝试获取 {limit} 条历史数据")
         df = await self.indicator_dao.get_history_ohlcv_df(stock_code, time_level, limit=limit)
         if df is None or df.empty:
             logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level}")
@@ -706,7 +706,7 @@ class IndicatorService:
 
         for calc_func, save_func, params in indicator_tasks:
             indicator_name = calc_func.__name__.replace('calculate_', '').upper()
-            logger.debug(f"[{indicator_name}] 开始计算 for {stock_code} {time_level_str}")
+            # logger.debug(f"[{indicator_name}] 开始计算 for {stock_code} {time_level_str}")
             try:
                 # 传递 ohlcv_df 的副本，确保每个计算函数拿到干净的数据
                 # 因为 pandas-ta 可能会原地修改或添加列（虽然不常见）

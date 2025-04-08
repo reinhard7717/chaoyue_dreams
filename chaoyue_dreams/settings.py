@@ -555,7 +555,7 @@ LOGGING = {
         },
         'services': {
             'handlers': ['console', 'services'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False,
         },
     },
