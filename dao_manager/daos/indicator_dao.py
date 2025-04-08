@@ -10,28 +10,7 @@ from django.utils import timezone
 
 # 假设你有 StockBasicDAO 和 Cache 相关类
 from dao_manager.base_dao import BaseDAO
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
-from stock_models.indicator.atr import StockAtrFIB
-from stock_models.indicator.boll import StockBOLLIndicator
-from stock_models.indicator.cci import StockCciFIB
-from stock_models.indicator.cmf import StockCmfFIB
-from stock_models.indicator.dmi import StockDmiFIB
-from stock_models.indicator.ichimoku import StockIchimoku
-from stock_models.indicator.kdj import StockKDJFIB
-from stock_models.indicator.ma import StockAmountMaFIB, StockEmaFIB
-from stock_models.indicator.macd import StockMACDFIB
-from stock_models.indicator.mfi import StockMfiFIB
-from stock_models.indicator.mom import StockMomFIB
-from stock_models.indicator.obv import StockObvFIB
-from stock_models.indicator.roc import StockAmountRocFIB, StockRocFIB
-from stock_models.indicator.rsi import StockRsiFIB
-from stock_models.indicator.sar import StockSar
-from stock_models.indicator.vroc import StockVrocFIB
-from stock_models.indicator.vwap import StockVwap
-from stock_models.indicator.wr import StockWrFIB
-from stock_models.stock_basic import StockInfo, StockTimeTrade
-from utils.cache_get import StockIndicatorsCacheGet
-from utils.cache_set import StockIndicatorsCacheSet
+
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP
 
 
@@ -42,6 +21,9 @@ class IndicatorDAO(BaseDAO):
     指标数据访问对象，负责指标数据的读取和存储
     """
     def __init__(self):
+        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from utils.cache_get import StockIndicatorsCacheGet
+        from utils.cache_set import StockIndicatorsCacheSet
         # 依赖注入基础DAO和缓存工具
         self.stock_basic_dao = StockBasicDAO()
         self.cache_get = StockIndicatorsCacheGet() # 假设 CacheGet 实例已配置好
@@ -93,12 +75,13 @@ class IndicatorDAO(BaseDAO):
              logger.warning(f"无法将值 '{value}' (类型: {type(value)}) 转换为 Datetime", exc_info=False)
              return default
 
-    async def get_history_time_trades_by_limit(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[List[StockTimeTrade]]:
+    async def get_history_time_trades_by_limit(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[List['StockTimeTrade']]:
         """
         获取指定股票和时间级别的最新分时成交数据。
         优先从 Redis 缓存获取（处理字典格式），失败则从数据库获取。
         返回按时间升序排列的 StockTimeTrade 模型实例列表。
         """
+        from stock_models.stock_basic import StockTimeTrade
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
@@ -331,7 +314,7 @@ class IndicatorDAO(BaseDAO):
             return None
 
     # --- 修改后的通用保存方法 ---
-    async def _save_indicator_data_generic(self, stock_info: StockInfo, time_level: Union[TimeLevel, str],
+    async def _save_indicator_data_generic(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str],
         indicator_df: pd.DataFrame, model_class: Type[models.Model],
         field_map: Dict[str, str], # DataFrame 列名 -> 模型字段名 的映射
         # unique_fields 列表现在内部定义，基于通用模式
@@ -345,6 +328,7 @@ class IndicatorDAO(BaseDAO):
             model_class (Type[models.Model]): 要保存到的 Django 模型类.
             field_map (Dict[str, str]): DataFrame 列名到模型字段名的映射.
         """
+        from stock_models.stock_basic import StockInfo
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
         model_name = model_class.__name__ # 获取模型名称用于日志记录
 
@@ -472,23 +456,28 @@ class IndicatorDAO(BaseDAO):
 
 
     # --- 各指标具体的保存方法 (保持不变) ---
-    async def save_atr_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_atr_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.atr import StockAtrFIB
         field_map = {f'ATR_{p}': f'atr{p}' for p in FIB_PERIODS if f'ATR_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockAtrFIB, field_map)
 
-    async def save_boll(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_boll(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.boll import StockBOLLIndicator
         field_map = {'BB_UPPER': 'upper', 'BB_MIDDLE': 'mid', 'BB_LOWER': 'lower'}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockBOLLIndicator, field_map)
 
-    async def save_cci_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_cci_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.cci import StockCciFIB
         field_map = {f'{p} period CCI': f'cci{p}' for p in FIB_PERIODS if f'{p} period CCI' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockCciFIB, field_map)
 
-    async def save_cmf_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_cmf_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.cmf import StockCmfFIB
         field_map = {f'{p} period CMF': f'cmf{p}' for p in FIB_PERIODS if f'{p} period CMF' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockCmfFIB, field_map)
 
-    async def save_dmi_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_dmi_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.dmi import StockDmiFIB
         field_map = {}
         for p in [13, 21, 34, 55, 89, 144, 233]:
              if f'+DI_{p}' in df.columns: field_map[f'+DI_{p}'] = f'plus_di{p}'
@@ -497,14 +486,16 @@ class IndicatorDAO(BaseDAO):
              if f'ADXR_{p}' in df.columns: field_map[f'ADXR_{p}'] = f'adxr{p}'
         await self._save_indicator_data_generic(stock_info, time_level, df, StockDmiFIB, field_map)
 
-    async def save_ichimoku(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_ichimoku(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.ichimoku import StockIchimoku
         field_map = {
             'TENKAN': 'tenkan_sen', 'KIJUN': 'kijun_sen', 'CHIKOU': 'chikou_span',
             'SENKOU A': 'senkou_span_a', 'SENKOU B': 'senkou_span_b'
         }
         await self._save_indicator_data_generic(stock_info, time_level, df, StockIchimoku, field_map)
 
-    async def save_kdj_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_kdj_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.kdj import StockKDJFIB
         field_map = {}
         for p in FIB_PERIODS:
             if f'K_{p}' in df.columns: field_map[f'K_{p}'] = f'k_{p}'
@@ -512,57 +503,70 @@ class IndicatorDAO(BaseDAO):
             if f'J_{p}' in df.columns: field_map[f'J_{p}'] = f'j_{p}'
         await self._save_indicator_data_generic(stock_info, time_level, df, StockKDJFIB, field_map)
 
-    async def save_ema_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_ema_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.ma import StockEmaFIB
         field_map = {f'EMA_{p}': f'ema{p}' for p in FIB_PERIODS if f'EMA_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockEmaFIB, field_map)
 
-    async def save_amount_ma_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_amount_ma_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.ma import StockAmountMaFIB
         field_map = {f'AMT_MA_{p}': f'amt_ma{p}' for p in FIB_PERIODS if f'AMT_MA_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockAmountMaFIB, field_map)
 
-    async def save_macd_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_macd_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.macd import StockMACDFIB
         field_map = {'MACD': 'diff', 'SIGNAL': 'dea', 'MACD_HIST': 'macd'}
         for p in FIB_PERIODS:
             if f'EMA_{p}' in df.columns: field_map[f'EMA_{p}'] = f'ema{p}'
         await self._save_indicator_data_generic(stock_info, time_level, df, StockMACDFIB, field_map)
 
-    async def save_mfi_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_mfi_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.mfi import StockMfiFIB
         field_map = {f'MFI_{p}': f'mfi{p}' for p in FIB_PERIODS if f'MFI_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockMfiFIB, field_map)
 
-    async def save_mom_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_mom_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.mom import StockMomFIB
         field_map = {f'MOM_{p}': f'mom{p}' for p in FIB_PERIODS if f'MOM_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockMomFIB, field_map)
 
-    async def save_obv(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_obv(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.obv import StockObvFIB
         field_map = {'OBV': 'obv'}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockObvFIB, field_map)
 
-    async def save_roc_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_roc_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.roc import StockRocFIB
         field_map = {f'ROC_{p}': f'roc{p}' for p in FIB_PERIODS if f'ROC_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockRocFIB, field_map)
 
-    async def save_amount_roc_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_amount_roc_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.roc import StockAmountRocFIB
         field_map = {f'AROC_{p}': f'aroc{p}' for p in FIB_PERIODS if f'AROC_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockAmountRocFIB, field_map)
 
-    async def save_rsi_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_rsi_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.rsi import StockRsiFIB
         field_map = {f'RSI_{p}': f'rsi{p}' for p in FIB_PERIODS if f'RSI_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockRsiFIB, field_map)
 
-    async def save_sar(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_sar(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.sar import StockSar
         field_map = {'SAR': 'sar'}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockSar, field_map)
 
-    async def save_vroc_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_vroc_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.vroc import StockVrocFIB
         field_map = {f'VROC_{p}': f'vroc{p}' for p in FIB_PERIODS if f'VROC_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockVrocFIB, field_map)
 
-    async def save_vwap(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_vwap(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.vwap import StockVwap
         field_map = {'VWAP': 'vwap'}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockVwap, field_map)
 
-    async def save_wr_fib(self, stock_info: StockInfo, time_level: Union[TimeLevel, str], df: pd.DataFrame):
+    async def save_wr_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
+        from stock_models.indicator.wr import StockWrFIB
         field_map = {f'WR_{p}': f'wr{p}' for p in FIB_PERIODS if f'WR_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockWrFIB, field_map)
 
