@@ -349,7 +349,7 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"[{model_name}] 无法将索引转换为 DatetimeIndex for {stock_info.stock_code} {time_level_str}: {e_idx}", exc_info=True)
                 return # 没有有效的时间索引无法继续
 
-        logger.debug(f"[{model_name}] 开始准备 {len(indicator_df)} 条记录的批量数据 for {stock_info.stock_code} {time_level_str}")
+        # logger.debug(f"[{model_name}] 开始准备 {len(indicator_df)} 条记录的批量数据 for {stock_info.stock_code} {time_level_str}")
 
         # 遍历 DataFrame 的每一行来构建字典列表
         for trade_time, row in indicator_df.iterrows():
@@ -437,7 +437,7 @@ class IndicatorDAO(BaseDAO):
         unique_fields = ['stock_id', 'time_level', 'trade_time']
 
         # 3. 调用继承的批量 Upsert 方法
-        logger.info(f"[{model_name}] 准备调用 _save_all_to_db_native_upsert 处理 {len(data_to_save)} 条有效记录 for {stock_info.stock_code} {time_level_str}")
+        # logger.info(f"[{model_name}] 准备调用 _save_all_to_db_native_upsert 处理 {len(data_to_save)} 条有效记录 for {stock_info.stock_code} {time_level_str}")
         try:
             # 调用基类方法，传入模型类、准备好的数据列表和唯一字段列表
             # extra_fields 不需要，因为所有字段已包含在 data_to_save 的字典中

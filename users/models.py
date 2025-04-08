@@ -45,7 +45,12 @@ class UserProfile(models.Model):
     用户资料模型，扩展Django自带的用户模型
     """
     # 关联Django自带的用户模型
-    user = models.OneToOneField('User', on_delete=models.CASCADE, related_name='profile', verbose_name=_('用户'))
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, # <--- 使用字符串引用
+        on_delete=models.CASCADE,
+        related_name='profile',
+        verbose_name='用户'
+    )
     # 用户手机号码
     phone = models.CharField(_('手机号码'), max_length=11, blank=True, null=True)
     # 用户头像
@@ -77,8 +82,6 @@ class FavoriteStock(models.Model):
         related_name='favorite_stocks',
         verbose_name='用户'
     )
-    # 关联用户
-    user = models.ForeignKey('User', on_delete=models.CASCADE, verbose_name=_('用户'), related_name='favorite_stocks')
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="favorite_stocks", verbose_name=_("股票"))
     # 添加时间
     added_at = models.DateTimeField(_('添加时间'), auto_now_add=True)

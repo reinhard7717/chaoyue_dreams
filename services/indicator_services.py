@@ -177,42 +177,62 @@ class IndicatorService:
 
             for period in dmi_periods:
                 # 检查数据长度
-                required_len = period * min_data_multiplier + 1 # ADXR 可能需要更多
+                # ADXR 需要 period + period - 1 = 2*period - 1 的数据来计算第一个值
+                # ADX 本身也需要类似长度，给足缓冲
+                # 手动计算 ADXR 需要 ADX series.shift(period)，所以至少需要 adx计算所需长度 + period
+                # adx 需要大约 2*period，所以总共约 3*period
+                # 保持之前的 required_len，shift 会自动产生 NaN
+                required_len = period * min_data_multiplier + 1
+
                 if len(ohlc) >= required_len:
+                    adx_series = None # 用于计算 ADXR
+                    adxr_series = None # 存储计算结果
                     try:
                         # 1. 计算 ADX, +DI, -DI (pandas-ta adx 返回 DataFrame)
-                        #    列名通常是 ADX_period, DMP_period, DMN_period
                         adx_df = ohlc.ta.adx(length=period)
 
-                        # 2. 计算 ADXR (pandas-ta adxr 返回 Series)
-                        #    列名通常是 ADXR_period
-                        adxr_series = ohlc.ta.adx(length=period)
-
+                        # 2. 提取 ADX, +DI, -DI 并计算 ADXR
                         if adx_df is not None and not adx_df.empty:
                             adx_col = f'ADX_{period}'
                             dmp_col = f'DMP_{period}' # +DI
                             dmn_col = f'DMN_{period}' # -DI
-                            if adx_col in adx_df.columns: results[f'ADX_{period}'] = adx_df[adx_col]
-                            if dmp_col in adx_df.columns: results[f'+DI_{period}'] = adx_df[dmp_col] # 重命名 key
-                            if dmn_col in adx_df.columns: results[f'-DI_{period}'] = adx_df[dmn_col] # 重命名 key
+
+                            # 提取 ADX, +DI, -DI
+                            if adx_col in adx_df.columns:
+                                adx_series = adx_df[adx_col] # 获取 ADX Series
+                                results[f'ADX_{period}'] = adx_series
+                            if dmp_col in adx_df.columns: results[f'+DI_{period}'] = adx_df[dmp_col]
+                            if dmn_col in adx_df.columns: results[f'-DI_{period}'] = adx_df[dmn_col]
+
+                            # 3. 手动计算 ADXR (如果成功获取了 ADX Series)
+                            if adx_series is not None and isinstance(adx_series, pd.Series):
+                                # ADXR = (ADX + ADX.shift(period)) / 2
+                                # 确保有足够非 NaN 值进行 shift 操作
+                                if adx_series.notna().sum() > period:
+                                    adxr_series = (adx_series + adx_series.shift(period)) / 2
+                                    # 将计算得到的 ADXR Series 添加到 results 中
+                                    results[f'ADXR_{period}'] = adxr_series
+                                else:
+                                    logger.warning(f"ADX series for period {period} 不足以计算 ADXR (有效值数量 <= period)")
+                            else:
+                                logger.warning(f"未能从 adx_df 中提取到 ADX_{period} 列，无法计算 ADXR({period})")
+
                         else:
                             logger.warning(f"pandas-ta adx({period}) 计算失败或返回空")
 
-                        if adxr_series is not None:
-                            results[f'ADXR_{period}'] = adxr_series # key 与 pandas-ta 列名一致
-                        else:
-                            logger.warning(f"pandas-ta adxr({period}) 计算失败或返回空")
-
                     except Exception as e_dmi_calc:
+                         # 捕获特定周期的计算错误，记录并继续下一个周期
                          logger.error(f"内部计算 DMI/ADX/ADXR({period}) 时出错: {e_dmi_calc}", exc_info=True)
-                         # 可以在这里填充 NaN，但 pandas-ta 失败时通常返回 None 或 NaN Series
+
                 else:
                     logger.warning(f"数据不足 ({len(ohlc)} < {required_len}) 无法计算 DMI/ADX/ADXR({period})")
 
-            # 过滤掉完全是 NaN 的列（如果某个周期计算失败）
-            final_results = {k: v for k, v in results.items() if v is not None and not v.isnull().all()}
+            # 过滤掉值为 None 或完全是 NaN 的 Series
+            final_results = {k: v for k, v in results.items() if isinstance(v, pd.Series) and not v.isnull().all()}
+
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
         except Exception as e:
+            # 捕获整个函数级别的错误
             logger.error(f"计算 DMI_FIB 失败: {e}", exc_info=True)
             return None
 
@@ -220,37 +240,47 @@ class IndicatorService:
         """计算一目均衡表"""
         if ta is None: logger.error("pandas-ta 未加载"); return None
         # Ichimoku 默认参数 9, 26, 52。需要数据量 > 52
-        if ohlc is None or ohlc.empty or len(ohlc) < 52:
-            logger.warning(f"数据不足 ({len(ohlc)}) 可能无法准确计算 Ichimoku")
-            # return None # 保持原有逻辑，尝试计算
+        min_required = 52 # Kijun=26, Senkou=52 lookbacks
+        if ohlc is None or ohlc.empty or len(ohlc) < min_required:
+            logger.warning(f"数据不足 ({len(ohlc)} < {min_required}) 可能无法准确计算 Ichimoku")
+            # return None # 保持原有逻辑，尝试计算，pandas-ta 内部会处理
+
         try:
             # pandas-ta ichimoku 返回 DataFrame 和 SPAN A/B 的 shifted 版本
-            # 我们通常需要未 shift 的版本: ITS_9, IKS_26, ICS_26, ISA_9_26_52, ISB_26_52
-            # 参数: tenkan=9, kijun=26, senkou=52, include_chikou=True, include_shifted=True (默认)
+            # 我们通常需要未 shift 的版本: ITS_9, IKS_26, ICS_26, ISA_9, ISB_26 (根据日志调整)
+            # 参数: tenkan=9, kijun=26, senkou=52
             ichi_df, span_shifted_df = ohlc.ta.ichimoku(tenkan=9, kijun=26, senkou=52)
 
             if ichi_df is None or ichi_df.empty:
+                logger.warning("pandas-ta ichimoku 计算返回空")
                 return None
 
             # 重命名列以匹配 finta 的输出 ('TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU A', 'SENKOU B')
-            # 注意 pandas-ta 列名包含参数
+            # 注意：根据错误日志调整 ISA 和 ISB 的键名
             rename_map = {
-                'ITS_9': 'TENKAN',
-                'IKS_26': 'KIJUN',
-                'ICS_26': 'CHIKOU', # Chikou Span (Lagging Span)
-                'ISA_9_26_52': 'SENKOU A', # Senkou Span A (Leading Span A)
-                'ISB_26_52': 'SENKOU B', # Senkou Span B (Leading Span B)
+                'ITS_9': 'TENKAN',         # Tenkan-sen (Conversion Line)
+                'IKS_26': 'KIJUN',         # Kijun-sen (Base Line)
+                'ICS_26': 'CHIKOU',        # Chikou Span (Lagging Span)
+                # 'ISA_9_26_52': 'SENKOU A', # --- 旧的错误的键名 ---
+                'ISA_9': 'SENKOU A',       # --- 根据日志调整后的键名 --- Senkou Span A (Leading Span A)
+                # 'ISB_26_52': 'SENKOU B', # --- 旧的错误的键名 ---
+                'ISB_26': 'SENKOU B',      # --- 根据日志调整后的键名 --- Senkou Span B (Leading Span B)
             }
-            required_cols = list(rename_map.keys())
-            actual_cols = {col: rename_map[col] for col in required_cols if col in ichi_df.columns}
+            required_keys = list(rename_map.keys())
+            actual_cols_map = {key: rename_map[key] for key in required_keys if key in ichi_df.columns}
 
-            if len(actual_cols) != 5:
-                logger.error(f"无法从 pandas-ta ichimoku 结果中提取所有所需列。返回: {ichi_df.columns.tolist()}")
-                # 返回能找到的列
-                found_df = ichi_df[[col for col in actual_cols.keys()]].rename(columns=actual_cols)
+            if len(actual_cols_map) != 5:
+                # 记录更详细的错误，包括期望的和实际的
+                expected_cols = required_keys
+                returned_cols = ichi_df.columns.tolist()
+                logger.error(f"无法从 pandas-ta ichimoku 结果中提取所有所需列。期望键名: {expected_cols}, 实际返回列: {returned_cols}")
+                # 仍然尝试返回能找到的列，避免完全失败
+                found_df = ichi_df[[key for key in actual_cols_map.keys()]].rename(columns=actual_cols_map)
                 return found_df if not found_df.empty else None
 
-            return ichi_df[list(actual_cols.keys())].rename(columns=actual_cols)
+            # 提取并重命名所需的列
+            result_df = ichi_df[list(actual_cols_map.keys())].rename(columns=actual_cols_map)
+            return result_df
 
         except Exception as e:
             logger.error(f"计算 Ichimoku 失败: {e}", exc_info=True)
@@ -690,7 +720,7 @@ class IndicatorService:
                     indicator_result_df = indicator_result_df.reindex(ohlcv_df_raw.index).dropna(how='all')
 
                     if not indicator_result_df.empty:
-                        logger.debug(f"[{indicator_name}] 计算完成 (结果行数: {len(indicator_result_df)}), 开始保存 for {stock_code} {time_level_str}")
+                        # logger.debug(f"[{indicator_name}] 计算完成 (结果行数: {len(indicator_result_df)}), 开始保存 for {stock_code} {time_level_str}")
                         # 保存所有计算出的非 NaN 结果
                         await save_func(stock_info, time_level_str, indicator_result_df) # 移除 dropna，让 DAO 处理
                     else:
