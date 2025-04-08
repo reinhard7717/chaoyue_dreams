@@ -234,7 +234,7 @@ class StockIndicatorsDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取时间序列数据")
-            return {'创建': 0, '更新': 0, '跳过': 0}4
+            return {'创建': 0, '更新': 0, '跳过': 0}
         data_dicts = []
         for time_level in TIME_LEVELS:
             try:
