@@ -236,21 +236,21 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取时间序列数据")
             return {'创建': 0, '更新': 0, '跳过': 0}
+        data_dicts = []
+        for time_level in TIME_LEVELS:
+            api_datas = await self.api.get_time_trade(stock.stock_code, time_level)
+            for api_data in api_datas:
+                data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                if data_dict.get('trade_time') is None:
+                    pass
+                else:
+                    data_dicts.append(data_dict)
+                    cache_dict = data_dict.copy()
+                    await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
+        if not data_dicts:
+            logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
+            return {'创建': 0, '更新': 0, '跳过': 0}
         try:
-            data_dicts = []
-            for time_level in TIME_LEVELS:
-                api_datas = await self.api.get_time_trade(stock.stock_code, time_level)
-                for api_data in api_datas:
-                    data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                    if data_dict.get('trade_time') is None:
-                        pass
-                    else:
-                        data_dicts.append(data_dict)
-                        cache_dict = data_dict.copy()
-                        await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
-            if not data_dicts:
-                logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeTrade,
