@@ -239,9 +239,6 @@ class StockIndicatorsDAO(BaseDAO):
         try:
             for time_level in TIME_LEVELS:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                if api_data.get('trade_time') is None:
-                    logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                    return {'创建': 0, '更新': 0, '跳过': 0}
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 data_dicts.append(data_dict)
                 cache_dict = data_dict.copy()
