@@ -100,7 +100,7 @@ class FavoriteStock(models.Model):
         return f"{self.user.username} - {self.stock.stock_name}({self.stock.stock_code})"
 
 # 监听信号，当用户创建后自动创建用户资料
-@receiver(post_save, sender='User')
+@receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_user_profile(sender, instance, created, **kwargs):
     """
     当用户创建后的操作
@@ -108,7 +108,7 @@ def create_user_profile(sender, instance, created, **kwargs):
     if created:
         UserProfile.objects.create(user=instance)
 
-@receiver(post_save, sender='User')
+@receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def save_user_profile(sender, instance, **kwargs):
     """
     当用户保存后的操作
