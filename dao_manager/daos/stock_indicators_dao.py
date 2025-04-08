@@ -240,15 +240,12 @@ class StockIndicatorsDAO(BaseDAO):
             try:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                if data_dict.get('trade_time') is None:
-                    return {'创建': 0, '更新': 0, '跳过': 0}
-                else:
-                    data_dicts.append(data_dict)
-                    cache_dict = data_dict.copy()
-                    await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
+                data_dicts.append(data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
             except Exception as e:
                 logger.error(f"获取{stock}股票{time_level}级别时间序列数据出错111111: {str(e)}")
-             # --- 生成缓存键 ---
+            # --- 生成缓存键 ---
             cache_key =  self.cache_key.latest_time_trade(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
