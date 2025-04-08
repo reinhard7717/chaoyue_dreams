@@ -659,7 +659,7 @@ class IndicatorService:
             (self.calculate_ichimoku, self.indicator_dao.save_ichimoku, {}),
             (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, {}), # 使用默认 M1=3, M2=3
             # EMA 和 MACD 一起计算，因为 MACD 模型包含 EMA
-            # (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, {}), # 单独保存 EMA (可选)
+            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, {}), # 单独保存 EMA (可选)
             (self.calculate_amount_ma_fib, self.indicator_dao.save_amount_ma_fib, {}),
             (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, {}), # 计算 MACD 和 EMA
             (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, {}),

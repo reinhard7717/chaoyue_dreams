@@ -3,10 +3,8 @@ import logging
 from celery import group
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from services.indicator_services import IndicatorService
-from core.constants import TimeLevel
+from core.constants import TIME_TEADE_TIME_LEVELS, TimeLevel
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
-
-TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -23,16 +21,16 @@ async def calculate_stock_indicators_for_single_stock(self, stock_code: str):
     try:
         # 如果 calculate_and_save_all_indicators 本身可以并发处理不同 time_level，
         # 并且它是 async 函数，可以考虑使用 asyncio.gather
-        # tasks = [
-        #     service.calculate_and_save_all_indicators(stock_code, time_level)
-        #     for time_level in TIME_LEVELS
-        # ]
-        # await asyncio.gather(*tasks)
+        tasks = [
+            service.calculate_and_save_all_indicators(stock_code, time_level)
+            for time_level in TIME_TEADE_TIME_LEVELS
+        ]
+        await asyncio.gather(*tasks)
 
         # 如果需要按顺序处理时间级别，或者 service 方法不是为并发设计的
-        for time_level in TIME_LEVELS:
-             logger.debug(f"计算 {stock_code} 在 {time_level} 级别指标")
-             await service.calculate_and_save_all_indicators(stock_code, time_level)
+        # for time_level in TIME_TEADE_TIME_LEVELS:
+        #      logger.debug(f"计算 {stock_code} 在 {time_level} 级别指标")
+        #      await service.calculate_and_save_all_indicators(stock_code, time_level)
 
         logger.info(f"成功完成股票 {stock_code} 的指标计算。")
         return f"Success: {stock_code}"
@@ -75,7 +73,10 @@ async def dispatch_all_stock_indicator_updates(self):
         group_result = task_group.apply_async()
 
         logger.info(f"已成功分发 {len(all_stocks)} 个股票指标计算任务。任务组 ID: {group_result.id}")
-        # 可以保存 group_result.id 以便后续跟踪任务组状态
+        # === 调试日志 ===
+        return_value = f"Dispatched indicator calculation tasks for {len(all_stocks)} stocks. Group ID: {group_result.id}"
+        logger.info(f"任务即将返回，类型: {type(return_value)}, 值: {return_value}")
+        # ===============
 
         # 注意：这个任务完成仅代表分发完成，不代表所有子任务都已执行完毕。
         return f"Dispatched indicator calculation tasks for {len(all_stocks)} stocks. Group ID: {group_result.id}"
