@@ -6,12 +6,12 @@ import msgpack
 from datetime import datetime, date # 同时导入 date 类，如果需要处理的话
 from decimal import Decimal # 导入 Decimal
 # from dao_manager.base_dao import BaseDAO
-from stock_models.index import IndexInfo
-from stock_models.stock_basic import StockInfo
+
+
 from utils import cache_constants as cc
-from utils.cache_manager import CacheManager
-from utils.cash_key import IndexCashKey, StockCashKey
-from utils.data_format_process import IndexDataFormatProcess
+
+
+
 import json
 
 logger = logging.getLogger("dao")
@@ -37,6 +37,9 @@ def _msgpack_default_packer(obj):
 
 class CacheSet():
     def __init__(self):
+        from utils.cache_manager import CacheManager
+        from utils.cash_key import IndexCashKey, StockCashKey
+        from utils.data_format_process import IndexDataFormatProcess
         self.cache_manager = CacheManager()
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
@@ -157,6 +160,8 @@ class CacheSet():
             return False
 
     async def _format_conversion(self, data_to_cache: Dict[str, Any]) -> Dict[str, Any]:
+        from stock_models.index import IndexInfo
+        from stock_models.stock_basic import StockInfo
         for key, value in data_to_cache.items():
             if isinstance(value, datetime):
                 # 将 datetime 对象转换为 ISO 8601 格式的字符串

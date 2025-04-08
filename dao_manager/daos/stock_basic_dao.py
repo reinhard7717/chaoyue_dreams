@@ -2,20 +2,15 @@ import json
 import logging
 import asyncio
 import sys
-import functools
+# import functools
 from asgiref.sync import sync_to_async
-from datetime import datetime
-from decimal import Decimal
+# from datetime import datetime
+# from decimal import Decimal
 from typing import Dict, List, Any, Optional
+# from utils.models import ModelJSONEncoder
+# from django.db import transaction
+# from django.core.cache import cache
 
-
-from utils.cache_get import StockInfoCacheGet
-from utils.cash_key import StockCashKey
-from utils.data_format_process import StockInfoFormatProcess
-from utils.models import ModelJSONEncoder
-from django.db import transaction
-from django.core.cache import cache
-from utils.cache_manager import CacheManager
 from utils import cache_constants as cc # 导入常量
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
@@ -42,6 +37,10 @@ class StockBasicDAO(BaseDAO):
     def __init__(self):
         """初始化StockBasicDAO"""
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
+        from utils.cache_get import StockInfoCacheGet
+        from utils.cash_key import StockCashKey
+        from utils.data_format_process import StockInfoFormatProcess
+        from utils.cache_manager import CacheManager
         self.api = StockBasicAPI()
         self.cache_manager = CacheManager()  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()

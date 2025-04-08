@@ -4,13 +4,13 @@ import logging
 import inspect
 import msgpack
 from typing import Any, Dict, List, Optional, Type, Union, TypeVar, Mapping # 引入 Mapping
-from datetime import datetime, timedelta
+from datetime import datetime
 from utils import cache_constants as cc # 导入常量
-from django.core.cache import cache
+# from django.core.cache import cache
 from django_redis import get_redis_connection
 from redis.client import Pipeline, Redis # 引入 Redis 以便类型提示
 
-from stock_models.stock_realtime import StockRealtimeData
+
 
 logger = logging.getLogger("dao")
 
@@ -640,10 +640,9 @@ def save_stock_realtime(stock_code: str, data: dict):
 
 # 2. 获取股票实时数据并转换为模型实例
 def get_stock_realtime(stock_code: str) -> Optional['StockRealtimeData']:
-    from .models import StockRealTimeData  # 导入模型
-    
+    from stock_models.stock_realtime import StockRealtimeData
     key = cache_manager.generate_key('rt', 'stock', stock_code, 'quote')
-    return cache_manager.get_model(key, StockRealTimeData)
+    return cache_manager.get_model(key, StockRealtimeData)
 
 # 3. 保存指数K线数据
 def save_index_kline(index_code: str, period: str, date: str, data: dict):

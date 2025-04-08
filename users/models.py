@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 # from django.contrib.auth.models import User
 from django.utils.translation import gettext_lazy as _
 from django.db.models.signals import post_save
@@ -70,6 +71,12 @@ class FavoriteStock(models.Model):
     """
     自选股模型，用于存储用户的自选股
     """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, # <--- 使用字符串引用
+        on_delete=models.CASCADE,
+        related_name='favorite_stocks',
+        verbose_name='用户'
+    )
     # 关联用户
     user = models.ForeignKey('User', on_delete=models.CASCADE, verbose_name=_('用户'), related_name='favorite_stocks')
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="favorite_stocks", verbose_name=_("股票"))
