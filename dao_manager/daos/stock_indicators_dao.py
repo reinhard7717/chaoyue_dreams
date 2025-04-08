@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
 from datetime import datetime, date
 from asgiref.sync import sync_to_async
-from core.constants import TIME_TEADE_TIME_LEVELS
+from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE
 from stock_models.indicator.boll import StockBOLLIndicator
 from stock_models.indicator.kdj import StockKDJIndicator
 from stock_models.indicator.ma import StockMAIndicator
@@ -237,7 +237,7 @@ class StockIndicatorsDAO(BaseDAO):
             return {'创建': 0, '更新': 0, '跳过': 0}
         data_dicts = []
         try:
-            for time_level in TIME_TEADE_TIME_LEVELS:
+            for time_level in TIME_TEADE_TIME_LEVELS_LITE:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                 if data_dict.get('trade_time') is None:
