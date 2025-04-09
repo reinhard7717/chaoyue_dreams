@@ -182,6 +182,40 @@ def process_single_stock_history_trade(self, stock_code: str):
     return task_result
 
 
+# --- 内部异步逻辑：计算单支股票 ---
+async def _calculate_stock_indicators_async(stock_code: str):
+    """实际执行异步计算的内部函数"""
+    service = IndicatorService()
+    logger.info(f"开始异步计算股票 {stock_code} 的指标...")
+    try:
+        tasks = [
+            service.calculate_and_save_all_indicators(stock_code, time_level)
+            for time_level in TIME_TEADE_TIME_LEVELS
+        ]
+        # 注意：确保 service.calculate_and_save_all_indicators 也是 async def
+        await asyncio.gather(*tasks)
+        logger.info(f"成功完成股票 {stock_code} 的异步指标计算。")
+        return f"Success: {stock_code}"
+    except Exception as e:
+        logger.error(f"异步计算股票 {stock_code} 指标时出错: {e}", exc_info=True)
+        # 返回错误信息，而不是重新抛出异常，以便 Celery 可以记录结果
+        return f"Failed: {stock_code} - {str(e)}"
+
+# --- 工作任务（同步包装器）：处理单支股票 ---
+@celery_app.task(bind=True, name='tasks.indicators.calculate_stock_indicators_for_single_stock')
+def calculate_stock_indicators_for_single_stock(self, stock_code: str):
+    """
+    Celery 工作任务（同步）：计算并保存指定股票在所有时间级别上的指标。
+    它调用内部的异步函数来完成工作。
+    """
+    logger.info(f"Celery 任务开始处理股票 {stock_code}...")
+    # 使用 asyncio.run() 在同步任务中运行异步代码
+    result = asyncio.run(_calculate_stock_indicators_async(stock_code))
+    logger.info(f"Celery 任务完成处理股票 {stock_code}，结果: {result}")
+    # 返回异步函数的结果，这个结果应该是可序列化的（字符串）
+    return result
+
+
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_indicators')
 def process_single_stock_indicators(self, stock_code: str):
     """

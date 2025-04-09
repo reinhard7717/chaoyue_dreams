@@ -18,8 +18,8 @@ class Command(BaseCommand):
             type=str,
             choices=[ # 使用 choices 明确允许的类型
                 'history_time_trade', 'latest_time_trade','latest_time_trade_trading_hours',
-                'latest_kdj', 'history_kdj',
-                'latest_macd', 'history_macd', 'calculate_all_indicators'
+                'latest_kdj', 'history_kdj', 'latest_macd', 'history_macd', 
+                'calculate_all_indicators'
             ],
             help='要分发的任务类型 (例如: history_time_trade, latest_kdj)'
         )
@@ -285,7 +285,7 @@ class Command(BaseCommand):
         # 按需导入对应的 Celery 任务
         try:
             from dao_manager.daos.stock_basic_dao import StockBasicDAO
-            from tasks.stock_indicator_tasks import calculate_stock_indicators_for_single_stock
+            from tasks.stock_indicator_tasks import calculate_stock_indicators_for_single_stock 
         except ImportError:
             logger.error("无法导入 Celery 任务: tasks.indicators.calculate_stock_indicators_for_single_stock", exc_info=True)
             self.stderr.write(self.style.ERROR("内部错误：无法找到全指标计算任务函数"))
