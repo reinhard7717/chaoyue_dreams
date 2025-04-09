@@ -1,45 +1,96 @@
 # your_app/management/commands/dispatch_history_tasks.py
 import asyncio
 import logging
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from celery import group
 
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
-    help = '分发任务以并发保存所有股票的历史分时/K线数据'
+    # 更新 help 信息以反映其通用性
+    help = '根据指定类型分发处理股票数据的 Celery 任务 (历史/最新 K线/KDJ/MACD)'
+
+    def add_arguments(self, parser):
+        """定义命令行参数"""
+        # 1. data_type 参数 (必需)
+        parser.add_argument(
+            'data_type',
+            type=str,
+            choices=[ # 使用 choices 明确允许的类型
+                'history_time_trade', 'latest_time_trade',
+                'latest_kdj', 'history_kdj',
+                'latest_macd', 'history_macd'
+            ],
+            help='要分发的任务类型 (例如: history_time_trade, latest_kdj)'
+        )
+        # 2. stock_codes 参数 (可选, 允许多个)
+        parser.add_argument(
+            '--stock_codes', # 使用 '--' 使其成为可选命名参数
+            nargs='*',       # '*' 表示接受零个或多个值，存储在列表中
+            type=str,
+            help='(可选) 指定要处理的一个或多个股票代码 (空格分隔)。如果省略，则由具体分发逻辑决定 (当前默认处理所有股票)。'
+        )
 
     def handle(self, *args, **options):
-        """命令入口点"""
+        """命令执行入口点"""
         data_type = options['data_type']
+        # stock_codes 会是一个列表 (如果提供了参数) 或 None (如果未提供)
         stock_codes = options['stock_codes']
-        # stock_codes = stock_codes_str.split(',') if stock_codes_str else None
 
-        self.stdout.write(self.style.SUCCESS(f'开始获取数据，类型: {data_type}'))
-        
+        self.stdout.write(self.style.SUCCESS(f'准备分发任务，类型: {data_type}'))
+        if stock_codes:
+            self.stdout.write(f"指定处理股票: {', '.join(stock_codes)}")
+        else:
+            # 根据当前 dispatch_xxx 的实现，这里实际上会处理所有股票
+            self.stdout.write("未指定特定股票 (当前将由分发逻辑处理所有股票)")
+
         try:
-            # self.stdout.write(f'handle - stock_codes: {stock_codes}, stock_codes_type: {type(stock_codes)}')
-            asyncio.run(self.fetch_data(data_type, stock_codes))
-            self.stdout.write(self.style.SUCCESS('数据获取完成'))
+            # 直接调用同步的分发路由方法
+            self.dispatch_tasks(data_type, stock_codes)
+            self.stdout.write(self.style.SUCCESS(f'类型为 "{data_type}" 的任务已分发'))
+        except ValueError as ve: # 捕获无效 data_type 的错误
+             self.stderr.write(self.style.ERROR(f"错误: {ve}"))
+             logger.warning(f"无效的数据类型请求: {data_type}")
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'数据获取失败: {str(e)}'))
-            logger.exception(f'数据获取失败: {str(e)}')
+            # 记录异常并报告错误
+            logger.exception(f'分发类型为 "{data_type}" 的任务时发生意外错误')
+            # 使用 CommandError 可以更好地集成 Django 的错误报告机制
+            raise CommandError(f'任务分发失败: {str(e)}')
+            # 或者保持原有风格:
+            # self.stderr.write(self.style.ERROR(f'任务分发失败: {str(e)}'))
 
-    async def dispatch_tasks(self, data_type, stock_codes=None):
-        """根据数据类型分发任务"""
+
+    # --- dispatch_tasks 修改为同步方法 ---
+    def dispatch_tasks(self, data_type, stock_codes=None):
+        """
+        根据 data_type 调用相应的具体分发方法。
+        注意：目前 stock_codes 参数会被传递，但下游的 dispatch_xxx 方法尚未修改以使用它。
+        """
+        logger.info(f"路由任务分发请求: data_type='{data_type}', stock_codes={stock_codes}")
+
+        # !!! 重要提醒 !!!
+        # 下面的调用会将 stock_codes 传递给 dispatch_xxx 方法。
+        # 但由于这些方法目前没有使用 stock_codes 参数来过滤股票，
+        # 它们仍然会处理所有股票。你需要后续修改 dispatch_xxx 方法
+        # 来实现基于 stock_codes 的过滤。
+
         if data_type == 'history_time_trade':
-            await self.dispatch_history_time_trade()
+            # 调用原始方法，传递参数 (即使它现在可能不用)
+            self.dispatch_history_time_trade(stock_codes=stock_codes) # 显式传递
         elif data_type == 'latest_time_trade':
-            await self.dispatch_latest_time_trade()
+            self.dispatch_latest_time_trade(stock_codes=stock_codes)
         elif data_type == 'latest_kdj':
-            await self.dispatch_latest_kdj()
+            self.dispatch_latest_kdj(stock_codes=stock_codes)
         elif data_type == 'history_kdj':
-            await self.dispatch_history_kdj()
+            self.dispatch_history_kdj(stock_codes=stock_codes)
         elif data_type == 'latest_macd':
-            await self.dispatch_latest_macd()
+            self.dispatch_latest_macd(stock_codes=stock_codes)
         elif data_type == 'history_macd':
-            await self.dispatch_history_macd()
-
+            self.dispatch_history_macd(stock_codes=stock_codes)
+        else:
+            # 如果 choices 正常工作，这里理论上不会到达，但作为保险
+            logger.error(f"接收到未知的 data_type: {data_type}")
+            raise ValueError(f"不支持的数据类型: {data_type}")
 
     def dispatch_history_time_trade(self, *args, **options):
         self.stdout.write("开始分发历史数据保存任务...")
