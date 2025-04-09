@@ -639,7 +639,7 @@ class Command(BaseCommand):
         stock_indicators_dao = StockIndicatorsDAO()
         stock_basic_dao = StockBasicDAO()
         cache_limit = 233 * 3
-        TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']
+        TIME_LEVELS = ['5','15','30','60','Day','Week','Month','Year']
 
         stocks = await stock_basic_dao.get_stock_list()
         logger.info(f"重新缓存{len(stocks)}只股票历史分时成交数据")
