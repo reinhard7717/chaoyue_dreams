@@ -51,6 +51,48 @@ def process_single_stock_latest_trade(self, stock_code: str):
 
     return task_result # 返回单个任务的结果
 
+# --- 新增：处理单个股票的子任务 ---
+@celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade_trading_hours')
+def process_single_stock_latest_trade_trading_hours(self, stock_code: str):
+    """
+    获取并保存单个股票的最新实时数据 (子任务)
+    """
+    # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
+    # 导入 DAO，注意路径根据你的项目结构调整
+    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
+
+    stock_indicators_dao = None # 初始化为 None
+    task_result = f"处理股票 {stock_code} 数据失败" # 默认失败结果
+
+    try:
+        stock_indicators_dao = StockIndicatorsDAO()
+        # 在同步的 Celery 任务中运行异步 DAO 方法
+        asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_trading_hours_by_stock_code(stock_code))
+        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
+        # logger.info(task_result)
+    except Exception as e:
+        logger.error(f"处理股票 {stock_code} 数据时发生错误: {e}", exc_info=True)
+        task_result = f"处理股票 {stock_code} 数据失败: {e}"
+        # 可以选择性地重新抛出异常，让 Celery 知道任务失败
+        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        # raise Ignore() # 或者使用 Ignore() 避免重试（如果设置了重试策略）
+    finally:
+        # 确保 DAO 被关闭，即使它在 try 块中未能成功初始化
+        if stock_indicators_dao:
+            try:
+                # DAO 的 close 方法也可能是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_indicators_dao, 'close', None)):
+                     asyncio.run(stock_indicators_dao.close())
+                elif callable(getattr(stock_indicators_dao, 'close', None)):
+                     stock_indicators_dao.close()
+                logger.debug(f"DAO for {stock_code} closed.")
+            except Exception as close_err:
+                logger.error(f"关闭股票 {stock_code} 的 DAO 时出错: {close_err}", exc_info=True)
+        # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
+
+    return task_result # 返回单个任务的结果
+
+
 # --- 新增：处理单个股票单个时间级别历史数据的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_history_trade')
 def process_single_stock_history_trade(self, stock_code: str):
