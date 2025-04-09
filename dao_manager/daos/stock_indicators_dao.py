@@ -439,7 +439,7 @@ class StockIndicatorsDAO(BaseDAO):
                         data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                         data_dicts.append(data_dict)
                     except Exception as e:
-                        logger.error(f"设置{stock.stock_code}股票{time_level}级别历史分时成交数据出错 - 设置: {str(e)}")
+                        logger.error(f"设置{stock.stock_code}股票{time_level}级别历史分时成交数据出错 - 设置: {str(e)}, api_data: {api_data}, type: {type(api_data)}")
                         return {'创建': 0, '更新': 0, '跳过': 0}
                     try:
                         # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
