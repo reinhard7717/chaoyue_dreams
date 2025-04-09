@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,6 +28,7 @@ INSTALLED_APPS = [
     'stock_models',
     'utils',
     'core',
+    'strategies',
     'users.apps.UsersConfig',  # 添加用户应用
     'tasks',  # 添加任务应用
     'django_celery_results',  # 添加Celery结果存储应用
@@ -595,20 +597,11 @@ CELERY_ENABLE_UTC = False  # 禁用UTC
 # Celery Beat配置
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器
 CELERY_BEAT_SCHEDULE = {
-    'update_market_data': {  # 更新市场数据
-        'task': 'tasks.auto_tasks.update_market_data',
-        'schedule': 60.0,  # 每60秒执行一次
-        'args': (),
-    },
-    'update_stock_data': {  # 更新股票数据
-        'task': 'tasks.auto_tasks.update_stock_data',
-        'schedule': 180.0,  # 每3分钟执行一次
-        'args': (),
-    },
-    'calculate_strategy': {  # 计算策略信号
-        'task': 'tasks.auto_tasks.calculate_strategy',
-        'schedule': 300.0,  # 每5分钟执行一次
-        'args': (),
+    ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
+    '每 60 秒运行一次所有自选股的策略执行引擎': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.stock_indicators.get_trade_and_calculate_and_strategy', # 任务函数名
+        'schedule': crontab(minute='*/1', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
     },
 }
 

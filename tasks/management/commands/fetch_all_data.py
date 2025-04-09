@@ -636,11 +636,12 @@ class Command(BaseCommand):
     async def fetch_stock_trade_data_from_db(self):
         """从数据库获取股票交易数据"""
         self.stdout.write('从数据库获取股票交易数据...')
+        from utils.cash_key import StockCashKey
         stock_indicators_dao = StockIndicatorsDAO()
         stock_basic_dao = StockBasicDAO()
         cache_limit = 233 * 3
         TIME_LEVELS = ['5','15','30','60','Day','Week','Month','Year']
-
+        # TIME_LEVELS = ['Day']
         stocks = await stock_basic_dao.get_stock_list()
         logger.info(f"重新缓存{len(stocks)}只股票历史分时成交数据")
         for stock in stocks:
@@ -653,12 +654,16 @@ class Command(BaseCommand):
                     thread_sensitive=True # 对于 ORM 操作，建议设置为 True
                 )
                 datas = await get_data_sync()
-                logger.info(f"重新缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(datas)}")
+                cache_key = StockCashKey()
+                cache_key_str = cache_key.history_time_trade(stock.stock_code, time_level)
+                logger.info(f"重新缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(datas)}, cache_key_str: {cache_key_str}, data_trade_time: {datas[0].trade_time}")
                 if datas:
                     for item in datas:
                        cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
                     #    logger.info(f"缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, cache_data: {cache_data}")
                        await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
+                       # --- 单行调用修剪方法 ---
+                       await stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
             
     async def calculate_stock_indicators(self):
         """计算股票指标数据"""

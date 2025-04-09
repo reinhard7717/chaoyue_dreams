@@ -100,12 +100,10 @@ class CacheSet():
     async def _history_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         from dao_manager.base_dao import BaseDAO
         from utils.cache_manager import CustomJSONEncoder  # 直接导入自定义编码器
-        
         base_dao = BaseDAO()
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
-            
         # 1. 提取时间并转换为时间戳 (分数)
         trade_time_str = data_to_cache.get('trade_time')
         if not trade_time_str:
@@ -117,27 +115,21 @@ class CacheSet():
         except (ValueError, TypeError) as e:
             logger.error(f"缓存失败: 无法将 'trade_time' ({trade_time_str}) 转换为时间戳: {e}")
             return False
-        
         # 2. *** 准备要序列化的数据字典 (移除复杂对象) ***
         data_to_serialize = data_to_cache.copy()
         if 'stock' in data_to_serialize:
             stock_obj = data_to_serialize.pop('stock', None)
             if stock_obj and hasattr(stock_obj, 'stock_code'):
                 data_to_serialize['stock_code'] = stock_obj.stock_code
-
         # 3. *** 在这里进行序列化，得到字节串 member ***
         try:
             # 使用定义的独立函数作为 default hook
-            member_bytes = msgpack.packb(data_to_serialize,
-                                         use_bin_type=True,
-                                         default=_msgpack_default_packer) # <--- 修改这里，去掉 self.
+            member_bytes = msgpack.packb(data_to_serialize, use_bin_type=True, default=_msgpack_default_packer) # <--- 修改这里，去掉 self.
         except (msgpack.PackException, TypeError) as e:
             logger.error(f"缓存失败: 无法将数据序列化为 msgpack bytes: {e}, 数据: {data_to_serialize}", exc_info=True)
             return False
-
         # 4. *** 构建正确的 mapping，键是序列化后的字节串 ***
         mapping_to_send = {member_bytes: score} # <--- 键是 bytes，值是 float，这在 Python 中是合法的
-        
         # 生成缓存超时时间
         cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
         # logger.info(f"_history_data.准备将时间序列数据点添加到缓存 (ZSET), key: {cache_key}, score: {score}, timeout: {cache_timeout}s")
