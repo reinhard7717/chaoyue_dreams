@@ -89,6 +89,8 @@ class Command(BaseCommand):
             self.dispatch_latest_macd(stock_codes=stock_codes)
         elif data_type == 'history_macd':
             self.dispatch_history_macd(stock_codes=stock_codes)
+        elif data_type == 'calculate_all_indicators':
+            self.dispatch_calculate_all_indicators(stock_codes=stock_codes)
         else:
             # 如果 choices 正常工作，这里理论上不会到达，但作为保险
             logger.error(f"接收到未知的 data_type: {data_type}")
