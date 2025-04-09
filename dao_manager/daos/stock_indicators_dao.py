@@ -422,79 +422,65 @@ class StockIndicatorsDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             return {'创建': 0, '更新': 0, '跳过': 0}
-        data_dicts = []
-        total_result = {'创建': 0, '更新': 0, '跳过': 0}
-        for time_level in TIME_TEADE_TIME_LEVELS_LITE:
-            try:
+        try:
+            data_dicts = []
+            total_result = {'创建': 0, '更新': 0, '跳过': 0}
+            for time_level in TIME_TEADE_TIME_LEVELS_LITE:
                 api_datas = await self.api.get_history_trade(stock_code, time_level)
-            except Exception as e:
-                logger.error(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据出错 - 获取: {str(e)}")
-                return {'创建': 0, '更新': 0, '跳过': 0}
-            if not api_datas:
-                logger.warning(f"API未返回{stock.stock_code}股票{time_level}级别历史分时成交数据")
-            else:
-                logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
-                for index, api_data in enumerate(api_datas):
-                    try:
-                        data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                        data_dicts.append(data_dict)
-                    except Exception as e:
-                        logger.error(f"设置{stock.stock_code}股票{time_level}级别历史分时成交数据出错 - 设置: {str(e)}, api_data: {api_data}, type: {type(api_data)}")
-                        return {'创建': 0, '更新': 0, '跳过': 0}
-                    try:
-                        # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
-                        if index < self.cache_limit:
-                            await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
-                    except Exception as e:
-                        logger.error(f"缓存{stock.stock_code}股票{time_level}级别历史分时成交数据出错 - 缓存: {str(e)}")
-                        return {'创建': 0, '更新': 0, '跳过': 0}
-            # 当数据量超过10万时，保存一次
-            if len(data_dicts) >= 20000:
-                logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
-                batch_result = await self._save_all_to_db_native_upsert(
+                if not api_datas:
+                    logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
+                else:
+                    logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
+                    for index, api_data in enumerate(api_datas):
+                        if isinstance(api_data, dict):
+                            data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                            data_dicts.append(data_dict)
+                            # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
+                            if index < self.cache_limit:
+                                await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
+                # 当数据量超过10万时，保存一次
+                if len(data_dicts) >= 20000:
+                    logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
+                    batch_result = await self._save_all_to_db_native_upsert(
+                        model_class=StockTimeTrade,
+                        data_list=data_dicts,
+                        unique_fields=['stock', 'time_level', 'trade_time']
+                    )
+                    logger.info(f"批次数据保存完成，结果: {batch_result}")
+                    # 累加结果
+                    for key in total_result:
+                        total_result[key] += batch_result.get(key, 0)
+                    # 清空数据列表，准备下一批
+                    data_dicts = []
+                # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
+            
+            # 保存剩余数据
+            if data_dicts:
+                final_result = await self._save_all_to_db_native_upsert(
                     model_class=StockTimeTrade,
                     data_list=data_dicts,
                     unique_fields=['stock', 'time_level', 'trade_time']
                 )
-                logger.info(f"批次数据保存完成，结果: {batch_result}")
-                # 累加结果
+                logger.info(f"剩余数据保存完成，结果: {final_result}")
+                
+                # 累加最终结果
                 for key in total_result:
-                    total_result[key] += batch_result.get(key, 0)
-                # 清空数据列表，准备下一批
-                data_dicts = []
-            # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-        # 保存剩余数据
-        if data_dicts:
-            final_result = await self._save_all_to_db_native_upsert(
-                model_class=StockTimeTrade,
-                data_list=data_dicts,
-                unique_fields=['stock', 'time_level', 'trade_time']
-            )
-            logger.info(f"剩余数据保存完成，结果: {final_result}")
-            
-            # 累加最终结果
-            for key in total_result:
-                total_result[key] += final_result.get(key, 0)
-        try:
+                    total_result[key] += final_result.get(key, 0)
             # --- 函数末尾执行最终修剪 ---
             for time_level in TIME_TEADE_TIME_LEVELS:
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
-            # --- 修剪调用结束 ---
-        except Exception as e:
-            logger.error(f"保存{stock.stock_code}股票历史分时成交数据出错 - 修剪: {str(e)}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
-        # --- 最终修剪结束 ---
-        # logger.info(f"保存完成 - {stock} 所有历史分时成交数据，总结果: {total_result}")
-        # return total_result
-        # try:
+                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
             
-        # except Exception as e:
-        #     logger.error(f"保存出错 - {stock}股票分时成交数据: {str(e)}")
-        #     logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-        #     return {'创建': 0, '更新': 0, '跳过': 0}
+            # --- 最终修剪结束 ---
+            # logger.info(f"保存完成 - {stock} 所有历史分时成交数据，总结果: {total_result}")
+            return total_result
+        except Exception as e:
+            logger.error(f"保存出错 - {stock}股票分时成交数据: {str(e)}")
+            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def fetch_and_save_all_history_time_trade(self) -> Dict:
         """
