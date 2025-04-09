@@ -19,7 +19,7 @@ class Command(BaseCommand):
             choices=[ # 使用 choices 明确允许的类型
                 'history_time_trade', 'latest_time_trade','latest_time_trade_trading_hours',
                 'latest_kdj', 'history_kdj',
-                'latest_macd', 'history_macd'
+                'latest_macd', 'history_macd', 'calculate_all_indicators'
             ],
             help='要分发的任务类型 (例如: history_time_trade, latest_kdj)'
         )
