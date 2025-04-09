@@ -427,11 +427,12 @@ class StockIndicatorsDAO(BaseDAO):
             total_result = {'创建': 0, '更新': 0, '跳过': 0}
             for time_level in TIME_TEADE_TIME_LEVELS_LITE:
                 api_datas = await self.api.get_history_trade(stock_code, time_level)
+                if not api_datas:
+                    logger.warning(f"API未返回{stock.stock_code}股票{time_level}级别历史分时成交数据")
+                    return {'创建': 0, '更新': 0, '跳过': 0}
                 logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
                 for index, api_data in enumerate(api_datas):
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                    if data_dict.get('trade_time') is None:
-                        return {'创建': 0, '更新': 0, '跳过': 0}
                     data_dicts.append(data_dict)
                     # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
                     if index < self.cache_limit:
@@ -476,7 +477,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # --- 修剪调用结束 ---
             
             # --- 最终修剪结束 ---
-            logger.info(f"保存完成 - {stock} 所有历史分时成交数据，总结果: {total_result}")
+            # logger.info(f"保存完成 - {stock} 所有历史分时成交数据，总结果: {total_result}")
             return total_result
         except Exception as e:
             logger.error(f"保存出错 - {stock}股票分时成交数据: {str(e)}")

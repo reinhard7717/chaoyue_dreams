@@ -8,6 +8,7 @@ from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 
 from celery import Celery, group # 导入 group
 from celery.utils.log import get_task_logger
 from core.constants import TIME_TEADE_TIME_LEVELS
+
 logger = logging.getLogger(__name__)
 
 # --- 新增：处理单个股票的子任务 ---
@@ -320,6 +321,53 @@ def process_single_stock_history_macd(self, stock_code: str):
             except Exception as close_err:
                 logger.error(f"关闭 StockIndicatorsDAO for {stock_code} 时出错: {close_err}", exc_info=True)
         logger.info(f"子任务结束: process_single_stock_history_macd for {stock_code}")
+    return task_result
+
+
+@celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_indicators')
+def process_single_stock_indicators(self, stock_code: str):
+    """
+    计算并保存单个股票的最新MACD数据 (子任务)
+
+    :param self: Celery 任务实例
+    :param stock_code: 要处理的股票代码
+    :return: 任务执行结果描述字符串
+    """
+    logger.info(f"子任务启动: process_single_stock_indicators for {stock_code}")
+    stock_indicators_dao = None # 初始化 DAO 实例变量
+    task_result = f"计算技术指标失败 for {stock_code}" # 默认失败结果
+    from services.indicator_services import IndicatorService
+    try:
+        # 在任务内部实例化 DAO
+        service = IndicatorService()
+        logger.debug(f"[{stock_code}] StockIndicatorsDAO initialized.")
+        # 使用 asyncio.run 在同步任务中执行异步 DAO 方法
+        asyncio.run(service.calculate_and_save_all_indicators(stock_code))
+        # ---------------------------------------------
+        task_result = f"成功计算技术指标 for {stock_code}"
+        logger.info(task_result)
+    except Exception as e:
+        # 记录包括堆栈跟踪的详细错误信息
+        logger.error(f"计算技术指标时发生错误 for {stock_code}: {e}", exc_info=True)
+        task_result = f"计算技术指标失败 for {stock_code}: {e}"
+        # 根据需要，可以更新任务状态为失败
+        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        # raise Ignore() # 如果不希望 Celery 将此视为错误重试或计入失败总数
+    finally:
+        # --- 确保关闭 DAO 连接 ---
+        if stock_indicators_dao:
+            try:
+                # 检查 close 方法是否是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_indicators_dao, 'close', None)):
+                     asyncio.run(stock_indicators_dao.close())
+                     logger.debug(f"[{stock_code}] StockIndicatorsDAO (async) closed.")
+                # 否则，假设它是同步的
+                elif callable(getattr(stock_indicators_dao, 'close', None)):
+                     stock_indicators_dao.close()
+                     logger.debug(f"[{stock_code}] StockIndicatorsDAO (sync) closed.")
+            except Exception as close_err:
+                logger.error(f"关闭 StockIndicatorsDAO for {stock_code} 时出错: {close_err}", exc_info=True)
+        logger.info(f"子任务结束: process_single_stock_latest_macd for {stock_code}")
     return task_result
 
 
