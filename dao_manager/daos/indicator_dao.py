@@ -173,36 +173,36 @@ class IndicatorDAO(BaseDAO):
             # (可选) 将从数据库获取的数据存入缓存
             # 注意：这里需要决定是缓存模型实例还是字典。
             # 如果要缓存字典以匹配读取逻辑，需要在这里进行转换。
-            try:
-                # 转换为字典列表以便缓存
-                data_to_cache = [
-                    {
-                        'stock': stock.stock_code, # 存代码而非实例
-                        'time_level': trade.time_level,
-                        # 将 datetime 转换为 ISO 格式字符串以便 JSON 序列化
-                        'trade_time': trade.trade_time.isoformat() if trade.trade_time else None,
-                        # 将 Decimal 转换为字符串
-                        'open_price': str(trade.open_price) if trade.open_price is not None else None,
-                        'high_price': str(trade.high_price) if trade.high_price is not None else None,
-                        'low_price': str(trade.low_price) if trade.low_price is not None else None,
-                        'close_price': str(trade.close_price) if trade.close_price is not None else None,
-                        'volume': trade.volume, # int 可以直接序列化
-                        'turnover': str(trade.turnover) if trade.turnover is not None else None,
-                        'amplitude': str(trade.amplitude) if trade.amplitude is not None else None,
-                        'turnover_rate': str(trade.turnover_rate) if trade.turnover_rate is not None else None,
-                        'price_change_percent': str(trade.price_change_percent) if trade.price_change_percent is not None else None,
-                        'price_change_amount': str(trade.price_change_amount) if trade.price_change_amount is not None else None,
-                    }
-                    # 注意：缓存的数据应该是升序还是降序？取决于你的缓存策略
-                    # 如果 history_time_trade_by_limit 期望缓存的是最新的 N 条（降序）
-                    # 那么应该在 data_list.reverse() 之前转换并缓存原始的 data_list
-                    # 这里假设缓存升序数据（与函数最终返回一致）
-                    for trade in data_list # 使用已反转（升序）的列表
-                ]
-                await self.cache_set.history_time_trade_by_limit(stock_code, time_level_str, limit, data_to_cache)
-                logger.debug(f"已将从数据库获取的数据（字典格式）存入缓存 for {stock_code} {time_level_str}")
-            except Exception as e_cache_set:
-                 logger.error(f"将数据存入缓存失败 for {stock_code} {time_level_str}: {e_cache_set}", exc_info=True)
+            # try:
+            #     # 转换为字典列表以便缓存
+            #     data_to_cache = [
+            #         {
+            #             'stock': stock.stock_code, # 存代码而非实例
+            #             'time_level': trade.time_level,
+            #             # 将 datetime 转换为 ISO 格式字符串以便 JSON 序列化
+            #             'trade_time': trade.trade_time.isoformat() if trade.trade_time else None,
+            #             # 将 Decimal 转换为字符串
+            #             'open_price': str(trade.open_price) if trade.open_price is not None else None,
+            #             'high_price': str(trade.high_price) if trade.high_price is not None else None,
+            #             'low_price': str(trade.low_price) if trade.low_price is not None else None,
+            #             'close_price': str(trade.close_price) if trade.close_price is not None else None,
+            #             'volume': trade.volume, # int 可以直接序列化
+            #             'turnover': str(trade.turnover) if trade.turnover is not None else None,
+            #             'amplitude': str(trade.amplitude) if trade.amplitude is not None else None,
+            #             'turnover_rate': str(trade.turnover_rate) if trade.turnover_rate is not None else None,
+            #             'price_change_percent': str(trade.price_change_percent) if trade.price_change_percent is not None else None,
+            #             'price_change_amount': str(trade.price_change_amount) if trade.price_change_amount is not None else None,
+            #         }
+            #         # 注意：缓存的数据应该是升序还是降序？取决于你的缓存策略
+            #         # 如果 history_time_trade_by_limit 期望缓存的是最新的 N 条（降序）
+            #         # 那么应该在 data_list.reverse() 之前转换并缓存原始的 data_list
+            #         # 这里假设缓存升序数据（与函数最终返回一致）
+            #         for trade in data_list # 使用已反转（升序）的列表
+            #     ]
+            #     await self.cache_set.history_time_trade_by_limit(stock_code, time_level_str, limit, data_to_cache)
+            #     logger.debug(f"已将从数据库获取的数据（字典格式）存入缓存 for {stock_code} {time_level_str}")
+            # except Exception as e_cache_set:
+            #      logger.error(f"将数据存入缓存失败 for {stock_code} {time_level_str}: {e_cache_set}", exc_info=True)
 
 
             return data_list # 返回模型实例列表

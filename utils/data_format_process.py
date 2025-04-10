@@ -1,4 +1,4 @@
-
+from django.utils import timezone
 from typing import Dict, List, Optional
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexInfo
@@ -143,11 +143,16 @@ class StockInfoFormatProcess(BaseDAO):
 class StockIndicatorsDataFormatProcess(BaseDAO):
         # ================= 数据 =================
     def set_time_trade_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
+        
         if isinstance(api_data, StockTimeTrade):
+            # 确保时区转换正确
+            trade_time = api_data.trade_time
+            if trade_time.tzinfo is not None:
+                trade_time = trade_time.astimezone(timezone.get_current_timezone())
             data_dict = {
                 'stock': stock,
                 'time_level': time_level,
-                'trade_time': api_data.trade_time,  # 交易时间
+                'trade_time': trade_time,  # 交易时间
                 'open_price': api_data.open_price,  # 开盘价
                 'high_price': api_data.high_price,  # 最高价
                 'low_price': api_data.low_price,  # 最低价

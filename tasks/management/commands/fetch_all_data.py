@@ -656,7 +656,7 @@ class Command(BaseCommand):
                 datas = await get_data_sync()
                 cache_key = StockCashKey()
                 cache_key_str = cache_key.history_time_trade(stock.stock_code, time_level)
-                logger.info(f"重新缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(datas)}, cache_key_str: {cache_key_str}, data_trade_time: {datas[0].trade_time}")
+                logger.info(f"重新缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(datas)}, cache_key_str: {cache_key_str}, data_trade_time: {datas[0].trade_time}, timezone: {datas[0].trade_time.tzinfo}")
                 if datas:
                     for item in datas:
                        cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
