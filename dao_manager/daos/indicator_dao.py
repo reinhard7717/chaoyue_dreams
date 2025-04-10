@@ -177,7 +177,7 @@ class IndicatorDAO(BaseDAO):
                 # 转换为字典列表以便缓存
                 data_to_cache = [
                     {
-                        'stock': trade.stock.stock_code, # 存代码而非实例
+                        'stock': stock.stock_code, # 存代码而非实例
                         'time_level': trade.time_level,
                         # 将 datetime 转换为 ISO 格式字符串以便 JSON 序列化
                         'trade_time': trade.trade_time.isoformat() if trade.trade_time else None,
