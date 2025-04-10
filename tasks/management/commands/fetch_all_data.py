@@ -673,7 +673,7 @@ class Command(BaseCommand):
         # all_stocks = await stock_basic_dao.get_stock_list()
         # for stock in all_stocks:
         #     await indicator_services.calculate_and_save_all_indicators(stock.stock_code, 'Day')
-        await indicator_services.calculate_and_save_all_indicators('000001', 'Day')
+        await indicator_services.calculate_and_save_all_indicators('000001', '5')
         self.stdout.write(self.style.SUCCESS('完成股票指标数据计算'))
             
         

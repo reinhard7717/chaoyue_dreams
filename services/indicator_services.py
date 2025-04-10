@@ -293,36 +293,39 @@ class IndicatorService:
         if ohlc is None or ohlc.empty: return None
         try:
             results = {}
-            # KDJ(N, M1, M2) - N 是主周期, M1 是 K 的 SMA 周期, M2 是 D 的 SMA 周期
-            # pandas-ta kdj 参数: length=N, signal=M1, smooth_k=M2 (需要确认 smooth_k 是否对应 M2)
-            # 查阅 pandas-ta 文档，kdj(length=9, signal=3, smooth_k=3) 对应 KDJ(9,3,3)
-            # length -> N (主周期), signal -> M1 (K线平滑), smooth_k -> M2 (D线平滑)
             m1 = fast_k_period
             m2 = slow_k_period
-
             for period in FIB_PERIODS: # period 对应 KDJ 中的 N
-                # KDJ 计算需要 N + M1 + M2 左右的数据
                 if len(ohlc) >= period + m1 + m2:
                     try:
-                        # pandas-ta kdj 返回 DataFrame，列名 K_period_m1_m2, D_period_m1_m2, J_period_m1_m2
+                        # pandas-ta kdj 返回 DataFrame
                         kdj_df = ohlc.ta.kdj(length=period, signal=m1, smooth_k=m2)
 
                         if kdj_df is not None and not kdj_df.empty:
-                            k_col = f'K_{period}_{m1}_{m2}'
-                            d_col = f'D_{period}_{m1}_{m2}'
-                            j_col = f'J_{period}_{m1}_{m2}'
-
-                            if k_col in kdj_df.columns: results[f'K_{period}'] = kdj_df[k_col] # 重命名 key
-                            if d_col in kdj_df.columns: results[f'D_{period}'] = kdj_df[d_col] # 重命名 key
-                            if j_col in kdj_df.columns: results[f'J_{period}'] = kdj_df[j_col] # 重命名 key
+                            # 从日志可知列名格式为: K_period_3, D_period_3, J_period_3
+                            k_col = f'K_{period}_{m1}'
+                            d_col = f'D_{period}_{m1}'
+                            j_col = f'J_{period}_{m1}'
+                            # 检查列名是否存在
+                            if k_col in kdj_df.columns:
+                                results[f'K_{period}'] = kdj_df[k_col]
+                            if d_col in kdj_df.columns:
+                                results[f'D_{period}'] = kdj_df[d_col]
+                            if j_col in kdj_df.columns:
+                                results[f'J_{period}'] = kdj_df[j_col]
+                            # 如果通过列名未找到，回退到位置索引
+                            if f'K_{period}' not in results and len(kdj_df.columns) >= 1:
+                                results[f'K_{period}'] = kdj_df.iloc[:, 0]
+                            if f'D_{period}' not in results and len(kdj_df.columns) >= 2:
+                                results[f'D_{period}'] = kdj_df.iloc[:, 1]
+                            if f'J_{period}' not in results and len(kdj_df.columns) >= 3:
+                                results[f'J_{period}'] = kdj_df.iloc[:, 2]
                         else:
-                             logger.warning(f"pandas-ta kdj({period}, {m1}, {m2}) 计算失败或返回空")
-
+                            logger.warning(f"pandas-ta kdj({period}, {m1}, {m2}) 计算失败或返回空")
                     except Exception as e_kdj_calc:
                         logger.error(f"内部计算 KDJ({period}, {m1}, {m2}) 时出错: {e_kdj_calc}", exc_info=True)
-                # else:
-                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KDJ({period}, {m1}, {m2})")
-
+                else:
+                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KDJ({period}, {m1}, {m2})")
             final_results = {k: v for k, v in results.items() if v is not None and not v.isnull().all()}
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
         except Exception as e:
@@ -678,41 +681,50 @@ class IndicatorService:
             all_kc_results = {}
             # KC 需要 EMA(period) 和 ATR(atr_length)
             min_len_required = max(FIB_PERIODS) + atr_length # 粗略估计
-
             if len(ohlc) < min_len_required:
-                 logger.warning(f"数据长度 ({len(ohlc)}) 可能不足以计算所有周期的 KC (需要约 {min_len_required})")
-                 # 仍然尝试计算，pandas-ta 会处理
-
+                logger.warning(f"数据长度 ({len(ohlc)}) 可能不足以计算所有周期的 KC (需要约 {min_len_required})")
+                # 仍然尝试计算，pandas-ta 会处理
             for period in FIB_PERIODS:
                 if len(ohlc) >= max(period, atr_length): # 确保当前周期计算所需数据足够
                     try:
-                        # pandas-ta kc 返回 DataFrame，包含 KCL, KCB, KCU 列
-                        # 列名格式: KCL_emaLength_atrLength_scalar, KCB_..., KCU_...
+                        # 计算KC指标
                         kc_df = ohlc.ta.kc(length=period, atr_length=atr_length, scalar=scalar)
-
+                        # 输出实际返回的列名
+                        logger.info(f"KC(length={period}, atr_length={atr_length}) 返回列名: {list(kc_df.columns) if kc_df is not None and not kc_df.empty else 'None'}")
                         if kc_df is not None and not kc_df.empty:
-                            # 构建预期的列名
-                            lower_col = f'KCL_{period}_{atr_length}_{scalar}'
-                            basis_col = f'KCB_{period}_{atr_length}_{scalar}'
-                            upper_col = f'KCU_{period}_{atr_length}_{scalar}'
-
-                            # 提取并重命名
+                            # 根据日志发现的实际列名格式
+                            lower_col = f'KCLe_{period}_{scalar}'
+                            basis_col = f'KCBe_{period}_{scalar}'
+                            upper_col = f'KCUe_{period}_{scalar}'
+                            
+                            # 尝试直接匹配正确的列名
                             if lower_col in kc_df.columns:
                                 all_kc_results[f'KC_LOWER_{period}'] = kc_df[lower_col]
+                                logger.info(f"找到Lower列: {lower_col}")
+                            
                             if basis_col in kc_df.columns:
                                 all_kc_results[f'KC_BASIS_{period}'] = kc_df[basis_col]
+                                logger.info(f"找到Basis列: {basis_col}")
                             if upper_col in kc_df.columns:
                                 all_kc_results[f'KC_UPPER_{period}'] = kc_df[upper_col]
+                                logger.info(f"找到Upper列: {upper_col}")
+                            # 如果没有找到匹配的列名，回退到位置索引
+                            if f'KC_LOWER_{period}' not in all_kc_results and len(kc_df.columns) >= 1:
+                                all_kc_results[f'KC_LOWER_{period}'] = kc_df.iloc[:, 0]
+                                logger.info(f"使用位置索引(0)找到Lower值")  
+                            if f'KC_BASIS_{period}' not in all_kc_results and len(kc_df.columns) >= 2:
+                                all_kc_results[f'KC_BASIS_{period}'] = kc_df.iloc[:, 1]
+                                logger.info(f"使用位置索引(1)找到Basis值")
+                            if f'KC_UPPER_{period}' not in all_kc_results and len(kc_df.columns) >= 3:
+                                all_kc_results[f'KC_UPPER_{period}'] = kc_df.iloc[:, 2]
+                                logger.info(f"使用位置索引(2)找到Upper值")
                         else:
                             logger.warning(f"pandas-ta kc(length={period}, atr_length={atr_length}) 计算失败或返回空")
                     except Exception as e_kc_calc:
-                         logger.error(f"内部计算 KC(length={period}, atr_length={atr_length}) 时出错: {e_kc_calc}", exc_info=True)
-                # else:
-                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KC(length={period}, atr_length={atr_length})")
-
+                        logger.error(f"内部计算 KC(length={period}, atr_length={atr_length}) 时出错: {e_kc_calc}", exc_info=True)
             # 过滤掉值为 None 或完全是 NaN 的 Series
             final_results = {k: v for k, v in all_kc_results.items() if isinstance(v, pd.Series) and not v.isnull().all()}
-
+            logger.info(f"计算 KC_FIB 完成，结果键: {list(final_results.keys())}")
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
         except Exception as e:
             logger.error(f"计算 KC_FIB 失败: {e}", exc_info=True)
@@ -932,14 +944,11 @@ class IndicatorService:
         if ta is None:
             logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
             return
-
         # logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
-
         stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             logger.error(f"无法找到股票信息: {stock_code}，指标计算中止")
             return
-
         # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
         # 考虑 DMI/ADXR 等可能需要更多数据
         needed_bars = max(FIB_PERIODS) + 20 # 保持足够大的缓冲
@@ -948,9 +957,7 @@ class IndicatorService:
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
             logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level}")
             return
-
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-
         # --- 逐个计算并保存 ---
         # 任务列表保持不变，因为函数签名和目的没变
         indicator_tasks = [
@@ -992,7 +999,6 @@ class IndicatorService:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
 
         # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
-
 
     async def prepare_strategy_dataframe(self, stock_code: str, timeframes: List[str],
         strategy_params: Dict[str, Any], # 需要策略参数来获取正确的 RSI/KDJ 周期
