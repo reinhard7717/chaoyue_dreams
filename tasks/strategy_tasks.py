@@ -59,6 +59,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
 
         # 2. 运行策略
         signal_series = strategy.run(merged_data)
+        logger.info(f"[{stock_code}] 策略运行完成，信号序列: {signal_series}")
 
         if signal_series.empty or signal_series.isna().all(): # 检查是否为空或全是 NaN
              logger.info(f"[{stock_code}] 策略运行完成，但未生成有效信号 (可能数据不足或全为 NaN)。")
