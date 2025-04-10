@@ -38,11 +38,41 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
     from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollStrategy
     from utils.cache_set import StrategyCacheSet
     logger.info(f"开始为股票 {stock_code} 运行 MACD+RSI+KDJ+BOLL 策略")
-    service = IndicatorService()
-    strategy = MacdRsiKdjBollStrategy() # 使用默认参数或加载配置
-    cache_setter = StrategyCacheSet()
-    # 定义主操作时间周期 (需要与 prepare_strategy_dataframe 和缓存键生成保持一致)
-    main_timeframe = '15' # 或者从策略参数获取 strategy.params.get('main_timeframe', '15m')
+    try:
+        logger.info(f"[{stock_code}] 准备实例化 IndicatorService...")
+        service = IndicatorService()
+        logger.info(f"[{stock_code}] IndicatorService 实例化完成.")
+
+        logger.info(f"[{stock_code}] 准备实例化 MacdRsiKdjBollStrategy...")
+        strategy = MacdRsiKdjBollStrategy()
+        logger.info(f"[{stock_code}] MacdRsiKdjBollStrategy 实例化完成.")
+
+        logger.info(f"[{stock_code}] 准备实例化 StrategyCacheSet...")
+        cache_setter = StrategyCacheSet()
+        logger.info(f"[{stock_code}] StrategyCacheSet 实例化完成.")
+
+        main_timeframe = '15'
+
+        # 检查实例化是否成功 (可选，但更健壮)
+        if not all([service, strategy, cache_setter]):
+             logger.error(f"[{stock_code}] 某个核心对象未能成功实例化，任务终止。")
+             return f"[{stock_code}] 核心对象实例化失败"
+
+        # --- 现在才进入原来的 try 块 ---
+        logger.info(f"[{stock_code}] 准备调用 service.prepare_strategy_dataframe...")
+        merged_data = asyncio.run(service.prepare_strategy_dataframe(
+            stock_code=stock_code,
+            timeframes=['5m', '15m', '30m', '60m'],
+            strategy_params=strategy.params,
+            limit_per_tf=1500
+        ))
+        logger.info(f"[{stock_code}] service.prepare_strategy_dataframe 调用完成.")
+
+        # ... (rest of the try block) ...
+
+    except Exception as e:
+        logger.error(f"为股票 {stock_code} 运行策略时发生严重错误: {e}", exc_info=True)
+        return f"[{stock_code}] 策略运行出错: {e}"
 
     try:
         logger.info(f"[{stock_code}] 准备调用 service.prepare_strategy_dataframe...")
