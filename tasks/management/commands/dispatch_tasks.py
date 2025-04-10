@@ -279,6 +279,7 @@ class Command(BaseCommand):
     def dispatch_calculate_all_indicators(self, stock_codes=None):
         """分发计算单支股票全指标的任务"""
         log_prefix = "全指标计算"
+        target_queue = 'priority_tasks' # <--- 定义目标队列名称
         self.stdout.write(f"开始分发 {log_prefix} 任务...")
         logger.info(f"Management Command 启动: {log_prefix} 任务分发")
 
@@ -352,7 +353,9 @@ class Command(BaseCommand):
             task_count = len(tasks_signatures)
             logger.info(f"已创建包含 {task_count} 个 {log_prefix} 子任务的任务组")
 
-            group_result = task_group.apply_async()
+            # --- 修改点：在 apply_async 中指定 queue 参数 ---
+            group_result = task_group.apply_async(queue=target_queue)
+            # ---------------------------------------------
 
             logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
             self.stdout.write(self.style.SUCCESS(
