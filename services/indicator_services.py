@@ -846,7 +846,7 @@ class IndicatorService:
             logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
             return
 
-        logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
+        # logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
 
         stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
@@ -933,7 +933,7 @@ class IndicatorService:
             logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
             return
 
-        logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
+        # logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
 
         stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
