@@ -798,9 +798,9 @@ class IndicatorService:
         try:
             # pandas-ta pivot_points 返回包含 PP, S1-S4, R1-R4 的 DataFrame
             # 列名通常是 'PP', 'S1_traditional', 'R1_traditional' 等
-            pivot_df = ohlc.ta.pivot_points()
+            pivot_df = ohlc.ta.pivots()
             if pivot_df is None or pivot_df.empty:
-                logger.warning("pandas-ta pivot_points 计算返回空")
+                logger.warning("pandas-ta pivots 计算返回空")
                 return None
             # 可以选择性地只保留 'traditional' 类型的枢轴点，或全部保留
             # result_df = pivot_df.filter(regex='_(traditional|fibonacci|classic|woodie|demark)$|^PP$') # 示例：过滤特定类型
