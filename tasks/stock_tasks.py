@@ -1,101 +1,97 @@
+# stock_data_app/tasks.py
+import asyncio
+import logging
 from celery import shared_task
-from chaoyue_dreams.celery import app as celery_app
+from django.db import models # 导入 models 以便 sync_to_async 可以找到它
+from asgiref.sync import sync_to_async
+import math
 
+# 获取 logger 实例
+logger = logging.getLogger(__name__) # 或者使用你项目配置的 logger
 
-@celery_app.task(bind=True, name='tasks.stock.fetch_stock_trade_data_task')
-def fetch_stock_trade_data_task(batch_index=0, batch_size=50, total_batches=1):
-    """股票交易数据获取任务 - 处理指定批次的股票"""
-    # 导入包放在任务内部
-    import logging
-    import asyncio
-    from asgiref.sync import sync_to_async
-    from utils.cash_key import StockCashKey
+# --- 核心处理逻辑 (异步) ---
+async def _process_stock_chunk_async(stock_pks):
+    """
+    异步处理单个股票片区的核心逻辑。
+    注意：所有项目相关的导入都放在这个函数内部。
+    """
+    # --- 在任务执行时导入 ---
+    from django.conf import settings
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-    from dao_manager.daos.stock_basic_dao import StockBasicDAO
-    from stock_models.stock_basic import StockTimeTrade
-    
-    logger = logging.getLogger(__name__)
-    
-    # 将异步处理包装在一个函数中，以便在任务中调用
-    async def process_batch():
-        stock_indicators_dao = StockIndicatorsDAO()
-        stock_basic_dao = StockBasicDAO()
-        cache_limit = 233 * 3
-        TIME_LEVELS = ['5','15','30','60','Day','Week','Month','Year']
-        
-        # 获取所有股票
-        all_stocks = await stock_basic_dao.get_stock_list()
-        
-        # 计算当前批次应处理的股票
-        start_idx = batch_index * batch_size
-        end_idx = min(start_idx + batch_size, len(all_stocks))
-        stocks = all_stocks[start_idx:end_idx]
-        
-        logger.info(f"批次 {batch_index+1}/{total_batches}: 开始处理 {len(stocks)} 只股票")
-        
-        for stock in stocks:
-            for time_level in TIME_LEVELS:
+    from dao_manager.daos.stock_basic_dao import StockBasicDAO # 替换为你的 DAO 实际路径
+    from stock_models.stock_basic import StockBasic, StockTimeTrade # 替换为你的模型实际路径
+    from utils.cash_key import StockCashKey # 替换为你的工具类实际路径
+    # --- 结束导入 ---
+
+    stock_indicators_dao = StockIndicatorsDAO()
+    stock_basic_dao = StockBasicDAO()
+    cache_limit = 233 * 3
+    TIME_LEVELS = ['5','15','30','60','Day','Week','Month','Year']
+    # TIME_LEVELS = ['Day'] # 测试时可以减少
+
+    # 使用 sync_to_async 获取实际的 StockBasic 对象
+    get_stocks_sync = sync_to_async(
+        lambda pks: list(StockBasic.objects.filter(pk__in=pks)),
+        thread_sensitive=True
+    )
+    stocks_in_chunk = await get_stocks_sync(stock_pks)
+
+    if not stocks_in_chunk:
+        logger.warning(f"任务接收到空的股票列表 (pks: {stock_pks})，跳过处理。")
+        return
+
+    logger.info(f"开始处理包含 {len(stocks_in_chunk)} 只股票的片区: {[s.stock_code for s in stocks_in_chunk]}")
+
+    for stock in stocks_in_chunk:
+        for time_level in TIME_LEVELS:
+            try:
+                # 使用 sync_to_async 从数据库获取数据
                 get_data_sync = sync_to_async(
-                    lambda: list(
-                        StockTimeTrade.objects.filter(stock=stock, time_level=time_level
-                        ).order_by('-trade_time')[:cache_limit]
+                    lambda: list( # 将 QuerySet 转换为列表
+                        StockTimeTrade.objects.filter(stock=stock, time_level=time_level)
+                                            .order_by('-trade_time')[:cache_limit] # 使用切片
                     ),
                     thread_sensitive=True
                 )
                 datas = await get_data_sync()
+
+                if not datas:
+                    logger.debug(f"股票 {stock.stock_code} 在 {time_level} 级别没有数据，跳过缓存。")
+                    continue
+
                 cache_key = StockCashKey()
                 cache_key_str = cache_key.history_time_trade(stock.stock_code, time_level)
-                
-                logger.info(f"重新缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(datas)}, cache_key_str: {cache_key_str}")
-                
-                if datas:
-                    for item in datas:
-                        cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
-                        await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
-                    
-                    # 修剪缓存
-                    await stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
-    
-    # 运行异步任务
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(process_batch())
-    
-    return f"批次 {batch_index+1}/{total_batches} 处理完成"
+                logger.info(f"重新缓存 {stock.stock_code} 股票 {time_level} 级别数据, 数量: {len(datas)}, key: {cache_key_str}, 最新时间: {datas[0].trade_time}")
 
-# 主命令方法修改
-async def fetch_stock_trade_data_from_db(self):
-    """从数据库获取股票交易数据 - 分片任务分发"""
-    self.stdout.write('从数据库获取股票交易数据并分片...')
-    
-    # 导入放在方法内部
-    from dao_manager.daos.stock_basic_dao import StockBasicDAO
-    import math
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    # 分片参数
-    batch_size = 50  # 每批处理的股票数量
-    
-    # 获取所有股票
-    stock_basic_dao = StockBasicDAO()
-    stocks = await stock_basic_dao.get_stock_list()
-    total_stocks = len(stocks)
-    
-    # 计算需要的批次数
-    total_batches = math.ceil(total_stocks / batch_size)
-    
-    self.stdout.write(f"将 {total_stocks} 只股票分为 {total_batches} 个批次进行处理")
-    
-    # 创建并分发任务
-    for batch_idx in range(total_batches):
-        # 分发任务给 Celery
-        fetch_stock_trade_data_task.delay(
-            batch_index=batch_idx,
-            batch_size=batch_size,
-            total_batches=total_batches
-        )
-        
-        self.stdout.write(f"已分发第 {batch_idx + 1}/{total_batches} 批股票数据处理任务")
-    
-    self.stdout.write(f"所有任务已分发完成，共 {total_batches} 个批次")
+                # 批量处理缓存设置和修剪可能更高效，但这里保持原逻辑逐条处理
+                for item in datas:
+                   cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
+                   # logger.debug(f"缓存数据项: {cache_data}") # Debug 日志可以取消注释
+                   await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
+
+                # --- 单行调用修剪方法 ---
+                await stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
+                logger.debug(f"已修剪缓存 {cache_key_str} 至 {cache_limit} 条记录")
+
+            except Exception as e:
+                logger.error(f"处理股票 {stock.stock_code} ({time_level} 级别) 时出错: {e}", exc_info=True) # 记录详细错误信息
+
+    logger.info(f"完成处理股票片区: {[s.stock_code for s in stocks_in_chunk]}")
+
+
+# --- Celery 任务 (同步包装器) ---
+@shared_task(bind=True, name='stock_data_app.process_stock_chunk') # 使用明确的任务名称
+def process_stock_chunk(self, stock_pks):
+    """
+    Celery 同步任务，负责调用异步处理函数。
+    接收股票主键列表 (stock_pks)。
+    """
+    logger.info(f"Celery worker 接收到任务 {self.request.id}，处理股票 PKS: {stock_pks}")
+    try:
+        # 在同步的 Celery 任务中运行异步代码
+        asyncio.run(_process_stock_chunk_async(stock_pks))
+        logger.info(f"任务 {self.request.id} 成功完成。")
+    except Exception as e:
+        logger.error(f"任务 {self.request.id} (股票 PKS: {stock_pks}) 执行失败: {e}", exc_info=True)
+        # 可以根据需要进行重试或其他错误处理
+        # raise self.retry(exc=e, countdown=60) # 例如：60秒后重试

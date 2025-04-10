@@ -18,6 +18,7 @@
     2. 如果不指定股票代码，将获取自选股或活跃股票的数据
     3. 该命令使用异步方式调用各个DAO层的方法获取数据
 """
+import math
 import sys
 import asyncio
 import concurrent.futures
@@ -35,6 +36,7 @@ from dao_manager.daos.data_center.lhb_dao import LhbDAO
 from dao_manager.daos.data_center.stock_statistics_dao import StockStatisticsDao
 from services.indicator_services import IndicatorService
 from stock_models.stock_basic import StockInfo, StockTimeTrade
+
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
 if sys.version_info >= (3, 12):
@@ -194,7 +196,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('完成股票交易数据获取'))
             
         if data_type in ('all', 'stock_trade_fetch_redis'):
-            await self.fetch_stock_trade_data_from_db()
+            await self.fetch_stock_trade_data_dispatcher()
             self.stdout.write(self.style.SUCCESS('完成股票交易数据缓存刷新'))
 
         if data_type in ('all', 'calculate_stock'):
@@ -675,6 +677,58 @@ class Command(BaseCommand):
         #     await indicator_services.calculate_and_save_all_indicators(stock.stock_code, 'Day')
         await indicator_services.calculate_and_save_all_indicators('600260', '5')
         self.stdout.write(self.style.SUCCESS('完成股票指标数据计算'))
+
+    async def fetch_stock_trade_data_dispatcher(self):
+        """分发任务以从数据库获取并缓存股票交易数据"""
+        self.stdout.write('开始分发股票交易数据缓存任务...')
+        # --- 导入仅在此分发器中需要的模块 ---
+        # from apps.stock_data.dao import StockBasicDAO # 如果上面没导入，可以在这里导入
+        from tasks.stock_tasks import process_stock_chunk
+
+        stock_basic_dao = StockBasicDAO()
+        chunk_size = 10 # 每个任务处理10个股票
+
+        try:
+            # 异步获取所有股票列表
+            stocks = await stock_basic_dao.get_stock_list()
+            total_stocks = len(stocks)
+            self.stdout.write(f"获取到 {total_stocks} 只股票，将按每片区 {chunk_size} 只进行分发。")
+
+            if not stocks:
+                self.stdout.write('没有需要处理的股票。')
+                return
+
+            # 将股票列表按 chunk_size 分块
+            stock_pks = [stock.pk for stock in stocks] # 获取主键列表，传递给任务更轻量
+            num_chunks = math.ceil(total_stocks / chunk_size)
+
+            self.stdout.write(f"预计分发 {num_chunks} 个任务...")
+
+            dispatched_count = 0
+            for i in range(0, total_stocks, chunk_size):
+                chunk_pks = stock_pks[i:i + chunk_size]
+                if chunk_pks:
+                    # 发送任务到 Celery 队列
+                    # 使用 .delay() 或 .apply_async()
+                    process_stock_chunk.delay(chunk_pks)
+                    dispatched_count += 1
+                    logger.info(f"已分发任务处理股票 PKS: {chunk_pks}")
+                    # self.stdout.write(f"  分发任务 {dispatched_count}/{num_chunks}...") # 可以取消注释以显示进度
+
+            self.stdout.write(f'成功分发 {dispatched_count} 个缓存任务。Worker 将在后台处理。')
+
+        except Exception as e:
+            logger.error(f"分发股票缓存任务时出错: {e}", exc_info=True)
+            self.stderr.write(self.style.ERROR(f'分发任务失败: {e}'))
+
+    # 如果你的 Command 是同步的，需要用 async_to_sync 包裹调用
+    # def handle(self, *args, **options):
+    #     from django.utils.asyncio import async_to_sync
+    #     async_to_sync(self.fetch_stock_trade_data_dispatcher)()
+
+    # 如果你的 Command 本身就是异步的 (Django 4.1+)
+    async def handle(self, *args, **options):
+         await self.fetch_stock_trade_data_dispatcher()   
             
         
 
