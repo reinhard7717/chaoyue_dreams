@@ -71,9 +71,9 @@ class CacheSet():
             logger.error(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
-    async def _stock_latest_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+    async def _stock_latest_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
-            logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
+            logger.warning(f"试图缓存股票[{stock_code}] 的空时间序列数据，操作跳过。")
             return False
         try:
             # 1. 生成缓存键
@@ -90,10 +90,10 @@ class CacheSet():
                 # logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
             else:
-                logger.warning(f"缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                logger.warning(f"缓存股票[{stock_code}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
                 return False
         except Exception as e:
-            logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
     # --- 修正后的写入缓存方法 (使用 ZADD) ---
