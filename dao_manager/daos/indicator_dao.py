@@ -429,7 +429,7 @@ class IndicatorDAO(BaseDAO):
 
         # 如果没有准备好任何有效数据，则直接返回
         if not data_to_save:
-            logger.warning(f"[{model_name}] 没有准备好任何有效数据进行批量保存 for {stock_info.stock_code} {time_level_str}")
+            # logger.warning(f"[{model_name}] 没有准备好任何有效数据进行批量保存 for {stock_info.stock_code} {time_level_str}")
             return
 
         # 2. 定义用于冲突检测的唯一字段列表
