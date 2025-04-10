@@ -275,13 +275,13 @@ async def get_trade_and_calculate_and_strategy(self, stock_code: str):
         process_single_stock_latest_trade_trading_hours(favorite_stock.stock_code)
         process_single_stock_realtime_trade(favorite_stock.stock_code)
         process_single_stock_indicators(favorite_stock.stock_code)
-        strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
+        # strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
     stocks = await stock_basic_dao.get_stock_list()
     for stock in stocks:
         process_single_stock_latest_trade_trading_hours(stock.stock_code)
         process_single_stock_realtime_trade(stock.stock_code)
         process_single_stock_indicators(stock.stock_code)
-        strategy_macd_rsi_kdj_boll_strategy_for_stock(stock.stock_code)
+        # strategy_macd_rsi_kdj_boll_strategy_for_stock(stock.stock_code)
     logger.info(f"任务结束: get_trade_and_calculate for {stock_code}")
 
 
