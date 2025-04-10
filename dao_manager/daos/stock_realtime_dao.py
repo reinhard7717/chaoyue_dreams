@@ -108,7 +108,7 @@ class StockRealtimeDAO(BaseDAO):
                 logger.warning(f"API未返回股票[{stock}]的实时数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}            
             data_dicts = []
-            data_dict = await self.data_format_process.set_realtime_data(stock, api_data)
+            data_dict = self.data_format_process.set_realtime_data(stock, api_data)
             data_dicts.append(data_dict)
             self.cache_set.latest_realtime_data(stock_code, data_dict)
             # 保存数据
@@ -202,7 +202,7 @@ class StockRealtimeDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
             api_data = await self.api.get_level5_data(stock.stock_code)
-            data_dict = await self.data_format_process.set_level5_data(stock, api_data)
+            data_dict = self.data_format_process.set_level5_data(stock, api_data)
             data_dicts.append(data_dict)
             self.cache_set.latest_level5_data(stock_code, data_dict)
             if not api_data:
@@ -303,7 +303,7 @@ class StockRealtimeDAO(BaseDAO):
                 return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_onebyone_trade_data(stock, api_data)
+                data_dict = self.data_format_process.set_onebyone_trade_data(stock, api_data)
                 data_dicts.append(data_dict)
                 self.cache_set.onebyone_trade(stock.stock_code, data_dict)
             # 保存数据
@@ -398,7 +398,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             api_datas = await self.api.get_time_deal(stock.stock_code)
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_time_deal_data(stock, api_data)
+                data_dict = self.data_format_process.set_time_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
                 # 正确处理异步方法调用
                 try:
@@ -462,7 +462,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             api_datas = await self.api.get_real_percent(stock.stock_code)
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_real_percent_data(stock, api_data)
+                data_dict = self.data_format_process.set_real_percent_data(stock, api_data)
                 data_dicts.append(data_dict)
                 self.cache_set.real_percent(stock_code, data_dict)
             result = await self._save_all_to_db_native_upsert(
@@ -520,7 +520,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             api_datas = await self.api.get_big_deal(stock.stock_code)
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_big_deal_data(stock, api_data)
+                data_dict = self.data_format_process.set_big_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
                 self.cache_set.big_deal(stock_code, data_dict)
             result = await self._save_all_to_db_native_upsert(
@@ -574,7 +574,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             api_datas = await self.api.get_abnormal_movements()
             for api_data in api_datas:
-                data_dict = await self.data_format_process.set_abnormal_movement_data(api_data)
+                data_dict = self.data_format_process.set_abnormal_movement_data(api_data)
                 data_dicts.append(data_dict)
                 self.cache_set.abnormal_movement(data_dict)
             result = await self._save_all_to_db_native_upsert(
