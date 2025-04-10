@@ -400,7 +400,16 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = await self.data_format_process.set_time_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
-                self.cache_set.time_deal(stock_code, data_dict)
+                # 正确处理异步方法调用
+                try:
+                    # 方法1: 使用异步调用
+                    await self.cache_set.time_deal(stock_code, data_dict)
+                    
+                    # 或方法2: 如果您确定不需要等待缓存操作完成
+                    # asyncio.create_task(self.cache_set.time_deal(stock_code, data_dict))
+                except Exception as cache_err:
+                    # 捕获并记录缓存错误，但继续处理其他数据
+                    logger.error(f"缓存时间成交数据时出错: {cache_err}")
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeDeal,
                 data_list=data_dicts,
