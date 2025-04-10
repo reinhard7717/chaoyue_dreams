@@ -76,37 +76,19 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
     merged_data = None
 
     try:
-        logger.info(f"[{stock_code}] 准备实例化 IndicatorService...")
         service = IndicatorService()
-        logger.info(f"[{stock_code}] IndicatorService 实例化完成.")
-
-        logger.info(f"[{stock_code}] 准备实例化 MacdRsiKdjBollStrategy...")
         strategy = MacdRsiKdjBollStrategy()
-        logger.info(f"[{stock_code}] MacdRsiKdjBollStrategy 实例化完成.")
-
-        logger.info(f"[{stock_code}] 准备实例化 StrategyCacheSet...")
         cache_setter = StrategyCacheSet()
-        logger.info(f"[{stock_code}] StrategyCacheSet 实例化完成.")
-
         main_timeframe = '15'
-
         if not all([service, strategy, cache_setter]):
              logger.error(f"[{stock_code}] 某个核心对象未能成功实例化，任务终止。")
              return # 返回 None 或其他表示失败的值
-
-        # --- 第一个 try 块：获取数据并处理 ---
-        logger.info(f"[{stock_code}] 准备调用 service.prepare_strategy_dataframe...")
-        # --- !!! 修改点：将 async_to_sync 改为 await !!! ---
         merged_data = await service.prepare_strategy_dataframe(
             stock_code=stock_code,
             timeframes=strategy.timeframes, # 使用 strategy 实例的 timeframes
             strategy_params=strategy.params,
             limit_per_tf=1500
         )
-        # --- 结束修改点 ---
-        logger.info(f"[{stock_code}] service.prepare_strategy_dataframe 调用完成.")
-
-        # --- 后续逻辑基于第一个 try 块获取的 merged_data ---
         if merged_data is None or merged_data.empty:
             logger.warning(f"[{stock_code}] 未能准备策略所需数据，策略无法运行。")
             # 缓存空信号状态 (使用 await)
@@ -127,10 +109,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
             return # 返回 None 或其他表示失败的值
 
         # 运行策略 (同步调用)
-        logger.info(f"[{stock_code}] 准备运行策略...")
         signal_series = strategy.run(merged_data)
-        logger.info(f"[{stock_code}] 策略运行完成.")
-
         # 处理信号结果 (逻辑保持不变)
         latest_signal = None
         latest_timestamp = None
