@@ -94,17 +94,30 @@ CACHES = {
         'LOCATION': 'redis://39.101.65.133:6379/0',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'SERIALIZER': 'utils.custom_serializer.CustomJSONSerializer',  # 使用JSON序列化
-            'PASSWORD': 'Asdf1234',  # Redis密码
-            'SOCKET_CONNECT_TIMEOUT': 5,
-            'SOCKET_TIMEOUT': 5,
+            'SERIALIZER': 'utils.custom_serializer.CustomJSONSerializer',
+            'PASSWORD': 'Asdf1234',
+            'SOCKET_CONNECT_TIMEOUT': 10,  # 从5秒增加到10秒
+            'SOCKET_TIMEOUT': 15,  # 从5秒增加到15秒
             'RETRY_ON_TIMEOUT': True,
-            'MAX_CONNECTIONS': 1000,
-            'CONNECTION_POOL_KWARGS': {'max_connections': 100},
+            'MAX_CONNECTIONS': 100,
+            # 新增重试策略配置
+            'RETRY_TIMES': 3,  # 重试3次
+            'RETRY_DELAY': 0.5,  # 重试间隔0.5秒.
+            # 添加连接池配置
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 100,
+                'timeout': 20,  # 连接池获取连接的超时时间
+            },
+            # 健康检查
+            'HEALTH_CHECK_INTERVAL': 30,  # 每30秒检查连接健康状态
+            # 压缩配置（减少网络传输数据量）
+            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+            'COMPRESS_MIN_LEN': 10,  # 最小压缩长度
         },
-        'TIMEOUT': 300,  # 默认缓存超时时间，单位：秒
+        'TIMEOUT': 300,
     }
 }
+
 
 # 语言和时区设置
 LANGUAGE_CODE = 'zh-hans'
