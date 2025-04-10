@@ -62,7 +62,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
         logger.info(f"[{stock_code}] 准备调用 service.prepare_strategy_dataframe...")
         merged_data = asyncio.run(service.prepare_strategy_dataframe(
             stock_code=stock_code,
-            timeframes=['5m', '15m', '30m', '60m'],
+            timeframes=['5', '15', '30', '60'],
             strategy_params=strategy.params,
             limit_per_tf=1500
         ))

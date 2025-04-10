@@ -81,9 +81,9 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
             merged_params['weights'] = {**default_params['weights'], **params['weights']}
         if params and 'score_thresholds' in params:
             merged_params['score_thresholds'] = {**default_params['score_thresholds'], **params['score_thresholds']}
-
+        self.timeframes = ['5', '15', '30', '60'] # 策略使用的时间周期
         super().__init__(merged_params)
-        self.timeframes = ['5m', '15m', '30m', '60m'] # 策略使用的时间周期
+        
 
     def _validate_params(self):
         """验证参数"""
