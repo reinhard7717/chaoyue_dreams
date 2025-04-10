@@ -76,7 +76,7 @@ class StockRealtimeDAO(BaseDAO):
             data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
             # 检查数据是否过期（超过2分钟）
             if data and (timezone.now() - data.trade_time).total_seconds() < 120:
-                await self.cache_set.latest_realtime_data(stock_code, data)
+                self.cache_set.latest_realtime_data(stock_code, data)
                 return data
         except Exception as e:
             logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}")
@@ -110,7 +110,7 @@ class StockRealtimeDAO(BaseDAO):
             data_dicts = []
             data_dict = await self.data_format_process.set_realtime_data(stock, api_data)
             data_dicts.append(data_dict)
-            await self.cache_set.latest_realtime_data(stock_code, data_dict)
+            self.cache_set.latest_realtime_data(stock_code, data_dict)
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockRealtimeData,
@@ -176,7 +176,7 @@ class StockRealtimeDAO(BaseDAO):
             data = await sync_to_async(lambda: StockLevel5Data.objects.filter(stock=stock).order_by('-trade_time').first())()
             # 检查数据是否过期（超过2分钟）
             if data and (timezone.now() - data.trade_time).total_seconds() < 120:
-                await self.cache_set.latest_level5_data(stock_code, data)
+                self.cache_set.latest_level5_data(stock_code, data)
                 return data
         except Exception as e:
             logger.error(f"从数据库获取最新股票[{stock}]Level5数据失败: {str(e)}")
@@ -204,7 +204,7 @@ class StockRealtimeDAO(BaseDAO):
             api_data = await self.api.get_level5_data(stock.stock_code)
             data_dict = await self.data_format_process.set_level5_data(stock, api_data)
             data_dicts.append(data_dict)
-            await self.cache_set.latest_level5_data(stock_code, data_dict)
+            self.cache_set.latest_level5_data(stock_code, data_dict)
             if not api_data:
                 logger.warning(f"API未返回{stock}的Level5数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
@@ -271,7 +271,7 @@ class StockRealtimeDAO(BaseDAO):
             data = await sync_to_async(lambda: StockTradeDetail.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
             # 检查数据是否过期（超过2分钟）
             if data and (timezone.now() - data.trade_time).total_seconds() < 120:
-                await self.cache_set.onebyone_trade(stock_code, trade_date, data)
+                self.cache_set.onebyone_trade(stock_code, trade_date, data)
                 return data
         except Exception as e:
             logger.error(f"从数据库获取最新股票[{stock}]交易明细数据失败: {str(e)}")
@@ -305,7 +305,7 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = await self.data_format_process.set_onebyone_trade_data(stock, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.onebyone_trade(stock.stock_code, data_dict)
+                self.cache_set.onebyone_trade(stock.stock_code, data_dict)
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTradeDetail,
@@ -371,7 +371,7 @@ class StockRealtimeDAO(BaseDAO):
             data = await sync_to_async(lambda: StockTimeDeal.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
             # 检查数据是否过期（超过2分钟）
             if data and (timezone.now() - data.trade_time).total_seconds() < 120:
-                await self.cache_set.time_deal(stock_code, trade_date, data)
+                self.cache_set.time_deal(stock_code, trade_date, data)
                 return data
         except Exception as e:
             logger.error(f"从数据库获取最新股票[{stock}]分时成交数据失败: {str(e)}")
@@ -400,7 +400,7 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = await self.data_format_process.set_time_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.time_deal(stock_code, data_dict)
+                self.cache_set.time_deal(stock_code, data_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeDeal,
                 data_list=data_dicts,
@@ -455,7 +455,7 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = await self.data_format_process.set_real_percent_data(stock, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.real_percent(stock_code, data_dict)
+                self.cache_set.real_percent(stock_code, data_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockPricePercent,
                 data_list=data_dicts,
@@ -513,7 +513,7 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = await self.data_format_process.set_big_deal_data(stock, api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.big_deal(stock_code, data_dict)
+                self.cache_set.big_deal(stock_code, data_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockBigDeal,
                 data_list=data_dicts,
@@ -567,7 +567,7 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = await self.data_format_process.set_abnormal_movement_data(api_data)
                 data_dicts.append(data_dict)
-                await self.cache_set.abnormal_movement(data_dict)
+                self.cache_set.abnormal_movement(data_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockAbnormalMovement,
                 data_list=data_dicts,

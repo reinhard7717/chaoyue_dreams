@@ -81,11 +81,7 @@ class CacheSet():
             # 最新数据点可能更新较频繁，考虑使用实时数据的超时
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
             # 3. 调用 CacheManager 设置缓存
-            success = self.cache_manager.set(
-                key=cache_key,
-                data=data_to_cache,
-                timeout=cache_timeout
-            )
+            success = self.cache_manager.set(key=cache_key, data=data_to_cache,timeout=cache_timeout)
             if success:
                 # logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
