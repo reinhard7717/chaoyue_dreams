@@ -785,27 +785,53 @@ class IndicatorService:
         计算 Pivot Points (PP, S1-S4, R1-R4)。
         依赖于 DatetimeIndex 来确定计算周期 (例如基于前一日计算当日)。
         """
-        if ta is None: logger.error("pandas-ta 未加载"); return None
         if ohlc is None or ohlc.empty: return None
-        if not isinstance(ohlc.index, pd.DatetimeIndex):
-            logger.warning("计算 Pivot Points 强烈建议 DataFrame 的 index 是 DatetimeIndex。")
-            # 可以尝试转换，但如果失败或数据不是时间序列，结果可能无意义
-            # try:
-            #     ohlc.index = pd.to_datetime(ohlc.index)
-            # except Exception:
-            #     logger.error("无法将 index 转换为 DatetimeIndex，Pivot Points 计算可能失败或不准确。")
-            #     return None
         try:
-            # pandas-ta pivot_points 返回包含 PP, S1-S4, R1-R4 的 DataFrame
-            # 列名通常是 'PP', 'S1_traditional', 'R1_traditional' 等
-            pivot_df = ohlc.ta.pivot()
-            if pivot_df is None or pivot_df.empty:
-                logger.warning("pandas-ta pivots 计算返回空")
-                return None
-            # 可以选择性地只保留 'traditional' 类型的枢轴点，或全部保留
-            # result_df = pivot_df.filter(regex='_(traditional|fibonacci|classic|woodie|demark)$|^PP$') # 示例：过滤特定类型
-            # 这里我们返回所有计算出的列
-            return pivot_df
+            # 确保数据按日期排序
+            ohlc = ohlc.sort_index()
+            
+            # 创建结果 DataFrame
+            results = pd.DataFrame(index=ohlc.index)
+            
+            # 创建移位版本的价格数据来计算枢轴点
+            # 使用前一交易日的 OHLC 计算当前交易日的枢轴点
+            prev_high = ohlc['high'].shift(1)
+            prev_low = ohlc['low'].shift(1)
+            prev_close = ohlc['close'].shift(1)
+            
+            # 计算传统枢轴点
+            # PP = (High + Low + Close) / 3
+            PP = (prev_high + prev_low + prev_close) / 3
+            results['PP'] = PP
+            
+            # 计算支撑位
+            # S1 = (2 * PP) - High
+            results['S1'] = (2 * PP) - prev_high
+            # S2 = PP - (High - Low)
+            results['S2'] = PP - (prev_high - prev_low)
+            # S3 = S1 - (High - Low)
+            results['S3'] = results['S1'] - (prev_high - prev_low)
+            # S4 = S3 - (High - Low)
+            results['S4'] = results['S3'] - (prev_high - prev_low)
+            
+            # 计算阻力位
+            # R1 = (2 * PP) - Low
+            results['R1'] = (2 * PP) - prev_low
+            # R2 = PP + (High - Low)
+            results['R2'] = PP + (prev_high - prev_low)
+            # R3 = R1 + (High - Low)
+            results['R3'] = results['R1'] + (prev_high - prev_low)
+            # R4 = R3 + (High - Low)
+            results['R4'] = results['R3'] + (prev_high - prev_low)
+            
+            # 可选：添加斐波那契枢轴点
+            # 省略更多计算...
+            
+            # 删除第一行（无法计算）
+            results = results.iloc[1:]
+            
+            return results
+            
         except Exception as e:
             logger.error(f"计算 Pivot Points 失败: {e}", exc_info=True)
             return None
@@ -891,8 +917,8 @@ class IndicatorService:
                     else:
                          logger.warning(f"[{indicator_name}] 计算结果在重索引后为空 for {stock_code} {time_level_str}")
 
-                else:
-                    logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
+                # else:
+                #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
 

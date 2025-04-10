@@ -7,7 +7,7 @@ import logging
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from celery import Celery, group # 导入 group
 from celery.utils.log import get_task_logger
-from core.constants import TIME_TEADE_TIME_LEVELS
+from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE
 
 
 from services.indicator_services import IndicatorService
@@ -190,7 +190,7 @@ async def _calculate_stock_indicators_async(stock_code: str):
     try:
         tasks = [
             service.calculate_and_save_all_indicators(stock_code, time_level)
-            for time_level in TIME_TEADE_TIME_LEVELS
+            for time_level in TIME_TEADE_TIME_LEVELS_LITE
         ]
         # 注意：确保 service.calculate_and_save_all_indicators 也是 async def
         await asyncio.gather(*tasks)
@@ -274,13 +274,13 @@ async def get_trade_and_calculate_and_strategy(self, stock_code: str):
     for favorite_stock in favorite_stocks:
         process_single_stock_latest_trade_trading_hours(favorite_stock.stock_code)
         process_single_stock_realtime_trade(favorite_stock.stock_code)
-        process_single_stock_indicators(favorite_stock.stock_code)
+        calculate_stock_indicators_for_single_stock(favorite_stock.stock_code)
         # strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
     stocks = await stock_basic_dao.get_stock_list()
     for stock in stocks:
         process_single_stock_latest_trade_trading_hours(stock.stock_code)
         process_single_stock_realtime_trade(stock.stock_code)
-        process_single_stock_indicators(stock.stock_code)
+        calculate_stock_indicators_for_single_stock(stock.stock_code)
         # strategy_macd_rsi_kdj_boll_strategy_for_stock(stock.stock_code)
     logger.info(f"任务结束: get_trade_and_calculate for {stock_code}")
 
