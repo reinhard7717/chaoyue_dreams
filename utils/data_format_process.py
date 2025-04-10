@@ -143,7 +143,6 @@ class StockInfoFormatProcess(BaseDAO):
 class StockIndicatorsDataFormatProcess(BaseDAO):
         # ================= 数据 =================
     def set_time_trade_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
-        
         if isinstance(api_data, StockTimeTrade):
             # 确保时区转换正确
             trade_time = api_data.trade_time
@@ -165,10 +164,13 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
                 'price_change_amount': api_data.price_change_amount,  # 涨跌额   
             }
         else:
+            trade_time = self._parse_datetime(api_data.get('d'))
+            if trade_time.tzinfo is not None:
+                trade_time = trade_time.astimezone(timezone.get_current_timezone())
             data_dict = {
                 'stock': stock,
                 'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
+                'trade_time': trade_time,  # 交易时间
                 'open_price': self._parse_number(api_data.get('o')),  # 开盘价
                 'high_price': self._parse_number(api_data.get('h')),  # 最高价
                 'low_price': self._parse_number(api_data.get('l')),  # 最低价
