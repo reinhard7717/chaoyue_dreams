@@ -450,7 +450,7 @@ class IndicatorDAO(BaseDAO):
                 # **extra_fields 参数在这里不需要传递
             )
             # 基类方法中应包含详细的日志记录，这里可以只记录一个概要
-            logger.info(f"[{model_name}] 批量保存/更新调用完成 for {stock_info.stock_code} {time_level_str}. 结果: {result}")
+            # logger.info(f"[{model_name}] 批量保存/更新调用完成 for {stock_info.stock_code} {time_level_str}. 结果: {result}")
 
         except Exception as e_bulk:
             # 捕获调用基类方法本身可能抛出的意外错误（尽管基类方法应处理其内部错误）
