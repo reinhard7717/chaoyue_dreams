@@ -9,6 +9,7 @@ from chaoyue_dreams.celery import app as celery_app
 import pandas as pd
 # ... 其他导入 ...
 from services.indicator_services import IndicatorService
+from strategies.base import SIGNAL_BUY, SIGNAL_HOLD, SIGNAL_SELL, SIGNAL_STRONG_BUY, SIGNAL_STRONG_SELL
 from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollStrategy
 from utils.cache_set import StrategyCacheSet
 from dao_manager.daos.stock_basic_dao import StockBasicDAO # 假设主任务需要
@@ -140,9 +141,11 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
                 latest_signal = valid_signals.iloc[-1]
                 latest_timestamp = valid_signals.index[-1]
                 signal_map = {
-                    strategy.SIGNAL_STRONG_BUY: "Strong Buy", strategy.SIGNAL_BUY: "Buy",
-                    strategy.SIGNAL_HOLD: "Hold", strategy.SIGNAL_SELL: "Sell",
-                    strategy.SIGNAL_STRONG_SELL: "Strong Sell",
+                    SIGNAL_STRONG_BUY: "Strong Buy", 
+                    SIGNAL_BUY: "Buy",
+                    SIGNAL_HOLD: "Hold", 
+                    SIGNAL_SELL: "Sell",
+                    SIGNAL_STRONG_SELL: "Strong Sell",
                 }
                 signal_display = signal_map.get(latest_signal, "Unknown")
             else:
