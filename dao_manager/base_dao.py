@@ -846,6 +846,7 @@ class BaseDAO(Generic[T]):
                 '%Y/%m/%d %H:%M:%S',
                 '%Y/%m/%d %H:%M',
                 '%Y-%m-%d',
+                '%H:%M:%S',
                 # '%d/%m/%Y %H:%M:%S',
                 # '%d/%m/%Y %H:%M',
                 # '%d-%m-%Y %H:%M:%S',
