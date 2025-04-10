@@ -1002,7 +1002,7 @@ class IndicatorService:
         准备 MACD+RSI+KDJ+BOLL 多时间周期策略所需的 DataFrame。
         Args:
             stock_code (str): 股票代码.
-            timeframes (List[str]): 策略需要的时间周期列表 (e.g., ['5m', '15m', '30m', '60m']).
+            timeframes (List[str]): 策略需要的时间周期列表 (e.g., ['5', '15', '30', '60']).
             strategy_params (Dict[str, Any]): 策略参数字典，至少包含:
                                               'rsi_period' (int),
                                               'kdj_period_k' (int).
@@ -1028,7 +1028,7 @@ class IndicatorService:
         tasks = []
         task_descriptions = {} # 用于追踪任务对应的指标和时间周期
         # 主操作周期 (假设为 15m) 的收盘价
-        main_tf = '15m' # 或者从策略参数获取
+        main_tf = '15' # 或者从策略参数获取
         if main_tf not in timeframes:
              logger.warning(f"[{stock_code}] 主时间周期 '{main_tf}' 不在请求的时间周期列表中，仍将获取其收盘价。")
         close_task = self.indicator_dao.get_close_price_df(stock_code, main_tf, limit_per_tf)

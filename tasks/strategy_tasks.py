@@ -48,7 +48,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
         # 1. 准备数据
         merged_data = asyncio.run(service.prepare_strategy_dataframe(
             stock_code=stock_code,
-            timeframes=['5m', '15m', '30m', '60m'], # 与策略定义一致
+            timeframes=['5', '15', '30', '60'], # 与策略定义一致
             strategy_params=strategy.params,
             limit_per_tf=1500 # 根据需要调整 limit
         ))
