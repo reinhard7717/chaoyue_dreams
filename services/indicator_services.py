@@ -47,8 +47,8 @@ class IndicatorService:
         if df is None or df.empty:
             logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level}")
             return None
-        if len(df) < needed_bars:
-             logger.warning(f"获取到的历史数据 ({len(df)}) 少于所需 ({needed_bars}): {stock_code} {time_level}")
+        # if len(df) < needed_bars:
+        #      logger.warning(f"获取到的历史数据 ({len(df)}) 少于所需 ({needed_bars}): {stock_code} {time_level}")
              # return None # 保持原有逻辑，即使数据不足也尝试计算
         # 确保列名是小写，pandas-ta 推荐使用小写列名
         df.columns = [col.lower() for col in df.columns]
@@ -213,13 +213,13 @@ class IndicatorService:
                                     adxr_series = (adx_series + adx_series.shift(period)) / 2
                                     # 将计算得到的 ADXR Series 添加到 results 中
                                     results[f'ADXR_{period}'] = adxr_series
-                                else:
-                                    logger.warning(f"ADX series for period {period} 不足以计算 ADXR (有效值数量 <= period)")
-                            else:
-                                logger.warning(f"未能从 adx_df 中提取到 ADX_{period} 列，无法计算 ADXR({period})")
+                                # else:
+                                #     logger.warning(f"ADX series for period {period} 不足以计算 ADXR (有效值数量 <= period)")
+                        #     else:
+                        #         logger.warning(f"未能从 adx_df 中提取到 ADX_{period} 列，无法计算 ADXR({period})")
 
-                        else:
-                            logger.warning(f"pandas-ta adx({period}) 计算失败或返回空")
+                        # else:
+                        #     logger.warning(f"pandas-ta adx({period}) 计算失败或返回空")
 
                     except Exception as e_dmi_calc:
                          # 捕获特定周期的计算错误，记录并继续下一个周期
@@ -242,8 +242,8 @@ class IndicatorService:
         if ta is None: logger.error("pandas-ta 未加载"); return None
         # Ichimoku 默认参数 9, 26, 52。需要数据量 > 52
         min_required = 52 # Kijun=26, Senkou=52 lookbacks
-        if ohlc is None or ohlc.empty or len(ohlc) < min_required:
-            logger.warning(f"数据不足 ({len(ohlc)} < {min_required}) 可能无法准确计算 Ichimoku")
+        # if ohlc is None or ohlc.empty or len(ohlc) < min_required:
+            # logger.warning(f"数据不足 ({len(ohlc)} < {min_required}) 可能无法准确计算 Ichimoku")
             # return None # 保持原有逻辑，尝试计算，pandas-ta 内部会处理
 
         try:
@@ -855,7 +855,7 @@ class IndicatorService:
 
         # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
         # 考虑 DMI/ADXR 等可能需要更多数据
-        needed_bars = max(FIB_PERIODS) + 50 # 保持足够大的缓冲
+        needed_bars = max(FIB_PERIODS) + 20 # 保持足够大的缓冲
 
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
