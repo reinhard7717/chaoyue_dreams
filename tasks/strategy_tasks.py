@@ -13,7 +13,7 @@ import pandas as pd # 导入 pandas 用于处理时间戳
 # from service.calculation_service import CalculationService
 # from users.models import FavoriteStock
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('strategy')
 
 @celery_app.task(bind=True, name='tasks.strategy.run_macd_rsi_kdj_boll_strategy_for_stock')
 async def run_macd_rsi_kdj_boll_strategy_for_stock(self):
