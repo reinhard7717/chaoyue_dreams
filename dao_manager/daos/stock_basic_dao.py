@@ -72,10 +72,10 @@ class StockBasicDAO(BaseDAO):
             # 尝试从缓存获取
             cached_data = await self.cache_get.all_stocks()
             if cached_data:
-                logger.debug("从缓存获取股票列表")
+                # logger.debug("从缓存获取股票列表")
                 # 将缓存数据转换为模型实例列表
                 return_data = sorted([StockInfo(**stock_dict) for stock_dict in cached_data], key=lambda x: x.stock_code)
-                logger.info(f"从缓存获取股票列表成功，共{len(return_data)}只股票")
+                # logger.info(f"从缓存获取股票列表成功，共{len(return_data)}只股票")
                 return return_data
         except Exception as e:
             logger.error(f"从缓存获取股票列表失败: {e}")
