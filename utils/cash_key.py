@@ -368,7 +368,7 @@ class StrategyCashKey:
 
     def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
-            cache_type=cc.TYPE_TIMESERIES,
+            cache_type=cc.TYPE_STRATEGY,
             entity_type=cc.ENTITY_STOCK,
             entity_id=stock_code,
             subtype=cc.SUBTYPE_STRATEGY_MACD_RSI_KDJ_BOLL,

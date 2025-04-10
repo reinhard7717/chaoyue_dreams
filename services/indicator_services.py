@@ -60,7 +60,7 @@ class IndicatorService:
         # 如果有 turnover 列，也转为小写
         if 'turnover' in df.columns:
             df = df.rename(columns={'turnover': 'turnover'}) # 确保是小写
-        logger.info(f"获取的数据长度: {len(df)}")
+        # logger.info(f"获取的数据长度: {len(df)}")
         return df
 
     # --- 单个指标计算方法 (使用 pandas-ta) ---
@@ -1009,7 +1009,7 @@ class IndicatorService:
                                      列名为策略所需的格式 (e.g., 'diff_5', 'rsi_15', 'close_15')。
                                      如果数据准备失败或不完整，则返回 None。
         """
-        logger.info(f"[{stock_code}] 开始准备策略 DataFrame for timeframes: {timeframes}")
+        # logger.info(f"[{stock_code}] 开始准备策略 DataFrame for timeframes: {timeframes}")
         # --- 1. 从策略参数中提取所需周期 ---
         try:
             rsi_period = int(strategy_params['rsi_period'])
