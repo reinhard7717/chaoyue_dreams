@@ -71,9 +71,9 @@ class CacheSet():
             logger.error(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
-    async def _stock_latest_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+    async def _stock_latest_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
-            logger.warning(f"试图缓存股票[{stock_code}] 的空时间序列数据，操作跳过。")
+            logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
         try:
             # 1. 生成缓存键
@@ -81,15 +81,19 @@ class CacheSet():
             # 最新数据点可能更新较频繁，考虑使用实时数据的超时
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
             # 3. 调用 CacheManager 设置缓存
-            success = self.cache_manager.set(key=cache_key, data=data_to_cache,timeout=cache_timeout)
+            success = self.cache_manager.set(
+                key=cache_key,
+                data=data_to_cache,
+                timeout=cache_timeout
+            )
             if success:
                 # logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
             else:
-                logger.warning(f"缓存股票[{stock_code}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                logger.warning(f"缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
                 return False
         except Exception as e:
-            logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
     # --- 修正后的写入缓存方法 (使用 ZADD) ---
@@ -585,7 +589,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"time_deal.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_time_deal(stock_code)
-        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Latest", data_to_cache, cache_key)
 
     async def real_percent(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
