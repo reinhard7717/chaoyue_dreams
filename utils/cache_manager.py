@@ -52,6 +52,7 @@ class CacheManager:
         'ts': 'timeseries',   # 时间序列
         'calc': 'calculation', # 计算结果
         'user': 'user',       # 用户数据
+        'strategy': 'strategy', # 策略数据
     }
     
     # 默认过期时间（秒）
@@ -61,6 +62,7 @@ class CacheManager:
         'ts': 86400 * 7,      # 时间序列缓存7天 (根据需要调整)
         'calc': 300,          # 计算结果缓存5分钟
         'user': 1800,         # 用户数据缓存30分钟
+        'strategy': 1800,     # 策略数据缓存30分钟
     }
     
     # 是否压缩大数据集（超过阈值的数据会被压缩）
