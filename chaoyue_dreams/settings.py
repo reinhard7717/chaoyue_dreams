@@ -106,10 +106,11 @@ CACHES = {
             # 添加连接池配置
             'CONNECTION_POOL_KWARGS': {
                 'max_connections': 100,
-                'timeout': 20,  # 连接池获取连接的超时时间
+                'socket_timeout': 20,
+                'socket_connect_timeout': 10,  # 连接超时
+                'socket_keepalive': True,      # 保持连接活跃
+                'health_check_interval': 30,   # 定期健康检查
             },
-            # 健康检查
-            'HEALTH_CHECK_INTERVAL': 30,  # 每30秒检查连接健康状态
             # 压缩配置（减少网络传输数据量）
             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
             'COMPRESS_MIN_LEN': 10,  # 最小压缩长度
