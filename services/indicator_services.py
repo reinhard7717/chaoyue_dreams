@@ -922,7 +922,7 @@ class IndicatorService:
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
 
-        logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
+        # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
 
     async def calculate_and_save_macd_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
         """
@@ -991,7 +991,7 @@ class IndicatorService:
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
 
-        logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
+        # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
 
 
     async def prepare_strategy_dataframe(self, stock_code: str, timeframes: List[str],
