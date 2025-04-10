@@ -650,6 +650,7 @@ class StrategyCacheSet(CacheSet):
             logger.error(f"macd_rsi_kdj_boll_data.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_strategy.macd_rsi_kdj_boll_data(stock_code, time_level)
+        logger.info(f"macd_rsi_kdj_boll_data.cache_key: {cache_key}")
         return await self._stock_strategy_data(stock_code, time_level, data_to_cache, cache_key)
 
 
