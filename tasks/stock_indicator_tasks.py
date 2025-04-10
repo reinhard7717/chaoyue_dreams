@@ -10,6 +10,8 @@ from celery import Celery, group # 导入 group
 from celery.utils.log import get_task_logger
 from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE
 # 假设这是你要调用的服务
+from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
+from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 from services.indicator_services import IndicatorService
 # 假设这是你要用的 DAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
@@ -222,80 +224,75 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
 
 
 # --- 配置 ---
-STOCK_PROCESSING_BATCH_SIZE = 100  # 每个批处理任务处理的股票数量，根据内存和任务复杂度调整
+STOCK_PROCESSING_BATCH_SIZE = 100  # 每个批处理任务处理的股票数量
 
-# --- 新的批处理 Worker 任务 ---
+# --- 新的批处理 Worker 任务 (修改为同步包装器) ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_stock_batch_with_original_logic')
-async def process_stock_batch_with_original_logic(self, stock_codes_batch):
+def process_stock_batch_with_original_logic(self, stock_codes_batch): # 改为 def
     """
-    处理一个批次的股票，执行原有的获取数据和计算指标逻辑。
-    这是一个异步任务，因为它内部调用了异步的指标计算。
+    处理一个批次的股票（同步任务包装器）。
+    内部使用 asyncio.run() 执行异步逻辑。
     """
     batch_size = len(stock_codes_batch)
-    logger.info(f"任务启动: process_stock_batch_with_original_logic - 处理 {batch_size} 只股票")
-    processed_count = 0
-    error_count = 0
-    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-    from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
-    stock_indicators_dao = StockIndicatorsDAO()
-    stock_realtime_dao = StockRealtimeDAO()
-    # 在任务内部实例化，确保隔离性
-    indicator_services = IndicatorService()
-    # 注意：如果 process_single_stock... 是同步函数或非 Celery 任务，你需要相应调整调用方式
+    logger.info(f"任务启动 (同步包装器): process_stock_batch_with_original_logic - 处理 {batch_size} 只股票")
 
-    for stock_code in stock_codes_batch:
-        try:
-            logger.debug(f"批处理 (原逻辑): 开始处理股票 {stock_code}")
-            
-            await stock_indicators_dao.fetch_and_save_latest_time_trade_trading_hours_by_stock_code(stock_code)
-            await stock_realtime_dao.fetch_and_save_time_deals(stock_code)
+    # 定义内部异步函数，包含所有需要 await 的操作
+    async def _run_async_batch_logic(batch):
+        processed_count = 0
+        error_count = 0
+        # 在异步函数内部实例化或获取异步资源
+        indicator_services = IndicatorService()
+        stock_indicators_dao = StockIndicatorsDAO()
+        stock_realtime_dao = StockRealtimeDAO()
 
-            # --- 执行原循环内部的逻辑 ---
-            # 1. 调用其他获取数据的任务 (如果它们是 Celery tasks)
-            # process_single_stock_latest_trade_trading_hours.delay(stock_code)
-            # process_single_stock_realtime_trade.delay(stock_code)
-            # 注意： .delay() 是异步发送，计算指标的步骤会立即执行，
-            # 如果计算指标依赖这些任务的结果，你需要更复杂的同步机制（如 .get() 或回调），
-            # 或者更好的方式是将这些数据获取逻辑也直接包含在这个批处理任务中（如下面的注释示例）。
+        for stock_code in batch:
+            try:
+                logger.debug(f"批处理 (异步逻辑): 开始处理股票 {stock_code}")
 
-            # --- 或者，直接在此处执行数据获取逻辑 (推荐，保证顺序) ---
-            # logger.debug(f"批处理 (原逻辑): 获取 {stock_code} 的最新交易数据...")
-            # await fetch_latest_trade_data(stock_code) # 实现或调用相应函数
-            # logger.debug(f"批处理 (原逻辑): 获取 {stock_code} 的实时交易数据...")
-            # await fetch_realtime_trade_data(stock_code) # 实现或调用相应函数
+                # 1. 获取数据 (按顺序执行)
+                await stock_indicators_dao.fetch_and_save_latest_time_trade_trading_hours_by_stock_code(stock_code)
+                await stock_realtime_dao.fetch_and_save_time_deals(stock_code)
 
-            # 2. 计算并保存指标
-            logger.debug(f"批处理 (原逻辑): 计算 {stock_code} 的指标...")
-            for time_level in TIME_TEADE_TIME_LEVELS_LITE:
-                await indicator_services.calculate_and_save_macd_indicators(stock_code, time_level)
-                # 如果还有其他指标计算，也放在这里
-                # await indicator_services.calculate_and_save_kdj_indicators(stock_code, time_level)
+                # 2. 计算并保存指标
+                logger.debug(f"批处理 (异步逻辑): 计算 {stock_code} 的指标...")
+                for time_level in TIME_TEADE_TIME_LEVELS_LITE:
+                    await indicator_services.calculate_and_save_macd_indicators(stock_code, time_level)
+                    # 其他指标计算...
 
-            # 3. （可选）执行策略逻辑
-            # logger.debug(f"批处理 (原逻辑): 执行 {stock_code} 的策略...")
-            # await run_strategy_for_stock(stock_code) # 实现或调用相应函数
+                # 3. （可选）执行策略逻辑
+                # await run_strategy_for_stock(stock_code)
 
-            # --- 原循环内部逻辑结束 ---
+                logger.debug(f"批处理 (异步逻辑): 完成处理股票 {stock_code}")
+                processed_count += 1
 
-            logger.debug(f"批处理 (原逻辑): 完成处理股票 {stock_code}")
-            processed_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.error(f"批处理 (异步逻辑): 处理股票 {stock_code} 时出错: {e}", exc_info=True)
+                # 继续处理下一只股票
 
-        except Exception as e:
-            error_count += 1
-            logger.error(f"批处理 (原逻辑): 处理股票 {stock_code} 时出错: {e}", exc_info=True)
-            # 可以选择重试单只股票，但这会增加复杂度。通常是记录错误，继续处理批次内其他股票。
-            # continue
+        return processed_count, error_count
 
-    logger.info(f"任务结束: process_stock_batch_with_original_logic - 处理完成 {processed_count}/{batch_size} 只股票，失败 {error_count} 只")
-    if error_count > 0:
-        # 可以根据需要决定是否让整个批次任务失败
-        # raise Exception(f"批处理任务中有 {error_count} 只股票处理失败")
-        pass
-    return f"批处理 (原逻辑) 完成: {processed_count} 成功, {error_count} 失败"
+    # --- 在同步任务中使用 asyncio.run() 执行内部异步函数 ---
+    try:
+        # asyncio.run 会创建并管理事件循环来运行 _run_async_batch_logic
+        processed_count, error_count = asyncio.run(_run_async_batch_logic(stock_codes_batch))
+
+        logger.info(f"任务结束 (同步包装器): process_stock_batch_with_original_logic - 处理完成 {processed_count}/{batch_size} 只股票，失败 {error_count} 只")
+        if error_count > 0:
+            # 可以根据需要决定是否让整个批次任务失败
+            # raise Exception(f"批处理任务中有 {error_count} 只股票处理失败")
+            pass
+        return f"批处理 (原逻辑) 完成: {processed_count} 成功, {error_count} 失败"
+
+    except Exception as e:
+        # 捕获 asyncio.run 或内部异步逻辑可能抛出的任何异常
+        logger.error(f"执行 process_stock_batch_with_original_logic (同步包装器) 时出错: {e}", exc_info=True)
+        # 让 Celery 知道任务失败了
+        raise # 重新抛出异常
 
 
 # --- 异步辅助函数：获取所有需要处理的股票代码 ---
-#    （与上一个方案相同）
+#    （保持不变）
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表（自选+所有）"""
     stock_basic_dao = StockBasicDAO()
@@ -310,7 +307,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 
     try:
         all_stocks = await stock_basic_dao.get_stock_list()
-        original_count = len(stock_codes)
+        # original_count = len(stock_codes) # 这行似乎没用，可以去掉
         for stock in all_stocks:
             stock_codes.add(stock.stock_code)
         logger.info(f"获取到 {len(all_stocks)} 个全市场股票代码，总计（去重后） {len(stock_codes)} 个")
@@ -325,6 +322,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 
 
 # --- 修改原有的任务，使其成为调度器 ---
+#    （保持不变，它已经是同步的 def）
 @celery_app.task(bind=True, name='tasks.stock_indicators.get_trade_and_calculate_and_strategy')
 def get_trade_and_calculate_and_strategy(self):
     """
@@ -353,9 +351,9 @@ def get_trade_and_calculate_and_strategy(self):
 
             if batch:
                 # 为每个批次异步调用新的批处理任务
+                # 调用的仍然是 process_stock_batch_with_original_logic，但现在它是一个同步包装器
                 process_stock_batch_with_original_logic.delay(batch)
                 logger.info(f"已分派批次 {i+1}/{num_batches} ({len(batch)} 只股票) 的处理任务 (使用原逻辑)")
-                # 可以在批次之间短暂休眠，避免瞬间冲击 Broker
                 # import time
                 # time.sleep(0.1)
 
@@ -364,12 +362,8 @@ def get_trade_and_calculate_and_strategy(self):
 
     except Exception as e:
         logger.error(f"执行 get_trade_and_calculate_and_strategy (调度器模式) 时出错: {e}", exc_info=True)
-        # 可以添加重试逻辑
         # raise self.retry(exc=e, countdown=300, max_retries=1)
         return "调度任务执行失败"
-
-
-
 
 
 
