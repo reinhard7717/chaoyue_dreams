@@ -17,9 +17,9 @@ if sys.version_info >= (3, 12):
         asyncio.coroutines._DEBUG = asyncio.coroutines._is_debug_mode()
 
 # 显式导入所有任务模块
-from . import index_tasks
+# from . import index_tasks
 from . import stock_indicator_tasks
-from . import indicator_tasks
+# from . import indicator_tasks
 # from . import stock_tasks
 # from . import fund_flow_tasks
 # from . import datacenter_tasks
