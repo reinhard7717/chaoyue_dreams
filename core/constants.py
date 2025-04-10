@@ -6,15 +6,15 @@ FIB_PERIODS = [5, 8, 13, 21, 34, 55, 89, 144, 233]
 
 # 时间级别枚举 (如果还没有的话)
 class TimeLevel(Enum):
-    MIN_1 = '1m'
-    MIN_5 = '5m'
-    MIN_15 = '15m'
-    MIN_30 = '30m'
-    MIN_60 = '60m'
-    DAY = '1d'
-    WEEK = '1w'
-    MONTH = '1M'
-    YEAR = '1y'
+    MIN_1 = '1'
+    MIN_5 = '5'
+    MIN_15 = '15'
+    MIN_30 = '30'
+    MIN_60 = '60'
+    DAY = 'Day'
+    WEEK = 'Week'
+    MONTH = 'Month'
+    YEAR = 'Year'
     # ... 其他需要的级别
 
 # finta 需要的列名

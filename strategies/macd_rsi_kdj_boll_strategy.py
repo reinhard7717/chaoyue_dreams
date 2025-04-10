@@ -16,7 +16,7 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
 
     策略逻辑:
     1. 以 15 分钟 K 线为主要操作周期。
-    2. 结合 5m, 15m, 30m, 60m 四个时间周期的 MACD, RSI, KDJ, BOLL 指标。
+    2. 结合 5, 15, 30, 60 四个时间周期的 MACD, RSI, KDJ, BOLL 指标。
     3. 为每个指标在每个时间周期生成初步信号 (-1, 0, 1)。
     4. 根据时间周期为信号分配权重 (短周期权重低，长周期权重高)。
     5. 计算加权总分。
@@ -102,19 +102,19 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
         """
         返回策略运行所需的 DataFrame 列名。
         假设列名格式为: 'indicatorName_timeframe' 或 'price_timeframe'
-        例如: 'close_15m', 'macd_5m', 'dea_5m', 'rsi_14_15m', 'k_9_3_3_30m', 'upper_20_2_60m'
+        例如: 'close_15', 'macd_5', 'dea_5', 'rsi_14_15', 'k_9_3_3_30', 'upper_20_2_60'
         注意：这里的列名需要与数据准备阶段生成的 DataFrame 列名完全一致！
         """
         required = []
         # 主操作周期的收盘价 (用于 BOLL 比较)
-        required.append('close_15m') # 假设以 15m 收盘价为基准
+        required.append('close_15') # 假设以 15 收盘价为基准
 
         for tf in self.timeframes:
             # MACD 列 (假设数据库模型字段为 diff, dea, macd)
             required.extend([f'diff_{tf}', f'dea_{tf}', f'macd_{tf}'])
             # RSI 列 (假设数据库模型字段为 rsi+周期，或需要根据参数构造)
-            # 简化处理：假设列名为 rsi_TF (例如 rsi_5m, rsi_15m)
-            # 如果列名包含周期，如 rsi_14_5m, 需要调整这里的逻辑或参数
+            # 简化处理：假设列名为 rsi_TF (例如 rsi_5, rsi_15)
+            # 如果列名包含周期，如 rsi_14_5, 需要调整这里的逻辑或参数
             required.append(f'rsi_{tf}') # 简化假设，实际可能需要 f'rsi_{self.params["rsi_period"]}_{tf}'
             # KDJ 列 (假设数据库模型字段为 k_value, d_value, j_value)
             required.extend([f'k_{tf}', f'd_{tf}', f'j_{tf}']) # 简化假设
@@ -220,7 +220,7 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
 
         # 获取主操作周期的收盘价 (用于 BOLL)
         # 确保列名存在，否则 BaseStrategy 的 run 方法会报错
-        close_15m = data['close_15m']
+        close_15m = data['close_15']
 
         # 1. 为每个时间周期计算各指标的初步信号
         for tf in self.timeframes:

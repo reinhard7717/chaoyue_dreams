@@ -1006,7 +1006,7 @@ class IndicatorService:
                                 需要足够大以覆盖指标计算的回溯期和策略分析期。
         Returns:
             Optional[pd.DataFrame]: 合并后的 DataFrame，索引为 trade_time (升序)，
-                                     列名为策略所需的格式 (e.g., 'diff_5m', 'rsi_15m', 'close_15m')。
+                                     列名为策略所需的格式 (e.g., 'diff_5', 'rsi_15', 'close_15')。
                                      如果数据准备失败或不完整，则返回 None。
         """
         logger.info(f"[{stock_code}] 开始准备策略 DataFrame for timeframes: {timeframes}")
@@ -1023,7 +1023,7 @@ class IndicatorService:
         # --- 2. 创建并发任务列表 ---
         tasks = []
         task_descriptions = {} # 用于追踪任务对应的指标和时间周期
-        # 主操作周期 (假设为 15m) 的收盘价
+        # 主操作周期 (假设为 15) 的收盘价
         main_tf = '15' # 或者从策略参数获取
         if main_tf not in timeframes:
              logger.warning(f"[{stock_code}] 主时间周期 '{main_tf}' 不在请求的时间周期列表中，仍将获取其收盘价。")
@@ -1059,7 +1059,7 @@ class IndicatorService:
             desc = task_descriptions[i]
             data_type = desc['type']
             tf = desc['tf']
-            data_key = f"{data_type}_{tf}" # e.g., macd_5m, close_15m
+            data_key = f"{data_type}_{tf}" # e.g., macd_5, close_15
             if isinstance(result, Exception):
                 logger.warning(f"[{stock_code}] 获取 {data_key} 数据时出错: {result}", exc_info=False) # 只记录错误信息，不打印完整堆栈
                 fetched_data_summary[data_key] = "Error"
@@ -1072,7 +1072,7 @@ class IndicatorService:
             df = result.copy() # 操作副本
             rename_map = {}
             if data_type == 'close':
-                rename_map = {'close_price': f'close_{tf}'} # e.g., close_15m
+                rename_map = {'close_price': f'close_{tf}'} # e.g., close_15
             elif data_type == 'macd':
                 rename_map = {'diff': f'diff_{tf}', 'dea': f'dea_{tf}', 'macd': f'macd_{tf}'}
             elif data_type == 'rsi':

@@ -677,7 +677,6 @@ class IndicatorDAO(BaseDAO):
             logger.warning(f"[get_macd_fib_df] 无法找到股票信息: {stock_code}")
             return None
         time_level_str = str(time_level) # 确保是字符串
-        logger.debug(f"[get_macd_fib_df] 开始查询 {stock_code} {time_level_str} 的 MACD-FIB 数据 (limit={limit})")
         try:
             # 使用 sync_to_async 执行 ORM 查询
             # 使用 .values() 直接获取字典列表，更高效
@@ -689,7 +688,6 @@ class IndicatorDAO(BaseDAO):
             if not macd_data_dicts:
                 logger.warning(f"[get_macd_fib_df] 未找到 {stock_code} {time_level_str} 的 MACD-FIB 数据")
                 return None
-            logger.debug(f"[get_macd_fib_df] 从数据库获取到 {len(macd_data_dicts)} 条 MACD-FIB 原始数据 for {stock_code} {time_level_str}")
             # 将字典列表转换为 DataFrame
             df = pd.DataFrame.from_records(macd_data_dicts)
             # --- 数据类型转换和处理 ---
@@ -715,7 +713,6 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"[get_macd_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
-            logger.info(f"[get_macd_fib_df] 成功为 {stock_code} {time_level_str} 创建 MACD-FIB DataFrame，形状: {df.shape}")
             return df
         except Exception as e:
             logger.error(f"[get_macd_fib_df] 获取或处理股票[{stock_code}] {time_level_str} MACD-FIB 数据失败: {str(e)}", exc_info=True)
@@ -757,7 +754,6 @@ class IndicatorDAO(BaseDAO):
         try:
             closest_fib_period = self._find_closest_fib_period(rsi_period)
             rsi_col_name = f"rsi{closest_fib_period}"
-            logger.info(f"[get_rsi_fib_df] Target RSI period {rsi_period}, using closest FIB column: {rsi_col_name}")
         except ValueError as e:
              logger.error(f"[get_rsi_fib_df] Error finding closest FIB period: {e}", exc_info=True)
              return None
@@ -771,8 +767,6 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"[get_rsi_fib_df] Model StockRsiFIB does not have field '{rsi_col_name}'")
             return None
 
-        logger.debug(f"[get_rsi_fib_df] 开始查询 {stock_code} {time_level_str} 的 RSI-FIB 数据 (column: {rsi_col_name}, limit={limit})")
-
         try:
             # 2. 查询数据库
             rsi_data_dicts = await sync_to_async(list)(
@@ -784,9 +778,6 @@ class IndicatorDAO(BaseDAO):
             if not rsi_data_dicts:
                 logger.warning(f"[get_rsi_fib_df] 未找到 {stock_code} {time_level_str} 的 RSI-FIB 数据 (column: {rsi_col_name})")
                 return None
-
-            logger.debug(f"[get_rsi_fib_df] 从数据库获取到 {len(rsi_data_dicts)} 条 RSI-FIB 原始数据 for {stock_code} {time_level_str}")
-
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(rsi_data_dicts)
 
@@ -811,8 +802,6 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"[get_rsi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
-
-            logger.info(f"[get_rsi_fib_df] 成功为 {stock_code} {time_level_str} 创建 RSI-FIB DataFrame (using {rsi_col_name}), 形状: {df.shape}")
             return df[['rsi']] # 只返回包含 'rsi' 列的 DataFrame
 
         except Exception as e:
@@ -838,7 +827,6 @@ class IndicatorDAO(BaseDAO):
             logger.warning(f"[get_boll_df] 无法找到股票信息: {stock_code}")
             return None
         time_level_str = str(time_level)
-        logger.debug(f"[get_boll_df] 开始查询 {stock_code} {time_level_str} 的 BOLL 数据 (limit={limit})")
         try:
             # 查询数据库
             boll_data_dicts = await sync_to_async(list)(
@@ -850,7 +838,6 @@ class IndicatorDAO(BaseDAO):
             if not boll_data_dicts:
                 logger.warning(f"[get_boll_df] 未找到 {stock_code} {time_level_str} 的 BOLL 数据")
                 return None
-            logger.debug(f"[get_boll_df] 从数据库获取到 {len(boll_data_dicts)} 条 BOLL 原始数据 for {stock_code} {time_level_str}")
             # 转换为 DataFrame
             df = pd.DataFrame.from_records(boll_data_dicts)
             # 数据类型转换
@@ -871,7 +858,6 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"[get_boll_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
-            logger.info(f"[get_boll_df] 成功为 {stock_code} {time_level_str} 创建 BOLL DataFrame，形状: {df.shape}")
             # 返回包含所需列的 DataFrame
             return df[['upper', 'mid', 'lower']]
         except Exception as e:
@@ -897,7 +883,6 @@ class IndicatorDAO(BaseDAO):
             logger.warning(f"[get_close_price_df] 无法找到股票信息: {stock_code}")
             return None
         time_level_str = str(time_level)
-        logger.debug(f"[get_close_price_df] 开始查询 {stock_code} {time_level_str} 的收盘价数据 (limit={limit})")
         try:
             # 查询数据库 StockTimeTrade 模型
             close_data_dicts = await sync_to_async(list)(
@@ -909,9 +894,6 @@ class IndicatorDAO(BaseDAO):
             if not close_data_dicts:
                 logger.warning(f"[get_close_price_df] 未找到 {stock_code} {time_level_str} 的收盘价数据")
                 return None
-
-            logger.debug(f"[get_close_price_df] 从数据库获取到 {len(close_data_dicts)} 条收盘价原始数据 for {stock_code} {time_level_str}")
-
             # 转换为 DataFrame
             df = pd.DataFrame.from_records(close_data_dicts)
 
@@ -925,21 +907,14 @@ class IndicatorDAO(BaseDAO):
             else:
                  df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
             df.set_index('trade_time', inplace=True)
-
             # 按时间升序排序
             df.sort_index(ascending=True, inplace=True)
-
             # 清理和检查
             df.dropna(subset=['close_price'], how='all', inplace=True)
-
             if df.empty:
                  logger.warning(f"[get_close_price_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
-
-            logger.info(f"[get_close_price_df] 成功为 {stock_code} {time_level_str} 创建收盘价 DataFrame，形状: {df.shape}")
-            # 返回包含所需列的 DataFrame
             return df[['close_price']]
-
         except Exception as e:
             logger.error(f"[get_close_price_df] 获取或处理股票[{stock_code}] {time_level_str} 收盘价数据失败: {str(e)}", exc_info=True)
             return None
@@ -974,7 +949,6 @@ class IndicatorDAO(BaseDAO):
             d_col_name = f"d_{closest_fib_period}"
             j_col_name = f"j_{closest_fib_period}"
             target_columns = ['trade_time', k_col_name, d_col_name, j_col_name]
-            logger.info(f"[get_kdj_fib_df] Target KDJ period K={kdj_period_k}, using closest FIB columns: {k_col_name}, {d_col_name}, {j_col_name}")
         except ValueError as e:
              logger.error(f"[get_kdj_fib_df] Error finding closest FIB period: {e}", exc_info=True)
              return None
@@ -988,7 +962,6 @@ class IndicatorDAO(BaseDAO):
         except FieldDoesNotExist as e_field:
             logger.error(f"[get_kdj_fib_df] Model StockKDJFIB missing required field: {e_field}")
             return None
-        logger.debug(f"[get_kdj_fib_df] 开始查询 {stock_code} {time_level_str} 的 KDJ-FIB 数据 (columns: {target_columns}, limit={limit})")
         try:
             # 2. 查询数据库
             kdj_data_dicts = await sync_to_async(list)(
@@ -999,7 +972,6 @@ class IndicatorDAO(BaseDAO):
             if not kdj_data_dicts:
                 logger.warning(f"[get_kdj_fib_df] 未找到 {stock_code} {time_level_str} 的 KDJ-FIB 数据 (columns: {k_col_name}, {d_col_name}, {j_col_name})")
                 return None
-            logger.debug(f"[get_kdj_fib_df] 从数据库获取到 {len(kdj_data_dicts)} 条 KDJ-FIB 原始数据 for {stock_code} {time_level_str}")
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(kdj_data_dicts)
             # 4. 重命名列并处理数据类型
@@ -1026,7 +998,6 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"[get_kdj_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
-            logger.info(f"[get_kdj_fib_df] 成功为 {stock_code} {time_level_str} 创建 KDJ-FIB DataFrame (using {k_col_name}, {d_col_name}, {j_col_name}), 形状: {df.shape}")
             # 返回包含所需列的 DataFrame
             return df[['k', 'd', 'j']]
         except Exception as e:
