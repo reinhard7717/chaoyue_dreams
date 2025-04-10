@@ -91,63 +91,63 @@ class IndicatorDAO(BaseDAO):
 
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
 
-        # 1. 尝试从Redis获取数据
-        try:
-            # 假设 cache_get.history_time_trade_by_limit 返回 List[Dict] 或 None
-            cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
-        except Exception as e:
-            logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
-            cache_data = None # 出错则认为缓存未命中
+        # # 1. 尝试从Redis获取数据
+        # try:
+        #     # 假设 cache_get.history_time_trade_by_limit 返回 List[Dict] 或 None
+        #     cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
+        # except Exception as e:
+        #     logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
+        #     cache_data = None # 出错则认为缓存未命中
 
-        if cache_data:
-            logger.debug(f"从缓存获取到 {stock_code} {time_level_str} 历史数据 (limit={limit})，共 {len(cache_data)} 条，进行转换...")
-            model_instances = []
-            conversion_errors = 0
-            for item_dict in cache_data:
-                try:
-                    # 将字典转换为 StockTimeTrade 模型实例
-                    trade_time = self._safe_datetime(item_dict.get('trade_time'))
-                    if not trade_time: # 如果时间无效，跳过此条记录
-                        logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
-                        conversion_errors += 1
-                        continue
+        # if cache_data:
+        #     logger.debug(f"从缓存获取到 {stock_code} {time_level_str} 历史数据 (limit={limit})，共 {len(cache_data)} 条，进行转换...")
+        #     model_instances = []
+        #     conversion_errors = 0
+        #     for item_dict in cache_data:
+        #         try:
+        #             # 将字典转换为 StockTimeTrade 模型实例
+        #             trade_time = self._safe_datetime(item_dict.get('trade_time'))
+        #             if not trade_time: # 如果时间无效，跳过此条记录
+        #                 logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
+        #                 conversion_errors += 1
+        #                 continue
 
-                    instance = StockTimeTrade(
-                        stock=stock, # 使用前面获取的 StockInfo 实例
-                        time_level=time_level_str,
-                        trade_time=trade_time,
-                        open_price=self._safe_decimal(item_dict.get('open_price')),
-                        high_price=self._safe_decimal(item_dict.get('high_price')),
-                        low_price=self._safe_decimal(item_dict.get('low_price')),
-                        close_price=self._safe_decimal(item_dict.get('close_price')),
-                        volume=self._safe_int(item_dict.get('volume')),
-                        turnover=self._safe_decimal(item_dict.get('turnover')),
-                        amplitude=self._safe_decimal(item_dict.get('amplitude')),
-                        turnover_rate=self._safe_decimal(item_dict.get('turnover_rate')),
-                        price_change_percent=self._safe_decimal(item_dict.get('price_change_percent')),
-                        price_change_amount=self._safe_decimal(item_dict.get('price_change_amount')),
-                    )
-                    model_instances.append(instance)
-                except Exception as e_conv:
-                    conversion_errors += 1
-                    logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False) # 避免过多日志
+        #             instance = StockTimeTrade(
+        #                 stock=stock, # 使用前面获取的 StockInfo 实例
+        #                 time_level=time_level_str,
+        #                 trade_time=trade_time,
+        #                 open_price=self._safe_decimal(item_dict.get('open_price')),
+        #                 high_price=self._safe_decimal(item_dict.get('high_price')),
+        #                 low_price=self._safe_decimal(item_dict.get('low_price')),
+        #                 close_price=self._safe_decimal(item_dict.get('close_price')),
+        #                 volume=self._safe_int(item_dict.get('volume')),
+        #                 turnover=self._safe_decimal(item_dict.get('turnover')),
+        #                 amplitude=self._safe_decimal(item_dict.get('amplitude')),
+        #                 turnover_rate=self._safe_decimal(item_dict.get('turnover_rate')),
+        #                 price_change_percent=self._safe_decimal(item_dict.get('price_change_percent')),
+        #                 price_change_amount=self._safe_decimal(item_dict.get('price_change_amount')),
+        #             )
+        #             model_instances.append(instance)
+        #         except Exception as e_conv:
+        #             conversion_errors += 1
+        #             logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False) # 避免过多日志
 
-            if conversion_errors > 0:
-                 logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
+        #     if conversion_errors > 0:
+        #          logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
 
-            if not model_instances:
-                logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}")
-                # 这里可以选择返回 None 或继续尝试从数据库获取
-                # 为了与原逻辑一致（缓存命中直接返回），如果转换后为空，我们返回 None
-                return None
+        #     if not model_instances:
+        #         logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}")
+        #         # 这里可以选择返回 None 或继续尝试从数据库获取
+        #         # 为了与原逻辑一致（缓存命中直接返回），如果转换后为空，我们返回 None
+        #         return None
 
-            # 重要：确保返回的数据是按时间升序排列的
-            # 假设缓存存储的是最新的 N 条（时间降序），需要反转
-            # 如果缓存本身就是升序存储，则不需要 reverse()
-            model_instances.sort(key=lambda x: x.trade_time) # 使用 sort 保证升序
+        #     # 重要：确保返回的数据是按时间升序排列的
+        #     # 假设缓存存储的是最新的 N 条（时间降序），需要反转
+        #     # 如果缓存本身就是升序存储，则不需要 reverse()
+        #     model_instances.sort(key=lambda x: x.trade_time) # 使用 sort 保证升序
 
-            logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
-            return model_instances
+        #     logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
+        #     return model_instances
 
         # 2. 如果缓存未命中或处理失败，从数据库获取数据
         logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")

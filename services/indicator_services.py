@@ -60,7 +60,7 @@ class IndicatorService:
         # 如果有 turnover 列，也转为小写
         if 'turnover' in df.columns:
             df = df.rename(columns={'turnover': 'turnover'}) # 确保是小写
-
+        logger.info(f"获取的数据长度: {len(df)}")
         return df
 
     # --- 单个指标计算方法 (使用 pandas-ta) ---
@@ -320,12 +320,12 @@ class IndicatorService:
                                 results[f'D_{period}'] = kdj_df.iloc[:, 1]
                             if f'J_{period}' not in results and len(kdj_df.columns) >= 3:
                                 results[f'J_{period}'] = kdj_df.iloc[:, 2]
-                        else:
-                            logger.warning(f"pandas-ta kdj({period}, {m1}, {m2}) 计算失败或返回空")
+                        # else:
+                        #     logger.warning(f"pandas-ta kdj({period}, {m1}, {m2}) 计算失败或返回空")
                     except Exception as e_kdj_calc:
                         logger.error(f"内部计算 KDJ({period}, {m1}, {m2}) 时出错: {e_kdj_calc}", exc_info=True)
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KDJ({period}, {m1}, {m2})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KDJ({period}, {m1}, {m2})")
             final_results = {k: v for k, v in results.items() if v is not None and not v.isnull().all()}
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
         except Exception as e:
@@ -689,42 +689,32 @@ class IndicatorService:
                     try:
                         # 计算KC指标
                         kc_df = ohlc.ta.kc(length=period, atr_length=atr_length, scalar=scalar)
-                        # 输出实际返回的列名
-                        logger.info(f"KC(length={period}, atr_length={atr_length}) 返回列名: {list(kc_df.columns) if kc_df is not None and not kc_df.empty else 'None'}")
                         if kc_df is not None and not kc_df.empty:
                             # 根据日志发现的实际列名格式
                             lower_col = f'KCLe_{period}_{scalar}'
                             basis_col = f'KCBe_{period}_{scalar}'
                             upper_col = f'KCUe_{period}_{scalar}'
-                            
                             # 尝试直接匹配正确的列名
                             if lower_col in kc_df.columns:
                                 all_kc_results[f'KC_LOWER_{period}'] = kc_df[lower_col]
-                                logger.info(f"找到Lower列: {lower_col}")
-                            
                             if basis_col in kc_df.columns:
                                 all_kc_results[f'KC_BASIS_{period}'] = kc_df[basis_col]
-                                logger.info(f"找到Basis列: {basis_col}")
                             if upper_col in kc_df.columns:
                                 all_kc_results[f'KC_UPPER_{period}'] = kc_df[upper_col]
-                                logger.info(f"找到Upper列: {upper_col}")
                             # 如果没有找到匹配的列名，回退到位置索引
                             if f'KC_LOWER_{period}' not in all_kc_results and len(kc_df.columns) >= 1:
                                 all_kc_results[f'KC_LOWER_{period}'] = kc_df.iloc[:, 0]
-                                logger.info(f"使用位置索引(0)找到Lower值")  
                             if f'KC_BASIS_{period}' not in all_kc_results and len(kc_df.columns) >= 2:
                                 all_kc_results[f'KC_BASIS_{period}'] = kc_df.iloc[:, 1]
-                                logger.info(f"使用位置索引(1)找到Basis值")
                             if f'KC_UPPER_{period}' not in all_kc_results and len(kc_df.columns) >= 3:
                                 all_kc_results[f'KC_UPPER_{period}'] = kc_df.iloc[:, 2]
                                 logger.info(f"使用位置索引(2)找到Upper值")
-                        else:
-                            logger.warning(f"pandas-ta kc(length={period}, atr_length={atr_length}) 计算失败或返回空")
+                        # else:
+                        #     logger.warning(f"pandas-ta kc(length={period}, atr_length={atr_length}) 计算失败或返回空")
                     except Exception as e_kc_calc:
                         logger.error(f"内部计算 KC(length={period}, atr_length={atr_length}) 时出错: {e_kc_calc}", exc_info=True)
             # 过滤掉值为 None 或完全是 NaN 的 Series
             final_results = {k: v for k, v in all_kc_results.items() if isinstance(v, pd.Series) and not v.isnull().all()}
-            logger.info(f"计算 KC_FIB 完成，结果键: {list(final_results.keys())}")
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
         except Exception as e:
             logger.error(f"计算 KC_FIB 失败: {e}", exc_info=True)
