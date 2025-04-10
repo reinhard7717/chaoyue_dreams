@@ -77,8 +77,8 @@ class IndicatorService:
                     atr_series = ohlc.ta.atr(length=period)
                     if atr_series is not None:
                         results[f'ATR_{period}'] = atr_series # 使用与之前一致的 key
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 ATR({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 ATR({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 ATR_FIB 失败: {e}", exc_info=True)
@@ -137,8 +137,8 @@ class IndicatorService:
                          # 使用与之前 finta 不同的 key，但更符合 pandas-ta 风格
                          # results[f'{period} period CCI'] = cci_series
                          results[f'CCI_{period}'] = cci_series # 改为 CCI_period 格式
-                else:
-                     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 CCI({period})")
+                # else:
+                #      logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 CCI({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 CCI_FIB 失败: {e}", exc_info=True)
@@ -159,8 +159,8 @@ class IndicatorService:
                     if cmf_series is not None:
                         # results[f'{period} period CMF'] = cmf_series # finta 风格 key
                         results[f'CMF_{period}'] = cmf_series # pandas-ta 风格 key
-                else:
-                     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 CMF({period})")
+                # else:
+                #      logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 CMF({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 CMF_FIB 失败: {e}", exc_info=True)
@@ -225,8 +225,8 @@ class IndicatorService:
                          # 捕获特定周期的计算错误，记录并继续下一个周期
                          logger.error(f"内部计算 DMI/ADX/ADXR({period}) 时出错: {e_dmi_calc}", exc_info=True)
 
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)} < {required_len}) 无法计算 DMI/ADX/ADXR({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)} < {required_len}) 无法计算 DMI/ADX/ADXR({period})")
 
             # 过滤掉值为 None 或完全是 NaN 的 Series
             final_results = {k: v for k, v in results.items() if isinstance(v, pd.Series) and not v.isnull().all()}
@@ -320,8 +320,8 @@ class IndicatorService:
 
                     except Exception as e_kdj_calc:
                         logger.error(f"内部计算 KDJ({period}, {m1}, {m2}) 时出错: {e_kdj_calc}", exc_info=True)
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KDJ({period}, {m1}, {m2})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KDJ({period}, {m1}, {m2})")
 
             final_results = {k: v for k, v in results.items() if v is not None and not v.isnull().all()}
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
@@ -341,8 +341,8 @@ class IndicatorService:
                     ema_series = ohlc.ta.ema(length=period)
                     if ema_series is not None:
                         results[f'EMA_{period}'] = ema_series # key 与 pandas-ta 列名一致
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 EMA({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 EMA({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 EMA_FIB 失败: {e}", exc_info=True)
@@ -365,8 +365,8 @@ class IndicatorService:
                     # pandas-ta 返回的列名可能是 SMA_period，我们需要重命名 key
                     if amt_ma_series is not None:
                         results[f'AMT_MA_{period}'] = amt_ma_series
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 Amount MA({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 Amount MA({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 Amount MA FIB 失败: {e}", exc_info=True)
@@ -433,8 +433,8 @@ class IndicatorService:
                     # ---------------------------------
                     if mfi_series is not None:
                         results[f'MFI_{period}'] = mfi_series # key 与 pandas-ta 列名一致
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 MFI({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 MFI({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 MFI_FIB 失败: {e}", exc_info=True)
@@ -452,8 +452,8 @@ class IndicatorService:
                     mom_series = ohlc.ta.mom(length=period)
                     if mom_series is not None:
                         results[f'MOM_{period}'] = mom_series # key 与 pandas-ta 列名一致
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 MOM({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 MOM({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 MOM_FIB 失败: {e}", exc_info=True)
@@ -486,8 +486,8 @@ class IndicatorService:
                     roc_series = ohlc.ta.roc(length=period)
                     if roc_series is not None:
                         results[f'ROC_{period}'] = roc_series # key 与 pandas-ta 列名一致
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 ROC({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 ROC({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 ROC_FIB 失败: {e}", exc_info=True)
@@ -509,8 +509,8 @@ class IndicatorService:
                     # pandas-ta 返回的列名可能是 ROC_period，我们需要重命名 key
                     if aroc_series is not None:
                         results[f'AROC_{period}'] = aroc_series
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 Amount ROC({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 Amount ROC({period})")
             # 处理 inf (pandas-ta roc 内部可能已处理，但以防万一)
             df_results = pd.DataFrame(results, index=ohlc.index)
             df_results.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -531,8 +531,8 @@ class IndicatorService:
                     rsi_series = ohlc.ta.rsi(length=period)
                     if rsi_series is not None:
                         results[f'RSI_{period}'] = rsi_series # key 与 pandas-ta 列名一致
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 RSI({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 RSI({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 RSI_FIB 失败: {e}", exc_info=True)
@@ -587,8 +587,8 @@ class IndicatorService:
                     # pandas-ta 返回的列名可能是 ROC_period，我们需要重命名 key
                     if vroc_series is not None:
                         results[f'VROC_{period}'] = vroc_series
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 VROC({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 VROC({period})")
             # 处理 inf
             df_results = pd.DataFrame(results, index=ohlc.index)
             df_results.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -640,8 +640,8 @@ class IndicatorService:
                     wr_series = ohlc.ta.willr(length=period)
                     if wr_series is not None:
                         results[f'WR_{period}'] = wr_series # 重命名 key
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 WR({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 WR({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 WR_FIB 失败: {e}", exc_info=True)
@@ -659,8 +659,8 @@ class IndicatorService:
                     sma_series = ohlc.ta.sma(length=period)
                     if sma_series is not None:
                         results[f'SMA_{period}'] = sma_series # key 与 pandas-ta 列名一致
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 SMA({period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 SMA({period})")
             return pd.DataFrame(results, index=ohlc.index) if results else None
         except Exception as e:
             logger.error(f"计算 SMA_FIB 失败: {e}", exc_info=True)
@@ -707,8 +707,8 @@ class IndicatorService:
                             logger.warning(f"pandas-ta kc(length={period}, atr_length={atr_length}) 计算失败或返回空")
                     except Exception as e_kc_calc:
                          logger.error(f"内部计算 KC(length={period}, atr_length={atr_length}) 时出错: {e_kc_calc}", exc_info=True)
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KC(length={period}, atr_length={atr_length})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 KC(length={period}, atr_length={atr_length})")
 
             # 过滤掉值为 None 或完全是 NaN 的 Series
             final_results = {k: v for k, v in all_kc_results.items() if isinstance(v, pd.Series) and not v.isnull().all()}
@@ -755,8 +755,8 @@ class IndicatorService:
                             logger.warning(f"pandas-ta stoch(k={period}, d={d_period}, smooth_k={smooth_k_period}) 计算失败或返回空")
                     except Exception as e_stoch_calc:
                          logger.error(f"内部计算 Stochastic(k={period}, d={d_period}, smooth_k={smooth_k_period}) 时出错: {e_stoch_calc}", exc_info=True)
-                else:
-                    logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 Stochastic(k={period}, d={d_period}, smooth_k={smooth_k_period})")
+                # else:
+                #     logger.warning(f"数据不足 ({len(ohlc)}) 无法计算 Stochastic(k={period}, d={d_period}, smooth_k={smooth_k_period})")
 
             final_results = {k: v for k, v in all_stoch_results.items() if isinstance(v, pd.Series) and not v.isnull().all()}
             return pd.DataFrame(final_results, index=ohlc.index) if final_results else None
