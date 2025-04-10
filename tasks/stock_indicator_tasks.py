@@ -262,33 +262,48 @@ def process_single_stock_indicators(self, stock_code: str):
     return task_result
 
 @celery_app.task(bind=True, name='tasks.stock_indicators.get_trade_and_calculate_and_strategy')
-async def get_trade_and_calculate_and_strategy(self, stock_code: str):
+def get_trade_and_calculate_and_strategy(self):  # 移除 stock_code 参数
     """
     获取股票最新实时数据并计算技术指标
     """
-    logger.info(f"任务启动: get_trade_and_calculate for {stock_code}")
+    logger.info("任务启动: get_trade_and_calculate_and_strategy")
+    
+    # 使用 asyncio.run 在同步函数中运行异步代码
+    asyncio.run(_get_trade_and_calculate_and_strategy_async())
+    
+    logger.info("任务结束: get_trade_and_calculate_and_strategy")
+    return "完成所有股票数据获取和计算"
+
+# 将异步逻辑移到单独的函数
+async def _get_trade_and_calculate_and_strategy_async():
+    """异步执行股票数据获取和计算的内部函数"""
     from dao_manager.daos.stock_basic_dao import StockBasicDAO
     from services.indicator_services import IndicatorService
+    
     stock_basic_dao = StockBasicDAO()
     indicator_services = IndicatorService()
+    
+    # 获取自选股票
     favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
     for favorite_stock in favorite_stocks:
-        process_single_stock_latest_trade_trading_hours(favorite_stock.stock_code)
-        process_single_stock_realtime_trade(favorite_stock.stock_code)
+        # 使用 delay() 异步调用其他任务
+        process_single_stock_latest_trade_trading_hours.delay(favorite_stock.stock_code)
+        process_single_stock_realtime_trade.delay(favorite_stock.stock_code)
+        
+        # 或者保持当前逻辑，直接调用非任务函数
         for time_level in TIME_TEADE_TIME_LEVELS_LITE:
-            indicator_services.calculate_and_save_macd_indicators(favorite_stock.stock_code, time_level)
-        # calculate_stock_indicators_for_single_stock(favorite_stock.stock_code)
-        # strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
+            await indicator_services.calculate_and_save_macd_indicators(favorite_stock.stock_code, time_level)
+    
+    # 获取所有股票
     stocks = await stock_basic_dao.get_stock_list()
     for stock in stocks:
-        process_single_stock_latest_trade_trading_hours(stock.stock_code)
-        process_single_stock_realtime_trade(stock.stock_code)
+        # 同样使用 delay() 异步调用其他任务
+        process_single_stock_latest_trade_trading_hours.delay(stock.stock_code)
+        process_single_stock_realtime_trade.delay(stock.stock_code)
+        
+        # 调用指标计算（假设这是异步函数）
         for time_level in TIME_TEADE_TIME_LEVELS_LITE:
-            indicator_services.calculate_and_save_macd_indicators(stock.stock_code, time_level)
-        # calculate_stock_indicators_for_single_stock(stock.stock_code)
-        # strategy_macd_rsi_kdj_boll_strategy_for_stock(stock.stock_code)
-    logger.info(f"任务结束: get_trade_and_calculate for {stock_code}")
-
+            await indicator_services.calculate_and_save_macd_indicators(stock.stock_code, time_level)
 
 
 
