@@ -69,7 +69,7 @@ async def run_macd_rsi_kdj_boll_strategy_main_task(self):
 # --- 单个股票处理函数保持 async def ---
 async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
     # --- 实例化部分保持不变 ---
-    logger.info(f"开始为股票 {stock_code} 运行 MACD+RSI+KDJ+BOLL 策略")
+    # logger.info(f"开始为股票 {stock_code} 运行 MACD+RSI+KDJ+BOLL 策略")
     service = None
     strategy = None
     cache_setter = None

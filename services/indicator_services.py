@@ -1095,7 +1095,7 @@ class IndicatorService:
             except Exception as e_rename:
                  logger.error(f"[{stock_code}] 重命名 {data_key} 列时出错: {e_rename}", exc_info=True)
                  fetched_data_summary[data_key] = "Rename Exception"
-        logger.info(f"[{stock_code}] 数据获取概要: {fetched_data_summary}")
+        # logger.info(f"[{stock_code}] 数据获取概要: {fetched_data_summary}")
         # --- 5. 合并 DataFrame ---
         if not dfs_to_merge:
             logger.error(f"[{stock_code}] 没有成功获取到任何有效的数据用于合并。")
@@ -1122,7 +1122,7 @@ class IndicatorService:
             if merged_df.empty:
                 logger.error(f"[{stock_code}] 合并并清理后 DataFrame 为空。")
                 return None
-            logger.info(f"[{stock_code}] 成功准备策略 DataFrame，最终形状: {merged_df.shape}")
+            # logger.info(f"[{stock_code}] 成功准备策略 DataFrame，最终形状: {merged_df.shape}")
             # logger.debug(f"[{stock_code}] Final columns: {merged_df.columns.tolist()}")
             # logger.debug(f"[{stock_code}] Sample data:\n{merged_df.tail()}") # 打印尾部数据样本
             return merged_df
