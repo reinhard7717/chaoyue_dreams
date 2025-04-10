@@ -44,10 +44,10 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
             'macd_slow': 26,        # MACD 慢线周期 (用于列名查找)
             'macd_signal': 9,       # MACD 信号线周期 (用于列名查找)
             'weights': {            # 时间周期权重
-                '5m': 0.1,
-                '15m': 0.4,
-                '30m': 0.3,
-                '60m': 0.2,
+                '5': 0.1,
+                '15': 0.4,
+                '30': 0.3,
+                '60': 0.2,
             },
             'score_thresholds': {   # 最终得分到信号的映射阈值
                 'strong_buy': 1.5,
@@ -71,7 +71,7 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
             'macd_fast': 12,   # 假设模型字段是 diff, dea, macd
             'macd_slow': 26,
             'macd_signal': 9,
-            'weights': {'5m': 0.1, '15m': 0.4, '30m': 0.3, '60m': 0.2},
+            'weights': {'5': 0.1, '15': 0.4, '30': 0.3, '60': 0.2},
             'score_thresholds': {'strong_buy': 1.5, 'buy': 0.5, 'sell': -0.5, 'strong_sell': -1.5}
         }
         # 合并默认参数和传入参数
@@ -90,7 +90,7 @@ class MacdRsiKdjBollStrategy(BaseStrategy):
         if not isinstance(self.params['weights'], dict) or \
            not all(tf in self.params['weights'] for tf in self.timeframes) or \
            abs(sum(self.params['weights'].values()) - 1.0) > 1e-6: # 检查权重和是否接近1
-            raise ValueError("参数 'weights' 必须是包含所有时间周期 ('5m', '15m', '30m', '60m') 且总和为 1.0 的字典")
+            raise ValueError("参数 'weights' 必须是包含所有时间周期 ('5', '15', '30', '60') 且总和为 1.0 的字典")
 
         if not isinstance(self.params['score_thresholds'], dict) or \
            not all(k in self.params['score_thresholds'] for k in ['strong_buy', 'buy', 'sell', 'strong_sell']):
