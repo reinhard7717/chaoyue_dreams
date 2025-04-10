@@ -951,14 +951,19 @@ class IndicatorService:
         # --- 逐个计算并保存 ---
         # 任务列表保持不变，因为函数签名和目的没变
         indicator_tasks = [
-            (self.calculate_boll, self.indicator_dao.save_boll, {}), # 使用默认参数 period=20
-            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, {}),
-            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, {}), # 使用默认 M1=3, M2=3
-            # EMA 和 MACD 一起计算，因为 MACD 模型包含 EMA
-            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, {}), # 单独保存 EMA (可选)
-            (self.calculate_amount_ma_fib, self.indicator_dao.save_amount_ma_fib, {}),
             (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, {}), # 计算 MACD 和 EMA
             (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, {}),
+            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, {}), # 使用默认 M1=3, M2=3
+            (self.calculate_boll, self.indicator_dao.save_boll, {}), # 使用默认参数 period=20
+            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, {}),
+            (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, {}),
+            (self.calculate_roc_fib, self.indicator_dao.save_roc_fib, {}),
+            (self.calculate_dmi_fib, self.indicator_dao.save_dmi_fib, {}),
+            (self.calculate_sar, self.indicator_dao.save_sar, {}),
+            (self.calculate_amount_roc_fib, self.indicator_dao.save_amount_roc_fib, {}),
+            (self.calculate_cmf_fib, self.indicator_dao.save_cmf_fib, {}),
+            (self.calculate_obv, self.indicator_dao.save_obv, {}),
+            
         ]
 
         for calc_func, save_func, params in indicator_tasks:
@@ -991,56 +996,77 @@ class IndicatorService:
         # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
 
     async def prepare_strategy_dataframe(self, stock_code: str, timeframes: List[str],
-        strategy_params: Dict[str, Any], # 需要策略参数来获取正确的 RSI/KDJ 周期
-        limit_per_tf: int = 1200 # 每个时间周期获取的数据量，应足够大
+        strategy_params: Dict[str, Any], # 需要策略参数来获取周期和 volume_tf
+        limit_per_tf: int = 1200 # 每个时间周期获取的数据量
     ) -> Optional[pd.DataFrame]:
         """
-        准备 MACD+RSI+KDJ+BOLL 多时间周期策略所需的 DataFrame。
+        准备增强版多时间周期策略所需的 DataFrame (MACD, RSI, KDJ, BOLL, CCI, MFI, ROC, DMI, SAR + 量能确认)。
         Args:
             stock_code (str): 股票代码.
             timeframes (List[str]): 策略需要的时间周期列表 (e.g., ['5', '15', '30', '60']).
             strategy_params (Dict[str, Any]): 策略参数字典，至少包含:
                                               'rsi_period' (int),
-                                              'kdj_period_k' (int).
+                                              'kdj_period_k' (int),
+                                              'volume_tf' (str), # 量能确认的时间周期
+                                              'cci_period' (int), # 假设 DAO 需要
+                                              'mfi_period' (int), # 假设 DAO 需要
+                                              'roc_period' (int), # 假设 DAO 需要
+                                              'dmi_period' (int), # 假设 DAO 需要
+                                              'amount_ma_period' (int), # 假设 DAO 需要
+                                              'cmf_period' (int), # 假设 DAO 需要
+                                              'obv_ma_period' (int), # 用于计算 OBV MA
+                                              # SAR 参数通常固定，无需传入 DAO
             limit_per_tf (int): 为每个时间周期和指标获取的最新记录数。
-                                需要足够大以覆盖指标计算的回溯期和策略分析期。
         Returns:
             Optional[pd.DataFrame]: 合并后的 DataFrame，索引为 trade_time (升序)，
-                                     列名为策略所需的格式 (e.g., 'diff_5', 'rsi_15', 'close_15')。
+                                     列名为策略所需的格式。
                                      如果数据准备失败或不完整，则返回 None。
         """
-        # logger.info(f"[{stock_code}] 开始准备策略 DataFrame for timeframes: {timeframes}")
-        # --- 1. 从策略参数中提取所需周期 ---
+        logger.info(f"[{stock_code}] 开始准备增强策略 DataFrame for timeframes: {timeframes}")
+
+        # --- 1. 从策略参数中提取所需周期和配置 ---
         try:
             rsi_period = int(strategy_params['rsi_period'])
             kdj_period_k = int(strategy_params['kdj_period_k'])
+            volume_tf = str(strategy_params['volume_tf'])
+            # 获取其他指标周期 (如果 DAO 需要特定周期)
+            cci_period = int(strategy_params.get('cci_period', 14)) # 提供默认值
+            mfi_period = int(strategy_params.get('mfi_period', 14))
+            roc_period = int(strategy_params.get('roc_period', 12))
+            dmi_period = int(strategy_params.get('dmi_period', 14))
+            amount_ma_period = int(strategy_params.get('amount_ma_period', 20))
+            cmf_period = int(strategy_params.get('cmf_period', 20))
+            obv_ma_period = int(strategy_params.get('obv_ma_period', 10)) # 用于后续计算
+            # 主操作周期 (用于获取 close 对比) - 通常是 volume_tf 或固定值
+            main_tf = volume_tf # 或者固定为 '15'
+            if main_tf not in timeframes:
+                 logger.warning(f"[{stock_code}] 主/量能时间周期 '{main_tf}' 不在请求的时间周期列表中 {timeframes}，仍将获取其数据。")
+                 # 如果 main_tf 不在 timeframes 里，确保也获取它的数据
+                 if main_tf not in timeframes: timeframes.append(main_tf)
         except KeyError as e:
             logger.error(f"[{stock_code}] 策略参数 'strategy_params' 缺少必要的键: {e}")
             return None
         except (ValueError, TypeError) as e:
-             logger.error(f"[{stock_code}] 策略参数中的 RSI/KDJ 周期无效: {e}")
+             logger.error(f"[{stock_code}] 策略参数中的周期或时间框架无效: {e}")
              return None
         # --- 2. 创建并发任务列表 ---
         tasks = []
         task_descriptions = {} # 用于追踪任务对应的指标和时间周期
-        # 主操作周期 (假设为 15) 的收盘价
-        main_tf = '15' # 或者从策略参数获取
-        if main_tf not in timeframes:
-             logger.warning(f"[{stock_code}] 主时间周期 '{main_tf}' 不在请求的时间周期列表中，仍将获取其收盘价。")
-        close_task = self.indicator_dao.get_close_price_df(stock_code, main_tf, limit_per_tf)
-        tasks.append(close_task)
-        task_descriptions[len(tasks)-1] = {'type': 'close', 'tf': main_tf}
-        # 各时间周期的指标
+        # a) 获取 volume_tf 的 OHLCV 数据 (用于 high, low, amount, close)
+        ohlcv_task = self.indicator_dao.get_history_ohlcv_df(stock_code, volume_tf, limit=limit_per_tf)
+        tasks.append(ohlcv_task)
+        task_descriptions[len(tasks)-1] = {'type': 'ohlcv', 'tf': volume_tf}
+        # b) 获取所有时间周期的评分指标
         for tf in timeframes:
             # MACD
             macd_task = self.indicator_dao.get_macd_fib_df(stock_code, tf, limit_per_tf)
             tasks.append(macd_task)
             task_descriptions[len(tasks)-1] = {'type': 'macd', 'tf': tf}
-            # RSI
+            # RSI (假设 DAO 支持按周期获取)
             rsi_task = self.indicator_dao.get_rsi_fib_df(stock_code, tf, rsi_period, limit_per_tf)
             tasks.append(rsi_task)
             task_descriptions[len(tasks)-1] = {'type': 'rsi', 'tf': tf}
-            # KDJ
+            # KDJ (假设 DAO 支持按周期获取)
             kdj_task = self.indicator_dao.get_kdj_fib_df(stock_code, tf, kdj_period_k, limit_per_tf)
             tasks.append(kdj_task)
             task_descriptions[len(tasks)-1] = {'type': 'kdj', 'tf': tf}
@@ -1048,88 +1074,182 @@ class IndicatorService:
             boll_task = self.indicator_dao.get_boll_df(stock_code, tf, limit_per_tf)
             tasks.append(boll_task)
             task_descriptions[len(tasks)-1] = {'type': 'boll', 'tf': tf}
+            # CCI (假设 DAO 支持按周期获取)
+            cci_task = self.indicator_dao.get_cci_fib_df(stock_code, tf, cci_period, limit_per_tf)
+            tasks.append(cci_task)
+            task_descriptions[len(tasks)-1] = {'type': 'cci', 'tf': tf}
+            # MFI (假设 DAO 支持按周期获取)
+            mfi_task = self.indicator_dao.get_mfi_fib_df(stock_code, tf, mfi_period, limit_per_tf)
+            tasks.append(mfi_task)
+            task_descriptions[len(tasks)-1] = {'type': 'mfi', 'tf': tf}
+            # ROC (假设 DAO 支持按周期获取)
+            roc_task = self.indicator_dao.get_roc_fib_df(stock_code, tf, roc_period, limit_per_tf)
+            tasks.append(roc_task)
+            task_descriptions[len(tasks)-1] = {'type': 'roc', 'tf': tf}
+            # DMI (假设 DAO 支持按周期获取)
+            dmi_task = self.indicator_dao.get_dmi_fib_df(stock_code, tf, dmi_period, limit_per_tf)
+            tasks.append(dmi_task)
+            task_descriptions[len(tasks)-1] = {'type': 'dmi', 'tf': tf}
+            # SAR
+            sar_task = self.indicator_dao.get_sar_df(stock_code, tf, limit_per_tf)
+            tasks.append(sar_task)
+            task_descriptions[len(tasks)-1] = {'type': 'sar', 'tf': tf}
+        # c) 获取 volume_tf 的量能确认指标
+        # Amount MA (假设 DAO 支持按周期获取)
+        amt_ma_task = self.indicator_dao.get_amount_ma_fib_df(stock_code, volume_tf, amount_ma_period, limit_per_tf)
+        tasks.append(amt_ma_task)
+        task_descriptions[len(tasks)-1] = {'type': 'amount_ma', 'tf': volume_tf}
+        # CMF (假设 DAO 支持按周期获取)
+        cmf_task = self.indicator_dao.get_cmf_fib_df(stock_code, volume_tf, cmf_period, limit_per_tf)
+        tasks.append(cmf_task)
+        task_descriptions[len(tasks)-1] = {'type': 'cmf', 'tf': volume_tf}
+        # OBV
+        obv_task = self.indicator_dao.get_obv_df(stock_code, volume_tf, limit_per_tf)
+        tasks.append(obv_task)
+        task_descriptions[len(tasks)-1] = {'type': 'obv', 'tf': volume_tf}
+        # 注意：OBV MA 通常不在 DAO 中直接存储，需要在获取 OBV 后计算
         # --- 3. 并发执行所有 DAO 查询 ---
         logger.debug(f"[{stock_code}] 开始并发执行 {len(tasks)} 个数据获取任务...")
         results = await asyncio.gather(*tasks, return_exceptions=True)
         logger.debug(f"[{stock_code}] 数据获取任务执行完毕.")
+
         # --- 4. 处理结果并重命名列 ---
         dfs_to_merge: List[pd.DataFrame] = []
-        fetched_data_summary = {} # 记录成功获取的数据
+        fetched_data_summary = {}
+        ohlcv_vol_tf_df = None # 用于提取 high, low, amount 和计算 OBV MA
+        obv_vol_tf_series = None # 用于计算 OBV MA
         for i, result in enumerate(results):
             desc = task_descriptions[i]
             data_type = desc['type']
             tf = desc['tf']
-            data_key = f"{data_type}_{tf}" # e.g., macd_5, close_15
+            data_key = f"{data_type}_{tf}"
+            required_cols_map = {} # 定义当前任务需要重命名的列
             if isinstance(result, Exception):
-                logger.warning(f"[{stock_code}] 获取 {data_key} 数据时出错: {result}", exc_info=False) # 只记录错误信息，不打印完整堆栈
+                logger.warning(f"[{stock_code}] 获取 {data_key} 数据时出错: {result}", exc_info=False)
                 fetched_data_summary[data_key] = "Error"
-                continue # 跳过错误的结果
+                continue
             if result is None or result.empty:
-                logger.warning(f"[{stock_code}] 未获取到有效的 {data_key} 数据 (None or empty DataFrame)")
+                logger.warning(f"[{stock_code}] 未获取到有效的 {data_key} 数据")
                 fetched_data_summary[data_key] = "Empty/None"
-                continue # 跳过空结果
-            # --- 重命名列 ---
+                continue
             df = result.copy() # 操作副本
-            rename_map = {}
-            if data_type == 'close':
-                rename_map = {'close_price': f'close_{tf}'} # e.g., close_15
+            # --- 定义重命名映射 ---
+            if data_type == 'ohlcv' and tf == volume_tf:
+                # 从 OHLCV 中提取 high, low, amount, close
+                required_cols_map = {
+                    'high': f'high_{tf}',
+                    'low': f'low_{tf}',
+                    'turnover': f'amount_{tf}', # 注意：策略中使用 amount，这里假设原始数据列是 volume
+                    'close': f'close_{tf}'
+                }
+                ohlcv_vol_tf_df = df # 保存这个 DataFrame 用于后续处理
             elif data_type == 'macd':
-                rename_map = {'diff': f'diff_{tf}', 'dea': f'dea_{tf}', 'macd': f'macd_{tf}'}
+                required_cols_map = {'diff': f'diff_{tf}', 'dea': f'dea_{tf}', 'macd': f'macd_{tf}'}
             elif data_type == 'rsi':
-                rename_map = {'rsi': f'rsi_{tf}'}
+                required_cols_map = {'rsi': f'rsi_{tf}'} # 假设 DAO 返回列名为 rsi
             elif data_type == 'kdj':
-                rename_map = {'k': f'k_{tf}', 'd': f'd_{tf}', 'j': f'j_{tf}'}
+                required_cols_map = {'k': f'k_{tf}', 'd': f'd_{tf}', 'j': f'j_{tf}'} # 假设 DAO 返回 k, d, j
             elif data_type == 'boll':
-                rename_map = {'upper': f'upper_{tf}', 'mid': f'mid_{tf}', 'lower': f'lower_{tf}'}
+                required_cols_map = {'upper': f'upper_{tf}', 'mid': f'mid_{tf}', 'lower': f'lower_{tf}'}
+            elif data_type == 'cci':
+                required_cols_map = {'cci': f'cci_{tf}'} # 假设 DAO 返回 cci
+            elif data_type == 'mfi':
+                required_cols_map = {'mfi': f'mfi_{tf}'} # 假设 DAO 返回 mfi
+            elif data_type == 'roc':
+                required_cols_map = {'roc': f'roc_{tf}'} # 假设 DAO 返回 roc
+            elif data_type == 'dmi':
+                # 假设 DAO 返回 pdi, mdi, adx (或 +di, -di, adx)
+                # 需要确认 DAO 返回的具体列名
+                # 示例：假设返回 'pdi', 'mdi', 'adx'
+                required_cols_map = {'pdi': f'pdi_{tf}', 'mdi': f'mdi_{tf}', 'adx': f'adx_{tf}'}
+            elif data_type == 'sar':
+                required_cols_map = {'sar': f'sar_{tf}'} # 假设 DAO 返回 sar
+            elif data_type == 'amount_ma' and tf == volume_tf:
+                required_cols_map = {'amount_ma': f'amount_ma_{tf}'} # 假设 DAO 返回 amount_ma
+            elif data_type == 'cmf' and tf == volume_tf:
+                required_cols_map = {'cmf': f'cmf_{tf}'} # 假设 DAO 返回 cmf
+            elif data_type == 'obv' and tf == volume_tf:
+                required_cols_map = {'obv': f'obv_{tf}'} # 假设 DAO 返回 obv
+                if 'obv' in df.columns:
+                    obv_vol_tf_series = df['obv'] # 保存 OBV Series 用于计算 MA
+            # --- 执行重命名并检查 ---
             try:
-                df.rename(columns=rename_map, inplace=True)
-                # 检查重命名后的列是否存在
-                renamed_cols = list(rename_map.values())
+                # 检查原始列是否存在
+                missing_original_cols = [orig_col for orig_col in required_cols_map.keys() if orig_col not in df.columns]
+                if missing_original_cols:
+                    logger.warning(f"[{stock_code}] 获取的 {data_key} 数据缺少原始列: {missing_original_cols}. 可用列: {df.columns.tolist()}")
+                    # 尝试使用存在的列进行重命名
+                    required_cols_map = {k: v for k, v in required_cols_map.items() if k in df.columns}
+                    if not required_cols_map:
+                        fetched_data_summary[data_key] = "Missing Original Cols"
+                        continue # 如果没有可用的列，跳过
+                df.rename(columns=required_cols_map, inplace=True)
+                renamed_cols = list(required_cols_map.values())
+                # 再次检查重命名后的列是否存在 (理论上应该存在，除非 rename 出错)
                 if not all(col in df.columns for col in renamed_cols):
                      logger.warning(f"[{stock_code}] 重命名 {data_key} 列后，部分预期列丢失: {renamed_cols}. 实际列: {df.columns.tolist()}")
                      fetched_data_summary[data_key] = "Rename Error"
                      continue
-                dfs_to_merge.append(df[renamed_cols]) # 只保留重命名后的列
+                # 只保留需要的列
+                df_to_add = df[renamed_cols]
+                # 确保索引是 DatetimeIndex (如果不是，尝试转换)
+                if not isinstance(df_to_add.index, pd.DatetimeIndex):
+                    try:
+                        df_to_add.index = pd.to_datetime(df_to_add.index)
+                    except Exception:
+                         logger.warning(f"[{stock_code}] 无法将 {data_key} 的索引转换为 DatetimeIndex.")
+                         # 可以选择跳过，或者继续（合并时可能出问题）
+                         # continue
+                dfs_to_merge.append(df_to_add)
                 fetched_data_summary[data_key] = "Success"
-                logger.debug(f"[{stock_code}] 成功处理并准备合并 {data_key} 数据, 形状: {df[renamed_cols].shape}")
+                # logger.debug(f"[{stock_code}] 成功处理并准备合并 {data_key} 数据, 形状: {df_to_add.shape}")
             except Exception as e_rename:
-                 logger.error(f"[{stock_code}] 重命名 {data_key} 列时出错: {e_rename}", exc_info=True)
-                 fetched_data_summary[data_key] = "Rename Exception"
+                 logger.error(f"[{stock_code}] 处理或重命名 {data_key} 列时出错: {e_rename}", exc_info=True)
+                 fetched_data_summary[data_key] = "Processing Exception"
         # logger.info(f"[{stock_code}] 数据获取概要: {fetched_data_summary}")
-        # --- 5. 合并 DataFrame ---
+        # --- 5. 计算 OBV MA ---
+        if obv_vol_tf_series is not None and not obv_vol_tf_series.empty:
+            try:
+                obv_ma_series = ta.sma(obv_vol_tf_series, length=obv_ma_period)
+                if obv_ma_series is not None and not obv_ma_series.empty:
+                    obv_ma_df = obv_ma_series.to_frame(name=f'obv_ma_{volume_tf}')
+                    # 确保索引是 DatetimeIndex
+                    if not isinstance(obv_ma_df.index, pd.DatetimeIndex):
+                         obv_ma_df.index = pd.to_datetime(obv_ma_df.index)
+                    dfs_to_merge.append(obv_ma_df)
+                    logger.debug(f"[{stock_code}] 成功计算并准备合并 obv_ma_{volume_tf}")
+                else:
+                    logger.warning(f"[{stock_code}] 计算 OBV MA (period={obv_ma_period}) 失败或返回空")
+            except Exception as e_obv_ma:
+                logger.error(f"[{stock_code}] 计算 OBV MA 时出错: {e_obv_ma}", exc_info=True)
+        # --- 6. 合并 DataFrame ---
         if not dfs_to_merge:
-            logger.error(f"[{stock_code}] 没有成功获取到任何有效的数据用于合并。")
+            logger.error(f"[{stock_code}] 没有成功获取或处理任何有效的数据用于合并。")
             return None
         try:
             # 使用 outer join 合并所有 DataFrame，基于时间索引对齐
-            # Pandas 会自动根据索引对齐数据
             merged_df = pd.concat(dfs_to_merge, axis=1, join='outer')
-            # 按时间排序 (虽然 concat 通常会保持顺序，但显式排序更保险)
             merged_df.sort_index(ascending=True, inplace=True)
-            # --- 6. 数据后处理 (可选但推荐) ---
-            # 填充 NaN 值：对于多时间周期策略，通常需要填充由不同频率数据合并产生的 NaN
-            # 常见方法是向前填充 (forward fill)
-            # 注意：填充可能引入lookahead bias，取决于策略逻辑如何处理NaN
+            # --- 7. 数据后处理 ---
+            # 向前填充 NaN 值
             merged_df.ffill(inplace=True)
-            # 移除完全是 NaN 的行
-            # merged_df.dropna(how='all', inplace=True)
-            # 移除主时间周期收盘价为 NaN 的行 (策略可能无法在这些点操作)
-            if f'close_{main_tf}' in merged_df.columns:
+            # 移除关键列为 NaN 的行 (例如 volume_tf 的收盘价)
+            key_col = f'close_{volume_tf}'
+            if key_col in merged_df.columns:
                  initial_rows = len(merged_df)
-                 merged_df.dropna(subset=[f'close_{main_tf}'], inplace=True)
+                 merged_df.dropna(subset=[key_col], inplace=True)
                  if len(merged_df) < initial_rows:
-                     logger.info(f"[{stock_code}] 移除了 {initial_rows - len(merged_df)} 行，因为主时间周期 '{main_tf}' 的收盘价为 NaN.")
+                     logger.info(f"[{stock_code}] 移除了 {initial_rows - len(merged_df)} 行，因为关键列 '{key_col}' 为 NaN.")
             if merged_df.empty:
                 logger.error(f"[{stock_code}] 合并并清理后 DataFrame 为空。")
                 return None
-            # logger.info(f"[{stock_code}] 成功准备策略 DataFrame，最终形状: {merged_df.shape}")
+            logger.info(f"[{stock_code}] 成功准备增强策略 DataFrame，最终形状: {merged_df.shape}")
             # logger.debug(f"[{stock_code}] Final columns: {merged_df.columns.tolist()}")
-            # logger.debug(f"[{stock_code}] Sample data:\n{merged_df.tail()}") # 打印尾部数据样本
+            # logger.debug(f"[{stock_code}] Sample data:\n{merged_df.tail()}")
             return merged_df
         except Exception as e_merge:
-            logger.error(f"[{stock_code}] 合并 DataFrame 时出错: {e_merge}", exc_info=True)
+            logger.error(f"[{stock_code}] 合并或后处理 DataFrame 时出错: {e_merge}", exc_info=True)
             return None
-
 
 
 

@@ -8,12 +8,8 @@ from django.db import models
 from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import FieldDoesNotExist
-# 假设你有 StockBasicDAO 和 Cache 相关类
 from dao_manager.base_dao import BaseDAO
-
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP
-
-
 
 
 logger = logging.getLogger("services")
@@ -91,63 +87,64 @@ class IndicatorDAO(BaseDAO):
 
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
 
-        # # 1. 尝试从Redis获取数据
-        # try:
-        #     # 假设 cache_get.history_time_trade_by_limit 返回 List[Dict] 或 None
-        #     cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
-        # except Exception as e:
-        #     logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
-        #     cache_data = None # 出错则认为缓存未命中
+        # 1. 尝试从Redis获取数据
+        try:
+            # 假设 cache_get.history_time_trade_by_limit 返回 List[Dict] 或 None
+            cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
+        except Exception as e:
+            logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
+            cache_data = None # 出错则认为缓存未命中
 
-        # if cache_data:
-        #     logger.debug(f"从缓存获取到 {stock_code} {time_level_str} 历史数据 (limit={limit})，共 {len(cache_data)} 条，进行转换...")
-        #     model_instances = []
-        #     conversion_errors = 0
-        #     for item_dict in cache_data:
-        #         try:
-        #             # 将字典转换为 StockTimeTrade 模型实例
-        #             trade_time = self._safe_datetime(item_dict.get('trade_time'))
-        #             if not trade_time: # 如果时间无效，跳过此条记录
-        #                 logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
-        #                 conversion_errors += 1
-        #                 continue
+        if cache_data:
+            logger.debug(f"从缓存获取到 {stock_code} {time_level_str} 历史数据 (limit={limit})，共 {len(cache_data)} 条，进行转换...")
+            model_instances = []
+            conversion_errors = 0
+            for item_dict in cache_data:
+                try:
+                    # 将字典转换为 StockTimeTrade 模型实例
+                    trade_time = self._safe_datetime(item_dict.get('trade_time'))
+                    if not trade_time: # 如果时间无效，跳过此条记录
+                        logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
+                        conversion_errors += 1
+                        continue
 
-        #             instance = StockTimeTrade(
-        #                 stock=stock, # 使用前面获取的 StockInfo 实例
-        #                 time_level=time_level_str,
-        #                 trade_time=trade_time,
-        #                 open_price=self._safe_decimal(item_dict.get('open_price')),
-        #                 high_price=self._safe_decimal(item_dict.get('high_price')),
-        #                 low_price=self._safe_decimal(item_dict.get('low_price')),
-        #                 close_price=self._safe_decimal(item_dict.get('close_price')),
-        #                 volume=self._safe_int(item_dict.get('volume')),
-        #                 turnover=self._safe_decimal(item_dict.get('turnover')),
-        #                 amplitude=self._safe_decimal(item_dict.get('amplitude')),
-        #                 turnover_rate=self._safe_decimal(item_dict.get('turnover_rate')),
-        #                 price_change_percent=self._safe_decimal(item_dict.get('price_change_percent')),
-        #                 price_change_amount=self._safe_decimal(item_dict.get('price_change_amount')),
-        #             )
-        #             model_instances.append(instance)
-        #         except Exception as e_conv:
-        #             conversion_errors += 1
-        #             logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False) # 避免过多日志
+                    instance = StockTimeTrade(
+                        stock=stock, # 使用前面获取的 StockInfo 实例
+                        time_level=time_level_str,
+                        trade_time=trade_time,
+                        open_price=self._safe_decimal(item_dict.get('open_price')),
+                        high_price=self._safe_decimal(item_dict.get('high_price')),
+                        low_price=self._safe_decimal(item_dict.get('low_price')),
+                        close_price=self._safe_decimal(item_dict.get('close_price')),
+                        volume=self._safe_int(item_dict.get('volume')),
+                        turnover=self._safe_decimal(item_dict.get('turnover')),
+                        amplitude=self._safe_decimal(item_dict.get('amplitude')),
+                        turnover_rate=self._safe_decimal(item_dict.get('turnover_rate')),
+                        price_change_percent=self._safe_decimal(item_dict.get('price_change_percent')),
+                        price_change_amount=self._safe_decimal(item_dict.get('price_change_amount')),
+                    )
+                    model_instances.append(instance)
+                except Exception as e_conv:
+                    conversion_errors += 1
+                    logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False) # 避免过多日志
 
-        #     if conversion_errors > 0:
-        #          logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
+            if conversion_errors > 0:
+                 logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
 
-        #     if not model_instances:
-        #         logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}")
-        #         # 这里可以选择返回 None 或继续尝试从数据库获取
-        #         # 为了与原逻辑一致（缓存命中直接返回），如果转换后为空，我们返回 None
-        #         return None
+            if not model_instances:
+                logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}")
+                # 这里可以选择返回 None 或继续尝试从数据库获取
+                # 为了与原逻辑一致（缓存命中直接返回），如果转换后为空，我们返回 None
+                return None
+            
+            if len(model_instances) > 20:
+                # 重要：确保返回的数据是按时间升序排列的
+                # 假设缓存存储的是最新的 N 条（时间降序），需要反转
+                # 如果缓存本身就是升序存储，则不需要 reverse()
+                model_instances.sort(key=lambda x: x.trade_time) # 使用 sort 保证升序
 
-        #     # 重要：确保返回的数据是按时间升序排列的
-        #     # 假设缓存存储的是最新的 N 条（时间降序），需要反转
-        #     # 如果缓存本身就是升序存储，则不需要 reverse()
-        #     model_instances.sort(key=lambda x: x.trade_time) # 使用 sort 保证升序
-
-        #     logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
-        #     return model_instances
+                logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
+                return model_instances
 
         # 2. 如果缓存未命中或处理失败，从数据库获取数据
         logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
@@ -315,7 +312,7 @@ class IndicatorDAO(BaseDAO):
             logger.warning(f"无法将值 {value} (类型: {type(value)}) 转换为 Integer", exc_info=False)
             return None
 
-    # --- 修改后的通用保存方法 ---
+    # --- 通用保存方法 ---
     async def _save_indicator_data_generic(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str],
         indicator_df: pd.DataFrame, model_class: Type[models.Model],
         field_map: Dict[str, str], # DataFrame 列名 -> 模型字段名 的映射
@@ -658,6 +655,17 @@ class IndicatorDAO(BaseDAO):
             logger.warning(f"[StockPivotPoints] DataFrame 中未找到任何可映射的 Pivot Point 列 for {stock_info.stock_code} {time_level}")
 
     # --- 各指标具体的读取方法 ---
+    @staticmethod
+    def _find_closest_fib_period(target_period: int) -> int:
+        """找到斐波那契周期列表中最接近目标周期的值"""
+        if not FIB_PERIODS:
+            raise ValueError("FIB_PERIODS constant is not defined or empty.")
+        # 计算每个斐波那契周期与目标周期的绝对差值
+        diffs = {period: abs(period - target_period) for period in FIB_PERIODS}
+        # 找到差值最小的那个周期
+        closest_period = min(diffs, key=diffs.get)
+        return closest_period
+
     async def get_macd_fib_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
         """
         获取指定股票和时间级别的最新 MACD-FIB 指标数据。
@@ -717,17 +725,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"[get_macd_fib_df] 获取或处理股票[{stock_code}] {time_level_str} MACD-FIB 数据失败: {str(e)}", exc_info=True)
             return None
-
-    @staticmethod
-    def _find_closest_fib_period(target_period: int) -> int:
-        """找到斐波那契周期列表中最接近目标周期的值"""
-        if not FIB_PERIODS:
-            raise ValueError("FIB_PERIODS constant is not defined or empty.")
-        # 计算每个斐波那契周期与目标周期的绝对差值
-        diffs = {period: abs(period - target_period) for period in FIB_PERIODS}
-        # 找到差值最小的那个周期
-        closest_period = min(diffs, key=diffs.get)
-        return closest_period
 
     async def get_rsi_fib_df(self, stock_code: str, time_level: str, rsi_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
         """
@@ -1004,7 +1001,456 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"[get_kdj_fib_df] 获取或处理股票[{stock_code}] {time_level_str} KDJ-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
+    async def get_cci_fib_df(self, stock_code: str, time_level: str, cci_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 CCI-FIB 指标数据。
+        会根据 cci_period 选择最接近的斐波那契周期 CCI 列。
+        """
+        from stock_models.indicator.cci import StockCciFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_cci_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 CCI 列名
+        try:
+            closest_fib_period = self._find_closest_fib_period(cci_period)
+            cci_col_name = f"cci{closest_fib_period}"
+            StockCciFIB._meta.get_field(cci_col_name) # 检查字段是否存在
+        except (ValueError, FieldDoesNotExist) as e:
+             logger.error(f"[get_cci_fib_df] 无法确定或找到 CCI 列 '{cci_col_name}': {e}")
+             return None
+        except Exception as e_fib:
+             logger.error(f"[get_cci_fib_df] 确定 CCI 列时出错: {e_fib}", exc_info=True)
+             return None
 
+        try:
+            # 2. 查询数据库
+            cci_data_dicts = await sync_to_async(list)(
+                StockCciFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', cci_col_name)[:limit]
+            )
+            if not cci_data_dicts:
+                logger.warning(f"[get_cci_fib_df] 未找到 {stock_code} {time_level_str} 的 CCI-FIB 数据 (column: {cci_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(cci_data_dicts)
+            # 4. 重命名列并处理数据类型
+            df.rename(columns={cci_col_name: 'cci'}, inplace=True)
+            df['cci'] = pd.to_numeric(df['cci'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['cci'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_cci_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['cci']]
+        except Exception as e:
+            logger.error(f"[get_cci_fib_df] 获取或处理股票[{stock_code}] {time_level_str} CCI-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_mfi_fib_df(self, stock_code: str, time_level: str, mfi_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 MFI-FIB 指标数据。
+        会根据 mfi_period 选择最接近的斐波那契周期 MFI 列。
+        """
+        from stock_models.indicator.mfi import StockMfiFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_mfi_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 MFI 列名
+        try:
+            closest_fib_period = self._find_closest_fib_period(mfi_period)
+            mfi_col_name = f"mfi{closest_fib_period}"
+            StockMfiFIB._meta.get_field(mfi_col_name) # 检查字段是否存在
+        except (ValueError, FieldDoesNotExist) as e:
+             logger.error(f"[get_mfi_fib_df] 无法确定或找到 MFI 列 '{mfi_col_name}': {e}")
+             return None
+        except Exception as e_fib:
+             logger.error(f"[get_mfi_fib_df] 确定 MFI 列时出错: {e_fib}", exc_info=True)
+             return None
+
+        try:
+            # 2. 查询数据库
+            mfi_data_dicts = await sync_to_async(list)(
+                StockMfiFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', mfi_col_name)[:limit]
+            )
+            if not mfi_data_dicts:
+                logger.warning(f"[get_mfi_fib_df] 未找到 {stock_code} {time_level_str} 的 MFI-FIB 数据 (column: {mfi_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(mfi_data_dicts)
+            # 4. 重命名列并处理数据类型
+            df.rename(columns={mfi_col_name: 'mfi'}, inplace=True)
+            df['mfi'] = pd.to_numeric(df['mfi'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['mfi'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_mfi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['mfi']]
+        except Exception as e:
+            logger.error(f"[get_mfi_fib_df] 获取或处理股票[{stock_code}] {time_level_str} MFI-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_roc_fib_df(self, stock_code: str, time_level: str, roc_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 ROC-FIB 指标数据。
+        会根据 roc_period 选择最接近的斐波那契周期 ROC 列。
+        """
+        from stock_models.indicator.roc import StockRocFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_roc_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 ROC 列名
+        try:
+            closest_fib_period = self._find_closest_fib_period(roc_period)
+            roc_col_name = f"roc{closest_fib_period}"
+            StockRocFIB._meta.get_field(roc_col_name) # 检查字段是否存在
+        except (ValueError, FieldDoesNotExist) as e:
+             logger.error(f"[get_roc_fib_df] 无法确定或找到 ROC 列 '{roc_col_name}': {e}")
+             return None
+        except Exception as e_fib:
+             logger.error(f"[get_roc_fib_df] 确定 ROC 列时出错: {e_fib}", exc_info=True)
+             return None
+
+        try:
+            # 2. 查询数据库
+            roc_data_dicts = await sync_to_async(list)(
+                StockRocFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', roc_col_name)[:limit]
+            )
+            if not roc_data_dicts:
+                logger.warning(f"[get_roc_fib_df] 未找到 {stock_code} {time_level_str} 的 ROC-FIB 数据 (column: {roc_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(roc_data_dicts)
+            # 4. 重命名列并处理数据类型
+            df.rename(columns={roc_col_name: 'roc'}, inplace=True)
+            df['roc'] = pd.to_numeric(df['roc'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['roc'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_roc_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['roc']]
+        except Exception as e:
+            logger.error(f"[get_roc_fib_df] 获取或处理股票[{stock_code}] {time_level_str} ROC-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_dmi_fib_df(self, stock_code: str, time_level: str, dmi_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 DMI-FIB 指标数据 (+DI, -DI, ADX)。
+        会根据 dmi_period 选择最接近的斐波那契周期列。
+        注意：ADXR 通常不直接用于策略信号，这里不获取。
+        """
+        from stock_models.indicator.dmi import StockDmiFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_dmi_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 DMI 列名
+        pdi_col_name, mdi_col_name, adx_col_name = None, None, None
+        target_columns: List[str] = []
+        try:
+            # DMI 模型字段使用 plus_di, minus_di, adx
+            closest_fib_period = self._find_closest_fib_period(dmi_period)
+            pdi_col_name = f"plus_di{closest_fib_period}"
+            mdi_col_name = f"minus_di{closest_fib_period}"
+            adx_col_name = f"adx{closest_fib_period}"
+            target_columns = ['trade_time', pdi_col_name, mdi_col_name, adx_col_name]
+            # 检查字段是否存在
+            for col in [pdi_col_name, mdi_col_name, adx_col_name]:
+                 StockDmiFIB._meta.get_field(col)
+        except (ValueError, FieldDoesNotExist) as e:
+             logger.error(f"[get_dmi_fib_df] 无法确定或找到 DMI 列 for period {closest_fib_period}: {e}")
+             return None
+        except Exception as e_fib:
+             logger.error(f"[get_dmi_fib_df] 确定 DMI 列时出错: {e_fib}", exc_info=True)
+             return None
+
+        try:
+            # 2. 查询数据库
+            dmi_data_dicts = await sync_to_async(list)(
+                StockDmiFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values(*target_columns)[:limit]
+            )
+            if not dmi_data_dicts:
+                logger.warning(f"[get_dmi_fib_df] 未找到 {stock_code} {time_level_str} 的 DMI-FIB 数据 (columns: {pdi_col_name}, {mdi_col_name}, {adx_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(dmi_data_dicts)
+            # 4. 重命名列并处理数据类型
+            rename_map = {
+                pdi_col_name: 'pdi', # 策略中使用 pdi
+                mdi_col_name: 'mdi', # 策略中使用 mdi
+                adx_col_name: 'adx'
+            }
+            df.rename(columns=rename_map, inplace=True)
+            df['pdi'] = pd.to_numeric(df['pdi'], errors='coerce')
+            df['mdi'] = pd.to_numeric(df['mdi'], errors='coerce')
+            df['adx'] = pd.to_numeric(df['adx'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['pdi', 'mdi', 'adx'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_dmi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['pdi', 'mdi', 'adx']]
+        except Exception as e:
+            logger.error(f"[get_dmi_fib_df] 获取或处理股票[{stock_code}] {time_level_str} DMI-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_sar_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 SAR 指标数据。
+        """
+        from stock_models.indicator.sar import StockSar
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_sar_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        sar_col_name = 'sar' # 模型字段名
+
+        try:
+            # 2. 查询数据库
+            sar_data_dicts = await sync_to_async(list)(
+                StockSar.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', sar_col_name)[:limit]
+            )
+            if not sar_data_dicts:
+                logger.warning(f"[get_sar_df] 未找到 {stock_code} {time_level_str} 的 SAR 数据")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(sar_data_dicts)
+            # 4. 处理数据类型 (列名已经是 'sar')
+            df['sar'] = pd.to_numeric(df['sar'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['sar'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_sar_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['sar']]
+        except Exception as e:
+            logger.error(f"[get_sar_df] 获取或处理股票[{stock_code}] {time_level_str} SAR 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_amount_ma_fib_df(self, stock_code: str, time_level: str, amount_ma_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新成交额 MA-FIB 指标数据。
+        会根据 amount_ma_period 选择最接近的斐波那契周期列。
+        """
+        from stock_models.indicator.ma import StockAmountMaFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_amount_ma_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 Amount MA 列名
+        try:
+            closest_fib_period = self._find_closest_fib_period(amount_ma_period)
+            amt_ma_col_name = f"amt_ma{closest_fib_period}"
+            StockAmountMaFIB._meta.get_field(amt_ma_col_name) # 检查字段是否存在
+        except (ValueError, FieldDoesNotExist) as e:
+             logger.error(f"[get_amount_ma_fib_df] 无法确定或找到 Amount MA 列 '{amt_ma_col_name}': {e}")
+             return None
+        except Exception as e_fib:
+             logger.error(f"[get_amount_ma_fib_df] 确定 Amount MA 列时出错: {e_fib}", exc_info=True)
+             return None
+
+        try:
+            # 2. 查询数据库
+            amt_ma_data_dicts = await sync_to_async(list)(
+                StockAmountMaFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', amt_ma_col_name)[:limit]
+            )
+            if not amt_ma_data_dicts:
+                logger.warning(f"[get_amount_ma_fib_df] 未找到 {stock_code} {time_level_str} 的 Amount MA-FIB 数据 (column: {amt_ma_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(amt_ma_data_dicts)
+            # 4. 重命名列并处理数据类型
+            df.rename(columns={amt_ma_col_name: 'amount_ma'}, inplace=True)
+            df['amount_ma'] = pd.to_numeric(df['amount_ma'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['amount_ma'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_amount_ma_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['amount_ma']]
+        except Exception as e:
+            logger.error(f"[get_amount_ma_fib_df] 获取或处理股票[{stock_code}] {time_level_str} Amount MA-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_cmf_fib_df(self, stock_code: str, time_level: str, cmf_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 CMF-FIB 指标数据。
+        会根据 cmf_period 选择最接近的斐波那契周期 CMF 列。
+        """
+        from stock_models.indicator.cmf import StockCmfFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_cmf_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 CMF 列名
+        try:
+            closest_fib_period = self._find_closest_fib_period(cmf_period)
+            cmf_col_name = f"cmf{closest_fib_period}"
+            StockCmfFIB._meta.get_field(cmf_col_name) # 检查字段是否存在
+        except (ValueError, FieldDoesNotExist) as e:
+             logger.error(f"[get_cmf_fib_df] 无法确定或找到 CMF 列 '{cmf_col_name}': {e}")
+             return None
+        except Exception as e_fib:
+             logger.error(f"[get_cmf_fib_df] 确定 CMF 列时出错: {e_fib}", exc_info=True)
+             return None
+
+        try:
+            # 2. 查询数据库
+            cmf_data_dicts = await sync_to_async(list)(
+                StockCmfFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', cmf_col_name)[:limit]
+            )
+            if not cmf_data_dicts:
+                logger.warning(f"[get_cmf_fib_df] 未找到 {stock_code} {time_level_str} 的 CMF-FIB 数据 (column: {cmf_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(cmf_data_dicts)
+            # 4. 重命名列并处理数据类型
+            df.rename(columns={cmf_col_name: 'cmf'}, inplace=True)
+            df['cmf'] = pd.to_numeric(df['cmf'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['cmf'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_cmf_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['cmf']]
+        except Exception as e:
+            logger.error(f"[get_cmf_fib_df] 获取或处理股票[{stock_code}] {time_level_str} CMF-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_obv_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 OBV 指标数据。
+        """
+        from stock_models.indicator.obv import StockObvFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_obv_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        obv_col_name = 'obv' # 模型字段名
+
+        try:
+            # 2. 查询数据库
+            obv_data_dicts = await sync_to_async(list)(
+                StockObvFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', obv_col_name)[:limit]
+            )
+            if not obv_data_dicts:
+                logger.warning(f"[get_obv_df] 未找到 {stock_code} {time_level_str} 的 OBV 数据")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(obv_data_dicts)
+            # 4. 处理数据类型 (列名已经是 'obv')
+            # OBV 是 BigIntegerField，转换为 float 可能丢失精度，但 pandas 通常用 float 处理数值计算
+            # 如果需要保持整数，可以使用 Int64 (pandas >= 1.0)
+            # df['obv'] = pd.to_numeric(df['obv'], errors='coerce').astype('Int64') # 可选：保持整数
+            df['obv'] = pd.to_numeric(df['obv'], errors='coerce') # 转换为 float
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                 df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                 df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['obv'], how='all', inplace=True)
+            if df.empty:
+                 logger.warning(f"[get_obv_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                 return None
+            return df[['obv']]
+        except Exception as e:
+            logger.error(f"[get_obv_df] 获取或处理股票[{stock_code}] {time_level_str} OBV 数据失败: {str(e)}", exc_info=True)
+            return None
 
 
 

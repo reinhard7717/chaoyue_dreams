@@ -225,25 +225,28 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
 
 # --- 配置 ---
 STOCK_PROCESSING_BATCH_SIZE = 100  # 每个批处理任务处理的股票数量
+PRIORITY_QUEUE_NAME = 'priority_tasks' # 定义高优先级队列名称
+DEFAULT_QUEUE_NAME = 'celery' # 定义默认队列名称 (或者你的默认队列名)
 
-# --- 新的批处理 Worker 任务 (修改为同步包装器) ---
+# --- 批处理 Worker 任务 (保持不变) ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_stock_batch_with_original_logic')
-def process_stock_batch_with_original_logic(self, stock_codes_batch): # 改为 def
+def process_stock_batch_with_original_logic(self, stock_codes_batch):
     """
     处理一个批次的股票（同步任务包装器）。
     内部使用 asyncio.run() 执行异步逻辑。
+    (代码内容和之前一样，这里省略以保持简洁)
     """
+    # ... (之前的 process_stock_batch_with_original_logic 实现) ...
     batch_size = len(stock_codes_batch)
-    logger.info(f"任务启动 (同步包装器): process_stock_batch_with_original_logic - 处理 {batch_size} 只股票")
+    logger.info(f"任务启动 (同步包装器): process_stock_batch_with_original_logic - 处理 {batch_size} 只股票 (队列: {self.request.delivery_info.get('routing_key', '未知')})")
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
     from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
     from services.indicator_services import IndicatorService
     from tasks.strategy_tasks import strategy_macd_rsi_kdj_boll_strategy_for_stock
-    # 定义内部异步函数，包含所有需要 await 的操作
+
     async def _run_async_batch_logic(batch):
         processed_count = 0
         error_count = 0
-        # 在异步函数内部实例化或获取异步资源
         indicator_services = IndicatorService()
         stock_indicators_dao = StockIndicatorsDAO()
         stock_realtime_dao = StockRealtimeDAO()
@@ -251,121 +254,141 @@ def process_stock_batch_with_original_logic(self, stock_codes_batch): # 改为 d
         for stock_code in batch:
             try:
                 logger.debug(f"批处理 (异步逻辑): 开始处理股票 {stock_code}")
-
-                # 1. 获取数据 (按顺序执行)
                 await stock_indicators_dao.fetch_and_save_latest_time_trade_trading_hours_by_stock_code(stock_code)
                 await stock_realtime_dao.fetch_and_save_time_deals(stock_code)
-
-                # 2. 计算并保存指标
                 logger.debug(f"批处理 (异步逻辑): 计算 {stock_code} 的指标...")
                 for time_level in TIME_TEADE_TIME_LEVELS_LITE:
                     await indicator_services.calculate_and_save_macd_indicators(stock_code, time_level)
                     # 其他指标计算...
-
-                # 3. （可选）执行策略逻辑
                 await strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code)
-
                 logger.debug(f"批处理 (异步逻辑): 完成处理股票 {stock_code}")
                 processed_count += 1
-
             except Exception as e:
                 error_count += 1
                 logger.error(f"批处理 (异步逻辑): 处理股票 {stock_code} 时出错: {e}", exc_info=True)
-                # 继续处理下一只股票
-
         return processed_count, error_count
 
-    # --- 在同步任务中使用 asyncio.run() 执行内部异步函数 ---
     try:
-        # asyncio.run 会创建并管理事件循环来运行 _run_async_batch_logic
         processed_count, error_count = asyncio.run(_run_async_batch_logic(stock_codes_batch))
-
         logger.info(f"任务结束 (同步包装器): process_stock_batch_with_original_logic - 处理完成 {processed_count}/{batch_size} 只股票，失败 {error_count} 只")
         if error_count > 0:
-            # 可以根据需要决定是否让整个批次任务失败
-            # raise Exception(f"批处理任务中有 {error_count} 只股票处理失败")
             pass
         return f"批处理 (原逻辑) 完成: {processed_count} 成功, {error_count} 失败"
-
     except Exception as e:
-        # 捕获 asyncio.run 或内部异步逻辑可能抛出的任何异常
         logger.error(f"执行 process_stock_batch_with_original_logic (同步包装器) 时出错: {e}", exc_info=True)
-        # 让 Celery 知道任务失败了
-        raise # 重新抛出异常
+        raise
 
 
-# --- 异步辅助函数：获取所有需要处理的股票代码 ---
-#    （保持不变）
+# --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
-    """异步获取所有需要处理的股票代码列表（自选+所有）"""
+    """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
     stock_basic_dao = StockBasicDAO()
-    stock_codes = set()
+    favorite_stock_codes = set()
+    all_stock_codes = set()
+
+    # 获取自选股
     try:
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
         for fav in favorite_stocks:
-            stock_codes.add(fav.stock_code)
-        logger.info(f"获取到 {len(stock_codes)} 个自选股代码")
+            favorite_stock_codes.add(fav.stock_code)
+        logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
 
+    # 获取所有A股
     try:
         all_stocks = await stock_basic_dao.get_stock_list()
-        # original_count = len(stock_codes) # 这行似乎没用，可以去掉
         for stock in all_stocks:
-            stock_codes.add(stock.stock_code)
-        logger.info(f"获取到 {len(all_stocks)} 个全市场股票代码，总计（去重后） {len(stock_codes)} 个")
+            all_stock_codes.add(stock.stock_code)
+        logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
 
-    if not stock_codes:
+    # 计算非自选股代码 (在所有代码中，但不在自选代码中)
+    non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
+    favorite_stock_codes_list = list(favorite_stock_codes) # 转换为列表
+
+    total_unique_stocks = len(favorite_stock_codes) + len(non_favorite_stock_codes)
+    logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
+
+    if not favorite_stock_codes_list and not non_favorite_stock_codes:
          logger.warning("未能获取到任何需要处理的股票代码")
-         return []
 
-    return list(stock_codes)
+    return favorite_stock_codes_list, non_favorite_stock_codes
 
 
-# --- 修改原有的任务，使其成为调度器 ---
-#    （保持不变，它已经是同步的 def）
+# --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.get_trade_and_calculate_and_strategy')
 def get_trade_and_calculate_and_strategy(self):
     """
-    修改后的任务：获取所有相关股票代码，并分批派发给处理任务。
+    修改后的任务：获取自选股和非自选股代码，优先分派自选股任务到高优先级队列，
+    然后分派非自选股任务到默认队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info("任务启动: get_trade_and_calculate_and_strategy (调度器模式) - 获取股票列表并分派批处理任务")
+    logger.info("任务启动: get_trade_and_calculate_and_strategy (调度器模式) - 获取股票列表并按优先级分派批处理任务")
 
     try:
         # 在同步任务中运行异步代码来获取列表
-        stock_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
 
-        if not stock_codes:
+        if not favorite_codes and not non_favorite_codes:
             logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
             return "未获取到股票代码"
 
-        total_stocks = len(stock_codes)
-        num_batches = math.ceil(total_stocks / STOCK_PROCESSING_BATCH_SIZE)
-        logger.info(f"获取到 {total_stocks} 个股票代码，将分 {num_batches} 批处理 (每批最多 {STOCK_PROCESSING_BATCH_SIZE} 只)")
+        total_dispatched_tasks = 0
+        total_favorite_stocks = len(favorite_codes)
+        total_non_favorite_stocks = len(non_favorite_codes)
 
-        # 分批派发任务
-        for i in range(num_batches):
-            start_index = i * STOCK_PROCESSING_BATCH_SIZE
-            end_index = start_index + STOCK_PROCESSING_BATCH_SIZE
-            batch = stock_codes[start_index:end_index]
+        # 1. 分派自选股任务到高优先级队列
+        if favorite_codes:
+            num_fav_batches = math.ceil(total_favorite_stocks / STOCK_PROCESSING_BATCH_SIZE)
+            logger.info(f"准备分派 {total_favorite_stocks} 个自选股，分为 {num_fav_batches} 批，发送到队列 '{PRIORITY_QUEUE_NAME}'")
+            for i in range(num_fav_batches):
+                start_index = i * STOCK_PROCESSING_BATCH_SIZE
+                end_index = start_index + STOCK_PROCESSING_BATCH_SIZE
+                batch = favorite_codes[start_index:end_index]
+                if batch:
+                    # 使用 apply_async 并指定 queue 参数
+                    process_stock_batch_with_original_logic.apply_async(
+                        args=[batch],
+                        queue=PRIORITY_QUEUE_NAME
+                    )
+                    logger.info(f"已分派自选股批次 {i+1}/{num_fav_batches} ({len(batch)} 只股票) 到队列 '{PRIORITY_QUEUE_NAME}'")
+                    total_dispatched_tasks += 1
+                    # import time # 如果需要，可以稍微延迟
+                    # time.sleep(0.05)
+        else:
+            logger.info("没有自选股需要处理。")
 
-            if batch:
-                # 为每个批次异步调用新的批处理任务
-                # 调用的仍然是 process_stock_batch_with_original_logic，但现在它是一个同步包装器
-                process_stock_batch_with_original_logic.delay(batch)
-                logger.info(f"已分派批次 {i+1}/{num_batches} ({len(batch)} 只股票) 的处理任务 (使用原逻辑)")
-                # import time
-                # time.sleep(0.1)
+        # 2. 分派非自选股任务到默认队列
+        if non_favorite_codes:
+            num_non_fav_batches = math.ceil(total_non_favorite_stocks / STOCK_PROCESSING_BATCH_SIZE)
+            logger.info(f"准备分派 {total_non_favorite_stocks} 个非自选股，分为 {num_non_fav_batches} 批，发送到队列 '{DEFAULT_QUEUE_NAME}'")
+            for i in range(num_non_fav_batches):
+                start_index = i * STOCK_PROCESSING_BATCH_SIZE
+                end_index = start_index + STOCK_PROCESSING_BATCH_SIZE
+                batch = non_favorite_codes[start_index:end_index]
+                if batch:
+                    # 使用 apply_async 或 delay 发送到默认队列
+                    process_stock_batch_with_original_logic.apply_async(
+                        args=[batch],
+                        queue=DEFAULT_QUEUE_NAME # 或者直接用 .delay() 如果 DEFAULT_QUEUE_NAME 就是 Celery 的默认队列 'celery'
+                        # process_stock_batch_with_original_logic.delay(batch) # 如果默认队列就是 'celery'
+                    )
+                    logger.info(f"已分派非自选股批次 {i+1}/{num_non_fav_batches} ({len(batch)} 只股票) 到队列 '{DEFAULT_QUEUE_NAME}'")
+                    total_dispatched_tasks += 1
+                    # import time # 如果需要，可以稍微延迟
+                    # time.sleep(0.05)
+        else:
+            logger.info("没有非自选股需要处理。")
 
-        logger.info(f"任务结束: get_trade_and_calculate_and_strategy (调度器模式) - 所有 {num_batches} 个批处理任务已分派")
-        return f"已为 {total_stocks} 只股票分派 {num_batches} 个批处理任务 (使用原逻辑)"
+
+        logger.info(f"任务结束: get_trade_and_calculate_and_strategy (调度器模式) - 共分派 {total_dispatched_tasks} 个批处理任务")
+        return f"已为 {total_favorite_stocks} 自选股和 {total_non_favorite_stocks} 非自选股分派 {total_dispatched_tasks} 个批处理任务"
 
     except Exception as e:
         logger.error(f"执行 get_trade_and_calculate_and_strategy (调度器模式) 时出错: {e}", exc_info=True)
-        # raise self.retry(exc=e, countdown=300, max_retries=1)
+        # raise self.retry(exc=e, countdown=300, max_retries=1) # 可以考虑重试
         return "调度任务执行失败"
 
 

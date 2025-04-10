@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from celery.schedules import crontab
+from kombu import Queue
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -600,13 +601,24 @@ REDIS_PASSWORD = 'Asdf1234'
 CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
 CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2'  # 使用Redis作为结果后端
 
+# 定义队列
+CELERY_TASK_QUEUES = (
+    Queue('priority_tasks', routing_key='priority.#'), # 高优先级队列
+    Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
+    # 如果你的默认队列有其他名字，比如 'default_tasks'，就这样定义:
+    # Queue('default_tasks', routing_key='default.#'),
+)
 
-# 任务序列化与结果序列化
-CELERY_ACCEPT_CONTENT = ['json']  # 指定接受的内容类型
-CELERY_TASK_SERIALIZER = 'json'  # 任务序列化格式
-CELERY_RESULT_SERIALIZER = 'json'  # 结果序列化格式
-CELERY_TIMEZONE = 'Asia/Shanghai'  # 时区设置
-CELERY_ENABLE_UTC = False  # 禁用UTC
+# 设置默认队列 (如果 worker 启动时不指定 -Q，任务会进入这里)
+CELERY_TASK_DEFAULT_QUEUE = 'celery' # 或者 'default_tasks'
+CELERY_TASK_DEFAULT_EXCHANGE = 'tasks'
+CELERY_TASK_DEFAULT_ROUTING_KEY = 'celery' # 或者 'default'
+
+# (可选) 任务路由，虽然我们在代码中用 apply_async 指定了队列，但也可以在这里设置默认路由规则
+# CELERY_TASK_ROUTES = {
+#     'tasks.stock_indicators.process_stock_batch_with_original_logic': {'queue': 'celery'}, # 默认路由到普通队列
+#     # 注意：apply_async(queue=...) 会覆盖这里的设置
+# }
 
 # Celery Beat配置
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器

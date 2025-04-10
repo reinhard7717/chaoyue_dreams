@@ -10,7 +10,7 @@ import pandas as pd
 # ... 其他导入 ...
 from services.indicator_services import IndicatorService
 from strategies.base import SIGNAL_BUY, SIGNAL_HOLD, SIGNAL_SELL, SIGNAL_STRONG_BUY, SIGNAL_STRONG_SELL
-from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollStrategy
+from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollEnhancedStrategy
 from utils.cache_set import StrategyCacheSet
 from dao_manager.daos.stock_basic_dao import StockBasicDAO # 假设主任务需要
 
@@ -77,7 +77,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
 
     try:
         service = IndicatorService()
-        strategy = MacdRsiKdjBollStrategy()
+        strategy = MacdRsiKdjBollEnhancedStrategy()
         cache_setter = StrategyCacheSet()
         main_timeframe = '15'
         if not all([service, strategy, cache_setter]):
