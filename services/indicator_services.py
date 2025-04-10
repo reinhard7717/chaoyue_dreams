@@ -829,7 +829,7 @@ class IndicatorService:
 
         # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
         # 考虑 DMI/ADXR 等可能需要更多数据
-        needed_bars = max(FIB_PERIODS) * 2 + 100 # 保持足够大的缓冲
+        needed_bars = max(FIB_PERIODS) + 50 # 保持足够大的缓冲
 
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
