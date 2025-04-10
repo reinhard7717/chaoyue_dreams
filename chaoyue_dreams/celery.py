@@ -19,7 +19,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks(lambda: ['tasks'])
 
 # 设置worker进程数（根据服务器CPU核心数调整）
-app.conf.worker_concurrency = 24  # 或更多，取决于您的服务器资源
+app.conf.worker_concurrency = 16  # 或更多，取决于您的服务器资源
 
 # 启用预取限制，避免任务分配不均
 app.conf.worker_prefetch_multiplier = 1
