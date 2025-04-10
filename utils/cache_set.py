@@ -14,6 +14,8 @@ from utils import cache_constants as cc
 
 import json
 
+
+
 logger = logging.getLogger("dao")
 
 # 定义独立的辅助函数来处理 msgpack 不支持的类型
@@ -38,11 +40,12 @@ def _msgpack_default_packer(obj):
 class CacheSet():
     def __init__(self):
         from utils.cache_manager import CacheManager
-        from utils.cash_key import IndexCashKey, StockCashKey
+        from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey
         from utils.data_format_process import IndexDataFormatProcess
         self.cache_manager = CacheManager()
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
+        self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
@@ -94,6 +97,31 @@ class CacheSet():
                 return False
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            return False
+
+    async def _stock_strategy_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+        if not data_to_cache:
+            logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
+            return False
+        try:
+            # 1. 生成缓存键
+            # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
+            # 最新数据点可能更新较频繁，考虑使用实时数据的超时
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
+            # 3. 调用 CacheManager 设置缓存
+            success = self.cache_manager.set(
+                key=cache_key,
+                data=data_to_cache,
+                timeout=cache_timeout
+            )
+            if success:
+                # logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
+                return True
+            else:
+                logger.warning(f"缓存股票[{stock_code}] 策略数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                return False
+        except Exception as e:
+            logger.error(f"StockIndicatorsDAO._stock_strategy_data缓存股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
     # --- 修正后的写入缓存方法 (使用 ZADD) ---
@@ -614,4 +642,23 @@ class StockRealtimeCacheSet(CacheSet):
             return False
         cache_key = self.cache_key_stock.latest_abnormal_movement(stock_code)
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+
+class StrategyCacheSet(CacheSet):
+    async def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        data_to_cache = await self._format_conversion(data_to_cache)
+        if data_to_cache is None:
+            logger.error(f"macd_rsi_kdj_boll_data.data_to_cache转换失败。")
+            return False
+        cache_key = self.cache_key_strategy.macd_rsi_kdj_boll_data(stock_code, time_level)
+        return await self._stock_strategy_data(stock_code, time_level, data_to_cache, cache_key)
+
+
+
+
+
+
+
+
+
+
 

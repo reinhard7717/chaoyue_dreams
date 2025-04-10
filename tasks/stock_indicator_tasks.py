@@ -19,6 +19,7 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from services.indicator_services import IndicatorService
 
 
+
 logger = logging.getLogger("celery")
 
 # --- 新增：处理单个股票的子任务 ---
@@ -237,6 +238,7 @@ def process_stock_batch_with_original_logic(self, stock_codes_batch): # 改为 d
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
     from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
     from services.indicator_services import IndicatorService
+    from tasks.strategy_tasks import strategy_macd_rsi_kdj_boll_strategy_for_stock
     # 定义内部异步函数，包含所有需要 await 的操作
     async def _run_async_batch_logic(batch):
         processed_count = 0
@@ -261,7 +263,7 @@ def process_stock_batch_with_original_logic(self, stock_codes_batch): # 改为 d
                     # 其他指标计算...
 
                 # 3. （可选）执行策略逻辑
-                # await run_strategy_for_stock(stock_code)
+                await strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code)
 
                 logger.debug(f"批处理 (异步逻辑): 完成处理股票 {stock_code}")
                 processed_count += 1

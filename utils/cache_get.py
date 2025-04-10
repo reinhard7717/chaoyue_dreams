@@ -122,6 +122,27 @@ class CacheGet():
             logger.error(f"StockIndicatorsDAO._stock_latest_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
 
+    async def _stock_strategy_data(self, stock_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
+        try:
+            # 1. 生成缓存键 (必须与写入时使用的键完全一致)
+            logger.info(f"尝试从缓存获取股票[{stock_code}] 时间级别[{time_level}] 策略数据, key: {cache_key}")
+            # 2. 调用 CacheManager 获取数据
+            cached_data = self.cache_manager.get(key=cache_key)
+            if cached_data is not None:
+                if isinstance(cached_data, dict):
+                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 时间级别[{time_level}] 策略数据, key: {cache_key}")
+                    return cached_data
+                else:
+                    logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 时间级别[{time_level}] 的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
+                    self.cache_manager.delete(cache_key) # 可选：删除错误数据
+                    return None
+            else:
+                logger.info(f"缓存未命中: 未找到股票[{stock_code}] 时间级别[{time_level}] 策略数据, key: {cache_key}")
+                return None
+
+        except Exception as e:
+            logger.error(f"StockIndicatorsDAO._stock_strategy_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            return None
 
 class IndexCacheGet(CacheGet):
     async def all_indexes(self) -> Optional[List[Dict]]:
@@ -302,7 +323,6 @@ class IndexCacheGet(CacheGet):
         cache_key = self.cache_key_index.history_boll(index_code, time_level)
         return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
-
 class StockInfoCacheGet(CacheGet):
     async def all_stocks(self) -> Optional[List[Dict]]:
         """
@@ -436,6 +456,12 @@ class StockRealtimeCacheGet(CacheGet):
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
     
+class StrategyCacheGet(CacheGet):
+    async def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
+        cache_key = self.cache_key_strategy.macd_rsi_kdj_boll_data(stock_code, time_level)
+        return await self._stock_strategy_data(stock_code, time_level, cache_key)
+
+
 
 
 
