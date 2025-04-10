@@ -13,7 +13,7 @@ from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE
 from services.indicator_services import IndicatorService
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("celery")
 
 # --- 新增：处理单个股票的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade')
@@ -268,7 +268,6 @@ async def get_trade_and_calculate_and_strategy(self, stock_code: str):
     """
     logger.info(f"任务启动: get_trade_and_calculate for {stock_code}")
     from dao_manager.daos.stock_basic_dao import StockBasicDAO
-    from tasks.strategy_tasks import strategy_macd_rsi_kdj_boll_strategy_for_stock
     from services.indicator_services import IndicatorService
     stock_basic_dao = StockBasicDAO()
     indicator_services = IndicatorService()
