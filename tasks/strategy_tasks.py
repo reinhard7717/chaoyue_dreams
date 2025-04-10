@@ -150,7 +150,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
             cache_success = await cache_setter.macd_rsi_kdj_boll_data(
                 stock_code=stock_code, time_level=main_timeframe, data_to_cache=signal_data_to_cache
             )
-            if cache_success: logger.info(f"[{stock_code}] 策略结果/状态成功缓存到 Redis。")
+            if cache_success: logger.debug(f"[{stock_code}] 策略结果/状态成功缓存到 Redis。")
             else: logger.warning(f"[{stock_code}] 缓存策略结果/状态到 Redis 失败。")
         except Exception as cache_err:
             logger.error(f"[{stock_code}] 缓存策略结果/状态时发生错误: {cache_err}", exc_info=True)
