@@ -485,7 +485,7 @@ class CacheManager:
                 else:
                     logger.warning(f"ZREVRANGE: 跳过无法反序列化的成员, key={key}")
 
-            logger.debug(f"ZREVRANGE 成功: key={key}, limit={limit}, 返回 {len(deserialized_list)} 个成员")
+            # logger.debug(f"ZREVRANGE 成功: key={key}, limit={limit}, 返回 {len(deserialized_list)} 个成员")
             return deserialized_list
 
         except Exception as e:

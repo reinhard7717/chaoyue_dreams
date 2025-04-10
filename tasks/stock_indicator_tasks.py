@@ -269,18 +269,22 @@ async def get_trade_and_calculate_and_strategy(self, stock_code: str):
     logger.info(f"任务启动: get_trade_and_calculate for {stock_code}")
     from dao_manager.daos.stock_basic_dao import StockBasicDAO
     from tasks.strategy_tasks import strategy_macd_rsi_kdj_boll_strategy_for_stock
+    from services.indicator_services import IndicatorService
     stock_basic_dao = StockBasicDAO()
+    indicator_services = IndicatorService()
     favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
     for favorite_stock in favorite_stocks:
         process_single_stock_latest_trade_trading_hours(favorite_stock.stock_code)
         process_single_stock_realtime_trade(favorite_stock.stock_code)
-        calculate_stock_indicators_for_single_stock(favorite_stock.stock_code)
+        indicator_services.calculate_and_save_macd_indicators(favorite_stock.stock_code)
+        # calculate_stock_indicators_for_single_stock(favorite_stock.stock_code)
         # strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
     stocks = await stock_basic_dao.get_stock_list()
     for stock in stocks:
         process_single_stock_latest_trade_trading_hours(stock.stock_code)
         process_single_stock_realtime_trade(stock.stock_code)
-        calculate_stock_indicators_for_single_stock(stock.stock_code)
+        indicator_services.calculate_and_save_macd_indicators(stock.stock_code)
+        # calculate_stock_indicators_for_single_stock(stock.stock_code)
         # strategy_macd_rsi_kdj_boll_strategy_for_stock(stock.stock_code)
     logger.info(f"任务结束: get_trade_and_calculate for {stock_code}")
 

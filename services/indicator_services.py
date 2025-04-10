@@ -924,6 +924,76 @@ class IndicatorService:
 
         logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
 
+    async def calculate_and_save_macd_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
+        """
+        计算指定股票和时间级别的所有支持的指标，并保存到数据库。
+        (已适配 pandas-ta 计算方法)
+        """
+        if ta is None:
+            logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
+            return
+
+        logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
+
+        stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock_info:
+            logger.error(f"无法找到股票信息: {stock_code}，指标计算中止")
+            return
+
+        # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
+        # 考虑 DMI/ADXR 等可能需要更多数据
+        needed_bars = max(FIB_PERIODS) + 20 # 保持足够大的缓冲
+
+        ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
+        if ohlcv_df_raw is None or ohlcv_df_raw.empty:
+            logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level}")
+            return
+
+        time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
+
+        # --- 逐个计算并保存 ---
+        # 任务列表保持不变，因为函数签名和目的没变
+        indicator_tasks = [
+            (self.calculate_boll, self.indicator_dao.save_boll, {}), # 使用默认参数 period=20
+            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, {}),
+            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, {}), # 使用默认 M1=3, M2=3
+            # EMA 和 MACD 一起计算，因为 MACD 模型包含 EMA
+            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, {}), # 单独保存 EMA (可选)
+            (self.calculate_amount_ma_fib, self.indicator_dao.save_amount_ma_fib, {}),
+            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, {}), # 计算 MACD 和 EMA
+            (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, {}),
+        ]
+
+        for calc_func, save_func, params in indicator_tasks:
+            indicator_name = calc_func.__name__.replace('calculate_', '').upper()
+            # logger.debug(f"[{indicator_name}] 开始计算 for {stock_code} {time_level_str}")
+            try:
+                # 传递 ohlcv_df 的副本，确保每个计算函数拿到干净的数据
+                # 因为 pandas-ta 可能会原地修改或添加列（虽然不常见）
+                # 并且 VWAP 计算可能临时修改索引
+                ohlcv_df_copy = ohlcv_df_raw.copy()
+
+                indicator_result_df = calc_func(ohlcv_df_copy, **params)
+
+                if indicator_result_df is not None and not indicator_result_df.empty:
+                    # 确保结果的索引与原始数据对齐（或至少是其子集）
+                    indicator_result_df = indicator_result_df.reindex(ohlcv_df_raw.index).dropna(how='all')
+
+                    if not indicator_result_df.empty:
+                        # logger.debug(f"[{indicator_name}] 计算完成 (结果行数: {len(indicator_result_df)}), 开始保存 for {stock_code} {time_level_str}")
+                        # 保存所有计算出的非 NaN 结果
+                        await save_func(stock_info, time_level_str, indicator_result_df) # 移除 dropna，让 DAO 处理
+                    else:
+                         logger.warning(f"[{indicator_name}] 计算结果在重索引后为空 for {stock_code} {time_level_str}")
+
+                # else:
+                #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
+            except Exception as e:
+                logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
+
+        logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
+
+
     async def prepare_strategy_dataframe(self, stock_code: str, timeframes: List[str],
         strategy_params: Dict[str, Any], # 需要策略参数来获取正确的 RSI/KDJ 周期
         limit_per_tf: int = 1200 # 每个时间周期获取的数据量，应足够大
