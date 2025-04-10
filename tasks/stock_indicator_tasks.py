@@ -10,9 +10,8 @@ from celery import Celery, group # 导入 group
 from celery.utils.log import get_task_logger
 from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE
 # 假设这是你要调用的服务
-from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
-from services.indicator_services import IndicatorService
+
+
 # 假设这是你要用的 DAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 
@@ -235,7 +234,9 @@ def process_stock_batch_with_original_logic(self, stock_codes_batch): # 改为 d
     """
     batch_size = len(stock_codes_batch)
     logger.info(f"任务启动 (同步包装器): process_stock_batch_with_original_logic - 处理 {batch_size} 只股票")
-
+    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
+    from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
+    from services.indicator_services import IndicatorService
     # 定义内部异步函数，包含所有需要 await 的操作
     async def _run_async_batch_logic(batch):
         processed_count = 0
