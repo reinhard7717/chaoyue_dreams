@@ -2,7 +2,7 @@
 策略相关任务
 提供策略计算的定时任务和手动触发任务
 """
-# import asyncio
+from asgiref.sync import async_to_sync
 import asyncio
 import logging
 from celery import shared_task
@@ -60,12 +60,12 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
 
         # --- 现在才进入原来的 try 块 ---
         logger.info(f"[{stock_code}] 准备调用 service.prepare_strategy_dataframe...")
-        merged_data = asyncio.run(service.prepare_strategy_dataframe(
+        merged_data = async_to_sync(service.prepare_strategy_dataframe)(
             stock_code=stock_code,
-            timeframes=['5', '15', '30', '60'],
+            timeframes=strategy.timeframes,
             strategy_params=strategy.params,
             limit_per_tf=1500
-        ))
+        )
         logger.info(f"[{stock_code}] service.prepare_strategy_dataframe 调用完成.")
 
         # ... (rest of the try block) ...
