@@ -42,9 +42,10 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
     strategy = MacdRsiKdjBollStrategy() # 使用默认参数或加载配置
     cache_setter = StrategyCacheSet()
     # 定义主操作时间周期 (需要与 prepare_strategy_dataframe 和缓存键生成保持一致)
-    main_timeframe = '15m' # 或者从策略参数获取 strategy.params.get('main_timeframe', '15m')
+    main_timeframe = '15' # 或者从策略参数获取 strategy.params.get('main_timeframe', '15m')
 
     try:
+        logger.info(f"[{stock_code}] 准备调用 service.prepare_strategy_dataframe...")
         # 1. 准备数据
         merged_data = asyncio.run(service.prepare_strategy_dataframe(
             stock_code=stock_code,
@@ -52,6 +53,7 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
             strategy_params=strategy.params,
             limit_per_tf=1500 # 根据需要调整 limit
         ))
+        logger.info(f"[{stock_code}] 准备数据完成，数据形状: {merged_data.shape}")
 
         if merged_data is None or merged_data.empty:
             logger.warning(f"[{stock_code}] 未能准备策略所需数据，策略无法运行。")
