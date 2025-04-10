@@ -798,7 +798,7 @@ class IndicatorService:
         try:
             # pandas-ta pivot_points 返回包含 PP, S1-S4, R1-R4 的 DataFrame
             # 列名通常是 'PP', 'S1_traditional', 'R1_traditional' 等
-            pivot_df = ohlc.ta.pivots()
+            pivot_df = ohlc.ta.pivot()
             if pivot_df is None or pivot_df.empty:
                 logger.warning("pandas-ta pivots 计算返回空")
                 return None
