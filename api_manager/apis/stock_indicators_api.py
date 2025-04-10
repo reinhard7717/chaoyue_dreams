@@ -149,7 +149,7 @@ class StockIndicatorsAPI(BaseAPI):
         if isinstance(api_data, list):
             # 确保 'd' 键存在，如果不存在则使用空字符串或其他默认值排序，避免 KeyError
             api_data.sort(key=lambda x: x.get('d', ''), reverse=True) 
-            logger.info(f"最终获取历史分时交易数据: {stock_code}, 级别: {time_level}, 数据量: {len(api_data)}")
+            # logger.info(f"最终获取历史分时交易数据: {stock_code}, 级别: {time_level}, 数据量: {len(api_data)}")
         elif isinstance(api_data, dict) and 'error' in api_data:
              logger.error(f"获取历史分时交易数据失败: {stock_code}, 级别: {time_level}, 错误: {api_data['error']}")
         else:
