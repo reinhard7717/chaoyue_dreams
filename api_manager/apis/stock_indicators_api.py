@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Dict, List, Any, Optional, Union
 from enum import Enum
@@ -97,20 +98,66 @@ class StockIndicatorsAPI(BaseAPI):
         # logger.info(f"获取最新BOLL指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='dict')
     
-    async def get_history_trade(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
+    async def get_history_trade(self, stock_code: str, time_level: Union[str]) -> List[Dict[str, Any]]:
         """
-        获取历史分时交易数据
+        获取历史分时交易数据，增加对返回数据量为1的重试机制。
         Args:
             stock_code: 股票代码
-            time_level: 分时级别，可以是TimeLevel枚举或对应的字符串
+            time_level: 分时级别 (字符串)
         Returns:
-            List[Dict[str, Any]]: 历史分时交易数据列表
+            List[Dict[str, Any]]: 历史分时交易数据列表，或包含错误信息的字典
         """
         endpoint = f"/data/time/history/trade/{stock_code}/{time_level}"
+        
+        # 初始尝试获取数据
         api_data = await self.get(endpoint, expected_type='list')
+        
+        # 检查初始获取结果是否需要重试
+        if isinstance(api_data, list) and len(api_data) == 1:
+            logger.warning(f"获取历史分时交易数据 {stock_code} ({time_level}) 初始仅返回1条记录，启动重试机制...")
+            
+            for attempt in range(self.max_retry_count):
+                # 计算重试延迟
+                retry_delay = min(
+                    self.retry_delay * (self.retry_delay_factor ** attempt),
+                    self.max_retry_delay
+                )
+                logger.info(f"将在 {retry_delay:.1f} 秒后重试 ({attempt + 1}/{self.max_retry_count}) 获取 {stock_code} ({time_level})")
+                await asyncio.sleep(retry_delay)
+                
+                # 执行重试获取
+                retry_api_data = await self.get(endpoint, expected_type='list')
+                
+                # 检查重试结果
+                if isinstance(retry_api_data, list) and len(retry_api_data) > 1:
+                    logger.info(f"重试成功: 获取历史分时交易数据 {stock_code} ({time_level}) 成功获取 {len(retry_api_data)} 条记录。")
+                    api_data = retry_api_data # 使用重试成功的数据
+                    break # 成功获取到多于1条数据，退出重试循环
+                elif isinstance(retry_api_data, list) and len(retry_api_data) == 1:
+                    logger.warning(f"重试 {attempt + 1}/{self.max_retry_count} 后，获取 {stock_code} ({time_level}) 仍只返回1条记录。")
+                    # 继续下一次重试
+                else:
+                    # 如果重试返回错误或非列表类型，记录错误并停止重试，保留原始的单条数据
+                    logger.error(f"重试 {attempt + 1}/{self.max_retry_count} 获取 {stock_code} ({time_level}) 失败或返回非预期类型: {retry_api_data}")
+                    # 保留第一次获取的单条数据 api_data
+                    break 
+            else:
+                # 如果循环正常结束（即所有重试都失败了，仍然是1条数据）
+                logger.warning(f"获取历史分时交易数据 {stock_code} ({time_level}) 在重试 {self.max_retry_count} 次后仍只返回1条记录。将使用此单条记录。")
+                
+        # 对最终获取的数据进行处理（排序）
         if isinstance(api_data, list):
-            api_data.sort(key=lambda x: x['d'], reverse=True)
-        # logger.info(f"获取历史分时交易数据: {stock_code}, 级别: {time_level}, 数据量: {len(api_data)}")
+            # 确保 'd' 键存在，如果不存在则使用空字符串或其他默认值排序，避免 KeyError
+            api_data.sort(key=lambda x: x.get('d', ''), reverse=True) 
+            logger.info(f"最终获取历史分时交易数据: {stock_code}, 级别: {time_level}, 数据量: {len(api_data)}")
+        elif isinstance(api_data, dict) and 'error' in api_data:
+             logger.error(f"获取历史分时交易数据失败: {stock_code}, 级别: {time_level}, 错误: {api_data['error']}")
+        else:
+             # 如果 api_data 不是列表也不是包含 error 的字典，记录警告
+             logger.warning(f"获取历史分时交易数据返回非预期类型: {stock_code}, 级别: {time_level}, 类型: {type(api_data)}, 数据: {str(api_data)[:100]}...") # 记录部分数据以供调试
+             # 根据业务需求，这里可以返回空列表或原始数据
+             # return [] 
+
         return api_data
     
     async def get_history_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
