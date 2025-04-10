@@ -95,43 +95,6 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
 
         if signal_series.empty or signal_series.isna().all(): # 检查是否为空或全是 NaN
              logger.info(f"[{stock_code}] 策略运行完成，但未生成有效信号 (可能数据不足或全为 NaN)。")
-             # --- 新增：缓存空信号 ---
-             try:
-                 # 获取 merged_data 的最后一个时间戳作为参考
-                 latest_timestamp_ref = merged_data.index[-1] if not merged_data.empty else pd.Timestamp.now(tz='UTC') # Fallback
-                 # 准备空信号数据
-                 signal_data_to_cache = {
-                     'stock_code': stock_code,
-                     'strategy_name': strategy.strategy_name,
-                     'time_level': main_timeframe, # 使用主时间周期
-                     'timestamp': latest_timestamp_ref.isoformat(), # 使用参考时间戳
-                     'signal': None, # 或者使用 strategy.SIGNAL_NONE (np.nan) - 但需确保序列化处理
-                     'signal_display': 'No Signal',
-                     'score': None, # 如果策略计算了 score，可以缓存
-                     'generated_at': pd.Timestamp.now(tz='UTC').isoformat()
-                 }
-                 # 调用缓存设置方法 (注意：macd_rsi_kdj_boll_data 可能需要调整以适应这种结构)
-                 # 这里假设 macd_rsi_kdj_boll_data 接受一个字典并缓存它
-                 cache_success = asyncio.run(cache_setter.macd_rsi_kdj_boll_data(
-                     stock_code=stock_code,
-                     time_level=main_timeframe, # 使用主时间周期
-                     data_to_cache=signal_data_to_cache
-                 ))
-                 if cache_success:
-                     logger.info(f"[{stock_code}] 策略无有效信号，已缓存空信号状态。")
-                 else:
-                     logger.warning(f"[{stock_code}] 缓存空信号状态失败。")
-             except Exception as cache_err:
-                 logger.error(f"[{stock_code}] 缓存空信号状态时发生错误: {cache_err}", exc_info=False)
-             # --- 结束新增 ---
-             return f"[{stock_code}] 策略运行无有效信号"
-
-        # 3. 获取最新信号 (忽略 NaN)
-        # 使用 dropna() 移除 NaN 信号，然后取最后一个有效信号
-        valid_signals = signal_series.dropna()
-        if valid_signals.empty:
-             logger.info(f"[{stock_code}] 策略运行完成，但所有信号均为 NaN。")
-             # 此处逻辑同上，缓存空信号
              try:
                  latest_timestamp_ref = merged_data.index[-1] if not merged_data.empty else pd.Timestamp.now(tz='UTC')
                  signal_data_to_cache = {
@@ -140,7 +103,26 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
                      'signal': None, 'signal_display': 'No Signal (NaN)', 'score': None,
                      'generated_at': pd.Timestamp.now(tz='UTC').isoformat()
                  }
-                 cache_success = asyncio.run(cache_setter.macd_rsi_kdj_boll_data(stock_code, main_timeframe, signal_data_to_cache))
+                 cache_success = await cache_setter.macd_rsi_kdj_boll_data(stock_code, main_timeframe, signal_data_to_cache)
+                 if cache_success: logger.info(f"[{stock_code}] 策略信号全为 NaN，已缓存空信号状态。")
+                 else: logger.warning(f"[{stock_code}] 缓存 NaN 信号状态失败。")
+             except Exception as cache_err: logger.error(f"[{stock_code}] 缓存 NaN 信号状态时发生错误: {cache_err}", exc_info=False)
+             return f"[{stock_code}] 策略运行无有效信号"
+
+        # 3. 获取最新信号 (忽略 NaN)
+        # 使用 dropna() 移除 NaN 信号，然后取最后一个有效信号
+        valid_signals = signal_series.dropna()
+        if valid_signals.empty:
+             logger.info(f"[{stock_code}] 策略运行完成，但所有信号均为 NaN。")
+             try:
+                 latest_timestamp_ref = merged_data.index[-1] if not merged_data.empty else pd.Timestamp.now(tz='UTC')
+                 signal_data_to_cache = {
+                     'stock_code': stock_code, 'strategy_name': strategy.strategy_name,
+                     'time_level': main_timeframe, 'timestamp': latest_timestamp_ref.isoformat(),
+                     'signal': None, 'signal_display': 'No Signal (NaN)', 'score': None,
+                     'generated_at': pd.Timestamp.now(tz='UTC').isoformat()
+                 }
+                 cache_success = await cache_setter.macd_rsi_kdj_boll_data(stock_code, main_timeframe, signal_data_to_cache)
                  if cache_success: logger.info(f"[{stock_code}] 策略信号全为 NaN，已缓存空信号状态。")
                  else: logger.warning(f"[{stock_code}] 缓存 NaN 信号状态失败。")
              except Exception as cache_err: logger.error(f"[{stock_code}] 缓存 NaN 信号状态时发生错误: {cache_err}", exc_info=False)
@@ -181,12 +163,11 @@ async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
             # 调用缓存设置方法
             # 注意：这里使用了 StrategyCacheSet 的 macd_rsi_kdj_boll_data 方法
             # 这个方法内部会调用 _stock_strategy_data，最终调用 cache_manager.set
-            cache_success = asyncio.run(cache_setter.macd_rsi_kdj_boll_data(
+            cache_success = await cache_setter.macd_rsi_kdj_boll_data(
                 stock_code=stock_code,
-                time_level=main_timeframe, # 使用主时间周期与 key 生成对应
+                time_level=main_timeframe,
                 data_to_cache=signal_data_to_cache
-            ))
-
+            )
             if cache_success:
                 logger.info(f"[{stock_code}] 策略结果成功缓存到 Redis。")
             else:
