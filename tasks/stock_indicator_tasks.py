@@ -180,7 +180,7 @@ def process_single_stock_history_trade(self, stock_code: str):
 
     return task_result
 
-@app.task(bind=True, name='stock.fetch_single_stock_history_trade_data', max_retries=3)
+@celery_app.task(bind=True, name='tasks.stock_indicators.fetch_single_stock_history_trade_data', max_retries=3)
 def fetch_single_stock_history_trade_data(self, stock_code):
     """从数据库获取单只股票的历史交易数据并缓存
     
