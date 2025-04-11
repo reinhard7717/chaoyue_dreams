@@ -11,6 +11,7 @@ from core.constants import TIME_TEADE_TIME_LEVELS_LITE
 # 获取 logger 实例
 logger = logging.getLogger('celery') # 或者使用你项目配置的 logger
 
+
 # --- 核心处理逻辑 (异步) ---
 async def _process_stock_chunk_async(stock_pks):
     """
@@ -24,25 +25,20 @@ async def _process_stock_chunk_async(stock_pks):
     from stock_models.stock_basic import StockBasic, StockTimeTrade # 替换为你的模型实际路径
     from utils.cash_key import StockCashKey # 替换为你的工具类实际路径
     # --- 结束导入 ---
-
     stock_indicators_dao = StockIndicatorsDAO()
     stock_basic_dao = StockBasicDAO()
     cache_limit = 233 * 3
     # TIME_LEVELS = ['Day'] # 测试时可以减少
-
     # 使用 sync_to_async 获取实际的 StockBasic 对象
     get_stocks_sync = sync_to_async(
         lambda pks: list(StockBasic.objects.filter(pk__in=pks)),
         thread_sensitive=True
     )
     stocks_in_chunk = await get_stocks_sync(stock_pks)
-
     if not stocks_in_chunk:
         logger.warning(f"任务接收到空的股票列表 (pks: {stock_pks})，跳过处理。")
         return
-
     logger.info(f"开始处理包含 {len(stocks_in_chunk)} 只股票的片区: {[s.stock_code for s in stocks_in_chunk]}")
-
     for stock in stocks_in_chunk:
         for time_level in TIME_TEADE_TIME_LEVELS_LITE:
             try:
@@ -61,20 +57,23 @@ async def _process_stock_chunk_async(stock_pks):
                 cache_key = StockCashKey()
                 cache_key_str = cache_key.history_time_trade(stock.stock_code, time_level)
                 logger.info(f"重新缓存 {stock.stock_code} 股票 {time_level} 级别数据, 数量: {len(datas)}, key: {cache_key_str}, 最新时间: {datas[0].trade_time}")
-
-                # 批量处理缓存设置和修剪可能更高效，但这里保持原逻辑逐条处理
+                # 先清除旧的缓存数据
+                await stock_indicators_dao.cache_manager.delete_cache(cache_key_str)
+                logger.debug(f"已清除旧缓存 {cache_key_str}")
+                # 批量处理缓存数据
+                cache_data_batch = []
                 for item in datas:
-                   cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
-                   # logger.debug(f"缓存数据项: {cache_data}") # Debug 日志可以取消注释
-                   await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
-
-                # --- 单行调用修剪方法 ---
+                    cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
+                    cache_data_batch.append(cache_data)
+                # 批量设置缓存
+                if cache_data_batch:
+                    await stock_indicators_dao.cache_set.history_time_trade_batch(stock.stock_code, time_level, cache_data_batch)
+                    logger.debug(f"已批量设置 {len(cache_data_batch)} 条缓存数据到 {cache_key_str}")
+                # 修剪缓存至指定大小
                 await stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
                 logger.debug(f"已修剪缓存 {cache_key_str} 至 {cache_limit} 条记录")
-
             except Exception as e:
                 logger.error(f"处理股票 {stock.stock_code} ({time_level} 级别) 时出错: {e}", exc_info=True) # 记录详细错误信息
-
     logger.info(f"完成处理股票片区: {[s.stock_code for s in stocks_in_chunk]}")
 
 # --- Celery 任务 (同步包装器) ---
