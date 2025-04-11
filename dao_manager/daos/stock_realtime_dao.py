@@ -385,34 +385,66 @@ class StockRealtimeDAO(BaseDAO):
 
     async def fetch_and_save_time_deals(self, stock_code: str) -> Dict:
         """
-        批量保存分时成交数据
+        批量保存分时成交明细数据 (修正版：使用 async with 管理 API 实例)
         Args:
             stock_code: 股票代码
         Returns:
-            List[StockTimeDeal]: 保存后的分时成交数据列表
+            Dict: 保存结果统计
         """
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
+            logger.warning(f"股票代码[{stock_code}]不存在，无法获取分时成交明细")
             return {'创建': 0, '更新': 0, '跳过': 0}
+
         data_dicts = []
+        result = {'创建': 0, '更新': 0, '跳过': 0} # 初始化 result
+
+        # --- 使用 async with 创建和管理 API 实例 ---
         try:
-            api_datas = await self.api.get_time_deal(stock.stock_code)
-            for api_data in api_datas:
-                data_dict = self.data_format_process.set_time_deal_data(stock, api_data)
-                cache_dict = data_dict.copy()
-                data_dicts.append(data_dict)
-                await self.cache_set.time_deal(stock_code, cache_dict)
+            async with self.StockIndicatorsAPI() as api_client: # 在这里创建临时的 API 客户端实例
+                # --- 使用临时的 api_client ---
+                # 注意：假设你的 API 类有一个 get_time_deal 方法
+                api_datas = await api_client.get_time_deal(stock.stock_code) # 假设返回列表
+
+                if not isinstance(api_datas, list):
+                    logger.warning(f"API未返回 {stock.stock_code} 的分时成交明细列表，收到类型: {type(api_datas)}")
+                    # 检查是否是错误字典
+                    if isinstance(api_datas, dict) and 'error' in api_datas:
+                         logger.error(f"API返回错误: {api_datas['error']}")
+                    return {'创建': 0, '更新': 0, '跳过': 0} # 如果不是列表，则无法处理
+
+                for api_data in api_datas:
+                    try:
+                        data_dict = self.data_format_process.set_time_deal_data(stock, api_data)
+                        cache_dict = data_dict.copy()
+                        data_dicts.append(data_dict)
+                        await self.cache_set.time_deal(stock_code, cache_dict)
+                    except Exception as inner_e:
+                         # 捕获单条数据处理错误
+                         logger.error(f"处理 {stock.stock_code} 的单条成交明细时出错: {str(inner_e)} - 数据: {api_data}", exc_info=True)
+                         continue # 继续处理下一条
+
+            # --- async with 块结束，api_client 会自动关闭 ---
+
+            if not data_dicts:
+                logger.warning(f"未能成功处理 {stock.stock_code} 的任何分时成交明细数据")
+                return {'创建': 0, '更新': 0, '跳过': 0}
+
+            # 批量保存数据
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockTimeDeal,
+                model_class=StockTimeDeal, # 确保 StockTimeDeal 已导入
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'trade_time']
             )
-            logger.info(f"{stock} 股票分时成交数据保存完成，结果: {result}")
-            return result
-        except Exception as e:
-            logger.error(f"保存分时成交数据出错: {e}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
+            logger.info(f"{stock.stock_code} 股票分时成交明细数据保存完成，结果: {result}")
 
+        except Exception as e:
+            # 捕获 async with 外部或数据库保存过程中的错误
+            logger.error(f"保存 {stock.stock_code} 股票分时成交明细数据过程中发生意外错误: {str(e)}", exc_info=True)
+            result = {'创建': 0, '更新': 0, '跳过': 0} # 确保返回字典
+
+        return result
+    
     async def fetch_and_save_favorite_stocks_time_deals(self) -> Dict:
         """
         获取并保存所有自选股票的最新分时成交数据

@@ -271,50 +271,66 @@ class StockIndicatorsDAO(BaseDAO):
 
     async def fetch_and_save_latest_time_trade_trading_hours_by_stock_code(self, stock_code: str) -> Dict:
         """
-        从API获取并保存最新股票分时成交数据
+        从API获取并保存最新股票分时成交数据 (修正版：使用 async with 管理 API 实例)
         Args:
             stock_code: 股票代码
         Returns:
-            Optional[StockTimeTrade]: 保存的数据
+            Dict: 保存结果统计
         """
-        # 获取股票信息
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取时间序列数据")
             return {'创建': 0, '更新': 0, '跳过': 0}
+
         data_dicts = []
+        result = {'创建': 0, '更新': 0, '跳过': 0} # 初始化 result
+
+        # --- 使用 async with 创建和管理 API 实例 ---
         try:
-            for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
-                api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                if data_dict.get('d') is None:
-                    logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                    return {'创建': 0, '更新': 0, '跳过': 0}
-                data_dicts.append(data_dict)
-                cache_dict = data_dict.copy()
-                await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
-                await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)  
-                # --- 生成缓存键 ---
-                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-                # --- 单行调用修剪方法 ---
-                await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
-                # --- 修剪调用结束 ---
+            async with self.api() as api_client: # 在这里创建临时的 API 客户端实例
+                for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
+                    try:
+                        # --- 使用临时的 api_client ---
+                        api_data = await api_client.get_time_trade(stock.stock_code, time_level)
+                        data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+
+                        if data_dict.get('d') is None:
+                            logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据")
+                            # 根据策略，可以选择跳过这个 time_level 或直接返回
+                            continue # 跳过这个 time_level，继续下一个
+
+                        data_dicts.append(data_dict)
+                        cache_dict = data_dict.copy()
+                        await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
+                        await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
+                        cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+                        await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+
+                    except Exception as inner_e:
+                        # 捕获单个 time_level 处理中的错误，记录并继续处理下一个 time_level
+                        logger.error(f"处理 {stock.stock_code} 的 {time_level} 级别数据时出错: {str(inner_e)}", exc_info=True)
+                        continue # 继续下一个 time_level
+
+            # --- async with 块结束，api_client 会自动关闭 ---
+
             if not data_dicts:
-                logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
+                logger.warning(f"未能成功获取并处理 {stock.stock_code} 的任何时间级别数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-            # 保存数据
+
+            # 批量保存数据
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockTimeTrade,
+                model_class=StockTimeTrade, # 确保 StockTimeTrade 已导入
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            logger.info(f"{stock} 股票分时成交数据保存完成，结果: {result}")
-            return result
-        except Exception as e:
-            logger.error(f"保存{stock}股票分时成交数据出错: {str(e)}")
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
-            return {'创建': 0, '更新': 0, '跳过': 0}
+            logger.info(f"{stock.stock_code} 股票分时成交数据保存完成，结果: {result}")
 
+        except Exception as e:
+            # 捕获 async with 外部或数据库保存过程中的错误
+            logger.error(f"保存 {stock.stock_code} 股票分时成交数据过程中发生意外错误: {str(e)}", exc_info=True)
+            result = {'创建': 0, '更新': 0, '跳过': 0} # 确保返回字典
+
+        return result
 
     async def fetch_and_save_favorite_stocks_latest_time_trade(self) -> Dict:
         """
