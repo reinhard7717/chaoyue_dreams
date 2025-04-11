@@ -183,15 +183,12 @@ def process_single_stock_history_trade(self, stock_code: str):
 @celery_app.task(bind=True, name='tasks.stock_indicators.fetch_single_stock_history_trade_data', max_retries=3)
 def fetch_single_stock_history_trade_data(self, stock_code):
     """从数据库获取单只股票的历史交易数据并缓存
-    
     Args:
         stock_code (str): 股票代码
-    
     Returns:
         dict: 任务执行结果信息
     """
     logger.info(f"开始获取并缓存股票 {stock_code} 的历史交易数据")
-    
     from utils.cash_key import StockCashKey
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
     from dao_manager.daos.stock_basic_dao import StockBasicDAO
@@ -240,11 +237,27 @@ def fetch_single_stock_history_trade_data(self, stock_code):
         logger.exception(f"处理股票 {stock_code} 的历史交易数据时出错: {str(e)}")
         raise self.retry(exc=e, countdown=60)
     finally:
-        # 关闭 DAO 连接
-        if 'stock_indicators_dao' in locals():
-            stock_indicators_dao.close()
-        if 'stock_basic_dao' in locals():
-            stock_basic_dao.close()
+        # 确保 DAO 被关闭
+        if stock_indicators_dao:
+            try:
+                # 假设 close 是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_indicators_dao, 'close', None)):
+                     asyncio.run(stock_indicators_dao.close())
+                elif callable(getattr(stock_indicators_dao, 'close', None)):
+                     stock_indicators_dao.close()
+                logger.debug(f"DAO for {stock_code} closed.")
+            except Exception as close_err:
+                logger.error(f"关闭 DAO for {stock_code} 时出错: {close_err}", exc_info=True)
+        if stock_basic_dao:
+            try:
+                # 假设 close 是异步的
+                if asyncio.iscoroutinefunction(getattr(stock_basic_dao, 'close', None)):
+                     asyncio.run(stock_basic_dao.close())
+                elif callable(getattr(stock_basic_dao, 'close', None)):
+                     stock_basic_dao.close()
+                logger.debug(f"DAO for {stock_code} closed.")
+            except Exception as close_err:
+                logger.error(f"关闭 DAO for {stock_code} 时出错: {close_err}", exc_info=True)
 
 
 # --- 内部异步逻辑：计算单支股票 ---
