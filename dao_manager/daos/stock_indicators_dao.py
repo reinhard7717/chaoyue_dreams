@@ -241,9 +241,9 @@ class StockIndicatorsDAO(BaseDAO):
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 if isinstance(api_data, dict):
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                    if data_dict.get('d') is None:
+                    if data_dict.get('trade_time') is None:
                         logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                        return {'创建': 0, '更新': 0, '跳过': 0}
+                        pass
                     cache_dict = data_dict.copy()
                     data_dicts.append(data_dict)
                     await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
@@ -293,11 +293,10 @@ class StockIndicatorsDAO(BaseDAO):
                         # --- 使用临时的 api_client ---
                         api_data = await api_client.get_time_trade(stock.stock_code, time_level)
                         data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-
                         if data_dict.get('trade_time') is None:
                             logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据, data_dict: {data_dict}")
                             # 根据策略，可以选择跳过这个 time_level 或直接返回
-                            continue # 跳过这个 time_level，继续下一个
+                            pass # 跳过这个 time_level，继续下一个
 
                         data_dicts.append(data_dict)
                         cache_dict = data_dict.copy()
