@@ -545,7 +545,7 @@ LOGGING = {
     },
     'handlers': {
         'console': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
@@ -577,7 +577,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'services': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'services.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
@@ -595,7 +595,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
          'strategy': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'strategy.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
