@@ -8,7 +8,7 @@ import math
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from celery import Celery, chain, group # 导入 group
 from celery.utils.log import get_task_logger
-from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE
+from core.constants import TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from services.indicator_services import IndicatorService
 
@@ -206,7 +206,7 @@ def fetch_single_stock_history_trade_data(self, stock_code):
             return {"status": "error", "message": f"未找到股票代码 {stock_code} 的股票信息"}
         processed_count = 0
         # 处理不同的时间级别
-        for time_level in TIME_TEADE_TIME_LEVELS_LITE:
+        for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
             # 查询数据库获取历史数据
             datas = list(
                 StockTimeTrade.objects.filter(
