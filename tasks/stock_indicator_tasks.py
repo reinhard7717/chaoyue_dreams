@@ -194,7 +194,7 @@ def fetch_single_stock_history_trade_data(self, stock_code):
     from dao_manager.daos.stock_basic_dao import StockBasicDAO
     from stock_models.stock_basic import StockTimeTrade
     from asgiref.sync import sync_to_async
-    cache_limit = 233 * 3
+    cache_limit = 333
     try:
         # 初始化 DAO
         stock_indicators_dao = StockIndicatorsDAO()
@@ -217,6 +217,7 @@ def fetch_single_stock_history_trade_data(self, stock_code):
             cache_key = StockCashKey()
             cache_key_str = cache_key.history_time_trade(stock.stock_code, time_level)
             if datas:
+                stock_indicators_dao.cache_manager.delete(cache_key_str)
                 logger.info(f"缓存股票 {stock.stock_code} {time_level} 级别历史数据，共 {len(datas)} 条")
                 for item in datas:
                     # 格式化数据并缓存
