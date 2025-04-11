@@ -219,9 +219,8 @@ class IndicatorDAO(BaseDAO):
         if not history_trades:
             logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level}")
             return None
-
         try:
-            # 将模型列表转换为 DataFrame
+            # 1. 将模型列表转换为 DataFrame
             data = [
                 {
                     # 使用 getattr 安全访问，并处理 None
@@ -238,21 +237,30 @@ class IndicatorDAO(BaseDAO):
             if not data:
                 logger.warning(f"从 StockTimeTrade 实例转换的数据列表为空: {stock_code} {time_level}")
                 return None
-
             df = pd.DataFrame(data)
-
             if df.empty:
                 logger.warning(f"转换后的 DataFrame 为空: {stock_code} {time_level}")
                 return None
+            
+            # 2. 对非数值列应用分类类型 (在 df 创建之后)
+            # 确保在访问 df.columns 之前 df 已经被定义
+            for col in df.columns:
+                # 检查列是否存在且类型为 object，并且不是时间索引列
+                if col in df.columns and df[col].dtype == 'object' and col != 'trade_time':
+                    try:
+                        df[col] = df[col].astype('category')
+                    except Exception as e_cat:
+                        # 如果转换失败，记录警告但继续
+                        logger.warning(f"转换列 '{col}' 为 category 类型失败: {e_cat}")
 
-            # 重命名列以匹配 finta 要求
+            # 3. 重命名列以匹配 finta 要求
             df.rename(columns=FINTA_OHLCV_MAP, inplace=True)
 
-            # 将 trade_time 设置为索引
+            # 4. 将 trade_time 设置为索引
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
 
-            # --- 新增：去除重复索引 ---
+            # 5. 去除重复索引
             initial_len = len(df)
             if df.index.has_duplicates:
                 logger.warning(f"发现重复的时间戳索引 for {stock_code} {time_level}，将进行去重处理 (保留最后一个)")
@@ -261,10 +269,10 @@ class IndicatorDAO(BaseDAO):
                 logger.info(f"索引去重完成 for {stock_code} {time_level}，记录数从 {initial_len} 变为 {len(df)}")
             # --- 去重结束 ---
 
-            # 确保数据按时间升序排列 (虽然 get_history_time_trades_by_limit 已保证升序)
+            # 6. 确保数据按时间升序排列
             df.sort_index(ascending=True, inplace=True)
 
-            # 验证必要的列是否存在
+            # 7. 验证必要的列是否存在
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 logger.error(f"DataFrame 缺少必要列: {stock_code} {time_level}. 需要: {required_cols}, 实际: {df.columns.tolist()}")
@@ -273,7 +281,7 @@ class IndicatorDAO(BaseDAO):
             # 移除完全是 NaN 的行 (如果需要)
             # df.dropna(subset=required_cols, how='all', inplace=True) # 谨慎使用，可能移除计算指标需要的数据点
 
-            # 检查是否有足够的非 NaN 数据行
+            # 8. 检查是否有足够的非 NaN 数据行
             if df[required_cols].isnull().all(axis=1).sum() == len(df):
                  logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level}")
                  return None # 如果全是 NaN，返回 None
@@ -330,6 +338,11 @@ class IndicatorDAO(BaseDAO):
         from stock_models.stock_basic import StockInfo
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
         model_name = model_class.__name__ # 获取模型名称用于日志记录
+
+        # 在处理 DataFrame 之前，可以对非数值列应用分类类型
+        # 例如 time_level 列（如果存在于 DataFrame 中）
+        if 'time_level' in indicator_df.columns and indicator_df['time_level'].dtype == 'object':
+            indicator_df['time_level'] = indicator_df['time_level'].astype('category')
 
         # 检查输入 DataFrame 是否有效
         if indicator_df is None or indicator_df.empty:
@@ -465,16 +478,18 @@ class IndicatorDAO(BaseDAO):
 
     async def save_cci_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
         from stock_models.indicator.cci import StockCciFIB
-        field_map = {f'{p} period CCI': f'cci{p}' for p in FIB_PERIODS if f'{p} period CCI' in df.columns}
+        # 修改映射逻辑，匹配 'CCI_5' 格式的列名
+        field_map = {f'CCI_{p}': f'cci{p}' for p in FIB_PERIODS if f'CCI_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockCciFIB, field_map)
 
     async def save_cmf_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
         from stock_models.indicator.cmf import StockCmfFIB
-        field_map = {f'{p} period CMF': f'cmf{p}' for p in FIB_PERIODS if f'{p} period CMF' in df.columns}
+        field_map = {f'CMF_{p}': f'cmf{p}' for p in FIB_PERIODS if f'CMF_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockCmfFIB, field_map)
 
     async def save_dmi_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
         from stock_models.indicator.dmi import StockDmiFIB
+        # logger.info(f"[{stock_info.stock_code}] 保存 DMI_FIB 数据 for {time_level}, df: {df.columns}")
         field_map = {}
         for p in [13, 21, 34, 55, 89, 144, 233]:
              if f'+DI_{p}' in df.columns: field_map[f'+DI_{p}'] = f'plus_di{p}'
@@ -566,15 +581,6 @@ class IndicatorDAO(BaseDAO):
         from stock_models.indicator.wr import StockWrFIB
         field_map = {f'WR_{p}': f'wr{p}' for p in FIB_PERIODS if f'WR_{p}' in df.columns}
         await self._save_indicator_data_generic(stock_info, time_level, df, StockWrFIB, field_map)
-
-    async def save_atr_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
-        """保存 ATR (斐波那契周期) 指标数据"""
-        from stock_models.indicator.atr import StockAtrFIB # 保持原有导入
-        field_map = {f'ATR_{p}': f'atr{p}' for p in FIB_PERIODS if f'ATR_{p}' in df.columns}
-        if field_map: # 仅在 field_map 非空时调用
-            await self._save_indicator_data_generic(stock_info, time_level, df, StockAtrFIB, field_map)
-        else:
-            logger.warning(f"[StockAtrFIB] DataFrame 中未找到任何 ATR_ 列 for {stock_info.stock_code} {time_level}")
 
     async def save_sma_fib(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str], df: pd.DataFrame):
         """保存 SMA (斐波那契周期) 指标数据"""
@@ -697,6 +703,11 @@ class IndicatorDAO(BaseDAO):
                 return None
             # 将字典列表转换为 DataFrame
             df = pd.DataFrame.from_records(macd_data_dicts)
+            # 对可能包含重复字符串值的列应用分类类型
+            # 例如，如果 DataFrame 包含除了 trade_time、diff、dea、macd 之外的列，可以应用分类类型
+            non_numeric_cols = [col for col in df.columns if col not in ['trade_time', 'diff', 'dea', 'macd'] and df[col].dtype == 'object']
+            for col in non_numeric_cols:
+                df[col] = df[col].astype('category')
             # --- 数据类型转换和处理 ---
             # 将 Decimal (或其他类型) 转换为 float，方便计算，使用 errors='coerce' 将无效值转为 NaN
             df['diff'] = pd.to_numeric(df['diff'], errors='coerce')

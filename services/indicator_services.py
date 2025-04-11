@@ -47,6 +47,19 @@ class IndicatorService:
         if df is None or df.empty:
             logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level}")
             return None
+        # --- 添加代码：将 stock_code 和 time_level 列转换为 category 类型 (如果存在) ---
+        if 'stock_code' in df.columns:
+            try:
+                df['stock_code'] = df['stock_code'].astype('category')
+            except Exception as e:
+                logger.warning(f"转换 stock_code 列为 category 类型失败: {e}")
+
+        if 'time_level' in df.columns: # 假设你的 DataFrame 可能有 time_level 列
+            try:
+                df['time_level'] = df['time_level'].astype('category')
+            except Exception as e:
+                logger.warning(f"转换 time_level 列为 category 类型失败: {e}")
+        # --------------------------------------------------------------------
         # if len(df) < needed_bars:
         #      logger.warning(f"获取到的历史数据 ({len(df)}) 少于所需 ({needed_bars}): {stock_code} {time_level}")
              # return None # 保持原有逻辑，即使数据不足也尝试计算

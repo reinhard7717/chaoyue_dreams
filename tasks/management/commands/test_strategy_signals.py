@@ -68,6 +68,7 @@ async def test_strategy_signals(stock_code: str):
 
     # 6. 生成信号
     print(f"[{stock_code}] 正在生成策略信号...")
+    # print("Columns in strategy_df:", strategy_df.columns)
     try:
         signals: pd.Series = strategy_instance.generate_signals(strategy_df)
         print(f"[{stock_code}] 策略信号生成完成。")

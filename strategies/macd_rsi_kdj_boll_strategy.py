@@ -85,6 +85,8 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         self.score_indicators = ['macd', 'rsi', 'kdj', 'boll', 'cci', 'mfi', 'roc', 'dmi', 'sar']
         # 定义用于量能确认的指标 (及其参数)
         self.volume_confirm_indicators = ['amount_ma', 'cmf', 'obv']
+        # 用于存储中间计算结果的属性
+        self.intermediate_data: Optional[pd.DataFrame] = None
 
         super().__init__(merged_params)
 
@@ -115,9 +117,11 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         required.append(f'high_{price_tf}') # 用于计算价格新高
         required.append(f'low_{price_tf}')
         # 主操作周期的收盘价 (用于 BOLL, SAR, KC 等比较)
-        required.append(f'close_{self.params.get("volume_tf", "15")}') # 主要用于比较的价格序列
-        required.append(f'high_{self.params.get("volume_tf", "15")}') # SAR 可能需要
-        required.append(f'low_{self.params.get("volume_tf", "15")}')  # SAR 可能需要
+        # 使用量能确认周期的价格数据，或者固定的 15m 数据
+        compare_price_tf = self.params.get('volume_tf', '15')
+        required.append(f'close_{compare_price_tf}') # 主要用于比较的价格序列
+        required.append(f'high_{compare_price_tf}') # SAR 可能需要
+        required.append(f'low_{compare_price_tf}')  # SAR 可能需要
 
         # 参与评分的指标
         for tf in self.timeframes:
@@ -159,108 +163,108 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         # 去重后返回
         return list(set(required))
 
-    # --- 单个指标信号生成函数 (保留原有的) ---
+    # --- 单个指标信号生成函数 (保持向量化) ---
+    # 这些函数已经使用了向量化操作，无需修改
     def _get_macd_signal(self, diff: pd.Series, dea: pd.Series, macd: pd.Series) -> pd.Series:
-        signal = pd.Series(0, index=diff.index, dtype=int)
+        signal = pd.Series(0, index=diff.index, dtype=np.int8) # 使用更小的整数类型
         buy_signal = (macd.shift(1) < 0) & (macd > 0)
         sell_signal = (macd.shift(1) > 0) & (macd < 0)
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
     def _get_rsi_signal(self, rsi: pd.Series) -> pd.Series:
-        signal = pd.Series(0, index=rsi.index, dtype=int)
+        signal = pd.Series(0, index=rsi.index, dtype=np.int8)
         oversold = self.params['rsi_oversold']
         overbought = self.params['rsi_overbought']
         buy_signal = (rsi.shift(1) < oversold) & (rsi > oversold)
         sell_signal = (rsi.shift(1) > overbought) & (rsi < overbought)
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
     def _get_kdj_signal(self, k: pd.Series, d: pd.Series, j: pd.Series) -> pd.Series:
-        signal = pd.Series(0, index=k.index, dtype=int)
+        signal = pd.Series(0, index=k.index, dtype=np.int8)
         # oversold = self.params['kdj_oversold'] # J值超卖/超买条件可以加入，但交叉更常用
         # overbought = self.params['kdj_overbought']
         buy_cross = (k.shift(1) < d.shift(1)) & (k > d) & (j < 80) # 金叉发生在非超买区
         sell_cross = (k.shift(1) > d.shift(1)) & (k < d) & (j > 20) # 死叉发生在非超卖区
-        signal[buy_cross] = 1
-        signal[sell_cross] = -1
+        signal.loc[buy_cross] = 1
+        signal.loc[sell_cross] = -1
         return signal
 
     def _get_boll_signal(self, close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series:
-        signal = pd.Series(0, index=close.index, dtype=int)
+        signal = pd.Series(0, index=close.index, dtype=np.int8)
         buy_support = (close.shift(1) < lower.shift(1)) & (close > lower) # 下轨支撑
         sell_pressure = (close.shift(1) > upper.shift(1)) & (close < upper) # 上轨压制
         # 也可以考虑突破中轨
         # buy_mid_cross = (close.shift(1) < mid.shift(1)) & (close > mid)
         # sell_mid_cross = (close.shift(1) > mid.shift(1)) & (close < mid)
-        signal[buy_support] = 1
-        signal[sell_pressure] = -1
+        signal.loc[buy_support] = 1
+        signal.loc[sell_pressure] = -1
         return signal
-
-    # --- 新增指标信号生成函数 ---
 
     def _get_cci_signal(self, cci: pd.Series) -> pd.Series:
         """根据 CCI 指标生成信号 (1: 从下向上穿过阈值, -1: 从上向下穿过阈值)"""
-        signal = pd.Series(0, index=cci.index, dtype=int)
+        signal = pd.Series(0, index=cci.index, dtype=np.int8)
         threshold = self.params['cci_threshold']
         # 上穿 -threshold (买入信号)
         buy_signal = (cci.shift(1) < -threshold) & (cci > -threshold)
         # 下穿 +threshold (卖出信号)
         sell_signal = (cci.shift(1) > threshold) & (cci < threshold)
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
     def _get_mfi_signal(self, mfi: pd.Series) -> pd.Series:
         """根据 MFI 指标生成信号 (1: 超卖区反弹, -1: 超买区回调)"""
-        signal = pd.Series(0, index=mfi.index, dtype=int)
+        signal = pd.Series(0, index=mfi.index, dtype=np.int8)
         oversold = self.params['mfi_oversold']
         overbought = self.params['mfi_overbought']
         # 上穿超卖线
         buy_signal = (mfi.shift(1) < oversold) & (mfi > oversold)
         # 下穿超买线
         sell_signal = (mfi.shift(1) > overbought) & (mfi < overbought)
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
     def _get_roc_signal(self, roc: pd.Series) -> pd.Series:
         """根据 ROC 指标生成信号 (1: 上穿 0 轴, -1: 下穿 0 轴)"""
-        signal = pd.Series(0, index=roc.index, dtype=int)
+        signal = pd.Series(0, index=roc.index, dtype=np.int8)
         # ROC 由负转正
         buy_signal = (roc.shift(1) < 0) & (roc > 0)
         # ROC 由正转负
         sell_signal = (roc.shift(1) > 0) & (roc < 0)
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
     def _get_dmi_signal(self, pdi: pd.Series, mdi: pd.Series, adx: pd.Series) -> pd.Series:
         """根据 DMI 指标生成信号 (1: PDI 上穿 MDI 且 ADX 确认趋势, -1: MDI 上穿 PDI 且 ADX 确认趋势)"""
-        signal = pd.Series(0, index=pdi.index, dtype=int)
+        signal = pd.Series(0, index=pdi.index, dtype=np.int8)
         adx_threshold = self.params['adx_threshold']
         # PDI 上穿 MDI，且 ADX 大于阈值 (或 ADX 正在上升)
         buy_signal = (pdi.shift(1) < mdi.shift(1)) & (pdi > mdi) & (adx > adx_threshold)
         # MDI 上穿 PDI，且 ADX 大于阈值 (或 ADX 正在上升)
         sell_signal = (mdi.shift(1) < pdi.shift(1)) & (mdi > pdi) & (adx > adx_threshold)
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
     def _get_sar_signal(self, close: pd.Series, sar: pd.Series) -> pd.Series:
         """根据 SAR 指标生成信号 (1: SAR 向上翻转, -1: SAR 向下翻转)"""
-        signal = pd.Series(0, index=close.index, dtype=int)
+        signal = pd.Series(0, index=close.index, dtype=np.int8)
         # SAR 向上翻转 (前一天 SAR > close, 今天 SAR < close) - 买入信号
+        # 使用 .loc 避免 SettingWithCopyWarning
         buy_signal = (sar.shift(1) > close.shift(1)) & (sar < close) # 使用当前 close 和 sar 判断
         # SAR 向下翻转 (前一天 SAR < close, 今天 SAR > close) - 卖出信号
         sell_signal = (sar.shift(1) < close.shift(1)) & (sar > close) # 使用当前 close 和 sar 判断
-        signal[buy_signal] = 1
-        signal[sell_signal] = -1
+        signal.loc[buy_signal] = 1
+        signal.loc[sell_signal] = -1
         return signal
 
-    # --- 量能确认逻辑 ---
+    # --- 量能确认逻辑 (保持向量化) ---
     def _confirm_with_volume(self, preliminary_signal: pd.Series, data: pd.DataFrame) -> pd.Series:
         """
         使用量能指标确认或调整初步信号。
@@ -272,6 +276,7 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
             return preliminary_signal
 
         vol_tf = self.params['volume_tf']
+        # 复制一份以修改，确保原始信号不变
         confirmed_signal = preliminary_signal.copy()
 
         # 获取价格和量能数据 (确保列存在)
@@ -282,45 +287,62 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         cmf = data.get(f'cmf_{vol_tf}')
         obv = data.get(f'obv_{vol_tf}')
         obv_ma = data.get(f'obv_ma_{vol_tf}')
-        # mfi = data.get(f'mfi_{vol_tf}') # 如果使用 MFI
+        mfi = data.get(f'mfi_{vol_tf}') # 如果使用 MFI
 
-        # 1. 量能确认买入信号 
+        # 检查所需列是否存在，避免 KeyError
+        required_cols_exist = all(col is not None for col in [close, high, amount, amount_ma, cmf, obv, obv_ma])
+        if not required_cols_exist:
+             # 如果缺少关键列，无法进行量能确认，返回原始信号
+             # 可以考虑添加日志警告
+             print(f"Warning: Missing required columns for volume confirmation on timeframe {vol_tf}. Skipping volume confirmation.") # 或者使用 logging
+             return preliminary_signal
+
+        # 1. 量能确认买入信号
         # 买入确认: 成交额高于均线 OR CMF > 0 OR OBV 高于其均线 (三者满足其一或多个)
-        if self.params['volume_confirmation']:
-            buy_volume_confirm = pd.Series(False, index=data.index)
-            if amount is not None and amount_ma is not None:
-                buy_volume_confirm |= (amount > amount_ma)
-            if cmf is not None:
-                buy_volume_confirm |= (cmf > 0) # CMF 大于 0 表示资金流入
-            if obv is not None and obv_ma is not None:
-                buy_volume_confirm |= (obv > obv_ma) # OBV 趋势向上
-            # 应用确认逻辑
-            # 对初步的买入信号进行检查
-            is_buy_signal = (preliminary_signal == SIGNAL_BUY) | (preliminary_signal == SIGNAL_STRONG_BUY)
-            # 如果是买入信号但量能不确认，则降级为持有
-            confirmed_signal[is_buy_signal & (~buy_volume_confirm)] = SIGNAL_HOLD
+        buy_volume_confirm = pd.Series(False, index=data.index)
+        if amount is not None and amount_ma is not None:
+            buy_volume_confirm |= (amount > amount_ma)
+        if cmf is not None:
+            buy_volume_confirm |= (cmf > 0) # CMF 大于 0 表示资金流入
+        if obv is not None and obv_ma is not None:
+            buy_volume_confirm |= (obv > obv_ma) # OBV 趋势向上
 
-        # 2. 检查量能顶背离 
-        if self.params.get('check_bearish_divergence') and high is not None and cmf is not None and obv is not None and obv_ma is not None:
+        # 应用确认逻辑: 对初步的买入/强力买入信号进行检查
+        is_buy_signal = (preliminary_signal == SIGNAL_BUY) | (preliminary_signal == SIGNAL_STRONG_BUY)
+        # 如果是买入信号但量能不确认，则降级为持有
+        # 使用 .loc 避免 SettingWithCopyWarning
+        confirmed_signal.loc[is_buy_signal & (~buy_volume_confirm)] = SIGNAL_HOLD
+
+        # 2. 检查量能顶背离
+        if self.params.get('check_bearish_divergence'):
             price_period = self.params['divergence_price_period']
             cmf_threshold = self.params['divergence_threshold_cmf']
-            # mfi_threshold = self.params['divergence_threshold_mfi'] # 如果使用 MFI
+            mfi_threshold = self.params['divergence_threshold_mfi'] # 如果使用 MFI
+
             # 条件1: 价格创近期新高 (例如，当前 high 是最近 price_period 内的最高点)
-            is_price_high = high == high.rolling(window=price_period, min_periods=price_period).max()
+            # 确保 rolling 有足够的数据
+            if len(high) >= price_period:
+                is_price_high = high == high.rolling(window=price_period, min_periods=price_period).max()
+            else:
+                is_price_high = pd.Series(False, index=high.index) # 不足周期无法判断
+
             # 并且价格是上涨的 (可选，避免横盘时误判)
             is_price_rising = close > close.shift(1)
             # 条件2: 量能指标表现疲软
             is_cmf_weak = cmf < cmf_threshold # CMF 为负或低于某个阈值
             is_obv_weak = obv < obv_ma       # OBV 低于其移动平均线
-            # is_mfi_weak = mfi < mfi_threshold # MFI 处于较低水平 (可选)
+            is_mfi_weak = mfi < mfi_threshold # MFI 处于较低水平 (可选)
+
             # 组合判断顶背离: 价格创新高 + 量能疲软 (至少满足一个量能弱条件)
             # 注意：更严格的背离需要比较指标的高点，这里简化为当前状态判断
             bearish_divergence = is_price_high & is_price_rising & (is_cmf_weak | is_obv_weak) # 可以加入 is_mfi_weak
+
             # 如果检测到顶背离，且当前信号不是卖出信号，则强制设置为卖出
             # 可以根据需要设置为 SIGNAL_SELL 或 SIGNAL_STRONG_SELL
             # 这里我们覆盖掉非卖出信号
             is_not_sell = (confirmed_signal != SIGNAL_SELL) & (confirmed_signal != SIGNAL_STRONG_SELL)
-            confirmed_signal[bearish_divergence & is_not_sell] = SIGNAL_SELL # 或 SIGNAL_STRONG_SELL
+            # 使用 .loc 避免 SettingWithCopyWarning
+            confirmed_signal.loc[bearish_divergence & is_not_sell] = SIGNAL_SELL # 或 SIGNAL_STRONG_SELL
 
         return confirmed_signal
 
@@ -330,7 +352,10 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         """
         根据输入的包含多时间周期指标的 DataFrame 生成最终交易信号。
         """
+        # 初始化用于存储中间信号和总分的 DataFrame
         signals = pd.DataFrame(index=data.index)
+        signals['total_score'] = 0.0 # 初始化总分列
+
         weights = self.params['weights']
         thresholds = self.params['score_thresholds']
         vol_tf = self.params['volume_tf'] # 量能确认的时间周期
@@ -338,103 +363,115 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         # 获取用于比较的价格序列 (例如 SAR, BOLL 需要)
         # 使用量能确认周期的价格数据，或者固定的 15m 数据
         price_tf = vol_tf # 或者 '15'
+        # 确保价格列存在
+        if f'close_{price_tf}' not in data.columns:
+            raise ValueError(f"在输入数据中找不到所需的列: 'close_{price_tf}'.")
         close_price = data[f'close_{price_tf}']
-        # high_price = data[f'high_{price_tf}'] # 如果 SAR 需要
-        # low_price = data[f'low_{price_tf}']  # 如果 SAR 需要
+        high_price = data.get(f'high_{price_tf}') # 如果 SAR 需要
+        low_price = data.get(f'low_{price_tf}')  # 如果 SAR 需要
 
-        # 1. 为每个时间周期计算各指标的初步信号
+        # 1. 为每个时间周期计算各指标的初步信号并加权计分
         for tf in self.timeframes:
-            tf_signal_sum = pd.Series(0.0, index=data.index) # 当前时间周期的信号总和
+            tf_signal_sum = pd.Series(0.0, index=data.index) # 当前时间周期的信号总和 (float)
 
             # --- MACD ---
             diff_col, dea_col, macd_col = f'diff_{tf}', f'dea_{tf}', f'macd_{tf}'
             if all(c in data for c in [diff_col, dea_col, macd_col]):
                 macd_sig = self._get_macd_signal(data[diff_col], data[dea_col], data[macd_col])
-                signals[f'macd_signal_{tf}'] = macd_sig
-                if 'macd' in self.score_indicators: tf_signal_sum += macd_sig.fillna(0)
+                if 'macd' in self.score_indicators: tf_signal_sum += macd_sig.astype(float).fillna(0) # 计算时用 float
+                signals[f'macd_signal_{tf}'] = macd_sig.astype('category') # 存储时用 category
 
             # --- RSI ---
             rsi_col = f'rsi_{tf}'
             if rsi_col in data:
                 rsi_sig = self._get_rsi_signal(data[rsi_col])
-                signals[f'rsi_signal_{tf}'] = rsi_sig
-                if 'rsi' in self.score_indicators: tf_signal_sum += rsi_sig.fillna(0)
+                if 'rsi' in self.score_indicators: tf_signal_sum += rsi_sig.astype(float).fillna(0)
+                signals[f'rsi_signal_{tf}'] = rsi_sig.astype('category')
 
             # --- KDJ ---
             k_col, d_col, j_col = f'k_{tf}', f'd_{tf}', f'j_{tf}'
             if all(c in data for c in [k_col, d_col, j_col]):
                 kdj_sig = self._get_kdj_signal(data[k_col], data[d_col], data[j_col])
-                signals[f'kdj_signal_{tf}'] = kdj_sig
-                if 'kdj' in self.score_indicators: tf_signal_sum += kdj_sig.fillna(0)
+                if 'kdj' in self.score_indicators: tf_signal_sum += kdj_sig.astype(float).fillna(0)
+                signals[f'kdj_signal_{tf}'] = kdj_sig.astype('category')
 
             # --- BOLL ---
             upper_col, mid_col, lower_col = f'upper_{tf}', f'mid_{tf}', f'lower_{tf}'
             if all(c in data for c in [upper_col, mid_col, lower_col]):
                 # BOLL 信号统一使用 price_tf 的收盘价比较
                 boll_sig = self._get_boll_signal(close_price, data[upper_col], data[mid_col], data[lower_col])
-                signals[f'boll_signal_{tf}'] = boll_sig
-                if 'boll' in self.score_indicators: tf_signal_sum += boll_sig.fillna(0)
+                if 'boll' in self.score_indicators: tf_signal_sum += boll_sig.astype(float).fillna(0)
+                signals[f'boll_signal_{tf}'] = boll_sig.astype('category')
 
             # --- CCI ---
             cci_col = f'cci_{tf}'
             if cci_col in data:
                 cci_sig = self._get_cci_signal(data[cci_col])
-                signals[f'cci_signal_{tf}'] = cci_sig
-                if 'cci' in self.score_indicators: tf_signal_sum += cci_sig.fillna(0)
+                if 'cci' in self.score_indicators: tf_signal_sum += cci_sig.astype(float).fillna(0)
+                signals[f'cci_signal_{tf}'] = cci_sig.astype('category')
 
             # --- MFI ---
             mfi_col = f'mfi_{tf}'
             if mfi_col in data:
                 mfi_sig = self._get_mfi_signal(data[mfi_col])
-                signals[f'mfi_signal_{tf}'] = mfi_sig
-                if 'mfi' in self.score_indicators: tf_signal_sum += mfi_sig.fillna(0)
+                if 'mfi' in self.score_indicators: tf_signal_sum += mfi_sig.astype(float).fillna(0)
+                signals[f'mfi_signal_{tf}'] = mfi_sig.astype('category')
 
             # --- ROC ---
             roc_col = f'roc_{tf}'
             if roc_col in data:
                 roc_sig = self._get_roc_signal(data[roc_col])
-                signals[f'roc_signal_{tf}'] = roc_sig
-                if 'roc' in self.score_indicators: tf_signal_sum += roc_sig.fillna(0)
+                if 'roc' in self.score_indicators: tf_signal_sum += roc_sig.astype(float).fillna(0)
+                signals[f'roc_signal_{tf}'] = roc_sig.astype('category')
 
             # --- DMI ---
             pdi_col, mdi_col, adx_col = f'pdi_{tf}', f'mdi_{tf}', f'adx_{tf}'
             if all(c in data for c in [pdi_col, mdi_col, adx_col]):
                 dmi_sig = self._get_dmi_signal(data[pdi_col], data[mdi_col], data[adx_col])
-                signals[f'dmi_signal_{tf}'] = dmi_sig
-                if 'dmi' in self.score_indicators: tf_signal_sum += dmi_sig.fillna(0)
+                if 'dmi' in self.score_indicators: tf_signal_sum += dmi_sig.astype(float).fillna(0)
+                signals[f'dmi_signal_{tf}'] = dmi_sig.astype('category')
 
             # --- SAR ---
             sar_col = f'sar_{tf}'
             if sar_col in data:
                  # SAR 信号统一使用 price_tf 的收盘价比较
                 sar_sig = self._get_sar_signal(close_price, data[sar_col])
-                signals[f'sar_signal_{tf}'] = sar_sig
-                if 'sar' in self.score_indicators: tf_signal_sum += sar_sig.fillna(0)
+                if 'sar' in self.score_indicators: tf_signal_sum += sar_sig.astype(float).fillna(0)
+                signals[f'sar_signal_{tf}'] = sar_sig.astype('category')
 
             # 将当前时间周期的信号总和加权计入总分
-            if f'total_score' not in signals.columns:
-                 signals['total_score'] = 0.0
             signals['total_score'] += tf_signal_sum * weights[tf]
 
 
         # 2. 根据总分映射到初步信号级别
-        preliminary_signal = pd.Series(SIGNAL_HOLD, index=data.index) # 默认 HOLD
-        preliminary_signal[signals['total_score'] >= thresholds['strong_buy']] = SIGNAL_STRONG_BUY
-        preliminary_signal[(signals['total_score'] >= thresholds['buy']) & (signals['total_score'] < thresholds['strong_buy'])] = SIGNAL_BUY
-        preliminary_signal[(signals['total_score'] < thresholds['sell']) & (signals['total_score'] >= thresholds['strong_sell'])] = SIGNAL_SELL
-        preliminary_signal[signals['total_score'] < thresholds['strong_sell']] = SIGNAL_STRONG_SELL
-        preliminary_signal[signals['total_score'].isna()] = SIGNAL_NONE # 处理 NaN
+        # 使用 np.select 实现更高效的条件赋值
+        conditions = [
+            signals['total_score'] >= thresholds['strong_buy'],
+            (signals['total_score'] >= thresholds['buy']) & (signals['total_score'] < thresholds['strong_buy']),
+            (signals['total_score'] < thresholds['sell']) & (signals['total_score'] >= thresholds['strong_sell']),
+            signals['total_score'] < thresholds['strong_sell'],
+            signals['total_score'].isna() # 处理 NaN
+        ]
+        choices = [
+            SIGNAL_STRONG_BUY,
+            SIGNAL_BUY,
+            SIGNAL_SELL,
+            SIGNAL_STRONG_SELL,
+            SIGNAL_NONE # 对应 NaN
+        ]
+        preliminary_signal = pd.Series(np.select(conditions, choices, default=SIGNAL_HOLD), index=data.index)
 
         # 3. 应用量能确认逻辑 (如果启用)
         final_signal = self._confirm_with_volume(preliminary_signal, data)
 
         # 存储中间结果，方便调试分析
-        self.intermediate_data = signals # 可以把包含所有初步信号和总分的 DataFrame 存起来
+        self.intermediate_data = signals # 包含所有初步信号(category)和总分(float)
 
-        # 确保返回 float 类型以容纳 NaN (SIGNAL_NONE)
-        return final_signal.astype(float)
+        # 4. 返回最终信号，使用 category 类型优化内存
+        # category 类型可以处理 SIGNAL_NONE (np.nan)
+        return final_signal.astype('category')
 
     def get_intermediate_data(self) -> Optional[pd.DataFrame]:
         """返回包含中间计算结果（如各指标信号、总分）的 DataFrame，用于分析。"""
-        return getattr(self, 'intermediate_data', None)
+        return self.intermediate_data
 
