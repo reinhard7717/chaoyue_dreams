@@ -498,11 +498,9 @@ class CacheManager:
         """
         修剪有序集合，只保留最新的 N 个成员（按分数排序）。
         移除分数最低的成员，直到集合大小等于 keep_latest。
-
         Args:
             key: 有序集合的键。
             keep_latest: 希望保留的最新成员数量。
-
         Returns:
             Optional[int]: 被移除的成员数量。如果键不存在、无需移除或发生错误，返回 0 或 None。
         """
@@ -511,27 +509,21 @@ class CacheManager:
             # 可以选择删除整个 key 或返回 0
             # self.delete(key)
             return 0
-
         try:
             # 获取当前集合大小
             current_size = self.redis_client.zcard(key)
-
             if current_size is None or current_size <= keep_latest:
                 # 键不存在或大小未超限，无需修剪
                 # logger.debug(f"ZTRIMBYRANK 无需修剪: key={key}, current_size={current_size}, keep_latest={keep_latest}")
                 return 0
-
             # 计算需要移除的数量
             remove_count = current_size - keep_latest
             # 计算要移除的最高排名 (从 0 开始)
             # 例如，保留 200，当前 210，移除 10 个，移除排名 0 到 9
             end_rank = remove_count - 1
-
             # logger.info(f"ZTRIMBYRANK: 准备移除 key={key} 中排名 0 到 {end_rank} 的 {remove_count} 个成员，保留最新 {keep_latest} 个。")
-
             # 执行移除操作
             removed_count = self.redis_client.zremrangebyrank(key, 0, end_rank)
-
             if removed_count is not None:
                 # logger.info(f"ZTRIMBYRANK 成功: key={key}, 移除了 {removed_count} 个成员。")
                 return removed_count
@@ -539,7 +531,6 @@ class CacheManager:
                 # 理论上 zremrangebyrank 失败的可能性较低，除非连接问题
                 logger.error(f"ZTRIMBYRANK 命令执行失败 (返回 None): key={key}")
                 return None
-
         except Exception as e:
             logger.error(f"ZTRIMBYRANK 操作失败: key={key}, 错误: {str(e)}", exc_info=True)
             return None

@@ -152,16 +152,16 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
                 'stock': stock,
                 'time_level': time_level,
                 'trade_time': trade_time,  # 交易时间
-                'open_price': api_data.open_price,  # 开盘价
-                'high_price': api_data.high_price,  # 最高价
-                'low_price': api_data.low_price,  # 最低价
-                'close_price': api_data.close_price,  # 收盘价
-                'volume': api_data.volume,  # 成交量
-                'turnover': api_data.turnover,  # 成交额
-                'amplitude': api_data.amplitude,  # 振幅
-                'turnover_rate': api_data.turnover_rate,  # 换手率
-                'price_change_percent': api_data.price_change_percent,  # 涨跌幅
-                'price_change_amount': api_data.price_change_amount,  # 涨跌额   
+                'open_price': self._parse_number(api_data.open_price),  # 开盘价
+                'high_price': self._parse_number(api_data.high_price),  # 最高价
+                'low_price': self._parse_number(api_data.low_price),  # 最低价
+                'close_price': self._parse_number(api_data.close_price),  # 收盘价
+                'volume': self._parse_number(api_data.volume),  # 成交量
+                'turnover': self._parse_number(api_data.turnover),  # 成交额
+                'amplitude': self._parse_number(api_data.amplitude),  # 振幅
+                'turnover_rate': self._parse_number(api_data.turnover_rate),  # 换手率
+                'price_change_percent': self._parse_number(api_data.price_change_percent),  # 涨跌幅
+                'price_change_amount': self._parse_number(api_data.price_change_amount),  # 涨跌额   
             }
         else:
             trade_time = self._parse_datetime(api_data.get('d'))
