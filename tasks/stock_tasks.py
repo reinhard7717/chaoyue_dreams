@@ -67,7 +67,7 @@ async def _process_stock_chunk_async(stock_pks):
                     cache_data_batch.append(cache_data)
                 # 批量设置缓存
                 if cache_data_batch:
-                    await stock_indicators_dao.cache_set.history_time_trade_batch(stock.stock_code, time_level, cache_data_batch)
+                    await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data_batch)
                     logger.debug(f"已批量设置 {len(cache_data_batch)} 条缓存数据到 {cache_key_str}")
                 # 修剪缓存至指定大小
                 await stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
