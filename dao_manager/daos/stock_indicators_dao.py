@@ -370,12 +370,10 @@ class StockIndicatorsDAO(BaseDAO):
     async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Dict:
         """
         从API获取并保存历史股票分时成交数据
-        
         Args:
             stock_code: 股票代码
             time_level: 时间级别
             limit: 返回记录数量限制
-            
         Returns:
             Optional[StockTimeTrade]: 保存的数据
         """
@@ -433,15 +431,13 @@ class StockIndicatorsDAO(BaseDAO):
                     logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
                 else:
                     logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
-                    for index, api_data in enumerate(api_datas):
+                    for api_data in api_datas:
                         if isinstance(api_data, dict):
                             data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                             data_dicts.append(data_dict)
-                            # 检查是否在缓存限制内 (只对前 cache_limit 条执行)
-                            if index < self.cache_limit:
-                                await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
+                            await self.cache_set.history_time_trade(stock.stock_code, time_level, data_dict)
                 # 当数据量超过10万时，保存一次
-                if len(data_dicts) >= 20000:
+                if len(data_dicts) >= 50000:
                     logger.info(f"数据量达到{len(data_dicts)}，开始保存批次数据")
                     batch_result = await self._save_all_to_db_native_upsert(
                         model_class=StockTimeTrade,
@@ -455,7 +451,6 @@ class StockIndicatorsDAO(BaseDAO):
                     # 清空数据列表，准备下一批
                     data_dicts = []
                 # logger.warning(f"当前data_dicts总量: {len(data_dicts)}")
-            
             # 保存剩余数据
             if data_dicts:
                 final_result = await self._save_all_to_db_native_upsert(
@@ -464,7 +459,6 @@ class StockIndicatorsDAO(BaseDAO):
                     unique_fields=['stock', 'time_level', 'trade_time']
                 )
                 logger.info(f"剩余数据保存完成，结果: {final_result}")
-                
                 # 累加最终结果
                 for key in total_result:
                     total_result[key] += final_result.get(key, 0)
@@ -475,9 +469,6 @@ class StockIndicatorsDAO(BaseDAO):
                 # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
-            
-            # --- 最终修剪结束 ---
-            # logger.info(f"保存完成 - {stock} 所有历史分时成交数据，总结果: {total_result}")
             return total_result
         except Exception as e:
             logger.error(f"保存出错 - {stock}股票分时成交数据: {str(e)}")

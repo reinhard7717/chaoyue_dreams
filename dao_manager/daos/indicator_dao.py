@@ -1467,4 +1467,3 @@ class IndicatorDAO(BaseDAO):
 
 
 
-

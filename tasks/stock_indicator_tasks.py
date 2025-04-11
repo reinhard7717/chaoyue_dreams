@@ -95,7 +95,6 @@ def process_single_stock_realtime_trade(self, stock_code: str):
 
     return task_result # 返回单个任务的结果
 
-
 # --- 新增：处理单个股票的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade_trading_hours')
 def process_single_stock_latest_trade_trading_hours(self, stock_code: str):
@@ -180,7 +179,7 @@ def process_single_stock_history_trade(self, stock_code: str):
 
     return task_result
 
-@celery_app.task(bind=True, name='tasks.stock_indicators.fetch_single_stock_history_trade_data', max_retries=3)
+@celery_app.task(bind=True, name='tasks.stock_indicators.fetch_single_stock_history_trade_data')
 def fetch_single_stock_history_trade_data(self, stock_code):
     """从数据库获取单只股票的历史交易数据并缓存
     Args:
@@ -258,7 +257,6 @@ def fetch_single_stock_history_trade_data(self, stock_code):
                 logger.debug(f"DAO for {stock_code} closed.")
             except Exception as close_err:
                 logger.error(f"关闭 DAO for {stock_code} 时出错: {close_err}", exc_info=True)
-
 
 # --- 内部异步逻辑：计算单支股票 ---
 async def _calculate_stock_indicators_async(stock_code: str):
