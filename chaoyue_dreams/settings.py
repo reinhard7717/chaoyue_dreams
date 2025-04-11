@@ -568,7 +568,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'dao': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'dao.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
@@ -586,7 +586,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'celery': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'celery.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
@@ -617,12 +617,12 @@ LOGGING = {
         },
         'dao': {
             'handlers': ['console', 'dao'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False,
         },
         'celery': {
             'handlers': ['console', 'celery'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False,
         },
         'services': {
