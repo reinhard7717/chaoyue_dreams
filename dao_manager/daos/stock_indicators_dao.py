@@ -294,7 +294,7 @@ class StockIndicatorsDAO(BaseDAO):
                         api_data = await api_client.get_time_trade(stock.stock_code, time_level)
                         data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
 
-                        if data_dict.get('d') is None:
+                        if data_dict.get('trade_time') is None:
                             logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据, data_dict: {data_dict}")
                             # 根据策略，可以选择跳过这个 time_level 或直接返回
                             continue # 跳过这个 time_level，继续下一个
