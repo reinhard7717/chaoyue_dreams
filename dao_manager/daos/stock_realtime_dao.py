@@ -401,7 +401,7 @@ class StockRealtimeDAO(BaseDAO):
 
         # --- 使用 async with 创建和管理 API 实例 ---
         try:
-            async with self.api() as api_client: # 在这里创建临时的 API 客户端实例
+            async with self.api as api_client: # 在这里创建临时的 API 客户端实例
                 # --- 使用临时的 api_client ---
                 # 注意：假设你的 API 类有一个 get_time_deal 方法
                 api_datas = await api_client.get_time_deal(stock.stock_code) # 假设返回列表

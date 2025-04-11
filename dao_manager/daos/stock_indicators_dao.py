@@ -287,7 +287,7 @@ class StockIndicatorsDAO(BaseDAO):
 
         # --- 使用 async with 创建和管理 API 实例 ---
         try:
-            async with self.api() as api_client: # 在这里创建临时的 API 客户端实例
+            async with self.api as api_client: # 在这里创建临时的 API 客户端实例
                 for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
                     try:
                         # --- 使用临时的 api_client ---
