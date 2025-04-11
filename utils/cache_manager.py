@@ -2,7 +2,7 @@ import json
 import zlib
 import logging
 import inspect
-import msgpack
+import umsgpack
 from typing import Any, Dict, List, Optional, Type, Union, TypeVar, Mapping # 引入 Mapping
 from datetime import datetime
 from utils import cache_constants as cc # 导入常量
@@ -123,7 +123,7 @@ class CacheManager:
         """序列化数据，大数据自动压缩"""
         try:
             # 步骤3: 使用msgpack序列化
-            msgpack_data = msgpack.packb(data, use_bin_type=True)
+            msgpack_data = umsgpack.packb(data, use_bin_type=True)
             return msgpack_data
         except Exception as e:
             logger.error(f"序列化失败: {e}", exc_info=True)
@@ -136,7 +136,7 @@ class CacheManager:
             return None
         try:
             # 步骤1: 使用msgpack反序列化
-            msgpack_data = msgpack.unpackb(data, raw=False)
+            msgpack_data = umsgpack.unpackb(data, raw=False)
             return msgpack_data
         except Exception as e:
             logger.error(f"反序列化失败: {e}", exc_info=True)

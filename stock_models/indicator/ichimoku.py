@@ -25,7 +25,6 @@ class IndexIchimoku(models.Model):
             models.Index(fields=['index', 'time_level', 'trade_time']),
         ]
 
-
 class StockIchimoku(models.Model):
     """Ichimoku Cloud (一目均衡表) 指标存储模型"""
     stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, related_name="ichimoku_fib", verbose_name="股票")

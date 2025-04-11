@@ -2,14 +2,12 @@
 from datetime import datetime
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from bulk_update_or_create import BulkUpdateOrCreateQuerySet
-from stock_models.stock_basic import StockInfo
 from utils.models import BaseModel
 
 
 class LhbDetail(BaseModel):
     """龙虎榜明细数据"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="lhb_detail", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="lhb_detail", verbose_name=_("股票"))
     trade_date = models.DateField(verbose_name="日期", null=True, blank=True)
     close_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="收盘价")  # 原 c
     value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="对应值")  # 原 val
@@ -26,8 +24,6 @@ class LhbDetail(BaseModel):
 
     def __code__(self):
         return self.stock.stock_code
-
-
 
 class LhbDaily(BaseModel):
     """每日龙虎榜数据"""
@@ -56,11 +52,9 @@ class LhbDaily(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class StockOnList(BaseModel):
     """个股上榜统计"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="stock_on_list", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="stock_on_list", verbose_name=_("股票"))
     list_count = models.IntegerField(verbose_name="上榜次数")  # 原 count
     total_buy_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="累积获取额(万)")  # 原 totalb
     total_sell_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="累积卖出额(万)")  # 原 totals
@@ -81,8 +75,6 @@ class StockOnList(BaseModel):
 
     def __code__(self):
         return self.stock.stock_code
-
-
 
 class BrokerOnList(BaseModel):
     """营业部上榜统计"""
@@ -108,11 +100,9 @@ class BrokerOnList(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class InstitutionTradeTrack(BaseModel):
     """机构席位追踪"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="institution_trade_track", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="institution_trade_track", verbose_name=_("股票"))
     buy_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="累积买入额(万)")  # 原 be
     buy_count = models.IntegerField(verbose_name="买入次数")  # 原 bcount
     sell_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="累积卖出额(万)")  # 原 se
@@ -133,11 +123,9 @@ class InstitutionTradeTrack(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class InstitutionTradeDetail(BaseModel):
     """机构席位成交明细"""
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="institution_trade_detail", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="institution_trade_detail", verbose_name=_("股票"))
     trade_date = models.DateField(verbose_name="交易日期")  # 原 t
     buy_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="机构席位买入额(万)")  # 原 buy
     sell_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="机构席位卖出额(万)")  # 原 sell

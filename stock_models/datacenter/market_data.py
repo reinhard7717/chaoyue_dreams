@@ -1,14 +1,13 @@
 # models/datacenter/market_data.py
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 from utils.models import BaseModel
-from stock_models.stock_basic import StockInfo
+
 
 class VolumeIncrease(BaseModel):
     """成交骤增个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="volume_increase", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="volume_increase", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     is_ex_dividend = models.IntegerField(verbose_name="当天是否除权除息")  # 原 iscq
@@ -29,12 +28,10 @@ class VolumeIncrease(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class VolumeDecrease(BaseModel):
     """成交骤减个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="volume_decrease", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="volume_decrease", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     is_ex_dividend = models.IntegerField(verbose_name="当天是否除权除息")  # 原 iscq
@@ -55,12 +52,10 @@ class VolumeDecrease(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class ContinuousVolumeIncrease(BaseModel):
     """连续放量个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_volume_increase", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_volume_increase", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     is_ex_dividend = models.IntegerField(verbose_name="当天是否除权除息")  # 原 iscq
@@ -83,12 +78,10 @@ class ContinuousVolumeIncrease(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class ContinuousVolumeDecrease(BaseModel):
     """连续缩量个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_volume_decrease", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_volume_decrease", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     is_ex_dividend = models.IntegerField(verbose_name="当天是否除权除息")  # 原 iscq
@@ -111,12 +104,10 @@ class ContinuousVolumeDecrease(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class ContinuousRise(BaseModel):
     """连续上涨个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_rise", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_rise", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     is_ex_dividend = models.IntegerField(verbose_name="当天是否除权除息")  # 原 iscq
@@ -138,11 +129,10 @@ class ContinuousRise(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
 class ContinuousFall(BaseModel):
     """连续下跌个股"""
     trade_date = models.DateField(verbose_name="日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_fall", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="continuous_fall", verbose_name=_("股票"))
     close_price = models.DecimalField(max_digits=10, decimal_places=4, verbose_name="收盘价")  # 原 c
     change_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="涨跌幅")  # 原 zdf
     is_ex_dividend = models.IntegerField(verbose_name="当天是否除权除息")  # 原 iscq

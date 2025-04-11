@@ -107,7 +107,6 @@ class StockTradeDetail(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
-
 class StockTimeDeal(models.Model):
     """
     分时成交数据模型
@@ -128,7 +127,6 @@ class StockTimeDeal(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
 
-
 class StockPricePercent(models.Model):
     """
     分价成交占比数据模型
@@ -148,7 +146,6 @@ class StockPricePercent(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.trade_date}-{self.price}"
-
 
 class StockBigDeal(models.Model):
     """
@@ -171,7 +168,6 @@ class StockBigDeal(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code}-{self.trade_date} {self.trade_time}"
-
 
 class StockAbnormalMovement(models.Model):
     """

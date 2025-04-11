@@ -43,8 +43,8 @@ TARGET_SERVER_IP = "39.101.65.133"
 REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
 
 if SERVER_IP == TARGET_SERVER_IP:
-    REDIS_HOST_DYNAMIC = 'localhost'
-    # print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: localhost")
+    REDIS_HOST_DYNAMIC = '127.0.0.1'
+    # print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: 127.0.0.1")
 else:
     REDIS_HOST_DYNAMIC = TARGET_SERVER_IP
     # print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}")

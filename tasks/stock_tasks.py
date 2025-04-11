@@ -27,7 +27,7 @@ async def _process_stock_chunk_async(stock_pks):
     # --- 结束导入 ---
     stock_indicators_dao = StockIndicatorsDAO()
     stock_basic_dao = StockBasicDAO()
-    cache_limit = 233 * 2
+    cache_limit = 333
     # TIME_LEVELS = ['Day'] # 测试时可以减少
     # 使用 sync_to_async 获取实际的 StockBasic 对象
     get_stocks_sync = sync_to_async(

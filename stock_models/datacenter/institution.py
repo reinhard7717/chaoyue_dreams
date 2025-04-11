@@ -1,16 +1,13 @@
 # models/datacenter/institution.py
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from bulk_update_or_create import BulkUpdateOrCreateQuerySet
-from stock_models.stock_basic import StockInfo
 from utils.models import BaseModel
 from datetime import datetime
-
 
 class InstitutionHoldingSummary(BaseModel):
     """机构持股汇总"""
     trade_date = models.DateField(verbose_name="统计日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="institution_holding_summary", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="institution_holding_summary", verbose_name=_("股票"))
     institution_count = models.IntegerField(verbose_name="机构持股家数")  # 原 jgcgs
     institution_holding_ratio = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="机构持股占比(%)")  # 原 jgcgzb
     institution_holding_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="机构持股市值(万元)")  # 原 jgcgsz
@@ -42,12 +39,10 @@ class InstitutionHoldingSummary(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class FundHeavyPosition(BaseModel):
     """基金重仓"""
     trade_date = models.DateField(verbose_name="统计日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="fund_heavy_position", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="fund_heavy_position", verbose_name=_("股票"))
     fund_count = models.IntegerField(verbose_name="持有基金数")  # 原 jjsl
     holding_shares = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="持股数(万股)")  # 原 cgs
     holding_ratio = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="持股比例(%)")  # 原 cgbl
@@ -74,12 +69,10 @@ class FundHeavyPosition(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class SocialSecurityHeavyPosition(BaseModel):
     """社保重仓"""
     trade_date = models.DateField(verbose_name="统计日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="social_security_heavy_position", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="social_security_heavy_position", verbose_name=_("股票"))
     social_security_count = models.IntegerField(verbose_name="持有社保基金数")  # 原 sbsl
     holding_shares = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="持股数(万股)")  # 原 cgs
     holding_ratio = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="持股比例(%)")  # 原 cgbl
@@ -106,12 +99,10 @@ class SocialSecurityHeavyPosition(BaseModel):
     def __code__(self):
         return self.stock.stock_code
 
-
-
 class QFIIHeavyPosition(BaseModel):
     """QFII重仓"""
     trade_date = models.DateField(verbose_name="统计日期")  # 原 t
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="qfii_heavy_position", verbose_name=_("股票"))
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, blank=True, null=True, related_name="qfii_heavy_position", verbose_name=_("股票"))
     qfii_count = models.IntegerField(verbose_name="持有QFII数")  # 原 qfiis
     holding_shares = models.DecimalField(max_digits=20, decimal_places=2, verbose_name="持股数(万股)")  # 原 cgs
     holding_ratio = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="持股比例(%)")  # 原 cgbl

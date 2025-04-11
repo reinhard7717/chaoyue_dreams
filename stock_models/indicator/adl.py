@@ -17,7 +17,6 @@ class IndexAdl(models.Model):
         unique_together = ('index', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['index', 'time_level', 'trade_time']), ]
 
-
 # --- Accumulation/Distribution Line (ADL) ---
 class StockAdl(models.Model):
     """Accumulation/Distribution Line (ADL) 指标存储模型"""

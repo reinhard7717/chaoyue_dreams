@@ -24,7 +24,6 @@ class IndexAtrFIB(models.Model):
         unique_together = ('index', 'trade_time', 'time_level')
         indexes = [ models.Index(fields=['index', 'time_level', 'trade_time']), ]
 
-
 class StockAtrFIB(models.Model):
     """ATR 指标存储模型 (斐波那契周期)"""
     stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, related_name="atr_fib", verbose_name="股票")
