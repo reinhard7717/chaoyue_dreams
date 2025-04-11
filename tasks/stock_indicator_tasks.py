@@ -200,7 +200,7 @@ def fetch_single_stock_history_trade_data(self, stock_code):
         stock_indicators_dao = StockIndicatorsDAO()
         stock_basic_dao = StockBasicDAO()
         # 获取单只股票信息
-        stock = stock_basic_dao.get_stock_by_code(stock_code)
+        stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
         if not stock:
             logger.error(f"未找到股票代码 {stock_code} 的股票信息")
             return {"status": "error", "message": f"未找到股票代码 {stock_code} 的股票信息"}
@@ -221,10 +221,10 @@ def fetch_single_stock_history_trade_data(self, stock_code):
                 for item in datas:
                     # 格式化数据并缓存
                     cache_data = stock_indicators_dao.data_format_process.set_time_trade_data(stock, time_level, item)
-                    stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
+                    asyncio.run(stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data))
                     processed_count += 1
                 # 修剪缓存大小
-                stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
+                asyncio.run(stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit))
                 logger.info(f"成功缓存股票 {stock.stock_code} {time_level} 级别历史数据，并修剪缓存大小为 {cache_limit}")
         
         logger.info(f"完成股票 {stock_code} 的历史交易数据缓存，共处理 {processed_count} 条记录")
