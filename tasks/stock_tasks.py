@@ -77,7 +77,6 @@ async def _process_stock_chunk_async(stock_pks):
 
     logger.info(f"完成处理股票片区: {[s.stock_code for s in stocks_in_chunk]}")
 
-
 # --- Celery 任务 (同步包装器) ---
 @shared_task(bind=True, name='stock_data_app.process_stock_chunk') # 使用明确的任务名称
 def process_stock_chunk(self, stock_pks):

@@ -657,6 +657,12 @@ CELERY_TASK_QUEUES = (
     Queue('priority_tasks', routing_key='priority.#'), # 高优先级队列
     Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
     Queue('stock_historical_data_cache', routing_key='stock_historical_data_cache.#'), # 股票历史数据缓存队列
+    Queue('save_api_data', routing_key='save_api_data.#'), # 保存API数据队列
+    Queue('favorite_stocks_save_api_data', routing_key='favorite_stocks_save_api_data.#'), # 保存API数据队列
+    Queue('calculate_indicators', routing_key='calculate_indicators.#'), # 计算股票指标队列
+    Queue('favorite_stocks_calculate_indicators', routing_key='favorite_stocks_calculate_indicators.#'), # 计算股票指标队列
+    Queue('calculate_strategy', routing_key='calculate_strategy.#'), # 计算股票指标队列
+    Queue('favorite_calculate_strategy', routing_key='favorite_calculate_strategy.#'), # 计算股票指标队列
     # 如果你的默认队列有其他名字，比如 'default_tasks'，就这样定义:
     # Queue('default_tasks', routing_key='default.#'),
 )
