@@ -296,7 +296,7 @@ class StockIndicatorsDAO(BaseDAO):
                         if data_dict.get('trade_time') is None:
                             logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据, data_dict: {data_dict}")
                             # 根据策略，可以选择跳过这个 time_level 或直接返回
-                            pass # 跳过这个 time_level，继续下一个
+                            continue # 跳过这个 time_level，继续下一个
 
                         data_dicts.append(data_dict)
                         cache_dict = data_dict.copy()
