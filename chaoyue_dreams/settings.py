@@ -558,6 +558,15 @@ LOGGING = {
             'formatter': 'verbose',
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
+        'api': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'api.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',  # 设置编码为utf-8
+        },
         'dao': {
             'level': 'DEBUG',
             'class': 'logging.handlers.RotatingFileHandler',
@@ -603,7 +612,7 @@ LOGGING = {
         },
         'api': {
             'handlers': ['console', 'file'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False,
         },
         'dao': {
