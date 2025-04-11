@@ -295,9 +295,9 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
 
 # --- 新增：定义细粒度任务的队列名称 ---
 # 自选股队列
-FAVORITE_STOCKS_SAVE_API_DATA_QUEUE = 'favorite_save_api_data'
-FAVORITE_STOCKS_CALCULATE_INDICATORS_QUEUE = 'favorite_calculate_indicators'
-FAVORITE_STOCKS_CALCULATE_STRATEGY_QUEUE = 'favorite_calculate_strategy'
+FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data'
+FAVORITE_CALCULATE_INDICATORS_QUEUE = 'favorite_calculate_indicators'
+FAVORITE_CALCULATE_STRATEGY_QUEUE = 'favorite_calculate_strategy'
 # 非自选股队列
 STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data'
 STOCKS_CALCULATE_INDICATORS_QUEUE = 'calculate_indicators'
@@ -419,9 +419,7 @@ def run_stock_strategy_task(self, stock_code: str):
         logger.error(f"执行 run_stock_strategy_task (同步包装器) 时出错: {e}", exc_info=True)
         raise
 
-
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
-# (保持不变)
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
     stock_basic_dao = StockBasicDAO()
@@ -459,7 +457,6 @@ async def _get_all_relevant_stock_codes_for_processing():
 
     return favorite_stock_codes_list, non_favorite_stock_codes
 
-
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.get_trade_and_calculate_and_strategy')
 def get_trade_and_calculate_and_strategy(self):
@@ -490,8 +487,8 @@ def get_trade_and_calculate_and_strategy(self):
             # 创建任务链，并为每个任务指定队列
             task_chain = chain(
                 # 任务签名 .s()，并用 .set() 指定队列
-                fetch_stock_api_data_task.s(stock_code).set(queue=FAVORITE_STOCKS_SAVE_API_DATA_QUEUE),
-                calculate_stock_indicators_task.s().set(queue=FAVORITE_STOCKS_CALCULATE_INDICATORS_QUEUE), # 注意：后续任务参数由前序任务传递
+                fetch_stock_api_data_task.s(stock_code).set(queue=FAVORITE_SAVE_API_DATA_QUEUE),
+                calculate_stock_indicators_task.s().set(queue=FAVORITE_CALCULATE_INDICATORS_QUEUE), # 注意：后续任务参数由前序任务传递
                 run_stock_strategy_task.s().set(queue=FAVORITE_CALCULATE_STRATEGY_QUEUE)
             )
             # 异步执行任务链
