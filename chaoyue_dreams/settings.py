@@ -590,8 +590,8 @@ LOGGING = {
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'celery.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
-            'backupCount': 5,
-            'formatter': 'verbose',
+            'backupCount': 5, # 备份5个文件
+            'formatter': 'verbose', # 使用verbose格式
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
          'strategy': {
@@ -620,7 +620,17 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
-        'celery': {
+        'celery.task': {
+            'handlers': ['console', 'celery'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery.worker': {
+            'handlers': ['console', 'celery'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery.app': {
             'handlers': ['console', 'celery'],
             'level': 'INFO',
             'propagate': False,

@@ -3,6 +3,7 @@ Celery配置文件
 使用Redis作为消息代理和结果后端
 """
 import os
+from unittest import signals
 from celery import Celery
 
 # 设置默认Django设置模块
@@ -26,6 +27,20 @@ app.conf.worker_prefetch_multiplier = 1
 
 # 为任务设置超时
 app.conf.task_time_limit = 1800  # 30分钟
+
+# 配置Celery日志
+app.conf.update(
+    worker_hijack_root_logger=False,
+    worker_log_color=False,
+)
+
+# 导入Django设置后手动配置Celery日志
+@signals.setup_logging.connect
+def setup_celery_logging(**kwargs):
+    from django.conf import settings
+    import logging.config
+    logging.config.dictConfig(settings.LOGGING)
+
 
 # 调试任务
 @app.task(bind=True)
