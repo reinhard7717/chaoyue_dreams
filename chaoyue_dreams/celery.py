@@ -3,8 +3,7 @@ Celery配置文件
 使用Redis作为消息代理和结果后端
 """
 import os
-from unittest import signals
-from celery import Celery
+from celery import Celery, signals
 
 # 设置默认Django设置模块
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'chaoyue_dreams.settings')
