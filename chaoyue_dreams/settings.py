@@ -577,7 +577,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'celery': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'celery.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
@@ -613,7 +613,7 @@ LOGGING = {
         },
         'celery': {
             'handlers': ['console', 'celery'],
-            'level': 'INFO',
+            'level': 'DEBUG',
             'propagate': False,
         },
         'services': {
