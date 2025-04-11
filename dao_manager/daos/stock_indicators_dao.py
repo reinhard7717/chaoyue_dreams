@@ -246,7 +246,6 @@ class StockIndicatorsDAO(BaseDAO):
                         return {'创建': 0, '更新': 0, '跳过': 0}
                     cache_dict = data_dict.copy()
                     data_dicts.append(data_dict)
-                    # logger.info(f"api_data: {api_data.get('d')}, cache_dict.date: {cache_dict.get('trade_time')}")
                     await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
                     await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict) 
                     # --- 生成缓存键 ---
@@ -288,7 +287,7 @@ class StockIndicatorsDAO(BaseDAO):
             for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                if data_dict.get('trade_time') is None:
+                if data_dict.get('d') is None:
                     logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
                     return {'创建': 0, '更新': 0, '跳过': 0}
                 data_dicts.append(data_dict)
