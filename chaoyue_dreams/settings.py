@@ -1,6 +1,7 @@
 # chaoyue_dreams/chaoyue_dreams/settings.py
 
 import os
+import socket # <--- 导入 socket 模块
 from pathlib import Path
 from celery.schedules import crontab
 from kombu import Queue
@@ -15,6 +16,41 @@ SECRET_KEY = 'django-insecure-your-secret-key-here'
 DEBUG = True
 
 ALLOWED_HOSTS = []
+
+# --- 开始: 动态获取本机IP并设置Redis主机 ---
+def get_local_ip():
+    """尝试获取本机的主要出站IP地址"""
+    s = None
+    try:
+        # 连接到一个外部地址（不需要实际发送数据）来确定本机用于出站连接的IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # 使用一个不太可能无法访问的公共DNS服务器
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        # 如果获取失败，尝试使用hostname，或者回退到localhost
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+        except socket.gaierror:
+            ip = '127.0.0.1' # 最终回退
+    finally:
+        if s:
+            s.close()
+    return ip
+
+SERVER_IP = get_local_ip()
+TARGET_SERVER_IP = "39.101.65.133"
+REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
+
+if SERVER_IP == TARGET_SERVER_IP:
+    REDIS_HOST_DYNAMIC = 'localhost'
+    # print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: localhost")
+else:
+    REDIS_HOST_DYNAMIC = TARGET_SERVER_IP
+    # print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}")
+
+# --- 结束: 动态获取本机IP并设置Redis主机 ---
+
 
 # Application definition
 INSTALLED_APPS = [
@@ -77,7 +113,7 @@ DATABASES = {
         'NAME': 'beyond_dreams',
         'USER': 'stocker',
         'PASSWORD': 'Asdf+1234',
-        'HOST': '39.101.65.133',
+        'HOST': '39.101.65.133', # 数据库地址保持不变
         'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
@@ -91,11 +127,12 @@ DATABASES = {
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://39.101.65.133:6379/0',
+        # 使用动态获取的 Redis 主机地址
+        'LOCATION': f'redis://{REDIS_HOST_DYNAMIC}:6379/0',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'SERIALIZER': 'utils.custom_serializer.CustomJSONSerializer',
-            'PASSWORD': 'Asdf1234',
+            'PASSWORD': REDIS_PASSWORD, # 使用定义的密码变量
             'SOCKET_CONNECT_TIMEOUT': 10,  # 从5秒增加到10秒
             'SOCKET_TIMEOUT': 15,  # 从5秒增加到15秒
             'RETRY_ON_TIMEOUT': True,
@@ -227,7 +264,7 @@ API_URL_PATTERNS = {
         r'quotes/',                    # 实时报价
         r'tick/',                      # 实时逐笔
         r'min/',                       # 分钟线数据
-    ],    
+    ],
     # 技术指标类型 - 计算密集型
     'technical': [
         r'data/time/real/kdj/',       # KDJ指标
@@ -239,7 +276,7 @@ API_URL_PATTERNS = {
         r'data/time/history/ma/',     # 历史MA
         r'data/time/history/boll/',   # 历史BOLL
         r'indicators/',               # 通用技术指标
-    ],    
+    ],
     # 资金流向类型 - 资金相关数据
     'fund_flow': [
         r'data/time/zijin/',          # 资金流向相关接口
@@ -249,7 +286,7 @@ API_URL_PATTERNS = {
         r'data/all/yyb/',             # 营业部上榜统计
         r'data/all/jgzz/',            # 机构席位追踪
         r'data/all/jgcj',             # 机构席位成交明细
-    ],    
+    ],
     # 市场数据类型 - 市场整体数据
     'market': [
         r'data/all/jdgd',             # 阶段最高最低
@@ -291,7 +328,7 @@ API_URL_PATTERNS = {
         r'data/all/zjlx/jlrepm',       # 净流入额排名
         r'data/all/zjlx/jlrlpm',       # 净流入率排名
         r'data/all/zjlx/zljlrepm',     # 主力净流入额排名
-    ],    
+    ],
     # 指数数据类型
     'index': [
         r'data/base/shsz',            # 沪深主要指数列表
@@ -300,7 +337,7 @@ API_URL_PATTERNS = {
         r'data/time/real/shszzdbl',   # 沪深两市上涨下跌数概览
         r'index/',                    # 指数数据
         r'indices/',                  # 指数数据
-    ],    
+    ],
     # 基础数据类型 - 更新频率低，数据稳定
     'basic': [
         r'data/base/gplist',          # 股票列表
@@ -606,19 +643,20 @@ INDEX_CACHE_TIMEOUT = {
 }
 
 # Celery配置
-# Redis配置
-REDIS_HOST = '39.101.65.133'  # 修改为 127.0.0.1
+# Redis配置 (主机地址已在上面动态设置)
 REDIS_PORT = 6379
-REDIS_PASSWORD = 'Asdf1234'
+# REDIS_PASSWORD = 'Asdf1234' # 已移到上面
 
 # Celery基础配置
-CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
-CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2'  # 使用Redis作为结果后端
+# 使用动态获取的 Redis 主机地址和密码变量
+CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
+CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/2'  # 使用Redis作为结果后端
 
 # 定义队列
 CELERY_TASK_QUEUES = (
     Queue('priority_tasks', routing_key='priority.#'), # 高优先级队列
     Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
+    Queue('stock_historical_data_cache', routing_key='stock_historical_data_cache.#'), # 股票历史数据缓存队列
     # 如果你的默认队列有其他名字，比如 'default_tasks'，就这样定义:
     # Queue('default_tasks', routing_key='default.#'),
 )
@@ -668,5 +706,3 @@ CELERY_SECURITY_CERT_STORE = os.path.join(BASE_DIR, 'ca.crt')  # 证书存储
 
 # Celery应用名称
 CELERY_APP_NAME = 'chaoyue_dreams'
-
-

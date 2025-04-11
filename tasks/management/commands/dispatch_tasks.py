@@ -19,7 +19,7 @@ class Command(BaseCommand):
             choices=[ # 使用 choices 明确允许的类型
                 'history_time_trade', 'latest_time_trade','latest_time_trade_trading_hours',
                 'latest_kdj', 'history_kdj', 'latest_macd', 'history_macd', 
-                'calculate_all_indicators'
+                'calculate_all_indicators', 'stock_historical_data_cache'
             ],
             help='要分发的任务类型 (例如: history_time_trade, latest_kdj)'
         )
@@ -91,6 +91,8 @@ class Command(BaseCommand):
             self.dispatch_history_macd(stock_codes=stock_codes)
         elif data_type == 'calculate_all_indicators':
             self.dispatch_calculate_all_indicators(stock_codes=stock_codes)
+        elif data_type == 'stock_historical_data_cache':
+            self.dispatch_stock_historical_data_cache(stock_codes=stock_codes)
         else:
             # 如果 choices 正常工作，这里理论上不会到达，但作为保险
             logger.error(f"接收到未知的 data_type: {data_type}")
@@ -282,7 +284,6 @@ class Command(BaseCommand):
         target_queue = 'priority_tasks' # <--- 定义目标队列名称
         self.stdout.write(f"开始分发 {log_prefix} 任务...")
         logger.info(f"Management Command 启动: {log_prefix} 任务分发")
-
         # 按需导入对应的 Celery 任务
         try:
             from dao_manager.daos.stock_basic_dao import StockBasicDAO
@@ -291,7 +292,6 @@ class Command(BaseCommand):
             logger.error("无法导入 Celery 任务: tasks.indicators.calculate_stock_indicators_for_single_stock", exc_info=True)
             self.stderr.write(self.style.ERROR("内部错误：无法找到全指标计算任务函数"))
             return
-
         stock_basic_dao = None
         try:
             stock_basic_dao = StockBasicDAO()
@@ -304,12 +304,10 @@ class Command(BaseCommand):
                 logger.error(f"获取股票列表时出错: {e}", exc_info=True)
                 self.stderr.write(self.style.ERROR(f"获取股票列表失败: {e}"))
                 return
-
             if not all_stocks_from_dao:
                 logger.warning("未获取到任何股票信息，任务分发结束")
                 self.stdout.write(self.style.WARNING("未获取到任何股票信息，无需分发任务"))
                 return
-
             # 2. 根据传入的 stock_codes 参数进行过滤
             stocks_to_process = []
             if stock_codes: # 如果命令行指定了股票代码
@@ -326,7 +324,6 @@ class Command(BaseCommand):
                     else:
                         logger.warning(f"指定的股票代码 {code} 在基础列表中未找到，已跳过。")
                         self.stdout.write(self.style.WARNING(f"指定的股票代码 {code} 未找到，已跳过。"))
-
                 if not stocks_to_process:
                      logger.warning("命令行指定的股票代码均未在基础列表中找到，任务分发结束")
                      self.stdout.write(self.style.WARNING("指定的股票代码均未找到，无需分发任务"))
@@ -337,31 +334,22 @@ class Command(BaseCommand):
                 stocks_to_process = all_stocks_from_dao
                 logger.info(f"未指定股票代码，将处理所有 {len(stocks_to_process)} 支股票")
                 self.stdout.write(f"将处理所有 {len(stocks_to_process)} 支股票")
-
-
             # 3. 创建子任务签名列表
             tasks_signatures = [calculate_stock_indicators_for_single_stock.s(stock.stock_code) for stock in stocks_to_process]
-
             if not tasks_signatures:
                  # 这通常只会在 stocks_to_process 为空时发生，前面已经处理过
                  logger.warning("没有生成任何子任务签名，任务分发结束")
                  self.stdout.write(self.style.WARNING("没有有效的股票生成子任务，无需分发"))
                  return
-
             # 4. 创建并执行任务组
             task_group = group(tasks_signatures)
             task_count = len(tasks_signatures)
             logger.info(f"已创建包含 {task_count} 个 {log_prefix} 子任务的任务组")
-
-            # --- 修改点：在 apply_async 中指定 queue 参数 ---
-            group_result = task_group.apply_async(queue=target_queue)
-            # ---------------------------------------------
-
+            group_result = task_group.apply_async(queue=target_queue) # 指定队列
             logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
             self.stdout.write(self.style.SUCCESS(
                 f"成功分发 {task_count} 个 {log_prefix} 子任务。Group ID: {group_result.id}"
             ))
-
         except Exception as e:
             logger.error(f"分发 {log_prefix} 任务期间发生错误: {e}", exc_info=True)
             self.stderr.write(self.style.ERROR(f"分发 {log_prefix} 任务失败: {e}"))
@@ -624,6 +612,96 @@ class Command(BaseCommand):
             logger.info("Management Command 执行流程结束: dispatch_history_macd_tasks")
             self.stdout.write("任务分发流程结束。")
 
+    # python manage.py dispatch_tasks stock_historical_data_cache
+    def dispatch_stock_historical_data_cache(self, stock_codes=None):
+        """分发从数据库获取并缓存股票历史交易数据的任务"""
+        log_prefix = "历史交易数据缓存"
+        self.stdout.write(f"开始分发{log_prefix}任务...")
+        logger.info(f"Management Command 启动: {log_prefix}任务分发")
+        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from tasks.stock_indicator_tasks import fetch_single_stock_history_trade_data
+        target_queue = 'stock_historical_data_cache'
+        stock_basic_dao = None  # 初始化 DAO 实例变量
+        try:
+            # 实例化用于获取股票列表的 DAO
+            stock_basic_dao = StockBasicDAO()
+            # 获取股票列表
+            try:
+                # 在同步命令中运行异步 DAO 方法
+                stocks = asyncio.run(stock_basic_dao.get_stock_list())
+                stock_count = len(stocks)
+                logger.info(f"获取到 {stock_count} 支股票列表")
+                self.stdout.write(f"获取到 {stock_count} 支股票列表")
+            except Exception as e:
+                logger.error(f"获取股票列表时出错: {e}", exc_info=True)
+                self.stderr.write(self.style.ERROR(f"获取股票列表失败: {e}"))
+                return  # 获取列表失败，无法继续
+            if not stocks:
+                logger.warning("未获取到任何股票信息，任务分发结束")
+                self.stdout.write(self.style.WARNING("未获取到任何股票信息，无需分发任务"))
+                return
+            # 根据传入的 stock_codes 参数进行过滤
+            stocks_to_process = []
+            if stock_codes:  # 如果命令行指定了股票代码
+                self.stdout.write(f"根据命令行参数过滤股票: {', '.join(stock_codes)}")
+                # 为了快速查找，将 DAO 返回的列表转换为字典
+                all_stock_map = {s.stock_code: s for s in stocks}
+                processed_codes = set()
+                for code in stock_codes:
+                    if code in processed_codes:  # 处理重复指定的代码
+                        continue
+                    if code in all_stock_map:
+                        stocks_to_process.append(all_stock_map[code])
+                        processed_codes.add(code)
+                    else:
+                        logger.warning(f"指定的股票代码 {code} 在基础列表中未找到，已跳过。")
+                        self.stdout.write(self.style.WARNING(f"指定的股票代码 {code} 未找到，已跳过。"))
+                if not stocks_to_process:
+                    logger.warning("命令行指定的股票代码均未在基础列表中找到，任务分发结束")
+                    self.stdout.write(self.style.WARNING("指定的股票代码均未找到，无需分发任务"))
+                    return
+                logger.info(f"将处理 {len(stocks_to_process)} 支指定的股票")
+                self.stdout.write(f"筛选后将处理 {len(stocks_to_process)} 支股票")
+            else:  # 如果未指定股票代码，则处理所有股票
+                stocks_to_process = stocks
+                logger.info(f"未指定股票代码，将处理所有 {len(stocks_to_process)} 支股票")
+                self.stdout.write(f"将处理所有 {len(stocks_to_process)} 支股票")
+            # 为每支股票创建子任务签名
+            tasks_signatures = [fetch_single_stock_history_trade_data.s(stock.stock_code) for stock in stocks_to_process]
+            if not tasks_signatures:
+                logger.warning("没有生成任何子任务签名，任务分发结束")
+                self.stdout.write(self.style.WARNING("没有有效的股票生成子任务，无需分发"))
+                return
+            # 创建任务组
+            task_group = group(tasks_signatures)
+            task_count = len(tasks_signatures)
+            logger.info(f"已创建包含 {task_count} 个{log_prefix}子任务的任务组")
+            # 异步提交任务组到 Celery 队列
+            group_result = task_group.apply_async(queue=target_queue) # 指定队列
+            logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
+            self.stdout.write(self.style.SUCCESS(
+                f"成功分发 {task_count} 个{log_prefix}子任务。Group ID: {group_result.id}"
+            ))
+        except Exception as e:
+            logger.error(f"分发{log_prefix}任务期间发生错误: {e}", exc_info=True)
+            self.stderr.write(self.style.ERROR(f"分发{log_prefix}任务失败: {e}"))
+        finally:
+            # 关闭用于获取股票列表的 DAO
+            if stock_basic_dao:
+                try:
+                    # 检查 close 方法是否是异步的
+                    if asyncio.iscoroutinefunction(getattr(stock_basic_dao, 'close', None)):
+                        asyncio.run(stock_basic_dao.close())
+                        logger.debug("Management Command StockBasicDAO (async) closed.")
+                    # 否则，假设它是同步的
+                    elif callable(getattr(stock_basic_dao, 'close', None)):
+                        stock_basic_dao.close()
+                        logger.debug("Management Command StockBasicDAO (sync) closed.")
+                except Exception as close_err:
+                    logger.error(f"关闭 Management Command StockBasicDAO 时出错: {close_err}", exc_info=True)
+                    
+            logger.info(f"Management Command 执行流程结束: {log_prefix}任务分发")
+            self.stdout.write(f"{log_prefix}任务分发流程结束。")
 
 
 

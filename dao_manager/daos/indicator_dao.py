@@ -348,20 +348,19 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"[{model_name}] 无法将索引转换为 DatetimeIndex for {stock_info.stock_code} {time_level_str}: {e_idx}", exc_info=True)
                 return # 没有有效的时间索引无法继续
 
-        # logger.debug(f"[{model_name}] 开始准备 {len(indicator_df)} 条记录的批量数据 for {stock_info.stock_code} {time_level_str}")
+        # logger.info(f"[{model_name}] 开始准备 {len(indicator_df)} 条记录的批量数据 for {stock_info.stock_code} {time_level_str}")
 
         # 遍历 DataFrame 的每一行来构建字典列表
         for trade_time, row in indicator_df.iterrows():
             try:
                 # 确保 trade_time 是时区感知的 (aware)
                 # 假设数据库和 Django 设置使用 UTC 或默认时区
-                default_tz = timezone.get_default_timezone()
+                default_tz = timezone.get_current_timezone()
                 if timezone.is_naive(trade_time):
                     aware_trade_time = timezone.make_aware(trade_time, default_tz)
                 else:
                     # 如果已经是 aware，确保它是默认时区，避免混合时区问题
                     aware_trade_time = trade_time.astimezone(default_tz)
-
                 # 构建基础记录字典，包含唯一标识字段
                 # 注意：外键字段在字典中通常使用 "_id" 后缀，值为外键的主键
                 record_data = {
@@ -447,7 +446,7 @@ class IndicatorDAO(BaseDAO):
                 # **extra_fields 参数在这里不需要传递
             )
             # 基类方法中应包含详细的日志记录，这里可以只记录一个概要
-            # logger.info(f"[{model_name}] 批量保存/更新调用完成 for {stock_info.stock_code} {time_level_str}. 结果: {result}")
+            logger.info(f"[{model_name}] 批量保存/更新调用完成 for {stock_info.stock_code} {time_level_str}. 结果: {result}")
 
         except Exception as e_bulk:
             # 捕获调用基类方法本身可能抛出的意外错误（尽管基类方法应处理其内部错误）

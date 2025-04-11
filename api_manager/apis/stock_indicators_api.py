@@ -108,14 +108,11 @@ class StockIndicatorsAPI(BaseAPI):
             List[Dict[str, Any]]: 历史分时交易数据列表，或包含错误信息的字典
         """
         endpoint = f"/data/time/history/trade/{stock_code}/{time_level}"
-        
         # 初始尝试获取数据
         api_data = await self.get(endpoint, expected_type='list')
-        
         # 检查初始获取结果是否需要重试
         if isinstance(api_data, list) and len(api_data) == 1:
             logger.warning(f"获取历史分时交易数据 {stock_code} ({time_level}) 初始仅返回1条记录，启动重试机制...")
-            
             for attempt in range(self.max_retry_count):
                 # 计算重试延迟
                 retry_delay = min(
@@ -124,10 +121,8 @@ class StockIndicatorsAPI(BaseAPI):
                 )
                 logger.info(f"将在 {retry_delay:.1f} 秒后重试 ({attempt + 1}/{self.max_retry_count}) 获取 {stock_code} ({time_level})")
                 await asyncio.sleep(retry_delay)
-                
                 # 执行重试获取
                 retry_api_data = await self.get(endpoint, expected_type='list')
-                
                 # 检查重试结果
                 if isinstance(retry_api_data, list) and len(retry_api_data) > 1:
                     logger.info(f"重试成功: 获取历史分时交易数据 {stock_code} ({time_level}) 成功获取 {len(retry_api_data)} 条记录。")
@@ -144,7 +139,6 @@ class StockIndicatorsAPI(BaseAPI):
             else:
                 # 如果循环正常结束（即所有重试都失败了，仍然是1条数据）
                 logger.warning(f"获取历史分时交易数据 {stock_code} ({time_level}) 在重试 {self.max_retry_count} 次后仍只返回1条记录。将使用此单条记录。")
-                
         # 对最终获取的数据进行处理（排序）
         if isinstance(api_data, list):
             # 确保 'd' 键存在，如果不存在则使用空字符串或其他默认值排序，避免 KeyError

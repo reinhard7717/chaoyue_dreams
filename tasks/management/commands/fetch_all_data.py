@@ -675,7 +675,7 @@ class Command(BaseCommand):
         # all_stocks = await stock_basic_dao.get_stock_list()
         # for stock in all_stocks:
         #     await indicator_services.calculate_and_save_all_indicators(stock.stock_code, 'Day')
-        await indicator_services.calculate_and_save_all_indicators('600260', '5')
+        await indicator_services.calculate_and_save_all_indicators('300336', '5')
         self.stdout.write(self.style.SUCCESS('完成股票指标数据计算'))
 
     async def fetch_stock_trade_data_dispatcher(self):
@@ -727,8 +727,8 @@ class Command(BaseCommand):
     #     async_to_sync(self.fetch_stock_trade_data_dispatcher)()
 
     # 如果你的 Command 本身就是异步的 (Django 4.1+)
-    async def handle(self, *args, **options):
-         await self.fetch_stock_trade_data_dispatcher()   
+    # async def handle(self, *args, **options):
+    #      await self.fetch_stock_trade_data_dispatcher()   
             
         
 
