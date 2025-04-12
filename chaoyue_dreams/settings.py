@@ -44,9 +44,11 @@ REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
 
 if SERVER_IP == TARGET_SERVER_IP:
     REDIS_HOST_DYNAMIC = '127.0.0.1'
+    MYSQL_HOST_DYNAMIC = '127.0.0.1'
     # print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: 127.0.0.1")
 else:
     REDIS_HOST_DYNAMIC = TARGET_SERVER_IP
+    MYSQL_HOST_DYNAMIC = TARGET_SERVER_IP
     # print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}")
 
 # --- 结束: 动态获取本机IP并设置Redis主机 ---
@@ -113,7 +115,7 @@ DATABASES = {
         'NAME': 'beyond_dreams',
         'USER': 'stocker',
         'PASSWORD': 'Asdf+1234',
-        'HOST': '39.101.65.133', # 数据库地址保持不变
+        'HOST': MYSQL_HOST_DYNAMIC, # 数据库地址保持不变
         'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
