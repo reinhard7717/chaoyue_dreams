@@ -268,7 +268,7 @@ async def _calculate_stock_indicators_async(stock_code: str):
     try:
         tasks = [
             service.calculate_and_save_all_indicators(stock_code, time_level)
-            for time_level in TIME_TEADE_TIME_LEVELS_LITE
+            for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS
         ]
         # 注意：确保 service.calculate_and_save_all_indicators 也是 async def
         await asyncio.gather(*tasks)
