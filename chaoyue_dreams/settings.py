@@ -8,15 +8,11 @@ from kombu import Queue
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-your-secret-key-here'
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
 ALLOWED_HOSTS = []
-
 # --- 开始: 动态获取本机IP并设置Redis主机 ---
 def get_local_ip():
     """尝试获取本机的主要出站IP地址"""
@@ -39,6 +35,8 @@ def get_local_ip():
     return ip
 
 SERVER_IP = get_local_ip()
+print(f"本地IP: {get_local_ip()}")  # 输出您的本地IP
+print(f"动态设置的SERVER_IP: {SERVER_IP}")  # 输出动态设置的SERVER_IP
 TARGET_SERVER_IP = "39.101.65.133"
 REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
 
