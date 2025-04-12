@@ -386,34 +386,27 @@ class CacheManager:
         if not mapping:
             logger.warning(f"ZADD 操作跳过: mapping 为空, key: {key}")
             return 0
-        # 可选：验证 mapping 的键是否为 bytes
-        # if not all(isinstance(m, bytes) for m in mapping.keys()):
-        #     logger.error(f"ZADD 内部错误: mapping 的键必须是 bytes 类型, key: {key}")
-        #     return None # 或者抛出异常
-
-        # logger.info(f"ZADD 操作 (接收 bytes member): key={key}, mapping size={len(mapping)}")
+        # 新增: 检查 mapping 中的分数是否唯一
+        scores = list(mapping.values())  # 提取所有分数
+        unique_scores = set(scores)  # 转换为集合以检查唯一性
+        if len(unique_scores) != len(scores):
+            # logger.warning(f"ZADD 操作跳过: mapping 中的分数不唯一, key: {key}, mapping: {mapping}")
+            return None  # 返回 None 表示错误或约束失败
         try:
             # 确定超时时间
             if timeout is None:
                 prefix = key.split(':')[0]
                 timeout = self.get_timeout(prefix)
-
-            # *** 直接将接收到的 {bytes: float} mapping 传递给 redis 客户端 ***
-            # 不再需要内部序列化循环
-            # serialized_mapping = {self._serialize(member): score for member, score in mapping.items()} # <--- 删除或注释掉这行
-
             pipe = self.redis_client.pipeline()
             # 直接使用传入的 mapping
             pipe.zadd(key, mapping)
             pipe.expire(key, timeout)
             results = pipe.execute()
-
             if results and len(results) > 0 and isinstance(results[0], int):
                 return results[0]
             else:
                 logger.error(f"ZADD pipeline 执行结果异常: key={key}, results={results}")
                 return None
-
         except Exception as e:
             logger.error(f"ZADD 操作失败: key={key}, 错误: {str(e)}", exc_info=True)
             return None
@@ -421,12 +414,10 @@ class CacheManager:
     def zrangebyscore(self, key: str, min_score: Union[float, str], max_score: Union[float, str]) -> Optional[List[Any]]:
         """
         通过分数范围获取有序集合的成员列表。
-
         Args:
             key: 有序集合的键。
             min_score: 最小分数 (包含)。可以是 float 或 '-inf'。
             max_score: 最大分数 (包含)。可以是 float 或 '+inf'。
-
         Returns:
             Optional[List[Any]]: 按分数升序排列的成员列表 (已反序列化)。
                                  如果键不存在或范围内无成员，返回空列表 []。
@@ -436,11 +427,9 @@ class CacheManager:
             # 直接调用 redis-py 的 zrangebyscore
             # 它返回的是成员列表 (bytes)
             serialized_members: List[bytes] = self.redis_client.zrangebyscore(key, min_score, max_score)
-
             if serialized_members is None: # 理论上 redis-py 不会返回 None，但以防万一
                  logger.warning(f"ZRANGEBYSCORE 返回 None: key={key}, range=[{min_score}, {max_score}]")
                  return [] # 返回空列表表示未找到或键不存在
-
             # 反序列化每个成员
             deserialized_list = []
             for sm in serialized_members:
@@ -449,10 +438,8 @@ class CacheManager:
                     deserialized_list.append(deserialized_member)
                 else:
                     logger.warning(f"ZRANGEBYSCORE: 跳过无法反序列化的成员, key={key}")
-
             logger.debug(f"ZRANGEBYSCORE 成功: key={key}, range=[{min_score}, {max_score}], 返回 {len(deserialized_list)} 个成员")
             return deserialized_list
-
         except Exception as e:
             logger.error(f"ZRANGEBYSCORE 操作失败: key={key}, range=[{min_score}, {max_score}], 错误: {str(e)}", exc_info=True)
             return None # 发生错误时返回 None
@@ -473,11 +460,9 @@ class CacheManager:
             # 使用 zrevrange 获取分数最高的 limit 条数据
             # 这会返回分数从高到低排序的成员列表
             serialized_members: List[bytes] = self.redis_client.zrevrange(key, 0, limit - 1)
-
             if serialized_members is None:  # 理论上 redis-py 不会返回 None，但以防万一
                 logger.warning(f"ZREVRANGE 返回 None: key={key}, limit={limit}")
                 return []  # 返回空列表表示未找到或键不存在
-
             # 反序列化每个成员
             deserialized_list = []
             for sm in serialized_members:
@@ -486,10 +471,8 @@ class CacheManager:
                     deserialized_list.append(deserialized_member)
                 else:
                     logger.warning(f"ZREVRANGE: 跳过无法反序列化的成员, key={key}")
-
             # logger.debug(f"ZREVRANGE 成功: key={key}, limit={limit}, 返回 {len(deserialized_list)} 个成员")
             return deserialized_list
-
         except Exception as e:
             logger.error(f"ZREVRANGE 操作失败: key={key}, limit={limit}, 错误: {str(e)}", exc_info=True)
             return None  # 发生错误时返回 None

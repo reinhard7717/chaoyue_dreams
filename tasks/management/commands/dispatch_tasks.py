@@ -104,6 +104,7 @@ class Command(BaseCommand):
         from dao_manager.daos.stock_basic_dao import StockBasicDAO
         from tasks.stock_indicator_tasks import process_single_stock_history_trade
         stock_basic_dao = None # 初始化
+        target_queue = 'save_api_data'
         try:
             stock_basic_dao = StockBasicDAO()
             # 获取股票列表 (假设 get_stock_list 是 async)
@@ -135,7 +136,8 @@ class Command(BaseCommand):
             logger.info(f"已创建包含 {len(tasks_signatures)} 个历史数据保存子任务的任务组")
             # 异步执行任务组
             # 注意：这里只是将任务组发送到消息队列，由 Celery worker 异步执行
-            group_result = task_group.apply_async()
+            # group_result = task_group.apply_async()
+            group_result = task_group.apply_async(queue=target_queue) # 指定队列
 
             logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
             self.stdout.write(self.style.SUCCESS(
@@ -613,6 +615,7 @@ class Command(BaseCommand):
             self.stdout.write("任务分发流程结束。")
 
     # python manage.py dispatch_tasks stock_historical_data_cache
+    # 分发从数据库获取并缓存股票历史交易数据的任务
     def dispatch_stock_historical_data_cache(self, stock_codes=None):
         """分发从数据库获取并缓存股票历史交易数据的任务"""
         log_prefix = "历史交易数据缓存"
