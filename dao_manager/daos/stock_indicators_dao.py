@@ -40,7 +40,7 @@ class StockIndicatorsDAO(BaseDAO):
         self.cache_manager = CacheManager()
         self.stock_basic_dao = StockBasicDAO()
         self.cache_timeout = 300  # 默认缓存5分钟
-        self.cache_limit = 700 # 定义缓存数量上限
+        self.cache_limit = 333 # 定义缓存数量上限
         self.user_dao = UserDAO()
         self.cache_key = StockCashKey()
         self.data_format_process = StockIndicatorsDataFormatProcess()
