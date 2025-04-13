@@ -16,49 +16,6 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO # 假设主任务需�
 
 logger = logging.getLogger('strategy') # 或者你使用的 logger 名称
 
-# --- 主任务保持 async def ---
-@celery_app.task(bind=True, name='tasks.strategy.run_macd_rsi_kdj_boll_strategy_for_stock_main')
-async def run_macd_rsi_kdj_boll_strategy_main_task(self):
-    logger.info("开始执行策略信号计算主任务")
-    stock_basic_dao = StockBasicDAO()
-    favorite_stocks = []
-    stocks = []
-    try:
-        # 假设 DAO 方法是异步的
-        favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
-        logger.info(f"获取到 {len(favorite_stocks)} 只自选股")
-        stocks = await stock_basic_dao.get_all_stocks()
-        logger.info(f"获取到 {len(stocks)} 只股票")
-    except Exception as e:
-        logger.error(f"获取股票列表时出错: {e}", exc_info=True)
-        return # 获取列表失败则不继续
-    favorite_codes = {fs.stock_code for fs in favorite_stocks}
-    for favorite_stock in favorite_stocks:
-        logger.debug(f"处理自选股: {favorite_stock.stock_code}")
-        try:
-            # 使用 await 调用处理单个股票的异步函数
-            await strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
-        except Exception as e_inner:
-             logger.error(f"处理股票 {favorite_stock.stock_code} 时发生未捕获异常: {e_inner}", exc_info=True)
-    for stock in stocks:
-        if stock.stock_code not in favorite_codes:
-            logger.debug(f"处理普通股票: {stock.stock_code}")
-            try:
-                await strategy_macd_rsi_kdj_boll_strategy_for_stock(stock.stock_code)
-            except Exception as e_inner:
-                 logger.error(f"处理股票 {stock.stock_code} 时发生未捕获异常: {e_inner}", exc_info=True)
-        # else: # 跳过已处理的自选股逻辑是隐式的
-        #     logger.debug(f"跳过已处理的自选股: {stock.stock_code}")
-    # 关闭 DAO (如果需要且方法存在)
-    if hasattr(stock_basic_dao, 'close') and callable(stock_basic_dao.close):
-        try:
-            # 假设 close 是同步的
-            stock_basic_dao.close()
-            logger.info("StockBasicDAO closed.")
-        except Exception as close_err:
-            logger.error(f"关闭 StockBasicDAO 时出错: {close_err}")
-    logger.info("所有股票的macd_rsi_kdj_boll策略信号计算任务完成")
-
 @celery_app.task(bind=True, name='tasks.strategy.run_strategy_for_single_stock')
 async def run_strategy_for_single_stock_task(self, stock_code: str):
     """

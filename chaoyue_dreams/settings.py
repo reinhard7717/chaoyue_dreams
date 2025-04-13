@@ -712,16 +712,6 @@ CELERY_TASK_QUEUES = (
     # Queue('default_tasks', routing_key='default.#'),
 )
 
-# 设置默认队列 (如果 worker 启动时不指定 -Q，任务会进入这里)
-CELERY_TASK_DEFAULT_QUEUE = 'celery' # 或者 'default_tasks'
-CELERY_TASK_DEFAULT_EXCHANGE = 'tasks'
-CELERY_TASK_DEFAULT_ROUTING_KEY = 'celery' # 或者 'default'
-
-# (可选) 任务路由，虽然我们在代码中用 apply_async 指定了队列，但也可以在这里设置默认路由规则
-# CELERY_TASK_ROUTES = {
-#     'tasks.stock_indicators.process_stock_batch_with_original_logic': {'queue': 'celery'}, # 默认路由到普通队列
-#     # 注意：apply_async(queue=...) 会覆盖这里的设置
-# }
 
 # Celery Beat配置
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器
