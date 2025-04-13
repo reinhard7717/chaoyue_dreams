@@ -23,7 +23,7 @@ class Command(BaseCommand):
             choices=[ # 使用 choices 明确允许的类型
                 'history_time_trade', 'latest_time_trade','latest_time_trade_trading_hours',
                 'latest_kdj', 'history_kdj', 'latest_macd', 'history_macd', 
-                'calculate_all_indicators', 'stock_historical_data_cache'
+                'calculate_all_indicators', 'stock_historical_data_cache', 'dispatch_run_strategy'
             ],
             help='要分发的任务类型 (例如: history_time_trade, latest_kdj)'
         )
@@ -97,6 +97,8 @@ class Command(BaseCommand):
             self.dispatch_calculate_all_indicators(stock_codes=stock_codes)
         elif data_type == 'stock_historical_data_cache':
             self.dispatch_stock_historical_data_cache(stock_codes=stock_codes)
+        elif data_type == 'dispatch_run_strategy':
+            self.dispatch_run_strategy(stock_codes=stock_codes)
         else:
             # 如果 choices 正常工作，这里理论上不会到达，但作为保险
             logger.error(f"接收到未知的 data_type: {data_type}")

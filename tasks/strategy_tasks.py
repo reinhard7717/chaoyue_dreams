@@ -16,7 +16,7 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO # 假设主任务需�
 
 logger = logging.getLogger('strategy') # 或者你使用的 logger 名称
 
-@celery_app.task(bind=True, name='tasks.strategy.run_strategy_for_single_stock')
+@celery_app.task(bind=True, name='tasks.strategy.run_strategy_for_single_stock_task')
 async def run_strategy_for_single_stock_task(self, stock_code: str):
     """
     为单支股票执行 MACD+RSI+KDJ+BOLL 策略计算并缓存结果。
