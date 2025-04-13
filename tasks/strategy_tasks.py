@@ -158,5 +158,6 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
         # 清理逻辑（如果需要的话），例如关闭 service 或 cache_setter 中的连接（如果它们不是全局/共享的）
         # 通常 Celery Task 不需要手动关闭这些，除非它们管理着需要显式关闭的资源
         logger.info(f"{log_prefix} 策略计算任务执行完毕。")
+        return None
 
 # ... (文件末尾的其他任务定义) ...
