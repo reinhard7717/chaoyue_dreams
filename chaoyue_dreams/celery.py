@@ -16,7 +16,25 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 
 # 延迟自动发现任务，确保Django已完全加载
 # 仅在指定包内查找任务，并且命名为tasks.py的模块
-app.autodiscover_tasks(lambda: ['tasks'])
+# 使用 include 显式指定包含任务的模块 (推荐)
+app.conf.update(
+    # worker_concurrency = 16, # 保留你原来的设置
+    # worker_prefetch_multiplier = 1, # 保留你原来的设置
+    # task_time_limit = 1800, # 保留你原来的设置
+    # worker_hijack_root_logger=False, # 保留你原来的设置
+    # worker_log_color=False, # 保留你原来的设置
+
+    # ****** 添加 include 配置 ******
+    include=[
+        'tasks.datacenter_tasks',
+        'tasks.index_tasks',
+        'tasks.stock_tasks',
+        'tasks.stock_indicator_tasks',
+        'tasks.strategy_tasks',      # <<<--- 添加包含策略任务的模块
+        # 如果还有其他文件包含 Celery 任务，也一并添加到这里
+        # 例如: 'tasks.other_tasks'
+    ]
+)
 
 # 设置worker进程数（根据服务器CPU核心数调整）
 app.conf.worker_concurrency = 16  # 或更多，取决于您的服务器资源
