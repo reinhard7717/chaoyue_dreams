@@ -13,6 +13,7 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from services.indicator_services import IndicatorService
 
 
+
 logger = logging.getLogger("celery")
 
 # --- 新增：处理单个股票的子任务 ---
@@ -369,39 +370,30 @@ def calculate_stock_indicators_task(self, stock_code: str):
         logger.error(f"执行 calculate_stock_indicators_task (同步包装器) 时出错: {e}", exc_info=True)
         raise
 
+# Celery 任务：对单个股票执行策略计算。
 @celery_app.task(bind=True, name='tasks.stock_processing.run_stock_strategy')
 def run_stock_strategy_task(self, stock_code: str):
     """
     Celery 任务：对单个股票执行策略计算。
     假定上一个任务成功时会传递 stock_code。
     """
-    from tasks.strategy_tasks import strategy_macd_rsi_kdj_boll_strategy_for_stock
+    from tasks.strategy_tasks import run_strategy_for_single_stock_task
     if not stock_code:
          logger.warning(f"任务跳过 (策略计算): run_stock_strategy_task - 未收到有效的 stock_code (可能前序任务失败)")
          return None
     queue_name = self.request.delivery_info.get('routing_key', '未知')
     logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
-
-    # strategy_macd_rsi_kdj_boll_strategy_for_stock 可能是同步或异步的
-    # 这里假设它是异步的，如果它是同步的，直接调用即可
     async def _run_async_strategy():
         try:
             logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
-            # 假设 strategy_macd_rsi_kdj_boll_strategy_for_stock 是异步函数
-            await strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code)
-            # 如果 strategy_macd_rsi_kdj_boll_strategy_for_stock 是同步函数，则这样调用:
-            # strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code)
+            await run_strategy_for_single_stock_task(stock_code)
             logger.debug(f"策略计算: 完成运行 {stock_code} 的策略。")
             return True
         except Exception as e:
             logger.error(f"策略计算: 运行股票 {stock_code} 策略时出错: {e}", exc_info=True)
             return False
-
     try:
-        # 如果 strategy_macd_rsi_kdj_boll_strategy_for_stock 是同步的，则不需要 asyncio.run
-        # success = _run_sync_strategy() # 假设有一个同步包装器或直接调用
         success = asyncio.run(_run_async_strategy()) # 假设策略函数是异步的
-
         if success:
             logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
             return f"Strategy calculation completed for {stock_code}" # 链的最终结果

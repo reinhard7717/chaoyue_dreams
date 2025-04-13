@@ -6,6 +6,8 @@ from celery import group
 
 
 
+
+
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
@@ -379,6 +381,7 @@ class Command(BaseCommand):
     def dispatch_run_strategy(self, stock_codes=None):
         """分发执行 MACD+RSI+KDJ+BOLL 策略信号计算的任务"""
         from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from tasks.strategy_tasks import run_strategy_for_single_stock_task
         log_prefix = "策略信号计算 (MACD+RSI+KDJ+BOLL)"
         target_queue = 'calculate_strategy' # <--- 定义策略执行的目标队列名称
         self.stdout.write(f"开始分发 {log_prefix} 任务...")
