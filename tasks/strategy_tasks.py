@@ -32,9 +32,7 @@ async def run_macd_rsi_kdj_boll_strategy_main_task(self):
     except Exception as e:
         logger.error(f"获取股票列表时出错: {e}", exc_info=True)
         return # 获取列表失败则不继续
-
     favorite_codes = {fs.stock_code for fs in favorite_stocks}
-
     for favorite_stock in favorite_stocks:
         logger.debug(f"处理自选股: {favorite_stock.stock_code}")
         try:
@@ -42,8 +40,6 @@ async def run_macd_rsi_kdj_boll_strategy_main_task(self):
             await strategy_macd_rsi_kdj_boll_strategy_for_stock(favorite_stock.stock_code)
         except Exception as e_inner:
              logger.error(f"处理股票 {favorite_stock.stock_code} 时发生未捕获异常: {e_inner}", exc_info=True)
-
-
     for stock in stocks:
         if stock.stock_code not in favorite_codes:
             logger.debug(f"处理普通股票: {stock.stock_code}")
@@ -53,7 +49,6 @@ async def run_macd_rsi_kdj_boll_strategy_main_task(self):
                  logger.error(f"处理股票 {stock.stock_code} 时发生未捕获异常: {e_inner}", exc_info=True)
         # else: # 跳过已处理的自选股逻辑是隐式的
         #     logger.debug(f"跳过已处理的自选股: {stock.stock_code}")
-
     # 关闭 DAO (如果需要且方法存在)
     if hasattr(stock_basic_dao, 'close') and callable(stock_basic_dao.close):
         try:
@@ -62,105 +57,149 @@ async def run_macd_rsi_kdj_boll_strategy_main_task(self):
             logger.info("StockBasicDAO closed.")
         except Exception as close_err:
             logger.error(f"关闭 StockBasicDAO 时出错: {close_err}")
-
     logger.info("所有股票的macd_rsi_kdj_boll策略信号计算任务完成")
 
-
-# --- 单个股票处理函数保持 async def ---
-async def strategy_macd_rsi_kdj_boll_strategy_for_stock(stock_code: str):
-    # --- 实例化部分保持不变 ---
-    # logger.info(f"开始为股票 {stock_code} 运行 MACD+RSI+KDJ+BOLL 策略")
+@celery_app.task(bind=True, name='tasks.strategy.run_strategy_for_single_stock')
+async def run_strategy_for_single_stock_task(self, stock_code: str):
+    """
+    为单支股票执行 MACD+RSI+KDJ+BOLL 策略计算并缓存结果。
+    这是实际执行策略计算的 Celery Worker 任务。
+    """
+    log_prefix = f"[{stock_code}][StrategyTask]"
+    logger.info(f"{log_prefix} 开始执行 MACD+RSI+KDJ+BOLL 策略计算任务")
     service = None
     strategy = None
     cache_setter = None
     merged_data = None
-
+    main_timeframe = '15' # 或者从配置/策略对象获取
     try:
+        # 1. 实例化所需对象
+        # 注意：确保这些类的实例化在高并发下是安全的，或者考虑依赖注入
         service = IndicatorService()
-        strategy = MacdRsiKdjBollEnhancedStrategy()
+        strategy = MacdRsiKdjBollEnhancedStrategy() # 假设这个策略的时间框架和参数是固定的
         cache_setter = StrategyCacheSet()
-        main_timeframe = '15'
         if not all([service, strategy, cache_setter]):
-             logger.error(f"[{stock_code}] 某个核心对象未能成功实例化，任务终止。")
-             return # 返回 None 或其他表示失败的值
+             logger.error(f"{log_prefix} 某个核心对象未能成功实例化，任务终止。")
+             # 可以选择性地抛出异常让 Celery 重试，或者直接返回
+             # raise self.retry(exc=InstantiateError("Core object instantiation failed"), countdown=60)
+             return # 直接终止
+        # 2. 准备数据
+        logger.debug(f"{log_prefix} 准备策略数据...")
         merged_data = await service.prepare_strategy_dataframe(
             stock_code=stock_code,
-            timeframes=strategy.timeframes, # 使用 strategy 实例的 timeframes
+            timeframes=strategy.timeframes,
             strategy_params=strategy.params,
-            limit_per_tf=1500
+            limit_per_tf=1500 # 保持与原逻辑一致
         )
+        # 3. 处理数据准备失败的情况
         if merged_data is None or merged_data.empty:
-            logger.warning(f"[{stock_code}] 未能准备策略所需数据，策略无法运行。")
-            # 缓存空信号状态 (使用 await)
+            logger.warning(f"{log_prefix} 未能准备策略所需数据，策略无法运行。将缓存空信号状态。")
             try:
-                latest_timestamp_ref = pd.Timestamp.now(tz='UTC')
+                latest_timestamp_ref = pd.Timestamp.now(tz='UTC') # 使用 UTC 时间戳
                 signal_data_to_cache = {
                     'stock_code': stock_code, 'strategy_name': strategy.strategy_name,
                     'time_level': main_timeframe, 'timestamp': latest_timestamp_ref.isoformat(),
-                    'signal': None, 'signal_display': 'No Data', 'score': None,
+                    'signal': None, 'signal_display': 'No Data', 'score': None, # 假设没有 score
                     'generated_at': pd.Timestamp.now(tz='UTC').isoformat()
                 }
+                # 使用 await 调用异步缓存方法
                 cache_success = await cache_setter.macd_rsi_kdj_boll_data(
                     stock_code=stock_code, time_level=main_timeframe, data_to_cache=signal_data_to_cache
                 )
-                if cache_success: logger.info(f"[{stock_code}] 数据准备失败，已缓存空信号状态。")
-                else: logger.warning(f"[{stock_code}] 缓存空信号状态失败。")
-            except Exception as cache_err: logger.error(f"[{stock_code}] 缓存空信号状态时发生错误: {cache_err}", exc_info=False)
-            return # 返回 None 或其他表示失败的值
-
-        # 运行策略 (同步调用)
+                if cache_success:
+                    logger.info(f"{log_prefix} 数据准备失败，已缓存空信号状态。")
+                else:
+                    logger.warning(f"{log_prefix} 缓存空信号状态失败。")
+            except Exception as cache_err:
+                # 记录详细错误，但不影响任务完成状态（除非需要重试）
+                logger.error(f"{log_prefix} 缓存空信号状态时发生错误: {cache_err}", exc_info=False)
+            return # 数据准备失败，任务结束
+        # 4. 运行策略 (策略的 run 方法本身是同步的)
+        logger.debug(f"{log_prefix} 运行策略计算...")
         signal_series = strategy.run(merged_data)
-        # 处理信号结果 (逻辑保持不变)
+        # 5. 处理和解析信号结果
         latest_signal = None
         latest_timestamp = None
-        signal_display = "No Signal"
-        if not signal_series.empty:
+        signal_display = "No Signal" # 默认值
+        if signal_series is not None and not signal_series.empty:
+            # 移除 NaN 值再获取最后一个有效信号
             valid_signals = signal_series.dropna()
             if not valid_signals.empty:
                 latest_signal = valid_signals.iloc[-1]
-                latest_timestamp = valid_signals.index[-1]
+                latest_timestamp = valid_signals.index[-1] # 获取信号对应的时间戳
+                # 定义信号映射关系
                 signal_map = {
-                    SIGNAL_STRONG_BUY: "Strong Buy", 
+                    SIGNAL_STRONG_BUY: "Strong Buy",
                     SIGNAL_BUY: "Buy",
-                    SIGNAL_HOLD: "Hold", 
+                    SIGNAL_HOLD: "Hold",
                     SIGNAL_SELL: "Sell",
                     SIGNAL_STRONG_SELL: "Strong Sell",
                 }
-                signal_display = signal_map.get(latest_signal, "Unknown")
+                signal_display = signal_map.get(latest_signal, "Unknown Signal Value") # 处理未定义信号值
+                logger.info(f"{log_prefix} 策略信号 @ {latest_timestamp}: {latest_signal} ({signal_display})")
             else:
-                 logger.info(f"[{stock_code}] 策略运行完成，但所有信号均为 NaN。")
+                 # 策略运行了，但所有结果都是 NaN
+                 logger.info(f"{log_prefix} 策略运行完成，但所有信号均为 NaN。")
                  signal_display = "No Signal (NaN)"
-                 latest_timestamp = merged_data.index[-1]
+                 # 即使没有有效信号，也记录最后的数据时间戳
+                 if not merged_data.empty:
+                     latest_timestamp = merged_data.index[-1]
+                 else: # 理论上不会到这里，因为前面检查过 merged_data
+                     latest_timestamp = pd.Timestamp.now(tz='UTC')
         else:
-            logger.info(f"[{stock_code}] 策略运行完成，但未生成信号序列。")
+            # 策略没有返回 Series 或者返回了空 Series
+            logger.info(f"{log_prefix} 策略运行完成，但未生成有效信号序列。")
             signal_display = "No Signal (Empty Series)"
-            latest_timestamp = merged_data.index[-1]
-
-        # 缓存结果 (使用 await)
-        logger.info(f"[{stock_code}] 策略信号 @ {latest_timestamp}: {latest_signal} ({signal_display})")
+            # 记录最后的数据时间戳
+            if not merged_data.empty:
+                latest_timestamp = merged_data.index[-1]
+            else:
+                latest_timestamp = pd.Timestamp.now(tz='UTC')
+        # 6. 缓存策略结果 (使用 await)
+        logger.debug(f"{log_prefix} 准备缓存策略结果...")
         try:
+            # 确保时间戳是 timezone-aware (UTC)
+            if latest_timestamp and latest_timestamp.tzinfo is None:
+                 latest_timestamp = latest_timestamp.tz_localize('Asia/Shanghai').tz_convert('UTC') # 或者直接使用 UTC
+            elif latest_timestamp is None:
+                 latest_timestamp = pd.Timestamp.now(tz='UTC')
             signal_data_to_cache = {
-                'stock_code': stock_code, 'strategy_name': strategy.strategy_name,
+                'stock_code': stock_code,
+                'strategy_name': strategy.strategy_name,
                 'time_level': main_timeframe,
-                'timestamp': latest_timestamp.isoformat() if latest_timestamp else pd.Timestamp.now(tz='UTC').isoformat(),
+                'timestamp': latest_timestamp.isoformat(), # ISO 格式字符串
+                # 确保信号是 Python 内置 int 或 None
                 'signal': int(latest_signal) if latest_signal is not None and not pd.isna(latest_signal) else None,
                 'signal_display': signal_display,
-                'generated_at': pd.Timestamp.now(tz='UTC').isoformat()
+                # 'score': score, # 如果有评分逻辑，在这里添加
+                'generated_at': pd.Timestamp.now(tz='UTC').isoformat() # 记录生成时间
             }
+            # 使用 await 调用异步缓存方法
             cache_success = await cache_setter.macd_rsi_kdj_boll_data(
                 stock_code=stock_code, time_level=main_timeframe, data_to_cache=signal_data_to_cache
             )
-            if cache_success: logger.debug(f"[{stock_code}] 策略结果/状态成功缓存到 Redis。")
-            else: logger.warning(f"[{stock_code}] 缓存策略结果/状态到 Redis 失败。")
+            if cache_success:
+                logger.debug(f"{log_prefix} 策略结果/状态成功缓存到 Redis。")
+            else:
+                logger.warning(f"{log_prefix} 缓存策略结果/状态到 Redis 失败。")
         except Exception as cache_err:
-            logger.error(f"[{stock_code}] 缓存策略结果/状态时发生错误: {cache_err}", exc_info=True)
+            logger.error(f"{log_prefix} 缓存策略结果/状态时发生错误: {cache_err}", exc_info=True)
+            # 缓存失败不应导致任务失败，但需要记录
 
     except Exception as e:
-        logger.error(f"为股票 {stock_code} 处理策略时发生严重错误: {e}", exc_info=True)
-        # 这里可以选择是否返回错误状态，或者让主任务继续处理其他股票
-        # return f"[{stock_code}] 策略运行出错: {e}" # 可以取消注释以返回错误信息
+        # 捕获任务执行期间的任何未预料错误
+        logger.error(f"{log_prefix} 处理策略时发生严重错误: {e}", exc_info=True)
+        # 可以选择性地引发重试
+        # try:
+        #     raise self.retry(exc=e, countdown=60 * 5) # 5分钟后重试
+        # except MaxRetriesExceededError:
+        #     logger.error(f"{log_prefix} Task max retries exceeded for stock {stock_code}.")
+        # 注意：如果 IndicatorService 或 StrategyCacheSet 的方法可能抛出特定、可恢复的异常，
+        # 可以在这里添加更细致的异常处理和重试逻辑。
 
-    # --- !!! 移除重复的 try...except 块 !!! ---
-    # 原来从这里开始的第二个 try 块是重复且错误的，已删除
+    finally:
+        # 清理逻辑（如果需要的话），例如关闭 service 或 cache_setter 中的连接（如果它们不是全局/共享的）
+        # 通常 Celery Task 不需要手动关闭这些，除非它们管理着需要显式关闭的资源
+        logger.info(f"{log_prefix} 策略计算任务执行完毕。")
 
 # ... (文件末尾的其他任务定义) ...

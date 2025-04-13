@@ -1,9 +1,10 @@
 from rest_framework import serializers
 import umsgpack
+
+from users.models import FavoriteStock
 from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
 from utils.cash_key import StockCashKey
-
 
 
 class IndexInfoSerializer(serializers.ModelSerializer):
@@ -50,7 +51,38 @@ class StockInfoSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.stock_basic import StockInfo
         model = StockInfo
-        fields = '__all__'
+        fields = ['stock_code', 'stock_name'] # 只序列化代码和名称
+
+class FavoriteStockSerializer(serializers.ModelSerializer):
+    # 嵌套序列化器显示股票信息，而不是只显示 stock_id
+    stock = StockInfoSerializer(read_only=True)
+    # 允许通过 stock_code 添加自选
+    stock_code = serializers.CharField(write_only=True, source='stock.code')
+
+    class Meta:
+        model = FavoriteStock
+        fields = ['id', 'stock', 'added_at', 'stock_code']
+        read_only_fields = ['id', 'added_at', 'stock'] # stock 通过 stock_code 创建
+
+    def create(self, validated_data):
+        from stock_models.stock_basic import StockInfo
+        # 从 validated_data 中弹出我们手动添加的 stock_code
+        stock_code_data = validated_data.pop('stock', {}).get('code')
+        user = self.context['request'].user # 从视图传递过来的 request 获取用户
+        if not stock_code_data:
+            raise serializers.ValidationError("必须提供 stock_code。")
+        try:
+            stock_instance = StockInfo.objects.get(code=stock_code_data)
+        except StockInfo.DoesNotExist:
+            raise serializers.ValidationError(f"股票代码 {stock_code_data} 不存在。")
+
+        # 检查是否已存在
+        if FavoriteStock.objects.filter(user=user, stock=stock_instance).exists():
+             raise serializers.ValidationError("该股票已在自选列表中。")
+
+        # 创建 FavoriteStock 实例
+        favorite = FavoriteStock.objects.create(user=user, stock=stock_instance, **validated_data)
+        return favorite
 
 class NewStockCalendarSerializer(serializers.ModelSerializer):
     class Meta:
@@ -90,7 +122,7 @@ class MarketCategorySerializer(serializers.ModelSerializer):
 
 class StockTimeTradeSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.stock_realtime import StockTimeTrade
+        from stock_models.stock_basic import StockTimeTrade
         model = StockTimeTrade
         fields = '__all__'
 
@@ -407,29 +439,29 @@ class StockAdlSerializer(serializers.ModelSerializer):
         
 
 # ============  ATR  ============
-class IndexAtrSerializer(serializers.ModelSerializer):
+class IndexAtrFIBSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.indicator.atr import IndexAtr
-        model = IndexAtr
+        from stock_models.indicator.atr import IndexAtrFIB
+        model = IndexAtrFIB
         fields = '__all__'
 
-class StockAtrSerializer(serializers.ModelSerializer):
+class StockAtrFIBSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.indicator.atr import StockAtr
-        model = StockAtr
+        from stock_models.indicator.atr import StockAtrFIB
+        model = StockAtrFIB
         fields = '__all__'
 
 # ============  BOLL  ============
 class IndexBollDataSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.indicator.boll import IndexBollData
-        model = IndexBollData
+        from stock_models.indicator.boll import IndexBOLLData
+        model = IndexBOLLData
         fields = '__all__'
         
 class StockBollIndicatorSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.indicator.boll import StockBollIndicator
-        model = StockBollIndicator
+        from stock_models.indicator.boll import StockBOLLIndicator
+        model = StockBOLLIndicator
         fields = '__all__'
         
 # ============  CCI  ============

@@ -3,17 +3,18 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional
-
+import logging
 # 从 base 导入基类和信号常量
 from .base import BaseStrategy, SIGNAL_STRONG_BUY, SIGNAL_BUY, SIGNAL_HOLD, SIGNAL_SELL, SIGNAL_STRONG_SELL, SIGNAL_NONE
 
 # 假设 core.constants 定义了 TimeLevel 枚举 (虽然这里不直接用，但保持一致性)
 # from core.constants import TimeLevel
 
+logger = logging.getLogger("strategy")
+
 class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
     """
     多时间周期 MACD+RSI+KDJ+BOLL+量能+趋势 组合增强策略。
-
     策略逻辑:
     1. 以 15 分钟 K 线为主要操作周期。
     2. 结合 5, 15, 30, 60 四个时间周期的 MACD, RSI, KDJ, BOLL, CCI, MFI, ROC, DMI, SAR 指标。
@@ -30,19 +31,19 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         初始化策略参数。
         """
         default_params = {
-            'rsi_period': 14,
-            'rsi_oversold': 30,
-            'rsi_overbought': 70,
-            'kdj_period_k': 9,
-            'kdj_period_d': 3,
-            'kdj_period_j': 3,
-            'kdj_oversold': 20,
-            'kdj_overbought': 80,
-            'boll_period': 20,
-            'boll_std_dev': 2,
-            'macd_fast': 12,
-            'macd_slow': 26,
-            'macd_signal': 9,
+            'rsi_period': 12,       # RSI 周期 缩短RSI周期，让指标更敏感，更早检测超买/超卖信号。14 是默认周期
+            'rsi_oversold': 30,     # RSI 超卖阈值
+            'rsi_overbought': 70,   # RSI 超买阈值
+            'kdj_period_k': 9,      # KDJ 周期 K
+            'kdj_period_d': 3,      # KDJ 周期 D
+            'kdj_period_j': 3,      # KDJ 周期 J
+            'kdj_oversold': 20,     # KDJ 超卖阈值
+            'kdj_overbought': 80,   # KDJ 超买阈值
+            'boll_period': 20,      # BOLL 周期
+            'boll_std_dev': 2,      # BOLL 标准差
+            'macd_fast': 10,        # MACD 快线周期。缩短MACD快线周期，提高对短期趋势的响应。12 是默认周期
+            'macd_slow': 26,        # MACD 慢线周期
+            'macd_signal': 9,       # MACD 信号线周期
             'cci_period': 14,       # CCI 周期
             'cci_threshold': 100,   # CCI 超买/超卖阈值 (+/-)
             'mfi_period': 14,       # MFI 周期
@@ -90,7 +91,6 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
 
         super().__init__(merged_params)
 
-
     def _validate_params(self):
         """验证参数"""
         super()._validate_params() # 调用基类或其他已有的验证
@@ -107,7 +107,6 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         if self.params['volume_confirmation'] and self.params['volume_tf'] not in self.timeframes:
              raise ValueError(f"参数 'volume_tf' ({self.params['volume_tf']}) 必须是 {self.timeframes} 中的一个")
         # TODO: 添加新指标参数的验证
-
 
     def get_required_columns(self) -> List[str]:
         """返回策略运行所需的 DataFrame 列名。"""
@@ -346,7 +345,6 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
 
         return confirmed_signal
 
-
     # --- 主信号生成逻辑 ---
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """
@@ -373,28 +371,24 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         # 1. 为每个时间周期计算各指标的初步信号并加权计分
         for tf in self.timeframes:
             tf_signal_sum = pd.Series(0.0, index=data.index) # 当前时间周期的信号总和 (float)
-
             # --- MACD ---
             diff_col, dea_col, macd_col = f'diff_{tf}', f'dea_{tf}', f'macd_{tf}'
             if all(c in data for c in [diff_col, dea_col, macd_col]):
                 macd_sig = self._get_macd_signal(data[diff_col], data[dea_col], data[macd_col])
                 if 'macd' in self.score_indicators: tf_signal_sum += macd_sig.astype(float).fillna(0) # 计算时用 float
                 signals[f'macd_signal_{tf}'] = macd_sig.astype('category') # 存储时用 category
-
             # --- RSI ---
             rsi_col = f'rsi_{tf}'
             if rsi_col in data:
                 rsi_sig = self._get_rsi_signal(data[rsi_col])
                 if 'rsi' in self.score_indicators: tf_signal_sum += rsi_sig.astype(float).fillna(0)
                 signals[f'rsi_signal_{tf}'] = rsi_sig.astype('category')
-
             # --- KDJ ---
             k_col, d_col, j_col = f'k_{tf}', f'd_{tf}', f'j_{tf}'
             if all(c in data for c in [k_col, d_col, j_col]):
                 kdj_sig = self._get_kdj_signal(data[k_col], data[d_col], data[j_col])
                 if 'kdj' in self.score_indicators: tf_signal_sum += kdj_sig.astype(float).fillna(0)
                 signals[f'kdj_signal_{tf}'] = kdj_sig.astype('category')
-
             # --- BOLL ---
             upper_col, mid_col, lower_col = f'upper_{tf}', f'mid_{tf}', f'lower_{tf}'
             if all(c in data for c in [upper_col, mid_col, lower_col]):
@@ -402,35 +396,30 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
                 boll_sig = self._get_boll_signal(close_price, data[upper_col], data[mid_col], data[lower_col])
                 if 'boll' in self.score_indicators: tf_signal_sum += boll_sig.astype(float).fillna(0)
                 signals[f'boll_signal_{tf}'] = boll_sig.astype('category')
-
             # --- CCI ---
             cci_col = f'cci_{tf}'
             if cci_col in data:
                 cci_sig = self._get_cci_signal(data[cci_col])
                 if 'cci' in self.score_indicators: tf_signal_sum += cci_sig.astype(float).fillna(0)
                 signals[f'cci_signal_{tf}'] = cci_sig.astype('category')
-
             # --- MFI ---
             mfi_col = f'mfi_{tf}'
             if mfi_col in data:
                 mfi_sig = self._get_mfi_signal(data[mfi_col])
                 if 'mfi' in self.score_indicators: tf_signal_sum += mfi_sig.astype(float).fillna(0)
                 signals[f'mfi_signal_{tf}'] = mfi_sig.astype('category')
-
             # --- ROC ---
             roc_col = f'roc_{tf}'
             if roc_col in data:
                 roc_sig = self._get_roc_signal(data[roc_col])
                 if 'roc' in self.score_indicators: tf_signal_sum += roc_sig.astype(float).fillna(0)
                 signals[f'roc_signal_{tf}'] = roc_sig.astype('category')
-
             # --- DMI ---
             pdi_col, mdi_col, adx_col = f'pdi_{tf}', f'mdi_{tf}', f'adx_{tf}'
             if all(c in data for c in [pdi_col, mdi_col, adx_col]):
                 dmi_sig = self._get_dmi_signal(data[pdi_col], data[mdi_col], data[adx_col])
                 if 'dmi' in self.score_indicators: tf_signal_sum += dmi_sig.astype(float).fillna(0)
                 signals[f'dmi_signal_{tf}'] = dmi_sig.astype('category')
-
             # --- SAR ---
             sar_col = f'sar_{tf}'
             if sar_col in data:
@@ -438,11 +427,8 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
                 sar_sig = self._get_sar_signal(close_price, data[sar_col])
                 if 'sar' in self.score_indicators: tf_signal_sum += sar_sig.astype(float).fillna(0)
                 signals[f'sar_signal_{tf}'] = sar_sig.astype('category')
-
             # 将当前时间周期的信号总和加权计入总分
             signals['total_score'] += tf_signal_sum * weights[tf]
-
-
         # 2. 根据总分映射到初步信号级别
         # 使用 np.select 实现更高效的条件赋值
         conditions = [
@@ -460,16 +446,14 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
             SIGNAL_NONE # 对应 NaN
         ]
         preliminary_signal = pd.Series(np.select(conditions, choices, default=SIGNAL_HOLD), index=data.index)
-
         # 3. 应用量能确认逻辑 (如果启用)
         final_signal = self._confirm_with_volume(preliminary_signal, data)
-
         # 存储中间结果，方便调试分析
         self.intermediate_data = signals # 包含所有初步信号(category)和总分(float)
-
         # 4. 返回最终信号，使用 category 类型优化内存
         # category 类型可以处理 SIGNAL_NONE (np.nan)
-        return final_signal.astype('category')
+        final_data = final_signal.astype('category')
+        return final_data
 
     def get_intermediate_data(self) -> Optional[pd.DataFrame]:
         """返回包含中间计算结果（如各指标信号、总分）的 DataFrame，用于分析。"""

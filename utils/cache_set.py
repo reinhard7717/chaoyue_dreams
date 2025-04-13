@@ -488,7 +488,6 @@ class IndexCacheSet(CacheSet):
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
 class StockIndicatorsCacheSet(CacheSet):
-
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的单个最新指数时间序列数据点缓存到 Redis。

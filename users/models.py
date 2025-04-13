@@ -45,11 +45,12 @@ class UserProfile(models.Model):
     用户资料模型，扩展Django自带的用户模型
     """
     # 关联Django自带的用户模型
-    user = models.ForeignKey(
+    user = models.OneToOneField(
         settings.AUTH_USER_MODEL, # <--- 使用字符串引用
         on_delete=models.CASCADE,
         related_name='profile',
-        verbose_name='用户'
+        verbose_name='用户',
+        primary_key=True, # OneToOneField 通常设为主键以保证唯一性
     )
     # 用户手机号码
     phone = models.CharField(_('手机号码'), max_length=11, blank=True, null=True)
@@ -70,7 +71,9 @@ class UserProfile(models.Model):
         verbose_name_plural = _('用户资料')
 
     def __str__(self):
-        return self.user.username
+        # 确保 self.user 存在再访问 username，虽然 OneToOne 理论上 user 总存在
+        return self.user.username if hasattr(self, 'user') and self.user else f"Profile for User ID {self.pk}"
+
 
 class FavoriteStock(models.Model):
     """
@@ -111,11 +114,3 @@ def create_user_profile(sender, instance, created, **kwargs):
     if created:
         UserProfile.objects.create(user=instance)
 
-@receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def save_user_profile(sender, instance, **kwargs):
-    """
-    当用户保存后的操作
-    """
-    if not hasattr(instance, 'profile'):
-        UserProfile.objects.create(user=instance)
-    instance.profile.save()

@@ -94,7 +94,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
             cache_data = None # 出错则认为缓存未命中
-
         if cache_data:
             logger.debug(f"从缓存获取到 {stock_code} {time_level_str} 历史数据 (limit={limit})，共 {len(cache_data)} 条，进行转换...")
             model_instances = []
@@ -154,16 +153,12 @@ class IndicatorDAO(BaseDAO):
                 stock=stock,
                 time_level=time_level_str
             ).order_by('-trade_time')[:limit]
-
             # 异步执行查询并转换为列表
             data_list = await sync_to_async(list)(data_qs)
-
             if not data_list:
                 logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
                 return None
-
             logger.debug(f"从数据库获取到 {stock_code} {time_level_str} {len(data_list)} 条历史数据")
-
             # 计算指标需要升序数据，反转列表
             data_list.reverse()
 
@@ -241,7 +236,6 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                 logger.warning(f"转换后的 DataFrame 为空: {stock_code} {time_level}")
                 return None
-            
             # 2. 对非数值列应用分类类型 (在 df 创建之后)
             # 确保在访问 df.columns 之前 df 已经被定义
             for col in df.columns:
@@ -252,14 +246,11 @@ class IndicatorDAO(BaseDAO):
                     except Exception as e_cat:
                         # 如果转换失败，记录警告但继续
                         logger.warning(f"转换列 '{col}' 为 category 类型失败: {e_cat}")
-
             # 3. 重命名列以匹配 finta 要求
             df.rename(columns=FINTA_OHLCV_MAP, inplace=True)
-
             # 4. 将 trade_time 设置为索引
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
-
             # 5. 去除重复索引
             initial_len = len(df)
             if df.index.has_duplicates:
@@ -268,24 +259,21 @@ class IndicatorDAO(BaseDAO):
                 df = df[~df.index.duplicated(keep='last')]
                 logger.info(f"索引去重完成 for {stock_code} {time_level}，记录数从 {initial_len} 变为 {len(df)}")
             # --- 去重结束 ---
-
             # 6. 确保数据按时间升序排列
             df.sort_index(ascending=True, inplace=True)
-
             # 7. 验证必要的列是否存在
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 logger.error(f"DataFrame 缺少必要列: {stock_code} {time_level}. 需要: {required_cols}, 实际: {df.columns.tolist()}")
                 return None
-
             # 移除完全是 NaN 的行 (如果需要)
             # df.dropna(subset=required_cols, how='all', inplace=True) # 谨慎使用，可能移除计算指标需要的数据点
-
             # 8. 检查是否有足够的非 NaN 数据行
             if df[required_cols].isnull().all(axis=1).sum() == len(df):
                  logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level}")
                  return None # 如果全是 NaN，返回 None
-
+            # logger.info("44444444444444444444444444444444444444444444444444444")
+            # logger.info(f"df: {df}")
             # logger.debug(f"成功为 {stock_code} {time_level} 创建 OHLCV DataFrame，形状: {df.shape}")
             return df
 

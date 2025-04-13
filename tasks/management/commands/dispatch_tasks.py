@@ -283,7 +283,7 @@ class Command(BaseCommand):
     def dispatch_calculate_all_indicators(self, stock_codes=None):
         """分发计算单支股票全指标的任务"""
         log_prefix = "全指标计算"
-        target_queue = 'priority_tasks' # <--- 定义目标队列名称
+        target_queue = 'calculate_indicators' # <--- 定义目标队列名称
         self.stdout.write(f"开始分发 {log_prefix} 任务...")
         logger.info(f"Management Command 启动: {log_prefix} 任务分发")
         # 按需导入对应的 Celery 任务
@@ -363,6 +363,107 @@ class Command(BaseCommand):
                          asyncio.run(stock_basic_dao.close())
                     elif callable(getattr(stock_basic_dao, 'close', None)):
                          stock_basic_dao.close()
+                    logger.debug(f"Management Command StockBasicDAO closed after dispatching {log_prefix} tasks.")
+                except Exception as close_err:
+                    logger.error(f"关闭 Management Command StockBasicDAO 时出错 ({log_prefix}): {close_err}", exc_info=True)
+
+            logger.info(f"Management Command 执行流程结束: {log_prefix} 任务分发")
+            self.stdout.write(f"{log_prefix} 任务分发流程结束。")
+
+
+    # ========================================================================
+    #    分发执行 MACD+RSI+KDJ+BOLL 策略信号计算的任务
+    # ========================================================================
+    def dispatch_run_strategy(self, stock_codes=None):
+        """分发执行 MACD+RSI+KDJ+BOLL 策略信号计算的任务"""
+        log_prefix = "策略信号计算 (MACD+RSI+KDJ+BOLL)"
+        target_queue = 'strategy_execution' # <--- 定义策略执行的目标队列名称
+        self.stdout.write(f"开始分发 {log_prefix} 任务...")
+        logger.info(f"Management Command 启动: {log_prefix} 任务分发")
+
+        # 按需导入 DAO (已在文件顶部导入)
+        # from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        # from tasks.strategy_tasks import run_strategy_for_single_stock_task # 已在文件顶部导入
+
+        stock_basic_dao = None
+        try:
+            stock_basic_dao = StockBasicDAO()
+            all_stocks_from_dao = []
+            # 1. 获取所有股票的基础列表 (使用 asyncio.run 调用异步 DAO 方法)
+            try:
+                # 注意：Management Command 是同步的，需要用 asyncio.run() 来执行异步 DAO 调用
+                all_stocks_from_dao = asyncio.run(stock_basic_dao.get_stock_list()) # 假设 get_stock_list 获取所有上市股票
+                # 或者根据需要调用 get_all_stocks() 或 get_all_favorite_stocks()
+                logger.info(f"从 DAO 获取到 {len(all_stocks_from_dao)} 支股票基础信息")
+            except Exception as e:
+                logger.error(f"获取股票列表时出错: {e}", exc_info=True)
+                self.stderr.write(self.style.ERROR(f"获取股票列表失败: {e}"))
+                return
+
+            if not all_stocks_from_dao:
+                logger.warning("未获取到任何股票信息，任务分发结束")
+                self.stdout.write(self.style.WARNING("未获取到任何股票信息，无需分发任务"))
+                return
+
+            # 2. 根据传入的 stock_codes 参数进行过滤 (复用 dispatch_calculate_all_indicators 的逻辑)
+            stocks_to_process = []
+            if stock_codes: # 如果命令行指定了股票代码
+                self.stdout.write(f"根据命令行参数过滤股票: {', '.join(stock_codes)}")
+                all_stock_map = {s.stock_code: s for s in all_stocks_from_dao}
+                processed_codes = set()
+                for code in stock_codes:
+                    if code in processed_codes: continue
+                    if code in all_stock_map:
+                        stocks_to_process.append(all_stock_map[code])
+                        processed_codes.add(code)
+                    else:
+                        logger.warning(f"指定的股票代码 {code} 在基础列表中未找到，已跳过。")
+                        self.stdout.write(self.style.WARNING(f"指定的股票代码 {code} 未找到，已跳过。"))
+                if not stocks_to_process:
+                     logger.warning("命令行指定的股票代码均未在基础列表中找到，任务分发结束")
+                     self.stdout.write(self.style.WARNING("指定的股票代码均未找到，无需分发任务"))
+                     return
+                logger.info(f"将处理 {len(stocks_to_process)} 支指定的股票进行策略计算")
+                self.stdout.write(f"筛选后将处理 {len(stocks_to_process)} 支股票")
+            else: # 如果未指定股票代码，则处理所有股票
+                stocks_to_process = all_stocks_from_dao
+                logger.info(f"未指定股票代码，将处理所有 {len(stocks_to_process)} 支股票进行策略计算")
+                self.stdout.write(f"将处理所有 {len(stocks_to_process)} 支股票")
+
+            # 3. 创建子任务签名列表，指向新的单股票策略任务
+            #    使用 .s() 方法创建签名，并传递 stock_code 参数
+            tasks_signatures = [run_strategy_for_single_stock_task.s(stock.stock_code) for stock in stocks_to_process]
+
+            if not tasks_signatures:
+                 logger.warning("没有生成任何策略计算子任务签名，任务分发结束")
+                 self.stdout.write(self.style.WARNING("没有有效的股票生成子任务，无需分发"))
+                 return
+
+            # 4. 创建并执行任务组
+            task_group = group(tasks_signatures)
+            task_count = len(tasks_signatures)
+            logger.info(f"已创建包含 {task_count} 个 {log_prefix} 子任务的任务组")
+
+            # 使用 apply_async 并指定目标队列
+            group_result = task_group.apply_async(queue=target_queue)
+            logger.info(f"任务组已提交执行到队列 '{target_queue}'，Group ID: {group_result.id}")
+            self.stdout.write(self.style.SUCCESS(
+                f"成功分发 {task_count} 个 {log_prefix} 子任务到队列 '{target_queue}'。Group ID: {group_result.id}"
+            ))
+
+        except Exception as e:
+            logger.error(f"分发 {log_prefix} 任务期间发生错误: {e}", exc_info=True)
+            self.stderr.write(self.style.ERROR(f"分发 {log_prefix} 任务失败: {e}"))
+        finally:
+            # 5. 关闭 DAO (确保异步关闭被正确处理)
+            if stock_basic_dao:
+                try:
+                    # 检查 close 方法是否是协程函数
+                    close_method = getattr(stock_basic_dao, 'close', None)
+                    if asyncio.iscoroutinefunction(close_method):
+                         asyncio.run(close_method()) # 使用 asyncio.run 执行异步关闭
+                    elif callable(close_method):
+                         close_method() # 如果是同步方法，直接调用
                     logger.debug(f"Management Command StockBasicDAO closed after dispatching {log_prefix} tasks.")
                 except Exception as close_err:
                     logger.error(f"关闭 Management Command StockBasicDAO 时出错 ({log_prefix}): {close_err}", exc_info=True)

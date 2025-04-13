@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
 from datetime import datetime, date
 from asgiref.sync import sync_to_async
-from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS
+from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADING
 from stock_models.indicator.boll import StockBOLLIndicator
 from stock_models.indicator.kdj import StockKDJIndicator
 from stock_models.indicator.ma import StockMAIndicator
@@ -32,7 +32,6 @@ class StockIndicatorsDAO(BaseDAO):
     """
     股票技术指标DAO，整合所有相关的技术指标访问功能
     """
-    
     def __init__(self):
         """初始化StockIndicatorsDAO"""
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
@@ -288,7 +287,7 @@ class StockIndicatorsDAO(BaseDAO):
         # --- 使用 async with 创建和管理 API 实例 ---
         try:
             async with self.api as api_client: # 在这里创建临时的 API 客户端实例
-                for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
+                for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADING:
                     try:
                         # --- 使用临时的 api_client ---
                         api_data = await api_client.get_time_trade(stock.stock_code, time_level)

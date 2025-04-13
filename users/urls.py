@@ -1,11 +1,25 @@
 from django.urls import path
 from django.contrib.auth.views import LogoutView
+from django.contrib.auth import views as auth_views
+from .forms import UserLoginForm # 引入你的自定义表单
 from . import views
+
+app_name = 'users' # 定义 app 命名空间
 
 urlpatterns = [
     # 用户认证
-    path('login/', views.CustomLoginView.as_view(), name='login'),
-    path('logout/', LogoutView.as_view(), name='logout'),
+    path('login/', auth_views.LoginView.as_view(
+        template_name='users/login.html', # 指定登录模板
+        authentication_form=UserLoginForm  # 使用你的自定义表单
+    ), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(next_page='/'), name='logout'), # 登出后重定向到首页
+
+    path('home/', views.user_home_view, name='home'), # 主控台 URL
+    path('favorites/', views.favorite_list_view, name='favorite_list'), # 自选股列表页 URL (示例)
+    path('profile/', views.profile_view, name='profile'), # 个人设置页 URL (示例)
+
+
+    
     
     # 个人资料
     path('profile/', views.profile_view, name='profile'),

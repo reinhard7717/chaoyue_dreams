@@ -32,4 +32,6 @@ TIME_TEADE_TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','W
 
 TIME_TEADE_TIME_LEVELS_LITE = ['5','15','30','60','Day','Week','Month','Year']
 
-TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS = ['5','15','30','60','Day']
+TIME_TEADE_TIME_LEVELS_PER_TRADING = ['5','15','30','60','Day']
+
+TIME_TEADE_TIME_LEVELS_AFTER_TRADE = ['Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']

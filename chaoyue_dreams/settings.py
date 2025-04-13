@@ -6,8 +6,8 @@ from pathlib import Path
 from celery.schedules import crontab
 from kombu import Queue
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-your-secret-key-here'
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -52,19 +52,23 @@ else:
 
 # Application definition
 INSTALLED_APPS = [
+    'daphne', # 必须放在 'django.contrib.admin' 等之前
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework', # 添加 DRF
+    'channels',       # 添加 Channels
+    'users',          # 你的用户 app
+    'stock_models',   # 你的模型 app
+    'dashboard',      # 新创建的主控台 app
     'api_manager',
     'dao_manager',
-    'stock_models',
     'utils',
     'core',
     'strategies',
-    'users.apps.UsersConfig',  # 添加用户应用
     'tasks',  # 添加任务应用
     'django_celery_results',  # 添加Celery结果存储应用
     'django_celery_beat',  # 添加Celery定时任务应用
@@ -73,6 +77,9 @@ INSTALLED_APPS = [
 
 # 自定义用户模型 - 暂时注释掉，等数据库初始化完成后再启用
 # AUTH_USER_MODEL = 'users.User'
+LOGIN_URL = '/users/login/'
+LOGIN_REDIRECT_URL = '/dashboard/' # 登录后重定向到主控台
+LOGOUT_REDIRECT_URL = '/'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -103,6 +110,17 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'chaoyue_dreams.wsgi.application'
+
+# --- Channels 配置 ---
+ASGI_APPLICATION = 'chaoyue_dreams.asgi.application' # 指定 ASGI 入口点
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(REDIS_HOST_DYNAMIC, 6379)], # 配置你的 Redis 地址和端口
+        },
+    },
+}
 
 # 数据库配置
 DATABASES = {
@@ -154,6 +172,19 @@ CACHES = {
     }
 }
 
+# --- DRF 配置 (基础) ---
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        # 根据需要配置认证方式，例如 Session 或 Token
+        'rest_framework.authentication.SessionAuthentication',
+        # 'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        # API 的默认权限，开始可以宽松点，后续收紧
+        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+        # 'rest_framework.permissions.IsAuthenticated',
+    ]
+}
 
 # 语言和时区设置
 LANGUAGE_CODE = 'zh-hans'
@@ -161,24 +192,21 @@ TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 USE_TZ = True
 
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder', # 这个查找器负责在 STATICFILES_DIRS 中查找
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder', # 这个查找器负责在 app 的 static 子目录中查找
+]
+
 # 静态文件设置
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
+    os.path.join(BASE_DIR, 'static'), # 使用 os.path.join 拼接字符串路径
 ]
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# 媒体文件设置
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # 默认主键字段类型
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# 登录设置
-LOGIN_URL = '/users/login/'
-LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/users/login/'
 
 # API配置
 API_BASE_URL = 'http://ig507.com'  # 修改为http方式

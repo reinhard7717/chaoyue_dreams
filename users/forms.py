@@ -10,15 +10,14 @@ class UserLoginForm(AuthenticationForm):
     """
     用户登录表单
     """
-    username = forms.CharField(
-        label=_('用户名'),
-        max_length=150,
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入用户名'})
-    )
-    password = forms.CharField(
-        label=_('密码'),
-        widget=forms.PasswordInput(attrs={'class': 'form-control', 'placeholder': '请输入密码'})
-    )
+    username = forms.CharField(widget=forms.TextInput(attrs={
+        'class': 'form-control', # 应用你在 theme.css 中定义的样式类
+        'placeholder': '请输入用户名' # 添加占位符
+    }))
+    password = forms.CharField(widget=forms.PasswordInput(attrs={
+        'class': 'form-control', # 应用你在 theme.css 中定义的样式类
+        'placeholder': '请输入密码'
+    }))
     remember_me = forms.BooleanField(
         label=_('记住我'),
         required=False,

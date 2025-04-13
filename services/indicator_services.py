@@ -44,6 +44,8 @@ class IndicatorService:
         limit = needed_bars # 增加一些 buffer
         # logger.debug(f"为计算指标 {stock_code} {time_level}，尝试获取 {limit} 条历史数据")
         df = await self.indicator_dao.get_history_ohlcv_df(stock_code, time_level, limit=limit)
+        logger.info("_get_ohlcv_data11111111111111111111111111111111111111111111111111111")
+        logger.info(f"df: {df}")
         if df is None or df.empty:
             logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level}")
             return None
@@ -67,6 +69,8 @@ class IndicatorService:
         df.columns = [col.lower() for col in df.columns]
         # 检查必需列
         required_cols = ['open', 'high', 'low', 'close', 'volume']
+        logger.info("_get_ohlcv_data22222222222222222222222222222222222222222222222222222")
+        logger.info(f"df: {df}")
         if not all(col in df.columns for col in required_cols):
             logger.error(f"获取的数据缺少必需列 (open, high, low, close, volume): {stock_code} {time_level}, 列: {df.columns.tolist()}")
             return None
@@ -74,6 +78,7 @@ class IndicatorService:
         if 'turnover' in df.columns:
             df = df.rename(columns={'turnover': 'turnover'}) # 确保是小写
         # logger.info(f"获取的数据长度: {len(df)}")
+        
         return df
 
     # --- 单个指标计算方法 (使用 pandas-ta) ---
@@ -860,25 +865,19 @@ class IndicatorService:
         if ta is None:
             logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
             return
-
         # logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
-
         stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             logger.error(f"无法找到股票信息: {stock_code}，指标计算中止")
             return
-
         # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
         # 考虑 DMI/ADXR 等可能需要更多数据
         needed_bars = max(FIB_PERIODS) + 20 # 保持足够大的缓冲
-
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
             logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level}")
             return
-
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-
         # --- 逐个计算并保存 ---
         # 任务列表保持不变，因为函数签名和目的没变
         indicator_tasks = [
@@ -909,7 +908,6 @@ class IndicatorService:
             (self.calculate_adl, self.indicator_dao.save_adl, {}),         # 假设 DAO 有 save_adl
             (self.calculate_pivot_points, self.indicator_dao.save_pivot_points, {}), # 假设 DAO 有 save_pivot_points
         ]
-
         for calc_func, save_func, params in indicator_tasks:
             indicator_name = calc_func.__name__.replace('calculate_', '').upper()
             # logger.debug(f"[{indicator_name}] 开始计算 for {stock_code} {time_level_str}")
@@ -918,25 +916,20 @@ class IndicatorService:
                 # 因为 pandas-ta 可能会原地修改或添加列（虽然不常见）
                 # 并且 VWAP 计算可能临时修改索引
                 ohlcv_df_copy = ohlcv_df_raw.copy()
-
                 indicator_result_df = calc_func(ohlcv_df_copy, **params)
-
                 if indicator_result_df is not None and not indicator_result_df.empty:
                     # 确保结果的索引与原始数据对齐（或至少是其子集）
                     indicator_result_df = indicator_result_df.reindex(ohlcv_df_raw.index).dropna(how='all')
-
                     if not indicator_result_df.empty:
                         # logger.debug(f"[{indicator_name}] 计算完成 (结果行数: {len(indicator_result_df)}), 开始保存 for {stock_code} {time_level_str}")
                         # 保存所有计算出的非 NaN 结果
                         await save_func(stock_info, time_level_str, indicator_result_df) # 移除 dropna，让 DAO 处理
                     else:
                          logger.warning(f"[{indicator_name}] 计算结果在重索引后为空 for {stock_code} {time_level_str}")
-
                 # else:
                 #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
-
         # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
 
     async def calculate_and_save_macd_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
@@ -1036,7 +1029,6 @@ class IndicatorService:
                                      如果数据准备失败或不完整，则返回 None。
         """
         logger.info(f"[{stock_code}] 开始准备增强策略 DataFrame for timeframes: {timeframes}")
-
         # --- 1. 从策略参数中提取所需周期和配置 ---
         try:
             rsi_period = int(strategy_params['rsi_period'])
@@ -1252,11 +1244,12 @@ class IndicatorService:
                  initial_rows = len(merged_df)
                  merged_df.dropna(subset=[key_col], inplace=True)
                  if len(merged_df) < initial_rows:
-                     logger.info(f"[{stock_code}] 移除了 {initial_rows - len(merged_df)} 行，因为关键列 '{key_col}' 为 NaN.")
+                    #  logger.info(f"[{stock_code}] 移除了 {initial_rows - len(merged_df)} 行，因为关键列 '{key_col}' 为 NaN.")
+                    pass
             if merged_df.empty:
                 logger.error(f"[{stock_code}] 合并并清理后 DataFrame 为空。")
                 return None
-            logger.info(f"[{stock_code}] 成功准备增强策略 DataFrame，最终形状: {merged_df.shape}")
+            # logger.info(f"[{stock_code}] 成功准备增强策略 DataFrame，最终形状: {merged_df.shape}")
             # logger.debug(f"[{stock_code}] Final columns: {merged_df.columns.tolist()}")
             # logger.debug(f"[{stock_code}] Sample data:\n{merged_df.tail()}")
             return merged_df

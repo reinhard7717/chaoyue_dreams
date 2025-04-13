@@ -8,6 +8,29 @@ from .forms import UserLoginForm, UserProfileForm, FavoriteStockForm
 from .models import FavoriteStock, UserProfile
 from stock_models.stock_basic import StockInfo
 
+
+@login_required # 确保用户已登录
+def user_home_view(request):
+    # 后续可以传递初始数据到模板
+    context = {}
+    return render(request, 'users/home.html', context)
+
+def favorite_list_view(request):
+    # 后续可以传递初始数据到模板
+    context = {}
+    return render(request, 'users/favorite_list.html', context)
+
+
+
+
+
+
+
+
+
+
+
+
 def home(request):
     """
     主页视图

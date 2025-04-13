@@ -68,3 +68,28 @@ class UserDAO(BaseDAO):
             logger.error(f"获取所有用户自选股列表失败: {str(e)}")
             return []
             
+    async def get_user_favorites(self, user_id: int) -> List[FavoriteStock]:
+        """
+        获取用户自选股列表
+        Args:
+            user_id: 用户ID
+        Returns:
+            用户自选股列表
+        """
+        try:
+            # 从缓存中获取自选股列表
+            cache_key = f"user_favorites_{user_id}"
+            user_favorites = cache.get(cache_key)
+            if user_favorites:
+                return user_favorites
+            
+            # 从数据库中获取自选股列表
+            user_favorites = await FavoriteStock.objects.filter(user_id=user_id).all()
+            
+            # 将自选股列表缓存
+            cache.set(cache_key, user_favorites, self.cache_ttl)
+            return user_favorites
+        except Exception as e:
+            logger.error(f"获取用户自选股列表失败: {str(e)}")
+            return []
+    

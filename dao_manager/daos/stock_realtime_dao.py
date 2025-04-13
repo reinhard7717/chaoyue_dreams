@@ -3,11 +3,14 @@ import logging
 import asyncio
 from typing import Dict, List, Any, Optional, Tuple, Set, TypeVar, Generic, Type
 from datetime import datetime, date, time
+from channels.db import database_sync_to_async # 用于同步 ORM 查询
 import json
 from django.utils import timezone
 from asgiref.sync import sync_to_async
+from channels.layers import get_channel_layer
 from django.conf import settings
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
+
 from utils.cache_get import StockRealtimeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
@@ -42,6 +45,12 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()
         self.cache_key = StockCashKey()
 
+    @database_sync_to_async # 将同步的 ORM 查询包装成异步
+    def _get_favorited_user_ids(self, stock_id: int) -> list[int]:
+        """根据股票 ID 获取关注该股票的所有用户 ID 列表"""
+        from users.models import FavoriteStock
+        return list(FavoriteStock.objects.filter(stock_id=stock_id).values_list('user_id', flat=True))
+
     # 新增 close 方法
     async def close(self):
         """关闭内部持有的 API Client Session"""
@@ -62,32 +71,28 @@ class StockRealtimeDAO(BaseDAO):
         Returns:
             Optional[StockRealtimeData]: 最新的实时交易数据，如不存在则返回None
         """
+        # 从缓存获取最新数据
         cache_data = await self.cache_get.latest_realtime_data(stock_code)
         if cache_data:
             realtime_data_dict = json.loads(cache_data)
             realtime_data = StockRealtimeData(**realtime_data_dict)
             return realtime_data
-        
         # 从数据库获取最新数据
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             return None
         try:
             data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
-            # 检查数据是否过期（超过2分钟）
-            if data and (timezone.now() - data.trade_time).total_seconds() < 120:
-                self.cache_set.latest_realtime_data(stock_code, data)
-                return data
+            return data
         except Exception as e:
             logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}")
             return None
-        
         # 数据不存在或已过期，从API获取新数据
         logger.info(f"股票[{stock}]实时数据不存在或已过期，从API获取")
         await self.fetch_and_save_realtime_data(stock_code)
         data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
         return data
-    
+
     async def fetch_and_save_realtime_data(self, stock_code: str) -> Dict:
         """
         从API获取实时交易数据并保存到数据库
@@ -383,6 +388,37 @@ class StockRealtimeDAO(BaseDAO):
         data = await sync_to_async(lambda: StockTimeDeal.objects.filter(stock=stock, trade_date=trade_date).order_by('-trade_time').first())()
         return data
 
+    async def get_latest_time_deal(self, stock_code: str) -> Optional[StockTimeDeal]:
+        """
+        获取股票最新的分时成交数据
+        Args:
+            stock_code: 股票代码
+        Returns:
+            Optional[StockTimeDeal]: 最新的分时成交数据，如不存在则返回None
+        """
+        time_deal = None
+        # 从缓存获取最新数据
+        cache_data = await self.cache_get.latest_time_deal(stock_code)
+        if cache_data:
+            time_deal_dict = json.loads(cache_data)
+            time_deal = StockTimeDeal(**time_deal_dict)
+            return time_deal
+        # 从数据库获取最新数据
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            return None
+        try:
+            data = await sync_to_async(lambda: StockTimeDeal.objects.filter(stock=stock).order_by('-trade_time').first())()
+            time_deal = self.data_format_process.set_time_deal_data(stock, data)
+        except Exception as e:
+            logger.error(f"从数据库获取最新股票[{stock}]分时成交数据失败: {str(e)}")
+            return None
+        # 数据不存在或已过期，从API获取新数据
+        logger.info(f"股票[{stock}]分时成交数据不存在或已过期，从API获取")
+        await self.fetch_and_save_time_deals(stock_code)
+        data = await sync_to_async(lambda: StockTimeDeal.objects.filter(stock=stock).order_by('-trade_time').first())()
+        return data
+    
     async def fetch_and_save_time_deals(self, stock_code: str) -> Dict:
         """
         批量保存分时成交明细数据 (修正版：使用 async with 管理 API 实例)
@@ -395,10 +431,8 @@ class StockRealtimeDAO(BaseDAO):
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取分时成交明细")
             return {'创建': 0, '更新': 0, '跳过': 0}
-
         data_dicts = []
         result = {'创建': 0, '更新': 0, '跳过': 0} # 初始化 result
-
         # --- 使用 async with 创建和管理 API 实例 ---
         try:
             async with self.api as api_client: # 在这里创建临时的 API 客户端实例
@@ -420,26 +454,57 @@ class StockRealtimeDAO(BaseDAO):
                          # 捕获单条数据处理错误
                          logger.error(f"处理 {stock.stock_code} 的单条成交明细时出错: {str(inner_e)} - 数据: {api_data}", exc_info=True)
                          continue # 继续处理下一条
-
             # --- async with 块结束，api_client 会自动关闭 ---
-
             if not data_dicts:
                 logger.warning(f"未能成功处理 {stock.stock_code} 的任何分时成交明细数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-
             # 批量保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeDeal, # 确保 StockTimeDeal 已导入
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_date', 'trade_time']
             )
-            logger.info(f"{stock.stock_code} 股票分时成交明细数据保存完成，结果: {result}")
+            # --- 1. 获取关注此股票的用户 ID ---
+            favorited_user_ids = await self._get_favorited_user_ids(stock.id)
+            # --- 2. 准备并推送 WebSocket 更新 ---
+            if data_dict and favorited_user_ids: # 确保有最新数据和需要通知的用户
+                channel_layer = get_channel_layer()
+                payload_data = {
+                    'code': stock.stock_code,
+                    # 'name': stock.stock_name, # 前端可能已经有名称，或者需要传递
+                    'latest_price': data_dict.get('price'),
+                    # 格式化时间为 HH:MM:SS
+                    'trade_time': data_dict.get('trade_time') if data_dict.get('trade_time') else None,
+                    'volume': data_dict.get('volume'),
+                    # 注意：这里的 'change_percent' 和 'signal' 无法从此数据直接获得
+                    # 需要由其他任务（如计算指标、执行策略的任务）来推送
+                    # 'change_percent': None,
+                    # 'signal': None,
+                }
+                message_data = {
+                    'type': 'user.message', # 对应 Consumer 中的 user_message 方法
+                    'data': {
+                        'sub_type': 'stock_update', # 让 JS 知道这是股票数据更新
+                        'payload': payload_data,
+                    }
+                }
 
+                for user_id in favorited_user_ids:
+                    try:
+                        await channel_layer.group_send(
+                            f'user_{user_id}', # 发送到特定用户的组
+                            message_data
+                        )
+                        logger.debug(f"成功推送 {stock_code} 更新给用户 {user_id}")
+                    except Exception as push_error:
+                        # 记录推送错误，但不应中断整个流程
+                        logger.error(f"推送 {stock_code} 更新给用户 {user_id} 时失败: {push_error}", exc_info=False)
+
+            logger.info(f"{stock.stock_code} 股票分时成交明细数据保存完成，结果: {result}")
         except Exception as e:
             # 捕获 async with 外部或数据库保存过程中的错误
             logger.error(f"保存 {stock.stock_code} 股票分时成交明细数据过程中发生意外错误: {str(e)}", exc_info=True)
             result = {'创建': 0, '更新': 0, '跳过': 0} # 确保返回字典
-
         return result
     
     async def fetch_and_save_favorite_stocks_time_deals(self) -> Dict:

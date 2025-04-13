@@ -4,7 +4,7 @@ import os
 def generate_tree(path, prefix=''):
     items = os.listdir(path)
     for index, item in enumerate(items):
-        if item.startswith('.') or item == '__pycache__':
+        if item.startswith('.') or item == '__pycache__' or item == 'myenv' or item == 'venv' or item == 'logs' or item == 'migrations':
             continue
         full_path = os.path.join(path, item)
         is_last = index == len(items) - 1
@@ -19,4 +19,3 @@ def generate_tree(path, prefix=''):
 if __name__ == "__main__":
     project_path = '.'  # 当前目录，可替换为你的项目路径
     generate_tree(project_path)
-    

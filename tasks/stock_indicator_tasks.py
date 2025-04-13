@@ -8,7 +8,7 @@ import math
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from celery import Celery, chain, group # 导入 group
 from celery.utils.log import get_task_logger
-from core.constants import TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS
+from core.constants import TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADING
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from services.indicator_services import IndicatorService
 
@@ -64,22 +64,14 @@ def process_single_stock_realtime_trade(self, stock_code: str):
     # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
     # 导入 DAO，注意路径根据你的项目结构调整
     from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
-
     stock_indicators_dao = None # 初始化为 None
     task_result = f"处理股票 {stock_code} 数据失败" # 默认失败结果
-
     try:
         stock_realtime_dao = StockRealtimeDAO()
-        # 在同步的 Celery 任务中运行异步 DAO 方法
         asyncio.run(stock_realtime_dao.fetch_and_save_time_deals(stock_code))
-        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
-        # logger.info(task_result)
     except Exception as e:
         logger.error(f"处理股票 {stock_code} 数据时发生错误: {e}", exc_info=True)
         task_result = f"处理股票 {stock_code} 数据失败: {e}"
-        # 可以选择性地重新抛出异常，让 Celery 知道任务失败
-        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
-        # raise Ignore() # 或者使用 Ignore() 避免重试（如果设置了重试策略）
     finally:
         # 确保 DAO 被关闭，即使它在 try 块中未能成功初始化
         if stock_realtime_dao:
@@ -206,7 +198,7 @@ def fetch_single_stock_history_trade_data(self, stock_code):
             return {"status": "error", "message": f"未找到股票代码 {stock_code} 的股票信息"}
         processed_count = 0
         # 处理不同的时间级别
-        for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS:
+        for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADING:
             # 查询数据库获取历史数据
             datas = list(
                 StockTimeTrade.objects.filter(
@@ -268,7 +260,7 @@ async def _calculate_stock_indicators_async(stock_code: str):
     try:
         tasks = [
             service.calculate_and_save_all_indicators(stock_code, time_level)
-            for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADE_HOURS
+            for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADING
         ]
         # 注意：确保 service.calculate_and_save_all_indicators 也是 async def
         await asyncio.gather(*tasks)
