@@ -141,7 +141,8 @@ def run_strategy_for_single_stock_task(self, stock_code: str):
                 logger.error(f"{log_prefix} 缓存策略结果/状态时发生错误: {cache_err}", exc_info=True)
         except Exception as e:
             # 捕获任务执行期间的任何未预料错误
-            logger.error(f"{log_prefix} 处理策略时发生严重错误: {e}", exc_info=True)
+            # logger.error(f"{log_prefix} 处理策略时发生严重错误: {e}", exc_info=True)
+            pass
         finally:
             # 清理逻辑（如果需要的话），例如关闭 service 或 cache_setter 中的连接（如果它们不是全局/共享的）
             # 通常 Celery Task 不需要手动关闭这些，除非它们管理着需要显式关闭的资源
