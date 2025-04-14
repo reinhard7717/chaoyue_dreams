@@ -34,15 +34,6 @@ class FundFlowDAO(BaseDAO):
     负责资金流向相关数据的读写操作，实现三层数据访问结构：API、Redis缓存、MySQL持久化
     """
     
-    # 缓存超时设置（秒）
-    CACHE_TIMEOUT = {
-        'stock': 86400,          # 股票基本信息缓存1天
-        'fund_flow_minute': 300, # 分钟级资金流向缓存5分钟
-        'fund_flow_daily': 3600, # 日级资金流向缓存1小时
-        'main_force': 3600,      # 主力动向数据缓存1小时
-        'transaction': 3600,     # 成交分布数据缓存1小时
-    }
-    
     def __init__(self):
         """初始化DAO对象，创建API实例"""
         self.api = FundFlowAPI()

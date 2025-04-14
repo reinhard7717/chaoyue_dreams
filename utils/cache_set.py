@@ -99,7 +99,7 @@ class CacheSet():
             # 1. 生成缓存键
             # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
             # 最新数据点可能更新较频繁，考虑使用实时数据的超时
-            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STRATEGY) # 或者 cc.TYPE_TIMESERIES
             # 3. 调用 CacheManager 设置缓存
             success = self.cache_manager.set(
                 key=cache_key,

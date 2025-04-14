@@ -29,14 +29,6 @@ def get_model_fields(model_class):
 
 class FinancialDao(BaseDAO):
 
-    # 缓存时间配置（秒）
-    CACHE_TIMEOUT = {
-        'short': 60,  # 1分钟
-        'medium': 300,  # 5分钟
-        'long': 3600,  # 1小时
-        'daily': 86400,  # 1天
-    }
-
     async def _batch_process(self, model_class, data_list, mapping, unique_fields, **extra_fields) -> Dict:
         """
         简化的通用异步数据存储方法，实现批量处理（检查-创建-更新-略过）

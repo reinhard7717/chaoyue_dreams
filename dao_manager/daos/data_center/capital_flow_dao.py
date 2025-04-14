@@ -51,13 +51,6 @@ class CapitalFlowDao(BaseDAO):
     
     所有方法都实现了异步处理，提高并发性能
     """
-    # 缓存时间配置（秒）
-    CACHE_TIMEOUT = {
-        'short': 60,  # 1分钟
-        'medium': 300,  # 5分钟
-        'long': 3600,  # 1小时
-        'daily': 86400,  # 1天
-    }
 
     async def _batch_process(self, model_class, data_list, mapping, unique_fields, **extra_fields) -> Dict:
         """

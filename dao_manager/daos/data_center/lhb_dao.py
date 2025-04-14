@@ -38,14 +38,6 @@ class LhbDAO(BaseDAO):
         self.api = DataCenterAPI()
         self.stock_dao = StockBasicDAO()
         self.cache_manager = CacheManager()
-
-    # 缓存时间配置（秒）
-    CACHE_TIMEOUT = {
-        'short': 60,  # 1分钟
-        'medium': 300,  # 5分钟
-        'long': 3600,  # 1小时
-        'daily': 86400,  # 1天
-    }
    
     async def _get_from_cache(self, cache_key: str) -> Optional[Any]:
         """

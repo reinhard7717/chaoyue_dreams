@@ -501,7 +501,7 @@ API_RATE_LIMITS = {
 
 # API自动更新时间设置（秒）
 API_UPDATE_INTERVALS = {
-    'realtime': 3,  # 实时数据每3秒更新一次
+    'realtime': 60,  # 实时数据每60秒更新一次
     'basic': 86400,  # 基础数据每24小时更新一次
     'index': 60,  # 指数数据每1分钟更新一次
     'market': 60,  # 市场数据每1分钟更新一次
