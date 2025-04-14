@@ -108,7 +108,7 @@ def save_realtime_data_batch(self, stock_codes: List[str]):
         # 需要在异步上下文中关闭，所以再次使用 asyncio.run
         try:
             asyncio.run(stock_realtime_dao.close())
-            logger.info("StockRealtimeDAO session 已关闭。")
+            # logger.info("StockRealtimeDAO session 已关闭。")
         except Exception as close_err:
             logger.error(f"关闭 StockRealtimeDAO 时出错: {close_err}", exc_info=True)
 
