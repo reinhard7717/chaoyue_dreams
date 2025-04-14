@@ -25,7 +25,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     try:
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
         for fav in favorite_stocks:
-            favorite_stock_codes.add(fav.stock_code)
+            favorite_stock_codes.add(fav.stock_id)
         logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
