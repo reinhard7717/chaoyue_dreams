@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional
 # from django.db import transaction
 # from django.core.cache import cache
 
+
 from utils import cache_constants as cc
 from utils.cache_get import UserCacheGet
 from utils.cache_set import UserCacheSet
@@ -71,31 +72,39 @@ class StockBasicDAO(BaseDAO):
         获取所有股票的基本信息
         
         Returns:
-            List[StockInfo]: 股票基本信息列表
+            List[StockInfo]: 股票基本信息列表（已过滤掉 stock_name 中包含“退”字的股票）
         """
         from stock_models.stock_basic import StockInfo
         try:
             # 尝试从缓存获取
             cached_data = await self.cache_get.all_stocks()
             if cached_data:
-                # logger.debug("从缓存获取股票列表")
                 # 将缓存数据转换为模型实例列表
-                return_data = sorted([StockInfo(**stock_dict) for stock_dict in cached_data], key=lambda x: x.stock_code)
-                # logger.info(f"从缓存获取股票列表成功，共{len(return_data)}只股票")
-                return return_data
+                return_data = [StockInfo(**stock_dict) for stock_dict in cached_data]
+                # 过滤掉 stock_name 中包含“退”字的股票
+                filtered_data = [item for item in return_data if '退' not in item.stock_name]
+                # 排序
+                sorted_data = sorted(filtered_data, key=lambda x: x.stock_code)
+                return sorted_data  # 返回过滤并排序后的列表
         except Exception as e:
             logger.error(f"从缓存获取股票列表失败: {e}")
+        
         stocks = []
         try:
             # 从数据库读取
             get_stocks_sync = sync_to_async(
                 lambda: list(StockInfo.objects.order_by('stock_code')),
-                thread_sensitive=True # 对于 ORM 操作，通常建议设置为 True
+                thread_sensitive=True  # 对于 ORM 操作，通常建议设置为 True
             )
             stocks = await get_stocks_sync()
             if stocks:
-                await self.set_cache_stocks(stocks)
-                return stocks
+                # 过滤掉 stock_name 中包含“退”字的股票
+                filtered_stocks = [item for item in stocks if '退' not in item.stock_name]
+                # 缓存过滤后的股票列表
+                await self.set_cache_stocks(filtered_stocks)  # 注意：原方法中是缓存原始 stocks，这里修改为缓存过滤后的，以保持一致
+                # 排序（虽然数据库已排序，但为了显式保持一致）
+                sorted_stocks = sorted(filtered_stocks, key=lambda x: x.stock_code)
+                return sorted_stocks
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}")
         
@@ -105,10 +114,14 @@ class StockBasicDAO(BaseDAO):
         # 从数据库读取
         get_stocks_sync = sync_to_async(
             lambda: list(StockInfo.objects.order_by('stock_code')),
-            thread_sensitive=True # 对于 ORM 操作，通常建议设置为 True
+            thread_sensitive=True  # 对于 ORM 操作，通常建议设置为 True
         )
         stocks = await get_stocks_sync()
-        return stocks
+        # 过滤掉 stock_name 中包含“退”字的股票
+        filtered_stocks = [item for item in stocks if '退' not in item.stock_name]
+        # 排序
+        sorted_stocks = sorted(filtered_stocks, key=lambda x: x.stock_code)
+        return sorted_stocks
 
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
         """
