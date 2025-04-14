@@ -142,7 +142,7 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
         logger.error(f"{log_prefix} 处理策略时发生严重错误: {e}", exc_info=True)
         return {'status': 'failed', 'error': str(e)}
     finally:
-        logger.info(f"{log_prefix} 策略计算任务执行完毕。")
+        # logger.info(f"{log_prefix} 策略计算任务执行完毕。")
         return {'status': 'success'}  # 返回成功状态
 
 # ... (文件末尾的其他任务定义) ...
