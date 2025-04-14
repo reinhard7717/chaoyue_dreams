@@ -65,6 +65,9 @@ def save_realtime_data(self, stock_code: str):
     except Exception as e:
         logger.error(f"保存股票[{stock_code}]实时数据失败: {str(e)}")
         raise self.retry(exc=e)  # 保持重试逻辑
+    finally:
+        stock_realtime_dao.close()
+        logger.info(f"保存股票[{stock_code}]实时数据成功")
 
 @celery_app.task(bind=True, name='tasks.stock_realtime.get_realtime_data_task')
 def get_realtime_data_task(self):

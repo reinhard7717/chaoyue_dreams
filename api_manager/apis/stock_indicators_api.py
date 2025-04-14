@@ -2,11 +2,8 @@ import asyncio
 import logging
 from typing import Dict, List, Any, Optional, Union
 from enum import Enum
-
 from api_manager.base_api import BaseAPI
-
-
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("api")
 
 class TimeLevel(str, Enum):
     """股票分时级别枚举"""

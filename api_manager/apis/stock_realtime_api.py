@@ -1,11 +1,9 @@
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-
 from api_manager.base_api import BaseAPI
 
-
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("api")
 
 class StockRealtimeAPI(BaseAPI):
     """
