@@ -122,6 +122,8 @@ class StockRealtimeDAO(BaseDAO):
                     data_list=data_dicts,
                     unique_fields=['stock', 'trade_time']
                 )
+                if result.get('创建') > 0 or result.get('更新') > 0:
+                    logger.info(f"股票[{stock}]实时数据保存完成，结果: {result}")
                 return result
             else:
                 return {'创建': 0, '更新': 0, '跳过': 0}
