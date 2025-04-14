@@ -13,6 +13,7 @@ from typing import Dict, List, Any, Optional
 
 from utils import cache_constants as cc
 from utils.cache_get import UserCacheGet
+from utils.cache_set import UserCacheSet
 from utils.data_format_process import UserDataFormatProcess # 导入常量
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
@@ -48,6 +49,7 @@ class StockBasicDAO(BaseDAO):
         self.data_format_process = StockInfoFormatProcess()
         self.cache_key = StockCashKey()
         self.cache_get = StockInfoCacheGet()
+        self.user_cache_set = UserCacheSet()
         self.user_cache_get = UserCacheGet()
         self.user_data_format_process = UserDataFormatProcess()
 
@@ -158,6 +160,7 @@ class StockBasicDAO(BaseDAO):
         for item in items:
             fav_data = self.user_data_format_process.set_user_favorites(user.id, item)
             fav_datas.append(fav_data)
+            await self.user_cache_set.user_favorites(user.id, item)
         return fav_datas
 
     async def get_all_favorite_stocks(self) -> Optional['FavoriteStock']:
@@ -165,38 +168,19 @@ class StockBasicDAO(BaseDAO):
         获取所有自选股
         """
         from users.models import FavoriteStock
-        # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'favorite_stock', 'all')
-        
-        # 尝试从缓存获取
-        cached_data = self.cache_manager.get(cache_key)
-        if cached_data:
-            return [FavoriteStock(**item) for item in cached_data]
-            
-        # 从数据库获取  
-        try:
-            @sync_to_async
-            def get_db_items():
-                return list(FavoriteStock.objects.all())
-            
-            items = await get_db_items()
-            
-            if items:
-                # 序列化并缓存
-                items_dict = [self._serialize_model(item) for item in items]
-                # *** 正确调用 CacheManager 缓存数据 ***
-                success = self.cache_manager.set(
-                    key=cache_key,          # 第一个参数：缓存键 (字符串)
-                    data=items_dict,     # 第二个参数：要缓存的数据 (字典)
-                    timeout=self.cache_manager.get_timeout('st') # 超时时间
-                )
-                return items
-            
-            return []
-        except Exception as e:
-            logger.error(f"获取所有自选股失败: {e}")
-            return []
-
+        # 从缓存获取
+        fav_datas = []
+        fav_datas = await self.user_cache_get.user_favorites(user.id)
+        if fav_datas:
+            return fav_datas
+        # 从数据库获取
+        items = FavoriteStock.objects.all()
+        for item in items:
+            fav_data = self.user_data_format_process.set_user_favorites(user.id, item)
+            fav_datas.append(fav_data)
+            await self.user_cache_set.all_favorites(item)
+        return fav_datas
+    
     async def get_cache_all_stocks(self) -> Optional[List[Dict]]:
         """从缓存中获取所有股票列表"""
         try:

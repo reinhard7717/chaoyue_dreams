@@ -221,6 +221,14 @@ class UserCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"缓存用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
             return False
+        
+    async def all_favorites(self, fav_data: Dict) -> bool:
+        """
+        将所有自选股列表缓存到 Redis，使用 Hash 类型。
+        """
+        user_id = fav_data.user_id
+        cache_key = self.cache_key_user.user_favorites(user_id)
+        return await self.user_favorites(user_id, fav_data)
 
 class IndexCacheSet(CacheSet):
 
