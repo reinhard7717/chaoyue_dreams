@@ -687,7 +687,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', 'diff', 'dea', 'macd')[:limit] # 选择需要的字段
             )
             if not macd_data_dicts:
-                logger.warning(f"[get_macd_fib_df] 未找到 {stock_code} {time_level_str} 的 MACD-FIB 数据")
+                # logger.warning(f"[get_macd_fib_df] 未找到 {stock_code} {time_level_str} 的 MACD-FIB 数据")
                 return None
             # 将字典列表转换为 DataFrame
             df = pd.DataFrame.from_records(macd_data_dicts)
@@ -771,7 +771,7 @@ class IndicatorDAO(BaseDAO):
             )
 
             if not rsi_data_dicts:
-                logger.warning(f"[get_rsi_fib_df] 未找到 {stock} {time_level_str} 的 RSI-FIB 数据 (column: {rsi_col_name})")
+                # logger.warning(f"[get_rsi_fib_df] 未找到 {stock} {time_level_str} 的 RSI-FIB 数据 (column: {rsi_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(rsi_data_dicts)
@@ -831,7 +831,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', 'upper', 'mid', 'lower')[:limit]
             )
             if not boll_data_dicts:
-                logger.warning(f"[get_boll_df] 未找到 {stock_code} {time_level_str} 的 BOLL 数据")
+                # logger.warning(f"[get_boll_df] 未找到 {stock_code} {time_level_str} 的 BOLL 数据")
                 return None
             # 转换为 DataFrame
             df = pd.DataFrame.from_records(boll_data_dicts)
@@ -965,7 +965,7 @@ class IndicatorDAO(BaseDAO):
                 .values(*target_columns)[:limit] # 使用解包传递列名列表
             )
             if not kdj_data_dicts:
-                logger.warning(f"[get_kdj_fib_df] 未找到 {stock_code} {time_level_str} 的 KDJ-FIB 数据 (columns: {k_col_name}, {d_col_name}, {j_col_name})")
+                # logger.warning(f"[get_kdj_fib_df] 未找到 {stock_code} {time_level_str} 的 KDJ-FIB 数据 (columns: {k_col_name}, {d_col_name}, {j_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(kdj_data_dicts)
@@ -1087,7 +1087,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', mfi_col_name)[:limit]
             )
             if not mfi_data_dicts:
-                logger.warning(f"[get_mfi_fib_df] 未找到 {stock_code} {time_level_str} 的 MFI-FIB 数据 (column: {mfi_col_name})")
+                # logger.warning(f"[get_mfi_fib_df] 未找到 {stock_code} {time_level_str} 的 MFI-FIB 数据 (column: {mfi_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(mfi_data_dicts)
@@ -1144,7 +1144,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', roc_col_name)[:limit]
             )
             if not roc_data_dicts:
-                logger.warning(f"[get_roc_fib_df] 未找到 {stock_code} {time_level_str} 的 ROC-FIB 数据 (column: {roc_col_name})")
+                # logger.warning(f"[get_roc_fib_df] 未找到 {stock_code} {time_level_str} 的 ROC-FIB 数据 (column: {roc_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(roc_data_dicts)
@@ -1210,7 +1210,7 @@ class IndicatorDAO(BaseDAO):
                 .values(*target_columns)[:limit]
             )
             if not dmi_data_dicts:
-                logger.warning(f"[get_dmi_fib_df] 未找到 {stock_code} {time_level_str} 的 DMI-FIB 数据 (columns: {pdi_col_name}, {mdi_col_name}, {adx_col_name})")
+                # logger.warning(f"[get_dmi_fib_df] 未找到 {stock_code} {time_level_str} 的 DMI-FIB 数据 (columns: {pdi_col_name}, {mdi_col_name}, {adx_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(dmi_data_dicts)
