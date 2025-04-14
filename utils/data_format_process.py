@@ -262,6 +262,8 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         from stock_models.stock_realtime import StockRealtimeData
         if isinstance(api_data, StockRealtimeData):
             trade_time = api_data.trade_time
+            if trade_time.tzinfo is not None:
+                trade_time = trade_time.astimezone(timezone.get_current_timezone())
             data_dict = {
                 'stock': stock,
                 'trade_time': trade_time,
@@ -288,6 +290,8 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             }
         else:
             trade_time = self._parse_datetime(api_data.get('t'))
+            if trade_time.tzinfo is not None:
+                trade_time = trade_time.astimezone(timezone.get_current_timezone())
             data_dict = {
                 'stock': stock,
                 'trade_time': trade_time,
@@ -312,8 +316,6 @@ class StockRealtimeDataFormatProcess(BaseDAO):
                 'price_change_60d': self._parse_number(api_data.get('zdf60')),
                 'price_change_ytd': self._parse_number(api_data.get('zdfnc')),
             }
-        if trade_time.tzinfo is not None:
-            trade_time = trade_time.astimezone(timezone.get_current_timezone())
         data_dict['trade_time'] = trade_time
         return data_dict
     

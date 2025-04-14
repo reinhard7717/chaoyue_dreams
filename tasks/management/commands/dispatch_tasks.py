@@ -4,10 +4,6 @@ import logging
 from django.core.management.base import BaseCommand, CommandError
 from celery import group
 
-
-
-
-
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
@@ -110,7 +106,7 @@ class Command(BaseCommand):
         from dao_manager.daos.stock_basic_dao import StockBasicDAO
         from tasks.stock_indicator_tasks import process_single_stock_history_trade
         stock_basic_dao = None # 初始化
-        target_queue = 'save_api_data'
+        target_queue = 'save_api_data_TimeTrade'
         try:
             stock_basic_dao = StockBasicDAO()
             # 获取股票列表 (假设 get_stock_list 是 async)
@@ -230,6 +226,7 @@ class Command(BaseCommand):
         logger.info("Management Command 启动: dispatch_latest_time_trade_trading_hours")
         from dao_manager.daos.stock_basic_dao import StockBasicDAO
         from tasks.stock_indicator_tasks import process_single_stock_latest_trade_trading_hours
+        target_queue = 'save_api_data_TimeTrade' # <--- 定义策略执行的目标队列名称
         stock_basic_dao = None # 初始化
         try:
             stock_basic_dao = StockBasicDAO()
@@ -259,9 +256,10 @@ class Command(BaseCommand):
             # 创建任务组
             task_group = group(tasks_signatures)
             logger.info(f"已创建包含 {len(tasks_signatures)} 个实时数据处理子任务的任务组")
-            # 异步执行任务组
-            group_result = task_group.apply_async()
-            logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
+
+            # 使用 apply_async 并指定目标队列
+            group_result = task_group.apply_async(queue=target_queue)
+            logger.info(f"任务组已提交执行到队列 '{target_queue}'，Group ID: {group_result.id}")
             self.stdout.write(self.style.SUCCESS(
                 f"成功分发 {len(tasks_signatures)} 个实时数据处理子任务。Group ID: {group_result.id}"
             ))

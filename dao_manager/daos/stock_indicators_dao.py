@@ -443,7 +443,7 @@ class StockIndicatorsDAO(BaseDAO):
                 if not api_datas:
                     logger.warning(f"API未返回{stock.stock_code}股票的{time_level}级别历史分时成交数据")
                 else:
-                    logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
+                    # logger.info(f"获取{stock.stock_code}股票{time_level}级别历史分时成交数据, length: {len(api_datas)}")
                     for api_data in api_datas:
                         if isinstance(api_data, dict):
                             data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)

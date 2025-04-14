@@ -92,7 +92,7 @@ class IndicatorDAO(BaseDAO):
             # 假设 cache_get.history_time_trade_by_limit 返回 List[Dict] 或 None
             cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
         except Exception as e:
-            logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
+            logger.error(f"从 Redis 获取缓存数据时出错 for {stock} {time_level_str}: {e}", exc_info=True)
             cache_data = None # 出错则认为缓存未命中
         if cache_data:
             logger.debug(f"从缓存获取到 {stock_code} {time_level_str} 历史数据 (limit={limit})，共 {len(cache_data)} 条，进行转换...")
@@ -146,7 +146,7 @@ class IndicatorDAO(BaseDAO):
                 return model_instances
 
         # 2. 如果缓存未命中或处理失败，从数据库获取数据
-        logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
+        logger.debug(f"缓存未命中或处理失败 for {stock} {time_level_str}，从数据库获取...")
         try:
             # 获取最新的 N 条 (降序)
             data_qs = StockTimeTrade.objects.filter(
@@ -156,9 +156,9 @@ class IndicatorDAO(BaseDAO):
             # 异步执行查询并转换为列表
             data_list = await sync_to_async(list)(data_qs)
             if not data_list:
-                logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
+                logger.warning(f"数据库中未找到 {stock} {time_level_str} 的历史数据")
                 return None
-            logger.debug(f"从数据库获取到 {stock_code} {time_level_str} {len(data_list)} 条历史数据")
+            logger.debug(f"从数据库获取到 {stock} {time_level_str} {len(data_list)} 条历史数据")
             # 计算指标需要升序数据，反转列表
             data_list.reverse()
 

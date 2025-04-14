@@ -344,16 +344,17 @@ def calculate_stock_indicators_task(self, stock_code: str):
     if not stock_code: # 检查上一个任务是否成功传递了 stock_code
          logger.warning(f"任务跳过 (指标计算): calculate_stock_indicators_task - 未收到有效的 stock_code (可能前序任务失败)")
          return None # 或者根据需要处理
-    queue_name = self.request.delivery_info.get('routing_key', '未知')
+    # queue_name = self.request.delivery_info.get('routing_key', '未知')
+    stock = StockBasicDAO().get_stock_by_code(stock_code)
     # logger.info(f"任务启动 (指标计算): calculate_stock_indicators_task - 处理股票 {stock_code} (队列: {queue_name})")
     async def _run_async_calculate():
         indicator_services = IndicatorService()
         try:
-            logger.debug(f"指标计算: 开始计算 {stock_code} 的指标...")
+            # logger.debug(f"指标计算: 开始计算 {stock_code} 的指标...")
             # 注意：这里只计算了 MACD，如果需要计算其他指标，也应在此处添加
             for time_level in TIME_TEADE_TIME_LEVELS_LITE:
                  await indicator_services.calculate_and_save_macd_indicators(stock_code, time_level)
-            logger.debug(f"指标计算: 完成计算 {stock_code} 的指标。")
+            # logger.debug(f"指标计算: 完成计算 {stock_code} 的指标。")
             return True
         except Exception as e:
             logger.error(f"指标计算: 计算股票 {stock_code} 指标时出错: {e}", exc_info=True)
@@ -362,11 +363,11 @@ def calculate_stock_indicators_task(self, stock_code: str):
     try:
         success = asyncio.run(_run_async_calculate())
         if success:
-            logger.info(f"任务成功 (指标计算): calculate_stock_indicators_task - 完成处理股票 {stock_code}")
+            logger.info(f"任务成功 (指标计算): calculate_stock_indicators_task - 完成处理股票 {stock}")
             return stock_code # 成功时传递股票代码给下一个任务
         else:
-            logger.error(f"任务失败 (指标计算): calculate_stock_indicators_task - 处理股票 {stock_code} 失败")
-            raise Exception(f"Failed to calculate indicators for {stock_code}")
+            logger.error(f"任务失败 (指标计算): calculate_stock_indicators_task - 处理股票 {stock} 失败")
+            raise Exception(f"Failed to calculate indicators for {stock}")
     except Exception as e:
         logger.error(f"执行 calculate_stock_indicators_task (同步包装器) 时出错: {e}", exc_info=True)
         raise
