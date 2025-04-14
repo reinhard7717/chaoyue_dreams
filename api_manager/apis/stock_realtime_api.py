@@ -22,7 +22,7 @@ class StockRealtimeAPI(BaseAPI):
         """
         endpoint = f"/data/time/real/{stock_code}"
         # logger.info(f"获取实时交易数据: {stock_code}")
-        return await self.get(endpoint, expected_type='list')
+        return await self.get(endpoint, expected_type='dict')
     
     async def get_level5_data(self, stock_code: str) -> Dict[str, Any]:
         """
