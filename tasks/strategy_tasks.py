@@ -28,7 +28,7 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
     这是实际执行策略计算的 Celery Worker 任务。
     """
     log_prefix = f"[{stock_code}][StrategyTask]"
-    logger.info(f"{log_prefix} 开始执行 MACD+RSI+KDJ+BOLL 策略计算任务")
+    # logger.info(f"{log_prefix} 开始执行 MACD+RSI+KDJ+BOLL 策略计算任务")
     service = None
     strategy = None
     cache_setter = None
@@ -94,14 +94,14 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
                 signal_display = signal_map.get(latest_signal, "Unknown Signal Value")
                 logger.info(f"{log_prefix} 策略信号 @ {latest_timestamp}: {latest_signal} ({signal_display})")
             else:
-                logger.info(f"{log_prefix} 策略运行完成，但所有信号均为 NaN。")
+                # logger.info(f"{log_prefix} 策略运行完成，但所有信号均为 NaN。")
                 signal_display = "No Signal (NaN)"
                 if not merged_data.empty:
                     latest_timestamp = merged_data.index[-1]
                 else:
                     latest_timestamp = pd.Timestamp.now(tz='UTC')
         else:
-            logger.info(f"{log_prefix} 策略运行完成，但未生成有效信号序列。")
+            # logger.info(f"{log_prefix} 策略运行完成，但未生成有效信号序列。")
             signal_display = "No Signal (Empty Series)"
             if not merged_data.empty:
                 latest_timestamp = merged_data.index[-1]
@@ -127,7 +127,13 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
                 stock_code=stock_code, time_level=main_timeframe, data_to_cache=signal_data_to_cache
             )
             if cache_success:
-                logger.debug(f"{log_prefix} 策略结果/状态成功缓存到 Redis。")
+                # logger.debug(f"{log_prefix} 策略结果/状态成功缓存到 Redis。")
+                if signal_data_to_cache.get('signal_display') == 'Hold':
+                    pass
+                else:
+                    # 1. 获取关注该股票的所有用户 ID 列表
+                    # 2. 将信号数据推送给所有关注该股票的用户
+                    pass
             else:
                 logger.warning(f"{log_prefix} 缓存策略结果/状态到 Redis 失败。")
         except Exception as cache_err:

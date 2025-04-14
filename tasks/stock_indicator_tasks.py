@@ -383,12 +383,12 @@ def run_stock_strategy_task(self, stock_code: str):
          logger.warning(f"任务跳过 (策略计算): run_stock_strategy_task - 未收到有效的 stock_code (可能前序任务失败)")
          return None
     queue_name = self.request.delivery_info.get('routing_key', '未知')
-    logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
+    # logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
     async def _run_async_strategy():
         try:
-            logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
+            # logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
             await run_strategy_for_single_stock_task(stock_code)
-            logger.debug(f"策略计算: 完成运行 {stock_code} 的策略。")
+            # logger.debug(f"策略计算: 完成运行 {stock_code} 的策略。")
             return True
         except Exception as e:
             logger.error(f"策略计算: 运行股票 {stock_code} 策略时出错: {e}", exc_info=True)
@@ -396,7 +396,7 @@ def run_stock_strategy_task(self, stock_code: str):
     try:
         success = asyncio.run(_run_async_strategy()) # 假设策略函数是异步的
         if success:
-            logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
+            # logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
             return f"Strategy calculation completed for {stock_code}" # 链的最终结果
         else:
             logger.error(f"任务失败 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} 失败")
@@ -436,7 +436,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     favorite_stock_codes_list = list(favorite_stock_codes) # 转换为列表
 
     total_unique_stocks = len(favorite_stock_codes) + len(non_favorite_stock_codes)
-    logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
+    # logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
 
     if not favorite_stock_codes_list and not non_favorite_stock_codes:
          logger.warning("未能获取到任何需要处理的股票代码")
@@ -467,7 +467,7 @@ def get_trade_and_calculate_and_strategy(self):
         total_non_favorite_stocks = len(non_favorite_codes)
 
         # 1. 分派自选股任务链
-        logger.info(f"准备为 {total_favorite_stocks} 个自选股分派任务链...")
+        # logger.info(f"准备为 {total_favorite_stocks} 个自选股分派任务链...")
         for stock_code in favorite_codes:
             logger.debug(f"创建自选股 {stock_code} 的任务链...")
             # 创建任务链，并为每个任务指定队列
@@ -480,17 +480,17 @@ def get_trade_and_calculate_and_strategy(self):
             # 异步执行任务链
             task_chain.apply_async()
             total_dispatched_chains += 1
-            logger.debug(f"已分派自选股 {stock_code} 的任务链")
+            # logger.debug(f"已分派自选股 {stock_code} 的任务链")
             # 可选：短暂延迟以避免瞬间产生大量请求
             # import time
             # time.sleep(0.01)
 
-        logger.info(f"已为 {total_favorite_stocks} 个自选股分派任务链。")
+        # logger.info(f"已为 {total_favorite_stocks} 个自选股分派任务链。")
 
         # 2. 分派非自选股任务链
-        logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派任务链...")
+        # logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派任务链...")
         for stock_code in non_favorite_codes:
-            logger.debug(f"创建非自选股 {stock_code} 的任务链...")
+            # logger.debug(f"创建非自选股 {stock_code} 的任务链...")
             # 创建任务链，并为每个任务指定队列
             task_chain = chain(
                 fetch_stock_api_data_task.s(stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE),
@@ -500,12 +500,12 @@ def get_trade_and_calculate_and_strategy(self):
             # 异步执行任务链
             task_chain.apply_async()
             total_dispatched_chains += 1
-            logger.debug(f"已分派非自选股 {stock_code} 的任务链")
+            # logger.debug(f"已分派非自选股 {stock_code} 的任务链")
             # 可选：短暂延迟
             # import time
             # time.sleep(0.01)
 
-        logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派任务链。")
+        # logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派任务链。")
 
         logger.info(f"任务结束: get_trade_and_calculate_and_strategy (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")
         return f"已为 {total_favorite_stocks} 自选股和 {total_non_favorite_stocks} 非自选股分派 {total_dispatched_chains} 个任务链"
