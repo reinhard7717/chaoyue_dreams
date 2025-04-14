@@ -92,7 +92,10 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
                     SIGNAL_STRONG_SELL: "Strong Sell",
                 }
                 signal_display = signal_map.get(latest_signal, "Unknown Signal Value")
-                logger.info(f"{log_prefix} 策略信号 @ {latest_timestamp}: {latest_signal} ({signal_display})")
+                if signal_display == 'Hold':
+                    logger.info(f"{log_prefix} 策略信号 @ {latest_timestamp}: {latest_signal} ({signal_display})")
+                else:
+                    logger.warning(f"{log_prefix} 策略信号 @ {latest_timestamp}: {latest_signal} ({signal_display})")
             else:
                 # logger.info(f"{log_prefix} 策略运行完成，但所有信号均为 NaN。")
                 signal_display = "No Signal (NaN)"
