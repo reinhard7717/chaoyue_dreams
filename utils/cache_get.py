@@ -180,6 +180,14 @@ class UserCacheGet(CacheGet):
             logger.error(f"获取用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
             return None  # 出错时返回 None
 
+    async def all_favorites(self) -> Optional[List['FavoriteStock']]:
+        """
+        从缓存中异步读取所有自选股列表，并将字典转换为模型实例。
+        """
+        from users.models import FavoriteStock
+        cache_key = self.cache_key_user.all_favorites()  # 例如 "user:favorites:all"
+        
+
 class IndexCacheGet(CacheGet):
     async def all_indexes(self) -> Optional[List[Dict]]:
         """

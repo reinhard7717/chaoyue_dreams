@@ -152,9 +152,9 @@ class StockBasicDAO(BaseDAO):
         from users.models import FavoriteStock
         # 从缓存获取
         fav_datas = []
-        fav_datas = await self.user_cache_get.user_favorites(user.id)
-        if fav_datas:
-            return fav_datas
+        # fav_datas = await self.user_cache_get.user_favorites(user.id)
+        # if fav_datas:
+        #     return fav_datas
         # 从数据库获取
         items = FavoriteStock.objects.filter(user=user)
         for item in items:
@@ -170,9 +170,9 @@ class StockBasicDAO(BaseDAO):
         from users.models import FavoriteStock
         # 从缓存获取
         fav_datas = []
-        fav_datas = await self.user_cache_get.user_favorites(user.id)
-        if fav_datas:
-            return fav_datas
+        # fav_datas = await self.user_cache_get.user_favorites(user.id)
+        # if fav_datas:
+        #     return fav_datas
         # 从数据库获取
         items = FavoriteStock.objects.all()
         for item in items:
