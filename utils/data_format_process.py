@@ -10,13 +10,22 @@ logger = logging.getLogger(__name__)
 
 class UserDataFormatProcess(BaseDAO):
     def set_user_favorites(self, user_id: int, api_data: FavoriteStock) -> Dict:
-        data_dict = {
-            'user_id': user_id,
-            'added_at': api_data.added_at,
-            'note': api_data.note,
-            'is_pinned': api_data.is_pinned,
-            'tags': api_data.tags,
-        }
+        if isinstance(api_data, FavoriteStock):
+            data_dict = {
+                'user_id': user_id,
+                'added_at': api_data.added_at,
+                'note': api_data.note,
+                'is_pinned': api_data.is_pinned,
+                'tags': api_data.tags,
+            }
+        else:
+            data_dict = {
+                'user_id': user_id,
+                'added_at': api_data.get('added_at'),
+                'note': api_data.get('note'),
+                'is_pinned': api_data.get('is_pinned'),
+                'tags': api_data.get('tags'),
+            }
         return data_dict
 
 class IndexDataFormatProcess(BaseDAO):

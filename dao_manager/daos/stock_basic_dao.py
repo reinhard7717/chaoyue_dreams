@@ -11,7 +11,9 @@ from typing import Dict, List, Any, Optional
 # from django.db import transaction
 # from django.core.cache import cache
 
-from utils import cache_constants as cc # 导入常量
+from utils import cache_constants as cc
+from utils.cache_get import UserCacheGet
+from utils.data_format_process import UserDataFormatProcess # 导入常量
 
 # 解决Python 3.12上asyncio.coroutines没有_DEBUG属性的问题
 if sys.version_info >= (3, 12):
@@ -46,6 +48,8 @@ class StockBasicDAO(BaseDAO):
         self.data_format_process = StockInfoFormatProcess()
         self.cache_key = StockCashKey()
         self.cache_get = StockInfoCacheGet()
+        self.user_cache_get = UserCacheGet()
+        self.user_data_format_process = UserDataFormatProcess()
 
     # 新增 close 方法
     async def close(self):
@@ -139,48 +143,22 @@ class StockBasicDAO(BaseDAO):
     async def get_favorite_stocks_by_user(self, user: 'User') -> List['FavoriteStock']:  
         """
         获取用户自选股
-        
         Args:
             user: 用户
         """
         from django.contrib.auth.models import User
         from users.models import FavoriteStock
-        # 检查传入的 user 类型，确保它是 User 实例 (可选但推荐)
-        if not isinstance(user, User):
-            logger.error(f"传入 get_favorite_stocks_by_user 的 user 类型错误: {type(user)}")
-            # 可以抛出异常或返回空列表
-            return []
-        # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'favorite_stock', user.id)
-        
-        # 尝试从缓存获取
-        cached_data = self.cache_manager.get(cache_key)
-        if cached_data:
-            return [FavoriteStock(**item) for item in cached_data]
-
+        # 从缓存获取
+        fav_datas = []
+        fav_datas = await self.user_cache_get.user_favorites(user.id)
+        if fav_datas:
+            return fav_datas
         # 从数据库获取
-        try:
-            @sync_to_async
-            def get_db_items():
-                return list(FavoriteStock.objects.filter(user=user))
-            
-            items = await get_db_items()
-            
-            if items:
-                # 序列化并缓存
-                items_dict = [self._serialize_model(item) for item in items]
-                # *** 正确调用 CacheManager 缓存数据 ***
-                success = self.cache_manager.set(
-                    key=cache_key,          # 第一个参数：缓存键 (字符串)
-                    data=items_dict,     # 第二个参数：要缓存的数据 (字典)
-                    timeout=self.cache_manager.get_timeout('st') # 超时时间
-                )
-                return items
-            
-            return []
-        except Exception as e:
-            logger.error(f"获取用户自选股失败: {e}")
-            return []
+        items = FavoriteStock.objects.filter(user=user)
+        for item in items:
+            fav_data = self.user_data_format_process.set_user_favorites(user.id, item)
+            fav_datas.append(fav_data)
+        return fav_datas
 
     async def get_all_favorite_stocks(self) -> Optional['FavoriteStock']:
         """
