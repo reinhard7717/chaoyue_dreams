@@ -293,9 +293,9 @@ class Command(BaseCommand):
         # 按需导入对应的 Celery 任务
         try:
             from dao_manager.daos.stock_basic_dao import StockBasicDAO
-            from tasks.stock_indicator_tasks import calculate_stock_indicators_for_single_stock 
+            from tasks.calculate_tasks import calculate_stock_indicators_for_single_stock 
         except ImportError:
-            logger.error("无法导入 Celery 任务: tasks.indicators.calculate_stock_indicators_for_single_stock", exc_info=True)
+            logger.error("无法导入 Celery 任务: tasks.calculate_tasks.calculate_stock_indicators_for_single_stock", exc_info=True)
             self.stderr.write(self.style.ERROR("内部错误：无法找到全指标计算任务函数"))
             return
         stock_basic_dao = None

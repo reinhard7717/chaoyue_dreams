@@ -12,50 +12,8 @@ from core.constants import TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_P
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from services.indicator_services import IndicatorService
 
-
-
 logger = logging.getLogger('tasks')
 
-# --- 新增：处理单个股票的子任务 ---
-@celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade')
-def process_single_stock_latest_trade(self, stock_code: str):
-    """
-    获取并保存单个股票的最新实时数据 (子任务)
-    """
-    # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
-    # 导入 DAO，注意路径根据你的项目结构调整
-    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-
-    stock_indicators_dao = None # 初始化为 None
-    task_result = f"处理股票 {stock_code} 数据失败" # 默认失败结果
-
-    try:
-        stock_indicators_dao = StockIndicatorsDAO()
-        # 在同步的 Celery 任务中运行异步 DAO 方法
-        asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_by_stock_code(stock_code))
-        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
-        # logger.info(task_result)
-    except Exception as e:
-        logger.error(f"处理股票 {stock_code} 数据时发生错误: {e}", exc_info=True)
-        task_result = f"处理股票 {stock_code} 数据失败: {e}"
-        # 可以选择性地重新抛出异常，让 Celery 知道任务失败
-        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
-        # raise Ignore() # 或者使用 Ignore() 避免重试（如果设置了重试策略）
-    finally:
-        # 确保 DAO 被关闭，即使它在 try 块中未能成功初始化
-        if stock_indicators_dao:
-            try:
-                # DAO 的 close 方法也可能是异步的
-                if asyncio.iscoroutinefunction(getattr(stock_indicators_dao, 'close', None)):
-                     asyncio.run(stock_indicators_dao.close())
-                elif callable(getattr(stock_indicators_dao, 'close', None)):
-                     stock_indicators_dao.close()
-                logger.debug(f"DAO for {stock_code} closed.")
-            except Exception as close_err:
-                logger.error(f"关闭股票 {stock_code} 的 DAO 时出错: {close_err}", exc_info=True)
-        # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
-
-    return task_result # 返回单个任务的结果
 
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_realtime_trade')
 def process_single_stock_realtime_trade(self, stock_code: str):
@@ -89,46 +47,6 @@ def process_single_stock_realtime_trade(self, stock_code: str):
 
     return task_result # 返回单个任务的结果
 
-# --- 新增：处理单个股票的子任务 ---
-@celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade_trading_hours')
-def process_single_stock_latest_trade_trading_hours(self, stock_code: str):
-    """
-    获取并保存单个股票的最新实时数据 (子任务)
-    """
-    # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
-    # 导入 DAO，注意路径根据你的项目结构调整
-    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-
-    stock_indicators_dao = None # 初始化为 None
-    task_result = f"处理股票 {stock_code} 数据失败" # 默认失败结果
-
-    try:
-        stock_indicators_dao = StockIndicatorsDAO()
-        # 在同步的 Celery 任务中运行异步 DAO 方法
-        asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_trading_hours_by_stock_code(stock_code))
-        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
-        # logger.info(task_result)
-    except Exception as e:
-        logger.error(f"处理股票 {stock_code} 数据时发生错误: {e}", exc_info=True)
-        task_result = f"处理股票 {stock_code} 数据失败: {e}"
-        # 可以选择性地重新抛出异常，让 Celery 知道任务失败
-        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
-        # raise Ignore() # 或者使用 Ignore() 避免重试（如果设置了重试策略）
-    finally:
-        # 确保 DAO 被关闭，即使它在 try 块中未能成功初始化
-        if stock_indicators_dao:
-            try:
-                # DAO 的 close 方法也可能是异步的
-                if asyncio.iscoroutinefunction(getattr(stock_indicators_dao, 'close', None)):
-                     asyncio.run(stock_indicators_dao.close())
-                elif callable(getattr(stock_indicators_dao, 'close', None)):
-                     stock_indicators_dao.close()
-                logger.debug(f"DAO for {stock_code} closed.")
-            except Exception as close_err:
-                logger.error(f"关闭股票 {stock_code} 的 DAO 时出错: {close_err}", exc_info=True)
-        # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
-
-    return task_result # 返回单个任务的结果
 
 # --- 新增：处理单个股票单个时间级别历史数据的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_history_trade')
@@ -253,49 +171,10 @@ def fetch_single_stock_history_trade_data(self, stock_code):
             except Exception as close_err:
                 logger.error(f"关闭 DAO for {stock_code} 时出错: {close_err}", exc_info=True)
 
-# --- 内部异步逻辑：计算单支股票 ---
-async def _calculate_stock_indicators_async(stock_code: str):
-    """实际执行异步计算的内部函数"""
-    service = IndicatorService()
-    logger.info(f"开始异步计算股票 {stock_code} 的指标...")
-    try:
-        tasks = [
-            service.calculate_and_save_all_indicators(stock_code, time_level)
-            for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADING
-        ]
-        # 注意：确保 service.calculate_and_save_all_indicators 也是 async def
-        await asyncio.gather(*tasks)
-        logger.info(f"成功完成股票 {stock_code} 的异步指标计算。")
-        return f"Success: {stock_code}"
-    except Exception as e:
-        logger.error(f"异步计算股票 {stock_code} 指标时出错: {e}", exc_info=True)
-        # 返回错误信息，而不是重新抛出异常，以便 Celery 可以记录结果
-        return f"Failed: {stock_code} - {str(e)}"
-
-# --- 工作任务（同步包装器）：处理单支股票 ---
-@celery_app.task(bind=True, name='tasks.indicators.calculate_stock_indicators_for_single_stock')
-def calculate_stock_indicators_for_single_stock(self, stock_code: str):
-    """
-    Celery 工作任务（同步）：计算并保存指定股票在所有时间级别上的指标。
-    它调用内部的异步函数来完成工作。
-    """
-    logger.info(f"Celery 任务开始处理股票 {stock_code}...")
-    # 使用 asyncio.run() 在同步任务中运行异步代码
-    result = asyncio.run(_calculate_stock_indicators_async(stock_code))
-    logger.info(f"Celery 任务完成处理股票 {stock_code}，结果: {result}")
-    # 返回异步函数的结果，这个结果应该是可序列化的（字符串）
-    return result
 
 
 # --- 新增：定义细粒度任务的队列名称 ---
-# 自选股队列
-FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data_TimeTrade'
-FAVORITE_CALCULATE_INDICATORS_QUEUE = 'favorite_calculate_indicators'
-FAVORITE_CALCULATE_STRATEGY_QUEUE = 'favorite_calculate_strategy'
-# 非自选股队列
-STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data_TimeTrade'
-STOCKS_CALCULATE_INDICATORS_QUEUE = 'calculate_indicators'
-STOCKS_CALCULATE_STRATEGY_QUEUE = 'calculate_strategy'
+
 
 
 # --- 新增：细粒度的 Celery Worker 任务 ---
@@ -379,7 +258,6 @@ def run_stock_strategy_task(self, stock_code: str):
     Celery 任务：对单个股票执行策略计算。
     假定上一个任务成功时会传递 stock_code。
     """
-    from tasks.strategy_tasks import run_strategy_for_single_stock_task
     if not stock_code:
          logger.warning(f"任务跳过 (策略计算): run_stock_strategy_task - 未收到有效的 stock_code (可能前序任务失败)")
          return None

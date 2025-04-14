@@ -148,7 +148,59 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         # 去重后返回
         return list(set(required))
 
+
     # --- 单个指标评分函数 (0-100分) ---
+    def _get_ema_score(self, ema_short: pd.Series, ema_long: pd.Series) -> pd.Series:
+        """
+        根据短期和长期 EMA 的关系计算评分 (0-100)。
+        评分逻辑:
+        - EMA 金叉 (短期上穿长期): 85分 (强买入倾向)
+        - EMA 死叉 (短期下穿长期): 15分 (强卖出倾向)
+        - 短期 EMA > 长期 EMA (上升趋势，非金叉点): 65分 (买入倾向)
+        - 短期 EMA < 长期 EMA (下降趋势，非死叉点): 35分 (卖出倾向)
+        - EMA 相等或无法判断 (例如 NaN): 50分 (中性)
+        Args:
+            ema_short (pd.Series): 短期 EMA 时间序列。
+            ema_long (pd.Series): 长期 EMA 时间序列。
+        Returns:
+            pd.Series: 计算得到的 EMA 评分 (0-100)。
+        """
+        # 确保输入索引对齐，否则计算会出错或结果无意义
+        if not ema_short.index.equals(ema_long.index):
+            # 在实际应用中，可能需要先对齐数据
+            # logger.warning("EMA short and long series indices do not match. Attempting alignment.")
+            aligned_short, aligned_long = ema_short.align(ema_long, join='inner') # 或者 'left'
+            ema_short, ema_long = aligned_short, aligned_long
+            # 如果无法对齐或不应继续，则抛出错误或返回中性分
+            # raise ValueError("EMA short and long series indices do not match.")
+            # 或者 return pd.Series(50.0, index=ema_short.index) # 根据策略决定
+        score = pd.Series(50.0, index=ema_short.index) # 默认中性分
+        # --- 计算交叉信号 ---
+        # 获取前一期的数据用于判断交叉
+        prev_ema_short = ema_short.shift(1)
+        prev_ema_long = ema_long.shift(1)
+        # 金叉条件: 前一期 short <= long，当前 short > long
+        # (使用 <= 和 >= 包含粘合后分开的情况)
+        golden_cross = (prev_ema_short <= prev_ema_long) & (ema_short > ema_long)
+        # 死叉条件: 前一期 short >= long，当前 short < long
+        death_cross = (prev_ema_short >= prev_ema_long) & (ema_short < ema_long)
+        # --- 计算趋势状态 (排除交叉点) ---
+        # 上升趋势: 当前 short > long 且 本期不是金叉点
+        is_uptrend = (ema_short > ema_long) & (~golden_cross)
+        # 下降趋势: 当前 short < long 且 本期不是死叉点
+        is_downtrend = (ema_short < ema_long) & (~death_cross)
+        # --- 应用评分 ---
+        # 优先应用趋势状态评分
+        score.loc[is_uptrend] = 65.0
+        score.loc[is_downtrend] = 35.0
+        # 然后用交叉信号评分覆盖趋势状态评分 (交叉信号更强)
+        score.loc[golden_cross] = 85.0
+        score.loc[death_cross] = 15.0
+        # --- 处理 NaN 值 ---
+        # 如果输入 EMA 本身包含 NaN (通常在序列开始部分)，评分应为中性
+        score.loc[ema_short.isna() | ema_long.isna()] = 50.0
+        # 交叉判断依赖 shift(1)，第一行会是 NaN，其评分保持默认 50.0
+        return score
 
     def _get_macd_score(self, diff: pd.Series, dea: pd.Series, macd: pd.Series) -> pd.Series:
         """MACD 评分 (0-100)"""

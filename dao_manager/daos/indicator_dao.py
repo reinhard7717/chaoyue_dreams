@@ -1450,7 +1450,126 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"[get_obv_df] 获取或处理股票[{stock}] {time_level_str} OBV 数据失败: {str(e)}", exc_info=True)
             return None
 
+    async def get_ema_fib_df(self, stock_code: str, time_level: str, ema_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 EMA-FIB 指标数据。
+        会根据 ema_period 选择最接近的斐波那契周期 EMA 列。
+        Args:
+            stock_code (str): 股票代码.
+            time_level (str): 时间级别 (例如 '5m', '15m', '1d').
+            ema_period (int): 策略期望使用的 EMA 周期 (例如 14).
+            limit (int): 获取的最新记录数量.
+        Returns:
+            Optional[pd.DataFrame]: 包含 EMA 数据的 DataFrame，
+                                     索引为 trade_time (升序)，
+                                     列为 'ema' (对应最接近 ema_period 的斐波那契周期值)。
+                                     如果找不到股票或数据，则返回 None。
+        """
+        from stock_models.indicator.ma import StockEmaFIB
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_ema_fib_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        # 1. 确定要查询的 EMA 列名
+        try:
+            closest_fib_period = self._find_closest_fib_period(ema_period)
+            ema_col_name = f"ema{closest_fib_period}"
+            StockEmaFIB._meta.get_field(ema_col_name)  # 检查字段是否存在
+        except (ValueError, FieldDoesNotExist) as e:
+            logger.error(f"[get_ema_fib_df] 无法确定或找到 EMA 列 '{ema_col_name}': {e}")
+            return None
+        except Exception as e_fib:
+            logger.error(f"[get_ema_fib_df] 确定 EMA 列时出错: {e_fib}", exc_info=True)
+            return None
 
+        try:
+            # 2. 查询数据库
+            ema_data_dicts = await sync_to_async(list)(
+                StockEmaFIB.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', ema_col_name)[:limit]
+            )
+            if not ema_data_dicts:
+                logger.warning(f"[get_ema_fib_df] 未找到 {stock_code} {time_level_str} 的 EMA-FIB 数据 (column: {ema_col_name})")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(ema_data_dicts)
+            # 4. 重命名列并处理数据类型
+            df.rename(columns={ema_col_name: 'ema'}, inplace=True)
+            df['ema'] = pd.to_numeric(df['ema'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['ema'], how='all', inplace=True)
+            if df.empty:
+                logger.warning(f"[get_ema_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                return None
+            return df[['ema']]
+        except Exception as e:
+            logger.error(f"[get_ema_fib_df] 获取或处理股票[{stock}] {time_level_str} EMA-FIB 数据失败: {str(e)}", exc_info=True)
+            return None
+
+    async def get_vwap_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票和时间级别的最新 VWAP 指标数据。
+        Args:
+            stock_code (str): 股票代码.
+            time_level (str): 时间级别 (例如 '5m', '15m', '1d').
+            limit (int): 获取的最新记录数量.
+        Returns:
+            Optional[pd.DataFrame]: 包含 VWAP 数据的 DataFrame，
+                                     索引为 trade_time (升序)，
+                                     列为 'vwap'。
+                                     如果找不到股票或数据，则返回 None。
+        """
+        from stock_models.indicator.vwap import StockVwap
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.warning(f"[get_vwap_df] 无法找到股票信息: {stock_code}")
+            return None
+        time_level_str = str(time_level)
+        vwap_col_name = 'vwap'  # 模型字段名
+
+        try:
+            # 2. 查询数据库
+            vwap_data_dicts = await sync_to_async(list)(
+                StockVwap.objects.filter(stock=stock, time_level=time_level_str)
+                .order_by('-trade_time')
+                .values('trade_time', vwap_col_name)[:limit]
+            )
+            if not vwap_data_dicts:
+                logger.warning(f"[get_vwap_df] 未找到 {stock_code} {time_level_str} 的 VWAP 数据")
+                return None
+            # 3. 转换为 DataFrame
+            df = pd.DataFrame.from_records(vwap_data_dicts)
+            # 4. 处理数据类型 (列名已经是 'vwap')
+            df['vwap'] = pd.to_numeric(df['vwap'], errors='coerce')
+            # 5. 处理时间索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            if df['trade_time'].dt.tz is None:
+                df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_default_timezone())
+            else:
+                df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_default_timezone())
+            df.set_index('trade_time', inplace=True)
+            # 6. 按时间升序排序
+            df.sort_index(ascending=True, inplace=True)
+            # 7. 清理和检查
+            df.dropna(subset=['vwap'], how='all', inplace=True)
+            if df.empty:
+                logger.warning(f"[get_vwap_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                return None
+            return df[['vwap']]
+        except Exception as e:
+            logger.error(f"[get_vwap_df] 获取或处理股票[{stock}] {time_level_str} VWAP 数据失败: {str(e)}", exc_info=True)
+            return None
 
 
 

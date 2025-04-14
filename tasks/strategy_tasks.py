@@ -15,14 +15,18 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO  # 假设主任务需
 
 logger = logging.getLogger('tasks')  # 或者你使用的 logger 名称
 
+# 自选股队列
+FAVORITE_CALCULATE_STRATEGY_QUEUE = 'favorite_calculate_strategy'
+# 非自选股队列
+STOCKS_CALCULATE_STRATEGY_QUEUE = 'calculate_strategy'
+
 @database_sync_to_async  # 将同步的 ORM 查询包装成异步
 def _get_favorited_user_ids(self, stock_id: int) -> list[int]:
     """根据股票 ID 获取关注该股票的所有用户 ID 列表"""
     from users.models import FavoriteStock
     return list(FavoriteStock.objects.filter(stock_id=stock_id).values_list('user_id', flat=True))
 
-@celery_app.task(bind=True, name='tasks.strategy.run_strategy_for_single_stock_task')
-async def run_strategy_for_single_stock_task(self, stock_code: str):
+async def _run_strategy_for_single_stock_task(self, stock_code: str):
     """
     为单支股票执行 MACD+RSI+KDJ+BOLL 策略计算并缓存结果。
     这是实际执行策略计算的 Celery Worker 任务。
@@ -151,4 +155,119 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
         # logger.info(f"{log_prefix} 策略计算任务执行完毕。")
         return {'status': 'success'}  # 返回成功状态
 
-# ... (文件末尾的其他任务定义) ...
+# Celery 任务：对单个股票执行策略计算。
+@celery_app.task(bind=True, name='tasks.stock_processing.run_stock_strategy')
+def run_stock_strategy_task(self, stock_code: str):
+    """
+    Celery 任务：对单个股票执行策略计算。
+    假定上一个任务成功时会传递 stock_code。
+    """
+    if not stock_code:
+         logger.warning(f"任务跳过 (策略计算): run_stock_strategy_task - 未收到有效的 stock_code (可能前序任务失败)")
+         return None
+    queue_name = self.request.delivery_info.get('routing_key', '未知')
+    # logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
+    async def _run_async_strategy():
+        try:
+            # logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
+            await _run_strategy_for_single_stock_task(stock_code)
+            # logger.debug(f"策略计算: 完成运行 {stock_code} 的策略。")
+            return True
+        except Exception as e:
+            logger.error(f"策略计算: 运行股票 {stock_code} 策略时出错: {e}", exc_info=True)
+            return False
+    try:
+        success = asyncio.run(_run_async_strategy()) # 假设策略函数是异步的
+        if success:
+            # logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
+            return f"Strategy calculation completed for {stock_code}" # 链的最终结果
+        else:
+            logger.error(f"任务失败 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} 失败")
+            raise Exception(f"Failed to run strategy for {stock_code}")
+    except Exception as e:
+        logger.error(f"执行 run_stock_strategy_task (同步包装器) 时出错: {e}", exc_info=True)
+        raise
+
+# --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
+async def _get_all_relevant_stock_codes_for_processing():
+    """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
+    stock_basic_dao = StockBasicDAO()
+    favorite_stock_codes = set()
+    all_stock_codes = set()
+
+    # 获取自选股
+    try:
+        favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
+        for fav in favorite_stocks:
+            favorite_stock_codes.add(fav.stock_id)
+        logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
+    except Exception as e:
+        logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
+
+    # 获取所有A股 (或者你需要的范围)
+    try:
+        # 注意：如果 get_stock_list() 返回大量数据，考虑分页或流式处理
+        all_stocks = await stock_basic_dao.get_stock_list()
+        for stock in all_stocks:
+            all_stock_codes.add(stock.stock_code)
+        logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
+    except Exception as e:
+        logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
+
+    # 计算非自选股代码 (在所有代码中，但不在自选代码中)
+    non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
+    favorite_stock_codes_list = list(favorite_stock_codes) # 转换为列表
+
+    total_unique_stocks = len(favorite_stock_codes) + len(non_favorite_stock_codes)
+    # logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
+
+    if not favorite_stock_codes_list and not non_favorite_stock_codes:
+         logger.warning("未能获取到任何需要处理的股票代码")
+
+    return favorite_stock_codes_list, non_favorite_stock_codes
+
+# 任务调度：计算所有股票的指标
+@celery_app.task(bind=True, name='tasks.strategy_tasks.calculate_stock_strategy')
+def calculate_stock_strategy(self):
+    """
+    修改后的调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 为每只股票创建任务链 (获取数据 -> 计算指标 -> 执行策略)，并分派到指定的队列。
+    3. 将自选股任务分派到 FAVORITE_CALCULATE_STRATEGY_QUEUE 队列。
+    4. 将非自选股任务分派到 STOCKS_CALCULATE_STRATEGY_QUEUE 队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info("任务启动: calculate_stock_strategy (调度器模式) - 获取股票列表并分派细粒度任务链")
+    try:
+        # 在同步任务中运行异步代码来获取列表
+        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+
+        if not favorite_codes and not non_favorite_codes:
+            logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
+            return "未获取到股票代码"
+
+        total_dispatched_chains = 0
+        total_favorite_stocks = len(favorite_codes)
+        total_non_favorite_stocks = len(non_favorite_codes)
+
+        # 1. 分派自选股任务链到 FAVORITE_CALCULATE_STRATEGY_QUEUE 队列
+        for stock_code in favorite_codes:
+            sig = run_stock_strategy_task.s(stock_code).set(queue='FAVORITE_CALCULATE_STRATEGY_QUEUE')
+            sig.apply_async()  # 分派任务
+            total_dispatched_chains += 1  # 计数分派的任务
+
+        # 2. 分派非自选股任务链到 STOCKS_CALCULATE_STRATEGY_QUEUE 队列
+        for stock_code in non_favorite_codes:
+            sig = run_stock_strategy_task.s(stock_code).set(queue='STOCKS_CALCULATE_STRATEGY_QUEUE')
+            sig.apply_async()  # 分派任务
+            total_dispatched_chains += 1  # 计数分派的任务
+
+        logger.info(f"任务结束: calculate_stock_strategy (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")
+        return f"已为 {total_favorite_stocks} 自选股和 {total_non_favorite_stocks} 非自选股分派 {total_dispatched_chains} 个任务链"
+
+    except Exception as e:
+        logger.error(f"执行 calculate_stock_strategy (调度器模式) 时出错: {e}", exc_info=True)
+        # 可以考虑重试机制
+        # raise self.retry(exc=e, countdown=300, max_retries=1)
+        return "调度任务执行失败"
+
