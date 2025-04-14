@@ -44,8 +44,6 @@ class IndicatorService:
         limit = needed_bars # 增加一些 buffer
         # logger.debug(f"为计算指标 {stock_code} {time_level}，尝试获取 {limit} 条历史数据")
         df = await self.indicator_dao.get_history_ohlcv_df(stock_code, time_level, limit=limit)
-        logger.info("_get_ohlcv_data11111111111111111111111111111111111111111111111111111")
-        logger.info(f"df: {df}")
         if df is None or df.empty:
             logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level}")
             return None
@@ -69,8 +67,6 @@ class IndicatorService:
         df.columns = [col.lower() for col in df.columns]
         # 检查必需列
         required_cols = ['open', 'high', 'low', 'close', 'volume']
-        logger.info("_get_ohlcv_data22222222222222222222222222222222222222222222222222222")
-        logger.info(f"df: {df}")
         if not all(col in df.columns for col in required_cols):
             logger.error(f"获取的数据缺少必需列 (open, high, low, close, volume): {stock_code} {time_level}, 列: {df.columns.tolist()}")
             return None
