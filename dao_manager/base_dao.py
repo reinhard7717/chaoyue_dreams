@@ -790,11 +790,9 @@ class BaseDAO(Generic[T]):
         """
         # 获取系统时区
         self.tz = pytz.timezone(settings.TIME_ZONE) if hasattr(settings, 'TIME_ZONE') else pytz.UTC
-        
         if default is None and hasattr(self, 'model') and hasattr(self.model, 'created_at'):
             # 如果模型有created_at字段，使用当前时间作为默认值
             default = datetime.now(self.tz)
-            
         try:
             # 如果已经是datetime对象
             if isinstance(value, datetime):
@@ -802,15 +800,12 @@ class BaseDAO(Generic[T]):
                 if value.tzinfo is None:
                     return value.replace(tzinfo=self.tz)
                 return value
-                
             # 处理None或空值
             if value is None or value == '' or value == 'N/A' or value == '暂无' or value == '-':
                 return default
-                
             # 确保value是字符串
             if not isinstance(value, (str, int, float)):
                 value = str(value)
-                
             # 处理时间戳（秒或毫秒）
             if isinstance(value, (int, float)) or (isinstance(value, str) and value.isdigit()):
                 timestamp = float(value)
@@ -818,7 +813,6 @@ class BaseDAO(Generic[T]):
                 if timestamp > 10000000000:  # 大于10^10的可能是毫秒
                     timestamp /= 1000
                 return datetime.fromtimestamp(timestamp, self.tz)
-                
             # 处理ISO格式
             if isinstance(value, str) and ('T' in value or '+' in value or 'Z' in value):
                 try:
@@ -828,7 +822,6 @@ class BaseDAO(Generic[T]):
                     return dt
                 except ValueError:
                     pass  # 继续尝试其他格式
-                    
             # 处理指定格式
             if default_format:
                 try:
@@ -838,7 +831,6 @@ class BaseDAO(Generic[T]):
                     return dt
                 except ValueError:
                     pass  # 继续尝试其他格式
-                    
             # 尝试常见格式
             common_formats = [
                 '%Y-%m-%d %H:%M:%S',
@@ -847,21 +839,9 @@ class BaseDAO(Generic[T]):
                 '%Y/%m/%d %H:%M',
                 '%Y-%m-%d',
                 '%H:%M:%S',
-                # '%d/%m/%Y %H:%M:%S',
-                # '%d/%m/%Y %H:%M',
-                # '%d-%m-%Y %H:%M:%S',
-                # '%d-%m-%Y %H:%M',
-                # '%Y/%m/%d',
-                # '%d/%m/%Y',
-                # '%d-%m-%Y',
-                # '%d-%b-%Y',
-                # '%d %b %Y',
-                # '%b %d, %Y',
-                # '%B %d, %Y',
                 '%Y年%m月%d日',
                 '%Y年%m月%d日 %H时%M分%S秒',
             ]
-            
             for fmt in common_formats:
                 try:
                     dt = datetime.strptime(value, fmt)
@@ -869,12 +849,10 @@ class BaseDAO(Generic[T]):
                         dt = dt.replace(tzinfo=self.tz)
                     return dt
                 except ValueError:
-                    continue
-                    
+                    continue     
             # 如果所有尝试都失败
             logger.warning(f"无法解析日期时间值: {value}，使用默认值")
             return default
-            
         except Exception as e:
             logger.warning(f"解析日期时间值时发生错误: {value}, 错误: {str(e)}")
             return default
