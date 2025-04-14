@@ -3,7 +3,6 @@ from celery import shared_task
 from django.core.cache import cache # 或者你的 CacheManager
 from utils.websockets import send_update_to_user_sync # 导入推送函数
 import logging
-from users.models import FavoriteStock # 需要 FavoriteStock 获取 ID
 
 # 获取 logger 实例
 logger = logging.getLogger('celery') # 或者使用你项目配置的 logger
@@ -15,7 +14,6 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
     logger.info(f"开始为用户 {user_id} 的新自选股 {stock_code} (Favorite ID: {favorite_id}) 获取数据...")
     from dao_manager.daos.stock_basic_dao import StockBasicDAO
     from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO # 假设有获取最新数据的方法
-    from dao_manager.daos.indicator_dao import IndicatorDAO # 假设有获取最新信号的方法
     from dao_manager.daos.strategies_dao import StrategiesDAO
     try:
         # 实例化 DAOs (考虑使用依赖注入或更好的方式管理实例)

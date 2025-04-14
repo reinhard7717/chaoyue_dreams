@@ -30,6 +30,7 @@ app.conf.update(
         'tasks.index_tasks',
         'tasks.stock_tasks',
         'tasks.stock_indicator_tasks',
+        'tasks.stock_realtime_tasks',
         'tasks.strategy_tasks',      # <<<--- 添加包含策略任务的模块
         # 如果还有其他文件包含 Celery 任务，也一并添加到这里
         # 例如: 'tasks.other_tasks'
