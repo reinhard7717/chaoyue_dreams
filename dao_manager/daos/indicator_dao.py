@@ -1030,7 +1030,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', cci_col_name)[:limit]
             )
             if not cci_data_dicts:
-                logger.warning(f"[get_cci_fib_df] 未找到 {stock_code} {time_level_str} 的 CCI-FIB 数据 (column: {cci_col_name})")
+                # logger.warning(f"[get_cci_fib_df] 未找到 {stock_code} {time_level_str} 的 CCI-FIB 数据 (column: {cci_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(cci_data_dicts)
@@ -1263,7 +1263,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', sar_col_name)[:limit]
             )
             if not sar_data_dicts:
-                logger.warning(f"[get_sar_df] 未找到 {stock_code} {time_level_str} 的 SAR 数据")
+                # logger.warning(f"[get_sar_df] 未找到 {stock_code} {time_level_str} 的 SAR 数据")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(sar_data_dicts)
@@ -1319,7 +1319,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', amt_ma_col_name)[:limit]
             )
             if not amt_ma_data_dicts:
-                logger.warning(f"[get_amount_ma_fib_df] 未找到 {stock} {time_level_str} 的 Amount MA-FIB 数据 (column: {amt_ma_col_name})")
+                # logger.warning(f"[get_amount_ma_fib_df] 未找到 {stock} {time_level_str} 的 Amount MA-FIB 数据 (column: {amt_ma_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(amt_ma_data_dicts)
@@ -1376,7 +1376,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', cmf_col_name)[:limit]
             )
             if not cmf_data_dicts:
-                logger.warning(f"[get_cmf_fib_df] 未找到 {stock} {time_level_str} 的 CMF-FIB 数据 (column: {cmf_col_name})")
+                # logger.warning(f"[get_cmf_fib_df] 未找到 {stock} {time_level_str} 的 CMF-FIB 数据 (column: {cmf_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(cmf_data_dicts)
@@ -1422,7 +1422,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', obv_col_name)[:limit]
             )
             if not obv_data_dicts:
-                logger.warning(f"[get_obv_df] 未找到 {stock_code} {time_level_str} 的 OBV 数据")
+                # logger.warning(f"[get_obv_df] 未找到 {stock_code} {time_level_str} 的 OBV 数据")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(obv_data_dicts)
