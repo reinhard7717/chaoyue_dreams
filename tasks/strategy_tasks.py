@@ -27,7 +27,8 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
     为单支股票执行 MACD+RSI+KDJ+BOLL 策略计算并缓存结果。
     这是实际执行策略计算的 Celery Worker 任务。
     """
-    stock = StockBasicDAO.get_stock_by_code(stock_code)
+    stock_dao = StockBasicDAO()
+    stock = stock_dao.get_stock_by_code(stock_code)
     log_prefix = f"[StrategyTask] [{stock}]"
     # logger.info(f"{log_prefix} 开始执行 MACD+RSI+KDJ+BOLL 策略计算任务")
     service = None
