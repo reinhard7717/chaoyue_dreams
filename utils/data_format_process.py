@@ -177,8 +177,6 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
             }
         else:
             trade_time = self._parse_datetime(api_data.get('d'))
-            if trade_time.tzinfo is not None:
-                trade_time = trade_time.astimezone(timezone.get_current_timezone())
             data_dict = {
                 'stock': stock,
                 'time_level': time_level,
