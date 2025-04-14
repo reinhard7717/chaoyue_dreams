@@ -10,8 +10,8 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 
 # 自选股队列
-FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data'
-STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data'
+FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data_RealTime'
+STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data_RealTime'
 logger = get_task_logger(__name__)
 
 # --- 辅助函数：获取需要处理的股票代码 (保持不变) ---

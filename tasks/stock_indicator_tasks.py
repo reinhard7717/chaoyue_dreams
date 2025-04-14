@@ -289,11 +289,11 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
 
 # --- 新增：定义细粒度任务的队列名称 ---
 # 自选股队列
-FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data'
+FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data_TimeTrade'
 FAVORITE_CALCULATE_INDICATORS_QUEUE = 'favorite_calculate_indicators'
 FAVORITE_CALCULATE_STRATEGY_QUEUE = 'favorite_calculate_strategy'
 # 非自选股队列
-STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data'
+STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data_TimeTrade'
 STOCKS_CALCULATE_INDICATORS_QUEUE = 'calculate_indicators'
 STOCKS_CALCULATE_STRATEGY_QUEUE = 'calculate_strategy'
 
