@@ -447,7 +447,7 @@ class IndicatorDAO(BaseDAO):
                 # **extra_fields 参数在这里不需要传递
             )
             # 基类方法中应包含详细的日志记录，这里可以只记录一个概要
-            logger.info(f"[{model_name}] 批量保存/更新调用完成 for {stock_info.stock_code} {time_level_str}. 结果: {result}")
+            # logger.info(f"[{model_name}] 批量保存/更新调用完成 for {stock_info.stock_code} {time_level_str}. 结果: {result}")
 
         except Exception as e_bulk:
             # 捕获调用基类方法本身可能抛出的意外错误（尽管基类方法应处理其内部错误）
@@ -717,7 +717,7 @@ class IndicatorDAO(BaseDAO):
             # 移除所有指标都为 NaN 的行 (可选，但可能有用)
             # df.dropna(subset=['diff', 'dea', 'macd'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_macd_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_macd_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df
         except Exception as e:
@@ -795,7 +795,7 @@ class IndicatorDAO(BaseDAO):
             df.dropna(subset=['rsi'], how='all', inplace=True) # 移除 rsi 为 NaN 的行
 
             if df.empty:
-                 logger.warning(f"[get_rsi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_rsi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['rsi']] # 只返回包含 'rsi' 列的 DataFrame
 
@@ -851,7 +851,7 @@ class IndicatorDAO(BaseDAO):
             # 清理和检查
             df.dropna(subset=['upper', 'mid', 'lower'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_boll_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_boll_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             # 返回包含所需列的 DataFrame
             return df[['upper', 'mid', 'lower']]
@@ -907,7 +907,7 @@ class IndicatorDAO(BaseDAO):
             # 清理和检查
             df.dropna(subset=['close_price'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_close_price_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_close_price_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['close_price']]
         except Exception as e:
@@ -991,7 +991,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['k', 'd', 'j'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_kdj_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_kdj_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             # 返回包含所需列的 DataFrame
             return df[['k', 'd', 'j']]
@@ -1049,7 +1049,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['cci'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_cci_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_cci_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['cci']]
         except Exception as e:
@@ -1106,7 +1106,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['mfi'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_mfi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_mfi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['mfi']]
         except Exception as e:
@@ -1163,7 +1163,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['roc'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_roc_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_roc_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['roc']]
         except Exception as e:
@@ -1236,7 +1236,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['pdi', 'mdi', 'adx'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_dmi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_dmi_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['pdi', 'mdi', 'adx']]
         except Exception as e:
@@ -1281,7 +1281,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['sar'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_sar_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_sar_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['sar']]
         except Exception as e:
@@ -1338,7 +1338,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['amount_ma'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_amount_ma_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_amount_ma_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['amount_ma']]
         except Exception as e:
@@ -1395,7 +1395,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['cmf'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_cmf_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_cmf_fib_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['cmf']]
         except Exception as e:
@@ -1443,7 +1443,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 清理和检查
             df.dropna(subset=['obv'], how='all', inplace=True)
             if df.empty:
-                 logger.warning(f"[get_obv_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
+                #  logger.warning(f"[get_obv_df] 处理后 DataFrame 为空 for {stock_code} {time_level_str}")
                  return None
             return df[['obv']]
         except Exception as e:
