@@ -657,12 +657,12 @@ LOGGING = {
             'propagate': False,
         },
         'celery.task': {
-            'handlers': ['console', 'celery'],
+            'handlers': ['celery'],
             'level': 'WARNING',
             'propagate': False,
         },
         'celery.worker': {
-            'handlers': ['console', 'celery'],
+            'handlers': ['celery'],
             'level': 'INFO',
             'propagate': False,
         },
