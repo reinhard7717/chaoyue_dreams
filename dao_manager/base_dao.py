@@ -576,19 +576,11 @@ class BaseDAO(Generic[T]):
         if data_list: # 确保 data_list 不为空
             # 从第一个数据项获取基础键，并合并 extra_fields 的键
             all_keys = set(data_list[0].keys()) | set(extra_fields.keys())
-            # 可以选择遍历所有项来获取所有可能的键，但这可能效率稍低
-            # for item in data_list:
-            #     all_keys.update(item.keys())
-            # all_keys.update(extra_fields.keys())
-        # update_fields 是所有字段中排除了 unique_fields 的部分
         update_fields = list(all_keys - set(unique_fields))
         # 可选：从 update_fields 中移除主键（通常不需要更新主键）
         pk_name = model_class._meta.pk.name
         if pk_name in update_fields:
             update_fields.remove(pk_name)
-        # 可选：移除其他不应更新的字段
-        # read_only_fields = getattr(model_class._meta, "read_only_fields", [])
-        # update_fields = [f for f in update_fields if f not in read_only_fields]
         if not update_fields:
             logger.warning(
                 f"模型 {model_class.__name__} 没有可用于更新的字段（除了唯一字段 {unique_fields}）。"
