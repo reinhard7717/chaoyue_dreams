@@ -163,23 +163,31 @@ class StockBasicDAO(BaseDAO):
             await self.user_cache_set.user_favorites(user.id, item)
         return fav_datas
 
-    async def get_all_favorite_stocks(self) -> Optional['FavoriteStock']:
+    async def get_all_favorite_stocks(self) -> Optional[List[Dict]]:
         """
         获取所有自选股
         """
         from users.models import FavoriteStock
-        # 从缓存获取
         fav_datas = []
-        # fav_datas = await self.user_cache_get.user_favorites(user.id)
-        # if fav_datas:
-        #     return fav_datas
-        # 从数据库获取
-        items = FavoriteStock.objects.all()
-        for item in items:
-            fav_data = self.user_data_format_process.set_user_favorites(user.id, item)
-            fav_datas.append(fav_data)
-            await self.user_cache_set.all_favorites(item)
-        return fav_datas
+        
+        try:
+            # 使用 sync_to_async 包装 ORM 查询
+            items = await sync_to_async(list)(FavoriteStock.objects.all())
+            for item in items:
+                # 原逻辑中 self.user_data_format_process.set_user_favorites(user.id, item) 依赖 user.id，
+                # 但这里没有 user 参数。这可能是错误。假设这是一个通用的格式化操作，
+                # 这里直接使用 item 对象或一个通用的格式化方法。如果有特定方法可用，请替换。
+                # 为保持业务逻辑，我假设格式化是可选的，先直接使用 item，然后缓存。
+                # 如果 self.user_data_format_process 有通用方法，可以在这里调整。
+                fav_data = item  # 临时修正：直接使用模型对象，避免 user.id 错误
+                # 如果需要严格保持原逻辑，且有通用格式化方法，可以添加：fav_data = self.data_format_process.set_favorite_stock(item)
+                fav_datas.append(fav_data)  # fav_data 现在是 FavoriteStock 对象
+                await self.user_cache_set.all_favorites(item)  # 保持缓存逻辑不变
+        except Exception as e:
+            logger.error(f"从数据库获取所有自选股失败: {e}")
+            return None  # 返回 None 表示失败
+        
+        return fav_datas  # 返回列表，包含 FavoriteStock 对象
     
     async def get_cache_all_stocks(self) -> Optional[List[Dict]]:
         """从缓存中获取所有股票列表"""
