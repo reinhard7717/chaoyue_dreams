@@ -658,7 +658,7 @@ LOGGING = {
         },
         'celery.task': {
             'handlers': ['console', 'celery'],
-            'level': 'INFO',
+            'level': 'WARNING',
             'propagate': False,
         },
         'celery.worker': {
