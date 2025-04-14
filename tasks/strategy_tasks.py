@@ -29,7 +29,7 @@ async def run_strategy_for_single_stock_task(self, stock_code: str):
     """
     stock_dao = StockBasicDAO()
     stock = await stock_dao.get_stock_by_code(stock_code)
-    log_prefix = f"[StrategyTask] [{stock.stock_name}]"
+    log_prefix = f"[StrategyTask] [{stock}]"
     # logger.info(f"{log_prefix} 开始执行 MACD+RSI+KDJ+BOLL 策略计算任务")
     service = None
     strategy = None
