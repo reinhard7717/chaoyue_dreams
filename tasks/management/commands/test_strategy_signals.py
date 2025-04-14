@@ -149,9 +149,70 @@ def analyze_score_trend(
         strength = latest_data['ema_strength_13_55']
         if pd.isna(strength): summary += "  - 评分趋势强度 (EMA13-55): NaN\n"
         else: summary += f"  - 评分趋势强度 (EMA13-55): {strength:.2f}\n"
+        # d. 评分动能 (增加方向指示)
         momentum = latest_data['score_momentum']
-        if pd.isna(momentum): summary += "  - 评分动能 (单期变化): NaN\n"
-        else: summary += f"  - 评分动能 (单期变化): {momentum:.2f}\n"
+        if pd.isna(momentum):
+            summary += "  - 评分动能 (单期变化): 无法计算 (NaN)\n"
+        else:
+            summary += f"  - 评分动能 (单期变化): {momentum:.2f} " # 显示数值
+            if momentum > 0:
+                summary += "**(评分上升)**\n" # 明确上升
+            elif momentum < 0:
+                summary += "**(评分下降)**\n" # 明确下降
+            else:
+                summary += "(评分持平)\n" # 持平状态
+
+        # e. 信号稳定性 (检查最近 3 期 alignment_signal)
+        summary += "  - 信号稳定性 (近3期): "
+        if len(analysis_df) >= 3:
+            # 获取最近三期的排列信号，并过滤掉 NaN 值
+            recent_alignment_raw = analysis_df['alignment_signal'].iloc[-3:].tolist()
+            recent_alignment = [a for a in recent_alignment_raw if not pd.isna(a)] # 过滤 NaN
+
+            if not recent_alignment: # 如果过滤后为空（例如最近三期都是 NaN）
+                summary += "信号不足或无法判断\n"
+            elif len(set(recent_alignment)) == 1: # 如果信号一致
+                last_valid_signal = recent_alignment[-1]
+                if last_valid_signal == 3:
+                    summary += "连续完全多头排列\n"
+                elif last_valid_signal == -3:
+                    summary += "连续完全空头排列\n"
+                elif last_valid_signal > 0:
+                    summary += f"连续偏多头排列 ({int(last_valid_signal)})\n"
+                elif last_valid_signal < 0:
+                    summary += f"连续偏空头排列 ({int(last_valid_signal)})\n"
+                else: # all zeros
+                    summary += "连续混合/粘合状态\n"
+            else: # 如果信号不一致
+                summary += "排列信号波动\n"
+        else: # 数据不足三期
+            summary += "数据不足 (<3期)\n"
+
+        # f. 评分波动性 (基于 10 期滚动标准差)
+        volatility = latest_data['score_volatility']
+        summary += f"  - 评分波动性 ({volatility_window}期 std): " # volatility_window 是之前定义的
+        if pd.isna(volatility):
+            summary += "无法计算 (NaN)\n"
+        else:
+            summary += f"{volatility:.2f} " # 显示数值
+            # 计算波动性的分位数，以提供相对高低的判断依据
+            try:
+                # 忽略 NaN 值计算分位数，确保有足够非 NaN 值
+                valid_volatility = analysis_df['score_volatility'].dropna()
+                if len(valid_volatility) > volatility_window: # 需要足够数据才有意义
+                    q25 = valid_volatility.quantile(0.25)
+                    q75 = valid_volatility.quantile(0.75)
+                    if volatility > q75:
+                        summary += "**(近期波动较大)**\n" # 高于 75% 分位数
+                    elif volatility < q25:
+                        summary += "(近期波动较小)\n" # 低于 25% 分位数
+                    else:
+                        summary += "(近期波动适中)\n" # 介于 25% 和 75% 之间
+                else:
+                    summary += "(数据不足无法判断相对水平)\n"
+            except Exception as e_quantile:
+                 logger.warning(f"[{stock_code}] 计算波动性分位数时出错: {e_quantile}")
+                 summary += "(无法判断相对水平)\n" # 计算分位数出错
 
         if t0_params['enabled']:
             summary += f"--- 日内 T+0 交易信号 (基于价格与 VWAP 偏离度) ---\n"

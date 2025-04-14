@@ -251,38 +251,6 @@ def calculate_stock_indicators_task(self, stock_code: str):
         logger.error(f"执行 calculate_stock_indicators_task (同步包装器) 时出错: {e}", exc_info=True)
         raise
 
-# Celery 任务：对单个股票执行策略计算。
-@celery_app.task(bind=True, name='tasks.stock_processing.run_stock_strategy')
-def run_stock_strategy_task(self, stock_code: str):
-    """
-    Celery 任务：对单个股票执行策略计算。
-    假定上一个任务成功时会传递 stock_code。
-    """
-    if not stock_code:
-         logger.warning(f"任务跳过 (策略计算): run_stock_strategy_task - 未收到有效的 stock_code (可能前序任务失败)")
-         return None
-    queue_name = self.request.delivery_info.get('routing_key', '未知')
-    # logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
-    async def _run_async_strategy():
-        try:
-            # logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
-            await run_strategy_for_single_stock_task(stock_code)
-            # logger.debug(f"策略计算: 完成运行 {stock_code} 的策略。")
-            return True
-        except Exception as e:
-            logger.error(f"策略计算: 运行股票 {stock_code} 策略时出错: {e}", exc_info=True)
-            return False
-    try:
-        success = asyncio.run(_run_async_strategy()) # 假设策略函数是异步的
-        if success:
-            # logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
-            return f"Strategy calculation completed for {stock_code}" # 链的最终结果
-        else:
-            logger.error(f"任务失败 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} 失败")
-            raise Exception(f"Failed to run strategy for {stock_code}")
-    except Exception as e:
-        logger.error(f"执行 run_stock_strategy_task (同步包装器) 时出错: {e}", exc_info=True)
-        raise
 
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
@@ -321,79 +289,6 @@ async def _get_all_relevant_stock_codes_for_processing():
          logger.warning("未能获取到任何需要处理的股票代码")
 
     return favorite_stock_codes_list, non_favorite_stock_codes
-
-# --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.stock_indicators.get_trade_and_calculate_and_strategy')
-def get_trade_and_calculate_and_strategy(self):
-    """
-    修改后的调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 为每只股票创建任务链 (获取数据 -> 计算指标 -> 执行策略)。
-    3. 将任务链中的任务分派到指定的队列 (favorite_* 或 stocks_*/calculate_*)。
-    这个任务由 Celery Beat 调度。
-    """
-    logger.info("任务启动: get_trade_and_calculate_and_strategy (调度器模式) - 获取股票列表并分派细粒度任务链")
-    try:
-        # 在同步任务中运行异步代码来获取列表
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-
-        if not favorite_codes and not non_favorite_codes:
-            logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
-            return "未获取到股票代码"
-
-        total_dispatched_chains = 0
-        total_favorite_stocks = len(favorite_codes)
-        total_non_favorite_stocks = len(non_favorite_codes)
-
-        # 1. 分派自选股任务链
-        # logger.info(f"准备为 {total_favorite_stocks} 个自选股分派任务链...")
-        for stock_code in favorite_codes:
-            logger.debug(f"创建自选股 {stock_code} 的任务链...")
-            # 创建任务链，并为每个任务指定队列
-            task_chain = chain(
-                # 任务签名 .s()，并用 .set() 指定队列
-                fetch_stock_api_data_task.s(stock_code).set(queue=FAVORITE_SAVE_API_DATA_QUEUE),
-                calculate_stock_indicators_task.s().set(queue=FAVORITE_CALCULATE_INDICATORS_QUEUE), # 注意：后续任务参数由前序任务传递
-                run_stock_strategy_task.s().set(queue=FAVORITE_CALCULATE_STRATEGY_QUEUE)
-            )
-            # 异步执行任务链
-            task_chain.apply_async()
-            total_dispatched_chains += 1
-            # logger.debug(f"已分派自选股 {stock_code} 的任务链")
-            # 可选：短暂延迟以避免瞬间产生大量请求
-            # import time
-            # time.sleep(0.01)
-
-        # logger.info(f"已为 {total_favorite_stocks} 个自选股分派任务链。")
-
-        # 2. 分派非自选股任务链
-        # logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派任务链...")
-        for stock_code in non_favorite_codes:
-            # logger.debug(f"创建非自选股 {stock_code} 的任务链...")
-            # 创建任务链，并为每个任务指定队列
-            task_chain = chain(
-                fetch_stock_api_data_task.s(stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE),
-                calculate_stock_indicators_task.s().set(queue=STOCKS_CALCULATE_INDICATORS_QUEUE),
-                run_stock_strategy_task.s().set(queue=STOCKS_CALCULATE_STRATEGY_QUEUE)
-            )
-            # 异步执行任务链
-            task_chain.apply_async()
-            total_dispatched_chains += 1
-            # logger.debug(f"已分派非自选股 {stock_code} 的任务链")
-            # 可选：短暂延迟
-            # import time
-            # time.sleep(0.01)
-
-        # logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派任务链。")
-
-        logger.info(f"任务结束: get_trade_and_calculate_and_strategy (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")
-        return f"已为 {total_favorite_stocks} 自选股和 {total_non_favorite_stocks} 非自选股分派 {total_dispatched_chains} 个任务链"
-
-    except Exception as e:
-        logger.error(f"执行 get_trade_and_calculate_and_strategy (调度器模式) 时出错: {e}", exc_info=True)
-        # 可以考虑重试机制
-        # raise self.retry(exc=e, countdown=300, max_retries=1)
-        return "调度任务执行失败"
 
 
 

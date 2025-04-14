@@ -188,6 +188,40 @@ def run_stock_strategy_task(self, stock_code: str):
         logger.error(f"执行 run_stock_strategy_task (同步包装器) 时出错: {e}", exc_info=True)
         raise
 
+# Celery 任务：对单个股票执行策略计算。
+@celery_app.task(bind=True, name='tasks.stock_processing.run_stock_strategy')
+def run_stock_strategy_task(self, stock_code: str):
+    """
+    Celery 任务：对单个股票执行策略计算。
+    假定上一个任务成功时会传递 stock_code。
+    """
+    if not stock_code:
+         logger.warning(f"任务跳过 (策略计算): run_stock_strategy_task - 未收到有效的 stock_code (可能前序任务失败)")
+         return None
+    queue_name = self.request.delivery_info.get('routing_key', '未知')
+    # logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
+    async def _run_async_strategy():
+        try:
+            # logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
+            await _run_strategy_for_single_stock_task(stock_code)
+            # logger.debug(f"策略计算: 完成运行 {stock_code} 的策略。")
+            return True
+        except Exception as e:
+            logger.error(f"策略计算: 运行股票 {stock_code} 策略时出错: {e}", exc_info=True)
+            return False
+    try:
+        success = asyncio.run(_run_async_strategy()) # 假设策略函数是异步的
+        if success:
+            # logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
+            return f"Strategy calculation completed for {stock_code}" # 链的最终结果
+        else:
+            logger.error(f"任务失败 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} 失败")
+            raise Exception(f"Failed to run strategy for {stock_code}")
+    except Exception as e:
+        logger.error(f"执行 run_stock_strategy_task (同步包装器) 时出错: {e}", exc_info=True)
+        raise
+
+
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
