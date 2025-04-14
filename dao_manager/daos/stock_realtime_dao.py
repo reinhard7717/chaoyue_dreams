@@ -467,7 +467,7 @@ class StockRealtimeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_date', 'trade_time']
             )
             # --- 1. 获取关注此股票的用户 ID ---
-            favorited_user_ids = await self._get_favorited_user_ids(stock.id)
+            favorited_user_ids = await self._get_favorited_user_ids(stock.stock_code)
             # --- 2. 准备并推送 WebSocket 更新 ---
             if data_dict and favorited_user_ids: # 确保有最新数据和需要通知的用户
                 channel_layer = get_channel_layer()
