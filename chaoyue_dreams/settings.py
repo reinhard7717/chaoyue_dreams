@@ -630,6 +630,15 @@ LOGGING = {
             'formatter': 'verbose',
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
+         'tasks': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'tasks.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5, # 备份5个文件
+            'formatter': 'verbose', # 使用verbose格式
+            'encoding': 'utf-8',  # 设置编码为utf-8
+        },
     },
     'loggers': {
         'django': {
@@ -669,6 +678,11 @@ LOGGING = {
         },
         'strategy': {
             'handlers': ['console', 'strategy'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'tasks': {
+            'handlers': ['console', 'tasks'],
             'level': 'INFO',
             'propagate': False,
         },

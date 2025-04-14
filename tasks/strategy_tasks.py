@@ -14,7 +14,7 @@ from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollEnhancedStrategy
 from utils.cache_set import StrategyCacheSet
 from dao_manager.daos.stock_basic_dao import StockBasicDAO # 假设主任务需要
 
-logger = logging.getLogger('strategy') # 或者你使用的 logger 名称
+logger = logging.getLogger('tasks') # 或者你使用的 logger 名称
 
 @database_sync_to_async # 将同步的 ORM 查询包装成异步
 def _get_favorited_user_ids(self, stock_id: int) -> list[int]:

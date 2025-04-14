@@ -15,7 +15,7 @@ if sys.version_info >= (3, 12):
         # 为了兼容性，添加一个_DEBUG属性，其值由_is_debug_mode()函数确定
         asyncio.coroutines._DEBUG = asyncio.coroutines._is_debug_mode()
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('tasks')
 
 
 @shared_task

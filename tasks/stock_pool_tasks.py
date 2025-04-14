@@ -8,7 +8,7 @@ from celery import shared_task
 
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('tasks')
 
 # API和DAO实例
 

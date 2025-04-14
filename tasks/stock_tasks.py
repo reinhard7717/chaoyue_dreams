@@ -5,7 +5,7 @@ from utils.websockets import send_update_to_user_sync # 导入推送函数
 import logging
 
 # 获取 logger 实例
-logger = logging.getLogger('celery') # 或者使用你项目配置的 logger
+logger = logging.getLogger('tasks') # 或者使用你项目配置的 logger
 
 def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id: int):
     """

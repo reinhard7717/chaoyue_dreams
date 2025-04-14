@@ -7,7 +7,7 @@ from core.constants import TIME_TEADE_TIME_LEVELS, TimeLevel
 from chaoyue_dreams.celery import app as celery_app
 from tasks.stock_indicator_tasks import calculate_stock_indicators_for_single_stock
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('tasks')
 
 
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_kdj')

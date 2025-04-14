@@ -8,7 +8,7 @@ from celery import shared_task
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('tasks')
 
 # API和DAO实例
 

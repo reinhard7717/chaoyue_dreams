@@ -14,7 +14,7 @@ from services.indicator_services import IndicatorService
 
 
 
-logger = logging.getLogger("celery")
+logger = logging.getLogger('tasks')
 
 # --- 新增：处理单个股票的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade')

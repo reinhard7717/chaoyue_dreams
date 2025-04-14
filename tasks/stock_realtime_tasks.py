@@ -12,7 +12,7 @@ from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data'
 STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data'
-logger = get_task_logger('celery')
+logger = get_task_logger('tasks')
 
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
