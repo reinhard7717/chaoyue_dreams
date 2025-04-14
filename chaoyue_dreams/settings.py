@@ -667,7 +667,7 @@ LOGGING = {
             'propagate': False,
         },
         'celery.app': {
-            'handlers': ['console', 'celery'],
+            'handlers': ['celery'],
             'level': 'INFO',
             'propagate': False,
         },
