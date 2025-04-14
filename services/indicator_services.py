@@ -1130,7 +1130,7 @@ class IndicatorService:
                 fetched_data_summary[data_key] = "Error"
                 continue
             if result is None or result.empty:
-                logger.warning(f"[{stock_code}] 未获取到有效的 {data_key} 数据")
+                # logger.warning(f"[{stock_code}] 未获取到有效的 {data_key} 数据")
                 fetched_data_summary[data_key] = "Empty/None"
                 continue
             df = result.copy() # 操作副本

@@ -721,7 +721,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df
         except Exception as e:
-            logger.error(f"[get_macd_fib_df] 获取或处理股票[{stock_code}] {time_level_str} MACD-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_macd_fib_df] 获取或处理股票[{stock}] {time_level_str} MACD-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_rsi_fib_df(self, stock_code: str, time_level: str, rsi_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -771,7 +771,7 @@ class IndicatorDAO(BaseDAO):
             )
 
             if not rsi_data_dicts:
-                logger.warning(f"[get_rsi_fib_df] 未找到 {stock_code} {time_level_str} 的 RSI-FIB 数据 (column: {rsi_col_name})")
+                logger.warning(f"[get_rsi_fib_df] 未找到 {stock} {time_level_str} 的 RSI-FIB 数据 (column: {rsi_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(rsi_data_dicts)
@@ -800,7 +800,7 @@ class IndicatorDAO(BaseDAO):
             return df[['rsi']] # 只返回包含 'rsi' 列的 DataFrame
 
         except Exception as e:
-            logger.error(f"[get_rsi_fib_df] 获取或处理股票[{stock_code}] {time_level_str} RSI-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_rsi_fib_df] 获取或处理股票[{stock}] {time_level_str} RSI-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_boll_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -856,7 +856,7 @@ class IndicatorDAO(BaseDAO):
             # 返回包含所需列的 DataFrame
             return df[['upper', 'mid', 'lower']]
         except Exception as e:
-            logger.error(f"[get_boll_df] 获取或处理股票[{stock_code}] {time_level_str} BOLL 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_boll_df] 获取或处理股票[{stock}] {time_level_str} BOLL 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_close_price_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -911,7 +911,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['close_price']]
         except Exception as e:
-            logger.error(f"[get_close_price_df] 获取或处理股票[{stock_code}] {time_level_str} 收盘价数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_close_price_df] 获取或处理股票[{stock}] {time_level_str} 收盘价数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_kdj_fib_df(self, stock_code: str, time_level: str, kdj_period_k: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -996,7 +996,7 @@ class IndicatorDAO(BaseDAO):
             # 返回包含所需列的 DataFrame
             return df[['k', 'd', 'j']]
         except Exception as e:
-            logger.error(f"[get_kdj_fib_df] 获取或处理股票[{stock_code}] {time_level_str} KDJ-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_kdj_fib_df] 获取或处理股票[{stock}] {time_level_str} KDJ-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_cci_fib_df(self, stock_code: str, time_level: str, cci_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1053,7 +1053,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['cci']]
         except Exception as e:
-            logger.error(f"[get_cci_fib_df] 获取或处理股票[{stock_code}] {time_level_str} CCI-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_cci_fib_df] 获取或处理股票[{stock}] {time_level_str} CCI-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_mfi_fib_df(self, stock_code: str, time_level: str, mfi_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1110,7 +1110,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['mfi']]
         except Exception as e:
-            logger.error(f"[get_mfi_fib_df] 获取或处理股票[{stock_code}] {time_level_str} MFI-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_mfi_fib_df] 获取或处理股票[{stock}] {time_level_str} MFI-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_roc_fib_df(self, stock_code: str, time_level: str, roc_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1167,7 +1167,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['roc']]
         except Exception as e:
-            logger.error(f"[get_roc_fib_df] 获取或处理股票[{stock_code}] {time_level_str} ROC-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_roc_fib_df] 获取或处理股票[{stock}] {time_level_str} ROC-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_dmi_fib_df(self, stock_code: str, time_level: str, dmi_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1240,7 +1240,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['pdi', 'mdi', 'adx']]
         except Exception as e:
-            logger.error(f"[get_dmi_fib_df] 获取或处理股票[{stock_code}] {time_level_str} DMI-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_dmi_fib_df] 获取或处理股票[{stock}] {time_level_str} DMI-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_sar_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1285,7 +1285,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['sar']]
         except Exception as e:
-            logger.error(f"[get_sar_df] 获取或处理股票[{stock_code}] {time_level_str} SAR 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_sar_df] 获取或处理股票[{stock}] {time_level_str} SAR 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_amount_ma_fib_df(self, stock_code: str, time_level: str, amount_ma_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1319,7 +1319,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', amt_ma_col_name)[:limit]
             )
             if not amt_ma_data_dicts:
-                logger.warning(f"[get_amount_ma_fib_df] 未找到 {stock_code} {time_level_str} 的 Amount MA-FIB 数据 (column: {amt_ma_col_name})")
+                logger.warning(f"[get_amount_ma_fib_df] 未找到 {stock} {time_level_str} 的 Amount MA-FIB 数据 (column: {amt_ma_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(amt_ma_data_dicts)
@@ -1342,7 +1342,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['amount_ma']]
         except Exception as e:
-            logger.error(f"[get_amount_ma_fib_df] 获取或处理股票[{stock_code}] {time_level_str} Amount MA-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_amount_ma_fib_df] 获取或处理股票[{stock}] {time_level_str} Amount MA-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_cmf_fib_df(self, stock_code: str, time_level: str, cmf_period: int, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1376,7 +1376,7 @@ class IndicatorDAO(BaseDAO):
                 .values('trade_time', cmf_col_name)[:limit]
             )
             if not cmf_data_dicts:
-                logger.warning(f"[get_cmf_fib_df] 未找到 {stock_code} {time_level_str} 的 CMF-FIB 数据 (column: {cmf_col_name})")
+                logger.warning(f"[get_cmf_fib_df] 未找到 {stock} {time_level_str} 的 CMF-FIB 数据 (column: {cmf_col_name})")
                 return None
             # 3. 转换为 DataFrame
             df = pd.DataFrame.from_records(cmf_data_dicts)
@@ -1399,7 +1399,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['cmf']]
         except Exception as e:
-            logger.error(f"[get_cmf_fib_df] 获取或处理股票[{stock_code}] {time_level_str} CMF-FIB 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_cmf_fib_df] 获取或处理股票[{stock}] {time_level_str} CMF-FIB 数据失败: {str(e)}", exc_info=True)
             return None
 
     async def get_obv_df(self, stock_code: str, time_level: str, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -1447,7 +1447,7 @@ class IndicatorDAO(BaseDAO):
                  return None
             return df[['obv']]
         except Exception as e:
-            logger.error(f"[get_obv_df] 获取或处理股票[{stock_code}] {time_level_str} OBV 数据失败: {str(e)}", exc_info=True)
+            logger.error(f"[get_obv_df] 获取或处理股票[{stock}] {time_level_str} OBV 数据失败: {str(e)}", exc_info=True)
             return None
 
 
