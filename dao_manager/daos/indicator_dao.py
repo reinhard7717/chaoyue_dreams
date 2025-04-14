@@ -254,10 +254,10 @@ class IndicatorDAO(BaseDAO):
             # 5. 去除重复索引
             initial_len = len(df)
             if df.index.has_duplicates:
-                logger.warning(f"发现重复的时间戳索引 for {stock_code} {time_level}，将进行去重处理 (保留最后一个)")
+                # logger.warning(f"发现重复的时间戳索引 for {stock_code} {time_level}，将进行去重处理 (保留最后一个)")
                 # 保留每个重复时间戳的最后一条记录
                 df = df[~df.index.duplicated(keep='last')]
-                logger.info(f"索引去重完成 for {stock_code} {time_level}，记录数从 {initial_len} 变为 {len(df)}")
+                # logger.info(f"索引去重完成 for {stock_code} {time_level}，记录数从 {initial_len} 变为 {len(df)}")
             # --- 去重结束 ---
             # 6. 确保数据按时间升序排列
             df.sort_index(ascending=True, inplace=True)
