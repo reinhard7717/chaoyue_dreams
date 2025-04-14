@@ -56,11 +56,8 @@ class StockRealtimeDAO(BaseDAO):
     async def close(self):
         """关闭内部持有的 API Client Session"""
         if hasattr(self, 'api') and self.api:
-            # logger.debug("Closing StockRealtimeDAO's internal API client...") # 可选日志
-            await self.api.close() # 调用 StockRealtimeAPI 的 close 方法
-            # logger.debug("StockRealtimeDAO's internal API client closed.") # 可选日志
+            await self.api.close()
         else:
-            # logger.debug("StockRealtimeDAO has no API client to close or it's already None.") # 可选日志
             pass
 
     # ================= RealtimeData相关方法 =================
