@@ -182,7 +182,7 @@ class StockBasicDAO(BaseDAO):
                 fav_data = item  # 临时修正：直接使用模型对象，避免 user.id 错误
                 # 如果需要严格保持原逻辑，且有通用格式化方法，可以添加：fav_data = self.data_format_process.set_favorite_stock(item)
                 fav_datas.append(fav_data)  # fav_data 现在是 FavoriteStock 对象
-                await self.user_cache_set.all_favorites(item)  # 保持缓存逻辑不变
+                # await self.user_cache_set.all_favorites(item)  # 保持缓存逻辑不变
         except Exception as e:
             logger.error(f"从数据库获取所有自选股失败: {e}")
             return None  # 返回 None 表示失败
