@@ -139,6 +139,18 @@ class IndexCashKey:
         )
         return cache_key
 
+class UserCashKey:
+    def __init__(self):
+        self.cache_manager = CacheManager()
+
+    def user_favorites(self, user_id: int) -> str:
+        cache_key = self.cache_manager.generate_key(
+            cache_type=cc.TYPE_USER,
+            entity_type=cc.ENTITY_USERFAVORITES,
+            entity_id=user_id
+        )
+        return cache_key
+    
 
 class StockCashKey:
     def __init__(self):

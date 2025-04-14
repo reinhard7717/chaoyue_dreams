@@ -44,6 +44,7 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_get = StockRealtimeCacheGet()
         self.cache_set = StockRealtimeCacheSet()
         self.cache_key = StockCashKey()
+        self.data_format_process = StockRealtimeDataFormatProcess()
 
     @database_sync_to_async # 将同步的 ORM 查询包装成异步
     def _get_favorited_user_ids(self, stock_id: int) -> list[int]:
@@ -71,6 +72,7 @@ class StockRealtimeDAO(BaseDAO):
         Returns:
             Optional[StockRealtimeData]: 最新的实时交易数据，如不存在则返回None
         """
+        realtime_data = None
         # 从缓存获取最新数据
         cache_data = await self.cache_get.latest_realtime_data(stock_code)
         if cache_data:
@@ -79,19 +81,19 @@ class StockRealtimeDAO(BaseDAO):
             return realtime_data
         # 从数据库获取最新数据
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-        if not stock:
-            return None
-        try:
+        if stock:
+            try:
+                sql_data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
+                if sql_data:
+                    realtime_data = self.data_format_process.set_realtime_data(stock, sql_data)
+            except Exception as e:
+                logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}")
+        if not realtime_data:
+            # 数据不存在或已过期，从API获取新数据
+            logger.info(f"股票[{stock}]实时数据不存在或已过期，从API获取")
+            await self.fetch_and_save_realtime_data(stock_code)
             data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
-            return data
-        except Exception as e:
-            logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}")
-            return None
-        # 数据不存在或已过期，从API获取新数据
-        logger.info(f"股票[{stock}]实时数据不存在或已过期，从API获取")
-        await self.fetch_and_save_realtime_data(stock_code)
-        data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
-        return data
+        return realtime_data
 
     async def fetch_and_save_realtime_data(self, stock_code: str) -> Dict:
         """

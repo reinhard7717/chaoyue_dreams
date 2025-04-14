@@ -5,13 +5,22 @@ import logging
 from celery import shared_task  # 使用 shared_task 以确保兼容
 from chaoyue_dreams.celery import app as celery_app  # 假设这是您的Celery app
 import pandas as pd
+from channels.layers import get_channel_layer
+from channels.db import database_sync_to_async # 用于同步 ORM 查询
 from services.indicator_services import IndicatorService
 from strategies.base import SIGNAL_BUY, SIGNAL_HOLD, SIGNAL_SELL, SIGNAL_STRONG_BUY, SIGNAL_STRONG_SELL
 from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollEnhancedStrategy
+
 from utils.cache_set import StrategyCacheSet
 from dao_manager.daos.stock_basic_dao import StockBasicDAO # 假设主任务需要
 
 logger = logging.getLogger('strategy') # 或者你使用的 logger 名称
+
+@database_sync_to_async # 将同步的 ORM 查询包装成异步
+def _get_favorited_user_ids(self, stock_id: int) -> list[int]:
+    """根据股票 ID 获取关注该股票的所有用户 ID 列表"""
+    from users.models import FavoriteStock
+    return list(FavoriteStock.objects.filter(stock_id=stock_id).values_list('user_id', flat=True))
 
 @celery_app.task(bind=True, name='tasks.strategy.run_strategy_for_single_stock_task')
 def run_strategy_for_single_stock_task(self, stock_code: str):
@@ -135,6 +144,42 @@ def run_strategy_for_single_stock_task(self, stock_code: str):
                 )
                 if cache_success:
                     logger.debug(f"{log_prefix} 策略结果/状态成功缓存到 Redis。")
+                    # --- 1. 获取关注此股票的用户 ID ---
+                    stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+                    favorited_user_ids = await self._get_favorited_user_ids(stock_code)
+                    # --- 2. 准备并推送 WebSocket 更新 ---
+                    if signal_data_to_cache and favorited_user_ids: # 确保有最新数据和需要通知的用户
+                        channel_layer = get_channel_layer()
+                        payload_data = {
+                            'code': stock.stock_code,
+                            # 'name': stock.stock_name, # 前端可能已经有名称，或者需要传递
+                            'latest_price': latest_data_dict.get('price'),
+                            # 格式化时间为 HH:MM:SS
+                            'trade_time': latest_data_dict.get('trade_time').strftime('%H:%M:%S') if latest_data_dict.get('trade_time') else None,
+                            'volume': latest_data_dict.get('volume'),
+                            # 注意：这里的 'change_percent' 和 'signal' 无法从此数据直接获得
+                            # 需要由其他任务（如计算指标、执行策略的任务）来推送
+                            # 'change_percent': None,
+                            # 'signal': None,
+                        }
+                        message_data = {
+                            'type': 'user.message', # 对应 Consumer 中的 user_message 方法
+                            'data': {
+                                'sub_type': 'stock_update', # 让 JS 知道这是股票数据更新
+                                'payload': payload_data,
+                            }
+                        }
+                        for user_id in favorited_user_ids:
+                            try:
+                                await channel_layer.group_send(
+                                    f'user_{user_id}', # 发送到特定用户的组
+                                    message_data
+                                )
+                                logger.debug(f"成功推送 {stock_code} 更新给用户 {user_id}")
+                            except Exception as push_error:
+                                # 记录推送错误，但不应中断整个流程
+                                logger.error(f"推送 {stock_code} 更新给用户 {user_id} 时失败: {push_error}", exc_info=False)
+
                 else:
                     logger.warning(f"{log_prefix} 缓存策略结果/状态到 Redis 失败。")
             except Exception as cache_err:

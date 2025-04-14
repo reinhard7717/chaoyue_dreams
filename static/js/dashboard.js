@@ -18,6 +18,36 @@ document.addEventListener('DOMContentLoaded', function() {
     const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
     let socket;
 
+    // --- WebSocket 消息处理 ---
+    socket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        console.log('Data received:', data);
+        switch (data.type) {
+            case 'favorite_message':
+                addMessage(favoriteMessagesList, data.payload, MAX_FAV_MESSAGES);
+                break;
+            case 'strategy_message':
+                addMessage(strategyMessagesList, data.payload, MAX_STRATEGY_MESSAGES);
+                break;
+            case 'stock_update':
+                updateStockRow(data.payload);
+                break;
+            // --- 处理新添加的自选股数据 ---
+            case 'favorite_added_with_data':
+                addStockRow(data.payload); // 调用新函数添加行
+                break;
+            // --- 处理删除的自选股通知 ---
+            case 'favorite_removed':
+                removeStockRow(data.payload.id); // 调用新函数移除行
+                break;
+            // case 'favorites_update': // 如果不再需要整个列表更新，可以移除这个 case
+            //     renderFavoritesTable(data.payload);
+            //     break;
+            default:
+                console.warn('Unknown message type:', data.type);
+        }
+    };
+
     function connectWebSocket() {
         console.log('Attempting to connect WebSocket...');
         socket = new WebSocket(wsPath);
@@ -101,43 +131,65 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 阻止搜索表单的默认提交行为 (如果它是 <form>)
+    if (addFavoriteForm) {
+        addFavoriteForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+        });
+    }
+
     async function performSearch(query) {
+        console.log(`Searching for: ${query}`);
+        searchResultsContainer.innerHTML = '<div class="search-result-item empty">正在搜索...</div>'; // 显示加载状态
+        searchResultsContainer.style.display = 'block'; // 显示容器
         try {
+            // 使用 GET 请求，不需要 CSRF token
             const response = await fetch(`/dashboard/api/search/?q=${encodeURIComponent(query)}`, {
                 headers: {
-                    'X-Requested-With': 'XMLHttpRequest', // 标识为 AJAX 请求
-                    // 'X-CSRFToken': getCookie('csrftoken') // 如果需要 CSRF
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json', // 明确要求 JSON
                 }
             });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) {
+                 // 尝试解析错误信息
+                 let errorMsg = `搜索失败 (HTTP ${response.status})`;
+                 try {
+                     const errorData = await response.json();
+                     errorMsg = Object.values(errorData).flat().join(' ') || errorMsg;
+                 } catch (e) { /* 忽略解析错误 */ }
+                 throw new Error(errorMsg);
+            }
             const results = await response.json();
             displaySearchResults(results);
         } catch (error) {
             console.error('Search failed:', error);
-            searchResultsContainer.innerHTML = '<div class="search-result-item error">搜索失败，请稍后重试</div>';
+            searchResultsContainer.innerHTML = `<div class="search-result-item error">${error.message || '搜索出错'}</div>`;
             searchResultsContainer.style.display = 'block';
         }
     }
 
     function displaySearchResults(results) {
-        searchResultsContainer.innerHTML = ''; // 清空旧结果
+        searchResultsContainer.innerHTML = ''; // 清空旧结果 (包括加载状态)
         if (results.length === 0) {
-            searchResultsContainer.innerHTML = '<div class="search-result-item">未找到相关股票</div>';
+            searchResultsContainer.innerHTML = '<div class="search-result-item empty">未找到相关股票</div>';
         } else {
             results.forEach(stock => {
                 const item = document.createElement('div');
                 item.classList.add('search-result-item');
-                item.innerHTML = `<strong>${stock.code}</strong> ${stock.name}`;
-                item.dataset.stockCode = stock.code; // 存储股票代码
+                item.innerHTML = `<strong>${stock.stock_code}</strong> ${stock.stock_name}`;
+                item.dataset.stockCode = stock.stock_code; // 存储股票代码
+                // --- 添加点击事件监听器 ---
                 item.addEventListener('click', () => {
-                    addFavoriteStock(stock.code); // 点击结果直接添加
+                    addFavoriteStock(stock.stock_code); // 点击结果直接添加
                     searchInput.value = ''; // 清空输入框
                     searchResultsContainer.style.display = 'none'; // 隐藏结果
+                    searchResultsContainer.innerHTML = ''; // 清空内容
                 });
+                // --- 事件监听器结束 ---
                 searchResultsContainer.appendChild(item);
             });
         }
-         searchResultsContainer.style.display = 'block'; // 显示结果容器
+         searchResultsContainer.style.display = 'block'; // 确保容器可见
     }
 
     // 点击页面其他地方隐藏搜索结果
@@ -146,7 +198,6 @@ document.addEventListener('DOMContentLoaded', function() {
             searchResultsContainer.style.display = 'none';
         }
     });
-
 
     // 处理表单提交（如果不用点击结果添加）
     addFavoriteForm.addEventListener('submit', async (event) => {
@@ -161,13 +212,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     async function addFavoriteStock(stockCode) {
-        console.log(`Attempting to add favorite: ${stockCode}`);
-        addFavoriteBtn.disabled = true; // 禁用按钮防止重复点击
-        addFavoriteBtn.textContent = '添加中...';
+        console.log(`正在尝试添加自选股: ${stockCode}`);
+        // 可以在这里加一个简单的视觉反馈，比如按钮禁用，但因为是点击结果触发，可能不需要
+        showNotification(`正在添加 ${stockCode}...`, 'info'); // 显示添加中提示
 
         try {
-            const csrfToken = getCookie('csrftoken'); // 获取 CSRF token
-            const response = await fetch('/dashboard/api/favorites/', {
+            const csrfToken = getCookie('csrftoken');
+            if (!csrfToken) {
+                throw new Error("无法获取 CSRF token，请刷新页面重试。");
+            }
+            const response = await fetch('/dashboard/api/favorites/', { // POST 到 ViewSet 的根 URL
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -178,56 +232,114 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             if (response.ok) {
-                const newFavorite = await response.json();
+                // const newFavorite = await response.json(); // 可能不需要解析响应体了
                 console.log('Favorite added:', newFavorite);
-                // 添加成功后，可以不清空列表，等待 WebSocket 推送更新
-                // 或者可以手动添加一行 (如果不用 WebSocket 推送列表更新)
-                // addStockRow(newFavorite.stock); // 需要后端返回 stock 完整信息
                 showNotification(`股票 ${stockCode} 添加成功！`, 'success');
+                // --- 不再手动操作表格，等待 WebSocket 推送 ---
             } else {
-                const errorData = await response.json();
-                console.error('Failed to add favorite:', errorData);
-                // 显示错误信息给用户
-                const errorMessage = Object.values(errorData).flat().join(' ') || `添加股票 ${stockCode} 失败`;
-                showNotification(errorMessage, 'error');
+                let errorMsg = `添加股票 ${stockCode} 失败`;
+                try {
+                    const errorData = await response.json();
+                    // 尝试提取后端返回的具体错误信息
+                    if (errorData.stock_code) {
+                        errorMsg = errorData.stock_code[0];
+                    } else if (errorData.detail) {
+                         errorMsg = errorData.detail;
+                    } else {
+                         errorMsg = Object.values(errorData).flat().join(' ') || errorMsg;
+                    }
+                } catch(e) { /* 忽略解析错误 */ }
+                throw new Error(errorMsg); // 抛出错误以便下面捕获
             }
         } catch (error) {
-            console.error('Error adding favorite:', error);
-             showNotification(`添加股票 ${stockCode} 时出错`, 'error');
+            console.error('添加自选股失败:', error);
+            showNotification(error.message || `添加股票 ${stockCode} 时出错`, 'error');
         } finally {
-             addFavoriteBtn.disabled = false; // 重新启用按钮
-             addFavoriteBtn.innerHTML = '<span class="icon">+</span> 添加到自选'; // 恢复按钮文本
+            // 可以在这里恢复按钮状态（如果之前禁用了）
         }
     }
 
-    // --- 自选股表格渲染与更新 ---
+    // --- 添加单个股票行 ---
+    function addStockRow(favData) {
+        if (!favoritesTbody) return;
+        // 检查是否已存在 (以防万一重复推送)
+        if (favoritesTbody.querySelector(`tr[data-favorite-id="${favData.id}"]`)) {
+            console.warn(`Stock row with favorite ID ${favData.id} already exists.`);
+            // 可以选择更新现有行而不是添加
+            // updateStockRow(favData); // 如果 updateStockRow 能处理完整数据
+            return;
+        }
+        favoritesEmpty.style.display = 'none'; // 隐藏空状态提示
+        favoritesLoading.style.display = 'none'; // 确保加载状态隐藏
+
+        const row = document.createElement('tr');
+        row.dataset.stockCode = favData.code;
+        row.dataset.favoriteId = favData.id; // 设置 favorite ID
+
+        const changePercent = favData.change_percent;
+        let percentClass = '';
+        if (changePercent > 0) percentClass = 'positive';
+        else if (changePercent < 0) percentClass = 'negative';
+
+        const signal = favData.signal || { type: 'hold', text: 'N/A' };
+        const signalClass = `signal-${signal.type || 'hold'}`;
+
+        row.innerHTML = `
+            <td class="stock-code">${favData.code || 'N/A'}</td>
+            <td class="stock-name">${favData.name || 'N/A'}</td>
+            <td class="price">${formatNumber(favData.latest_price, 2)}</td>
+            <td class="change-percent ${percentClass}">${formatPercent(changePercent)}</td>
+            <td class="volume">${formatVolume(favData.volume)}</td>
+            <td class="strategy-signal"><span class="signal ${signalClass}">${signal.text || 'N/A'}</span></td>
+            <td class="actions">
+                <button class="btn btn-secondary btn-sm action-btn" data-action="detail">详情</button>
+                <button class="btn btn-danger btn-sm action-btn" data-action="remove">移除</button>
+            </td>
+        `;
+        favoritesTbody.appendChild(row); // 添加新行到表格末尾 (或根据需要插入到特定位置)
+        flashRow(row); // 给新行一个闪烁效果
+    }
+
+     // --- 移除单个股票行 ---
+     function removeStockRow(favoriteId) {
+         if (!favoritesTbody) return;
+         const rowToRemove = favoritesTbody.querySelector(`tr[data-favorite-id="${favoriteId}"]`);
+         if (rowToRemove) {
+             rowToRemove.remove();
+             console.log(`Removed row with favorite ID: ${favoriteId}`);
+             // 检查表格是否变为空
+             if (favoritesTbody.children.length === 0) {
+                 favoritesEmpty.style.display = 'block';
+             }
+         } else {
+             console.warn(`Could not find row with favorite ID ${favoriteId} to remove.`);
+         }
+     }
+
+    // --- 自选股表格渲染与更新 (需要修改以存储 ID) ---
     function renderFavoritesTable(favoritesData) {
         if (!favoritesTbody) return;
-        favoritesTbody.innerHTML = ''; // 清空现有表格
+        favoritesTbody.innerHTML = '';
 
         if (!favoritesData || favoritesData.length === 0) {
             favoritesLoading.style.display = 'none';
             favoritesEmpty.style.display = 'block';
             return;
         }
-
         favoritesEmpty.style.display = 'none';
         favoritesLoading.style.display = 'none';
-
         favoritesData.forEach(fav => {
-            // fav 结构需要后端定义好，至少包含:
-            // { code: '600036', name: '招商银行', latest_price: 35.45, change_percent: 0.85, volume: 150345, signal: { type: 'buy', text: '策略A: 买入' } }
+            // fav 结构现在包含 id:
+            // { id: 1, code: '600036', name: '招商银行', latest_price: null, ... }
             const row = document.createElement('tr');
-            row.dataset.stockCode = fav.code; // 设置 data 属性方便查找
-
+            row.dataset.stockCode = fav.code;
+            row.dataset.favoriteId = fav.id; // <--- 存储 Favorite ID
             const changePercent = fav.change_percent;
             let percentClass = '';
             if (changePercent > 0) percentClass = 'positive';
             else if (changePercent < 0) percentClass = 'negative';
-
-            const signal = fav.signal || { type: 'hold', text: '无' }; // 默认信号
+            const signal = fav.signal || { type: 'hold', text: 'N/A' };
             const signalClass = `signal-${signal.type || 'hold'}`;
-
             row.innerHTML = `
                 <td class="stock-code">${fav.code || 'N/A'}</td>
                 <td class="stock-name">${fav.name || 'N/A'}</td>
@@ -277,67 +389,73 @@ document.addEventListener('DOMContentLoaded', function() {
         flashRow(row);
     }
 
-    // --- 表格操作 ---
+    // --- 表格删除操作 ---
     favoritesTbody.addEventListener('click', function(event) {
         const target = event.target;
-        if (target.classList.contains('action-btn')) {
-            const action = target.dataset.action;
-            const row = target.closest('tr');
+        // 确保点击的是移除按钮本身或其内部元素
+        const removeButton = target.closest('button[data-action="remove"]');
+        if (removeButton) {
+            const row = removeButton.closest('tr');
+            console.log("Row:", row.dataset.stockName);
             const stockCode = row.dataset.stockCode;
-
-            if (action === 'remove') {
-                removeFavoriteStock(stockCode, row);
-            } else if (action === 'detail') {
-                // 跳转到详情页或显示模态框
-                console.log(`Show details for ${stockCode}`);
-                // window.location.href = `/stocks/${stockCode}/`; // 假设有详情页
+            const favoriteId = row.dataset.favoriteId; // <--- 从行的 data 属性获取 ID
+            // 确保获取到了 ID
+            if (favoriteId) {
+                removeFavoriteStock(stockCode, favoriteId, row);
+            } else {
+                console.error(`无法获取股票 ${stockCode} 的 Favorite ID`);
+                showNotification(`移除股票 ${stockCode} 时出错 (缺少ID)`, 'error');
             }
+        } else if (target.closest('button[data-action="detail"]')) {
+             const row = target.closest('tr');
+             const stockCode = row.dataset.stockCode;
+             console.log(`Show details for ${stockCode}`);
+             // window.location.href = `/stocks/${stockCode}/`; // 跳转逻辑
         }
     });
 
-    async function removeFavoriteStock(stockCode, rowElement) {
+    async function removeFavoriteStock(stockCode, favoriteId, rowElement) {
         if (!confirm(`确定要从自选中移除 ${stockCode} 吗？`)) {
             return;
         }
-        console.log(`Attempting to remove favorite: ${stockCode}`);
-        // 可以在按钮上显示加载状态
+        console.log(`Attempting to remove favorite: ${stockCode} (ID: ${favoriteId})`);
         const removeButton = rowElement.querySelector('button[data-action="remove"]');
-        if(removeButton) removeButton.disabled = true;
-
+        if(removeButton) {
+            removeButton.disabled = true; // 禁用按钮
+            removeButton.textContent = '移除中...';
+        }
         try {
             const csrfToken = getCookie('csrftoken');
-            // 获取 favorite ID 可能需要先请求一次 GET /api/favorites/
-            // 或者让 DELETE API 支持通过 stock_code 删除 (需要自定义 destroy 方法)
-            // 假设我们通过 ID 删除，先找到 ID
-            const favId = await findFavoriteIdByCode(stockCode); // 需要实现这个函数
-            if (!favId) throw new Error("无法找到自选股 ID");
-
-            const response = await fetch(`/dashboard/api/favorites/${favId}/`, {
+            if (!csrfToken) {
+                throw new Error("无法获取 CSRF token，请刷新页面重试。");
+            }
+            // DELETE 请求到具体的 favorite 实例 URL
+            const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
                 method: 'DELETE',
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRFToken': csrfToken
                 }
             });
-
             if (response.ok || response.status === 204) { // 204 No Content 也是成功
-                console.log('Favorite removed:', stockCode);
-                rowElement.remove(); // 从表格中移除行
-                showNotification(`股票 ${stockCode} 已移除`, 'success');
-                // 检查表格是否为空
-                if (favoritesTbody.children.length === 0) {
-                    favoritesEmpty.style.display = 'block';
-                }
+                console.log('Favorite remove request successful for:', stockCode);
+                showNotification(`股票 ${stockCode} 移除请求已发送`, 'success');
+                // --- 不再手动移除行，等待 WebSocket 推送 'favorite_removed' ---
             } else {
-                const errorData = await response.json();
-                console.error('Failed to remove favorite:', errorData);
-                 showNotification(`移除股票 ${stockCode} 失败`, 'error');
-                 if(removeButton) removeButton.disabled = false; // 失败时恢复按钮
+                let errorMsg = `移除股票 ${stockCode} 失败`;
+                 try {
+                     const errorData = await response.json();
+                     errorMsg = errorData.detail || Object.values(errorData).flat().join(' ') || errorMsg;
+                 } catch(e) { /* 忽略解析错误 */ }
+                 throw new Error(errorMsg);
             }
         } catch (error) {
             console.error('Error removing favorite:', error);
-            showNotification(`移除股票 ${stockCode} 时出错`, 'error');
-            if(removeButton) removeButton.disabled = false; // 出错时恢复按钮
+            showNotification(error.message || `移除股票 ${stockCode} 时出错`, 'error');
+            if(removeButton) { // 恢复按钮状态
+                 removeButton.disabled = false;
+                 removeButton.textContent = '移除';
+            }
         }
     }
 
@@ -349,7 +467,7 @@ document.addEventListener('DOMContentLoaded', function() {
              });
              if (!response.ok) return null;
              const favorites = await response.json();
-             const found = favorites.find(fav => fav.stock && fav.stock.code === stockCode);
+             const found = favorites.find(fav => fav.stock && fav.stock.stock_code === stockCode);
              return found ? found.id : null;
          } catch (error) {
              console.error("Error finding favorite ID:", error);
@@ -358,50 +476,49 @@ document.addEventListener('DOMContentLoaded', function() {
      }
 
 
-    // --- 初始化 ---
+    // --- 初始化 (使用模板传递的数据) ---
     function initializeDashboard() {
-        // 直接使用从模板传递过来的初始数据渲染表格
         if (typeof initialFavoritesData !== 'undefined') {
-            renderFavoritesTable(initialFavoritesData);
+            renderFavoritesTable(initialFavoritesData); // 使用初始数据渲染
         } else {
-            console.warn("Initial favorites data not found in template.");
-            // 可以选择在这里保留 fetchInitialFavorites() 作为备用方案
-            // fetchInitialFavorites();
-            favoritesLoading.style.display = 'none';
-            favoritesEmpty.style.display = 'block'; // 或者显示加载失败
+            console.warn("Initial favorites data not found in template. Fetching via API.");
+            fetchInitialFavorites(); // 如果模板没提供数据，则通过 API 获取
         }
-
-        connectWebSocket();    // 建立 WebSocket 连接
+        connectWebSocket();
     }
 
+    // 保留 fetchInitialFavorites 作为备用或手动刷新
     async function fetchInitialFavorites() {
-         if (!favoritesTbody) return;
-         favoritesLoading.style.display = 'block';
-         favoritesEmpty.style.display = 'none';
-         favoritesTbody.innerHTML = '';
-         try {
-             const response = await fetch('/dashboard/api/favorites/', {
-                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
-             });
-             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-             const favorites = await response.json();
-             // 将 API 返回的 FavoriteStock 结构转换为 renderFavoritesTable 需要的结构
-             const formattedData = favorites.map(fav => ({
-                 code: fav.stock.code,
-                 name: fav.stock.name,
-                 // 初始加载时，实时数据可能为空，等待 WebSocket 推送
-                 latest_price: null,
-                 change_percent: null,
-                 volume: null,
-                 signal: null, // 或者从 fav 对象中获取初始信号（如果模型包含）
-             }));
-             renderFavoritesTable(formattedData);
-         } catch (error) {
-             console.error('Failed to fetch initial favorites:', error);
-             favoritesLoading.style.display = 'none';
-             favoritesTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: red;">加载自选股列表失败</td></tr>';
-         }
-     }
+        if (!favoritesTbody) return;
+        favoritesLoading.style.display = 'block';
+        favoritesEmpty.style.display = 'none';
+        favoritesTbody.innerHTML = '';
+        try {
+            const response = await fetch('/dashboard/api/favorites/', { // GET 请求获取列表
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                }
+            });
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const favorites = await response.json();
+            // 格式化数据以匹配 renderFavoritesTable 的期望
+            const formattedData = favorites.map(fav => ({
+                id: fav.id, // <--- 确保 API 返回 ID
+                code: fav.stock.stock_code,
+                name: fav.stock.stock_name,
+                latest_price: null, // 初始设为 null
+                change_percent: null,
+                volume: null,
+                signal: null,
+            }));
+            renderFavoritesTable(formattedData);
+        } catch (error) {
+            console.error('Failed to fetch initial favorites:', error);
+            favoritesLoading.style.display = 'none';
+            favoritesTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: red;">加载自选股列表失败</td></tr>';
+        }
+    }
 
 
     // --- 辅助函数 ---

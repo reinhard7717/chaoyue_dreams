@@ -37,6 +37,7 @@ def get_local_ip():
 SERVER_IP = get_local_ip()
 TARGET_SERVER_IP = "39.101.65.133"
 REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
+REDIS_PORT = '6379'
 
 if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.156':
     REDIS_HOST_DYNAMIC = '127.0.0.1'
@@ -117,7 +118,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [(REDIS_HOST_DYNAMIC, 6379)], # 配置你的 Redis 地址和端口
+            "hosts": [f"redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/1"],
         },
     },
 }
@@ -144,7 +145,7 @@ CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
         # 使用动态获取的 Redis 主机地址
-        'LOCATION': f'redis://{REDIS_HOST_DYNAMIC}:6379/0',
+        'LOCATION': f'redis://{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/0',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'SERIALIZER': 'utils.custom_serializer.CustomJSONSerializer',
@@ -687,11 +688,6 @@ INDEX_CACHE_TIMEOUT = {
     'technical_indicators': 300,  # 技术指标缓存5分钟
 }
 
-# Celery配置
-# Redis配置 (主机地址已在上面动态设置)
-REDIS_PORT = 6379
-# REDIS_PASSWORD = 'Asdf1234' # 已移到上面
-
 # Celery基础配置
 # 使用动态获取的 Redis 主机地址和密码变量
 CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
@@ -708,6 +704,7 @@ CELERY_TASK_QUEUES = (
     Queue('favorite_calculate_indicators', routing_key='favorite_calculate_indicators.#'), # 计算股票指标队列
     Queue('calculate_strategy', routing_key='calculate_strategy.#'), # 计算股票指标队列
     Queue('favorite_calculate_strategy', routing_key='favorite_calculate_strategy.#'), # 计算股票指标队列
+    Queue('dashboard', routing_key='dashboard.#'), # DRF专用队列
     # 如果你的默认队列有其他名字，比如 'default_tasks'，就这样定义:
     # Queue('default_tasks', routing_key='default.#'),
 )
@@ -720,6 +717,11 @@ CELERY_BEAT_SCHEDULE = {
     '每 60 秒运行一次所有自选股的策略执行引擎': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.stock_indicators.get_trade_and_calculate_and_strategy', # 任务函数名
+        'schedule': crontab(minute='*/1', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
+    },
+    '每 60 秒运行一次所有股票的实时数据获取': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.stock_realtime.get_realtime_data_task', # 任务函数名
         'schedule': crontab(minute='*/1', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
     },
 }

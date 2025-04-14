@@ -5,16 +5,8 @@ from asgiref.sync import sync_to_async
 import msgpack
 from datetime import datetime, date # 同时导入 date 类，如果需要处理的话
 from decimal import Decimal # 导入 Decimal
-# from dao_manager.base_dao import BaseDAO
-
-
 from utils import cache_constants as cc
-
-
-
 import json
-
-
 
 logger = logging.getLogger("dao")
 
@@ -36,17 +28,17 @@ def _msgpack_default_packer(obj):
     # 或者 return str(obj) 作为最后的尝试
     raise TypeError(f"Object of type {obj.__class__.__name__} is not MSGPACK serializable")
 
-
 class CacheSet():
     def __init__(self):
         from utils.cache_manager import CacheManager
-        from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey
+        from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
         self.cache_manager = CacheManager()
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
+        self.cache_key_user = UserCashKey()
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
@@ -195,7 +187,7 @@ class CacheSet():
                     data_to_cache[key] = stock_code_str
                     # logger.debug(f"Converted StockInfo for key '{key}' to code string: {data_to_cache[key]}")
                 except AttributeError:
-                    logger.error(f"StockInfo object for key '{key}' does not have a '__code__' method/attribute.")
+                    logger.error(f"StockInfo模型 for key '{key}' 没有找到 '__code__' 的方法.")
                     # 根据你的业务逻辑决定如何处理：是返回错误，还是跳过，或者使用默认值？
                     # 这里选择返回 False，表示缓存失败
                     return None
@@ -210,6 +202,25 @@ class CacheSet():
                 # logger.debug(f"Converted StockInfo for key '{key}' to code string: {data_to_cache[key]}")
         
         return data_to_cache
+
+class UserCacheSet(CacheSet):
+    async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
+        """
+        将用户自选股列表缓存到 Redis，使用 Hash 类型。
+        """
+        cache_key = self.cache_key_user.user_favorites(user_id)  # 假设返回如 "user:favorites:123"
+        try:
+            for index, item in enumerate(data_to_cache):
+                field = str(item.get('id', index))  # 使用 'id' 作为 field，如果没有则用索引
+                success = await self.cache_manager.async_hset(cache_key, field, item)  # 异步调用 hset
+                if not success:
+                    logger.warning(f"缓存用户 {user_id} 自选股失败: field {field}")
+                    return False  # 如果任何一个 field 失败，整个操作失败
+            logger.debug(f"成功缓存用户 {user_id} 的自选股列表到 Hash: {cache_key}")
+            return True
+        except Exception as e:
+            logger.error(f"缓存用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
+            return False
 
 class IndexCacheSet(CacheSet):
 
@@ -577,7 +588,6 @@ class StockIndicatorsCacheSet(CacheSet):
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
 class StockRealtimeCacheSet(CacheSet):
-
     async def latest_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:

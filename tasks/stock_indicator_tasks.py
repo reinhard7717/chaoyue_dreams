@@ -297,6 +297,7 @@ STOCKS_SAVE_API_DATA_QUEUE = 'save_api_data'
 STOCKS_CALCULATE_INDICATORS_QUEUE = 'calculate_indicators'
 STOCKS_CALCULATE_STRATEGY_QUEUE = 'calculate_strategy'
 
+
 # --- 新增：细粒度的 Celery Worker 任务 ---
 
 @celery_app.task(bind=True, name='tasks.stock_processing.fetch_stock_api_data')

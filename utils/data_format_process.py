@@ -3,9 +3,21 @@ from typing import Dict, List, Optional
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo, StockTimeTrade
+from users.models import FavoriteStock
 import logging
 
 logger = logging.getLogger(__name__)
+
+class UserDataFormatProcess(BaseDAO):
+    def set_user_favorites(self, user_id: int, api_data: FavoriteStock) -> Dict:
+        data_dict = {
+            'user_id': user_id,
+            'added_at': api_data.added_at,
+            'note': api_data.note,
+            'is_pinned': api_data.is_pinned,
+            'tags': api_data.tags,
+        }
+        return data_dict
 
 class IndexDataFormatProcess(BaseDAO):
 
@@ -433,3 +445,24 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         }
         return data_dict
     
+class StrategiesDataFormatProcess(BaseDAO):
+    def set_strategies_data(self, api_data: Dict) -> Dict:
+        data_dict = {
+            "generated_at": api_data.get('generated_at'),
+            "signal": api_data.get('signal'),
+            "signal_display": api_data.get('signal_display'),
+            "stock_code": api_data.get('stock_code'),
+            "strategy_name": api_data.get('strategy_name'),
+            "time_level": api_data.get('time_level'),
+            "timestamp": api_data.get('timestamp')
+        }
+        return data_dict
+
+
+
+
+
+
+
+
+

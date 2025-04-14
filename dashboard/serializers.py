@@ -1,6 +1,7 @@
 from rest_framework import serializers
 import umsgpack
 
+from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
@@ -54,34 +55,30 @@ class StockInfoSerializer(serializers.ModelSerializer):
         fields = ['stock_code', 'stock_name'] # 只序列化代码和名称
 
 class FavoriteStockSerializer(serializers.ModelSerializer):
-    # 嵌套序列化器显示股票信息，而不是只显示 stock_id
-    stock = StockInfoSerializer(read_only=True)
-    # 允许通过 stock_code 添加自选
-    stock_code = serializers.CharField(write_only=True, source='stock.code')
+    stock = StockInfoSerializer(read_only=True) # 输出时显示 stock 详情
+    stock_code = serializers.CharField(write_only=True, required=True, label="股票代码")
 
     class Meta:
         model = FavoriteStock
+        # fields 列表现在只包含模型字段和只读字段，以及上面定义的 write_only 字段
         fields = ['id', 'stock', 'added_at', 'stock_code']
-        read_only_fields = ['id', 'added_at', 'stock'] # stock 通过 stock_code 创建
+        read_only_fields = ['id', 'added_at', 'stock']
 
     def create(self, validated_data):
-        from stock_models.stock_basic import StockInfo
-        # 从 validated_data 中弹出我们手动添加的 stock_code
-        stock_code_data = validated_data.pop('stock', {}).get('code')
-        user = self.context['request'].user # 从视图传递过来的 request 获取用户
-        if not stock_code_data:
-            raise serializers.ValidationError("必须提供 stock_code。")
+        stock_code_data = validated_data.pop('stock_code')
+        user = self.context['request'].user
         try:
-            stock_instance = StockInfo.objects.get(code=stock_code_data)
+            stock_instance = StockInfo.objects.get(stock_code=stock_code_data)
         except StockInfo.DoesNotExist:
-            raise serializers.ValidationError(f"股票代码 {stock_code_data} 不存在。")
+            raise serializers.ValidationError({"stock_code": [f"股票代码 {stock_code_data} 不存在。"]})
+        except StockInfo.MultipleObjectsReturned:
+             raise serializers.ValidationError({"stock_code": [f"找到多个股票代码为 {stock_code_data} 的记录，数据异常。"]})
 
-        # 检查是否已存在
         if FavoriteStock.objects.filter(user=user, stock=stock_instance).exists():
-             raise serializers.ValidationError("该股票已在自选列表中。")
+             raise serializers.ValidationError({"detail": "该股票已在自选列表中。"})
 
-        # 创建 FavoriteStock 实例
-        favorite = FavoriteStock.objects.create(user=user, stock=stock_instance, **validated_data)
+        # validated_data 现在可能为空，或者包含 FavoriteStock 的其他可写字段 (如果你的模型有的话)
+        favorite = FavoriteStock.objects.create(stock=stock_instance, **validated_data)
         return favorite
 
 class NewStockCalendarSerializer(serializers.ModelSerializer):

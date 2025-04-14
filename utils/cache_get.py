@@ -3,9 +3,11 @@ import logging
 import json
 from typing import Any, Dict, List, Optional
 # from dao_manager.base_dao import BaseDAO
+
+
 from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
-from utils.cash_key import IndexCashKey, StockCashKey
+from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
 logger = logging.getLogger("dao")
@@ -14,6 +16,7 @@ class CacheGet():
 
     def __init__(self):
         self.cache_manager = CacheManager()
+        self.cache_key_user = UserCashKey()
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.data_format_process = IndexDataFormatProcess()
@@ -143,6 +146,39 @@ class CacheGet():
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_strategy_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
+
+class UserCacheGet(CacheGet):
+    async def user_favorites(self, user_id: int) -> Optional[List['FavoriteStock']]:
+        """
+        从缓存中异步读取用户自选股列表，并将字典转换为模型实例。
+        """
+        from users.models import FavoriteStock
+        cache_key = self.cache_key_user.user_favorites(user_id)  # 例如 "user:favorites:123"
+        try:
+            cached_data_dict = await self.async_hgetall(cache_key)  # 获取 Hash 数据，返回 Dict[str, Dict]
+            if cached_data_dict:
+                favorite_list = []  # 用于存储转换后的模型实例
+                for field, item_dict in cached_data_dict.items():
+                    try:
+                        # 将字典转换为 FavoriteStock 实例
+                        # 注意：这会创建一个未保存的模型实例
+                        fav_instance = FavoriteStock(**item_dict)  # 假设 item_dict 包含所有必需字段
+                        favorite_list.append(fav_instance)  # 添加到列表
+                    except Exception as e:  # 捕获可能的 TypeError 或 ValidationError
+                        logger.error(f"转换字典到模型失败: field {field}, 数据: {item_dict}, 错误: {str(e)}")
+                        continue  # 跳过失败的项，继续处理其他项
+                if favorite_list:  # 如果列表不为空
+                    logger.debug(f"从缓存命中用户 {user_id} 的自选股列表: {len(favorite_list)} 项")
+                    return favorite_list  # 返回 List[FavoriteStock]
+                else:
+                    logger.debug(f"缓存数据为空或转换失败: 未找到用户[{user_id}] 的自选股列表, key: {cache_key}")
+                    return None
+            else:
+                logger.debug(f"缓存未命中: 未找到用户[{user_id}] 的自选股列表, key: {cache_key}")
+                return None
+        except Exception as e:
+            logger.error(f"获取用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
+            return None  # 出错时返回 None
 
 class IndexCacheGet(CacheGet):
     async def all_indexes(self) -> Optional[List[Dict]]:

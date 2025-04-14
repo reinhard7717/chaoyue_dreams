@@ -318,6 +318,25 @@ class CacheManager:
         except Exception as e:
             logger.error(f"Hash设置失败: {key}.{field}, 错误: {str(e)}")
             return False
+        
+    async def async_hset(self, key: str, field: str, value: Any, timeout: Optional[int] = None) -> bool:
+        """异步设置Hash字段值"""
+        try:
+            serialized = self._serialize(value)  # 假设 _serialize 方法已定义，用于序列化值
+            result = await self.redis_client.hset(key, field, serialized)  # 异步 hset
+            
+            # 如果设置了过期时间，更新键过期时间
+            if timeout is not None:
+                await self.redis_client.expire(key, timeout)
+            elif not await self.redis_client.ttl(key) > 0:  # 异步 ttl
+                # 如果键没有过期时间，根据键前缀设置默认过期时间
+                prefix = key.split(':')[0]
+                await self.redis_client.expire(key, self.get_timeout(prefix))  # 假设 get_timeout 已定义
+                
+            return bool(result)
+        except Exception as e:
+            logger.error(f"异步 Hash设置失败: {key}.{field}, 错误: {str(e)}")
+            return False
     
     def hget(self, key: str, field: str, default: Any = None) -> Any:
         """获取Hash字段值"""
@@ -341,6 +360,19 @@ class CacheManager:
             return result
         except Exception as e:
             logger.error(f"Hash获取全部失败: {key}, 错误: {str(e)}")
+            return {}
+        
+    async def async_hgetall(self, key: str) -> Dict[str, Any]:
+        """异步获取Hash所有字段"""
+        try:
+            data = await self.redis_client.hgetall(key)  # 异步 hgetall
+            result = {}
+            for field, value in data.items():
+                field_name = field.decode() if isinstance(field, bytes) else field
+                result[field_name] = self._deserialize(value)  # 反序列化值
+            return result
+        except Exception as e:
+            logger.error(f"异步 Hash获取全部失败: {key}, 错误: {str(e)}")
             return {}
     
     # 批量操作

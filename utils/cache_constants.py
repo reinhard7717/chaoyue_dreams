@@ -13,6 +13,8 @@ ENTITY_INDEX = 'index'
 ENTITY_STOCK = 'stock'
 ENTITY_MARKET = 'market'
 ENTITY_STRATEGY = 'strategy'
+ENTITY_USERINFO = 'user_info'
+ENTITY_USERFAVORITES = 'favorite_stocks'
 # ... 其他实体类型
 
 # --- Entity IDs / Subtypes / Identifiers ---
