@@ -308,7 +308,7 @@ def fetch_stock_api_data_task(self, stock_code: str):
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
     from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
     queue_name = self.request.delivery_info.get('routing_key', '未知')
-    logger.info(f"任务启动 (API数据): fetch_stock_api_data_task - 处理股票 {stock_code} (队列: {queue_name})")
+    # logger.info(f"任务启动 (API数据): fetch_stock_api_data_task - 处理股票 {stock_code} (队列: {queue_name})")
     async def _run_async_fetch():
         stock_indicators_dao = StockIndicatorsDAO()
         stock_realtime_dao = StockRealtimeDAO()
@@ -324,7 +324,7 @@ def fetch_stock_api_data_task(self, stock_code: str):
     try:
         success = asyncio.run(_run_async_fetch())
         if success:
-            logger.info(f"任务成功 (API数据): fetch_stock_api_data_task - 完成处理股票 {stock_code}")
+            # logger.info(f"任务成功 (API数据): fetch_stock_api_data_task - 完成处理股票 {stock_code}")
             return stock_code # 成功时传递股票代码给下一个任务
         else:
             logger.error(f"任务失败 (API数据): fetch_stock_api_data_task - 处理股票 {stock_code} 失败")

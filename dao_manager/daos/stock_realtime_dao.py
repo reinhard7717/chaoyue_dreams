@@ -473,7 +473,7 @@ class StockRealtimeDAO(BaseDAO):
                     # 'name': stock.stock_name, # 前端可能已经有名称，或者需要传递
                     'latest_price': data_dict.get('price'),
                     # 格式化时间为 HH:MM:SS
-                    'trade_time': data_dict.get('trade_time') if data_dict.get('trade_time') else None,
+                    'trade_time': self._parse_datetime(data_dict.get('trade_time')) if data_dict.get('trade_time') else None,
                     'volume': data_dict.get('volume'),
                     # 注意：这里的 'change_percent' 和 'signal' 无法从此数据直接获得
                     # 需要由其他任务（如计算指标、执行策略的任务）来推送
