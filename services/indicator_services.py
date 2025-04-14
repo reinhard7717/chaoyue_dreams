@@ -1024,7 +1024,7 @@ class IndicatorService:
                                      列名为策略所需的格式。
                                      如果数据准备失败或不完整，则返回 None。
         """
-        logger.info(f"[{stock_code}] 开始准备增强策略 DataFrame for timeframes: {timeframes}")
+        # logger.info(f"[{stock_code}] 开始准备增强策略 DataFrame for timeframes: {timeframes}")
         # --- 1. 从策略参数中提取所需周期和配置 ---
         try:
             rsi_period = int(strategy_params['rsi_period'])
