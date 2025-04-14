@@ -110,18 +110,21 @@ class StockRealtimeDAO(BaseDAO):
             api_data = await self.api.get_realtime_data(stock_code)
             if not api_data:
                 logger.warning(f"API未返回股票[{stock}]的实时数据")
-                return {'创建': 0, '更新': 0, '跳过': 0}            
+                return {'创建': 0, '更新': 0, '跳过': 0}
             data_dicts = []
             data_dict = self.data_format_process.set_realtime_data(stock, api_data)
-            data_dicts.append(data_dict)
-            self.cache_set.latest_realtime_data(stock_code, data_dict)
-            # 保存数据
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            return result
+            if data_dict.get('trade_time') is not None:
+                data_dicts.append(data_dict)
+                self.cache_set.latest_realtime_data(stock_code, data_dict)
+                # 保存数据
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockRealtimeData,
+                    data_list=data_dicts,
+                    unique_fields=['stock', 'trade_time']
+                )
+                return result
+            else:
+                return {'创建': 0, '更新': 0, '跳过': 0}
         except Exception as e:
             logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}")
             return None
