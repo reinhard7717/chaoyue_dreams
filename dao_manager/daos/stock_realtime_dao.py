@@ -70,26 +70,38 @@ class StockRealtimeDAO(BaseDAO):
             Optional[StockRealtimeData]: 最新的实时交易数据，如不存在则返回None
         """
         realtime_data = None
-        # 从缓存获取最新数据
-        cache_data = await self.cache_get.latest_realtime_data(stock_code)
-        if cache_data:
-            realtime_data_dict = json.loads(cache_data)
-            realtime_data = StockRealtimeData(**realtime_data_dict)
-            return realtime_data
+        try:
+            # 从缓存获取最新数据
+            cache_data = await self.cache_get.latest_realtime_data(stock_code)
+            if cache_data:
+                # logger.info(f"从缓存获取最新股票[{stock_code}]实时数据,cache_data: {cache_data}")
+                realtime_data_dict = json.loads(cache_data)
+                # logger.info(f"从缓存获取最新股票[{stock_code}]实时数据,realtime_data_dict: {realtime_data_dict}")
+                realtime_data = StockRealtimeData(**realtime_data_dict)
+                # logger.info(f"从缓存获取最新股票[{stock_code}]实时数据,realtime_data: {realtime_data}")
+                return realtime_data
+        except Exception as e:
+            logger.error(f"从缓存获取最新股票[{stock_code}]实时数据时发生异常: {str(e)}")
+            return None
         # 从数据库获取最新数据
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if stock:
             try:
-                sql_data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
-                if sql_data:
-                    realtime_data = self.data_format_process.set_realtime_data(stock, sql_data)
+                realtime_data = await sync_to_async(
+                    lambda: StockRealtimeData.objects.filter(stock=stock).select_related('stock').order_by('-trade_time').first()
+                )()
+                if realtime_data:
+                    stock_code_str = realtime_data.stock.stock_code if realtime_data.stock else stock_code  # 安全获取
+                    # logger.info(f"从数据库获取最新股票[{stock_code_str}]实时数据,sql_data: {realtime_data.id} - {realtime_data.trade_time}")  # 使用具体字段代替全对象
+                    return realtime_data
             except Exception as e:
-                logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}")
+                logger.error(f"从数据库获取最新股票[{stock}]实时数据失败: {str(e)}", exc_info=True)
         if not realtime_data:
             # 数据不存在或已过期，从API获取新数据
-            logger.info(f"股票[{stock}]实时数据不存在或已过期，从API获取")
+            logger.info(f"股票[{stock_code}]实时数据不存在或已过期，从API获取")
             await self.fetch_and_save_realtime_data(stock_code)
-            data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
+            # 再次从数据库获取数据
+            realtime_data = await sync_to_async(lambda: StockRealtimeData.objects.filter(stock=stock).order_by('-trade_time').first())()
         return realtime_data
 
     async def fetch_and_save_realtime_data(self, stock_code: str) -> Dict:
@@ -115,7 +127,8 @@ class StockRealtimeDAO(BaseDAO):
             data_dict = self.data_format_process.set_realtime_data(stock, api_data)
             if data_dict.get('trade_time') is not None:
                 data_dicts.append(data_dict)
-                self.cache_set.latest_realtime_data(stock_code, data_dict)
+                cache_dict = data_dict.copy()
+                await self.cache_set.latest_realtime_data(stock_code, cache_dict)
                 # 保存数据
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockRealtimeData,
@@ -128,7 +141,7 @@ class StockRealtimeDAO(BaseDAO):
             else:
                 return {'创建': 0, '更新': 0, '跳过': 0}
         except Exception as e:
-            logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}")
+            logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}", exc_info=True)
             return None
 
     async def fetch_and_save_favorite_stocks_realtime_data(self) -> Dict:

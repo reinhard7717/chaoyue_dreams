@@ -134,25 +134,26 @@ class StockBasicDAO(BaseDAO):
             Optional[StockInfo]: 股票信息
         """
         from stock_models.stock_basic import StockInfo
+   
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_key.stock_data(stock_code)
         # 尝试从缓存获取，指定模型类进行自动转换
-        stock = self.cache_manager.get_model(cache_key, StockInfo)
+        stock = await sync_to_async(self.cache_manager.get_model)(cache_key, StockInfo)
         if stock:
             return stock
             
         # 从数据库获取
         # logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
-        stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+        stock = await sync_to_async(lambda: StockInfo.objects.filter(stock_code=stock_code).first())()
         # 如果数据库中有数据，缓存并返回
         if stock:
             cache_data = self.data_format_process.set_stock_info_data(stock)
             # logger.info(f"get_stock_by_code,cache_data: {cache_data}, type: {type(cache_data)}")
             # *** 正确调用 CacheManager 缓存数据 ***
-            success = self.cache_manager.set(
-                key=cache_key,          # 第一个参数：缓存键 (字符串)
-                data=cache_data,     # 第二个参数：要缓存的数据 (字典)
-                timeout=self.cache_manager.get_timeout('st') # 超时时间
+            success = await sync_to_async(self.cache_manager.set)(
+                key=cache_key,
+                data=cache_data,
+                timeout=self.cache_manager.get_timeout('st')
             )
             # logger.info(f"get_stock_by_code,success: {success}")
             return stock

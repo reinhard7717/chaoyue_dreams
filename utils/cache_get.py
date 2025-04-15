@@ -103,6 +103,20 @@ class CacheGet():
             logger.error(f"从缓存 (ZSET) 获取时间序列数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return None
 
+    async def _realtime_data(self, stock_code: str, cache_key: str) -> Optional[Dict[str, Any]]:
+        try:
+            cached_data = self.cache_manager.get(key=cache_key)
+            if cached_data is not None:
+                if isinstance(cached_data, dict):
+                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}]实时数据, key: {cache_key}")
+                    return cached_data
+                else:
+                    logger.warning(f"缓存数据格式错误: 股票[{stock_code}]实时数据的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
+            return cached_data
+        except Exception as e:
+            logger.error(f"从缓存获取股票[{stock_code}]实时数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
+            return None
+
     async def _stock_latest_data(self, stock_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
@@ -446,7 +460,8 @@ class StockRealtimeCacheGet(CacheGet):
 
     async def latest_realtime_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
-        return await self._stock_latest_data(stock_code, cache_key)
+        # logger.info(f"尝试从缓存获取股票[{stock_code}]最新实时数据, key: {cache_key}")
+        return await self._realtime_data(stock_code=stock_code, cache_key=cache_key)
     
     async def history_realtime_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_realtime_data(stock_code)

@@ -6,7 +6,10 @@ import numpy as np
 from typing import Dict, Any, List, Optional
 from django.core.management.base import BaseCommand
 import logging
-from django.utils import timezone # 用于处理时区
+from django.utils import timezone
+
+from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
+from stock_models.stock_realtime import StockRealtimeData # 用于处理时区
 
 # --- 导入时区处理库 ---
 try:
@@ -39,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # --- analyze_score_trend 函数 (使用 VWAP 版本) ---
 # (这里放置之前生成的 analyze_score_trend 函数代码, 函数签名不变)
-def analyze_score_trend(stock_code: str,
+async def analyze_score_trend(stock_code: str,
     score_price_vwap_df: pd.DataFrame, # 输入：包含 'score', 'close', 'vwap' 列
     t0_params: Optional[Dict[str, Any]] = None) -> Optional[pd.DataFrame]:
     """
@@ -74,6 +77,8 @@ def analyze_score_trend(stock_code: str,
 
     logger.info(f"[{stock_code}] 开始分析 (T+0 基于 VWAP)...")
     analysis_df = score_price_vwap_df.copy()
+    # --- 实例化实时数据 DAO ---
+    realtime_dao = StockRealtimeDAO()
 
     # 1. 标准化时区
     try:
@@ -127,8 +132,27 @@ def analyze_score_trend(stock_code: str,
     # 7. 综合分析与输出
     if not analysis_df.empty:
         latest_data = analysis_df.iloc[-1]
-        latest_time = analysis_df.index[-1]
-        summary = f"[{stock_code}] 最新评分与价格趋势分析 ({latest_time.strftime('%Y-%m-%d %H:%M:%S %Z')}):\n"
+        latest_hist_time = analysis_df.index[-1]
+        # --- 获取实时数据 ---
+        latest_realtime: Optional[StockRealtimeData] = None
+        latest_price: Optional[float] = None
+        realtime_fetch_error = False
+        if t0_params['enabled']: # 仅在启用 T+0 时获取
+            try:
+                logger.debug(f"[{stock_code}] 正在获取最新实时数据...")
+                latest_realtime = await realtime_dao.get_latest_realtime_data(stock_code)
+                if latest_realtime and latest_realtime.current_price is not None:
+                    # 假设 StockRealtimeData 模型有 price 属性
+                    latest_price = float(latest_realtime.current_price)
+                    logger.debug(f"[{stock_code}] 获取到实时价格: {latest_price} at {latest_realtime.trade_time}")
+                else:
+                    logger.warning(f"[{stock_code}] 未能获取到有效的最新实时价格。")
+            except Exception as e:
+                logger.error(f"[{stock_code}] 获取实时数据时出错: {e}", exc_info=True)
+                realtime_fetch_error = True
+        # ------------------------
+        # --- 生成中文分析摘要 ---
+        summary = f"[{stock_code}] 最新评分与价格趋势分析 (历史数据截至: {latest_hist_time.strftime('%Y-%m-%d %H:%M:%S %Z')}):\n"
         summary += f"  - 最新评分: {latest_data['score']:.2f}, 最新价格: {latest_data['close']:.2f}, 最新VWAP: {latest_data.get('vwap', 'N/A'):.2f}\n"
         summary += f"  - 评分 EMA: 5={latest_data['ema_score_5']:.2f}, 13={latest_data['ema_score_13']:.2f}, 21={latest_data['ema_score_21']:.2f}, 55={latest_data['ema_score_55']:.2f}\n"
         alignment = latest_data['alignment_signal']
@@ -139,100 +163,137 @@ def analyze_score_trend(stock_code: str,
         elif alignment < 0: summary += f"  - 评分趋势排列: 偏空头 ({int(alignment)})\n"
         else: summary += "  - 评分趋势排列: 混合/粘合 (0)\n"
         strength = latest_data['ema_strength_13_55']
-        if pd.isna(strength): summary += "  - 评分趋势强度 (EMA13-55): NaN\n"
-        else: summary += f"  - 评分趋势强度 (EMA13-55): {strength:.2f}\n"
-        # d. 评分动能 (增加方向指示)
+        # --- 新增：评分动能解读 ---
         momentum = latest_data['score_momentum']
         if pd.isna(momentum):
-            summary += "  - 评分动能 (单期变化): 无法计算 (NaN)\n"
+            summary += "  - 评分动能 (单期变化): NaN\n"
         else:
-            summary += f"  - 评分动能 (单期变化): {momentum:.2f} " # 显示数值
-            if momentum > 0:
-                summary += "**(评分上升)**\n" # 明确上升
+            summary += f"  - 评分动能 (单期变化): {momentum:.2f} "
+            if momentum > 0.5: # 可以设置阈值来判断强度
+                summary += "(显著上升)\n"
+            elif momentum > 0:
+                summary += "(上升)\n"
+            elif momentum < -0.5:
+                summary += "(显著下降)\n"
             elif momentum < 0:
-                summary += "**(评分下降)**\n" # 明确下降
+                summary += "(下降)\n"
             else:
-                summary += "(评分持平)\n" # 持平状态
-        # e. 信号稳定性 (检查最近 3 期 alignment_signal)
-        summary += "  - 信号稳定性 (近3期): "
+                summary += "(持平)\n"
+        # ------------------------
+
+        # --- 新增：信号稳定性解读 ---
         if len(analysis_df) >= 3:
-            # 获取最近三期的排列信号，并过滤掉 NaN 值
-            recent_alignment_raw = analysis_df['alignment_signal'].iloc[-3:].tolist()
-            recent_alignment = [a for a in recent_alignment_raw if not pd.isna(a)] # 过滤 NaN
-            if not recent_alignment: # 如果过滤后为空（例如最近三期都是 NaN）
-                summary += "信号不足或无法判断\n"
-            elif len(set(recent_alignment)) == 1: # 如果信号一致
-                last_valid_signal = recent_alignment[-1]
-                if last_valid_signal == 3:
-                    summary += "连续完全多头排列\n"
-                elif last_valid_signal == -3:
-                    summary += "连续完全空头排列\n"
-                elif last_valid_signal > 0:
-                    summary += f"连续偏多头排列 ({int(last_valid_signal)})\n"
-                elif last_valid_signal < 0:
-                    summary += f"连续偏空头排列 ({int(last_valid_signal)})\n"
-                else: # all zeros
-                    summary += "连续混合/粘合状态\n"
-            else: # 如果信号不一致
-                summary += "排列信号波动\n"
-        else: # 数据不足三期
-            summary += "数据不足 (<3期)\n"
-        # f. 评分波动性 (基于 10 期滚动标准差)
-        volatility = latest_data['score_volatility']
-        summary += f"  - 评分波动性 ({volatility_window}期 std): " # volatility_window 是之前定义的
-        if pd.isna(volatility):
-            summary += "无法计算 (NaN)\n"
-        else:
-            summary += f"{volatility:.2f} " # 显示数值
-            # 计算波动性的分位数，以提供相对高低的判断依据
-            try:
-                # 忽略 NaN 值计算分位数，确保有足够非 NaN 值
-                valid_volatility = analysis_df['score_volatility'].dropna()
-                if len(valid_volatility) > volatility_window: # 需要足够数据才有意义
-                    q25 = valid_volatility.quantile(0.25)
-                    q75 = valid_volatility.quantile(0.75)
-                    if volatility > q75:
-                        summary += "**(近期波动较大)**\n" # 高于 75% 分位数
-                    elif volatility < q25:
-                        summary += "(近期波动较小)\n" # 低于 25% 分位数
-                    else:
-                        summary += "(近期波动适中)\n" # 介于 25% 和 75% 之间
-                else:
-                    summary += "(数据不足无法判断相对水平)\n"
-            except Exception as e_quantile:
-                 logger.warning(f"[{stock_code}] 计算波动性分位数时出错: {e_quantile}")
-                 summary += "(无法判断相对水平)\n" # 计算分位数出错
-        if t0_params['enabled']:
-            summary += f"--- 日内 T+0 交易信号 (基于价格与 VWAP 偏离度) ---\n"
-            price_dev = latest_data.get('price_vwap_deviation', np.nan)
-            t0_sig = latest_data.get('t0_signal', 0)
-            if pd.isna(price_dev): summary += "  - 价格相对 VWAP 偏离度: 无法计算 (NaN)\n"; summary += "  - T+0 信号: 无\n"
+            recent_alignment = analysis_df['alignment_signal'].iloc[-3:].tolist()
+            stable_signal = "未知"
+            if all(a == 3 for a in recent_alignment if not pd.isna(a)):
+                stable_signal = "稳定多头排列"
+            elif all(a == -3 for a in recent_alignment if not pd.isna(a)):
+                stable_signal = "稳定空头排列"
+            elif not pd.isna(alignment):
+                 if alignment > 0 and all(a > 0 for a in recent_alignment if not pd.isna(a)):
+                     stable_signal = "保持偏多头"
+                 elif alignment < 0 and all(a < 0 for a in recent_alignment if not pd.isna(a)):
+                     stable_signal = "保持偏空头"
+                 else:
+                     stable_signal = "信号波动"
             else:
-                summary += f"  - 价格相对 VWAP 偏离度: {price_dev:.2%}\n"
-                if t0_sig == 1: summary += f"  - T+0 信号: **潜在买入点** (评分趋势向好且价格低于 VWAP 阈值 {t0_params['buy_dev_threshold']:.2%})\n"
-                elif t0_sig == -1: summary += f"  - T+0 信号: **潜在卖出点** (评分趋势向差且价格高于 VWAP 阈值 {t0_params['sell_dev_threshold']:.2%})\n"
+                 stable_signal = "信号不足"
+            summary += f"  - 信号稳定性 (近3期): {stable_signal}\n"
+        else:
+            summary += "  - 信号稳定性 (近3期): 数据不足\n"
+        # ------------------------
+
+        # --- 新增：评分波动性解读 ---
+        volatility = latest_data['score_volatility']
+        if pd.isna(volatility):
+            summary += f"  - 评分波动性 ({volatility_window}期 std): NaN\n"
+        else:
+            summary += f"  - 评分波动性 ({volatility_window}期 std): {volatility:.2f} "
+            # 与历史分位数比较 (确保有足够数据计算分位数)
+            try:
+                if len(analysis_df['score_volatility'].dropna()) > volatility_window * 2: # 简单检查
+                    q75 = analysis_df['score_volatility'].quantile(0.75)
+                    q25 = analysis_df['score_volatility'].quantile(0.25)
+                    if volatility > q75:
+                        summary += "(偏高)\n"
+                    elif volatility < q25:
+                        summary += "(偏低)\n"
+                    else:
+                        summary += "(适中)\n"
                 else:
-                    summary += "  - T+0 信号: 无或观望\n"
-                    if not pd.isna(alignment):
-                        if alignment >= 1 and price_dev >= t0_params['buy_dev_threshold']: summary += "      (原因: 评分趋势向好，但价格未低于 VWAP 买入阈值)\n"
-                        elif alignment <= -1 and price_dev <= t0_params['sell_dev_threshold']: summary += "      (原因: 评分趋势向差，但价格未高于 VWAP 卖出阈值)\n"
-                        elif alignment == 0: summary += "      (原因: 评分趋势不明朗)\n"
-        else: summary += "--- 日内 T+0 交易信号: 未启用或无法计算 ---\n"
-        print("\n" + "="*30 + " 评分与价格趋势分析摘要 " + "="*30); print(summary); print("="*78)
-        print(f"\n[{stock_code}] 详细趋势分析数据 (最后10条，时间：Asia/Shanghai):")
+                     summary += "(历史数据不足无法判断高低)\n"
+            except Exception:
+                 summary += "(无法计算历史分位数)\n" # 防御性编程
+        # ------------------------
+
+        # --- 更新：T+0 信号摘要 (基于实时价格) ---
+        summary += f"--- 日内 T+0 交易信号 (基于实时价格 vs 最新历史 VWAP) ---\n"
+        if t0_params['enabled']:
+            # 获取最新的历史 VWAP
+            latest_vwap = latest_data.get('vwap', np.nan)
+
+            if realtime_fetch_error:
+                 summary += "  - 实时状态: 获取实时数据失败\n"
+                 summary += "  - T+0 信号: 无法判断\n"
+            elif latest_price is None:
+                 summary += "  - 实时状态: 未获取到有效实时价格\n"
+                 summary += "  - T+0 信号: 无法判断\n"
+            elif pd.isna(latest_vwap) or latest_vwap == 0:
+                 summary += f"  - 实时价格: {latest_price:.2f}\n"
+                 summary += "  - 最新历史 VWAP: 无效或为零\n"
+                 summary += "  - T+0 信号: 无法判断 (VWAP无效)\n"
+            else:
+                # 计算实时偏离度
+                current_deviation = (latest_price - latest_vwap) / latest_vwap
+                summary += f"  - 实时价格: {latest_price:.2f} (时间: {latest_realtime.trade_time if latest_realtime else 'N/A'})\n"
+                summary += f"  - 最新历史 VWAP: {latest_vwap:.2f}\n"
+                summary += f"  - 当前价格相对 VWAP 偏离度: {current_deviation:.2%}\n"
+
+                # 判断 T+0 信号
+                current_t0_signal = 0
+                latest_alignment = latest_data['alignment_signal'] # 使用最新的历史排列信号
+
+                if pd.isna(latest_alignment):
+                     summary += "  - T+0 信号: 无法判断 (评分趋势信号不足)\n"
+                else:
+                    buy_threshold = t0_params['buy_dev_threshold']
+                    sell_threshold = t0_params['sell_dev_threshold']
+                    if latest_alignment >= 1 and current_deviation < buy_threshold:
+                        current_t0_signal = 1
+                        summary += f"  - T+0 信号: **潜在买入点** (评分趋势向好且实时价格低于 VWAP 阈值 {buy_threshold:.2%})\n"
+                    elif latest_alignment <= -1 and current_deviation > sell_threshold:
+                        current_t0_signal = -1
+                        summary += f"  - T+0 信号: **潜在卖出点** (评分趋势向差且实时价格高于 VWAP 阈值 {sell_threshold:.2%})\n"
+                    else:
+                        summary += "  - T+0 信号: 无或观望\n"
+                        # 解释无信号原因
+                        if latest_alignment >= 1 and current_deviation >= buy_threshold:
+                             summary += "      (原因: 评分趋势向好，但实时价格未低于 VWAP 买入阈值)\n"
+                        elif latest_alignment <= -1 and current_deviation <= sell_threshold:
+                             summary += "      (原因: 评分趋势向差，但实时价格未高于 VWAP 卖出阈值)\n"
+                        elif latest_alignment == 0:
+                             summary += "      (原因: 评分趋势不明朗)\n"
+        else:
+            summary += "--- 日内 T+0 交易信号: 未启用或因数据缺失无法计算 ---\n"
+        # --------------------------
+        # 打印摘要
+        print("\n" + "="*30 + " 评分与价格趋势分析摘要 " + "="*30)
+        print(summary)
+        print("="*78)
+        # 打印 DataFrame 尾部数据 (不再包含历史 T+0 列)
+        print(f"\n[{stock_code}] 详细历史趋势分析数据 (最后10条，时间：Asia/Shanghai):")
         display_cols = ['score', 'close']
         if 'vwap' in analysis_df.columns: display_cols.append('vwap')
-        display_cols.extend([f'ema_score_{p}' for p in fib_periods])
+        display_cols.extend([f'ema_score_{p}' for p in fib_periods if f'ema_score_{p}' in analysis_df.columns])
         display_cols.extend(['alignment_signal', 'ema_strength_13_55', 'score_momentum', 'score_volatility'])
-        if t0_params['enabled']:
-            if 'price_vwap_deviation' in analysis_df.columns: display_cols.append('price_vwap_deviation')
-            if 't0_signal' in analysis_df.columns: display_cols.append('t0_signal')
+        # 移除历史 T+0 相关列: 'price_vwap_deviation', 't0_signal'
         display_cols = [col for col in display_cols if col in analysis_df.columns]
         if display_cols:
             with pd.option_context('display.max_rows', 10, 'display.max_columns', None, 'display.width', 1200, 'display.float_format', '{:.2f}'.format):
-                 formatters = {'price_vwap_deviation': '{:.2%}'.format} if 'price_vwap_deviation' in display_cols else {}
-                 print(analysis_df[display_cols].tail(10).to_string(formatters=formatters))
-        else: logger.warning(f"[{stock_code}] 无法显示详细趋势分析数据...")
+                 # 不再需要特殊格式化 price_vwap_deviation
+                 print(analysis_df[display_cols].tail(10).to_string())
+        else:
+            logger.warning(f"[{stock_code}] 无法显示详细历史趋势分析数据...")
     else: logger.warning(f"[{stock_code}] 分析结果 DF 为空..."); return None
     # 8. (可选) 保存结果到 Redis
     try:
@@ -426,8 +487,8 @@ async def test_strategy_scores(stock_code: str, time_level_for_analysis: str = '
                     'sell_dev_threshold': 0.005
                 }
                 # e. 调用分析函数
-                analysis_result_df = analyze_score_trend(
-                    stock_code=str(stock),
+                analysis_result_df = await analyze_score_trend(
+                    stock_code=str(stock_code),
                     score_price_vwap_df=score_price_vwap_df,
                     t0_params=t0_settings
                 )

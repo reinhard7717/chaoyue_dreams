@@ -191,46 +191,6 @@ class StockCashKey:
         )
         return cache_key
 
-    def latest_kdj(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.cache_manager.generate_key(
-            cache_type=cc.TYPE_REALTIME,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_KDJ,
-            params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
-        )
-        return cache_key
-
-    def latest_macd(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.cache_manager.generate_key(
-            cache_type=cc.TYPE_REALTIME,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_MACD,
-            params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
-        )
-        return cache_key
-
-    def latest_ma(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.cache_manager.generate_key(
-            cache_type=cc.TYPE_REALTIME,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_MA,
-            params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
-        )
-        return cache_key
-
-    def latest_boll(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.cache_manager.generate_key(
-            cache_type=cc.TYPE_REALTIME,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_BOLL,
-            params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
-        )
-        return cache_key
-
     def history_time_trade(self, stock_code: str, time_level: str) -> str:
         cache_key = self.cache_manager.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
