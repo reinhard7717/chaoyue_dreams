@@ -697,8 +697,9 @@ class IndicatorService:
             # KC 需要 EMA(period) 和 ATR(atr_length)
             min_len_required = max(FIB_PERIODS) + atr_length # 粗略估计
             if len(ohlc) < min_len_required:
-                logger.warning(f"数据长度 ({len(ohlc)}) 可能不足以计算所有周期的 KC (需要约 {min_len_required})")
+                # logger.warning(f"数据长度 ({len(ohlc)}) 可能不足以计算所有周期的 KC (需要约 {min_len_required})")
                 # 仍然尝试计算，pandas-ta 会处理
+                pass
             for period in FIB_PERIODS:
                 if len(ohlc) >= max(period, atr_length): # 确保当前周期计算所需数据足够
                     try:
@@ -749,8 +750,8 @@ class IndicatorService:
             min_len_required = max(FIB_PERIODS) + d_period + smooth_k_period
 
             if len(ohlc) < min_len_required:
-                 logger.warning(f"数据长度 ({len(ohlc)}) 可能不足以计算所有周期的 Stochastic (需要约 {min_len_required})")
-
+                #  logger.warning(f"数据长度 ({len(ohlc)}) 可能不足以计算所有周期的 Stochastic (需要约 {min_len_required})")
+                pass
             for period in FIB_PERIODS: # period 作为 k
                 if len(ohlc) >= period + d_period + smooth_k_period - 2: # 近似所需长度
                     try:
