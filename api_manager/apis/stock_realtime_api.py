@@ -13,10 +13,8 @@ class StockRealtimeAPI(BaseAPI):
     async def get_realtime_data(self, stock_code: str) -> Dict[str, Any]:
         """
         获取股票实时交易数据
-        
         Args:
             stock_code: 股票代码
-            
         Returns:
             Dict[str, Any]: 实时交易数据
         """
