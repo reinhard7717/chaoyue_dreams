@@ -167,7 +167,7 @@ def run_stock_strategy_task(self, stock_code: str):
          return None
     queue_name = self.request.delivery_info.get('routing_key', '未知')
     # logger.info(f"任务启动 (策略计算): run_stock_strategy_task - 处理股票 {stock_code} (队列: {queue_name})")
-    async def _run_async_strategy():
+    async def _run_async_strategy(stock_code):
         try:
             # logger.debug(f"策略计算: 开始运行 {stock_code} 的策略...")
             await _run_strategy_for_single_stock_task(stock_code)
@@ -177,7 +177,7 @@ def run_stock_strategy_task(self, stock_code: str):
             logger.error(f"策略计算: 运行股票 {stock_code} 策略时出错: {e}", exc_info=True)
             return False
     try:
-        success = asyncio.run(_run_async_strategy()) # 假设策略函数是异步的
+        success = asyncio.run(_run_async_strategy(stock_code)) # 假设策略函数是异步的
         if success:
             # logger.info(f"任务成功 (策略计算): run_stock_strategy_task - 完成处理股票 {stock_code}")
             return f"Strategy calculation completed for {stock_code}" # 链的最终结果
