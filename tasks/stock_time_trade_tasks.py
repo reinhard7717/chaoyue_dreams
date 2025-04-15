@@ -158,13 +158,13 @@ def save_latest_trade_datas(self, time_level: str):
 
         # 1. 分派自选股任务链到 FAVORITE_SAVE_API_DATA_QUEUE 队列
         for stock_code in favorite_codes:
-            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue='FAVORITE_SAVE_API_DATA_QUEUE')
+            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
 
         # 2. 分派非自选股任务链到 STOCKS_SAVE_API_DATA_QUEUE 队列
         for stock_code in non_favorite_codes:
-            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue='STOCKS_SAVE_API_DATA_QUEUE')
+            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
 
