@@ -15,11 +15,6 @@ from dao_manager.daos.stock_basic_dao import StockBasicDAO  # 假设主任务需
 
 logger = logging.getLogger('tasks')  # 或者你使用的 logger 名称
 
-# 自选股队列
-FAVORITE_CALCULATE_STRATEGY_QUEUE = 'favorite_calculate_strategy'
-# 非自选股队列
-STOCKS_CALCULATE_STRATEGY_QUEUE = 'calculate_strategy'
-
 @database_sync_to_async  # 将同步的 ORM 查询包装成异步
 def _get_favorited_user_ids(self, stock_id: int) -> list[int]:
     """根据股票 ID 获取关注该股票的所有用户 ID 列表"""
@@ -281,14 +276,14 @@ def calculate_stock_strategy(self):
         total_dispatched_chains = 0
         total_favorite_stocks = len(favorite_codes)
         total_non_favorite_stocks = len(non_favorite_codes)
-        # 1. 分派自选股任务链到 FAVORITE_CALCULATE_STRATEGY_QUEUE 队列
+        # 1. 分派自选股任务链到 favorite_calculate_strategy 队列
         for stock_code in favorite_codes:
-            sig = run_stock_strategy_task.s(stock_code).set(queue=FAVORITE_CALCULATE_STRATEGY_QUEUE)
+            sig = run_stock_strategy_task.s(stock_code).set(queue='favorite_calculate_strategy')
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
-        # 2. 分派非自选股任务链到 STOCKS_CALCULATE_STRATEGY_QUEUE 队列
+        # 2. 分派非自选股任务链到 calculate_strategy 队列
         for stock_code in non_favorite_codes:
-            sig = run_stock_strategy_task.s(stock_code).set(queue=STOCKS_CALCULATE_STRATEGY_QUEUE)
+            sig = run_stock_strategy_task.s(stock_code).set(queue='calculate_strategy')
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
         logger.info(f"任务结束: calculate_stock_strategy (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")

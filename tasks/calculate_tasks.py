@@ -18,7 +18,7 @@ STOCKS_CALCULATE_INDICATORS_QUEUE = 'calculate_indicators'
 async def _calculate_stock_indicators_async(stock_code: str):
     """实际执行异步计算的内部函数"""
     service = IndicatorService()
-    logger.info(f"开始异步计算股票 {stock_code} 的指标...")
+    # logger.info(f"开始异步计算股票 {stock_code} 的指标...")
     try:
         tasks = [
             service.calculate_and_save_all_indicators(stock_code, time_level)
