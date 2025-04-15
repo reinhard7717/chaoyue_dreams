@@ -131,6 +131,69 @@ def process_single_stock_latest_trade_trading_hours(self, stock_code: str, time_
 
     return task_result # 返回单个任务的结果
 
+@celery_app.task(bind=True, name='tasks.stock_indicators.process_stocks_latest_trade_by_time_level')
+def process_stocks_latest_trade_by_time_level(self, time_level: str):
+    """
+    获取并保存所有股票的最新实时数据 (子任务)
+    """
+    # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
+    # 导入 DAO，注意路径根据你的项目结构调整
+    from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
+
+    stock_indicators_dao = None # 初始化为 None
+    task_result = f"处理时间级别 {time_level} 全部股票数据失败" # 默认失败结果
+
+    try:
+        stock_indicators_dao = StockIndicatorsDAO()
+        # 在同步的 Celery 任务中运行异步 DAO 方法
+        asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_by_time_level(time_level))
+        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
+        # logger.info(task_result)
+    except Exception as e:
+        logger.error(f"处理时间级别 {time_level} 全部股票数据时发生错误: {e}", exc_info=True)
+        task_result = f"处理时间级别 {time_level} 全部股票数据失败: {e}"
+        # 可以选择性地重新抛出异常，让 Celery 知道任务失败
+        # self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        # raise Ignore() # 或者使用 Ignore() 避免重试（如果设置了重试策略）
+    finally:
+        # 确保 DAO 被关闭，即使它在 try 块中未能成功初始化
+        if stock_indicators_dao:
+            try:
+                # DAO 的 close 方法也可能是异步的
+                asyncio.run(stock_indicators_dao.close())
+                # logger.debug(f"DAO for {time_level} closed.")
+            except Exception as close_err:
+                logger.error(f"关闭股票 {time_level} 的 stock_indicators_dao 时出错: {close_err}", exc_info=True)
+        # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
+
+    return task_result # 返回单个任务的结果
+
+# 任务调度：计算所有股票的指标
+@celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level')
+def save_latest_trade_datas_by_time_level(self, time_level: str):
+    """
+    修改后的调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 为每只股票创建任务链 (获取数据 -> 计算指标 -> 执行策略)，并分派到指定的队列。
+    3. 将自选股任务分派到 FAVORITE_SAVE_API_DATA_QUEUE 队列。
+    4. 将非自选股任务分派到 STOCKS_SAVE_API_DATA_QUEUE 队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info("任务启动: get_trade_and_calculate_and_strategy (调度器模式) - 获取股票列表并分派细粒度任务链")
+    try:
+        # 在同步任务中运行异步代码来获取列表
+        sig = process_stocks_latest_trade_by_time_level.s(time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
+        sig.apply_async()  # 分派任务
+
+        logger.info(f"任务结束: get_trade_and_calculate_and_strategy (调度器模式)")
+        return f"已分派 获取最新 {time_level} 级别股票数据 任务"
+
+    except Exception as e:
+        logger.error(f"执行 get_trade_and_calculate_and_strategy (调度器模式) 时出错: {e}", exc_info=True)
+        # 可以考虑重试机制
+        # raise self.retry(exc=e, countdown=300, max_retries=1)
+        return "调度任务执行失败"
+
 
 # 任务调度：计算所有股票的指标
 @celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas')
@@ -158,13 +221,13 @@ def save_latest_trade_datas(self, time_level: str):
 
         # 1. 分派自选股任务链到 FAVORITE_SAVE_API_DATA_QUEUE 队列
         for stock_code in favorite_codes:
-            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE)
+            sig = process_stocks_latest_trade_by_time_level.s(stock_code, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
 
         # 2. 分派非自选股任务链到 STOCKS_SAVE_API_DATA_QUEUE 队列
         for stock_code in non_favorite_codes:
-            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
+            sig = process_stocks_latest_trade_by_time_level.s(stock_code, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
 
