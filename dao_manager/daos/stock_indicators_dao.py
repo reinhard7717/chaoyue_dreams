@@ -209,11 +209,10 @@ class StockIndicatorsDAO(BaseDAO):
                     unique_fields=['stock', 'time_level', 'trade_time']
                 )
                 # --- 函数末尾执行最终修剪 ---
-                # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-                # --- 单行调用修剪方法 ---
                 removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
+                logger.info(f"股票[{stock}] {time_level}级别分时成交数据保存完成，结果: {result}")
                 return result
         except Exception as e:
             logger.error(f"保存{stock}股票{time_level}级别  分时成交数据出错: {str(e)}")
