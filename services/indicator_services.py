@@ -1255,7 +1255,7 @@ class IndicatorService:
                 logger.error(f"[{stock_code}] 处理或重命名 {data_key} 列时出错: {e_rename}", exc_info=True)
                 fetched_data_summary[data_key] = "Processing Exception"
 
-        logger.info(f"[{stock_code}] 数据获取与初步处理概要: {fetched_data_summary}")
+        # logger.info(f"[{stock_code}] 数据获取与初步处理概要: {fetched_data_summary}")
 
         # --- 5. 计算 OBV MA ---
         if ta is not None and obv_vol_tf_series is not None and not obv_vol_tf_series.empty:

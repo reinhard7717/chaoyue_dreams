@@ -224,7 +224,7 @@ def calculate_stock_indicators_task(self, stock_code: str):
          logger.warning(f"任务跳过 (指标计算): calculate_stock_indicators_task - 未收到有效的 stock_code (可能前序任务失败)")
          return None # 或者根据需要处理
     # queue_name = self.request.delivery_info.get('routing_key', '未知')
-    stock = StockBasicDAO().get_stock_by_code(stock_code)
+    stock = asyncio.run(StockBasicDAO().get_stock_by_code(stock_code))
     # logger.info(f"任务启动 (指标计算): calculate_stock_indicators_task - 处理股票 {stock_code} (队列: {queue_name})")
     async def _run_async_calculate():
         indicator_services = IndicatorService()

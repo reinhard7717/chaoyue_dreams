@@ -39,11 +39,9 @@ logger = logging.getLogger(__name__)
 
 # --- analyze_score_trend 函数 (使用 VWAP 版本) ---
 # (这里放置之前生成的 analyze_score_trend 函数代码, 函数签名不变)
-def analyze_score_trend(
-    stock_code: str,
+def analyze_score_trend(stock_code: str,
     score_price_vwap_df: pd.DataFrame, # 输入：包含 'score', 'close', 'vwap' 列
-    t0_params: Optional[Dict[str, Any]] = None
-) -> Optional[pd.DataFrame]:
+    t0_params: Optional[Dict[str, Any]] = None) -> Optional[pd.DataFrame]:
     """
     细化分析策略评分和价格的趋势，并使用 VWAP 提供日内 T+0 交易信号提示。
     (函数体省略，使用上一轮生成的代码)
@@ -87,20 +85,17 @@ def analyze_score_trend(
             elif analysis_df.index.tz != target_tz: analysis_df.index = analysis_df.index.tz_convert(target_tz)
         else: logger.warning(f"[{stock_code}] zoneinfo 不可用...")
     except Exception as e: logger.error(f"[{stock_code}] 处理时区出错: {e}", exc_info=True); return None
-
     # 2. 计算评分 EMA
     fib_periods = [5, 13, 21, 55]
     try:
         for period in fib_periods: analysis_df[f'ema_score_{period}'] = ta.ema(analysis_df['score'], length=period)
     except Exception as e: logger.error(f"[{stock_code}] 计算评分 EMA 出错: {e}", exc_info=True); return analysis_df
-
     # 3. 计算评分趋势排列信号
     signal_5_13 = np.where(analysis_df['ema_score_5'] > analysis_df['ema_score_13'], 1, np.where(analysis_df['ema_score_5'] < analysis_df['ema_score_13'], -1, 0))
     signal_13_21 = np.where(analysis_df['ema_score_13'] > analysis_df['ema_score_21'], 1, np.where(analysis_df['ema_score_13'] < analysis_df['ema_score_21'], -1, 0))
     signal_21_55 = np.where(analysis_df['ema_score_21'] > analysis_df['ema_score_55'], 1, np.where(analysis_df['ema_score_21'] < analysis_df['ema_score_55'], -1, 0))
     analysis_df['alignment_signal'] = signal_5_13 + signal_13_21 + signal_21_55
     analysis_df.loc[analysis_df[[f'ema_score_{p}' for p in fib_periods]].isna().any(axis=1), 'alignment_signal'] = np.nan
-
     # 4. 计算评分趋势强度
     analysis_df['ema_strength_13_55'] = analysis_df['ema_score_13'] - analysis_df['ema_score_55']
     # 5. 计算评分动能
@@ -108,7 +103,6 @@ def analyze_score_trend(
     # 6. 计算评分波动性
     volatility_window = 10
     analysis_df['score_volatility'] = analysis_df['score'].rolling(window=volatility_window).std()
-
     # --- T+0 相关计算 (基于 VWAP) ---
     analysis_df['t0_signal'] = 0
     if t0_params['enabled']:
@@ -121,7 +115,6 @@ def analyze_score_trend(
                 (analysis_df['close'] - analysis_df['vwap']) / analysis_df['vwap']
             )
         else: logger.warning(f"[{stock_code}] 'vwap' 列不存在，禁用 T+0。"); t0_params['enabled'] = False
-
         if t0_params['enabled'] and 'price_vwap_deviation' in analysis_df.columns:
             is_score_uptrend = analysis_df['alignment_signal'] >= 1
             is_score_downtrend = analysis_df['alignment_signal'] <= -1
@@ -131,7 +124,6 @@ def analyze_score_trend(
             analysis_df.loc[is_score_downtrend & is_price_above_vwap, 't0_signal'] = -1
             logger.debug(f"[{stock_code}] T+0 信号 (基于 VWAP) 计算完成。")
         elif t0_params['enabled']: logger.warning(f"[{stock_code}] 未计算 'price_vwap_deviation'..."); t0_params['enabled'] = False
-
     # 7. 综合分析与输出
     if not analysis_df.empty:
         latest_data = analysis_df.iloc[-1]
@@ -161,14 +153,12 @@ def analyze_score_trend(
                 summary += "**(评分下降)**\n" # 明确下降
             else:
                 summary += "(评分持平)\n" # 持平状态
-
         # e. 信号稳定性 (检查最近 3 期 alignment_signal)
         summary += "  - 信号稳定性 (近3期): "
         if len(analysis_df) >= 3:
             # 获取最近三期的排列信号，并过滤掉 NaN 值
             recent_alignment_raw = analysis_df['alignment_signal'].iloc[-3:].tolist()
             recent_alignment = [a for a in recent_alignment_raw if not pd.isna(a)] # 过滤 NaN
-
             if not recent_alignment: # 如果过滤后为空（例如最近三期都是 NaN）
                 summary += "信号不足或无法判断\n"
             elif len(set(recent_alignment)) == 1: # 如果信号一致
@@ -187,7 +177,6 @@ def analyze_score_trend(
                 summary += "排列信号波动\n"
         else: # 数据不足三期
             summary += "数据不足 (<3期)\n"
-
         # f. 评分波动性 (基于 10 期滚动标准差)
         volatility = latest_data['score_volatility']
         summary += f"  - 评分波动性 ({volatility_window}期 std): " # volatility_window 是之前定义的
@@ -213,7 +202,6 @@ def analyze_score_trend(
             except Exception as e_quantile:
                  logger.warning(f"[{stock_code}] 计算波动性分位数时出错: {e_quantile}")
                  summary += "(无法判断相对水平)\n" # 计算分位数出错
-
         if t0_params['enabled']:
             summary += f"--- 日内 T+0 交易信号 (基于价格与 VWAP 偏离度) ---\n"
             price_dev = latest_data.get('price_vwap_deviation', np.nan)
@@ -230,7 +218,6 @@ def analyze_score_trend(
                         elif alignment <= -1 and price_dev <= t0_params['sell_dev_threshold']: summary += "      (原因: 评分趋势向差，但价格未高于 VWAP 卖出阈值)\n"
                         elif alignment == 0: summary += "      (原因: 评分趋势不明朗)\n"
         else: summary += "--- 日内 T+0 交易信号: 未启用或无法计算 ---\n"
-
         print("\n" + "="*30 + " 评分与价格趋势分析摘要 " + "="*30); print(summary); print("="*78)
         print(f"\n[{stock_code}] 详细趋势分析数据 (最后10条，时间：Asia/Shanghai):")
         display_cols = ['score', 'close']
@@ -247,7 +234,6 @@ def analyze_score_trend(
                  print(analysis_df[display_cols].tail(10).to_string(formatters=formatters))
         else: logger.warning(f"[{stock_code}] 无法显示详细趋势分析数据...")
     else: logger.warning(f"[{stock_code}] 分析结果 DF 为空..."); return None
-
     # 8. (可选) 保存结果到 Redis
     try:
         cache_key = f"strategy_score_trend:{stock_code}"
@@ -257,7 +243,6 @@ def analyze_score_trend(
         cache.set(cache_key, analysis_df_serializable.to_json(orient='records', date_format='iso'), timeout=60 * 60)
         logger.info(f"[{stock_code}] 分析结果已缓存至 Redis (Key: {cache_key})。")
     except Exception as e: logger.error(f"[{stock_code}] 缓存分析结果至 Redis 出错: {e}", exc_info=True)
-
     return analysis_df
 # --- 结束 analyze_score_trend 函数 ---
 
