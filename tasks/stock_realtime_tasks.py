@@ -117,7 +117,7 @@ def save_realtime_data_batch(self, stock_codes: List[str]):
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.stock_realtime.get_realtime_data_task')
-def get_realtime_data_task(self, batch_size: int = 20): # 增加批次大小参数
+def get_realtime_data_task(self, batch_size: int = 50): # 增加批次大小参数
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
