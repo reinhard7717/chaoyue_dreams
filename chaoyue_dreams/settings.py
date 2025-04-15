@@ -732,8 +732,9 @@ CELERY_BEAT_SCHEDULE = {
     ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
     '每 60 秒运行一次所有股票的实时数据获取': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.stock_realtime.get_realtime_data_task', # 任务函数名
+        'task': 'tasks.stock_realtime.save_all_realtime_data_task', # 任务函数名
         'schedule': crontab(minute='*/1', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
+        'queue': 'stock_queue'
     },
     '每 5 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
