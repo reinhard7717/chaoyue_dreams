@@ -1,6 +1,7 @@
 import json
 import logging
 import asyncio
+from asyncio import Semaphore
 from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
 from datetime import datetime, date
 from asgiref.sync import sync_to_async
@@ -95,10 +96,8 @@ class StockIndicatorsDAO(BaseDAO):
     async def get_all_latest_time_trade_by_stock_code(self, stock_code: str) -> Optional[StockTimeTrade]:
         """
         获取指定股票的最新分时成交数据
-        
         Args:
             stock_code: 股票代码
-            
         Returns:
             Optional[StockTimeTrade]: 指定股票的最新分时成交数据
         """
@@ -225,7 +224,7 @@ class StockIndicatorsDAO(BaseDAO):
 
     async def fetch_and_save_latest_time_trade_by_time_level(self, time_level: Union[TimeLevel, str]) -> Dict:
         """
-        从API获取并保存最新股票分时成交数据，使用批量并发触发
+        从API获取并保存最新股票分时成交数据，使用批量并发触发，但增加并发数量限制
         Args:
             time_level: 时间级别
         Returns:
@@ -236,52 +235,47 @@ class StockIndicatorsDAO(BaseDAO):
             if not stocks:
                 logger.warning("股票列表不存在，无法获取时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-            # 批量触发
+            # 定义并发限制，设置为50（可根据需要调整）
+            semaphore = Semaphore(30)  # 限制同时执行的任务数量
             async def process_stock(stock):
-                """异步处理单个股票的任务"""
-                try:
-                    api_data = await self.api.get_time_trade(stock.stock_code, time_level)
-                    if isinstance(api_data, dict):
-                        data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                        if data_dict.get('trade_time') is not None:
-                            cache_dict = data_dict.copy()
-                            await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
-                            await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
-                            return data_dict  # 返回成功的 data_dict
-                        else:
-                            logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据")
-                            return None  # 跳过
-                except Exception as e:
-                    logger.error(f"处理股票[{stock.stock_code}]的分时成交数据出错: {str(e)}")
-                    return None  # 返回 None 表示失败
-                return None
-            
-            # 创建任务列表，并发执行
+                """异步处理单个股票的任务，添加Semaphore限制"""
+                async with semaphore:  # 使用Semaphore控制并发
+                    try:
+                        api_data = await self.api.get_time_trade(stock.stock_code, time_level)
+                        if isinstance(api_data, dict):
+                            data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                            if data_dict.get('trade_time') is not None:
+                                cache_dict = data_dict.copy()
+                                await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
+                                await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
+                                return data_dict  # 返回成功的 data_dict
+                            else:
+                                logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据")
+                                return None  # 跳过
+                    except Exception as e:
+                        logger.error(f"处理股票[{stock.stock_code}]的分时成交数据出错: {str(e)}")
+                        return None  # 返回 None 表示失败
+                    return None
+            # 创建任务列表，并发执行，但受Semaphore限制
             tasks = [process_stock(stock) for stock in stocks]
             results = await asyncio.gather(*tasks, return_exceptions=True)  # 并发执行，捕获异常
-            
             # 过滤成功的 data_dict
             data_dicts: List[Dict] = [result for result in results if result is not None]
-            
             if not data_dicts:
                 logger.warning(f"API未返回任何{time_level}级别时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
-            
             # 批量保存到数据库
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeTrade,
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
             # 执行缓存修剪
             for stock in stocks:
-                cache_key = self.cache_key.history_time_trade(stock.stock_code, time_level)
+                cache_key = self.cache_key.history_time_trade(stock.stock_code, time_level)  # 假设cache_key方法已定义
                 await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
-            
             logger.info(f"所有股票分时成交数据保存完成，结果: {result}")
             return result
-        
         except Exception as e:
             logger.error(f"保存股票分时成交数据出错: {str(e)}")
             return {'创建': 0, '更新': 0, '跳过': 0}

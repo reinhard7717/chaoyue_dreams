@@ -1,6 +1,7 @@
 # stock_models/models/stock_basic.py
 
 from django.db import models
+import pandas as pd
 from django.utils.translation import gettext_lazy as _
 from bulk_update_or_create import BulkUpdateOrCreateQuerySet
 from stock_models.index import IndexInfo
@@ -238,6 +239,91 @@ class StockTimeTrade(models.Model):
     
     def __code__(self):
         return self.stock.stock_code
+    
+    @classmethod
+    def generate_higher_level_data(cls, stock, source_level='5', target_levels=['15', '30', '60']):
+        """
+        根据源级别数据合成更高级别的数据。
+        
+        参数:
+        - stock: StockInfo 对象的实例，表示要处理的股票。
+        - source_level: 字符串，源数据的时间级别，默认为 '5'。
+        - target_levels: 列表，目标时间级别列表，默认为 ['15', '30', '60']。
+        
+        该方法会查询源级别的数据，使用Pandas聚合后保存到数据库，并计算 turnover_rate、price_change_percent 和 price_change_amount。
+        """
+        if not hasattr(stock, 'circulating_shares') or stock.circulating_shares is None:
+            print(f"错误: 股票 {stock.stock_code} 缺少流通股本数据，无法计算 turnover_rate。")
+            return  # 缺少必要数据，停止执行
+        # 步骤1: 查询源级别的数据
+        source_data = cls.objects.filter(stock=stock, time_level=source_level).order_by('trade_time')
+        if not source_data.exists():
+            print(f"警告: 股票 {stock.stock_code} 的 {source_level} 级别数据不存在。")
+            return  # 没有数据可处理
+        # 步骤2: 转换为Pandas DataFrame
+        data_list = list(source_data.values('trade_time', 'open_price', 'high_price', 'low_price', 'close_price', 'volume', 'turnover'))
+        df = pd.DataFrame(data_list)
+        if df.empty:
+            return  # 空数据
+        # 转换 trade_time 为 datetime 类型并设为索引
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df.set_index('trade_time', inplace=True)
+        # 确保数据类型正确
+        for col in ['open_price', 'high_price', 'low_price', 'close_price', 'turnover']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+        # 步骤3: 根据目标级别进行聚合
+        for target_level in target_levels:
+            if target_level == '15':
+                resample_rule = '15T'  # 15分钟
+            elif target_level == '30':
+                resample_rule = '30T'  # 30分钟
+            elif target_level == '60':
+                resample_rule = '60T'  # 60分钟
+            else:
+                print(f"警告: 不支持的目标级别 {target_level}，跳过。")
+                continue
+            # 进行重采样和聚合
+            aggregated_df = df.resample(resample_rule).agg({
+                'open_price': 'first',  # 第一个周期的开盘价
+                'high_price': 'max',    # 最高价
+                'low_price': 'min',     # 最低价
+                'close_price': 'last',  # 最后一个周期的收盘价
+                'volume': 'sum',        # 总成交量
+                'turnover': 'sum',      # 总成交额
+            }).dropna()  # 去除NaN行
+            # 计算额外字段
+            if not aggregated_df.empty:
+                # 计算 turnover_rate
+                aggregated_df['turnover_rate'] = (aggregated_df['volume'] / stock.circulating_shares) * 100  # 换手率
+                aggregated_df['amplitude'] = (aggregated_df['high_price'] - aggregated_df['low_price']) / aggregated_df['open_price'] * 100
+                # 计算 price_change_percent 和 price_change_amount
+                aggregated_df['previous_close_price'] = aggregated_df['close_price'].shift(1)  # 获取前一个周期的收盘价
+                aggregated_df['price_change_amount'] = aggregated_df['close_price'] - aggregated_df['previous_close_price']  # 涨跌额
+                aggregated_df['price_change_percent'] = (aggregated_df['price_change_amount'] / aggregated_df['previous_close_price']) * 100  # 涨跌幅
+                # 去除临时列
+                aggregated_df = aggregated_df.drop(columns=['previous_close_price'], errors='ignore')
+            # 步骤4: 保存聚合后的数据
+            for idx, row in aggregated_df.iterrows():
+                new_instance = cls(
+                    stock=stock,
+                    time_level=target_level,  # 使用 '15'、'30' 或 '60'
+                    trade_time=idx.to_pydatetime(),
+                    open_price=row['open_price'] if 'open_price' in row else None,
+                    high_price=row['high_price'] if 'high_price' in row else None,
+                    low_price=row['low_price'] if 'low_price' in row else None,
+                    close_price=row['close_price'] if 'close_price' in row else None,
+                    volume=row['volume'] if 'volume' in row else None,
+                    turnover=row['turnover'] if 'turnover' in row else None,
+                    turnover_rate=row['turnover_rate'] if 'turnover_rate' in row else None,
+                    price_change_percent=row['price_change_percent'] if 'price_change_percent' in row else None,
+                    price_change_amount=row['price_change_amount'] if 'price_change_amount' in row else None,
+                    amplitude=row['amplitude'] if 'amplitude' in row else None, 
+                )
+                new_instance.save()  # 保存到数据库
+            print(f"成功为股票 {stock.stock_code} 生成 {target_level} 级别数据，包括计算字段。")
+        print("数据合成完成。")
 
 
 # 创建分类查找辅助类
