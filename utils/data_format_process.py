@@ -185,11 +185,10 @@ class StockIndicatorsDataFormatProcess(BaseDAO):
                 'price_change_amount': self._parse_number(api_data.price_change_amount),  # 涨跌额   
             }
         else:
-            trade_time = self._parse_datetime(api_data.get('d'))
             data_dict = {
                 'stock': stock,
                 'time_level': time_level,
-                'trade_time': trade_time,  # 交易时间
+                'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
                 'open_price': self._parse_number(api_data.get('o')),  # 开盘价
                 'high_price': self._parse_number(api_data.get('h')),  # 最高价
                 'low_price': self._parse_number(api_data.get('l')),  # 最低价
