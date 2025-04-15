@@ -275,30 +275,24 @@ def calculate_stock_strategy(self):
     try:
         # 在同步任务中运行异步代码来获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-
         if not favorite_codes and not non_favorite_codes:
             logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
             return "未获取到股票代码"
-
         total_dispatched_chains = 0
         total_favorite_stocks = len(favorite_codes)
         total_non_favorite_stocks = len(non_favorite_codes)
-
         # 1. 分派自选股任务链到 FAVORITE_CALCULATE_STRATEGY_QUEUE 队列
         for stock_code in favorite_codes:
-            sig = run_stock_strategy_task.s(stock_code).set(queue='FAVORITE_CALCULATE_STRATEGY_QUEUE')
+            sig = run_stock_strategy_task.s(stock_code).set(queue=FAVORITE_CALCULATE_STRATEGY_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
-
         # 2. 分派非自选股任务链到 STOCKS_CALCULATE_STRATEGY_QUEUE 队列
         for stock_code in non_favorite_codes:
-            sig = run_stock_strategy_task.s(stock_code).set(queue='STOCKS_CALCULATE_STRATEGY_QUEUE')
+            sig = run_stock_strategy_task.s(stock_code).set(queue=STOCKS_CALCULATE_STRATEGY_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
-
         logger.info(f"任务结束: calculate_stock_strategy (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")
         return f"已为 {total_favorite_stocks} 自选股和 {total_non_favorite_stocks} 非自选股分派 {total_dispatched_chains} 个任务链"
-
     except Exception as e:
         logger.error(f"执行 calculate_stock_strategy (调度器模式) 时出错: {e}", exc_info=True)
         # 可以考虑重试机制
