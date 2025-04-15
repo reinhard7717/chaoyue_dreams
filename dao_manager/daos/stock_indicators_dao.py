@@ -202,7 +202,8 @@ class StockIndicatorsDAO(BaseDAO):
             data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
             data_dicts.append(data_dict)
             cache_dict = data_dict.copy()
-            await self.cache_set.latest_time_trade(stock_code, time_level, cache_dict)
+            # await self.cache_set.latest_time_trade(stock_code, time_level, cache_dict)
+            await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict) 
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeTrade,
@@ -211,7 +212,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             # --- 生成缓存键 ---
-            cache_key =  self.cache_key.latest_time_trade(stock_code, time_level)
+            cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
             # --- 单行调用修剪方法 ---
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
