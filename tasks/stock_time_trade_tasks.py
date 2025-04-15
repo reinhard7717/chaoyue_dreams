@@ -92,7 +92,7 @@ def process_single_stock_latest_trade(self, stock_code: str):
 
 # --- 新增：处理单个股票的子任务 ---
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_single_stock_latest_trade_trading_hours')
-def process_single_stock_latest_trade_trading_hours(self, stock_code: str):
+def process_single_stock_latest_trade_trading_hours(self, stock_code: str, time_level: str):
     """
     获取并保存单个股票的最新实时数据 (子任务)
     """
@@ -106,7 +106,7 @@ def process_single_stock_latest_trade_trading_hours(self, stock_code: str):
     try:
         stock_indicators_dao = StockIndicatorsDAO()
         # 在同步的 Celery 任务中运行异步 DAO 方法
-        asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_trading_hours_by_stock_code(stock_code))
+        asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade(stock_code, time_level))
         # task_result = f"成功处理股票 {stock_code} 最新实时数据"
         # logger.info(task_result)
     except Exception as e:
@@ -134,7 +134,7 @@ def process_single_stock_latest_trade_trading_hours(self, stock_code: str):
 
 # 任务调度：计算所有股票的指标
 @celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas')
-def save_latest_trade_datas(self):
+def save_latest_trade_datas(self, time_level: str):
     """
     修改后的调度器任务：
     1. 获取自选股和非自选股代码。
@@ -158,13 +158,13 @@ def save_latest_trade_datas(self):
 
         # 1. 分派自选股任务链到 FAVORITE_SAVE_API_DATA_QUEUE 队列
         for stock_code in favorite_codes:
-            sig = process_single_stock_latest_trade_trading_hours.s(stock_code).set(queue='FAVORITE_SAVE_API_DATA_QUEUE')
+            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue='FAVORITE_SAVE_API_DATA_QUEUE')
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
 
         # 2. 分派非自选股任务链到 STOCKS_SAVE_API_DATA_QUEUE 队列
         for stock_code in non_favorite_codes:
-            sig = process_single_stock_latest_trade_trading_hours.s(stock_code).set(queue='STOCKS_SAVE_API_DATA_QUEUE')
+            sig = process_single_stock_latest_trade_trading_hours.s(stock_code, time_level).set(queue='STOCKS_SAVE_API_DATA_QUEUE')
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
 

@@ -280,10 +280,8 @@ class StockIndicatorsDAO(BaseDAO):
         if not stock:
             logger.warning(f"股票代码[{stock_code}]不存在，无法获取时间序列数据")
             return {'创建': 0, '更新': 0, '跳过': 0}
-
         data_dicts = []
         result = {'创建': 0, '更新': 0, '跳过': 0} # 初始化 result
-
         # --- 使用 async with 创建和管理 API 实例 ---
         try:
             async with self.api as api_client: # 在这里创建临时的 API 客户端实例
@@ -296,19 +294,14 @@ class StockIndicatorsDAO(BaseDAO):
                             logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据, data_dict: {data_dict}")
                             # 根据策略，可以选择跳过这个 time_level 或直接返回
                             continue # 跳过这个 time_level，继续下一个
-
                         data_dicts.append(data_dict)
                         cache_dict = data_dict.copy()
                         await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
                         await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
-                        cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-                        await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
-
                     except Exception as inner_e:
                         # 捕获单个 time_level 处理中的错误，记录并继续处理下一个 time_level
                         logger.error(f"处理 {stock.stock_code} 的 {time_level} 级别数据时出错: {str(inner_e)}", exc_info=True)
                         continue # 继续下一个 time_level
-
             # --- async with 块结束，api_client 会自动关闭 ---
 
             if not data_dicts:
@@ -321,6 +314,8 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
+            cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             logger.info(f"{stock.stock_code} 股票分时成交数据保存完成，结果: {result}")
 
         except Exception as e:
@@ -329,6 +324,7 @@ class StockIndicatorsDAO(BaseDAO):
             result = {'创建': 0, '更新': 0, '跳过': 0} # 确保返回字典
 
         return result
+
 
     async def fetch_and_save_favorite_stocks_latest_time_trade(self) -> Dict:
         """
