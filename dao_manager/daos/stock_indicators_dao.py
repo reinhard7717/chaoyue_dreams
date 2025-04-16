@@ -273,7 +273,7 @@ class StockIndicatorsDAO(BaseDAO):
                 await self.initialize_cache_objects()
         data_dicts = []
         try:
-            for stock in stocks:
+            for i, stock in enumerate(stocks):
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 if api_data:
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
@@ -284,7 +284,8 @@ class StockIndicatorsDAO(BaseDAO):
                         data_dicts.append(data_dict)
                         cache_dict = data_dict.copy()
                         await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
-                        logger.info(f"股票[{stock}] {time_level}级别分时成交数据获取完成")
+                        if i % 100 == 0:
+                            logger.info(f"{time_level}级别分时成交数据获取完成 {i}/{len(stocks)}")
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeTrade,
