@@ -132,6 +132,12 @@ class CacheManager:
         return result
 
     async def set(self, key: str, data: Any, timeout: Optional[int] = None, nx: bool = False) -> bool:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         serialized_data = self._serialize(data)
         try:
             if timeout is None:
@@ -146,6 +152,12 @@ class CacheManager:
             return False
     
     async def get(self, key: str, default: Any = None) -> Any:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             data = await self.redis_client.get(key)
             if data:
@@ -166,6 +178,12 @@ class CacheManager:
         return None
     
     async def delete(self, key: str) -> bool:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             return bool(await self.redis_client.delete(key))
         except Exception as e:
@@ -173,6 +191,12 @@ class CacheManager:
             return False
     
     async def exists(self, key: str) -> bool:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             return bool(await self.redis_client.exists(key))
         except Exception as e:
@@ -180,6 +204,12 @@ class CacheManager:
             return False
     
     async def ttl(self, key: str) -> int:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             return await self.redis_client.ttl(key)
         except Exception as e:
@@ -187,9 +217,21 @@ class CacheManager:
             return -2  # 不存在的键
     
     async def pipeline(self) -> Pipeline:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         return self.redis_client.pipeline()  # redis-py 的 pipeline 直接可用
     
     async def hset(self, key: str, field: str, value: Any, timeout: Optional[int] = None) -> bool:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         serialized = self._serialize(value)
         try:
             result = await self.redis_client.hset(key, field, serialized)
@@ -204,6 +246,12 @@ class CacheManager:
             return False
     
     async def hget(self, key: str, field: str, default: Any = None) -> Any:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             data = await self.redis_client.hget(key, field)
             if data:
@@ -214,6 +262,12 @@ class CacheManager:
             return default
     
     async def hgetall(self, key: str) -> Dict[str, Any]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             data = await self.redis_client.hgetall(key)
             result = {}
@@ -226,6 +280,12 @@ class CacheManager:
             return {}
     
     async def mget(self, keys: List[str]) -> List[Any]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             values = await self.redis_client.mget(keys)
             return [self._deserialize(v) if v else None for v in values]
@@ -234,6 +294,12 @@ class CacheManager:
             return [None] * len(keys)
     
     async def zadd(self, key: str, mapping: Mapping[bytes, float], timeout: Optional[int] = None) -> Optional[int]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         if not mapping:
             return 0
         try:
@@ -250,6 +316,12 @@ class CacheManager:
             return None
     
     async def zrangebyscore(self, key: str, min_score: Union[float, str], max_score: Union[float, str]) -> Optional[List[Any]]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             serialized_members = await self.redis_client.zrangebyscore(key, min_score, max_score)
             if serialized_members is None:
@@ -261,6 +333,12 @@ class CacheManager:
             return None
     
     async def zrange_by_limit(self, key: str, limit: int) -> Optional[List[Any]]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         try:
             serialized_members = await self.redis_client.zrevrange(key, 0, limit - 1)
             if serialized_members is None:
@@ -272,6 +350,12 @@ class CacheManager:
             return None
     
     async def ztrim_by_rank(self, key: str, keep_latest: int) -> Optional[int]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         if keep_latest <= 0:
             return 0
         try:
@@ -287,6 +371,12 @@ class CacheManager:
             return None
     
     async def zadd_and_trim(self, key: str, mapping: Mapping[Any, float], limit: int, timeout: Optional[int] = None) -> Optional[int]:
+        if self.redis_client is None:
+            try:
+                await self.initialize()  # 懒加载初始化
+            except Exception as e:
+                logger.error(f"初始化Redis客户端失败: {str(e)}")
+                return False  # 初始化失败，返回False
         if not mapping or not isinstance(mapping, dict):
             return 0
         try:
