@@ -10,7 +10,6 @@ from utils.data_format_process import IndexDataFormatProcess
 logger = logging.getLogger("dao")
 
 class CacheGet():
-
     def __init__(self):
         self.cache_manager = None
         self.cache_key_user = UserCashKey()
@@ -383,7 +382,7 @@ class StockInfoCacheGet(CacheGet):
         """
         if self.cache_manager is None:
             await self.initialize()  # 在需要时调用初始化
-        cache_key = self.cache_key.generate_key(
+        cache_key = self.cache_key_index.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_STOCK,
             entity_id=cc.ID_ALL

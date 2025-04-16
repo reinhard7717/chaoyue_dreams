@@ -142,7 +142,7 @@ class CacheManager:
             else:
                 return await self.redis_client.set(key, serialized_data, ex=timeout)
         except Exception as e:
-            logger.error(f"缓存保存失败: {key}, 错误: {str(e)}")
+            logger.error(f"缓存保存失败: {key}, 错误: {str(e)}",exc_info=True)
             return False
     
     async def get(self, key: str, default: Any = None) -> Any:
