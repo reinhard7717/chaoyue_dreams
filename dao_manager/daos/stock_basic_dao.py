@@ -138,7 +138,7 @@ class StockBasicDAO(BaseDAO):
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_key.stock_data(stock_code)
         # 尝试从缓存获取，指定模型类进行自动转换
-        stock = await sync_to_async(self.cache_manager.get_model)(cache_key, StockInfo)
+        stock = await self.cache_manager.get_model(cache_key, StockInfo)
         if stock:
             return stock
             
@@ -150,7 +150,7 @@ class StockBasicDAO(BaseDAO):
             cache_data = self.data_format_process.set_stock_info_data(stock)
             # logger.info(f"get_stock_by_code,cache_data: {cache_data}, type: {type(cache_data)}")
             # *** 正确调用 CacheManager 缓存数据 ***
-            success = await sync_to_async(self.cache_manager.set)(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=cache_data,
                 timeout=self.cache_manager.get_timeout('st')
@@ -305,16 +305,7 @@ class StockBasicDAO(BaseDAO):
             logger.info(f"准备将 {len(data_dicts)} 条股票数据设置到缓存, key: {cache_key}, timeout: {cache_timeout}s")
 
             # *** 正确调用 CacheManager 缓存数据 ***
-            set_cache_sync = sync_to_async(
-                self.cache_manager.set,       # 要包装的同步方法
-                thread_sensitive=False        # Redis 操作通常不需要线程敏感
-            )
-            # 调用包装后的异步函数
-            success = await set_cache_sync(
-                key=cache_key,
-                data=data_dicts,
-                timeout=self.cache_manager.get_timeout('st') # 假设 get_timeout 也是同步的，直接调用获取值
-            )
+            success = await self.cache_manager.set(key=cache_key, data=data_dicts, timeout=self.cache_manager.get_timeout('st'))
             if success:
                 logger.info(f"股票数据成功设置到缓存, key: {cache_key}")
                 return True
