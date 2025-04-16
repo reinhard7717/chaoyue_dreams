@@ -371,7 +371,7 @@ class StockBasicDAO(BaseDAO):
         """
         from stock_models.stock_basic import NewStockCalendar
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'new_stock', stock_code)
+        cache_key = self.cache_key.generate_key('st', 'new_stock', stock_code)
         
         # 尝试从缓存获取
         cached_data = self.cache_manager.get_model(cache_key, NewStockCalendar)
@@ -438,7 +438,7 @@ class StockBasicDAO(BaseDAO):
         """
         from stock_models.stock_basic import NewStockCalendar
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'new_stock', 'all')
+        cache_key = self.cache_key.generate_key('st', 'new_stock', 'all')
         
         # 尝试从缓存获取
         cached_data = self.cache_manager.get(cache_key)
@@ -510,7 +510,7 @@ class StockBasicDAO(BaseDAO):
         """
         from stock_models.stock_basic import STStockList
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'st_stock', stock_code)
+        cache_key = self.cache_key.generate_key('st', 'st_stock', stock_code)
         
         # 尝试从缓存获取
         st_stock = self.cache_manager.get_model(cache_key, STStockList)
@@ -576,7 +576,7 @@ class StockBasicDAO(BaseDAO):
         """
         from stock_models.stock_basic import STStockList
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'st_stock', 'all')
+        cache_key = self.cache_key.generate_key('st', 'st_stock', 'all')
         
         # 尝试从缓存获取
         cached_data = self.cache_manager.get(cache_key)
@@ -646,7 +646,7 @@ class StockBasicDAO(BaseDAO):
         """
         from stock_models.stock_basic import CompanyInfo
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('st', 'company', stock_code)
+        cache_key = self.cache_key.generate_key('st', 'company', stock_code)
         
         # 尝试从缓存获取
         company = self.cache_manager.get_model(cache_key, CompanyInfo)

@@ -12,6 +12,7 @@ mc string 股票名称，如：平安银行
 jys string 交易所，"sh"表示上证，"sz"表示深证
 示例：
 https://ig507.com/data/base/gplist?licence=您的licence
+
 新股日历
 API：https://ig507.com/data/all/xgrl?licence=您的licence
 描述：新股日历，按申购日期倒序。
@@ -45,6 +46,7 @@ zyyw string 主营业务
 示例，下方为假数据，请使用licence获取真实数据：
 https://ig507.com/data/all/xgrl?licence=您的licence
 [{"zqdm":"605555","zqjc":"德昌股份","sgdm":"707555","fxsl":50000000,"swfxsl":45000000,"sgsx":20000,"dgsz":200000,"fxjg":32.35,"zxj":27.78,"srspj":41.97,"sgrq":"2021-10-11","zqgbrq":"2021-10-13","zqjkrq":"2021-10-13","ssrq":"2021-10-21","syl":22.99,"hysyl":43.81,"wszql":0.02633618,"yzbsl":1,"zf":36,"yqhl":11600,"zyyw":"小家电及汽车EPS电机的设计、制造与销售业务,包括小家电ODM/OEM产品、家电电器电机及汽车电子助力转向系统(ElectronicPowerSteering,简称EPS)电机"}]
+
 风险警示股票列表
 API：https://ig507.com/data/all/stgplist?licence=您的licence
 描述：获取风险警示（ST）股票的代码和名称。
@@ -67,9 +69,7 @@ API：https://ig507.com/data/time/f10/info/股票代码?licence=您的licence
 更新频率：每天15:30（更新完成约12小时）。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：{}
-
 返回字段说明：
-
 字段 类型 说明
 name string 公司名称
 ename string 公司英文名称
@@ -89,9 +89,7 @@ API：https://ig507.com/data/time/f10/index/股票代码?licence=您的licence
 更新频率：每天15:30（更新完成约12小时）。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：[{}]
-
 返回字段说明：
-
 字段 类型 说明
 mc string 指数名称
 dm string 指数代码
@@ -107,9 +105,7 @@ API：https://ig507.com/data/time/f10/pf/股票代码?licence=您的licence
 更新频率：每天15:30（更新完成约12小时）。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：[{}]
-
 返回字段说明：
-
 字段 类型 说明
 date string 截止日期yyyy-MM-dd
 income string 营业收入（万元）
@@ -131,9 +127,7 @@ API：https://ig507.com/data/time/f10/cf/股票代码?licence=您的licence
 更新频率：每天15:30（更新完成约12小时）。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：[{}]
-
 返回字段说明：
-
 字段 类型 说明
 date string 截止日期yyyy-MM-dd
 jyin string 经营活动现金流入小计（万元）
@@ -159,9 +153,7 @@ API：https://ig507.com/data/time/f10/ep/股票代码?licence=您的licence
 更新频率：每天15:30（更新完成约12小时）。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：[{}]
-
 返回字段说明：
-
 字段 类型 说明
 pdate string 公告日期yyyy-MM-dd
 rdate string 报告期yyyy-MM-dd
@@ -178,9 +170,7 @@ API：https://ig507.com/data/time/f10/fi/股票代码?licence=您的licence
 更新频率：每天15:30（更新完成约12小时）。
 请求频率限制：基础版2秒1次，专业版上限1秒50次。
 返回格式：[{}]
-
 返回字段说明：
-
 字段 类型 说明
 date string 报告日期yyyy-MM-dd
 tbmg string 摊薄每股收益(元)d

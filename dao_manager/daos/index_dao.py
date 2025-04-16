@@ -42,12 +42,22 @@ class StockIndexDAO(BaseDAO):
     def __init__(self):
         """初始化DAO对象，创建API实例"""
         self.api = StockIndexAPI()
-        self.cache_manager = CacheManager()
+        self.cache_manager = None
         self.cache_limit = 200 # 定义缓存数量上限
         self.cache_key = IndexCashKey()
         self.data_format_process = IndexDataFormatProcess()
-        self.cache_set = IndexCacheSet()
-        self.cache_get = IndexCacheGet()
+        self.cache_set = None
+        self.cache_get = None
+
+    async def initialize_cache_objects(self):
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 其异步初始化方法，如果存在
+
+        self.cache_set = IndexCacheSet()  # 先实例化
+        await self.cache_set.initialize()  # 添加异步初始化方法，如果需要
+
+        self.cache_get = IndexCacheGet()  # 先实例化
+        await self.cache_get.initialize()  # 添加异步初始化方法，如果需要
 
     # 新增 close 方法
     async def close(self):
@@ -72,20 +82,20 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[StockIndex]: 按指数代码排序的指数对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 尝试从缓存获取
-        # cached_data = await self.cache_get.all_indexes()
-        # if cached_data:
-        #     logger.debug("从缓存获取股票指数列表")
-        #     # logger.info(f"cached_data: {cached_data}")
-        #     # 将缓存数据转换为模型实例列表并排序
-        #     return sorted([IndexInfo(**index_dict) for index_dict in cached_data], key=lambda x: x.code)
-            
+        cached_data = await self.cache_get.all_indexes()
+        if cached_data:
+            logger.debug("从缓存获取股票指数列表")
+            # logger.info(f"cached_data: {cached_data}")
+            # 将缓存数据转换为模型实例列表并排序
+            return sorted([IndexInfo(**index_dict) for index_dict in cached_data], key=lambda x: x.code)
         # 从数据库读取并排序
         indexes = await sync_to_async(list)(IndexInfo.objects.all().order_by('code'))
         if indexes:
             await self.cache_set.indexes(indexes)
             return indexes
-        
         # 如果数据库中没有数据，从API获取并保存
         logger.info("数据库中没有指数数据，从API获取")
         await self.fetch_and_save_indexes()
@@ -102,13 +112,15 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[StockIndex]: 指数对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_key.index_data(code)
         # # 尝试从缓存获取，指定模型类进行自动转换
-        # index = self.cache_manager.get_model(cache_key, IndexInfo)
-        # if index:
-        #     # logger.warning(f"get_index_by_code获取指数: {cache_key}, {index}, type: {type(index)}")
-        #     return index
+        index = self.cache_manager.get_model(cache_key, IndexInfo)
+        if index:
+            # logger.warning(f"get_index_by_code获取指数: {cache_key}, {index}, type: {type(index)}")
+            return index
             
         # 从数据库获取
         index = await sync_to_async(IndexInfo.objects.get)(code=code)
@@ -136,10 +148,11 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[StockIndexRealTimeData]: 实时数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         cache_data = await self.cache_get.realtime_data(index_code)
         if cache_data:
             return cache_data
-        
         # 从数据库获取最新数据
         index = await self.get_index_by_code(index_code)
         if not index:
@@ -167,8 +180,10 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[MarketOverview]: 市场概览数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key('rt', 'market', 'overview')
+        cache_key = self.cache_key.generate_key('rt', 'market', 'overview')
         
         # 尝试从缓存获取
         market_overview = self.cache_manager.get_model(cache_key, MarketOverview)
@@ -215,6 +230,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[IndexTimeSeriesData]: 最新时间序列数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.latest_time_series(index_code, time_level)
         if data:
@@ -250,6 +267,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[IndexKDJData]: 最新KDJ指标数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.latest_kdj(index_code, time_level)
         if data:
@@ -283,6 +302,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[IndexMAData]: 最新MA指标数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.latest_macd(index_code, time_level)
         if data:
@@ -316,6 +337,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[IndexMAData]: 最新MA指标数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.latest_ma(index_code, time_level)
         if data:
@@ -349,6 +372,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[IndexBOLLData]: 最新BOLL指标数据对象，如不存在返回None
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.latest_boll(index_code, time_level)
         if data:
@@ -389,6 +414,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[TimeSeriesData]: 时间序列数据列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.history_time_series(index_code, time_level, start_time, end_time)
         if data:
@@ -422,23 +449,21 @@ class StockIndexDAO(BaseDAO):
             logger.error(f"获取指数[{index_code}]的{time_level}级别时间序列数据失败: {str(e)}")
             return []
 
-    async def get_history_kdj_data(self, index_code: str, time_level: str, 
-                                  start_time: Optional[datetime] = None,
-                                  end_time: Optional[datetime] = None,
-                                  limit: int = 100) -> List[IndexTimeSeriesData]:
+    async def get_history_kdj_data(self, index_code: str, time_level: str, start_time: Optional[datetime] = None,
+                                  end_time: Optional[datetime] = None, limit: int = 100) -> List[IndexTimeSeriesData]:
         """
         获取指数KDJ指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
             start_time: 开始时间
             end_time: 结束时间
             limit: 返回记录数量限制
-            
         Returns:
             List[IndexKDJData]: KDJ指标数据列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.history_kdj(index_code, time_level, start_time, end_time)
         if data:
@@ -472,10 +497,8 @@ class StockIndexDAO(BaseDAO):
             logger.error(f"获取指数[{index_code}]的{time_level}级别KDJ指标数据失败: {str(e)}")
             return []
     
-    async def get_history_macd_data(self, index_code: str, time_level: str, 
-                                  start_time: Optional[datetime] = None,
-                                  end_time: Optional[datetime] = None,
-                                  limit: int = 100) -> List[IndexTimeSeriesData]:
+    async def get_history_macd_data(self, index_code: str, time_level: str, start_time: Optional[datetime] = None,
+                                  end_time: Optional[datetime] = None, limit: int = 100) -> List[IndexTimeSeriesData]:
         """
         获取指数MACD指标数据
         
@@ -489,6 +512,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMACDData]: MACD指标数据列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.history_macd(index_code, time_level, start_time, end_time)
         if data:
@@ -522,10 +547,8 @@ class StockIndexDAO(BaseDAO):
             logger.error(f"获取指数[{index_code}]的{time_level}级别MACD指标数据失败: {str(e)}")
             return []
     
-    async def get_history_ma_data(self, index_code: str, time_level: str, 
-                        start_time: Optional[datetime] = None,
-                        end_time: Optional[datetime] = None,
-                        limit: int = 100) -> List[IndexMAData]:
+    async def get_history_ma_data(self, index_code: str, time_level: str, start_time: Optional[datetime] = None,
+                                  end_time: Optional[datetime] = None, limit: int = 100) -> List[IndexMAData]:
         """
         获取指数MA指标数据
         
@@ -539,6 +562,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMAData]: MA指标数据列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.history_ma(index_code, time_level, start_time, end_time)
         if data:
@@ -589,6 +614,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexBOLLData]: BOLL指标数据列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 从缓存获取
         data = await self.cache_get.history_boll(index_code, time_level, start_time, end_time)
         if data:
@@ -623,15 +650,9 @@ class StockIndexDAO(BaseDAO):
             return []
     
     # ================ 技术指标通用方法 ================
-    async def _get_technical_indicator_data(self, 
-                                          index_code: str, 
-                                          time_level: str,
-                                          indicator_name: str,
-                                          model_class: Type[models.Model],
-                                          fetch_and_save_method: callable,
-                                          start_time: Optional[datetime] = None,
-                                          end_time: Optional[datetime] = None,
-                                          limit: int = 100) -> List[Any]:
+    async def _get_technical_indicator_data(self, index_code: str, time_level: str, indicator_name: str, model_class: Type[models.Model],
+                                          fetch_and_save_method: callable, start_time: Optional[datetime] = None,
+                                          end_time: Optional[datetime] = None, limit: int = 100) -> List[Any]:
         """
         获取技术指标数据的通用方法
         
@@ -648,12 +669,14 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[Any]: 技术指标数据列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 标准化日期参数用于缓存键
         start_time_str = start_time.strftime('%Y%m%d') if start_time else 'none'
         end_time_str = end_time.strftime('%Y%m%d') if end_time else 'none'
         
         # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_manager.generate_key(
+        cache_key = self.cache_key.generate_key(
             'calc', 'index', index_code, indicator_name,
             params={
                 'level': time_level,
@@ -712,7 +735,6 @@ class StockIndexDAO(BaseDAO):
         model_class, data_dicts: List[dict], update_fields: List[str]) -> List:
         """
         通用方法：批量保存指数指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
@@ -720,10 +742,11 @@ class StockIndexDAO(BaseDAO):
             model_class: 数据模型类
             data_dicts: 已处理好的数据字典列表，每个字典包含模型所需的所有字段
             update_fields: 需要更新的字段名称列表
-            
         Returns:
             List: 保存的指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取指数信息
             index = await self.get_index_by_code(index_code)
@@ -823,9 +846,10 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_indexes(self) -> Dict:
         """
         刷新所有指数数据
-        
         从API获取指数列表并保存到数据库
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取沪深主要指数、沪市指数和深市指数
             main_index = await self.api.get_main_indexes()
@@ -864,6 +888,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Optional[IndexRealTimeData]: 保存的实时数据对象
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 获取指数信息
         index = await self.get_index_by_code(index_code)
         logger.info(f"index: {index}")
@@ -901,6 +927,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的实时数据，使用批量操作提高效率
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取指数信息
             indexs = await self.get_all_indexes()
@@ -917,10 +945,11 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_market_overview(self) -> Dict:
         """
         获取并保存市场概览数据
-        
         Returns:
             Optional[MarketOverview]: 保存的市场概览数据对象
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 调用API获取市场概览数据
             api_data = await self.api.get_market_overview()
@@ -1007,6 +1036,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             Dict: 保存的时间序列数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取指数信息
             index = await self.get_index_by_code(index_code)
@@ -1050,14 +1081,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_history_time_series(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数历史时间序列数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-
         Returns:
             List[IndexTimeSeriesData]: 保存的时间序列数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取指数信息
             index = await self.get_index_by_code(index_code)
@@ -1099,12 +1130,13 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_history_time_series_by_index_code(self, index_code: str) -> Dict:
         """
         获取并保存指数历史时间序列数据
-        
         Args:
             index_code: 指数代码
         Returns:
             Dict: 保存的时间序列数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取指数信息
             index = await self.get_index_by_code(index_code)
@@ -1167,10 +1199,11 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数历史时间序列数据
         使用线程池并行处理多个指数的数据获取和保存
-        
         Returns:
             Dict: 包含处理结果的字典
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 获取所有指数
             indexes = await self.get_all_indexes()
@@ -1211,14 +1244,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_latest_kdj(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数KDJ指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexKDJData]: 保存的KDJ指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 调用API获取KDJ指标数据
             index = await self.get_index_by_code(index_code)
@@ -1256,6 +1289,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的KDJ指标数据
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 获取指数信息
         indexs = await self.get_all_indexes()
         if not indexs:
@@ -1284,6 +1319,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexKDJData]: 保存的KDJ指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             index = await self.get_index_by_code(index_code)
             if not index:
@@ -1312,6 +1349,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的KDJ指标数据
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         indexs = await self.get_all_indexes()
         if not indexs:
             logger.warning("没有指数数据，无法保存KDJ指标数据")
@@ -1335,14 +1374,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_history_kdj(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数历史KDJ指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexKDJData]: 保存的KDJ指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         if not index:
             logger.warning(f"指数代码[{index_code}]不存在，无法获取历史KDJ指标数据")
@@ -1387,6 +1426,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexKDJData]: 保存的KDJ指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         total_result = {'创建': 0, '更新': 0, '跳过': 0}
         if not index:
@@ -1453,6 +1494,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的历史KDJ指标数据
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         indexs = await self.get_all_indexes()
         try:
             # 获取所有指数
@@ -1467,14 +1510,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_latest_macd(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数MACD指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexMACDData]: 保存的MACD指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 调用API获取KDJ指标数据
             index = await self.get_index_by_code(index_code)
@@ -1514,6 +1557,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMACDData]: 保存的MACD指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 获取指数信息
         indexs = await self.get_all_indexes()
         if not indexs:
@@ -1543,6 +1588,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMACDData]: 保存的MACD指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             index = await self.get_index_by_code(index_code)
             if not index:
@@ -1572,6 +1619,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的最新MACD指标数据
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         indexs = await self.get_all_indexes()
         if not indexs:
             logger.warning("没有指数数据，无法保存MACD指标数据")
@@ -1596,14 +1645,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_history_macd(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数历史MACD指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexMACDData]: 保存的MACD指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         if not index:
             logger.warning(f"指数代码[{index_code}]不存在，无法获取历史MACD指标数据")
@@ -1655,6 +1704,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMACDData]: 保存的MACD指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         total_result = {'创建': 0, '更新': 0, '跳过': 0}
         if not index:
@@ -1736,14 +1787,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_latest_ma(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数MA指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexMAData]: 保存的MA指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 调用API获取KDJ指标数据
             index = await self.get_index_by_code(index_code)
@@ -1786,7 +1837,9 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMAData]: 保存的MA指标数据对象列表
         """
-         # 获取指数信息
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
+        # 获取指数信息
         indexs = await self.get_all_indexes()
         if not indexs:
             logger.warning("没有指数数据，无法保存MA指标数据")
@@ -1811,12 +1864,13 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_latest_ma_by_index_code(self, index_code: str) -> Dict:
         """
         获取并保存指数MA指标数据
-        
         Args:
             index_code: 指数代码
         Returns:
             List[IndexMAData]: 保存的MA指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             index = await self.get_index_by_code(index_code)
             if not index:
@@ -1846,6 +1900,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的最新MA指标数据
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         indexs = await self.get_all_indexes()
         if not indexs:
             logger.warning("没有指数数据，无法保存MA指标数据")
@@ -1870,14 +1926,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_history_ma(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存历史指数MA指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexMAData]: 保存的MA指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         if not index:
             logger.warning(f"指数代码[{index_code}]不存在，无法获取历史MA指标数据")
@@ -1922,6 +1978,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexMAData]: 保存的MA指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         total_result = {'创建': 0, '更新': 0, '跳过': 0}
         if not index:
@@ -2006,14 +2064,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_latest_boll(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存指数BOLL指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexBOLLData]: 保存的BOLL指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 调用API获取KDJ指标数据
             index = await self.get_index_by_code(index_code)
@@ -2056,6 +2114,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexBOLLData]: 保存的BOLL指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         # 获取指数信息
         indexs = await self.get_all_indexes()
         if not indexs:
@@ -2085,6 +2145,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexBOLLData]: 保存的BOLL指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             index = await self.get_index_by_code(index_code)
             if not index:
@@ -2114,6 +2176,8 @@ class StockIndexDAO(BaseDAO):
         """
         获取并保存所有指数的BOLL指标数据
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         indexs = await self.get_all_indexes()
         if not indexs:
             logger.warning("没有指数数据，无法保存BOLL指标数据")
@@ -2138,14 +2202,14 @@ class StockIndexDAO(BaseDAO):
     async def fetch_and_save_history_boll(self, index_code: str, time_level: str) -> Dict:
         """
         获取并保存历史指数BOLL指标数据
-        
         Args:
             index_code: 指数代码
             time_level: 时间级别
-            
         Returns:
             List[IndexBOLLData]: 保存的BOLL指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         try:
             # 调用API获取MACD指标数据
             index = await self.get_index_by_code(index_code)
@@ -2191,6 +2255,8 @@ class StockIndexDAO(BaseDAO):
         Returns:
             List[IndexBOLLData]: 保存的BOLL指标数据对象列表
         """
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         index = await self.get_index_by_code(index_code)
         total_result = {'创建': 0, '更新': 0, '跳过': 0}
         if not index:

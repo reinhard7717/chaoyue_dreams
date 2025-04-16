@@ -4,6 +4,7 @@ import logging
 from django.core.management.base import BaseCommand, CommandError
 from celery import group
 
+
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
@@ -17,7 +18,7 @@ class Command(BaseCommand):
             'data_type',
             type=str,
             choices=[ # 使用 choices 明确允许的类型
-                'history_time_trade', 'latest_time_trade','latest_time_trade_trading_hours',
+                'history_time_trade', 'latest_time_trade','latest_time_trade_trading_hours', 'latest_realtime_data',
                 'latest_kdj', 'history_kdj', 'latest_macd', 'history_macd', 
                 'calculate_all_indicators', 'stock_historical_data_cache', 'dispatch_run_strategy'
             ],
@@ -81,6 +82,8 @@ class Command(BaseCommand):
             self.dispatch_latest_time_trade(stock_codes=stock_codes)
         elif data_type == 'latest_time_trade_trading_hours':
             self.dispatch_latest_time_trade_trading_hours(stock_codes=stock_codes)
+        elif data_type == 'latest_realtime_data':
+            self.dispatch_latest_realtime_data(stock_codes=stock_codes)
         elif data_type == 'latest_kdj':
             self.dispatch_latest_kdj(stock_codes=stock_codes)
         elif data_type == 'history_kdj':
@@ -280,6 +283,31 @@ class Command(BaseCommand):
                     logger.error(f"关闭 Management Command DAO 时出错: {close_err}", exc_info=True)
             logger.info("Management Command 执行流程结束: dispatch_realtime_tasks")
             self.stdout.write("任务分发流程结束。")
+
+    def dispatch_latest_realtime_data(self, *args, **options):
+        self.stdout.write("开始分发最新实时数据处理任务...")
+        logger.info("Management Command 启动: dispatch_latest_realtime_data")
+        from tasks import stock_realtime_tasks
+        stock_realtime_dao = None # 初始化
+        try:
+            stock_realtime_tasks.save_all_realtime_data_task.delay()
+        except Exception as e:
+            logger.error(f"分发任务期间发生错误: {e}", exc_info=True)
+            self.stderr.write(self.style.ERROR(f"分发实时数据处理任务失败: {e}"))
+        finally:
+            # 关闭 DAO
+            if stock_realtime_dao:
+                try:
+                    if asyncio.iscoroutinefunction(getattr(stock_realtime_dao, 'close', None)):
+                        asyncio.run(stock_realtime_dao.close())
+                    elif callable(getattr(stock_realtime_dao, 'close', None)):
+                        stock_realtime_dao.close()
+                    logger.debug("Management Command StockRealtimeDAO closed.")
+                except Exception as close_err:
+                    logger.error(f"关闭 Management Command StockRealtimeDAO 时出错: {close_err}", exc_info=True)
+            logger.info("Management Command 执行流程结束: dispatch_realtime_tasks")
+            self.stdout.write("任务分发流程结束。")
+
 
     # ========================================================================
     #  新增: 分发计算全指标的任务

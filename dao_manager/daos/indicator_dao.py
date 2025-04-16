@@ -10,6 +10,9 @@ from django.utils import timezone
 from django.core.exceptions import FieldDoesNotExist
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP
+from utils.cache_get import StockIndicatorsCacheGet
+from utils.cache_manager import CacheManager
+from utils.cache_set import StockIndicatorsCacheSet
 
 
 logger = logging.getLogger("services")
@@ -24,8 +27,19 @@ class IndicatorDAO(BaseDAO):
         from utils.cache_set import StockIndicatorsCacheSet
         # 依赖注入基础DAO和缓存工具
         self.stock_basic_dao = StockBasicDAO()
-        self.cache_get = StockIndicatorsCacheGet() # 假设 CacheGet 实例已配置好
-        self.cache_set = StockIndicatorsCacheSet() # 假设 CacheSet 实例已配置好
+        self.cache_manager = None
+        self.cache_get = None
+        self.cache_set = None
+
+    async def initialize_cache_objects(self):
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 其异步初始化方法，如果存在
+
+        self.cache_set = StockIndicatorsCacheSet()  # 先实例化
+        await self.cache_set.initialize()  # 添加异步初始化方法，如果需要
+
+        self.cache_get = StockIndicatorsCacheGet()  # 先实例化
+        await self.cache_get.initialize()  # 添加异步初始化方法，如果需要
 
     @staticmethod
     def _safe_decimal(value, default=None) -> Optional[Decimal]:
@@ -80,13 +94,13 @@ class IndicatorDAO(BaseDAO):
         返回按时间升序排列的 StockTimeTrade 模型实例列表。
         """
         from stock_models.stock_basic import StockTimeTrade
+        if self.cache_get is None:
+            await self.initialize_cache_objects()
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
-
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-
         # 1. 尝试从Redis获取数据
         try:
             # 假设 cache_get.history_time_trade_by_limit 返回 List[Dict] 或 None
@@ -272,9 +286,6 @@ class IndicatorDAO(BaseDAO):
             if df[required_cols].isnull().all(axis=1).sum() == len(df):
                  logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level}")
                  return None # 如果全是 NaN，返回 None
-            # logger.info("44444444444444444444444444444444444444444444444444444")
-            # logger.info(f"df: {df}")
-            # logger.debug(f"成功为 {stock_code} {time_level} 创建 OHLCV DataFrame，形状: {df.shape}")
             return df
 
         except Exception as e:

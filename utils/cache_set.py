@@ -2,11 +2,13 @@ import logging
 import pickle
 from typing import Any, Dict, List
 from asgiref.sync import sync_to_async
-import msgpack
+import umsgpack
 from datetime import datetime, date # 同时导入 date 类，如果需要处理的话
 from decimal import Decimal # 导入 Decimal
 from utils import cache_constants as cc
 import json
+
+from utils.cash_key import IndexCashKey, UserCashKey
 
 logger = logging.getLogger("dao")
 
@@ -33,50 +35,51 @@ class CacheSet():
         from utils.cache_manager import CacheManager
         from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
-        self.cache_manager = CacheManager()
+        # 注意：CacheManager 是异步的，这里无法直接初始化。建议在异步上下文中使用。
+        self.cache_manager = None  # 临时设置为 None，实际使用时需异步初始化
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
         self.cache_key_user = UserCashKey()
+    
+    async def initialize_cache_manager(self):
+        from utils.cache_manager import CacheManager
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{index_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
+        if self.cache_manager is None:
+            await self.initialize()  # 在需要时调用初始化
         try:
-            # 1. 生成缓存键
-            # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
-            # 最新数据点可能更新较频繁，考虑使用实时数据的超时
-            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
-            # logger.info(f"准备缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}, timeout: {cache_timeout}s")
-            # 3. 调用 CacheManager 设置缓存
-            success = self.cache_manager.set(
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME)
+            success = await self.cache_manager.set(  # 添加 await
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
             )
             if success:
-                # logger.info(f"指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
             else:
-                logger.warning(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+                logger.warning(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据失败, key: {cache_key}")
                 return False
         except Exception as e:
-            logger.error(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            logger.error(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}", exc_info=True)
             return False
-
+        
     async def _stock_latest_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
             logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
         try:
-            # 1. 生成缓存键
-            # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
-            # 最新数据点可能更新较频繁，考虑使用实时数据的超时
+            if self.cache_manager is None:
+                await self.initialize_cache_manager()  # 确保初始化
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
             # 3. 调用 CacheManager 设置缓存
-            success = self.cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -95,9 +98,11 @@ class CacheSet():
         if not data_to_cache:
             logger.warning(f"试图缓存股票[{stock_code}] 的空实时数据，操作跳过。")
             return False
-        try:
+        try:    
+            if self.cache_manager is None:
+                await self.initialize_cache_manager()  # 确保初始化
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
-            success = self.cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -116,12 +121,11 @@ class CacheSet():
             logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
         try:
-            # 1. 生成缓存键
-            # 2. 获取缓存超时时间 (时间序列数据，可能用 'ts' 或更短的 'rt' 超时)
-            # 最新数据点可能更新较频繁，考虑使用实时数据的超时
+            if self.cache_manager is None:
+                await self.initialize_cache_manager()  # 确保初始化
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STRATEGY) # 或者 cc.TYPE_TIMESERIES
             # 3. 调用 CacheManager 设置缓存
-            success = self.cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -150,45 +154,26 @@ class CacheSet():
             logger.error(f"缓存失败: 数据点缺少 'trade_time' 字段。数据: {data_to_cache}")
             return False
         try:
+            if self.cache_manager is None:
+                await self.initialize_cache_manager()
             trade_datetime = base_dao._parse_datetime(trade_time_str)
-            score = trade_datetime.timestamp() # 获取 Unix 时间戳 (float)
-        except (ValueError, TypeError) as e:
-            logger.error(f"缓存失败: 无法将 'trade_time' ({trade_time_str}) 转换为时间戳: {e}")
-            return False
-        # 2. *** 准备要序列化的数据字典 (移除复杂对象) ***
-        data_to_serialize = data_to_cache.copy()
-        if 'stock' in data_to_serialize:
-            stock_obj = data_to_serialize.pop('stock', None)
-            if stock_obj and hasattr(stock_obj, 'stock_code'):
-                data_to_serialize['stock_code'] = stock_obj.stock_code
-        # 3. *** 在这里进行序列化，得到字节串 member ***
-        try:
-            # 使用定义的独立函数作为 default hook
-            member_bytes = msgpack.packb(data_to_serialize, use_bin_type=True, default=_msgpack_default_packer) # <--- 修改这里，去掉 self.
-        except (msgpack.PackException, TypeError) as e:
-            logger.error(f"缓存失败: 无法将数据序列化为 msgpack bytes: {e}, 数据: {data_to_serialize}", exc_info=True)
-            return False
-        # 4. *** 构建正确的 mapping，键是序列化后的字节串 ***
-        mapping_to_send = {member_bytes: score} # <--- 键是 bytes，值是 float，这在 Python 中是合法的
-        # 生成缓存超时时间
-        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
-        # logger.info(f"_history_data.准备将时间序列数据点添加到缓存 (ZSET), key: {cache_key}, score: {score}, timeout: {cache_timeout}s")
-        try:           
-            # logger.info(f"mapping: {mapping}")
-            # 假设 zadd 是同步的，需要包装
-            zadd_sync = sync_to_async(
-                self.cache_manager.zadd,
-                thread_sensitive=False
-            )
-            # 传递 {dict: float} 映射给包装器，包装器再传给原始 zadd
-            success = await zadd_sync(cache_key, mapping_to_send, cache_timeout)
+            score = trade_datetime.timestamp()
+            data_to_serialize = data_to_cache.copy()
+            if 'stock' in data_to_serialize:
+                stock_obj = data_to_serialize.pop('stock', None)
+                if stock_obj and hasattr(stock_obj, 'stock_code'):
+                    data_to_serialize['stock_code'] = stock_obj.stock_code
+            member_bytes = umsgpack.packb(data_to_serialize, use_bin_type=True, default=_msgpack_default_packer)
+            mapping_to_send = {member_bytes: score}
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
+            success = await self.cache_manager.zadd(cache_key, mapping_to_send, cache_timeout)
             if success is not None:
                 return True
             else:
-                logger.warning(f"添加到缓存 (ZSET) 失败 (CacheManager.zadd 返回 None), key: {cache_key}")
+                logger.warning(f"添加到缓存 (ZSET) 失败, key: {cache_key}")
                 return False
         except Exception as e:
-            logger.error(f"添加到缓存 (ZSET) 时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
+            logger.error(f"添加到缓存 (ZSET) 时发生异常: {str(e)}", exc_info=True)
             return False
 
     async def _format_conversion(self, data_to_cache: Dict[str, Any]) -> Dict[str, Any]:
@@ -196,43 +181,40 @@ class CacheSet():
         from stock_models.stock_basic import StockInfo
         for key, value in data_to_cache.items():
             if isinstance(value, datetime):
-                # 将 datetime 对象转换为 ISO 8601 格式的字符串
                 data_to_cache[key] = value.isoformat()
-                # logger.debug(f"Converted datetime for key '{key}' to ISO string: {data_to_cache[key]}")
-            elif isinstance(value, StockInfo): # 检查是否为 StockInfo 实例
+            elif isinstance(value, StockInfo):
                 try:
-                    # 调用 __code__ 方法获取股票代码字符串
-                    stock_code_str = value.__code__() # 如果是方法
-                    # 或者: stock_code_str = value.__code__ # 如果是属性
-                    data_to_cache[key] = stock_code_str
-                    # logger.debug(f"Converted StockInfo for key '{key}' to code string: {data_to_cache[key]}")
+                    data_to_cache[key] = value.__code__()
                 except AttributeError:
                     logger.error(f"StockInfo模型 for key '{key}' 没有找到 '__code__' 的方法.")
-                    # 根据你的业务逻辑决定如何处理：是返回错误，还是跳过，或者使用默认值？
-                    # 这里选择返回 False，表示缓存失败
-                    return None
-                except Exception as e_inner:
-                    logger.error(f"Error converting StockInfo for key '{key}' using __code__: {e_inner}")
                     return None
             elif isinstance(value, IndexInfo):
-                # 调用 __code__ 方法获取股票代码字符串
-                index_code_str = value.__code__() # 如果是方法
-                # 或者: index_code_str = value.__code__ # 如果是属性
-                data_to_cache[key] = index_code_str
-                # logger.debug(f"Converted StockInfo for key '{key}' to code string: {data_to_cache[key]}")
-        
+                data_to_cache[key] = value.__code__()
         return data_to_cache
 
 class UserCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+        self.cache_key_user = UserCashKey()
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
+
     async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
         """
         将用户自选股列表缓存到 Redis，使用 Hash 类型。
         """
-        cache_key = self.cache_key_user.user_favorites(user_id)  # 假设返回如 "user:favorites:123"
+        if self.cache_manager is None:
+            await self.initialize()  # 在需要时调用初始化
+        cache_key = self.cache_key_user.user_favorites(int(user_id))  # 假设返回如 "user:favorites:123"
         try:
+            if self.cache_manager is None:
+                await self.initialize_cache_manager()
             for index, item in enumerate(data_to_cache):
                 field = str(item.get('id', index))  # 使用 'id' 作为 field，如果没有则用索引
-                success = await self.cache_manager.async_hset(cache_key, field, item)  # 异步调用 hset
+                success = await self.cache_manager.hset(cache_key, field, item)  # 异步调用 hset
                 if not success:
                     logger.warning(f"缓存用户 {user_id} 自选股失败: field {field}")
                     return False  # 如果任何一个 field 失败，整个操作失败
@@ -246,11 +228,20 @@ class UserCacheSet(CacheSet):
         """
         将所有自选股列表缓存到 Redis，使用 Hash 类型。
         """
+        
         user_id = fav_data.user_id
         cache_key = self.cache_key_user.user_favorites(user_id)
         return await self.user_favorites(user_id, fav_data)
 
 class IndexCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+        self.cache_key_index = IndexCashKey()
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
 
     async def indexes(self, indexes: List[Dict]) -> bool:
         """
@@ -266,6 +257,8 @@ class IndexCacheSet(CacheSet):
         Returns:
             bool: 操作是否成功。
         """
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()
         # 1. 输入验证 (可选但推荐)
         if not isinstance(indexes, list):
             logger.error("set_indexes_to_cache 失败: 输入数据不是列表")
@@ -277,7 +270,7 @@ class IndexCacheSet(CacheSet):
             data_dicts.append(data_dict)
         logger.debug(f"从数据库获取股票指数列表，共{len(indexes)}条")
         # 2. 生成缓存键 (与 get_all_indexes/fetch_and_save_indexes 保持一致)
-        cache_key = self.cache_manager.generate_key(
+        cache_key = self.cache_key_index.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_INDEX,
             entity_id=cc.ID_ALL
@@ -288,7 +281,7 @@ class IndexCacheSet(CacheSet):
         # 4. 调用 CacheManager 设置缓存
         try:
             # 直接使用传入的 indexes_data，因为它已经是期望的格式
-            success = self.cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_dicts,
                 timeout=cache_timeout
@@ -318,6 +311,8 @@ class IndexCacheSet(CacheSet):
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{index_code}]的空实时数据，操作跳过。")
             return False
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()
         try:
             # 1. 生成缓存键
             cache_key = self.cache_key_index.realtime_data(index_code)
@@ -325,7 +320,7 @@ class IndexCacheSet(CacheSet):
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME)
             # 3. 调用 CacheManager 设置缓存
             # data_to_cache 应该是可以直接序列化的字典
-            success = self.cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -527,6 +522,14 @@ class IndexCacheSet(CacheSet):
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
 class StockIndicatorsCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
+
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的单个最新指数时间序列数据点缓存到 Redis。
@@ -616,6 +619,14 @@ class StockIndicatorsCacheSet(CacheSet):
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
 class StockRealtimeCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
+
     async def latest_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
@@ -682,6 +693,14 @@ class StockRealtimeCacheSet(CacheSet):
         return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
 
 class StrategyCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
+
     async def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
