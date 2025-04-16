@@ -2,14 +2,8 @@ import json
 import logging
 import asyncio
 import sys
-# import functools
 from asgiref.sync import sync_to_async
-# from datetime import datetime
-# from decimal import Decimal
 from typing import Dict, List, Any, Optional
-# from utils.models import ModelJSONEncoder
-# from django.db import transaction
-# from django.core.cache import cache
 
 
 from utils import cache_constants as cc

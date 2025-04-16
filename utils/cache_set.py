@@ -143,7 +143,6 @@ class CacheSet():
     # --- 修正后的写入缓存方法 (使用 ZADD) ---
     async def _history_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         from dao_manager.base_dao import BaseDAO
-        from utils.cache_manager import CustomJSONEncoder  # 直接导入自定义编码器
         base_dao = BaseDAO()
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
