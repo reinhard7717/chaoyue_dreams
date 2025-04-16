@@ -8,7 +8,7 @@ from decimal import Decimal # 导入 Decimal
 from utils import cache_constants as cc
 import json
 
-from utils.cash_key import IndexCashKey, UserCashKey
+from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
 
 logger = logging.getLogger("dao")
 
@@ -524,6 +524,7 @@ class IndexCacheSet(CacheSet):
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):
         self.cache_manager = None  # 初始为 None
+        self.cache_key_stock = StockCashKey()
 
     async def initialize(self):
         from utils.cache_manager import CacheManager  # 导入
@@ -621,6 +622,7 @@ class StockIndicatorsCacheSet(CacheSet):
 class StockRealtimeCacheSet(CacheSet):
     def __init__(self):
         self.cache_manager = None  # 初始为 None
+        self.cache_key_stock = StockCashKey()
 
     async def initialize(self):
         from utils.cache_manager import CacheManager  # 导入

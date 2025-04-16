@@ -269,8 +269,10 @@ class StockIndicatorsDAO(BaseDAO):
             if not stocks:
                 logger.warning("股票列表不存在，无法获取时间序列数据")
                 return {'创建': 0, '更新': 0, '跳过': 0}
+            if self.cache_get is None:
+                await self.initialize_cache_objects()
             # 定义并发限制，设置为50（可根据需要调整）
-            semaphore = Semaphore(30)  # 限制同时执行的任务数量
+            semaphore = Semaphore(10)  # 限制同时执行的任务数量
             async def process_stock(stock):
                 """异步处理单个股票的任务，添加Semaphore限制"""
                 async with semaphore:  # 使用Semaphore控制并发
