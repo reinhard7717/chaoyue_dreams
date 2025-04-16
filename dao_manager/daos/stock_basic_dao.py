@@ -83,7 +83,7 @@ class StockBasicDAO(BaseDAO):
                 sorted_data = sorted(filtered_data, key=lambda x: x.stock_code)
                 return sorted_data  # 返回过滤并排序后的列表
         except Exception as e:
-            logger.error(f"从缓存获取股票列表失败: {e}")
+            logger.error(f"从缓存获取股票列表失败: {e}",exc_info=True)
         
         stocks = []
         try:
