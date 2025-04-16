@@ -57,7 +57,7 @@ class CacheManager:
         self.redis_client = await Redis.from_url(
             new_url,
             encoding="utf-8",
-            decode_responses=True,
+            decode_responses=False,
             socket_connect_timeout=cache_config.get('OPTIONS', {}).get('SOCKET_CONNECT_TIMEOUT', 10),
             socket_timeout=cache_config.get('OPTIONS', {}).get('SOCKET_TIMEOUT', 15),
             retry_on_timeout=cache_config.get('OPTIONS', {}).get('RETRY_ON_TIMEOUT', True),
