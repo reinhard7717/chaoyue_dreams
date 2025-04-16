@@ -283,7 +283,8 @@ class StockIndicatorsDAO(BaseDAO):
                     else:
                         data_dicts.append(data_dict)
                         cache_dict = data_dict.copy()
-                        await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict) 
+                        await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
+                        logger.info(f"股票[{stock}] {time_level}级别分时成交数据获取完成")
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeTrade,
@@ -291,7 +292,7 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             # --- 函数末尾执行最终修剪 ---
-            cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+            cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
             removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"股票[{stock}] {time_level}级别分时成交数据保存完成，结果: {result}")
