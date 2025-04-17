@@ -546,7 +546,7 @@ class BaseDAO(Generic[T]):
         logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用 bulk_update_or_create): {result}")
         return result
 
-    async def _save_all_to_db_native_upsert(self, model_class: Type[models.Model], data_list: List[Dict[str, Any]],
+    async def _save_all_to_db_native_upsert(self, model_class: Type[models_Model], data_list: List[Dict[str, Any]],
                                             unique_fields: List[str], **extra_fields: Any) -> Dict[str, int]:
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
@@ -576,24 +576,31 @@ class BaseDAO(Generic[T]):
             
             objs_to_process = [model_class(**{**item, **extra_fields}) for item in batch]
             
-            async def process_batch_async():
+            async def process_batch_async(objs):
                 nonlocal failed_count
                 try:
-                    # 使用 sync_to_async 包裹整个 bulk_create 操作，包括事务
-                    await sync_to_async(lambda: model_class.objects.bulk_create(
-                        objs_to_process,
-                        update_conflicts=True,
-                        update_fields=update_fields,
-                        batch_size=current_batch_size
-                    ))()  # 确保事务在同步上下文中运行
-                except (IntegrityError, DatabaseError) as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}", exc_info=True)
-                    failed_count += current_batch_size
+                    def sync_bulk_create():
+                        try:
+                            with transaction.atomic():  # 事务在同步函数中
+                                return model_class.objects.bulk_create(
+                                    objs,
+                                    update_conflicts=True,
+                                    update_fields=update_fields,
+                                    batch_size=len(objs)
+                                )
+                        except IntegrityError as e:
+                            raise Exception(f"完整性错误: {str(e)}")
+                        except DatabaseError as e:
+                            raise Exception(f"数据库错误: {str(e)}")
+                        except Exception as e:
+                            raise Exception(f"未知错误: {str(e)}")
+                    
+                    await sync_to_async(sync_bulk_create)()  # 运行同步函数
                 except Exception as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}", exc_info=True)
+                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 处理错误: {str(e)}", exc_info=True)
                     failed_count += current_batch_size
             
-            await process_batch_async()
+            await process_batch_async(objs_to_process)  # 传递数据
         
         successful_count = total_attempted - failed_count
         return {
@@ -601,7 +608,6 @@ class BaseDAO(Generic[T]):
             "失败": failed_count,
             "创建/更新成功": successful_count,
         }
-
 
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """
