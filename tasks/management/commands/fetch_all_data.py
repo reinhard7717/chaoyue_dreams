@@ -443,22 +443,22 @@ class Command(BaseCommand):
         
         if stock_codes:
             # 获取指定股票的实时数据
-            await stock_realtime_dao.refresh_stocks_realtime(stock_codes)
+            await stock_realtime_dao.fetch_and_save_all_realtime_data(stock_codes)
             self.stdout.write(f'  - 已获取 {len(stock_codes)} 只股票的实时数据')
             
             # 获取指定股票的买卖五档数据
-            await stock_realtime_dao.refresh_stocks_level5(stock_codes)
-            self.stdout.write(f'  - 已获取 {len(stock_codes)} 只股票的买卖五档数据')
+            # await stock_realtime_dao.refresh_stocks_level5(stock_codes)
+            # self.stdout.write(f'  - 已获取 {len(stock_codes)} 只股票的买卖五档数据')
         else:
             stocks = await stock_basic_dao.get_stock_list()
             for stock in stocks:
-                await stock_realtime_dao.refresh_stocks_realtime(stock.stock_code)
+                await stock_realtime_dao.fetch_and_save_realtime_data(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的实时数据')
                 await stock_realtime_dao.refresh_stocks_level5(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的买卖五档数据')
-                await stock_realtime_dao.get_trade_details_by_code_and_date(stock.stock_code, datetime.now().strftime('%Y-%m-%d'))
+                await stock_realtime_dao.fetch_and_save_trade_detail(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的当日成交明细')
-                await stock_realtime_dao.get_daily_time_deals(stock.stock_code, datetime.now().strftime('%Y-%m-%d'))
+                await stock_realtime_dao.fetch_and_save_time_deals(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的当日分时成交明细')
                 
     async def fetch_fund_flow_data(self):

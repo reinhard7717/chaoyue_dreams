@@ -356,7 +356,6 @@ class StockRealtimeDAO(BaseDAO):
         """
         if not trade_date:
             trade_date = datetime.now().date()
-            
         try:
             if self.cache_get is None:
                 await self.initialize_cache_objects()
