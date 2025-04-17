@@ -387,7 +387,7 @@ class StockInfoCacheGet(CacheGet):
             entity_type=cc.ENTITY_STOCK,
             entity_id=cc.ID_ALL
         )
-        cached_data = self.cache_manager.get(cache_key)
+        cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return sorted(cached_data, key=lambda x: x['stock_code'])
         return None
