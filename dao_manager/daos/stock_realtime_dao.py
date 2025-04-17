@@ -203,15 +203,18 @@ class StockRealtimeDAO(BaseDAO):
                     sleep_time = max(0, 0.02 - api_call_duration)  # 确保间隔至少0.02秒
                     await asyncio.sleep(sleep_time)
                     continue  # 跳过当前股票
+                process_start_time = time_lib.time()
                 data_dict = self.data_format_process.set_realtime_data(stock, api_data)
                 if data_dict.get('trade_time') is not None:
                     data_dicts_to_save.append(data_dict)
                     cache_dict = data_dict.copy()
                     await self.cache_set.latest_realtime_data(stock.stock_code, cache_dict)
+                process_end_time = time_lib.time()
+                process_duration = process_end_time - process_start_time
                 # 计算并添加睡眠时间，确保两次调用间隔至少0.02秒
-                sleep_time = max(0, 0.02 - api_call_duration)
+                sleep_time = max(0, 0.02 - process_duration)
                 await asyncio.sleep(sleep_time)
-                logger.info(f"股票[{stock}]实时数据获取完成，耗时: {api_call_duration}秒")
+                logger.info(f"股票[{stock.stock_code}]处理完成: API耗时 {api_call_duration:.4f}秒, 处理耗时 {process_duration:.4f}秒, 总耗时 {total_loop_duration:.4f}秒")
             if data_dicts_to_save:
                 # 批量保存到数据库
                 result = await self._save_all_to_db_native_upsert(
