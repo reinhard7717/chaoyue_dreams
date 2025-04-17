@@ -1,7 +1,7 @@
 import asyncio
 from decimal import Decimal
 import logging
-import time  # 用于测量时间
+import time as time_lib  # 用于测量时间
 from asyncio import Semaphore
 from typing import Dict, List, Any, Optional, Tuple, Set, TypeVar, Generic, Type
 from datetime import datetime, date, time
@@ -192,10 +192,10 @@ class StockRealtimeDAO(BaseDAO):
                 return {}  # 返回空字典
             data_dicts_to_save = []
             for stock in stocks:
-                start_time = time.time()  # 记录API调用开始时间
+                start_time = time_lib.time()  # 记录API调用开始时间
                 # 调用API获取实时数据
                 api_data = await self.api.get_realtime_data(stock.stock_code)
-                end_time = time.time()  # 记录API调用结束时间
+                end_time = time_lib.time()  # 记录API调用结束时间
                 api_call_duration = end_time - start_time  # 计算API调用实际耗时（秒）
                 if not api_data:
                     logger.warning(f"API未返回股票[{stock}]的实时数据")
