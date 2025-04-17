@@ -1,6 +1,7 @@
+import asyncio
 from decimal import Decimal
 import logging
-import asyncio
+import time  # 用于测量时间
 from asyncio import Semaphore
 from typing import Dict, List, Any, Optional, Tuple, Set, TypeVar, Generic, Type
 from datetime import datetime, date, time
@@ -128,7 +129,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             if self.cache_set is None:
                 await self.initialize_cache_objects()
-            # 获取指数信息
+            # 获取股票信息
             stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
             if not stock:
                 logger.warning(f"股票代码[{stock_code}]不存在，无法获取实时数据")
@@ -189,55 +190,37 @@ class StockRealtimeDAO(BaseDAO):
             if not stocks:
                 logger.warning("股票列表不存在，无法获取实时数据")
                 return {}  # 返回空字典
-            # 定义并发限制，设置为50（可根据需要调整）
-            semaphore = Semaphore(10)  # 限制同时执行的任务数量
-            async def process_stock(stock):
-                """异步处理单个股票的任务，添加Semaphore限制"""
-                async with semaphore:  # 使用Semaphore控制并发
-                    try:
-                        if not stock:
-                            logger.warning(f"股票代码[{stock.stock_code}]不存在，无法获取实时数据")
-                            return {stock.stock_code: {'创建': 0, '更新': 0, '跳过': 1}}  # 返回跳过结果
-                        # 调用API获取实时数据
-                        api_data = await self.api.get_realtime_data(stock.stock_code)
-                        if not api_data:
-                            logger.warning(f"API未返回股票[{stock.stock_code}]的实时数据")
-                            return {stock.stock_code: {'创建': 0, '更新': 0, '跳过': 1}}
-                        data_dict = self.data_format_process.set_realtime_data(stock, api_data)
-                        if data_dict.get('trade_time') is not None:
-                            data_dicts = [data_dict]  # 单个股票的数据列表
-                            cache_dict = data_dict.copy()
-                            await self.cache_set.latest_realtime_data(stock.stock_code, cache_dict)
-                            return {stock.stock_code: {'数据': data_dict}}  # 返回成功的数据
-                        else:
-                            return {stock.stock_code: {'创建': 0, '更新': 0, '跳过': 1}}  # 跳过
-                    except Exception as e:
-                        logger.error(f"处理股票[{stock.stock_code}]的实时数据出错: {str(e)}")
-                        return {stock.stock_code: {'创建': 0, '更新': 0, '跳过': 1, '错误': str(e)}}  # 返回错误结果
-            # 创建任务列表，并发执行，但受Semaphore限制
-            tasks = [process_stock(stock) for stock in stocks]
-            results = await asyncio.gather(*tasks, return_exceptions=False)  # 并发执行
-            # 收集结果和数据
-            all_results: Dict[str, Dict] = {}  # 最终结果字典
-            data_dicts_to_save: List[Dict] = []  # 需要保存到数据库的数据列表
-            for result in results:
-                for stock_code, result_dict in result.items():  # result 是一个字典，如 {stock_code: {...}}
-                    all_results[stock_code] = result_dict  # 合并结果
-                    if '数据' in result_dict:  # 如果有数据，添加到保存列表
-                        data_dicts_to_save.append(result_dict['数据'])
+            data_dicts_to_save = []
+            for stock in stocks:
+                start_time = time.time()  # 记录API调用开始时间
+                # 调用API获取实时数据
+                api_data = await self.api.get_realtime_data(stock.stock_code)
+                end_time = time.time()  # 记录API调用结束时间
+                api_call_duration = end_time - start_time  # 计算API调用实际耗时（秒）
+                if not api_data:
+                    logger.warning(f"API未返回股票[{stock}]的实时数据")
+                    # 计算并添加睡眠时间
+                    sleep_time = max(0, 0.02 - api_call_duration)  # 确保间隔至少0.02秒
+                    await asyncio.sleep(sleep_time)
+                    continue  # 跳过当前股票
+                data_dict = self.data_format_process.set_realtime_data(stock, api_data)
+                if data_dict.get('trade_time') is not None:
+                    data_dicts_to_save.append(data_dict)
+                    cache_dict = data_dict.copy()
+                    await self.cache_set.latest_realtime_data(stock.stock_code, cache_dict)
+                # 计算并添加睡眠时间，确保两次调用间隔至少0.02秒
+                sleep_time = max(0, 0.02 - api_call_duration)
+                await asyncio.sleep(sleep_time)
+                logger.info(f"股票[{stock}]实时数据获取完成，耗时: {api_call_duration}秒")
             if data_dicts_to_save:
                 # 批量保存到数据库
-                save_result = await self._save_all_to_db_native_upsert(
+                result = await self._save_all_to_db_native_upsert(
                     model_class=StockRealtimeData,
                     data_list=data_dicts_to_save,
                     unique_fields=['stock', 'trade_time']
                 )
-                # 更新 all_results 以包含保存结果
-                for stock_code in all_results:
-                    if stock_code in save_result:  # 假设 save_result 有相关键
-                        all_results[stock_code].update(save_result.get(stock_code, {}))
-            # logger.info(f"所有股票实时数据处理完成，结果: {all_results}")
-            return all_results  # 返回最终结果字典
+                logger.info(f"所有股票实时数据保存完成，结果: {result}")
+                return result
         except Exception as e:
             logger.error(f"获取并保存所有股票实时数据失败: {str(e)}")
             return {}  # 返回空字典，表示整体失败
