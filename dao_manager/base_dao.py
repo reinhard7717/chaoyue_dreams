@@ -547,7 +547,7 @@ class BaseDAO(Generic[T]):
         return result
 
     async def _save_all_to_db_native_upsert(self, model_class: Type[models.Model], data_list: List[Dict[str, Any]],
-                                        unique_fields: List[str], **extra_fields: Any) -> Dict[str, int]:
+                                            unique_fields: List[str], **extra_fields: Any) -> Dict[str, int]:
         if not data_list:
             logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
@@ -556,9 +556,8 @@ class BaseDAO(Generic[T]):
             data_list = [data_list]
         
         total_attempted = len(data_list)
-        failed_count = 0  # 失败计数
+        failed_count = 0
         
-        # 确定 update_fields
         all_keys = set()
         if data_list:
             all_keys = set(data_list[0].keys()) | set(extra_fields.keys())
@@ -575,27 +574,26 @@ class BaseDAO(Generic[T]):
             batch = data_list[i: i + batch_size]
             current_batch_size = len(batch)
             
-            # 准备数据
             objs_to_process = [model_class(**{**item, **extra_fields}) for item in batch]
             
             async def process_batch_async():
                 nonlocal failed_count
                 try:
-                    # 使用 sync_to_async 包裹 bulk_create 操作
-                    await sync_to_async(model_class.objects.bulk_create)(
+                    # 使用 sync_to_async 包裹整个 bulk_create 操作，包括事务
+                    await sync_to_async(lambda: model_class.objects.bulk_create(
                         objs_to_process,
                         update_conflicts=True,
                         update_fields=update_fields,
                         batch_size=current_batch_size
-                    )
+                    ))()  # 确保事务在同步上下文中运行
                 except (IntegrityError, DatabaseError) as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}",exc_info=True)
+                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}")
                     failed_count += current_batch_size
                 except Exception as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}",exc_info=True)
+                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}")
                     failed_count += current_batch_size
             
-            await process_batch_async()  # 异步执行
+            await process_batch_async()
         
         successful_count = total_attempted - failed_count
         return {
