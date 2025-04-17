@@ -192,29 +192,36 @@ class StockRealtimeDAO(BaseDAO):
                 return {}  # 返回空字典
             data_dicts_to_save = []
             for stock in stocks:
-                start_time = time_lib.time()  # 记录API调用开始时间
-                # 调用API获取实时数据
+                loop_start_time = time_lib.time()  # 记录API调用开始时间
+                 # 调用API获取实时数据（顺序执行）
+                api_start_time = time.time()
                 api_data = await self.api.get_realtime_data(stock.stock_code)
-                end_time = time_lib.time()  # 记录API调用结束时间
-                api_call_duration = end_time - start_time  # 计算API调用实际耗时（秒）
+                api_end_time = time.time()
+                api_call_duration = api_end_time - api_start_time  # 只计算API调用耗时
                 if not api_data:
-                    logger.warning(f"API未返回股票[{stock}]的实时数据")
-                    # 计算并添加睡眠时间
-                    sleep_time = max(0, 0.02 - api_call_duration)  # 确保间隔至少0.02秒
+                    logger.warning(f"API未返回股票[{stock.stock_code}]的实时数据")
+                    # 计算睡眠时间（基于API调用时间）
+                    total_loop_duration = time.time() - loop_start_time  # 整个迭代的总耗时
+                    sleep_time = max(0, 0.02 - total_loop_duration)  # 使用整个迭代时间计算
                     await asyncio.sleep(sleep_time)
                     continue  # 跳过当前股票
-                process_start_time = time_lib.time()
-                data_dict = self.data_format_process.set_realtime_data(stock, api_data)
+                
+                # 数据处理和缓存
+                process_start_time = time.time()
+                data_dict = self.data_format_process.set_realtime_data(stock, api_data)  # 数据处理
                 if data_dict.get('trade_time') is not None:
                     data_dicts_to_save.append(data_dict)
-                    cache_dict = data_dict.copy()
-                    await self.cache_set.latest_realtime_data(stock.stock_code, cache_dict)
-                process_end_time = time_lib.time()
-                process_duration = process_end_time - process_start_time
-                # 计算并添加睡眠时间，确保两次调用间隔至少0.02秒
-                sleep_time = max(0, 0.02 - process_duration)
-                await asyncio.sleep(sleep_time)
+                    await self.cache_set.latest_realtime_data(stock.stock_code, data_dict.copy())  # 缓存
+                process_end_time = time.time()
+                process_duration = process_end_time - process_start_time  # 数据处理耗时
+                
+                # 记录详细日志（仅关键信息，以减少开销）
+                total_loop_duration = time.time() - loop_start_time  # 整个迭代的总耗时
                 logger.info(f"股票[{stock.stock_code}]处理完成: API耗时 {api_call_duration:.4f}秒, 处理耗时 {process_duration:.4f}秒, 总耗时 {total_loop_duration:.4f}秒")
+                
+                # 计算并添加睡眠时间，确保两次迭代间隔至少0.02秒
+                sleep_time = max(0, 0.02 - total_loop_duration)  # 基于整个迭代时间
+                await asyncio.sleep(sleep_time)
             if data_dicts_to_save:
                 # 批量保存到数据库
                 result = await self._save_all_to_db_native_upsert(
