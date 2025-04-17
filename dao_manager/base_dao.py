@@ -589,10 +589,10 @@ class BaseDAO(Generic[T]):
                         batch_size=current_batch_size
                     )
                 except (IntegrityError, DatabaseError) as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}")
+                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}",exc_info=True)
                     failed_count += current_batch_size
                 except Exception as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}")
+                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}",exc_info=True)
                     failed_count += current_batch_size
             
             await process_batch_async()  # 异步执行
