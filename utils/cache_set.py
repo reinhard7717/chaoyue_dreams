@@ -647,7 +647,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"latest_level5_data.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_level5_data(stock_code)
-        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
     
     async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
@@ -659,7 +659,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"onebyone_trade.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_onebyone_trade(stock_code)
-        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
     
     async def time_deal(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
@@ -667,7 +667,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"time_deal.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_time_deal(stock_code)
-        return await self._stock_latest_data(stock_code, "Latest", data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
 
     async def real_percent(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
@@ -675,7 +675,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"real_percent.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_real_percent(stock_code)
-        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
     
     async def big_deal(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
@@ -683,7 +683,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"big_deal.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_big_deal(stock_code)
-        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
     
     async def abnormal_movement(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
@@ -691,7 +691,7 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"abnormal_movement.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_abnormal_movement(stock_code)
-        return await self._stock_latest_data(stock_code, data_to_cache, cache_key)
+        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
 
 class StrategyCacheSet(CacheSet):
     def __init__(self):
