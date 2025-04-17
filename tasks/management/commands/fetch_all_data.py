@@ -454,7 +454,7 @@ class Command(BaseCommand):
             for stock in stocks:
                 await stock_realtime_dao.fetch_and_save_realtime_data(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的实时数据')
-                await stock_realtime_dao.refresh_stocks_level5(stock.stock_code)
+                await stock_realtime_dao.fetch_and_save_level5_data(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的买卖五档数据')
                 await stock_realtime_dao.fetch_and_save_trade_detail(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的当日成交明细')
