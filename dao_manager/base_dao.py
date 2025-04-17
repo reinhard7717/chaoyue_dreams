@@ -8,7 +8,7 @@ import operator
 from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic
 from datetime import datetime
-
+from django.db.models import Model as models_Model  # 导入模型基类
 from django.conf import settings
 import pytz
 
