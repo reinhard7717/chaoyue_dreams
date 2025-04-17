@@ -211,11 +211,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # API配置
 API_BASE_URL = 'http://ig507.com'  # 修改为http方式
-API_LICENCES = [
-    '6AEE029A-44A4-3404-A405-FB2C20085521',
-    '03B3418F-04F6-5C44-A700-A245F74B8D77',
-    # 添加更多licence
-]
+API_LICENCES = ['6AEE029A-44A4-3404-A405-FB2C20085521',]
 API_REQUEST_TIMEOUT = 10  # 请求超时时间(秒)
 API_RATE_LIMIT = {
     'default': {'times': 10, 'seconds': 60},  # 默认每分钟10次
