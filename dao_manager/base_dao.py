@@ -1,5 +1,6 @@
 # dao_manager/basedao.py
 
+import asyncio
 import decimal
 import json
 import logging
@@ -9,6 +10,7 @@ from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic
 from datetime import datetime
 from django.db.models import Model as models_Model  # 导入模型基类
+import concurrent.futures
 from django.conf import settings
 import pytz
 
@@ -578,29 +580,15 @@ class BaseDAO(Generic[T]):
             
             async def process_batch_async(objs):
                 nonlocal failed_count
-                try:
-                    def sync_bulk_create():
-                        try:
-                            with transaction.atomic():  # 事务在同步函数中
-                                return model_class.objects.bulk_create(
-                                    objs,
-                                    update_conflicts=True,
-                                    update_fields=update_fields,
-                                    batch_size=len(objs)
-                                )
-                        except IntegrityError as e:
-                            raise Exception(f"完整性错误: {str(e)}")
-                        except DatabaseError as e:
-                            raise Exception(f"数据库错误: {str(e)}")
-                        except Exception as e:
-                            raise Exception(f"未知错误: {str(e)}")
-                    
-                    await sync_to_async(sync_bulk_create)()  # 运行同步函数
-                except Exception as e:
-                    logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 处理错误: {str(e)}", exc_info=True)
-                    failed_count += current_batch_size
+                loop = asyncio.get_running_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:  # 严格单线程
+                    try:
+                        await loop.run_in_executor(pool, self._sync_bulk_create, model_class, objs, update_fields)
+                    except Exception as e:
+                        logger.error(f"批次 {i // batch_size + 1} (大小: {current_batch_size}) 处理错误: {str(e)}", exc_info=True)
+                        failed_count += current_batch_size
             
-            await process_batch_async(objs_to_process)  # 传递数据
+            await process_batch_async(objs_to_process)
         
         successful_count = total_attempted - failed_count
         return {
@@ -608,6 +596,22 @@ class BaseDAO(Generic[T]):
             "失败": failed_count,
             "创建/更新成功": successful_count,
         }
+
+    def _sync_bulk_create(self, model_class, objs, update_fields):
+        try:
+            with transaction.atomic():  # 事务在完全隔离的同步线程中
+                return model_class.objects.bulk_create(
+                    objs,
+                    update_conflicts=True,
+                    update_fields=update_fields,
+                    batch_size=len(objs)
+                )
+        except IntegrityError as e:
+            raise Exception(f"完整性错误: {str(e)}")
+        except DatabaseError as e:
+            raise Exception(f"数据库错误: {str(e)}")
+        except Exception as e:
+            raise Exception(f"未知错误: {str(e)}")
 
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """
