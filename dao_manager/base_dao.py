@@ -619,7 +619,7 @@ class BaseDAO(Generic[T]):
                     model_class.objects.bulk_create(
                         objs_to_process,
                         update_conflicts=True,       # 启用 Upsert 模式
-                        unique_fields=unique_fields, # 指定用于冲突检测的唯一字段
+                        # unique_fields=unique_fields, # 指定用于冲突检测的唯一字段
                         update_fields=update_fields, # 指定冲突时需要更新的字段
                         batch_size=current_batch_size # 处理当前批次的所有对象
                     )
