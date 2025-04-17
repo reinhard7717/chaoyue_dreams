@@ -136,7 +136,7 @@ def fetch_single_stock_history_trade_data(self, stock_code):
                     asyncio.run(stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data))
                     processed_count += 1
                 # 修剪缓存大小
-                asyncio.run(stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit))
+                asyncio.run(stock_indicators_dao.cache_manager.ztrim_by_rank(cache_key_str, cache_limit))
                 logger.info(f"成功缓存股票 {stock.stock_code} {time_level} 级别历史数据，并修剪缓存大小为 {cache_limit}")
         
         logger.info(f"完成股票 {stock_code} 的历史交易数据缓存，共处理 {processed_count} 条记录")

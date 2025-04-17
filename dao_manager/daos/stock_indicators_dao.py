@@ -247,7 +247,7 @@ class StockIndicatorsDAO(BaseDAO):
                     )
                     # --- 函数末尾执行最终修剪 ---
                     cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-                    removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                    removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                     # --- 修剪调用结束 ---
                     logger.info(f"股票[{stock}] {time_level}级别分时成交数据保存完成，结果: {result}")
                     return result
@@ -294,7 +294,7 @@ class StockIndicatorsDAO(BaseDAO):
             )
             # --- 函数末尾执行最终修剪 ---
             cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"股票[{stock}] {time_level}级别分时成交数据保存完成，结果: {result}")
             return result
@@ -334,7 +334,7 @@ class StockIndicatorsDAO(BaseDAO):
                     # --- 生成缓存键 ---
                     cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                     # --- 单行调用修剪方法 ---
-                    await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                     # --- 修剪调用结束 ---
             if not data_dicts:
                 logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
@@ -399,7 +399,7 @@ class StockIndicatorsDAO(BaseDAO):
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
             cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             logger.info(f"{stock.stock_code} 股票分时成交数据保存完成，结果: {result}")
 
         except Exception as e:
@@ -494,7 +494,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             return result
         except Exception as e:
@@ -559,7 +559,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
-                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
             return total_result
         except Exception as e:
@@ -769,7 +769,7 @@ class StockIndicatorsDAO(BaseDAO):
             # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_ma(stock_code, time_level)
             # --- 单行调用修剪方法 ---
-            await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"{stock}股票{time_level}级别历史MA指标数据保存完成，结果: {result}")
             return result
@@ -837,7 +837,7 @@ class StockIndicatorsDAO(BaseDAO):
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_ma(stock_code, time_level)
                 # --- 单行调用修剪方法 ---
-                await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
             
             # --- 最终修剪结束 ---

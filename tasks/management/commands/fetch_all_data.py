@@ -667,7 +667,7 @@ class Command(BaseCommand):
                     #    logger.info(f"缓存{stock.stock_code}股票{time_level}级别历史分时成交数据, cache_data: {cache_data}")
                        await stock_indicators_dao.cache_set.history_time_trade(stock.stock_code, time_level, cache_data)
                        # --- 单行调用修剪方法 ---
-                       await stock_indicators_dao.cache_manager.trim_cache_zset(cache_key_str, cache_limit)
+                       await stock_indicators_dao.cache_manager.ztrim_by_rank(cache_key_str, cache_limit)
             
     async def calculate_stock_indicators(self):
         """计算股票指标数据"""

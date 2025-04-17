@@ -1119,7 +1119,7 @@ class StockIndexDAO(BaseDAO):
             # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_time_series(index_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"{index_code}指数历史时间序列数据保存完成，结果: {result}")
             return result
@@ -1186,7 +1186,7 @@ class StockIndexDAO(BaseDAO):
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_time_series(index_code, time_level)
                 # --- 单行调用修剪方法 ---
-                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史时间序列数据保存完成，总结果: {total_result}")
@@ -1409,7 +1409,7 @@ class StockIndexDAO(BaseDAO):
             # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_kdj(index_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"{index_code}指数{time_level}级别历史KDJ指标数据保存完成，结果: {result}")
             return result
@@ -1480,7 +1480,7 @@ class StockIndexDAO(BaseDAO):
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_kdj(index_code, time_level)
                 # --- 单行调用修剪方法 ---
-                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史KDJ指标数据保存完成，总结果: {total_result}")
@@ -1684,7 +1684,7 @@ class StockIndexDAO(BaseDAO):
              # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_macd(index_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             trim_results_log[f"{index_code}_{time_level}_final"] = f"移除 {removed_count}" if removed_count is not None else "失败"
 
@@ -1758,7 +1758,7 @@ class StockIndexDAO(BaseDAO):
                 # --- 生成 KDJ 缓存键 ---
                 cache_key =  self.cache_key.history_macd(index_code, time_level_to_trim)
                 # --- 单行调用修剪方法 ---
-                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
                 trim_results_log[f"{index_code}_{time_level_to_trim}_final"] = f"移除 {removed_count}" if removed_count is not None else "失败"
             # --- 最终修剪结束 ---
@@ -1961,7 +1961,7 @@ class StockIndexDAO(BaseDAO):
             # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_ma(index_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"{index_code}指数{time_level}级别历史MA指标数据保存完成，结果: {result}")
             return result
@@ -2035,7 +2035,7 @@ class StockIndexDAO(BaseDAO):
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_ma(index_code, time_level_to_trim)
                 # --- 单行调用修剪方法 ---
-                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
                 trim_results_log[f"{index_code}_{time_level_to_trim}_final"] = f"移除 {removed_count}" if removed_count is not None else "失败"
             # --- 最终修剪结束 ---
@@ -2239,7 +2239,7 @@ class StockIndexDAO(BaseDAO):
             # --- 生成缓存键 ---
             cache_key =  self.cache_key.history_boll(index_code, time_level)
             # --- 单行调用修剪方法 ---
-            removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+            removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
             logger.info(f"{index_code}指数{time_level}级别历史MA指标数据保存完成，结果: {result}")
             return result
@@ -2307,7 +2307,7 @@ class StockIndexDAO(BaseDAO):
                 # --- 生成缓存键 ---
                 cache_key =  self.cache_key.history_ma(index_code, time_level)
                 # --- 单行调用修剪方法 ---
-                removed_count = await self.cache_manager.trim_cache_zset(cache_key, self.cache_limit)
+                removed_count = await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
             # --- 最终修剪结束 ---
             logger.info(f"所有指数各级别历史BOLL指标数据保存完成，总结果: {total_result}")
