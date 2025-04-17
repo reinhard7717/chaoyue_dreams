@@ -460,6 +460,8 @@ class Command(BaseCommand):
                 self.stdout.write(f'  - 已获取 {stock} 的当日成交明细')
                 await stock_realtime_dao.fetch_and_save_time_deals(stock.stock_code)
                 self.stdout.write(f'  - 已获取 {stock} 的当日分时成交明细')
+                await stock_realtime_dao.fetch_and_save_real_percent(stock.stock_code)
+                self.stdout.write(f'  - 已获取 {stock} 的当日分价成交占比数据')
                 
     async def fetch_fund_flow_data(self):
         """获取资金流向数据"""

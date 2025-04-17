@@ -414,8 +414,8 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = self.data_format_process.set_onebyone_trade_data(stock, api_data)
                 data_dicts.append(data_dict)
-                cache_dict = data_dict.copy()
-                await self.cache_set.onebyone_trade(stock.stock_code, cache_dict)
+                # cache_dict = data_dict.copy()
+                # await self.cache_set.onebyone_trade(stock.stock_code, cache_dict)
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTradeDetail,
@@ -569,9 +569,9 @@ class StockRealtimeDAO(BaseDAO):
                 for api_data in api_datas:
                     try:
                         data_dict = self.data_format_process.set_time_deal_data(stock, api_data)
-                        cache_dict = data_dict.copy()
                         data_dicts.append(data_dict)
-                        await self.cache_set.time_deal(stock_code, cache_dict)
+                        # cache_dict = data_dict.copy()
+                        # await self.cache_set.time_deal(stock_code, cache_dict)
                     except Exception as inner_e:
                          # 捕获单条数据处理错误
                          logger.error(f"处理 {stock.stock_code} 的单条成交明细时出错: {str(inner_e)} - 数据: {api_data}", exc_info=True)
@@ -674,8 +674,8 @@ class StockRealtimeDAO(BaseDAO):
             for api_data in api_datas:
                 data_dict = self.data_format_process.set_real_percent_data(stock, api_data)
                 data_dicts.append(data_dict)
-                cache_dict = data_dict.copy()
-                await self.cache_set.real_percent(stock_code, cache_dict)
+                # cache_dict = data_dict.copy()
+                # await self.cache_set.real_percent(stock_code, cache_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockPricePercent,
                 data_list=data_dicts,
