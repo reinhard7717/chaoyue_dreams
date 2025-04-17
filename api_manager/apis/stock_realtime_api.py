@@ -34,7 +34,7 @@ class StockRealtimeAPI(BaseAPI):
         """
         endpoint = f"/data/time/real/trace/level5/{stock_code}"
         # logger.info(f"获取买卖五档盘口数据: {stock_code}")
-        return await self.get(endpoint, expected_type='list')
+        return await self.get(endpoint, expected_type='dict')
     
     async def get_onebyone_trades(self, stock_code: str) -> List[Dict[str, Any]]:
         """
