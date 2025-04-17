@@ -628,7 +628,8 @@ class BaseDAO(Generic[T]):
                     # 捕获数据库层面的错误 (例如唯一约束未设置、外键问题等)
                     logger.error(
                         f"批次 {i // batch_size + 1} (大小: {len(objs_to_process)}) "
-                        f"使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}"
+                        f"使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}",
+                        exc_info=True
                     )
                     failed_count += len(objs_to_process) # 整个批次标记为失败
                 except Exception as e:
