@@ -43,6 +43,7 @@ class IndicatorDAO(BaseDAO):
         self.cache_get = StockIndicatorsCacheGet()  # 先实例化
         await self.cache_get.initialize()  # 添加异步初始化方法，如果需要
 
+
     async def get_history_time_trades_by_limit(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[List[StockTimeTrade]]:
         """
         获取指定股票、时间级别和数量限制的历史分时交易数据。
@@ -96,8 +97,10 @@ class IndicatorDAO(BaseDAO):
             ]
             # 等待所有构建任务完成
             results = await asyncio.gather(*build_tasks)
+
             # 过滤掉构建失败的结果 (None)
             model_instances = [instance for instance in results if instance is not None]
+
             if not model_instances:
                 # 如果所有缓存数据都构建失败
                 logger.warning(f"缓存数据 for {stock_code} {time_level_str} 全部构建模型失败，将尝试从数据库获取。")
@@ -239,6 +242,52 @@ class IndicatorDAO(BaseDAO):
             return None
 
     # --- 其他 DAO 方法 ---
+    @staticmethod
+    def _safe_decimal(value, default=None) -> Optional[Decimal]:
+        """安全地将值转换为 Decimal"""
+        if value is None or value == '':
+            return default
+        try:
+            # 如果已经是 Decimal，直接返回
+            if isinstance(value, Decimal):
+                return value
+            # 从字符串或浮点数转换，推荐先转字符串保证精度
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            logger.warning(f"无法将值 '{value}' (类型: {type(value)}) 转换为 Decimal", exc_info=False)
+            return default
+
+    @staticmethod
+    def _safe_int(value, default=None) -> Optional[int]:
+        """安全地将值转换为 Integer"""
+        if value is None or value == '':
+            return default
+        try:
+             # 如果已经是 Int，直接返回
+            if isinstance(value, int):
+                return value
+            # 处理可能带小数点的字符串或浮点数
+            return int(float(value))
+        except (ValueError, TypeError):
+            logger.warning(f"无法将值 '{value}' (类型: {type(value)}) 转换为 Integer", exc_info=False)
+            return default
+
+    @staticmethod
+    def _safe_datetime(value, default=None) -> Optional[timezone.datetime]:
+        """安全地将值转换为 timezone-aware datetime"""
+        if value is None:
+            return default
+        try:
+            # pandas.to_datetime 是一个强大的解析器
+            dt = pd.to_datetime(value)
+            # 确保时区感知，如果已经是，则不变；如果是 naive，则设置为默认时区
+            if timezone.is_naive(dt):
+                return timezone.make_aware(dt, timezone.get_default_timezone())
+            return dt
+        except (ValueError, TypeError):
+             logger.warning(f"无法将值 '{value}' (类型: {type(value)}) 转换为 Datetime", exc_info=False)
+             return default
+    
     @staticmethod
     def _prepare_decimal(value) -> Optional[Decimal]:
         """将计算结果（可能是 float 或 NaN）安全地转换为 Decimal 或 None"""
