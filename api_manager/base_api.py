@@ -138,7 +138,7 @@ class BaseAPI:
         # 如果是频率限制错误，进入冷却期
         if is_rate_limit:
             # 冷却时间根据错误次数增加，但不超过最大冷却时间
-            cooldown_seconds = min(30 * (2 ** (self.licence_usage[licence]["errors"] - 1)), 3600)
+            cooldown_seconds = min(3 * (2 ** (self.licence_usage[licence]["errors"] - 1)), 3600)
             self.licence_usage[licence]["cooldown_until"] = current_time + cooldown_seconds
             # logger.warning(f"License {licence} 触发频率限制，进入冷却期 {cooldown_seconds} 秒")
     

@@ -389,7 +389,7 @@ API_RATE_LIMITS = {
             'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
-            'rate': 40,  # 每秒40个请求
+            'rate': 50,  # 每秒50个请求
             'burst': 50,  # 允许突发到50个请求
             'error_window': 300,  # 错误统计窗口（秒）
             'min_success_rate': 0.8,  # 最小成功率阈值
@@ -405,7 +405,7 @@ API_RATE_LIMITS = {
             'error_history_size': 100    # 错误历史记录大小
         },
         'pro': {
-            'rate': 40,  # 每秒40个请求
+            'rate': 50,  # 每秒50个请求
             'burst': 50,
             'error_window': 300,  # 错误统计窗口（秒）
             'min_success_rate': 0.8,  # 最小成功率阈值
