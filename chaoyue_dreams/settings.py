@@ -123,20 +123,19 @@ CHANNEL_LAYERS = {
     },
 }
 
-# 数据库配置
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'beyond_dreams',
         'USER': 'stocker',
         'PASSWORD': 'Asdf+1234',
-        'HOST': MYSQL_HOST_DYNAMIC, # 数据库地址保持不变
+        'HOST': MYSQL_HOST_DYNAMIC,  # 数据库地址保持不变
         'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'; SET SESSION wait_timeout=2400;",  # 添加wait_timeout设置为2400秒
         },
-        'CONN_MAX_AGE': 300,  # 连接池最大连接数
+        'CONN_MAX_AGE': 2400,  # 如上所述
     }
 }
 
