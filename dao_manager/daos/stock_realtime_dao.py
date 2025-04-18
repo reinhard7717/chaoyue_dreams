@@ -215,6 +215,7 @@ class StockRealtimeDAO(BaseDAO):
             data_dicts_to_save = [] # 用于数据库批量保存
             cache_tasks = [] # 用于异步缓存写入
             process_start_time = time_lib.time()
+            stocks_count = len(stocks)
             for i, stock in enumerate(stocks):
                 loop_start_time = time_lib.time()
                 api_start_time = time_lib.time()
@@ -257,7 +258,7 @@ class StockRealtimeDAO(BaseDAO):
                         )
                         process_end_time = time_lib.time()
                         process_duration = process_end_time - process_start_time
-                        logger.info(f"{len(data_dicts_to_save)} / {i} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
+                        logger.info(f"{len(data_dicts_to_save)} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
                         data_dicts_to_save = []
                         process_start_time = None
                     else:
