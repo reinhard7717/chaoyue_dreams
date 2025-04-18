@@ -257,13 +257,12 @@ class StockRealtimeDAO(BaseDAO):
                         )
                         process_end_time = time_lib.time()
                         process_duration = process_end_time - process_start_time
-                        logger.info(f"{len(data_dicts_to_save)} 个股票实时数据保存完成，结果: {result}, 耗时: {process_duration} 秒")
+                        logger.info(f"{len(data_dicts_to_save)} / {i} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
                         data_dicts_to_save = []
                         process_start_time = None
                     else:
                         logger.info("没有需要保存到数据库的股票实时数据。")
                         return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
-                    logger.info(f'{loop_start_time}开始， 已处理 {i} 个股票')
                 sleep_time = max(0, 0.02 - total_loop_duration)
                 await asyncio.sleep(sleep_time)
 
