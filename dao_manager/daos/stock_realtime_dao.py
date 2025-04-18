@@ -226,7 +226,6 @@ class StockRealtimeDAO(BaseDAO):
                     sleep_time = max(0, 0.02 - total_loop_duration)
                     await asyncio.sleep(sleep_time)
                     continue
-                process_start_time = time_lib.time()
                 # data_dict 包含 StockInfo 实例
                 data_dict = self.data_format_process.set_realtime_data(stock, api_data)
                 if data_dict.get('trade_time') is not None:
@@ -238,17 +237,11 @@ class StockRealtimeDAO(BaseDAO):
                         # 替换为 stock_code
                         cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
                         del cache_data_dict['stock'] # 删除实例键
-                    # 3. 准备缓存任务 (传递处理后的 cache_data_dict)
-                    async def prepare_and_set_cache(code, data_to_prepare):
-                        prepared_data = await self._prepare_data_for_cache(data_to_prepare, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.latest_realtime_data(code, prepared_data)
-                        else:
-                            # log 原始 data_dict 以便调试
-                            logger.warning(f"为股票 {code} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-                    cache_tasks.append(prepare_and_set_cache(stock.stock_code, cache_data_dict))
-                process_end_time = time_lib.time()
-                process_duration = process_end_time - process_start_time
+                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    if prepared_data:
+                        await self.cache_set.latest_realtime_data(stock.stock_code, prepared_data)
+                    else:
+                        logger.warning(f"为股票 {stock.stock_code} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
                 total_loop_duration = time_lib.time() - loop_start_time
                 if i % 200 == 0:
                     # --- 批量保存到数据库 ---
@@ -259,13 +252,8 @@ class StockRealtimeDAO(BaseDAO):
                             data_list=data_dicts_to_save,
                             unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
                         )
-                        logger.info(f"{len(data_dicts_to_save)} 个股票实时数据保存完成，结果: {result}")
+                        logger.info(f"{len(cache_tasks)} 个股票实时数据保存完成，结果: {result}")
                         data_dicts_to_save = []
-                        # --- 并发执行所有缓存写入任务 ---
-                        if cache_tasks:
-                            await asyncio.gather(*cache_tasks)
-                            logger.info(f"完成了 {len(cache_tasks)} 个股票实时数据的缓存写入任务。")
-                            cache_tasks = []
                     else:
                         logger.info("没有需要保存到数据库的股票实时数据。")
                         return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
