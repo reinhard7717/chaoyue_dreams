@@ -40,10 +40,10 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
     Celery 工作任务（同步）：计算并保存指定股票在所有时间级别上的指标。
     它调用内部的异步函数来完成工作。
     """
-    logger.info(f"Celery 任务开始处理股票 {stock_code}...")
+    # logger.info(f"Celery 任务开始处理股票 {stock_code}...")
     # 使用 asyncio.run() 在同步任务中运行异步代码
     result = asyncio.run(_calculate_stock_indicators_async(stock_code))
-    logger.info(f"Celery 任务完成处理股票 {stock_code}，结果: {result}")
+    # logger.info(f"Celery 任务完成处理股票 {stock_code}，结果: {result}")
     # 返回异步函数的结果，这个结果应该是可序列化的（字符串）
     return result
 
