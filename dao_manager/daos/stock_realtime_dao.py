@@ -243,32 +243,30 @@ class StockRealtimeDAO(BaseDAO):
                         await self.cache_set.latest_realtime_data(stock_code, prepared_data)
                     else:
                         logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-                total_loop_duration = time_lib.time() - loop_start_time
-                if i % 200 == 0 and i > 10:
-                    # --- 批量保存到数据库 ---
-                    if data_dicts_to_save:
-                        # 使用包含 StockInfo 实例的列表
-                        result = await self._save_all_to_db_native_upsert(
-                            model_class=StockRealtimeData,
-                            data_list=data_dicts_to_save,
-                            unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
-                        )
-                        process_end_time = time_lib.time()
-                        process_duration = process_end_time - process_start_time
-                        finished_count += len(data_dicts_to_save)
-                        logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
-                        data_dicts_to_save = []
-                        process_start_time = None
-                    else:
-                        logger.info("没有需要保存到数据库的股票实时数据。")
-                        return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
+                total_loop_duration = time_lib.time() - loop_start_time                    
                 sleep_time = max(0, 0.02 - total_loop_duration)
                 await asyncio.sleep(sleep_time)
+            # --- 批量保存到数据库 ---
+            if data_dicts_to_save:
+                # 使用包含 StockInfo 实例的列表
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockRealtimeData,
+                    data_list=data_dicts_to_save,
+                    unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+                )
+                process_end_time = time_lib.time()
+                process_duration = process_end_time - process_start_time
+                finished_count += len(data_dicts_to_save)
+                logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
+                data_dicts_to_save = []
+                process_start_time = None
+            else:
+                logger.info("没有需要保存到数据库的股票实时数据。")
+                return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
             return result
         except Exception as e:
             logger.error(f"获取并保存股票[{stock_code}]实时数据失败: {str(e)}", exc_info=True)
             return {} # 返回空字典表示整体失败
-        
 
     async def fetch_and_save_all_realtime_data(self) -> Dict[str, Dict]:
         """
