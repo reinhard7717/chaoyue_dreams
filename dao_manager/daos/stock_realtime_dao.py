@@ -88,14 +88,19 @@ class StockRealtimeDAO(BaseDAO):
             # 从缓存获取最新数据
             cache_data = await self.cache_get.latest_realtime_data(stock_code)
             if cache_data:
-                # logger.info(f"从缓存获取最新股票[{stock_code}]实时数据,cache_data: {cache_data}")
-                realtime_data_dict = json.loads(cache_data)
+                if isinstance(cache_data, dict):
+                    realtime_data_dict = cache_data
+                else:
+                    realtime_data_dict = self.cache_manager._deserialize(cache_data)
+                stock = await self.stock_basic_dao.get_stock_by_code(realtime_data_dict.get('stock_code'))
+                realtime_data_dict['stock'] = stock
+                del realtime_data_dict['stock_code']
                 # logger.info(f"从缓存获取最新股票[{stock_code}]实时数据,realtime_data_dict: {realtime_data_dict}")
                 realtime_data = StockRealtimeData(**realtime_data_dict)
                 # logger.info(f"从缓存获取最新股票[{stock_code}]实时数据,realtime_data: {realtime_data}")
                 return realtime_data
         except Exception as e:
-            logger.error(f"从缓存获取最新股票[{stock_code}]实时数据时发生异常: {str(e)}")
+            logger.error(f"从缓存获取最新股票[{stock_code}]实时数据时发生异常: {str(e)}", exc_info=True)
             return None
         # 从数据库获取最新数据
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)

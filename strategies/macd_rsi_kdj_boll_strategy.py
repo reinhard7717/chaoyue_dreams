@@ -148,7 +148,6 @@ class MacdRsiKdjBollEnhancedStrategy(BaseStrategy):
         # 去重后返回
         return list(set(required))
 
-
     # --- 单个指标评分函数 (0-100分) ---
     def _get_ema_score(self, ema_short: pd.Series, ema_long: pd.Series) -> pd.Series:
         """
