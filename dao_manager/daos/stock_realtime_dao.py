@@ -211,7 +211,7 @@ class StockRealtimeDAO(BaseDAO):
             if self.cache_set is None:
                 await self.initialize_cache_objects()
             data_dicts_to_save = []
-            cache_tasks = []
+            result = []
             process_start_time = time_lib.time()
             stocks_count = len(stock_codes)
             finished_count = 0
