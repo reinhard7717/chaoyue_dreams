@@ -214,35 +214,30 @@ class StockRealtimeDAO(BaseDAO):
                 return {}  # 返回空字典
             data_dicts_to_save = [] # 用于数据库批量保存
             cache_tasks = [] # 用于异步缓存写入
-            for stock in stocks:
+            for i, stock in enumerate(stocks):
                 loop_start_time = time_lib.time()
                 api_start_time = time_lib.time()
                 api_data = await self.api.get_realtime_data(stock.stock_code)
                 api_end_time = time_lib.time()
                 api_call_duration = api_end_time - api_start_time
-
                 if not api_data:
                     logger.warning(f"API未返回股票[{stock.stock_code}]的实时数据")
                     total_loop_duration = time_lib.time() - loop_start_time
                     sleep_time = max(0, 0.02 - total_loop_duration)
                     await asyncio.sleep(sleep_time)
                     continue
-
                 process_start_time = time_lib.time()
                 # data_dict 包含 StockInfo 实例
                 data_dict = self.data_format_process.set_realtime_data(stock, api_data)
-
                 if data_dict.get('trade_time') is not None:
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts_to_save.append(data_dict)
-
                     # 2. 准备缓存数据
                     cache_data_dict = data_dict.copy()
                     if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
                         # 替换为 stock_code
                         cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
                         del cache_data_dict['stock'] # 删除实例键
-
                     # 3. 准备缓存任务 (传递处理后的 cache_data_dict)
                     async def prepare_and_set_cache(code, data_to_prepare):
                         prepared_data = await self._prepare_data_for_cache(data_to_prepare, related_field_map=None)
@@ -251,14 +246,12 @@ class StockRealtimeDAO(BaseDAO):
                         else:
                             # log 原始 data_dict 以便调试
                             logger.warning(f"为股票 {code} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-
                     cache_tasks.append(prepare_and_set_cache(stock.stock_code, cache_data_dict))
-
                 process_end_time = time_lib.time()
                 process_duration = process_end_time - process_start_time
                 total_loop_duration = time_lib.time() - loop_start_time
-                logger.info(f"股票[{stock}]处理完成: API耗时 {api_call_duration:.4f}秒, 处理耗时 {process_duration:.4f}秒, 总耗时 {total_loop_duration:.4f}秒")
-
+                if i % 100 == 0:
+                    logger.info(f'{loop_start_time}开始， 已处理 {i} 个股票')
                 sleep_time = max(0, 0.02 - total_loop_duration)
                 await asyncio.sleep(sleep_time)
 
