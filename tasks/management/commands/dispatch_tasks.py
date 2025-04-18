@@ -3,6 +3,8 @@ import asyncio
 import logging
 from django.core.management.base import BaseCommand, CommandError
 from celery import group
+from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from tasks.stock_indicator_tasks import process_single_stock_history_trade
 
 
 logger = logging.getLogger(__name__)
@@ -106,10 +108,10 @@ class Command(BaseCommand):
     def dispatch_history_time_trade(self, *args, **options):
         self.stdout.write("开始分发历史数据保存任务...")
         logger.info("Management Command 启动: dispatch_history_time_trade")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
-        from tasks.stock_indicator_tasks import process_single_stock_history_trade
-        stock_basic_dao = None # 初始化
+        stock_basic_dao = None  # 初始化
         target_queue = 'save_api_data_TimeTrade'
+        successful_tasks = 0  # 用于计数成功提交的任务
+        
         try:
             stock_basic_dao = StockBasicDAO()
             # 获取股票列表 (假设 get_stock_list 是 async)
@@ -119,47 +121,52 @@ class Command(BaseCommand):
                 logger.info(f"获取到 {len(stocks)} 支股票列表")
                 self.stdout.write(f"获取到 {len(stocks)} 支股票列表")
             except Exception as e:
-                 logger.error(f"获取股票列表时出错: {e}", exc_info=True)
-                 self.stderr.write(self.style.ERROR(f"获取股票列表失败: {e}"))
-                 return # 获取列表失败，则无法继续
+                logger.error(f"获取股票列表时出错: {e}", exc_info=True)
+                self.stderr.write(self.style.ERROR(f"获取股票列表失败: {e}"))
+                return  # 获取列表失败，则无法继续
+            
             if not stocks:
                 logger.warning("未获取到任何股票信息，任务分发结束")
                 self.stdout.write(self.style.WARNING("未获取到任何股票信息，无需分发任务"))
                 return
+            
             # 创建子任务签名列表
             tasks_signatures = []
             for stock in stocks:
                 # 为每支股票创建一个子任务签名
                 tasks_signatures.append(process_single_stock_history_trade.s(stock.stock_code))
-
+            
             if not tasks_signatures:
-                 logger.warning("没有生成任何子任务签名，任务分发结束")
-                 self.stdout.write(self.style.WARNING("没有有效的股票生成子任务，无需分发"))
-                 return
-            # 创建任务组
-            task_group = group(tasks_signatures)
-            logger.info(f"已创建包含 {len(tasks_signatures)} 个历史数据保存子任务的任务组")
-            # 异步执行任务组
-            # 注意：这里只是将任务组发送到消息队列，由 Celery worker 异步执行
-            # group_result = task_group.apply_async()
-            group_result = task_group.apply_async(queue=target_queue) # 指定队列
-
-            logger.info(f"任务组已提交执行，Group ID: {group_result.id}")
-            self.stdout.write(self.style.SUCCESS(
-                f"成功分发 {len(tasks_signatures)} 个历史数据保存子任务。Group ID: {group_result.id}"
-            ))
+                logger.warning("没有生成任何子任务签名，任务分发结束")
+                self.stdout.write(self.style.WARNING("没有有效的股票生成子任务，无需分发"))
+                return
+            
+            # 逐个提交任务到指定队列
+            for signature in tasks_signatures:
+                try:
+                    result = signature.apply_async(queue=target_queue)  # 逐个提交到队列
+                    # logger.info(f"任务提交成功，Task ID: {result.id}")
+                    # self.stdout.write(self.style.SUCCESS(f"成功提交任务: {result.id}"))
+                    successful_tasks += 1  # 计数成功任务
+                except Exception as e:
+                    logger.error(f"提交任务失败: {e}", exc_info=True)
+                    self.stderr.write(self.style.ERROR(f"提交任务失败: {e}"))
+            
+            logger.info(f"已成功提交 {successful_tasks} 个历史数据保存任务")
+            self.stdout.write(self.style.SUCCESS(f"成功分发 {successful_tasks} 个历史数据保存任务"))
+        
         except Exception as e:
             logger.error(f"分发任务期间发生错误: {e}", exc_info=True)
             self.stderr.write(self.style.ERROR(f"分发历史数据保存任务失败: {e}"))
+        
         finally:
             # 关闭 DAO
             if stock_basic_dao:
                 try:
-                     # 假设 close 是异步的
                     if asyncio.iscoroutinefunction(getattr(stock_basic_dao, 'close', None)):
-                         asyncio.run(stock_basic_dao.close())
+                        asyncio.run(stock_basic_dao.close())
                     elif callable(getattr(stock_basic_dao, 'close', None)):
-                         stock_basic_dao.close()
+                        stock_basic_dao.close()
                     logger.debug("Management Command DAO closed.")
                 except Exception as close_err:
                     logger.error(f"关闭 Management Command DAO 时出错: {close_err}", exc_info=True)
