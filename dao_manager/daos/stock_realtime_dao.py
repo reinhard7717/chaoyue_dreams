@@ -199,6 +199,77 @@ class StockRealtimeDAO(BaseDAO):
             logger.error(f"保存股票[{stock}]实时数据失败: {str(e)}")
             return None
 
+    async def fetch_and_save_realtime_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
+        """
+        根据股票代码列表获取并保存实时数据
+        Args:
+            stock_codes: 股票代码列表
+        Returns:
+            Dict[str, Dict]: 股票代码到处理结果的映射，例如 {'stock_code': {'创建': 0, '更新': 0, '跳过': 0, '数据': StockRealtimeData}}
+        """
+        try:
+            if self.cache_set is None:
+                await self.initialize_cache_objects()
+            data_dicts_to_save = []
+            cache_tasks = []
+            process_start_time = time_lib.time()
+            stocks_count = len(stock_codes)
+            finished_count = 0
+            for i, stock_code in enumerate(stock_codes):
+                loop_start_time = time_lib.time()
+                if process_start_time is None:
+                    process_start_time = loop_start_time
+                api_data = await self.api.get_realtime_data(stock_code)
+                if not api_data:
+                    logger.warning(f"API未返回股票[{stock_code}]的实时数据")
+                    total_loop_duration = time_lib.time() - loop_start_time
+                    sleep_time = max(0, 0.02 - total_loop_duration)
+                    await asyncio.sleep(sleep_time)
+                    continue
+                stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+                # data_dict 包含 StockInfo 实例
+                data_dict = self.data_format_process.set_realtime_data(stock, api_data)
+                if data_dict.get('trade_time') is not None:
+                    # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
+                    data_dicts_to_save.append(data_dict)
+                    # 2. 准备缓存数据
+                    cache_data_dict = data_dict.copy()
+                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                        # 替换为 stock_code
+                        cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                        del cache_data_dict['stock'] # 删除实例键
+                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    if prepared_data:
+                        await self.cache_set.latest_realtime_data(stock_code, prepared_data)
+                    else:
+                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+                total_loop_duration = time_lib.time() - loop_start_time
+                if i % 200 == 0 and i > 10:
+                    # --- 批量保存到数据库 ---
+                    if data_dicts_to_save:
+                        # 使用包含 StockInfo 实例的列表
+                        result = await self._save_all_to_db_native_upsert(
+                            model_class=StockRealtimeData,
+                            data_list=data_dicts_to_save,
+                            unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+                        )
+                        process_end_time = time_lib.time()
+                        process_duration = process_end_time - process_start_time
+                        finished_count += len(data_dicts_to_save)
+                        logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
+                        data_dicts_to_save = []
+                        process_start_time = None
+                    else:
+                        logger.info("没有需要保存到数据库的股票实时数据。")
+                        return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
+                sleep_time = max(0, 0.02 - total_loop_duration)
+                await asyncio.sleep(sleep_time)
+            return result
+        except Exception as e:
+            logger.error(f"获取并保存股票[{stock_code}]实时数据失败: {str(e)}", exc_info=True)
+            return {} # 返回空字典表示整体失败
+        
+
     async def fetch_and_save_all_realtime_data(self) -> Dict[str, Dict]:
         """
         获取并保存所有股票的最新实时数据，使用批量并发触发，但增加并发数量限制
@@ -219,18 +290,15 @@ class StockRealtimeDAO(BaseDAO):
             finished_count = 0
             for i, stock in enumerate(stocks):
                 loop_start_time = time_lib.time()
-                api_start_time = time_lib.time()
+                if process_start_time is None:
+                    process_start_time = loop_start_time
                 api_data = await self.api.get_realtime_data(stock.stock_code)
-                api_end_time = time_lib.time()
-                api_call_duration = api_end_time - api_start_time
                 if not api_data:
                     logger.warning(f"API未返回股票[{stock.stock_code}]的实时数据")
                     total_loop_duration = time_lib.time() - loop_start_time
                     sleep_time = max(0, 0.02 - total_loop_duration)
                     await asyncio.sleep(sleep_time)
                     continue
-                if process_start_time is None:
-                    process_start_time = time_lib.time()
                 # data_dict 包含 StockInfo 实例
                 data_dict = self.data_format_process.set_realtime_data(stock, api_data)
                 if data_dict.get('trade_time') is not None:
@@ -268,9 +336,7 @@ class StockRealtimeDAO(BaseDAO):
                         return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
                 sleep_time = max(0, 0.02 - total_loop_duration)
                 await asyncio.sleep(sleep_time)
-
             return result
-            
 
         except Exception as e:
             logger.error(f"获取并保存所有股票实时数据失败: {str(e)}", exc_info=True)

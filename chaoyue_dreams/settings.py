@@ -726,8 +726,7 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使
 CELERY_BEAT_SCHEDULE = {
     ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
     '每 60 秒运行一次所有股票的实时数据获取': {
-        # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.stock_realtime.get_realtime_data_task', # 任务函数名
+        'task': 'tasks.stock_realtime.save_stocks_realtime_data_task', # 任务函数名
         'schedule': crontab(minute='*/1', hour='9,10,11,13,14,20,21', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
         'options': {'queue': 'save_api_data_RealTime'},  # 添加此行：指定队列名称
     },
