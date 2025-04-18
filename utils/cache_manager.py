@@ -65,7 +65,7 @@ class CacheManager:
         if self.redis_client is not None:
             return
 
-        logger.info("正在初始化 Redis 客户端...")
+        # logger.info("正在初始化 Redis 客户端...")
         try:
             cache_config = settings.CACHES['default']
             location = cache_config.get('LOCATION', 'redis://localhost:6379/0')
@@ -99,7 +99,7 @@ class CacheManager:
             )
             # 测试连接 (可选但推荐)
             await self.redis_client.ping()
-            logger.info("Redis 客户端初始化并连接成功。")
+            # logger.info("Redis 客户端初始化并连接成功。")
         except Exception as e:
             logger.error(f"初始化 Redis 客户端失败: {e}", exc_info=True)
             self.redis_client = None # 初始化失败，重置为 None
