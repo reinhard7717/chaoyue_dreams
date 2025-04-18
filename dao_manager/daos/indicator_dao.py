@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, List, Optional, Union, Dict, Type
+from typing import Any, List, Optional, Set, Union, Dict, Type
 import pandas as pd
 from django.db.models import Max # <--- 确保导入 Max
 import numpy as np
@@ -1630,9 +1630,111 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"[{model_name}] 查询最新时间戳失败 for {stock_info.stock_code} {time_level}: {e}", exc_info=True)
             return None # 查询出错也返回 None
 
+    # --- 新增方法：获取指定范围内的已存在时间戳 ---
+    async def get_existing_timestamps_for_range(
+        self,
+        stock_info: 'StockInfo',
+        time_level: str,
+        model_class: Type['models.Model'],
+        timestamps_to_check: List[pd.Timestamp]
+    ) -> Set[pd.Timestamp]:
+        """
+        查询数据库，返回在给定时间戳列表(timestamps_to_check)中已经存在的记录的时间戳集合。
 
+        Args:
+            stock_info (StockInfo): 股票信息实例.
+            time_level (str): 时间级别字符串.
+            model_class (Type[models.Model]): 指标模型类.
+            timestamps_to_check (List[pd.Timestamp]): 需要检查是否存在的时间戳列表 (必须是时区感知的).
 
+        Returns:
+            Set[pd.Timestamp]: 在数据库中已存在的时间戳集合 (时区感知).
+        """
+        model_name = model_class.__name__
+        existing_timestamps = set()
+        if not timestamps_to_check:
+            return existing_timestamps
 
+        # 确保输入的时间戳是时区感知的
+        if not all(ts.tzinfo is not None for ts in timestamps_to_check):
+             logger.warning(f"[{model_name}] 传递给 get_existing_timestamps_for_range 的时间戳列表包含 naive datetime，可能导致查询错误。")
+             # 可以选择在这里强制转换时区或直接返回空集合/抛出错误
+             # return existing_timestamps
+
+        try:
+            # 使用 __in 查询优化性能
+            # 注意：数据库中的 trade_time 字段也必须是时区感知的才能正确比较
+            query = model_class.objects.filter(
+                stock=stock_info,
+                time_level=time_level,
+                trade_time__in=timestamps_to_check # 查询时间戳是否在列表中
+            ).values_list('trade_time', flat=True) # 只获取 trade_time 字段
+
+            # 异步执行查询
+            found_timestamps = await sync_to_async(list)(query)
+
+            # 转换为 Pandas Timestamps 并确保时区一致性
+            default_tz = timezone.get_default_timezone()
+            for ts in found_timestamps:
+                if isinstance(ts, pd.Timestamp):
+                    if ts.tzinfo is None:
+                        existing_timestamps.add(ts.tz_localize(default_tz))
+                    else:
+                        existing_timestamps.add(ts.tz_convert(default_tz))
+                else: # 处理 datetime.datetime 对象
+                    if timezone.is_naive(ts):
+                         existing_timestamps.add(timezone.make_aware(ts, default_tz))
+                    else:
+                         existing_timestamps.add(ts.astimezone(default_tz))
+
+            # logger.debug(f"[{model_name}] 在 {len(timestamps_to_check)} 个待查时间戳中，找到 {len(existing_timestamps)} 个已存在记录 for {stock_info.stock_code} {time_level}")
+            return existing_timestamps
+
+        except Exception as e:
+            logger.error(f"[{model_name}] 查询已存在时间戳失败 for {stock_info.stock_code} {time_level}: {e}", exc_info=True)
+            return set() # 查询出错返回空集合
+
+    # --- 新增方法：检查特定时间戳的指标记录是否存在 ---
+    async def check_indicator_exists_at_timestamp(
+        self,
+        stock_info: 'StockInfo',
+        time_level: str,
+        model_class: Type['models.Model'],
+        timestamp_to_check: pd.Timestamp
+    ) -> bool:
+        """
+        检查数据库中是否存在指定股票、时间级别和特定时间戳的指标记录。
+
+        Args:
+            stock_info (StockInfo): 股票信息实例.
+            time_level (str): 时间级别字符串.
+            model_class (Type[models.Model]): 指标模型类.
+            timestamp_to_check (pd.Timestamp): 需要检查是否存在的时间戳 (必须是时区感知的).
+
+        Returns:
+            bool: 如果记录存在则返回 True，否则返回 False。
+        """
+        model_name = model_class.__name__
+
+        # 确保输入的时间戳是时区感知的
+        if timestamp_to_check.tzinfo is None:
+             logger.error(f"[{model_name}] 传递给 check_indicator_exists_at_timestamp 的时间戳是 naive 的，无法进行检查。")
+             return False # 或者抛出错误
+
+        try:
+            # 使用 exists() 进行高效检查
+            exists = await sync_to_async(
+                model_class.objects.filter(
+                    stock=stock_info,
+                    time_level=time_level,
+                    trade_time=timestamp_to_check # 直接比较时区感知的时间戳
+                ).exists
+            )()
+            return exists
+
+        except Exception as e:
+            logger.error(f"[{model_name}] 检查时间戳 {timestamp_to_check} 是否存在失败 for {stock_info.stock_code} {time_level}: {e}", exc_info=True)
+            return False # 查询出错也认为不存在，以便后续尝试计算
 
 
 

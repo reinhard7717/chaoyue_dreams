@@ -905,7 +905,8 @@ class IndicatorService:
     async def calculate_and_save_all_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
         """
         计算指定股票和时间级别的所有支持的指标，并保存到数据库。
-        优化：只计算并保存比数据库中最新记录更新的数据。
+        优化：如果最新 K 线数据对应的指标已存在，则跳过该指标的计算和保存。
+              否则，计算指标并保存结果中数据库尚不存在的数据。
         """
         if ta is None:
             logger.error("pandas-ta 未加载，无法计算指标。")
@@ -917,16 +918,23 @@ class IndicatorService:
             return
 
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-        # logger.info(f"开始计算和保存指标 for {stock_code} {time_level_str} (增量更新)")
+        # logger.info(f"开始检查并计算/保存指标 for {stock_code} {time_level_str}")
 
-        # 确定需要多少历史数据 (保持不变)
+        # 1. 获取基础 OHLCV 数据 (确保索引是时区感知的)
         needed_bars = max(FIB_PERIODS) + 50
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
             logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level_str}")
             return
 
-        # --- 更新 indicator_tasks 列表，包含模型类 ---
+        # 2. 获取最新 K 线的时间戳 (必须是时区感知的)
+        latest_ohlcv_timestamp = ohlcv_df_raw.index[-1]
+        # logger.debug(f"最新的 OHLCV 时间戳: {latest_ohlcv_timestamp} for {stock_code} {time_level_str}")
+
+        # 获取所有需要检查的时间戳列表 (用于后续过滤保存)
+        timestamps_in_ohlcv = list(ohlcv_df_raw.index)
+
+        # --- indicator_tasks 列表保持不变 (包含模型类) ---
         indicator_tasks: List[Tuple[callable, callable, Type[models.Model], Dict]] = [
             (self.calculate_atr_fib, self.indicator_dao.save_atr_fib, StockAtrFIB, {}),
             (self.calculate_boll, self.indicator_dao.save_boll, StockBOLLIndicator, {}),
@@ -935,9 +943,9 @@ class IndicatorService:
             (self.calculate_dmi_fib, self.indicator_dao.save_dmi_fib, StockDmiFIB, {}),
             (self.calculate_ichimoku, self.indicator_dao.save_ichimoku, StockIchimoku, {}),
             (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, StockKDJFIB, {}),
-            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, StockEmaFIB, {}), # 单独保存 EMA
+            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, StockEmaFIB, {}),
             (self.calculate_amount_ma_fib, self.indicator_dao.save_amount_ma_fib, StockAmountMaFIB, {}),
-            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, StockMACDFIB, {}), # 计算 MACD 和 EMA
+            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, StockMACDFIB, {}),
             (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, StockMfiFIB, {}),
             (self.calculate_mom_fib, self.indicator_dao.save_mom_fib, StockMomFIB, {}),
             (self.calculate_obv, self.indicator_dao.save_obv, StockObvFIB, {}),
@@ -958,21 +966,25 @@ class IndicatorService:
         # --- 修改循环逻辑 ---
         for calc_func, save_func, model_class, params in indicator_tasks:
             indicator_name = calc_func.__name__.replace('calculate_', '').upper()
-            # logger.debug(f"[{indicator_name}] 开始处理 for {stock_code} {time_level_str}")
 
             try:
-                # 1. 获取数据库中该指标的最新时间戳
-                latest_timestamp = await self.indicator_dao.get_latest_indicator_timestamp(
-                    stock_info, time_level_str, model_class
+                # 3. 检查最新时间戳的指标数据是否已存在
+                latest_data_exists = await self.indicator_dao.check_indicator_exists_at_timestamp(
+                    stock_info, time_level_str, model_class, latest_ohlcv_timestamp
                 )
-                # logger.debug(f"[{indicator_name}] 数据库最新时间戳: {latest_timestamp} for {stock_code} {time_level_str}")
 
-                # 2. 计算指标 (使用原始数据的副本)
+                if latest_data_exists:
+                    # logger.debug(f"[{indicator_name}] 最新时间戳 {latest_ohlcv_timestamp} 的数据已存在，跳过计算和保存 for {stock_code} {time_level_str}")
+                    continue # 跳到下一个指标
+
+                # logger.debug(f"[{indicator_name}] 最新时间戳数据不存在，开始计算 for {stock_code} {time_level_str}")
+
+                # 4. 计算指标 (如果最新数据不存在)
                 ohlcv_df_copy = ohlcv_df_raw.copy()
                 indicator_result_df = calc_func(ohlcv_df_copy, **params)
 
                 if indicator_result_df is not None and not indicator_result_df.empty:
-                    # 确保结果索引是时区感知的 (与 ohlcv_df_raw 一致)
+                    # 确保结果索引是时区感知的
                     if not isinstance(indicator_result_df.index, pd.DatetimeIndex):
                          indicator_result_df.index = pd.to_datetime(indicator_result_df.index)
                     default_tz = timezone.get_default_timezone()
@@ -981,25 +993,23 @@ class IndicatorService:
                     elif indicator_result_df.index.tz != default_tz:
                          indicator_result_df.index = indicator_result_df.index.tz_convert(default_tz)
 
-                    # 3. 过滤掉已经存在或更早的数据
-                    if latest_timestamp:
-                        # 只保留 trade_time > latest_timestamp 的数据
-                        # 使用 aware datetime 进行比较
-                        indicator_result_df_filtered = indicator_result_df[indicator_result_df.index > latest_timestamp]
-                    else:
-                        # 如果数据库没有记录，则保存所有计算结果
-                        indicator_result_df_filtered = indicator_result_df
+                    # 5. 查询数据库中已存在的时间戳 (用于过滤保存)
+                    existing_timestamps_set = await self.indicator_dao.get_existing_timestamps_for_range(
+                        stock_info, time_level_str, model_class, timestamps_in_ohlcv
+                    )
 
-                    # 4. 对齐索引并去除全 NaN 行 (可选，但建议保留以防万一)
-                    # 重新索引以匹配原始 OHLCV 索引，确保时间点对齐
+                    # 6. 过滤掉计算结果中时间戳已存在于数据库的行
+                    indicator_result_df_filtered = indicator_result_df[~indicator_result_df.index.isin(existing_timestamps_set)]
+
+                    # 7. 对齐索引并去除全 NaN 行 (可选)
                     indicator_result_df_filtered = indicator_result_df_filtered.reindex(ohlcv_df_raw.index).dropna(how='all')
 
-                    # 5. 保存过滤后的新数据
+                    # 8. 保存过滤后的新数据
                     if not indicator_result_df_filtered.empty:
                         # logger.debug(f"[{indicator_name}] 计算完成，准备保存 {len(indicator_result_df_filtered)} 条新数据 for {stock_code} {time_level_str}")
                         await save_func(stock_info, time_level_str, indicator_result_df_filtered)
                     # else:
-                    #     logger.debug(f"[{indicator_name}] 没有新的数据需要保存 for {stock_code} {time_level_str}")
+                    #     logger.debug(f"[{indicator_name}] 计算完成，但所有时间点的数据都已存在，无需保存 for {stock_code} {time_level_str}")
 
                 # else:
                 #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
@@ -1007,13 +1017,14 @@ class IndicatorService:
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
 
-        # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level_str} (增量更新)")
+        # logger.info(f"完成所有指标的检查、计算和保存 for {stock_code} {time_level_str}")
 
-    # --- 替换原有的 calculate_and_save_macd_indicators 方法 ---
+    # --- calculate_and_save_macd_indicators 方法 ---
     async def calculate_and_save_macd_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
         """
         计算指定股票和时间级别的特定指标（如 MACD 相关），并保存到数据库。
-        优化：只计算并保存比数据库中最新记录更新的数据。
+        优化：如果最新 K 线数据对应的指标已存在，则跳过该指标的计算和保存。
+              否则，计算指标并保存结果中数据库尚不存在的数据。
         """
         if ta is None:
             logger.error("pandas-ta 未加载，无法计算指标。")
@@ -1025,16 +1036,22 @@ class IndicatorService:
             return
 
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-        # logger.info(f"开始计算和保存 MACD 相关指标 for {stock_code} {time_level_str} (增量更新)")
+        # logger.info(f"开始检查并计算/保存 MACD 相关指标 for {stock_code} {time_level_str}")
 
-        # 确定需要多少历史数据 (保持不变)
+        # 1. 获取基础 OHLCV 数据
         needed_bars = max(FIB_PERIODS) + 20
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
             logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level_str}")
             return
 
-        # --- 更新 indicator_tasks 列表，包含模型类 ---
+        # 2. 获取最新 K 线的时间戳
+        latest_ohlcv_timestamp = ohlcv_df_raw.index[-1]
+        # logger.debug(f"最新的 OHLCV 时间戳: {latest_ohlcv_timestamp} for {stock_code} {time_level_str}")
+
+        timestamps_in_ohlcv = list(ohlcv_df_raw.index)
+
+        # --- indicator_tasks 列表保持不变 (包含模型类) ---
         indicator_tasks: List[Tuple[callable, callable, Type[models.Model], Dict]] = [
             (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, StockMACDFIB, {}),
             (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, StockRsiFIB, {}),
@@ -1049,23 +1066,26 @@ class IndicatorService:
             (self.calculate_cmf_fib, self.indicator_dao.save_cmf_fib, StockCmfFIB, {}),
             (self.calculate_obv, self.indicator_dao.save_obv, StockObvFIB, {}),
             (self.calculate_vwap, self.indicator_dao.save_vwap, StockVwap, {}),
-            # --- 如果需要 EMA，也加入 ---
             (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, StockEmaFIB, {}),
         ]
 
         # --- 修改循环逻辑 (与 calculate_and_save_all_indicators 类似) ---
         for calc_func, save_func, model_class, params in indicator_tasks:
             indicator_name = calc_func.__name__.replace('calculate_', '').upper()
-            # logger.debug(f"[{indicator_name}] 开始处理 for {stock_code} {time_level_str}")
 
             try:
-                # 1. 获取数据库中该指标的最新时间戳
-                latest_timestamp = await self.indicator_dao.get_latest_indicator_timestamp(
-                    stock_info, time_level_str, model_class
+                # 3. 检查最新时间戳的指标数据是否已存在
+                latest_data_exists = await self.indicator_dao.check_indicator_exists_at_timestamp(
+                    stock_info, time_level_str, model_class, latest_ohlcv_timestamp
                 )
-                # logger.debug(f"[{indicator_name}] 数据库最新时间戳: {latest_timestamp} for {stock_code} {time_level_str}")
 
-                # 2. 计算指标
+                if latest_data_exists:
+                    # logger.debug(f"[{indicator_name}] 最新时间戳 {latest_ohlcv_timestamp} 的数据已存在，跳过计算和保存 for {stock_code} {time_level_str}")
+                    continue # 跳到下一个指标
+
+                # logger.debug(f"[{indicator_name}] 最新时间戳数据不存在，开始计算 for {stock_code} {time_level_str}")
+
+                # 4. 计算指标
                 ohlcv_df_copy = ohlcv_df_raw.copy()
                 indicator_result_df = calc_func(ohlcv_df_copy, **params)
 
@@ -1079,28 +1099,28 @@ class IndicatorService:
                     elif indicator_result_df.index.tz != default_tz:
                          indicator_result_df.index = indicator_result_df.index.tz_convert(default_tz)
 
-                    # 3. 过滤掉已经存在或更早的数据
-                    if latest_timestamp:
-                        indicator_result_df_filtered = indicator_result_df[indicator_result_df.index > latest_timestamp]
-                    else:
-                        indicator_result_df_filtered = indicator_result_df
+                    # 5. 查询数据库中已存在的时间戳 (用于过滤保存)
+                    existing_timestamps_set = await self.indicator_dao.get_existing_timestamps_for_range(
+                        stock_info, time_level_str, model_class, timestamps_in_ohlcv
+                    )
 
-                    # 4. 对齐索引并去除全 NaN 行
+                    # 6. 过滤掉计算结果中时间戳已存在于数据库的行
+                    indicator_result_df_filtered = indicator_result_df[~indicator_result_df.index.isin(existing_timestamps_set)]
+
+                    # 7. 对齐索引并去除全 NaN 行
                     indicator_result_df_filtered = indicator_result_df_filtered.reindex(ohlcv_df_raw.index).dropna(how='all')
 
-                    # 5. 保存过滤后的新数据
+                    # 8. 保存过滤后的新数据
                     if not indicator_result_df_filtered.empty:
                         # logger.debug(f"[{indicator_name}] 计算完成，准备保存 {len(indicator_result_df_filtered)} 条新数据 for {stock_code} {time_level_str}")
                         await save_func(stock_info, time_level_str, indicator_result_df_filtered)
                     # else:
-                    #     logger.debug(f"[{indicator_name}] 没有新的数据需要保存 for {stock_code} {time_level_str}")
+                    #     logger.debug(f"[{indicator_name}] 计算完成，但所有时间点的数据都已存在，无需保存 for {stock_code} {time_level_str}")
                 # else:
                 #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
 
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
-
-        # logger.info(f"完成 MACD 相关指标的计算和保存 for {stock_code} {time_level_str} (增量更新)")
 
     async def prepare_strategy_dataframe(self, stock_code: str, timeframes: List[str],
         strategy_params: Dict[str, Any],
