@@ -259,7 +259,7 @@ class SelfBuiltIndicatorsDao:
             '更新': updated_count,
             '跳过': skipped_count
         }
-        logger.info(f"完成 {model_class.__name__} 数据批量处理: {final_result}")
+        # logger.info(f"完成 {model_class.__name__} 数据批量处理: {final_result}")
         return final_result
 
     async def save_indicator_data(self,

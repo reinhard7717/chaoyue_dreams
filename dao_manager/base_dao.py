@@ -651,7 +651,7 @@ class BaseDAO(Generic[T]):
             "失败": failed_count,
             "创建/更新成功": successful_count, # 原生方法不区分创建和更新
         }
-        logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用原生 bulk_create upsert): {result}")
+        # logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用原生 bulk_create upsert): {result}")
         return result
 
     # ==================== 更新和删除操作 ====================
