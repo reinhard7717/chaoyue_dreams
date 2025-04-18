@@ -143,8 +143,31 @@ class StockRealtimeDAO(BaseDAO):
             data_dict = self.data_format_process.set_realtime_data(stock, api_data)
             if data_dict.get('trade_time') is not None:
                 data_dicts.append(data_dict)
-                cache_dict = data_dict.copy()
-                await self.cache_set.latest_realtime_data(stock_code, cache_dict)
+                # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
+                # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
+                data_dicts.append(data_dict)
+
+                # 2. 准备用于缓存的字典
+                # 创建 data_dict 的副本以进行修改，避免影响原始字典
+                cache_data_dict = data_dict.copy()
+                # --- 手动处理 stock 字段 ---
+                if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                    # 将 StockInfo 实例替换为 stock_code 
+                    cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                    # 删除原始的 stock 实例键，避免混淆
+                    del cache_data_dict['stock']
+                # --- 结束手动处理 ---
+
+                # 3. 调用 _prepare_data_for_cache 处理其他类型
+                # 现在 cache_data_dict 中不再包含模型实例，只有基本类型或 stock_code
+                prepared_cache_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+
+                if prepared_cache_data: # 确保准备成功
+                    # 使用 stock_code 作为缓存键，缓存处理后的数据
+                    await self.cache_set.latest_realtime_data(stock_code, prepared_cache_data)
+                else:
+                    logger.warning(f"为股票 {stock_code} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+
                 # 保存数据
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockRealtimeData,
@@ -190,50 +213,78 @@ class StockRealtimeDAO(BaseDAO):
             if not stocks:
                 logger.warning("股票列表不存在，无法获取实时数据")
                 return {}  # 返回空字典
-            data_dicts_to_save = []
+            data_dicts_to_save = [] # 用于数据库批量保存
+            cache_tasks = [] # 用于异步缓存写入
             for stock in stocks:
-                loop_start_time = time_lib.time()  # 记录API调用开始时间
-                 # 调用API获取实时数据（顺序执行）
+                loop_start_time = time_lib.time()
                 api_start_time = time_lib.time()
                 api_data = await self.api.get_realtime_data(stock.stock_code)
                 api_end_time = time_lib.time()
-                api_call_duration = api_end_time - api_start_time  # 只计算API调用耗时
+                api_call_duration = api_end_time - api_start_time
+
                 if not api_data:
                     logger.warning(f"API未返回股票[{stock.stock_code}]的实时数据")
-                    # 计算睡眠时间（基于API调用时间）
-                    total_loop_duration = time_lib.time() - loop_start_time  # 整个迭代的总耗时
-                    sleep_time = max(0, 0.02 - total_loop_duration)  # 使用整个迭代时间计算
+                    total_loop_duration = time_lib.time() - loop_start_time
+                    sleep_time = max(0, 0.02 - total_loop_duration)
                     await asyncio.sleep(sleep_time)
-                    continue  # 跳过当前股票
-                
-                # 数据处理和缓存
+                    continue
+
                 process_start_time = time_lib.time()
-                data_dict = self.data_format_process.set_realtime_data(stock, api_data)  # 数据处理
+                # data_dict 包含 StockInfo 实例
+                data_dict = self.data_format_process.set_realtime_data(stock, api_data)
+
                 if data_dict.get('trade_time') is not None:
+                    # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts_to_save.append(data_dict)
-                    await self.cache_set.latest_realtime_data(stock.stock_code, data_dict.copy())  # 缓存
+
+                    # 2. 准备缓存数据
+                    cache_data_dict = data_dict.copy()
+                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                        # 替换为 stock_code
+                        cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                        del cache_data_dict['stock'] # 删除实例键
+
+                    # 3. 准备缓存任务 (传递处理后的 cache_data_dict)
+                    async def prepare_and_set_cache(code, data_to_prepare):
+                        prepared_data = await self._prepare_data_for_cache(data_to_prepare, related_field_map=None)
+                        if prepared_data:
+                            await self.cache_set.latest_realtime_data(code, prepared_data)
+                        else:
+                            # log 原始 data_dict 以便调试
+                            logger.warning(f"为股票 {code} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+
+                    cache_tasks.append(prepare_and_set_cache(stock.stock_code, cache_data_dict))
+
                 process_end_time = time_lib.time()
-                process_duration = process_end_time - process_start_time  # 数据处理耗时
-                
-                # 记录详细日志（仅关键信息，以减少开销）
-                total_loop_duration = time_lib.time() - loop_start_time  # 整个迭代的总耗时
+                process_duration = process_end_time - process_start_time
+                total_loop_duration = time_lib.time() - loop_start_time
                 logger.info(f"股票[{stock.stock_code}]处理完成: API耗时 {api_call_duration:.4f}秒, 处理耗时 {process_duration:.4f}秒, 总耗时 {total_loop_duration:.4f}秒")
-                
-                # 计算并添加睡眠时间，确保两次迭代间隔至少0.02秒
-                sleep_time = max(0, 0.02 - total_loop_duration)  # 基于整个迭代时间
+
+                sleep_time = max(0, 0.02 - total_loop_duration)
                 await asyncio.sleep(sleep_time)
+
+            # --- 并发执行所有缓存写入任务 ---
+            if cache_tasks:
+                await asyncio.gather(*cache_tasks)
+                logger.info(f"完成了 {len(cache_tasks)} 个股票实时数据的缓存写入任务。")
+
+            # --- 批量保存到数据库 ---
             if data_dicts_to_save:
-                # 批量保存到数据库
+                # 使用包含 StockInfo 实例的列表
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockRealtimeData,
                     data_list=data_dicts_to_save,
-                    unique_fields=['stock', 'trade_time']
+                    unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
                 )
                 logger.info(f"所有股票实时数据保存完成，结果: {result}")
                 return result
+            else:
+                logger.info("没有需要保存到数据库的股票实时数据。")
+                return {'尝试处理': 0, '失败': 0, '创建/更新成功': 0}
+
         except Exception as e:
-            logger.error(f"获取并保存所有股票实时数据失败: {str(e)}")
-            return {}  # 返回空字典，表示整体失败
+            logger.error(f"获取并保存所有股票实时数据失败: {str(e)}", exc_info=True)
+            return {} # 返回空字典表示整体失败
     
     # ================= Level5Data相关方法 =================
     async def get_level5_data_by_code(self, stock_code: str) -> Optional[StockLevel5Data]:
