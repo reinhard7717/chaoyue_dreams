@@ -47,23 +47,26 @@ class IndicatorDAO(BaseDAO):
     async def get_history_time_trades_by_limit(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[List[StockTimeTrade]]:
         """
         获取指定股票、时间级别和数量限制的历史分时交易数据。
+
         查询顺序:
         1. 尝试从 Redis 缓存获取数据 (期望格式为 List[Dict])。
-        2. 如果缓存命中，使用 `_build_model_from_cache` 将字典列表转换为 `StockTimeTrade` 模型实例列表。
+        2. 如果缓存命中，手动将字典列表转换为 `StockTimeTrade` 模型实例列表。
         3. 如果缓存未命中或转换失败，则从数据库查询。
         4. 返回按交易时间升序排列的模型实例列表。
+
         Args:
             stock_code: 股票代码。
             time_level: 时间周期级别 (可以是 TimeLevel 枚举或其字符串表示)。
             limit: 需要获取的最新数据条数。
+
         Returns:
             包含 `StockTimeTrade` 模型实例的列表 (按时间升序)，如果找不到数据或出错则返回 None。
         """
         # 确保缓存对象已初始化
         if self.cache_get is None or self.stock_basic_dao is None:
-            await self.initialize_cache_objects() # 确保 stock_basic_dao 也在此初始化或之前已初始化
+            await self.initialize_cache_objects()
 
-        # 获取股票基础信息对象，后续构建模型时需要
+        # 获取股票基础信息对象
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
@@ -73,96 +76,86 @@ class IndicatorDAO(BaseDAO):
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
 
         # --- 1. 尝试从 Redis 缓存获取数据 ---
-        cache_data: Optional[List[Dict]] = None # 初始化为 None
+        cache_data: Optional[List[Dict]] = None
         try:
-            # 调用缓存读取工具获取数据，假设返回 List[Dict] 或 None
             cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
         except Exception as e:
             logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
-            cache_data = None # 出错则视作缓存未命中
+            cache_data = None
 
         # --- 2. 处理缓存数据 (如果命中) ---
         if cache_data and isinstance(cache_data, list):
-            logger.debug(f"缓存命中: 获取到 {stock_code} {time_level_str} 历史数据 {len(cache_data)} 条 (limit={limit})，尝试构建模型...")
+            logger.debug(f"缓存命中: 获取到 {stock_code} {time_level_str} 历史数据 {len(cache_data)} 条 (limit={limit})，进行手动转换...")
+            model_instances = []
+            conversion_errors = 0
+            for item_dict in cache_data:
+                try:
+                    # 手动将字典转换为 StockTimeTrade 模型实例
+                    trade_time = self._safe_datetime(item_dict.get('trade_time'))
+                    if not trade_time: # 如果时间无效，跳过此条记录
+                        logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
+                        conversion_errors += 1
+                        continue
 
-            # 准备构建模型所需的参数
-            model_class = StockTimeTrade # 目标模型类
-            # 定义外键字段及其对应的 DAO 实例，用于 _build_model_from_cache 重建关联对象
-            related_dao_map = {'stock': self.stock_basic_dao}
+                    # 注意：这里不设置 id，因为缓存字典中没有
+                    instance = StockTimeTrade(
+                        stock=stock, # 使用前面获取的 StockInfo 实例
+                        time_level=time_level_str,
+                        trade_time=trade_time,
+                        open_price=self._safe_decimal(item_dict.get('open_price')),
+                        high_price=self._safe_decimal(item_dict.get('high_price')),
+                        low_price=self._safe_decimal(item_dict.get('low_price')),
+                        close_price=self._safe_decimal(item_dict.get('close_price')),
+                        volume=self._safe_int(item_dict.get('volume')),
+                        turnover=self._safe_decimal(item_dict.get('turnover')),
+                        amplitude=self._safe_decimal(item_dict.get('amplitude')),
+                        turnover_rate=self._safe_decimal(item_dict.get('turnover_rate')),
+                        price_change_percent=self._safe_decimal(item_dict.get('price_change_percent')),
+                        price_change_amount=self._safe_decimal(item_dict.get('price_change_amount')),
+                        # 其他 StockTimeTrade 可能有的字段，如果缓存中有，也需要在这里添加转换逻辑
+                    )
+                    model_instances.append(instance)
+                except Exception as e_conv:
+                    conversion_errors += 1
+                    # 记录转换单个字典时的错误，避免打印过多日志可以选择不显示 exc_info
+                    logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False)
 
-            # 使用 asyncio.gather 并发执行模型构建任务
-            build_tasks = [
-                self._build_model_from_cache(model_class, item_dict, related_dao_map)
-                for item_dict in cache_data # 遍历从缓存获取的每个字典
-            ]
-            # 等待所有构建任务完成
-            results = await asyncio.gather(*build_tasks)
-
-            # 过滤掉构建失败的结果 (None)
-            model_instances = [instance for instance in results if instance is not None]
+            if conversion_errors > 0:
+                 logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
 
             if not model_instances:
-                # 如果所有缓存数据都构建失败
-                logger.warning(f"缓存数据 for {stock_code} {time_level_str} 全部构建模型失败，将尝试从数据库获取。")
-                # 此处不返回 None，而是让流程继续，尝试从数据库获取
-            elif len(model_instances) < len(cache_data):
-                 # 如果部分缓存数据构建失败
-                 failed_count = len(cache_data) - len(model_instances)
-                 logger.warning(f"{failed_count} 条缓存数据 for {stock_code} {time_level_str} 构建模型失败。")
-                 # 仍然返回成功构建的部分，并排序
-                 model_instances.sort(key=lambda x: x.trade_time) # 按交易时间升序排序
-                 logger.debug(f"成功从缓存构建 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
-                 return model_instances # 返回成功构建的部分
+                logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}，将尝试从数据库获取。")
+                # 不返回 None，继续尝试数据库
             else:
-                 # 所有缓存数据都成功构建
-                 model_instances.sort(key=lambda x: x.trade_time) # 按交易时间升序排序
-                 logger.debug(f"成功从缓存构建全部 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
-                 return model_instances # 返回结果
+                # 按交易时间升序排序
+                model_instances.sort(key=lambda x: x.trade_time)
+                logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
+                return model_instances # 返回成功转换的实例列表
 
         # --- 3. 缓存未命中或处理失败，从数据库获取 ---
         logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
         try:
-            # 使用 Django ORM 查询数据库
-            # 按交易时间降序排序，获取最新的 'limit' 条记录
+            # 查询数据库，按时间降序获取最新的 limit 条
             data_qs = StockTimeTrade.objects.filter(
-                stock=stock, # 使用获取到的 StockInfo 对象进行过滤
+                stock=stock,
                 time_level=time_level_str
             ).order_by('-trade_time')[:limit]
 
-            # 使用 sync_to_async 将同步的 ORM 查询转换为异步操作
-            # list() 会执行查询并将 QuerySet 转换为列表
+            # 异步执行查询
             data_list = await sync_to_async(list)(data_qs)
 
             if not data_list:
-                # 如果数据库中也没有找到数据
                 logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
                 return None
 
             logger.debug(f"从数据库获取到 {stock_code} {time_level_str} {len(data_list)} 条历史数据")
 
-            # 数据库查询结果默认是按 '-trade_time' (降序) 获取的
-            # 为了满足返回升序的要求，需要反转列表
+            # 反转列表，得到升序排列
             data_list.reverse()
 
-            # --- (可选) 将从数据库获取的数据写入缓存 ---
-            # 注意：写入缓存前需要将模型实例列表转换为字典列表
-            # if data_list and self.cache_set:
-            #     try:
-            #         # 准备缓存数据 (需要 _prepare_data_for_cache 处理模型列表)
-            #         tasks = [self._prepare_data_for_cache(instance, {'stock': 'stock_code'}) for instance in data_list]
-            #         prepared_list = await asyncio.gather(*tasks)
-            #         prepared_list = [d for d in prepared_list if d] # 过滤失败项
-            #         if prepared_list:
-            #             # 调用缓存写入方法 (需要 StockIndicatorsCacheSet 实现对应方法)
-            #             # await self.cache_set.set_history_time_trade_by_limit(stock_code, time_level_str, limit, prepared_list)
-            #             logger.debug(f"已将从数据库获取的 {len(prepared_list)} 条数据写入缓存 for {stock_code} {time_level_str}")
-            #     except Exception as cache_write_err:
-            #         logger.error(f"写入数据库数据到缓存时出错 for {stock_code} {time_level_str}: {cache_write_err}", exc_info=False)
-
-            return data_list # 返回从数据库获取并已排序的模型实例列表
+            return data_list # 返回从数据库获取并排序后的列表
 
         except Exception as e_db:
-            # 捕获数据库查询过程中可能发生的异常
             logger.error(f"从数据库获取股票[{stock_code}] {time_level_str} 级别分时成交数据失败: {str(e_db)}", exc_info=True)
             return None # 查询失败返回 None
 
