@@ -30,6 +30,22 @@ def _msgpack_default_packer(obj):
     # 或者 return str(obj) 作为最后的尝试
     raise TypeError(f"Object of type {obj.__class__.__name__} is not MSGPACK serializable")
 
+# 新增辅助函数：递归转换数据结构中的 Decimal 对象
+def convert_decimals(obj):
+    """
+    递归遍历对象，转换所有 Decimal 类型为字符串。
+    支持字典、列表和其他嵌套结构。
+    """
+    if isinstance(obj, dict):
+        return {k: convert_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals(i) for i in obj]
+    elif isinstance(obj, Decimal):
+        return str(obj)  # 转换 Decimal 为字符串
+    else:
+        return obj  # 其他类型保持不变
+
+
 class CacheSet():
     def __init__(self):
         from utils.cache_manager import CacheManager
@@ -158,10 +174,15 @@ class CacheSet():
             trade_datetime = base_dao._parse_datetime(trade_time_str)
             score = trade_datetime.timestamp()
             data_to_serialize = data_to_cache.copy()
+            
+            # 新增：递归转换数据结构中的 Decimal 对象
+            data_to_serialize = convert_decimals(data_to_serialize)
+            
             if 'stock' in data_to_serialize:
                 stock_obj = data_to_serialize.pop('stock', None)
                 if stock_obj and hasattr(stock_obj, 'stock_code'):
-                    data_to_serialize['stock_code'] = stock_obj.stock_code
+                    data_to_serialize['stock_code'] = stock_obj.stock_code  # 注意：这里可能需要额外检查 stock_obj 中的 Decimal
+            
             member_bytes = umsgpack.packb(data_to_serialize, use_bin_type=True, default=_msgpack_default_packer)
             mapping_to_send = {member_bytes: score}
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)

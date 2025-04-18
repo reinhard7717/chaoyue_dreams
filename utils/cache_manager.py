@@ -252,7 +252,6 @@ class CacheManager:
             logger.error(f"缓存获取时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return default
 
-    
     async def get_model(self, key: str, model_class: Type[T]) -> Optional[T]:
         """(异步) 获取缓存数据并尝试转换为指定模型实例"""
         # 注意：此方法依赖于 model_class 的 __init__ 能够处理
