@@ -4,8 +4,33 @@ import logging
 import pandas as pd
 import numpy as np
 from django.utils import timezone
-from typing import Any, List, Optional, Union, Dict, Tuple
+from typing import Any, List, Optional, Type, Union, Dict, Tuple
+from django.db import models # 确保导入 models
 import pandas_ta as ta
+
+from stock_models.indicator.adl import StockAdl
+from stock_models.indicator.atr import StockAtrFIB
+from stock_models.indicator.boll import StockBOLLIndicator
+from stock_models.indicator.cci import StockCciFIB
+from stock_models.indicator.cmf import StockCmfFIB
+from stock_models.indicator.dmi import StockDmiFIB
+from stock_models.indicator.ichimoku import StockIchimoku
+from stock_models.indicator.kc import StockKcFIB
+from stock_models.indicator.kdj import StockKDJFIB
+from stock_models.indicator.ma import StockAmountMaFIB, StockEmaFIB
+from stock_models.indicator.macd import StockMACDFIB
+from stock_models.indicator.mfi import StockMfiFIB
+from stock_models.indicator.mom import StockMomFIB
+from stock_models.indicator.obv import StockObvFIB
+from stock_models.indicator.pivot_points import StockPivotPoints
+from stock_models.indicator.roc import StockAmountRocFIB, StockRocFIB
+from stock_models.indicator.rsi import StockRsiFIB
+from stock_models.indicator.sar import StockSar
+from stock_models.indicator.sma import StockSmaFIB
+from stock_models.indicator.stochastic_oscillator import StockStochFIB
+from stock_models.indicator.vroc import StockVrocFIB
+from stock_models.indicator.vwap import StockVwap
+from stock_models.indicator.wr import StockWrFIB
 
 # --- 添加以下代码来忽略 FutureWarning ---
 # 仅忽略 FutureWarning
@@ -75,6 +100,28 @@ class IndicatorService:
         if 'turnover' in df.columns:
             df = df.rename(columns={'turnover': 'turnover'}) # 确保是小写
         # logger.info(f"获取的数据长度: {len(df)}")
+
+        # --- 确保索引是 DatetimeIndex 且时区感知 ---
+        if not isinstance(df.index, pd.DatetimeIndex):
+             logger.warning(f"OHLCV 数据索引不是 DatetimeIndex，尝试转换...")
+             try:
+                 df.index = pd.to_datetime(df.index)
+             except Exception as e_idx:
+                 logger.error(f"无法将 OHLCV 索引转换为 DatetimeIndex: {e_idx}")
+                 return None # 无法继续
+
+        default_tz = timezone.get_default_timezone()
+        if df.index.tz is None:
+             logger.warning(f"OHLCV 数据索引是 naive 的，将本地化为默认时区...")
+             try:
+                 df.index = df.index.tz_localize(default_tz)
+             except Exception as e_tz:
+                 logger.error(f"无法本地化 OHLCV 索引时区: {e_tz}")
+                 return None # 无法继续
+        elif df.index.tz != default_tz:
+             # 如果已经是 aware 但时区不同，转换为默认时区
+             df.index = df.index.tz_convert(default_tz)
+        # --- 时区处理结束 ---
         
         return df
 
@@ -854,150 +901,206 @@ class IndicatorService:
             logger.error(f"计算 Pivot Points 失败: {e}", exc_info=True)
             return None
 
-    # --- 统一计算和保存入口 (基本保持不变) ---
+    # --- 统一计算和保存入口  ---
     async def calculate_and_save_all_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
         """
         计算指定股票和时间级别的所有支持的指标，并保存到数据库。
-        (已适配 pandas-ta 计算方法)
+        优化：只计算并保存比数据库中最新记录更新的数据。
         """
         if ta is None:
-            logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
+            logger.error("pandas-ta 未加载，无法计算指标。")
             return
-        # logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
+
         stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             logger.error(f"无法找到股票信息: {stock_code}，指标计算中止")
             return
-        # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
-        # 考虑 DMI/ADXR 等可能需要更多数据
-        needed_bars = max(FIB_PERIODS) + 20 # 保持足够大的缓冲
+
+        time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
+        # logger.info(f"开始计算和保存指标 for {stock_code} {time_level_str} (增量更新)")
+
+        # 确定需要多少历史数据 (保持不变)
+        needed_bars = max(FIB_PERIODS) + 50
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
-            logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level}")
+            logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level_str}")
             return
-        time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-        # --- 逐个计算并保存 ---
-        # 任务列表保持不变，因为函数签名和目的没变
-        indicator_tasks = [
-            (self.calculate_atr_fib, self.indicator_dao.save_atr_fib, {}),
-            (self.calculate_boll, self.indicator_dao.save_boll, {}), # 使用默认参数 period=20
-            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, {}),
-            (self.calculate_cmf_fib, self.indicator_dao.save_cmf_fib, {}),
-            (self.calculate_dmi_fib, self.indicator_dao.save_dmi_fib, {}),
-            (self.calculate_ichimoku, self.indicator_dao.save_ichimoku, {}),
-            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, {}), # 使用默认 M1=3, M2=3
-            # EMA 和 MACD 一起计算，因为 MACD 模型包含 EMA
-            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, {}), # 单独保存 EMA (可选)
-            (self.calculate_amount_ma_fib, self.indicator_dao.save_amount_ma_fib, {}),
-            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, {}), # 计算 MACD 和 EMA
-            (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, {}),
-            (self.calculate_mom_fib, self.indicator_dao.save_mom_fib, {}),
-            (self.calculate_obv, self.indicator_dao.save_obv, {}),
-            (self.calculate_roc_fib, self.indicator_dao.save_roc_fib, {}),
-            (self.calculate_amount_roc_fib, self.indicator_dao.save_amount_roc_fib, {}),
-            (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, {}),
-            (self.calculate_sar, self.indicator_dao.save_sar, {}),
-            (self.calculate_vroc_fib, self.indicator_dao.save_vroc_fib, {}),
-            (self.calculate_vwap, self.indicator_dao.save_vwap, {}),
-            (self.calculate_wr_fib, self.indicator_dao.save_wr_fib, {}),
-            (self.calculate_sma_fib, self.indicator_dao.save_sma_fib, {}), # 假设 DAO 有 save_sma_fib
-            (self.calculate_kc_fib, self.indicator_dao.save_kc_fib, {}),   # 假设 DAO 有 save_kc_fib
-            (self.calculate_stoch_fib, self.indicator_dao.save_stoch_fib, {}), # 假设 DAO 有 save_stoch_fib
-            (self.calculate_adl, self.indicator_dao.save_adl, {}),         # 假设 DAO 有 save_adl
-            (self.calculate_pivot_points, self.indicator_dao.save_pivot_points, {}), # 假设 DAO 有 save_pivot_points
+
+        # --- 更新 indicator_tasks 列表，包含模型类 ---
+        indicator_tasks: List[Tuple[callable, callable, Type[models.Model], Dict]] = [
+            (self.calculate_atr_fib, self.indicator_dao.save_atr_fib, StockAtrFIB, {}),
+            (self.calculate_boll, self.indicator_dao.save_boll, StockBOLLIndicator, {}),
+            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, StockCciFIB, {}),
+            (self.calculate_cmf_fib, self.indicator_dao.save_cmf_fib, StockCmfFIB, {}),
+            (self.calculate_dmi_fib, self.indicator_dao.save_dmi_fib, StockDmiFIB, {}),
+            (self.calculate_ichimoku, self.indicator_dao.save_ichimoku, StockIchimoku, {}),
+            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, StockKDJFIB, {}),
+            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, StockEmaFIB, {}), # 单独保存 EMA
+            (self.calculate_amount_ma_fib, self.indicator_dao.save_amount_ma_fib, StockAmountMaFIB, {}),
+            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, StockMACDFIB, {}), # 计算 MACD 和 EMA
+            (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, StockMfiFIB, {}),
+            (self.calculate_mom_fib, self.indicator_dao.save_mom_fib, StockMomFIB, {}),
+            (self.calculate_obv, self.indicator_dao.save_obv, StockObvFIB, {}),
+            (self.calculate_roc_fib, self.indicator_dao.save_roc_fib, StockRocFIB, {}),
+            (self.calculate_amount_roc_fib, self.indicator_dao.save_amount_roc_fib, StockAmountRocFIB, {}),
+            (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, StockRsiFIB, {}),
+            (self.calculate_sar, self.indicator_dao.save_sar, StockSar, {}),
+            (self.calculate_vroc_fib, self.indicator_dao.save_vroc_fib, StockVrocFIB, {}),
+            (self.calculate_vwap, self.indicator_dao.save_vwap, StockVwap, {}),
+            (self.calculate_wr_fib, self.indicator_dao.save_wr_fib, StockWrFIB, {}),
+            (self.calculate_sma_fib, self.indicator_dao.save_sma_fib, StockSmaFIB, {}),
+            (self.calculate_kc_fib, self.indicator_dao.save_kc_fib, StockKcFIB, {}),
+            (self.calculate_stoch_fib, self.indicator_dao.save_stoch_fib, StockStochFIB, {}),
+            (self.calculate_adl, self.indicator_dao.save_adl, StockAdl, {}),
+            (self.calculate_pivot_points, self.indicator_dao.save_pivot_points, StockPivotPoints, {}),
         ]
-        for calc_func, save_func, params in indicator_tasks:
+
+        # --- 修改循环逻辑 ---
+        for calc_func, save_func, model_class, params in indicator_tasks:
             indicator_name = calc_func.__name__.replace('calculate_', '').upper()
-            # logger.debug(f"[{indicator_name}] 开始计算 for {stock_code} {time_level_str}")
+            # logger.debug(f"[{indicator_name}] 开始处理 for {stock_code} {time_level_str}")
+
             try:
-                # 传递 ohlcv_df 的副本，确保每个计算函数拿到干净的数据
-                # 因为 pandas-ta 可能会原地修改或添加列（虽然不常见）
-                # 并且 VWAP 计算可能临时修改索引
+                # 1. 获取数据库中该指标的最新时间戳
+                latest_timestamp = await self.indicator_dao.get_latest_indicator_timestamp(
+                    stock_info, time_level_str, model_class
+                )
+                # logger.debug(f"[{indicator_name}] 数据库最新时间戳: {latest_timestamp} for {stock_code} {time_level_str}")
+
+                # 2. 计算指标 (使用原始数据的副本)
                 ohlcv_df_copy = ohlcv_df_raw.copy()
                 indicator_result_df = calc_func(ohlcv_df_copy, **params)
+
                 if indicator_result_df is not None and not indicator_result_df.empty:
-                    # 确保结果的索引与原始数据对齐（或至少是其子集）
-                    indicator_result_df = indicator_result_df.reindex(ohlcv_df_raw.index).dropna(how='all')
-                    if not indicator_result_df.empty:
-                        # logger.debug(f"[{indicator_name}] 计算完成 (结果行数: {len(indicator_result_df)}), 开始保存 for {stock_code} {time_level_str}")
-                        # 保存所有计算出的非 NaN 结果
-                        await save_func(stock_info, time_level_str, indicator_result_df) # 移除 dropna，让 DAO 处理
+                    # 确保结果索引是时区感知的 (与 ohlcv_df_raw 一致)
+                    if not isinstance(indicator_result_df.index, pd.DatetimeIndex):
+                         indicator_result_df.index = pd.to_datetime(indicator_result_df.index)
+                    default_tz = timezone.get_default_timezone()
+                    if indicator_result_df.index.tz is None:
+                         indicator_result_df.index = indicator_result_df.index.tz_localize(default_tz)
+                    elif indicator_result_df.index.tz != default_tz:
+                         indicator_result_df.index = indicator_result_df.index.tz_convert(default_tz)
+
+                    # 3. 过滤掉已经存在或更早的数据
+                    if latest_timestamp:
+                        # 只保留 trade_time > latest_timestamp 的数据
+                        # 使用 aware datetime 进行比较
+                        indicator_result_df_filtered = indicator_result_df[indicator_result_df.index > latest_timestamp]
                     else:
-                         logger.warning(f"[{indicator_name}] 计算结果在重索引后为空 for {stock_code} {time_level_str}")
+                        # 如果数据库没有记录，则保存所有计算结果
+                        indicator_result_df_filtered = indicator_result_df
+
+                    # 4. 对齐索引并去除全 NaN 行 (可选，但建议保留以防万一)
+                    # 重新索引以匹配原始 OHLCV 索引，确保时间点对齐
+                    indicator_result_df_filtered = indicator_result_df_filtered.reindex(ohlcv_df_raw.index).dropna(how='all')
+
+                    # 5. 保存过滤后的新数据
+                    if not indicator_result_df_filtered.empty:
+                        # logger.debug(f"[{indicator_name}] 计算完成，准备保存 {len(indicator_result_df_filtered)} 条新数据 for {stock_code} {time_level_str}")
+                        await save_func(stock_info, time_level_str, indicator_result_df_filtered)
+                    # else:
+                    #     logger.debug(f"[{indicator_name}] 没有新的数据需要保存 for {stock_code} {time_level_str}")
+
                 # else:
                 #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
+
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
-        # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
 
+        # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level_str} (增量更新)")
+
+    # --- 替换原有的 calculate_and_save_macd_indicators 方法 ---
     async def calculate_and_save_macd_indicators(self, stock_code: str, time_level: Union[TimeLevel, str]):
         """
-        计算指定股票和时间级别的所有支持的指标，并保存到数据库。
-        (已适配 pandas-ta 计算方法)
+        计算指定股票和时间级别的特定指标（如 MACD 相关），并保存到数据库。
+        优化：只计算并保存比数据库中最新记录更新的数据。
         """
         if ta is None:
-            logger.error("pandas-ta 未加载，无法计算指标。请先安装 'pandas-ta'。")
+            logger.error("pandas-ta 未加载，无法计算指标。")
             return
-        # logger.info(f"开始计算和保存指标 for {stock_code} {time_level} using pandas-ta")
+
         stock_info = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             logger.error(f"无法找到股票信息: {stock_code}，指标计算中止")
             return
-        # 确定需要多少历史数据，取斐波那契最大值加上一些缓冲
-        # 考虑 DMI/ADXR 等可能需要更多数据
-        needed_bars = max(FIB_PERIODS) + 20 # 保持足够大的缓冲
 
+        time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
+        # logger.info(f"开始计算和保存 MACD 相关指标 for {stock_code} {time_level_str} (增量更新)")
+
+        # 确定需要多少历史数据 (保持不变)
+        needed_bars = max(FIB_PERIODS) + 20
         ohlcv_df_raw = await self._get_ohlcv_data(stock_code, time_level, needed_bars)
         if ohlcv_df_raw is None or ohlcv_df_raw.empty:
-            logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level}")
+            logger.error(f"无法获取用于计算指标的历史数据 for {stock_code} {time_level_str}")
             return
-        time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-        # --- 逐个计算并保存 ---
-        # 任务列表保持不变，因为函数签名和目的没变
-        indicator_tasks = [
-            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, {}), # 计算 MACD 和 EMA
-            (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, {}),
-            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, {}), # 使用默认 M1=3, M2=3
-            (self.calculate_boll, self.indicator_dao.save_boll, {}), # 使用默认参数 period=20
-            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, {}),
-            (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, {}),
-            (self.calculate_roc_fib, self.indicator_dao.save_roc_fib, {}),
-            (self.calculate_dmi_fib, self.indicator_dao.save_dmi_fib, {}),
-            (self.calculate_sar, self.indicator_dao.save_sar, {}),
-            (self.calculate_amount_roc_fib, self.indicator_dao.save_amount_roc_fib, {}),
-            (self.calculate_cmf_fib, self.indicator_dao.save_cmf_fib, {}),
-            (self.calculate_obv, self.indicator_dao.save_obv, {}),
-            (self.calculate_vwap, self.indicator_dao.save_vwap, {}),
+
+        # --- 更新 indicator_tasks 列表，包含模型类 ---
+        indicator_tasks: List[Tuple[callable, callable, Type[models.Model], Dict]] = [
+            (self.calculate_macd_fib, self.indicator_dao.save_macd_fib, StockMACDFIB, {}),
+            (self.calculate_rsi_fib, self.indicator_dao.save_rsi_fib, StockRsiFIB, {}),
+            (self.calculate_kdj_fib, self.indicator_dao.save_kdj_fib, StockKDJFIB, {}),
+            (self.calculate_boll, self.indicator_dao.save_boll, StockBOLLIndicator, {}),
+            (self.calculate_cci_fib, self.indicator_dao.save_cci_fib, StockCciFIB, {}),
+            (self.calculate_mfi_fib, self.indicator_dao.save_mfi_fib, StockMfiFIB, {}),
+            (self.calculate_roc_fib, self.indicator_dao.save_roc_fib, StockRocFIB, {}),
+            (self.calculate_dmi_fib, self.indicator_dao.save_dmi_fib, StockDmiFIB, {}),
+            (self.calculate_sar, self.indicator_dao.save_sar, StockSar, {}),
+            (self.calculate_amount_roc_fib, self.indicator_dao.save_amount_roc_fib, StockAmountRocFIB, {}),
+            (self.calculate_cmf_fib, self.indicator_dao.save_cmf_fib, StockCmfFIB, {}),
+            (self.calculate_obv, self.indicator_dao.save_obv, StockObvFIB, {}),
+            (self.calculate_vwap, self.indicator_dao.save_vwap, StockVwap, {}),
+            # --- 如果需要 EMA，也加入 ---
+            (self.calculate_ema_fib, self.indicator_dao.save_ema_fib, StockEmaFIB, {}),
         ]
 
-        for calc_func, save_func, params in indicator_tasks:
+        # --- 修改循环逻辑 (与 calculate_and_save_all_indicators 类似) ---
+        for calc_func, save_func, model_class, params in indicator_tasks:
             indicator_name = calc_func.__name__.replace('calculate_', '').upper()
-            # logger.debug(f"[{indicator_name}] 开始计算 for {stock_code} {time_level_str}")
-            try:
-                # 传递 ohlcv_df 的副本，确保每个计算函数拿到干净的数据
-                # 因为 pandas-ta 可能会原地修改或添加列（虽然不常见）
-                # 并且 VWAP 计算可能临时修改索引
-                ohlcv_df_copy = ohlcv_df_raw.copy()
+            # logger.debug(f"[{indicator_name}] 开始处理 for {stock_code} {time_level_str}")
 
+            try:
+                # 1. 获取数据库中该指标的最新时间戳
+                latest_timestamp = await self.indicator_dao.get_latest_indicator_timestamp(
+                    stock_info, time_level_str, model_class
+                )
+                # logger.debug(f"[{indicator_name}] 数据库最新时间戳: {latest_timestamp} for {stock_code} {time_level_str}")
+
+                # 2. 计算指标
+                ohlcv_df_copy = ohlcv_df_raw.copy()
                 indicator_result_df = calc_func(ohlcv_df_copy, **params)
 
                 if indicator_result_df is not None and not indicator_result_df.empty:
-                    # 确保结果的索引与原始数据对齐（或至少是其子集）
-                    indicator_result_df = indicator_result_df.reindex(ohlcv_df_raw.index).dropna(how='all')
+                    # 确保结果索引是时区感知的
+                    if not isinstance(indicator_result_df.index, pd.DatetimeIndex):
+                         indicator_result_df.index = pd.to_datetime(indicator_result_df.index)
+                    default_tz = timezone.get_default_timezone()
+                    if indicator_result_df.index.tz is None:
+                         indicator_result_df.index = indicator_result_df.index.tz_localize(default_tz)
+                    elif indicator_result_df.index.tz != default_tz:
+                         indicator_result_df.index = indicator_result_df.index.tz_convert(default_tz)
 
-                    if not indicator_result_df.empty:
-                        # logger.debug(f"[{indicator_name}] 计算完成 (结果行数: {len(indicator_result_df)}), 开始保存 for {stock_code} {time_level_str}")
-                        # 保存所有计算出的非 NaN 结果
-                        await save_func(stock_info, time_level_str, indicator_result_df) # 移除 dropna，让 DAO 处理
+                    # 3. 过滤掉已经存在或更早的数据
+                    if latest_timestamp:
+                        indicator_result_df_filtered = indicator_result_df[indicator_result_df.index > latest_timestamp]
                     else:
-                         logger.warning(f"[{indicator_name}] 计算结果在重索引后为空 for {stock_code} {time_level_str}")
+                        indicator_result_df_filtered = indicator_result_df
 
+                    # 4. 对齐索引并去除全 NaN 行
+                    indicator_result_df_filtered = indicator_result_df_filtered.reindex(ohlcv_df_raw.index).dropna(how='all')
+
+                    # 5. 保存过滤后的新数据
+                    if not indicator_result_df_filtered.empty:
+                        # logger.debug(f"[{indicator_name}] 计算完成，准备保存 {len(indicator_result_df_filtered)} 条新数据 for {stock_code} {time_level_str}")
+                        await save_func(stock_info, time_level_str, indicator_result_df_filtered)
+                    # else:
+                    #     logger.debug(f"[{indicator_name}] 没有新的数据需要保存 for {stock_code} {time_level_str}")
                 # else:
                 #     logger.warning(f"[{indicator_name}] 计算结果为空或计算失败 for {stock_code} {time_level_str}")
+
             except Exception as e:
                 logger.error(f"[{indicator_name}] 处理指标时发生严重错误 for {stock_code} {time_level_str}: {e}", exc_info=True)
 
-        # logger.info(f"完成所有指标的计算和保存 for {stock_code} {time_level}")
+        # logger.info(f"完成 MACD 相关指标的计算和保存 for {stock_code} {time_level_str} (增量更新)")
 
     async def prepare_strategy_dataframe(self, stock_code: str, timeframes: List[str],
         strategy_params: Dict[str, Any],

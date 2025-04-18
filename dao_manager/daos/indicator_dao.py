@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Any, List, Optional, Union, Dict, Type
 import pandas as pd
+from django.db.models import Max # <--- 确保导入 Max
 import numpy as np
 from decimal import Decimal, InvalidOperation
 from asgiref.sync import sync_to_async
@@ -312,10 +313,11 @@ class IndicatorDAO(BaseDAO):
             return None
 
     # --- 通用保存方法 ---
+    # --- 确保 _save_indicator_data_generic 处理时区感知的索引 ---
+    # (如果之前未处理，请确保此方法中的索引处理部分正确设置时区)
     async def _save_indicator_data_generic(self, stock_info: 'StockInfo', time_level: Union[TimeLevel, str],
-        indicator_df: pd.DataFrame, model_class: Type[models.Model],
-        field_map: Dict[str, str], # DataFrame 列名 -> 模型字段名 的映射
-        # unique_fields 列表现在内部定义，基于通用模式
+        indicator_df: pd.DataFrame, model_class: Type['models.Model'],
+        field_map: Dict[str, str],
     ):
         """
         通用的指标数据保存方法，使用 BaseDao 的 _save_all_to_db_native_upsert 进行批量处理。
@@ -344,13 +346,24 @@ class IndicatorDAO(BaseDAO):
         data_to_save: List[Dict[str, Any]] = []
         preparation_failed_count = 0 # 记录准备数据阶段失败的行数
 
-        # 确保 DataFrame 索引是 DatetimeIndex
+        # 确保 DataFrame 索引是 DatetimeIndex 且时区感知
         if not isinstance(indicator_df.index, pd.DatetimeIndex):
             try:
                 indicator_df.index = pd.to_datetime(indicator_df.index)
             except Exception as e_idx:
                 logger.error(f"[{model_name}] 无法将索引转换为 DatetimeIndex for {stock_info.stock_code} {time_level_str}: {e_idx}", exc_info=True)
-                return # 没有有效的时间索引无法继续
+                return
+
+        default_tz = timezone.get_default_timezone()
+        if indicator_df.index.tz is None:
+            try:
+                indicator_df.index = indicator_df.index.tz_localize(default_tz)
+            except Exception as e_tz:
+                 logger.error(f"[{model_name}] 无法本地化索引时区 for {stock_info.stock_code} {time_level_str}: {e_tz}", exc_info=True)
+                 return # 时区处理失败则无法继续
+        elif indicator_df.index.tz != default_tz:
+             indicator_df.index = indicator_df.index.tz_convert(default_tz)
+            
 
         # logger.info(f"[{model_name}] 开始准备 {len(indicator_df)} 条记录的批量数据 for {stock_info.stock_code} {time_level_str}")
 
@@ -370,7 +383,7 @@ class IndicatorDAO(BaseDAO):
                 record_data = {
                     'stock_id': stock_info.pk, # 使用 StockInfo 实例的主键
                     'time_level': time_level_str,
-                    'trade_time': aware_trade_time,
+                    'trade_time': aware_trade_time, # 直接使用带时区的索引
                 }
                 has_valid_indicator_value = False # 标记此行是否有有效的指标值
 
@@ -1574,7 +1587,48 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"[get_vwap_df] 获取或处理股票[{stock}] {time_level_str} VWAP 数据失败: {str(e)}", exc_info=True)
             return None
 
+    # --- 新增方法：获取最新指标时间戳 ---
+    async def get_latest_indicator_timestamp(self, stock_info: 'StockInfo', time_level: str, model_class: Type['models.Model']) -> Optional[timezone.datetime]:
+        """
+        获取指定模型、股票和时间级别的最新 trade_time。
 
+        Args:
+            stock_info (StockInfo): 股票信息实例.
+            time_level (str): 时间级别字符串.
+            model_class (Type[models.Model]): 指标模型类.
+
+        Returns:
+            Optional[timezone.datetime]: 数据库中最新的 trade_time (时区感知)，如果不存在则返回 None。
+        """
+        model_name = model_class.__name__
+        try:
+            # 异步执行数据库查询
+            latest_time_result = await sync_to_async(
+                model_class.objects.filter(
+                    stock=stock_info,
+                    time_level=time_level
+                ).aggregate
+            )(latest_trade_time=Max('trade_time')) # 使用 Max 聚合
+
+            latest_timestamp = latest_time_result.get('latest_trade_time')
+
+            if latest_timestamp:
+                # 确保返回的是时区感知的时间
+                default_tz = timezone.get_default_timezone() # 获取默认时区
+                if timezone.is_naive(latest_timestamp):
+                    # 如果数据库返回的是 naive 时间，假定它是默认时区
+                    # logger.warning(f"[{model_name}] 从数据库获取的最新时间戳 {latest_timestamp} 是 naive 的，将假定为默认时区。")
+                    return timezone.make_aware(latest_timestamp, default_tz)
+                else:
+                    # 如果已经是 aware，确保它是默认时区
+                    return latest_timestamp.astimezone(default_tz)
+            else:
+                # logger.debug(f"[{model_name}] 未找到 {stock_info.stock_code} {time_level} 的现有数据。")
+                return None # 没有找到记录
+
+        except Exception as e:
+            logger.error(f"[{model_name}] 查询最新时间戳失败 for {stock_info.stock_code} {time_level}: {e}", exc_info=True)
+            return None # 查询出错也返回 None
 
 
 
