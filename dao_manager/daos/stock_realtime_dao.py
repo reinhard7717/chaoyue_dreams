@@ -248,7 +248,7 @@ class StockRealtimeDAO(BaseDAO):
                     else:
                         logger.warning(f"为股票 {stock.stock_code} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
                 total_loop_duration = time_lib.time() - loop_start_time
-                if i % 200 == 0:
+                if i % 200 == 0 and i > 10:
                     # --- 批量保存到数据库 ---
                     if data_dicts_to_save:
                         # 使用包含 StockInfo 实例的列表
