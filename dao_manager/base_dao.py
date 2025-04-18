@@ -169,10 +169,11 @@ class BaseDAO(Generic[T]):
                                       related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> Optional[T]:
         """
         (内部方法) 从缓存字典构建模型实例。
+        - 此方法现在更宽容：如果缓存字典中缺少某个字段（即使是非空字段如'id'），
+          它会跳过该字段的设置，将最终验证交给模型实例化过程。
         - 处理外键：根据缓存中的 ID (或指定字段值) 从提供的 DAO 获取关联对象。
         - 处理 Decimal：将字符串转回 Decimal。
         - 处理 datetime/date：将 ISO 字符串转回 datetime/date 对象。
-        - 特殊处理 Level5 的 bids/asks 字段 (如果需要)。
 
         Args:
             model_class: 要构建的目标模型类。
@@ -181,81 +182,143 @@ class BaseDAO(Generic[T]):
                                例如 {'stock': self.stock_basic_dao, 'user': self.user_dao}。
                                如果为 None 或缺少某个外键的 DAO，将无法构建该关联。
         Returns:
-            构建成功的模型实例，如果失败则返回 None。
+            构建成功的模型实例，如果字典数据不足以实例化模型或发生其他错误则返回 None。
         """
         if not cached_data or not isinstance(cached_data, dict):
+            logger.debug(f"无效的缓存数据用于构建 {model_class.__name__}: {cached_data}")
             return None
 
-        model_data = {}
+        model_data = {} # 用于存储准备好的模型字段数据
         try:
+            # 遍历目标模型的所有字段定义
             for field in model_class._meta.fields:
                 field_name = field.name
-                if field_name not in cached_data:
-                    # 如果字段是可空的，可以跳过；否则可能构建失败
-                    if field.null: continue
-                    else: logger.warning(f"缓存数据缺少必要字段 '{field_name}' for model {model_class.__name__}"); return None
 
+                # --- 修改点：处理缓存中字段缺失的情况 ---
+                if field_name not in cached_data:
+                    # 如果缓存数据中不存在模型定义的这个字段名
+                    # 不再检查 field.null，直接跳过对此字段的处理
+                    # 让模型实例化时的 __init__ 方法负责最终检查是否缺少必要字段
+                    logger.debug(f"缓存数据缺少字段 '{field_name}' for model {model_class.__name__}，跳过设置。")
+                    continue # 继续处理下一个字段
+                # --- 结束修改点 ---
+
+                # 获取缓存中对应字段的值
                 cached_value = cached_data[field_name]
 
-                # 处理外键
+                # 如果缓存中的值是 None，也跳过处理（除非字段允许 null）
+                # 注意：如果字段不允许 null，但在缓存中是 None，实例化时可能会失败
+                if cached_value is None and not field.null:
+                     logger.debug(f"缓存中字段 '{field_name}' 的值为 None，但模型中该字段不允许 null，跳过设置。")
+                     continue
+                elif cached_value is None and field.null:
+                     model_data[field_name] = None # 显式设置 None
+                     continue
+
+                # --- 处理各种字段类型 ---
+
+                # 处理外键 (Relation Field)
                 if field.is_relation:
+                    # 检查是否有对应的 DAO 来获取关联对象
                     if related_dao_map and field_name in related_dao_map:
                         related_dao = related_dao_map[field_name]
-                        related_model_pk_name = field.related_model._meta.pk.name
-                        # 假设缓存中存储的是关联对象的主键
+                        # 假设 cached_value 是关联对象的主键值
                         related_pk_value = cached_value
                         try:
-                            # 使用关联 DAO 的 get_by_id (或其他方法) 获取对象
-                            # 注意：get_by_id 也需要是 async
+                            # 异步调用关联 DAO 的方法获取关联对象实例
+                            # 注意：假设 related_dao 有 get_by_id 或类似方法
                             related_obj = await related_dao.get_by_id(related_pk_value)
                             if not related_obj:
+                                # 未找到关联对象
                                 logger.warning(f"无法找到外键 '{field_name}' 对应的关联对象 (ID: {related_pk_value}) using DAO {type(related_dao).__name__}")
-                                # 如果外键允许为空，可以设置为 None；否则构建失败
-                                if field.null: model_data[field_name] = None; continue
-                                else: return None
+                                # 如果模型字段允许 null，则设置为 None，否则构建失败
+                                if field.null:
+                                    model_data[field_name] = None
+                                    continue
+                                else:
+                                    # 关联对象是必需的但找不到，无法构建模型
+                                    logger.error(f"构建模型 {model_class.__name__} 失败：必需的外键 '{field_name}' 关联对象 (ID: {related_pk_value}) 未找到。")
+                                    return None
+                            # 成功找到关联对象，存入 model_data
                             model_data[field_name] = related_obj
                         except Exception as dao_err:
+                            # 调用关联 DAO 时发生异常
                             logger.error(f"使用 DAO {type(related_dao).__name__} 获取关联对象 {field_name} (ID: {related_pk_value}) 时出错: {dao_err}", exc_info=True)
-                            if field.null: model_data[field_name] = None; continue
-                            else: return None
+                            if field.null:
+                                model_data[field_name] = None
+                                continue
+                            else:
+                                # 获取必需的关联对象时出错，无法构建模型
+                                logger.error(f"构建模型 {model_class.__name__} 失败：获取必需的外键 '{field_name}' 关联对象时出错。")
+                                return None
                     else:
                         # 没有提供用于获取关联对象的 DAO
-                        logger.warning(f"缺少用于获取外键 '{field_name}' 的 DAO 实例")
-                        if field.null: model_data[field_name] = None; continue
-                        else: return None
+                        logger.warning(f"缺少用于获取外键 '{field_name}' 的 DAO 实例，无法设置该字段。")
+                        # 如果字段允许 null，则跳过；否则构建失败
+                        if field.null:
+                            model_data[field_name] = None # 或者 continue，取决于是否想显式设置 None
+                            continue
+                        else:
+                            logger.error(f"构建模型 {model_class.__name__} 失败：必需的外键 '{field_name}' 缺少对应的 DAO。")
+                            return None
+
                 # 处理 Decimal 字段
                 elif isinstance(field, models.DecimalField):
-                    try: model_data[field_name] = Decimal(str(cached_value))
-                    except decimal.InvalidOperation: logger.warning(f"无效的 Decimal 值 '{cached_value}' for field '{field_name}'"); return None
+                    try:
+                        # 尝试将缓存值（通常是字符串）转换为 Decimal
+                        model_data[field_name] = Decimal(str(cached_value))
+                    except decimal.InvalidOperation:
+                        logger.warning(f"无效的 Decimal 值 '{cached_value}' for field '{field_name}' in model {model_class.__name__}")
+                        # 如果 Decimal 字段允许 null，可以设为 None 或跳过，否则构建失败
+                        if field.null: continue
+                        else: return None
+
                 # 处理 DateTime 字段
                 elif isinstance(field, models.DateTimeField):
                     try:
+                        # 尝试将缓存值（通常是 ISO 格式字符串）转换为 datetime 对象
                         dt = datetime.fromisoformat(str(cached_value))
-                        # 处理时区
+                        # 根据 Django 设置处理时区
                         if settings.USE_TZ and timezone.is_naive(dt):
+                             # 如果项目使用时区且时间是 naive，则设置为项目当前时区
                              dt = timezone.make_aware(dt, timezone.get_current_timezone())
                         elif not settings.USE_TZ and timezone.is_aware(dt):
+                             # 如果项目不使用时区且时间是 aware，则转换为 naive
                              dt = timezone.make_naive(dt)
                         model_data[field_name] = dt
-                    except ValueError: logger.warning(f"无效的 ISO datetime 格式 '{cached_value}' for field '{field_name}'"); return None
+                    except ValueError:
+                        logger.warning(f"无效的 ISO datetime 格式 '{cached_value}' for field '{field_name}' in model {model_class.__name__}")
+                        if field.null: continue
+                        else: return None
+
                 # 处理 Date 字段
                 elif isinstance(field, models.DateField):
-                    try: model_data[field_name] = date.fromisoformat(str(cached_value))
-                    except ValueError: logger.warning(f"无效的 ISO date 格式 '{cached_value}' for field '{field_name}'"); return None
-                # 可以添加对 bids/asks 的特殊处理逻辑
-                # elif field_name in ('bids', 'asks') and model_class == StockLevel5Data:
-                #     try: model_data[field_name] = [(Decimal(p), int(v)) for p, v in cached_value]
-                #     except: model_data[field_name] = []
+                    try:
+                        # 尝试将缓存值（通常是 ISO 格式字符串）转换为 date 对象
+                        model_data[field_name] = date.fromisoformat(str(cached_value))
+                    except ValueError:
+                        logger.warning(f"无效的 ISO date 格式 '{cached_value}' for field '{field_name}' in model {model_class.__name__}")
+                        if field.null: continue
+                        else: return None
+
+                # 处理其他基本类型字段 (int, str, bool, etc.)
                 else:
-                    # 其他类型直接赋值 (需要确保类型兼容)
+                    # 直接将缓存中的值赋给 model_data
+                    # 注意：这里假设缓存中的类型与模型字段类型兼容
+                    # 如果需要更严格的类型检查或转换，可以在这里添加逻辑
                     model_data[field_name] = cached_value
 
-            # 使用处理后的数据创建模型实例
-            return model_class(**model_data)
+            # --- 尝试使用准备好的 model_data 字典实例化模型 ---
+            # 如果 model_data 缺少模型 __init__ 所需的非空字段（且无默认值），这里会抛出 TypeError
+            logger.debug(f"准备好用于实例化 {model_class.__name__} 的数据: {model_data}")
+            instance = model_class(**model_data)
+            logger.debug(f"成功从缓存构建 {model_class.__name__} 实例。")
+            return instance
 
         except Exception as e:
+            # 捕获在处理字段或实例化模型过程中发生的任何其他异常
             logger.error(f"从缓存数据构建 {model_class.__name__} 实例时发生未知错误: {e}, data: {cached_data}", exc_info=True)
-            return None
+            return None # 构建失败返回 None
 
     # ==================== CRUD 操作 ====================
 
