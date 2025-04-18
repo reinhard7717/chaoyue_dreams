@@ -260,7 +260,7 @@ class StockRealtimeDAO(BaseDAO):
                         process_end_time = time_lib.time()
                         process_duration = process_end_time - process_start_time
                         finished_count += len(data_dicts_to_save)
-                        logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {finished_count / process_duration} 个股票")
+                        logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
                         data_dicts_to_save = []
                         process_start_time = None
                     else:
