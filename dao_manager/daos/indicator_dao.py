@@ -90,6 +90,7 @@ class IndicatorDAO(BaseDAO):
             conversion_errors = 0
             for item_dict_str in cache_data:
                 try:
+                    logger.info(f"item_dict_str: {item_dict_str}, type: {type(item_dict_str)}")
                     item_dict = self.cache_manager._deserialize(item_dict_str)
                     # 手动将字典转换为 StockTimeTrade 模型实例
                     trade_time = self._safe_datetime(item_dict.get('trade_time'))
