@@ -730,6 +730,7 @@ CELERY_BEAT_SCHEDULE = {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.stock_realtime.get_realtime_data_task', # 任务函数名
         'schedule': crontab(minute='*/1', hour='9,10,11,13,14,20,21', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
+        'options': {'queue': 'save_api_data_RealTime'},  # 添加此行：指定队列名称
     },
     '每 5 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
