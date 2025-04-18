@@ -520,6 +520,7 @@ async def analyze_score_trend(stock_code: str,
             'bbands': {'length': analysis_params['boll_period'], 'std': analysis_params['boll_std']}
         }
         # 检查 OHLCV 是否存在
+        logging.info(f"analysis_df.columns: {analysis_df.columns}")
         has_ohlcv = all(col in analysis_df.columns for col in ['open', 'high', 'low', 'close', 'volume'])
 
         if has_ohlcv:
@@ -530,6 +531,7 @@ async def analyze_score_trend(stock_code: str,
                 ta=[]
             )
             for name, params in required_indicators.items():
+                logging.info(f"required_indicators的items： {name}: {params}")
                 # 检查指标列是否已存在 (适配 pandas_ta 默认名称)
                 col_to_check = ""
                 if name == 'macd': col_to_check = f"MACDh_{params['fast']}_{params['slow']}_{params['signal']}"
@@ -920,10 +922,18 @@ async def analyze_score_trend(stock_code: str,
                     else:
                         logger.warning(f"[{stock_code}] 最新的历史 VWAP 无效 ({latest_vwap_for_rt})，无法计算实时 T+0 信号。")
                     # --- 准备实时数据缓存字典 ---
+                    # 检查 trade_time 是否已经是字符串，如果是，直接使用；否则，调用 isoformat()
+                    if isinstance(latest_realtime.trade_time, str):
+                        realtime_trade_time_str = latest_realtime.trade_time
+                    elif hasattr(latest_realtime.trade_time, 'isoformat'): # 检查是否有 isoformat 方法
+                        realtime_trade_time_str = latest_realtime.trade_time.isoformat()
+                    else:
+                        # 如果类型未知或无法处理，记录警告并设为 None
+                        logger.warning(f"[{stock_code}] 无法处理的实时交易时间类型: {type(latest_realtime.trade_time)}")
                     realtime_data_cache = {
                         'fetch_time': timezone.now().isoformat(), # 记录获取缓存的时间 (ISO 格式)
                         'realtime_price': clean_value(latest_price), # 清理后的实时价格
-                        'realtime_trade_time': latest_realtime.trade_time.isoformat() if latest_realtime and latest_realtime.trade_time else None, # 实时行情时间
+                        'realtime_trade_time': realtime_trade_time_str, # 实时行情时间
                         'latest_vwap_used': clean_value(latest_vwap_for_rt), # 用于比较的 VWAP
                         'current_deviation': clean_value(current_deviation), # 清理后的实时偏离度
                         'current_t0_signal': clean_value(current_t0_signal, 0), # 清理后的实时 T+0 信号 (默认 0)
@@ -1325,8 +1335,7 @@ async def test_strategy_scores(stock_code: str, time_level_for_analysis: str = '
         stock_code=stock_code,
         timeframes=timeframes_list,
         strategy_params=strategy_params,
-        limit_per_tf=limit_count,
-        include_ohlcv=True # 确保请求 OHLCV 数据
+        limit_per_tf=limit_count
     )
 
     # 5. 检查数据准备是否成功
