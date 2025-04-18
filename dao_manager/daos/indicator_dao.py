@@ -85,11 +85,12 @@ class IndicatorDAO(BaseDAO):
 
         # --- 2. 处理缓存数据 (如果命中) ---
         if cache_data and isinstance(cache_data, list):
-            logger.debug(f"缓存命中: 获取到 {stock_code} {time_level_str} 历史数据 {len(cache_data)} 条 (limit={limit})，进行手动转换...")
+            # logger.debug(f"缓存命中: 获取到 {stock_code} {time_level_str} 历史数据 {len(cache_data)} 条 (limit={limit})，进行手动转换...")
             model_instances = []
             conversion_errors = 0
-            for item_dict in cache_data:
+            for item_dict_str in cache_data:
                 try:
+                    item_dict = self.cache_manager._deserialize(item_dict_str)
                     # 手动将字典转换为 StockTimeTrade 模型实例
                     trade_time = self._safe_datetime(item_dict.get('trade_time'))
                     if not trade_time: # 如果时间无效，跳过此条记录
