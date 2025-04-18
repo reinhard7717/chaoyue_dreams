@@ -232,13 +232,27 @@ class StockIndicatorsDAO(BaseDAO):
             api_data = await self.api.get_time_trade(stock.stock_code, time_level)
             if api_data:
                 data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                if data_dict.get('trade_time') is None:
-                    # logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                    pass
-                else:
+                if data_dict.get('trade_time') is not None:
+                    # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
+                    # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
                     data_dicts.append(data_dict)
-                    cache_dict = data_dict.copy()
-                    await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict) 
+                    # 2. 准备用于缓存的字典
+                    # 创建 data_dict 的副本以进行修改，避免影响原始字典
+                    cache_data_dict = data_dict.copy()
+                    # --- 手动处理 stock 字段 ---
+                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                        # 将 StockInfo 实例替换为 stock_code 
+                        cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                        # 删除原始的 stock 实例键，避免混淆
+                        del cache_data_dict['stock']
+                    # --- 结束手动处理 ---
+                    # 3. 调用 _prepare_data_for_cache 处理其他类型
+                    # 现在 cache_data_dict 中不再包含模型实例，只有基本类型或 stock_code
+                    prepared_cache_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+
+                    if prepared_cache_data: # 确保准备成功
+                        # 使用 stock_code 作为缓存键，缓存处理后的数据
+                        await self.cache_set.history_time_trade(stock.stock_code, time_level, prepared_cache_data) 
                     # 保存数据
                     result = await self._save_all_to_db_native_upsert(
                         model_class=StockTimeTrade,
@@ -277,15 +291,29 @@ class StockIndicatorsDAO(BaseDAO):
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 if api_data:
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                    if data_dict.get('trade_time') is None:
-                        # logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                        pass
-                    else:
+                    if data_dict.get('trade_time') is not None:
+                        # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
+                        # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
                         data_dicts.append(data_dict)
-                        cache_dict = data_dict.copy()
-                        await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
-                        if i % 100 == 0:
-                            logger.info(f"{time_level}级别分时成交数据获取完成 {i}/{len(stocks)}")
+                        # 2. 准备用于缓存的字典
+                        # 创建 data_dict 的副本以进行修改，避免影响原始字典
+                        cache_data_dict = data_dict.copy()
+                        # --- 手动处理 stock 字段 ---
+                        if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                            # 将 StockInfo 实例替换为 stock_code 
+                            cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                            # 删除原始的 stock 实例键，避免混淆
+                            del cache_data_dict['stock']
+                        # --- 结束手动处理 ---
+                        # 3. 调用 _prepare_data_for_cache 处理其他类型
+                        # 现在 cache_data_dict 中不再包含模型实例，只有基本类型或 stock_code
+                        prepared_cache_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+
+                        if prepared_cache_data: # 确保准备成功
+                            # 使用 stock_code 作为缓存键，缓存处理后的数据
+                            await self.cache_set.history_time_trade(stock.stock_code, time_level, prepared_cache_data)
+                            if i % 100 == 0:
+                                logger.info(f"{time_level}级别分时成交数据获取完成 {i}/{len(stocks)}")
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockTimeTrade,
@@ -324,13 +352,26 @@ class StockIndicatorsDAO(BaseDAO):
                 api_data = await self.api.get_time_trade(stock.stock_code, time_level)
                 if isinstance(api_data, dict):
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                    if data_dict.get('trade_time') is None:
-                        logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
-                        pass
-                    cache_dict = data_dict.copy()
-                    data_dicts.append(data_dict)
-                    await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
-                    await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict) 
+                    if data_dict.get('trade_time') is not None:
+                        # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
+                        # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
+                        data_dicts.append(data_dict)
+                        # 2. 准备用于缓存的字典
+                        # 创建 data_dict 的副本以进行修改，避免影响原始字典
+                        cache_data_dict = data_dict.copy()
+                        # --- 手动处理 stock 字段 ---
+                        if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                            # 将 StockInfo 实例替换为 stock_code 
+                            cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                            # 删除原始的 stock 实例键，避免混淆
+                            del cache_data_dict['stock']
+                        # --- 结束手动处理 ---
+                        # 3. 调用 _prepare_data_for_cache 处理其他类型
+                        # 现在 cache_data_dict 中不再包含模型实例，只有基本类型或 stock_code
+                        prepared_cache_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                        if prepared_cache_data: # 确保准备成功
+                            # 使用 stock_code 作为缓存键，缓存处理后的数据
+                            await self.cache_set.history_time_trade(stock.stock_code, time_level, prepared_cache_data) 
                     # --- 生成缓存键 ---
                     cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                     # --- 单行调用修剪方法 ---
@@ -375,15 +416,30 @@ class StockIndicatorsDAO(BaseDAO):
                     try:
                         # --- 使用临时的 api_client ---
                         api_data = await api_client.get_time_trade(stock.stock_code, time_level)
+                        if not api_data:
+                            logger.warning(f"API未返回股票[{stock}]的实时数据")
+                            continue
                         data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
-                        if data_dict.get('trade_time') is None:
-                            logger.warning(f"API未返回{stock.stock_code} {time_level}级别时间序列数据, data_dict: {data_dict}")
-                            # 根据策略，可以选择跳过这个 time_level 或直接返回
-                            continue # 跳过这个 time_level，继续下一个
-                        data_dicts.append(data_dict)
-                        cache_dict = data_dict.copy()
-                        await self.cache_set.latest_time_trade(stock.stock_code, time_level, cache_dict)
-                        await self.cache_set.history_time_trade(stock.stock_code, time_level, cache_dict)
+                        if data_dict.get('trade_time') is not None:
+                            # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
+                            # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
+                            data_dicts.append(data_dict)
+                            # 2. 准备用于缓存的字典
+                            # 创建 data_dict 的副本以进行修改，避免影响原始字典
+                            cache_data_dict = data_dict.copy()
+                            # --- 手动处理 stock 字段 ---
+                            if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                                # 将 StockInfo 实例替换为 stock_code 
+                                cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                                # 删除原始的 stock 实例键，避免混淆
+                                del cache_data_dict['stock']
+                            # --- 结束手动处理 ---
+                            # 3. 调用 _prepare_data_for_cache 处理其他类型
+                            # 现在 cache_data_dict 中不再包含模型实例，只有基本类型或 stock_code
+                            prepared_cache_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                            if prepared_cache_data: # 确保准备成功
+                                # 使用 stock_code 作为缓存键，缓存处理后的数据
+                                await self.cache_set.history_time_trade(stock.stock_code, time_level, prepared_cache_data)
                     except Exception as inner_e:
                         # 捕获单个 time_level 处理中的错误，记录并继续处理下一个 time_level
                         logger.error(f"处理 {stock.stock_code} 的 {time_level} 级别数据时出错: {str(inner_e)}", exc_info=True)
@@ -427,36 +483,58 @@ class StockIndicatorsDAO(BaseDAO):
         """
         从API获取并保存所有最新股票分时成交数据，使用异步并发处理
         """
-        import asyncio
-        
-        # 获取所有股票列表
+        # 获取股票信息
         stocks = await self.stock_basic_dao.get_stock_list()
-        total_result = {'创建': 0, '更新': 0, '未更改': 0, '失败': 0, '跳过': 0}
-        
-        # 将股票列表分成每组100个
-        batch_size = 100
-        stock_batches = [stocks[i:i+batch_size] for i in range(0, len(stocks), batch_size)]
-        
-        # 定义处理单个股票的任务
-        async def process_stock(stock):
-            return await self.fetch_and_save_latest_time_trade_by_stock_code(stock.stock_code)
-        
-        # 并发处理每个批次
-        for batch in stock_batches:
-            # 为每个批次创建任务列表
-            tasks = [process_stock(stock) for stock in batch]
-            # 并发执行该批次的所有任务
-            batch_results = await asyncio.gather(*tasks)
-            
-            # 聚合批次结果
-            for result in batch_results:
-                total_result['创建'] += result.get('创建', 0)
-                total_result['更新'] += result.get('更新', 0)
-                total_result['未更改'] += result.get('未更改', 0)
-                total_result['失败'] += result.get('失败', 0)
-                total_result['跳过'] += result.get('跳过', 0)
-        
-        return total_result
+        if not stocks:
+            return {'创建': 0, '更新': 0, '跳过': 0}
+        if self.cache_set is None:
+                await self.initialize_cache_objects()
+        data_dicts = []
+        try:
+            for i, stock in enumerate(stocks):
+                for time_level in TIME_TEADE_TIME_LEVELS_PER_TRADING:
+                    api_data = await self.api.get_time_trade(stock.stock_code, time_level)
+                    if api_data:
+                        data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
+                        if data_dict.get('trade_time') is not None:
+                            # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
+                            # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
+                            data_dicts.append(data_dict)
+                            # 2. 准备用于缓存的字典
+                            # 创建 data_dict 的副本以进行修改，避免影响原始字典
+                            cache_data_dict = data_dict.copy()
+                            # --- 手动处理 stock 字段 ---
+                            if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                                # 将 StockInfo 实例替换为 stock_code 
+                                cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                                # 删除原始的 stock 实例键，避免混淆
+                                del cache_data_dict['stock']
+                            # --- 结束手动处理 ---
+                            # 3. 调用 _prepare_data_for_cache 处理其他类型
+                            # 现在 cache_data_dict 中不再包含模型实例，只有基本类型或 stock_code
+                            prepared_cache_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+
+                            if prepared_cache_data: # 确保准备成功
+                                # 使用 stock_code 作为缓存键，缓存处理后的数据
+                                await self.cache_set.history_time_trade(stock.stock_code, time_level, prepared_cache_data)
+                                if i % 100 == 0:
+                                    logger.info(f"{time_level}级别分时成交数据获取完成 {i}/{len(stocks)}")
+                # 保存数据
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockTimeTrade,
+                    data_list=data_dicts,
+                    unique_fields=['stock', 'time_level', 'trade_time']
+                )
+                # --- 函数末尾执行最终修剪 ---
+                cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+                logger.info(f"股票[{stock}] {time_level}级别分时成交数据保存完成，结果: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"保存{stock}股票{time_level}级别  分时成交数据出错: {str(e)}")
+            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            return {'创建': 0, '更新': 0, '跳过': 0}
 
     async def fetch_and_save_history_time_trade(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Dict:
         """

@@ -142,7 +142,6 @@ class StockRealtimeDAO(BaseDAO):
             data_dicts = []
             data_dict = self.data_format_process.set_realtime_data(stock, api_data)
             if data_dict.get('trade_time') is not None:
-                data_dicts.append(data_dict)
                 # 1. 准备用于数据库保存的字典 (包含 StockInfo 实例)
                 # 注意：我们直接将原始 data_dict 用于数据库操作，因为 ORM 可以处理外键实例
                 data_dicts.append(data_dict)
