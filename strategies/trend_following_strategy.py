@@ -488,6 +488,9 @@ class TrendFollowingStrategy(BaseStrategy):
             analysis_data = self.analysis_results.iloc[0] if self.analysis_results is not None and not self.analysis_results.empty else {}
             intermediate_data = self.intermediate_data.iloc[-1] if self.intermediate_data is not None and not self.intermediate_data.empty else {}
             latest_data = data.iloc[-1] if data is not None and not data.empty else {}
+            # 将 NaN 转换为 None 以兼容 MySQL
+            def convert_nan_to_none(value):
+                return None if pd.isna(value) else value
 
             StockScoreAnalysis.objects.update_or_create(
                 stock=stock,
@@ -495,30 +498,30 @@ class TrendFollowingStrategy(BaseStrategy):
                 timestamp=timestamp,
                 time_level=self.focus_timeframe,
                 defaults={
-                    'score': intermediate_data.get('final_signal', None),
-                    'base_score_raw': intermediate_data.get('base_score_raw', None),
-                    'base_score_volume_adjusted': intermediate_data.get('base_score_volume_adjusted', None),
-                    'alignment_signal': intermediate_data.get('alignment_signal', None),
-                    'long_term_context': intermediate_data.get('long_term_context', None),
-                    'ema_score_5': intermediate_data.get('ema_score_5', None),
-                    'ema_score_13': intermediate_data.get('ema_score_13', None),
-                    'ema_score_21': intermediate_data.get('ema_score_21', None),
-                    'ema_score_55': intermediate_data.get('ema_score_55', None),
-                    'ema_score_233': intermediate_data.get('ema_score_233', None),
-                    'ema_strength': intermediate_data.get('ema_strength', None),
-                    'score_momentum': intermediate_data.get('score_momentum', None),
-                    'close_price': latest_data.get(f'close_{self.focus_timeframe}', None),
-                    'final_signal_mean': analysis_data.get('final_signal_mean', None),
-                    'final_signal_bullish_ratio': analysis_data.get('final_signal_bullish_ratio', None),
-                    'final_signal_bearish_ratio': analysis_data.get('final_signal_bearish_ratio', None),
-                    'final_signal_strong_bullish_ratio': analysis_data.get('final_signal_strong_bullish_ratio', None),
-                    'final_signal_strong_bearish_ratio': analysis_data.get('final_signal_strong_bearish_ratio', None),
-                    'alignment_fully_bullish_ratio': analysis_data.get('alignment_fully_bullish_ratio', None),
-                    'alignment_fully_bearish_ratio': analysis_data.get('alignment_fully_bearish_ratio', None),
-                    'alignment_bullish_ratio': analysis_data.get('alignment_bullish_ratio', None),
-                    'alignment_bearish_ratio': analysis_data.get('alignment_bearish_ratio', None),
-                    'long_term_bullish_ratio': analysis_data.get('long_term_bullish_ratio', None),
-                    'long_term_bearish_ratio': analysis_data.get('long_term_bearish_ratio', None),
+                    'score': convert_nan_to_none(intermediate_data.get('final_signal', None)),
+                    'base_score_raw': convert_nan_to_none(intermediate_data.get('base_score_raw', None)),
+                    'base_score_volume_adjusted': convert_nan_to_none(intermediate_data.get('base_score_volume_adjusted', None)),
+                    'alignment_signal': convert_nan_to_none(intermediate_data.get('alignment_signal', None)),
+                    'long_term_context': convert_nan_to_none(intermediate_data.get('long_term_context', None)),
+                    'ema_score_5': convert_nan_to_none(intermediate_data.get('ema_score_5', None)),
+                    'ema_score_13': convert_nan_to_none(intermediate_data.get('ema_score_13', None)),
+                    'ema_score_21': convert_nan_to_none(intermediate_data.get('ema_score_21', None)),
+                    'ema_score_55': convert_nan_to_none(intermediate_data.get('ema_score_55', None)),
+                    'ema_score_233': convert_nan_to_none(intermediate_data.get('ema_score_233', None)),
+                    'ema_strength': convert_nan_to_none(intermediate_data.get('ema_strength', None)),
+                    'score_momentum': convert_nan_to_none(intermediate_data.get('score_momentum', None)),
+                    'close_price': convert_nan_to_none(latest_data.get(f'close_{self.focus_timeframe}', None)),
+                    'final_signal_mean': convert_nan_to_none(analysis_data.get('final_signal_mean', None)),
+                    'final_signal_bullish_ratio': convert_nan_to_none(analysis_data.get('final_signal_bullish_ratio', None)),
+                    'final_signal_bearish_ratio': convert_nan_to_none(analysis_data.get('final_signal_bearish_ratio', None)),
+                    'final_signal_strong_bullish_ratio': convert_nan_to_none(analysis_data.get('final_signal_strong_bullish_ratio', None)),
+                    'final_signal_strong_bearish_ratio': convert_nan_to_none(analysis_data.get('final_signal_strong_bearish_ratio', None)),
+                    'alignment_fully_bullish_ratio': convert_nan_to_none(analysis_data.get('alignment_fully_bullish_ratio', None)),
+                    'alignment_fully_bearish_ratio': convert_nan_to_none(analysis_data.get('alignment_fully_bearish_ratio', None)),
+                    'alignment_bullish_ratio': convert_nan_to_none(analysis_data.get('alignment_bullish_ratio', None)),
+                    'alignment_bearish_ratio': convert_nan_to_none(analysis_data.get('alignment_bearish_ratio', None)),
+                    'long_term_bullish_ratio': convert_nan_to_none(analysis_data.get('long_term_bullish_ratio', None)),
+                    'long_term_bearish_ratio': convert_nan_to_none(analysis_data.get('long_term_bearish_ratio', None)),
                     'params_snapshot': self.params,
                 }
             )

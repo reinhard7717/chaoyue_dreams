@@ -1168,7 +1168,7 @@ class IndicatorService:
                 return None
             with open(params_file, 'r', encoding='utf-8') as f:
                 params = json.load(f)
-            logger.info(f"[{stock_code}] 从 {params_file} 加载策略参数成功。")
+            # logger.info(f"[{stock_code}] 从 {params_file} 加载策略参数成功。")
         except Exception as e:
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
             return None
@@ -1206,7 +1206,7 @@ class IndicatorService:
                 55 # SAR 默认lookback? 或者给个固定值
             ]
             max_lookback = max(lookbacks) + 50 # 加 50 bar 缓冲
-            logger.info(f"[{stock_code}] 需要的时间级别: {all_time_levels}, 最大回看期: {max_lookback}")
+            # logger.info(f"[{stock_code}] 需要的时间级别: {all_time_levels}, 最大回看期: {max_lookback}")
         except KeyError as e:
             logger.error(f"[{stock_code}] 参数文件 {params_file} 缺少键: {e}", exc_info=True)
             return None

@@ -275,6 +275,9 @@ class TPlus0Strategy(BaseStrategy):
             analysis_data = self.analysis_results.iloc[0] if self.analysis_results is not None and not self.analysis_results.empty else {}
             intermediate_data = self.intermediate_data.iloc[-1] if self.intermediate_data is not None and not self.intermediate_data.empty else {}
             latest_data = data.iloc[-1] if data is not None and not data.empty else {}
+            # 将 NaN 转换为 None 以兼容 MySQL
+            def convert_nan_to_none(value):
+                return None if pd.isna(value) else value
 
             StockScoreAnalysis.objects.update_or_create(
                 stock=stock,
@@ -282,16 +285,16 @@ class TPlus0Strategy(BaseStrategy):
                 timestamp=timestamp,
                 time_level=self.focus_timeframe,
                 defaults={
-                    'score': intermediate_data.get('t0_signal', None),
-                    't0_signal': intermediate_data.get('t0_signal', None),
-                    'price_vwap_deviation': None,  # 需要计算时可从 data 中提取
-                    'close_price': latest_data.get(f'close_{self.focus_timeframe}', None),
-                    'vwap': latest_data.get(f'vwap_{self.focus_timeframe}', latest_data.get('vwap', None)),
-                    't0_buy_ratio': analysis_data.get('t0_buy_ratio', None),
-                    't0_sell_ratio': analysis_data.get('t0_sell_ratio', None),
-                    't0_no_signal_ratio': analysis_data.get('t0_no_signal_ratio', None),
-                    't0_buy_count': analysis_data.get('t0_buy_count', None),
-                    't0_sell_count': analysis_data.get('t0_sell_count', None),
+                    'score': convert_nan_to_none(intermediate_data.get('t0_signal', None)),
+                    't0_signal': convert_nan_to_none(intermediate_data.get('t0_signal', None)),
+                    'price_vwap_deviation': convert_nan_to_none(None),  # 需要计算时可从 data 中提取
+                    'close_price': convert_nan_to_none(latest_data.get(f'close_{self.focus_timeframe}', None)),
+                    'vwap': convert_nan_to_none(latest_data.get(f'vwap_{self.focus_timeframe}', latest_data.get('vwap', None))),
+                    't0_buy_ratio': convert_nan_to_none(analysis_data.get('t0_buy_ratio', None)),
+                    't0_sell_ratio': convert_nan_to_none(analysis_data.get('t0_sell_ratio', None)),
+                    't0_no_signal_ratio': convert_nan_to_none(analysis_data.get('t0_no_signal_ratio', None)),
+                    't0_buy_count': convert_nan_to_none(analysis_data.get('t0_buy_count', None)),
+                    't0_sell_count': convert_nan_to_none(analysis_data.get('t0_sell_count', None)),
                     'params_snapshot': self.params,
                 }
             )

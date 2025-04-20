@@ -680,36 +680,38 @@ class TrendReversalStrategy(BaseStrategy):
             analysis_data = self.analysis_results.iloc[0] if self.analysis_results is not None and not self.analysis_results.empty else {}
             intermediate_data = self.intermediate_data.iloc[-1] if self.intermediate_data is not None and not self.intermediate_data.empty else {}
             latest_data = data.iloc[-1] if data is not None and not data.empty else {}
-
+            # 将 NaN 转换为 None 以兼容 MySQL
+            def convert_nan_to_none(value):
+                return None if pd.isna(value) else value
             StockScoreAnalysis.objects.update_or_create(
                 stock=stock,
                 strategy_name=self.strategy_name,
                 timestamp=timestamp,
                 time_level=self.focus_timeframe,
                 defaults={
-                    'score': intermediate_data.get('final_signal', None),
-                    'base_score_raw': intermediate_data.get('base_score_raw', None),
-                    'base_score_volume_adjusted': intermediate_data.get('base_score_volume_adjusted', None),
-                    'reversal_confirmation_signal': intermediate_data.get('reversal_confirmation_signal', None),
-                    'strong_reversal_confirmation': intermediate_data.get('strong_reversal_confirmation', None),
-                    'macd_hist_divergence': intermediate_data.get('macd_hist_divergence', None),
-                    'rsi_divergence': intermediate_data.get('rsi_divergence', None),
-                    'mfi_divergence': intermediate_data.get('mfi_divergence', None),
-                    'obv_divergence': intermediate_data.get('obv_divergence', None),
-                    'kline_pattern': intermediate_data.get('kline_pattern', None),
-                    'rsi_obos_reversal': intermediate_data.get('rsi_obos_reversal', None),
-                    'stoch_obos_reversal': intermediate_data.get('stoch_obos_reversal', None),
-                    'cci_obos_reversal': intermediate_data.get('cci_obos_reversal', None),
-                    'bb_reversal': intermediate_data.get('bb_reversal', None),
-                    'volume_spike': intermediate_data.get('volume_spike', None),
-                    'close_price': latest_data.get(f'close_{self.focus_timeframe}', None),
-                    'final_signal_mean': analysis_data.get('final_signal_mean', None),
-                    'final_signal_potential_buy_ratio': analysis_data.get('final_signal_potential_buy_ratio', None),
-                    'final_signal_potential_sell_ratio': analysis_data.get('final_signal_potential_sell_ratio', None),
-                    'final_signal_strong_buy_ratio': analysis_data.get('final_signal_strong_buy_ratio', None),
-                    'final_signal_strong_sell_ratio': analysis_data.get('final_signal_strong_sell_ratio', None),
-                    'strong_buy_reversal_ratio': analysis_data.get('strong_buy_reversal_ratio', None),
-                    'strong_sell_reversal_ratio': analysis_data.get('strong_sell_reversal_ratio', None),
+                    'score': convert_nan_to_none(intermediate_data.get('final_signal', None)),
+                    'base_score_raw': convert_nan_to_none(intermediate_data.get('base_score_raw', None)),
+                    'base_score_volume_adjusted': convert_nan_to_none(intermediate_data.get('base_score_volume_adjusted', None)),
+                    'reversal_confirmation_signal': convert_nan_to_none(intermediate_data.get('reversal_confirmation_signal', None)),
+                    'strong_reversal_confirmation': convert_nan_to_none(intermediate_data.get('strong_reversal_confirmation', None)),
+                    'macd_hist_divergence': convert_nan_to_none(intermediate_data.get('macd_hist_divergence', None)),
+                    'rsi_divergence': convert_nan_to_none(intermediate_data.get('rsi_divergence', None)),
+                    'mfi_divergence': convert_nan_to_none(intermediate_data.get('mfi_divergence', None)),
+                    'obv_divergence': convert_nan_to_none(intermediate_data.get('obv_divergence', None)),
+                    'kline_pattern': convert_nan_to_none(intermediate_data.get('kline_pattern', None)),
+                    'rsi_obos_reversal': convert_nan_to_none(intermediate_data.get('rsi_obos_reversal', None)),
+                    'stoch_obos_reversal': convert_nan_to_none(intermediate_data.get('stoch_obos_reversal', None)),
+                    'cci_obos_reversal': convert_nan_to_none(intermediate_data.get('cci_obos_reversal', None)),
+                    'bb_reversal': convert_nan_to_none(intermediate_data.get('bb_reversal', None)),
+                    'volume_spike': convert_nan_to_none(intermediate_data.get('volume_spike', None)),
+                    'close_price': convert_nan_to_none(latest_data.get(f'close_{self.focus_timeframe}', None)),
+                    'final_signal_mean': convert_nan_to_none(analysis_data.get('final_signal_mean', None)),
+                    'final_signal_potential_buy_ratio': convert_nan_to_none(analysis_data.get('final_signal_potential_buy_ratio', None)),
+                    'final_signal_potential_sell_ratio': convert_nan_to_none(analysis_data.get('final_signal_potential_sell_ratio', None)),
+                    'final_signal_strong_buy_ratio': convert_nan_to_none(analysis_data.get('final_signal_strong_buy_ratio', None)),
+                    'final_signal_strong_sell_ratio': convert_nan_to_none(analysis_data.get('final_signal_strong_sell_ratio', None)),
+                    'strong_buy_reversal_ratio': convert_nan_to_none(analysis_data.get('strong_buy_reversal_ratio', None)),
+                    'strong_sell_reversal_ratio': convert_nan_to_none(analysis_data.get('strong_sell_reversal_ratio', None)),
                     'params_snapshot': self.params,
                 }
             )
