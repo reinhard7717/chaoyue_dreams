@@ -761,7 +761,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每 5 分钟运行一次所有股票的策略计算任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.strategy_tasks.calculate_stock_strategy', # 任务函数名
+        'task': 'tasks.stock_analysis.analyze_all_stocks', # 任务函数名
         'schedule': crontab(minute='*/5', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
     },
 }
