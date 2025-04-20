@@ -14,8 +14,8 @@ class StockScoreAnalysis(models.Model):
         verbose_name='股票代码'
     )
     # --- 核心标识字段 ---
-    strategy_name = models.CharField(max_length=100, db_index=True, verbose_name="策略名称")
-    timestamp = models.DateTimeField(db_index=True, verbose_name='分析时间戳')
+    strategy_name = models.CharField(max_length=100, db_index=True, default="UnknownStrategy", verbose_name="策略名称")
+    timestamp = models.DateTimeField(db_index=True, default="", verbose_name='分析时间戳')
     time_level = models.CharField(max_length=10, db_index=True, verbose_name='分析时间级别')
 
     # --- 主要策略输出 ---
