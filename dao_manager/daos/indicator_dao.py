@@ -164,14 +164,31 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"从数据库获取股票[{stock_code}] {time_level_str} 级别分时成交数据失败: {str(e_db)}", exc_info=True)
             return None # 查询失败返回 None
 
-    # ... (IndicatorDAO 的其他方法，如 get_history_ohlcv_df, _save_indicator_data_generic 等保持不变)
+    # 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[pd.DataFrame]:
         """
         获取历史数据并转换为 finta 需要的 DataFrame 格式。
         返回的 DataFrame 按时间升序排列。
         (此方法逻辑不变，因为它依赖于 get_history_time_trades_by_limit 返回 List[StockTimeTrade])
         """
-        history_trades = await self.get_history_time_trades_by_limit(stock_code, time_level, limit)
+        time_level_str = ""
+        if time_level == "5m":
+            time_level_str = '5'
+        elif time_level == '15m':
+            time_level_str = '15'
+        elif time_level == '30m':
+            time_level_str = '30'
+        elif time_level == '60m':
+            time_level_str = '60'
+        elif time_level == 'D':
+            time_level_str = 'day'
+        elif time_level == "W":
+            time_level_str = 'week'
+        elif time_level == "M":
+            time_level_str = 'month'
+        else:
+            time_level_str = time_level
+        history_trades = await self.get_history_time_trades_by_limit(stock_code, time_level_str, limit)
         if not history_trades:
             logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level}")
             return None

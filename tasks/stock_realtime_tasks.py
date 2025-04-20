@@ -75,7 +75,6 @@ def save_realtime_data_batch(self, stock_codes: List[str]):
                 asyncio.run(stock_realtime_dao.close())
             except Exception as close_err:
                 logger.error(f"关闭 StockRealtimeDAO 时出错: {close_err}", exc_info=True)
-
     return {}
 
 # --- 修改后的调度器任务 ---
