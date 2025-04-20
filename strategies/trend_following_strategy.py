@@ -466,8 +466,8 @@ class TrendFollowingStrategy(BaseStrategy):
                  f" - 长期看涨背景比例: {analysis_results.get('long_term_bullish_ratio', np.nan)*100:.2f}%\n"
                  f" - 长期看跌背景比例: {analysis_results.get('long_term_bearish_ratio', np.nan)*100:.2f}%"
              )
-             logger.info(chinese_interpretation)
-             print(chinese_interpretation)
+            #  logger.info(chinese_interpretation)
+            #  print(chinese_interpretation)
 
         analysis_results.update(signal_judgment)
         self.analysis_results = pd.DataFrame([analysis_results])
