@@ -321,15 +321,16 @@ class StockIndicatorsDAO(BaseDAO):
         finished_count = 0
         try:
             for i, stock_code in enumerate(stock_codes):
+                stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
                 loop_start_time = time_lib.time()
                 if process_start_time is None:
                     process_start_time = loop_start_time
                 api_data = await self.api.get_time_trade(stock_code, time_level)
                 if api_data:
-                    stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+                    
                     data_dict = self.data_format_process.set_time_trade_data(stock, time_level, api_data)
                     if data_dict.get('trade_time') is None:
-                        # logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
+                        logger.warning(f"API未返回{stock} {time_level}级别时间序列数据")
                         pass
                     else:
                         data_dicts.append(data_dict)
