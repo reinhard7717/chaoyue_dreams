@@ -1,11 +1,14 @@
 # 此策略非常简单，主要基于价格与 VWAP 的偏离度，并以 5 分钟级别为主要参考。
 # t_plus_0_strategy.py
+import asyncio
 import pandas as pd
 import numpy as np
 import json
 import os
 import logging
 from typing import Dict, Any, List, Optional
+
+from dao_manager.daos.stock_basic_dao import StockBasicDAO
 
 # 假设 BaseStrategy 和常量在 .base 或 core.constants
 from .base import BaseStrategy
@@ -68,7 +71,6 @@ class TPlus0Strategy(BaseStrategy):
              raise ValueError("'buy_dev_threshold' 应为负数, 'sell_dev_threshold' 应为正数")
 
         logger.info(f"[{self.strategy_name}] 参数验证通过，主要关注时间框架: {self.focus_timeframe}")
-
 
     def get_required_columns(self) -> List[str]:
         """返回 T+0 策略所需的列"""
@@ -158,8 +160,7 @@ class TPlus0Strategy(BaseStrategy):
 
         return signals
 
-
-    def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+    def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
         """
         生成 T+0 信号 (1 买, -1 卖, 0 无)。
         """
@@ -198,15 +199,14 @@ class TPlus0Strategy(BaseStrategy):
         final_signal = t0_signals_df['t0_signal']
 
         logger.info(f"{self.strategy_name}: 信号生成完毕。")
-        self.analyze_signals() # 执行分析
+        self.analyze_signals(stock_code) # 执行分析
         return final_signal # 直接返回信号 Series
-
 
     def get_intermediate_data(self) -> Optional[pd.DataFrame]:
         """返回中间计算结果"""
         return self.intermediate_data
 
-    def analyze_signals(self) -> Optional[pd.DataFrame]:
+    def analyze_signals(self, stock_code: str) -> Optional[pd.DataFrame]:
         """分析 T+0 策略信号"""
         if self.intermediate_data is None or self.intermediate_data.empty:
             logger.warning("中间数据为空，无法进行信号分析。")
@@ -215,6 +215,8 @@ class TPlus0Strategy(BaseStrategy):
         analysis_results = {}
         data = self.intermediate_data
         latest_data = data.iloc[-1] if not data.empty else None
+        # stock_basic_dao = StockBasicDAO()
+        # stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
 
         # --- 统计分析 ---
         if 't0_signal' in data:
@@ -244,7 +246,7 @@ class TPlus0Strategy(BaseStrategy):
 
             # 中文解读
             chinese_interpretation = (
-                f"【T+0 策略分析 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
+                f"【T+0 策略分析 - {stock_code} - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
                 f"核心观点:\n"
                 f" - 当前 T+0 信号: {signal_judgment.get('t0_status', '未知')}\n"
                 f"操作建议:\n"
@@ -255,6 +257,7 @@ class TPlus0Strategy(BaseStrategy):
                 f" - 无 T+0 信号比例: {analysis_results.get('t0_no_signal_ratio', np.nan)*100:.2f}%"
             )
             logger.info(chinese_interpretation)
+            print(chinese_interpretation)
 
         analysis_results.update(signal_judgment)
         self.analysis_results = pd.DataFrame([analysis_results])

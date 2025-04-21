@@ -96,7 +96,7 @@ def calculate_stock_indicators(self):
     4. 将非自选股任务分派到 STOCKS_CALCULATE_INDICATORS_QUEUE 队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info("任务启动: get_trade_and_calculate_and_strategy (调度器模式) - 获取股票列表并分派细粒度任务链")
+    logger.info("任务启动: calculate_stock_indicators (调度器模式) - 获取股票列表并分派细粒度任务链")
     try:
         # 在同步任务中运行异步代码来获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
@@ -116,10 +116,10 @@ def calculate_stock_indicators(self):
             sig = calculate_stock_indicators_for_single_stock.s(stock_code).set(queue=STOCKS_CALCULATE_INDICATORS_QUEUE)
             sig.apply_async()  # 分派任务
             total_dispatched_chains += 1  # 计数分派的任务
-        logger.info(f"任务结束: get_trade_and_calculate_and_strategy (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")
+        logger.info(f"任务结束: calculate_stock_indicators (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")
         return f"已为 {total_favorite_stocks} 自选股和 {total_non_favorite_stocks} 非自选股分派 {total_dispatched_chains} 个任务链"
     except Exception as e:
-        logger.error(f"执行 get_trade_and_calculate_and_strategy (调度器模式) 时出错: {e}", exc_info=True)
+        logger.error(f"执行 calculate_stock_indicators (调度器模式) 时出错: {e}", exc_info=True)
         # 可以考虑重试机制
         # raise self.retry(exc=e, countdown=300, max_retries=1)
         return "调度任务执行失败"

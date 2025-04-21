@@ -88,7 +88,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
         for strategy_name, strategy in strategies_to_run.items():
             try:
                 # 执行策略生成信号
-                signals = strategy.generate_signals(data_df)
+                signals = strategy.generate_signals(data_df, stock_code)
                 if signals is not None and not signals.empty:
                     # 保存分析结果
                     strategy.save_analysis_results(stock_code, timestamp, data_df)

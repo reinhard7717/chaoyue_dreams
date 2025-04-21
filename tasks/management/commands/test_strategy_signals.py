@@ -136,7 +136,7 @@ class Command(BaseCommand):
             self.stdout.write(f"\n--- 运行策略: {strategy.strategy_name} ---")
             try:
                 # 生成信号/评分 (传递数据的副本以防策略修改原始数据)
-                final_output = strategy.generate_signals(data_df.copy())
+                final_output = strategy.generate_signals(data_df.copy(), stock_code)
 
                 if final_output is None or final_output.empty:
                     self.stdout.write(self.style.WARNING(f"[{stock_info}] 策略 '{strategy.strategy_name}' 未生成有效输出。"))
@@ -149,7 +149,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f"策略 {strategy.strategy_name} 计算完成 for {stock_info}"))
 
                 if intermediate_df is not None and not intermediate_df.empty:
-                    self.stdout.write(f"--- 最新 {tail_n} 条中间结果 for {strategy.strategy_name} ---")
+                    # self.stdout.write(f"--- 最新 {tail_n} 条中间结果 for {strategy.strategy_name} ---")
                     # 尝试打印常见的或重要的列，否则打印所有列
                     common_cols = ['final_signal', 'final_score', 't0_signal', 'base_score_volume_adjusted', 'reversal_confirmation_signal', 'alignment_signal', 'long_term_context']
                     cols_to_print = [col for col in common_cols if col in intermediate_df.columns]
@@ -219,6 +219,7 @@ class Command(BaseCommand):
 
             except Exception as sig_err:
                 self.stdout.write(self.style.ERROR(f"[{stock_info}] 执行策略 '{strategy.strategy_name}' 时出错: {sig_err}"))
+                logger.error(f"[{stock_info}] 执行策略 '{strategy.strategy_name}' 时出错: {sig_err}", exc_info=True)
                 # 选择是否继续下一个策略，这里我们选择继续
                 continue
 

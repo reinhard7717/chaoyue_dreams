@@ -1,166 +1,252 @@
 {
-    "strategy_name": "融合策略 v1.0",
-    "description": "融合 MACD/RSI/KDJ/BOLL 多时间框架评分与趋势/背离/K线形态分析的综合策略",
-    "trend_following_strategy_name": "趋势跟踪v1.0",
-    "trend_reversal_strategy_name": "趋势反转v1.0",
-    "t_plus_0_strategy_name": "T+0(VWAP)v1.0",
-  
-    "base_scoring": {
-      "timeframes": ["5", "15", "30", "60", "D"],
-      "score_indicators": ["macd", "rsi", "kdj", "boll", "cci", "mfi", "roc", "dmi", "sar"],
-      "rsi_period": 9,
-      "rsi_oversold": 30,
-      "rsi_overbought": 70,
-      "rsi_extreme_oversold": 25,
-      "rsi_extreme_overbought": 75,
-      "kdj_period_k": 7,
-      "kdj_period_d": 3,
-      "kdj_period_j": 3,
-      "kdj_oversold": 25,
-      "kdj_overbought": 75,
-      "boll_period": 15,
-      "boll_std_dev": 2.2,
-      "macd_fast": 8,
-      "macd_slow": 26,
-      "macd_signal": 7,
-      "cci_period": 14,
-      "cci_threshold": 100,
-      "cci_extreme_threshold": 200,
-      "mfi_period": 14,
-      "mfi_oversold": 20,
-      "mfi_overbought": 80,
-      "mfi_extreme_oversold": 10,
-      "mfi_extreme_overbought": 90,
-      "roc_period": 12,
-      "dmi_period": 14,
-      "adx_threshold": 20,
-      "adx_strong_threshold": 30,
-      "sar_step": 0.02,
-      "sar_max": 0.2,
-      "weights": {
-        "5": 0.15,
-        "15": 0.45,
-        "30": 0.25,
-        "60": 0.15
-      }
-    },
-  
-    "volume_confirmation": {
-      "enabled": true,
-      "tf": "15",
-      "amount_ma_period": 15,
-      "cmf_period": 20,
-      "obv_ma_period": 10,
-      "boost_factor": 1.3,
-      "penalty_factor": 0.7
-    },
-  
-    "divergence_detection": {
-      "enabled": true,
-      "check_regular_bullish": true,
-      "check_regular_bearish": true,
-      "check_hidden_bullish": true,
-      "check_hidden_bearish": true,
-      "tf": "15",
-      "price_period": 5,
-      "lookback": 10,
-      "indicators": {
-        "macd_hist": true,
-        "rsi": true,
-        "mfi": true,
-        "obv": false
-      },
-      "thresholds": {
-          "cmf": -0.05,
-          "mfi": 40
-      },
-      "divergence_penalty_factor": 0.45
-    },
-  
-    "kline_pattern_detection": {
-      "enabled": true,
-      "tf": "15"
-    },
-  
-    "trend_analysis": {
-      "ema_periods": [5, 13, 21, 55, 233],
-      "long_term_ema_period": 233,
-      "volatility_window": 8
-    },
-  
-    "t_plus_0_signals": {
-      "enabled": true,
-      "focus_timeframe": "5",
-      "buy_dev_threshold": -0.004,
-      "sell_dev_threshold": 0.004,
-      "use_long_term_filter": true
-    },
+  "strategy_name": "融合策略 v1.0",
+  "description": "融合 MACD/RSI/KDJ/BOLL 多时间框架评分与趋势/背离/K线形态分析的综合策略",
+  "trend_following_strategy_name": "趋势跟踪v1.0",
+  "trend_reversal_strategy_name": "趋势反转v1.0",
+  "t_plus_0_strategy_name": "T+0(VWAP)v1.0",
 
-    "trend_following_params": {
+  "base_scoring": {
+    "timeframes": ["5", "15", "30", "60", "D"],
+    "score_indicators": ["macd", "rsi", "kdj", "boll", "cci", "mfi", "roc", "dmi", "sar"],
+    "rsi_period": 9,
+    "rsi_oversold": 30,
+    "rsi_overbought": 70,
+    "rsi_extreme_oversold": 25,
+    "rsi_extreme_overbought": 75,
+    "kdj_period_k": 7,
+    "kdj_period_d": 3,
+    "kdj_period_j": 3,
+    "kdj_oversold": 25,
+    "kdj_overbought": 75,
+    "boll_period": 15,
+    "boll_std_dev": 2.2,
+    "macd_fast": 8,
+    "macd_slow": 26,
+    "macd_signal": 7,
+    "cci_period": 14,
+    "cci_threshold": 100,
+    "cci_extreme_threshold": 200,
+    "mfi_period": 14,
+    "mfi_oversold": 20,
+    "mfi_overbought": 80,
+    "mfi_extreme_oversold": 10,
+    "mfi_extreme_overbought": 90,
+    "roc_period": 12,
+    "dmi_period": 14,
+    "adx_threshold": 20,
+    "adx_strong_threshold": 30,
+    "sar_step": 0.02,
+    "sar_max": 0.2,
+    "weights": {
+      "5": 0.15,
+      "15": 0.45,
+      "30": 0.25,
+      "60": 0.15
+    }
+  },
+
+  "volume_confirmation": {
+    "enabled": true,
+    "tf": "15",
+    "amount_ma_period": 15,
+    "cmf_period": 20,
+    "obv_ma_period": 10,
+    "boost_factor": 1.3,
+    "penalty_factor": 0.7
+  },
+
+  "divergence_detection": {
+    "enabled": true,
+    "check_regular_bullish": true,
+    "check_regular_bearish": true,
+    "check_hidden_bullish": true,
+    "check_hidden_bearish": true,
+    "tf": "15",
+    "price_period": 5,
+    "lookback": 10,
+    "indicators": {
+      "macd_hist": true,
+      "rsi": true,
+      "mfi": true,
+      "obv": false
+    },
+    "thresholds": {
+        "cmf": -0.05,
+        "mfi": 40
+    },
+    "divergence_penalty_factor": 0.45
+  },
+
+  "kline_pattern_detection": {
+    "enabled": true,
+    "tf": "15"
+  },
+
+  "trend_analysis": {
+    "ema_periods": [5, 13, 21, 55, 233],
+    "long_term_ema_period": 233,
+    "volatility_window": 8
+  },
+
+  "t_plus_0_signals": {
+    "enabled": true,
+    "focus_timeframe": "5",
+    "buy_dev_threshold": -0.004,
+    "sell_dev_threshold": 0.004,
+    "use_long_term_filter": false
+  },
+
+  "trend_following_params": {
+    "focus_timeframe": "30",
+    "trend_confirmation_periods": 3,
+    "focus_weight": 0.45,
+    "timeframe_weights": {
+        "5": 0.1,
+        "15": 0.3,
+        "30": 0.4,
+        "60": 0.15,
+        "D": 0.05
+    },
+    "trend_indicators": ["dmi", "sar", "macd", "ema_alignment", "obv", "rsi"], 
+    "signal_weights": {
+        "base_score": 0.5,
+        "alignment": 0.25,
+        "long_context": 0.1,  
+        "momentum": 0.15
+    },
+    "volume_boost_factor": 1.3,
+    "volume_penalty_factor": 0.7,
+    "volume_spike_threshold": 2.0,
+    "volatility_threshold_high": 10,
+    "volatility_threshold_low": 5,
+    "ema_cross_weight": 0.15,
+    "adx_strong_threshold": 30,
+    "adx_moderate_threshold": 20,
+    "trend_duration_threshold_strong": 3,
+    "trend_duration_threshold_moderate": 5,
+    "stoch_oversold_threshold": 20,
+    "stoch_overbought_threshold": 80,
+    "vwap_deviation_threshold": 0.01,
+    "boll_breakout_weight": 0.1
+  },
+
+  "trend_reversal_params": {
       "focus_timeframe": "30",
       "focus_weight": 0.5,
-      "trend_indicators": ["dmi", "sar", "macd", "ema_alignment"],
-      "signal_weights": {
-          "base_score": 0.4,
-          "alignment": 0.3,
-          "long_context": 0.2,
-          "momentum": 0.1
-      }
-    },
-    "trend_reversal_params": {
-      "focus_timeframe": "15",
-      "focus_weight": 0.6,
-      "reversal_indicators": ["rsi", "kdj", "cci", "boll", "divergence", "kline"],
+      "reversal_indicators": ["rsi", "kdj", "cci", "boll", "divergence", "kline", "willr", "atr", "hv"],
+      "long_term_trend_filter": {
+          "enabled": true,
+          "timeframe": "D",
+          "adx_threshold": 30,
+          "ema_period": 233,
+          "filter_strength": 0.3
+      },
+      "signal_anticipation": {
+          "enabled": true,
+          "bb_proximity_factor": 0.95,
+          "anticipation_weight": 0.1
+      },
+      "market_sentiment_filter": {
+          "enabled": false,
+          "turnover_threshold": 0.5,
+          "fund_flow_threshold": 0.0,
+          "sentiment_penalty": 0.2
+      },
+      "volatility_filter": {
+          "enabled": true,
+          "indicator": "atr",
+          "timeframe": "30",
+          "period": 14,
+          "high_vol_threshold": 1.5,
+          "low_vol_threshold": 0.5,
+          "high_vol_boost": 0.2,
+          "low_vol_penalty": 0.3
+      },
+      "momentum_reversal": {
+          "enabled": true,
+          "indicator": "willr",
+          "timeframe": "30",
+          "period": 14,
+          "overbought": -20,
+          "oversold": -80,
+          "extreme_overbought": -10,
+          "extreme_oversold": -90,
+          "weight": 0.15
+      },
+      "turnover_filter": {
+          "enabled": false,
+          "timeframe": "30",
+          "period": 5,
+          "high_turnover_threshold": 2.0,
+          "low_turnover_threshold": 0.5,
+          "high_turnover_boost": 0.15,
+          "low_turnover_penalty": 0.2
+      },
+      "historical_volatility": {
+          "enabled": true,
+          "timeframe": "30",
+          "period": 20,
+          "high_hv_threshold": 1.5,
+          "low_hv_threshold": 0.5,
+          "high_hv_weight": 0.1,
+          "low_hv_penalty": 0.1
+      },
       "signal_weights": {
           "regular_div": 0.3,
           "hidden_div": 0.05,
-          "obos_reversal": 0.25,
-          "bb_reversal": 0.15,
-          "kline_reversal": 0.2,
-          "kline_continuation": 0.0,
-          "volume_spike": 0.05,
+          "obos_reversal": 0.18,
+          "bb_reversal": 0.12,
+          "kline_reversal_strong": 0.22,
+          "kline_reversal_weak": 0.08,
+          "kline_continuation": -0.05,
+          "kline_marubozu": -0.1,
+          "kline_doji": 0.0,
+          "volume_spike": 0.08,
+          "willr_reversal": 0.1,
+          "atr_volatility": 0.07,
+          "hv_environment": 0.05,
           "max_abs_signal": 1.0
       },
       "final_signal_weights": {
-            "base_score": 0.5,
-            "reversal_confirm": 0.5
+          "base_score": 0.6,
+          "reversal_confirm": 0.4
       },
-      "confirmation_threshold": 0.6
-    },
-  
-    "final_signal_generation": {
-      "confirmation_weighted_threshold": 3.0,
-      "signal_weights": {
-        "alignment_reversal": 1.0,
-        "macd_regular_div": 1.8,
-        "macd_hidden_div": 0.8,
-        "rsi_regular_div": 1.2,
-        "rsi_hidden_div": 0.7,
-        "mfi_regular_div": 1.0,
-        "mfi_hidden_div": 0.6,
-        "obv_regular_div": 0.8,
-        "obv_hidden_div": 0.5,
-        "rsi_obos_reversal": 1.0,
-        "stoch_obos_reversal": 0.9,
-        "cci_obos_reversal": 0.8,
-        "bb_reversal": 0.7,
-        "volume_spike_confirm": 0.85,
-        "kline_engulfing": 1.0,
-        "kline_hammer_hanging": 1.5,
-        "kline_star": 1.8,
-        "kline_marubozu": 0.5,
-        "kline_doji": 0.3
-      }
-    },
-  
-    "indicator_analysis_params": {
-      "stoch_k": 14,
-      "stoch_d": 3,
-      "stoch_smooth_k": 3,
-      "stoch_ob": 80,
-      "stoch_os": 20,
-      "volume_ma_period": 20,
-      "volume_spike_factor": 2.3
+      "confirmation_threshold": 0.7
+  },
+
+  "final_signal_generation": {
+    "confirmation_weighted_threshold": 3.0,
+    "signal_weights": {
+      "alignment_reversal": 1.0,
+      "macd_regular_div": 1.8,
+      "macd_hidden_div": 0.8,
+      "rsi_regular_div": 1.2,
+      "rsi_hidden_div": 0.7,
+      "mfi_regular_div": 1.0,
+      "mfi_hidden_div": 0.6,
+      "obv_regular_div": 0.8,
+      "obv_hidden_div": 0.5,
+      "rsi_obos_reversal": 1.0,
+      "stoch_obos_reversal": 0.9,
+      "cci_obos_reversal": 0.8,
+      "bb_reversal": 0.7,
+      "volume_spike_confirm": 0.85,
+      "kline_engulfing": 1.0,
+      "kline_hammer_hanging": 1.5,
+      "kline_star": 1.8,
+      "kline_marubozu": 0.5,
+      "kline_doji": 0.3
     }
+  },
+
+  "indicator_analysis_params": {
+    "stoch_k": 14,
+    "stoch_d": 3,
+    "stoch_smooth_k": 3,
+    "stoch_ob": 80,
+    "stoch_os": 20,
+    "volume_ma_period": 20,
+    "volume_spike_factor": 2.3
   }
+}
   

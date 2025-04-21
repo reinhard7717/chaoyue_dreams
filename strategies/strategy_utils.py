@@ -61,81 +61,276 @@ def get_find_peaks_params(time_level: str, base_lookback: int) -> Dict[str, Any]
     }
     return params
 
-def detect_divergence(price: pd.Series,
-                      indicator: pd.Series,
-                      lookback: int = 14,
-                      find_peaks_params: Dict[str, Any] = {'distance': 7, 'prominence_factor': 0.5},
-                      check_regular_bullish: bool = True,
-                      check_regular_bearish: bool = True,
-                      check_hidden_bullish: bool = True,
-                      check_hidden_bearish: bool = True
-                      ) -> pd.Series:
+def find_divergence_for_indicator(price: pd.Series,
+                                  indicator: pd.Series,
+                                  lookback: int,
+                                  find_peaks_params: Dict[str, Any],
+                                  check_regular_bullish: bool,
+                                  check_regular_bearish: bool,
+                                  check_hidden_bullish: bool,
+                                  check_hidden_bearish: bool
+                                  ) -> pd.DataFrame:
     """
-    检测价格与指标之间的常规背离和隐藏背离。
-    信号值: 1 (常规牛), -1 (常规熊), 2 (隐藏牛), -2 (隐藏熊), 0 (无)。
-    (与原 test_strategy_signals.py 中的实现类似，增加了启用/禁用选项)
+    辅助函数：检测单个价格序列与指标序列之间的背离。
+
+    :param price: 价格序列 (通常是收盘价)。
+    :param indicator: 指标序列。
+    :param lookback: 查找峰值/谷值的回顾期。
+    :param find_peaks_params: scipy.signal.find_peaks 的参数字典, 例如:
+                              {'distance': 7, 'prominence_factor': 0.3, 'width': 3}。
+                              'distance': 峰/谷之间的最小距离。
+                              'prominence_factor': 峰/谷的最小显著性因子 (乘以滚动标准差)。
+                              'width': 峰/谷的最小宽度。
+    :param check_regular_bullish: 是否检测常规看涨背离。
+    :param check_regular_bearish: 是否检测常规看跌背离。
+    :param check_hidden_bullish: 是否检测隐藏看涨背离。
+    :param check_hidden_bearish: 是否检测隐藏看跌背离。
+    :return: 返回一个 DataFrame，包含四列 ('regular_bullish', 'regular_bearish',
+             'hidden_bullish', 'hidden_bearish')。
+             值为 1 表示检测到看涨背离，-1 表示检测到看跌背离，0 表示无。
+             信号标记在第二个峰值/谷值的位置。
     """
-    divergence_signal = pd.Series(0, index=price.index)
+    # 初始化结果 DataFrame
+    result_df = pd.DataFrame({
+        'regular_bullish': 0,
+        'regular_bearish': 0,
+        'hidden_bullish': 0,
+        'hidden_bearish': 0
+    }, index=price.index)
+
+    # 数据有效性检查
     if price.isnull().all() or indicator.isnull().all() or len(price) < lookback * 2:
-        return divergence_signal
+        logger.debug("价格或指标数据不足或全为 NaN，无法检测背离。")
+        return result_df
 
     # --- 准备 find_peaks 参数 ---
-    distance = find_peaks_params.get('distance', max(1, lookback // 2))
-    prominence_factor = find_peaks_params.get('prominence_factor', 0.5)
+    distance = find_peaks_params.get('distance', max(3, lookback // 3)) # 最小距离，至少为3
+    width = find_peaks_params.get('width', max(1, distance // 2))       # 最小宽度
+    prominence_factor = find_peaks_params.get('prominence_factor', 0.3) # 显著性因子
 
-    # 计算最小显著性
-    min_prominence_price = (price.rolling(lookback).std() * prominence_factor).fillna(0).values
-    min_prominence_indicator = (indicator.rolling(lookback).std() * prominence_factor).fillna(0).values
+    # 计算基于滚动标准差的最小显著性 (prominence)
+    min_prominence_price_series = (price.rolling(lookback).std() * prominence_factor).fillna(0)
+    min_prominence_indicator_series = (indicator.rolling(lookback).std() * prominence_factor).fillna(0)
 
+    # 填充指标序列中的 NaN 值，以便 find_peaks 可以处理
     indicator_filled = indicator.ffill().bfill()
-    if indicator_filled.isnull().all():
-        return divergence_signal
+    if indicator_filled.isnull().all(): # 如果填充后仍然全为 NaN
+        logger.debug("填充后的指标序列全为 NaN，无法检测背离。")
+        return result_df
 
-    # --- 查找峰值和谷值 ---
+    # --- 查找价格和指标的峰值 (peaks) 和谷值 (troughs) ---
     try:
-        min_prominence_price = np.maximum(min_prominence_price, 0)
-        min_prominence_indicator = np.maximum(min_prominence_indicator, 0)
+        # 确保 prominence 为非负数，并处理 NaN/Inf
+        min_prominence_price = np.maximum(min_prominence_price_series.values, 0)
+        min_prominence_indicator = np.maximum(min_prominence_indicator_series.values, 0)
+        min_prominence_price[~np.isfinite(min_prominence_price)] = 1e-9 # 用一个极小值代替 Inf/NaN
+        min_prominence_indicator[~np.isfinite(min_prominence_indicator)] = 1e-9
 
-        price_peaks, _ = find_peaks(price, distance=distance, prominence=min_prominence_price)
-        price_troughs, _ = find_peaks(-price, distance=distance, prominence=min_prominence_price)
-        indicator_peaks, _ = find_peaks(indicator_filled, distance=distance, prominence=min_prominence_indicator)
-        indicator_troughs, _ = find_peaks(-indicator_filled, distance=distance, prominence=min_prominence_indicator)
+        # 查找峰值 (高点)
+        price_peaks_indices, _ = find_peaks(price.values, distance=distance, prominence=min_prominence_price, width=width)
+        indicator_peaks_indices, _ = find_peaks(indicator_filled.values, distance=distance, prominence=min_prominence_indicator, width=width)
+
+        # 查找谷值 (低点)，通过对序列取反实现
+        price_troughs_indices, _ = find_peaks(-price.values, distance=distance, prominence=min_prominence_price, width=width)
+        indicator_troughs_indices, _ = find_peaks(-indicator_filled.values, distance=distance, prominence=min_prominence_indicator, width=width)
+
     except Exception as fp_err:
-        logger.warning(f"find_peaks encountered an error: {fp_err}. Skipping divergence.")
-        return divergence_signal
+        logger.warning(f"查找峰值/谷值时出错: {fp_err}。跳过此指标的背离检测。")
+        return result_df
 
-    # --- 检测背离 ---
-    if len(price_peaks) >= 2 and len(indicator_peaks) >= 2:
-        p_peak1_idx, p_peak2_idx = price_peaks[-2], price_peaks[-1]
-        ind_peaks_near_p1 = indicator_peaks[(indicator_peaks >= p_peak1_idx - distance//2) & (indicator_peaks <= p_peak1_idx + distance//2)]
-        ind_peaks_near_p2 = indicator_peaks[(indicator_peaks >= p_peak2_idx - distance//2) & (indicator_peaks <= p_peak2_idx + distance//2)]
-        if len(ind_peaks_near_p1) > 0 and len(ind_peaks_near_p2) > 0:
-            i_peak1_idx, i_peak2_idx = ind_peaks_near_p1[-1], ind_peaks_near_p2[-1]
-            if pd.notna(indicator_filled.iloc[i_peak2_idx]) and pd.notna(indicator_filled.iloc[i_peak1_idx]):
-                # 常规看跌
-                if check_regular_bearish and price.iloc[p_peak2_idx] > price.iloc[p_peak1_idx] and indicator_filled.iloc[i_peak2_idx] < indicator_filled.iloc[i_peak1_idx]:
-                    divergence_signal.iloc[p_peak2_idx] = -1
-                # 隐藏看跌
-                elif check_hidden_bearish and price.iloc[p_peak2_idx] < price.iloc[p_peak1_idx] and indicator_filled.iloc[i_peak2_idx] > indicator_filled.iloc[i_peak1_idx]:
-                    if divergence_signal.iloc[p_peak2_idx] == 0: # 避免覆盖常规信号
-                         divergence_signal.iloc[p_peak2_idx] = -2
+    # --- 检测背离逻辑 ---
 
-    if len(price_troughs) >= 2 and len(indicator_troughs) >= 2:
-        p_trough1_idx, p_trough2_idx = price_troughs[-2], price_troughs[-1]
-        ind_troughs_near_p1 = indicator_troughs[(indicator_troughs >= p_trough1_idx - distance//2) & (indicator_troughs <= p_trough1_idx + distance//2)]
-        ind_troughs_near_p2 = indicator_troughs[(indicator_troughs >= p_trough2_idx - distance//2) & (indicator_troughs <= p_trough2_idx + distance//2)]
-        if len(ind_troughs_near_p1) > 0 and len(ind_troughs_near_p2) > 0:
-            i_trough1_idx, i_trough2_idx = ind_troughs_near_p1[-1], ind_troughs_near_p2[-1]
-            if pd.notna(indicator_filled.iloc[i_trough2_idx]) and pd.notna(indicator_filled.iloc[i_trough1_idx]):
-                # 常规看涨
-                if check_regular_bullish and price.iloc[p_trough2_idx] < price.iloc[p_trough1_idx] and indicator_filled.iloc[i_trough2_idx] > indicator_filled.iloc[i_trough1_idx]:
-                    divergence_signal.iloc[p_trough2_idx] = 1
-                # 隐藏看涨
-                elif check_hidden_bullish and price.iloc[p_trough2_idx] > price.iloc[p_trough1_idx] and indicator_filled.iloc[i_trough2_idx] < indicator_filled.iloc[i_trough1_idx]:
-                     if divergence_signal.iloc[p_trough2_idx] == 0: # 避免覆盖常规信号
-                          divergence_signal.iloc[p_trough2_idx] = 2
+    # -- 看跌背离 (比较峰值) --
+    if len(price_peaks_indices) >= 2 and len(indicator_peaks_indices) >= 2:
+        # 获取最近的两个价格峰值索引
+        p_peak1_idx, p_peak2_idx = price_peaks_indices[-2], price_peaks_indices[-1]
+        # 查找与这两个价格峰值时间上最接近的指标峰值索引
+        window = distance # 使用 distance 作为查找窗口
+        # 找到距离 p_peak1_idx 最近的 indicator_peak_idx
+        indicator_peaks_near_p1 = indicator_peaks_indices[np.abs(indicator_peaks_indices - p_peak1_idx) <= window]
+        # 找到距离 p_peak2_idx 最近的 indicator_peak_idx
+        indicator_peaks_near_p2 = indicator_peaks_indices[np.abs(indicator_peaks_indices - p_peak2_idx) <= window]
 
-    return divergence_signal.astype(int)
+        if len(indicator_peaks_near_p1) > 0 and len(indicator_peaks_near_p2) > 0:
+            # 选择窗口内最接近的那个（或者选择窗口内最后一个）
+            i_peak1_match_idx = indicator_peaks_near_p1[np.abs(indicator_peaks_near_p1 - p_peak1_idx).argmin()]
+            i_peak2_match_idx = indicator_peaks_near_p2[np.abs(indicator_peaks_near_p2 - p_peak2_idx).argmin()]
+
+            # 确保索引有效且值非 NaN
+            if pd.notna(price.iloc[p_peak1_idx]) and pd.notna(price.iloc[p_peak2_idx]) and \
+               pd.notna(indicator_filled.iloc[i_peak1_match_idx]) and pd.notna(indicator_filled.iloc[i_peak2_match_idx]):
+
+                price_peak1, price_peak2 = price.iloc[p_peak1_idx], price.iloc[p_peak2_idx]
+                indicator_peak1, indicator_peak2 = indicator_filled.iloc[i_peak1_match_idx], indicator_filled.iloc[i_peak2_match_idx]
+
+                # 常规看跌背离: 价格创更高的高点 (HH), 指标创更低的高点 (LH)
+                if check_regular_bearish and price_peak2 > price_peak1 and indicator_peak2 < indicator_peak1:
+                    result_df.loc[price.index[p_peak2_idx], 'regular_bearish'] = -1
+
+                # 隐藏看跌背离: 价格创更低的高点 (LH), 指标创更高的高点 (HH)
+                elif check_hidden_bearish and price_peak2 < price_peak1 and indicator_peak2 > indicator_peak1:
+                    # 隐藏信号优先级通常低于常规信号，如果已有常规信号则不覆盖
+                    if result_df.loc[price.index[p_peak2_idx], 'regular_bearish'] == 0:
+                        result_df.loc[price.index[p_peak2_idx], 'hidden_bearish'] = -1
+
+    # -- 看涨背离 (比较谷值) --
+    if len(price_troughs_indices) >= 2 and len(indicator_troughs_indices) >= 2:
+        # 获取最近的两个价格谷值索引
+        p_trough1_idx, p_trough2_idx = price_troughs_indices[-2], price_troughs_indices[-1]
+        # 查找与这两个价格谷值时间上最接近的指标谷值索引
+        window = distance
+        indicator_troughs_near_p1 = indicator_troughs_indices[np.abs(indicator_troughs_indices - p_trough1_idx) <= window]
+        indicator_troughs_near_p2 = indicator_troughs_indices[np.abs(indicator_troughs_indices - p_trough2_idx) <= window]
+
+        if len(indicator_troughs_near_p1) > 0 and len(indicator_troughs_near_p2) > 0:
+            i_trough1_match_idx = indicator_troughs_near_p1[np.abs(indicator_troughs_near_p1 - p_trough1_idx).argmin()]
+            i_trough2_match_idx = indicator_troughs_near_p2[np.abs(indicator_troughs_near_p2 - p_trough2_idx).argmin()]
+
+            # 确保索引有效且值非 NaN
+            if pd.notna(price.iloc[p_trough1_idx]) and pd.notna(price.iloc[p_trough2_idx]) and \
+               pd.notna(indicator_filled.iloc[i_trough1_match_idx]) and pd.notna(indicator_filled.iloc[i_trough2_match_idx]):
+
+                price_trough1, price_trough2 = price.iloc[p_trough1_idx], price.iloc[p_trough2_idx]
+                indicator_trough1, indicator_trough2 = indicator_filled.iloc[i_trough1_match_idx], indicator_filled.iloc[i_trough2_match_idx]
+
+                # 常规看涨背离: 价格创更低的低点 (LL), 指标创更高的低点 (HL)
+                if check_regular_bullish and price_trough2 < price_trough1 and indicator_trough2 > indicator_trough1:
+                    result_df.loc[price.index[p_trough2_idx], 'regular_bullish'] = 1
+
+                # 隐藏看涨背离: 价格创更高的低点 (HL), 指标创更低的低点 (LL)
+                elif check_hidden_bullish and price_trough2 > price_trough1 and indicator_trough2 < indicator_trough1:
+                    # 隐藏信号优先级通常低于常规信号
+                    if result_df.loc[price.index[p_trough2_idx], 'regular_bullish'] == 0:
+                        result_df.loc[price.index[p_trough2_idx], 'hidden_bullish'] = 1
+
+    # 填充 NaN 值为 0
+    result_df = result_df.fillna(0)
+    return result_df.astype(int) # 确保返回整数
+
+def detect_divergence(data: pd.DataFrame,
+                      dd_params: Dict,
+                      bs_params: Dict,
+                      vc_params: Optional[Dict] = None) -> pd.DataFrame: # vc_params 可选，如果用到 CMF
+    """
+    检测价格与多个指定指标之间的常规和隐藏背离 (使用 find_divergence_for_indicator)。
+
+    :param data: 包含价格和指标列的 DataFrame。列名格式需符合策略约定 (例如 'close_15', 'RSI_9_15')。
+    :param dd_params: divergence_detection 参数字典, 包含:
+                      'enabled': bool, 是否启用背离检测。
+                      'tf': str, 用于检测的时间框架 (例如 '15')。
+                      'price_type': str, 用于比较的价格类型 ('close', 'high', 'low'), 默认为 'close'。
+                      'lookback': int, 查找峰值/谷值的回顾期。
+                      'find_peaks_params': dict, 传递给 find_peaks 的参数。
+                      'check_regular_bullish', 'check_regular_bearish',
+                      'check_hidden_bullish', 'check_hidden_bearish': bool, 控制检测类型。
+                      'indicators': dict, 指定要检查的指标及其是否启用, 例如 {'macd_hist': True, 'rsi': True}。
+    :param bs_params: base_scoring 参数字典 (用于获取指标的周期等信息以构建列名)。
+    :param vc_params: volume_confirmation 参数字典 (可选, 仅当需要检测 CMF 背离时提供)。
+    :return: 返回一个 DataFrame，包含详细的背离信号和聚合信号。
+             例如: 'div_macd_hist_regular_bullish', 'div_rsi_hidden_bearish',
+                   'has_bullish_divergence', 'has_bearish_divergence' (布尔值)。
+    """
+    # 初始化结果 DataFrame
+    all_divergence_signals = pd.DataFrame(index=data.index)
+    all_divergence_signals['has_bullish_divergence'] = False
+    all_divergence_signals['has_bearish_divergence'] = False
+
+    # 检查是否启用背离检测
+    if not dd_params.get('enabled', False):
+        logger.info("参数中已禁用背离检测。")
+        return all_divergence_signals
+
+    # 获取配置参数
+    tf = dd_params.get('tf', '15')                 # 时间框架
+    price_type = dd_params.get('price_type', 'close') # 价格类型
+    lookback = dd_params.get('lookback', 14)
+    find_peaks_params = dd_params.get('find_peaks_params', {'distance': 7, 'prominence_factor': 0.3, 'width': 3})
+    check_regular_bullish = dd_params.get('check_regular_bullish', True)
+    check_regular_bearish = dd_params.get('check_regular_bearish', True)
+    check_hidden_bullish = dd_params.get('check_hidden_bullish', True)
+    check_hidden_bearish = dd_params.get('check_hidden_bearish', True)
+    indicators_to_check = dd_params.get('indicators', {})
+
+    # 构建价格列名并检查是否存在
+    price_col = f'{price_type}_{tf}' # 例如 'close_15'
+    if price_col not in data.columns or data[price_col].isnull().all():
+        logger.warning(f"用于背离检测的价格列 '{price_col}' 不存在或全为 NaN。无法执行背离检测。")
+        return all_divergence_signals
+    price_series = data[price_col]
+
+    # 遍历配置中指定的指标
+    for indicator_key, enabled in indicators_to_check.items():
+        if not enabled:
+            continue # 跳过未启用的指标
+
+        indicator_col = None
+        indicator_series = None
+
+        # --- 根据指标 key 构建指标列名 ---
+        # 注意：这里的列名构建逻辑需要与你的数据准备过程严格对应
+        try:
+            if indicator_key == 'macd_hist':
+                indicator_col = f'MACDh_{bs_params["macd_fast"]}_{bs_params["macd_slow"]}_{bs_params["macd_signal"]}_{tf}'
+            elif indicator_key == 'rsi':
+                indicator_col = f'RSI_{bs_params["rsi_period"]}_{tf}'
+            elif indicator_key == 'mfi':
+                indicator_col = f'MFI_{bs_params["mfi_period"]}_{tf}'
+            elif indicator_key == 'obv':
+                indicator_col = f'OBV_{tf}' # OBV 通常不带参数
+            elif indicator_key == 'cci':
+                indicator_col = f'CCI_{bs_params["cci_period"]}_{tf}'
+            elif indicator_key == 'cmf':
+                if vc_params: # 需要 vc_params 来获取 CMF 周期
+                    indicator_col = f'CMF_{vc_params.get("cmf_period", 20)}_{tf}'
+                else:
+                    logger.warning(f"检测 CMF 背离需要 vc_params，但未提供。跳过 CMF。")
+                    continue
+            # --- 在此添加其他需要检测背离的指标 ---
+            else:
+                logger.warning(f"未知的指标 key '{indicator_key}' 用于背离检测。")
+                continue
+        except KeyError as e:
+             logger.warning(f"构建指标 '{indicator_key}' 列名时缺少参数: {e}。跳过此指标。")
+             continue
+
+        # 检查指标列是否存在且有效
+        if indicator_col and indicator_col in data and not data[indicator_col].isnull().all():
+            indicator_series = data[indicator_col]
+        else:
+            logger.warning(f"指标 '{indicator_key}' 的列 '{indicator_col}' 在时间框架 {tf} 不存在、全为 NaN 或未启用。跳过其背离检测。")
+            continue
+
+    # --- 调用辅助函数进行单指标背离检测 ---
+        logger.debug(f"开始检测价格 ('{price_col}') 与指标 ('{indicator_col}') 的背离...")
+        div_result = find_divergence_for_indicator(
+            price=price_series,
+            indicator=indicator_series,
+            lookback=lookback,
+            find_peaks_params=find_peaks_params,
+            check_regular_bullish=check_regular_bullish,
+            check_regular_bearish=check_regular_bearish,
+            check_hidden_bullish=check_hidden_bullish,
+            check_hidden_bearish=check_hidden_bearish
+        )
+
+        # 将检测结果合并到总的 DataFrame 中，并添加前缀 'div_'
+        for div_type in div_result.columns:
+            # 结果列名示例: 'div_rsi_regular_bullish'
+            all_divergence_signals[f'div_{indicator_key}_{div_type}'] = div_result[div_type]
+
+    # --- 聚合所有指标的看涨和看跌信号 ---
+    # 查找所有包含 'bullish' 且值 > 0 的列
+    bullish_cols = [col for col in all_divergence_signals.columns if 'bullish' in col]
+    if bullish_cols:
+        all_divergence_signals['has_bullish_divergence'] = (all_divergence_signals[bullish_cols] > 0).any(axis=1)
+
+    # 查找所有包含 'bearish' 且值 < 0 的列
+    bearish_cols = [col for col in all_divergence_signals.columns if 'bearish' in col]
+    if bearish_cols:
+        all_divergence_signals['has_bearish_divergence'] = (all_divergence_signals[bearish_cols] < 0).any(axis=1)
+
+    logger.debug(f"时间框架 {tf} 的背离检测完成。")
+    return all_divergence_signals
 
 def detect_kline_patterns(df: pd.DataFrame) -> pd.Series:
     """
@@ -532,113 +727,180 @@ def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series:
     score.loc[(close < sar) & (~sell_signal)] = 40.0 # 价格在 SAR 下方
     return score
 
-
 def adjust_score_with_volume(preliminary_score: pd.Series,
                              data: pd.DataFrame,
                              vc_params: Dict,
                              dd_params: Dict,
-                             bs_params: Dict) -> pd.Series:
+                             bs_params: Dict,
+                             return_analysis: bool = True
+                             ) -> Tuple[pd.Series, Optional[pd.DataFrame]]:
     """
-    使用量能指标调整初步的 0-100 分数。
-    包括量能确认和可能的量价背离惩罚。
-    :param preliminary_score: 未经量能调整的基础分数 Series
-    :param data: 包含所需列的 DataFrame
-    :param vc_params: volume_confirmation 参数
-    :param dd_params: divergence_detection 参数 (用于检查量价背离)
-    :param bs_params: base_scoring 参数 (用于获取 MFI/OBV 等列名)
-    :return: 调整后的分数 Series
-    """
-    if not vc_params.get('enabled', False):
-        return preliminary_score
+    使用量能指标调整初步的 0-100 分数，并选择性返回量能分析的中间结果。
 
-    vol_tf = vc_params.get('tf', '15') # 默认使用 15min 量能
+    调整逻辑:
+    1. **量能确认**: 检查 CMF 和 OBV 趋势是否支持当前分数代表的趋势方向。
+       - 支持（例如，看涨分数且 CMF>0, OBV>OBV_MA）-> 增强分数（更接近0或100）。
+       - 矛盾（例如，看涨分数但 CMF<0, OBV<OBV_MA）-> 削弱分数（向50回归）。
+    2. **成交量突增**: 检测成交量是否显著高于近期平均水平。
+       - 信号：1 表示放量，0 表示正常。
+    3. **量价背离(简化版)**: 检测价格创新高/低，但量能指标（如 CMF, OBV）未跟上。
+       - 信号：-1 表示可能的顶背离，1 表示可能的底背离，0 表示无。
+
+    Args:
+        preliminary_score (pd.Series): 未经量能调整的基础分数 Series (0-100)。
+        data (pd.DataFrame): 包含所需列的 DataFrame (价格, 量, CMF, OBV, MFI 等)。
+        vc_params (Dict): volume_confirmation 参数字典，包含:
+            'enabled': bool, 是否启用量能调整。
+            'tf': str, 使用哪个时间框架的量能数据。
+            'boost_factor': float, 量能确认时的增强因子 (>1)。
+            'penalty_factor': float, 量能矛盾时的惩罚因子 (<1)。
+            'volume_spike_threshold': float, 成交量突增的倍数阈值 (与均值比)。
+            'volume_spike_window': int, 计算成交量均值的窗口期。
+            'cmf_period', 'obv_ma_period', 'amount_ma_period': int, 相关指标周期。
+        dd_params (Dict): divergence_detection 参数字典，用于量价背离检查，包含:
+            'enabled': bool, 是否启用背离检测 (影响此处的量价背离)。
+            'price_period': int, 用于查找价格高/低点的回顾期。
+            'divergence_penalty_factor': float, 量价背离的惩罚因子 (<1)。
+            'indicators': dict, (可选) 如果 MFI 用于量价背离检查。
+        bs_params (Dict): base_scoring 参数字典，用于获取 MFI 等指标的周期。
+        return_analysis (bool): 是否返回包含量能分析中间结果的 DataFrame。
+
+    Returns:
+        Tuple[pd.Series, Optional[pd.DataFrame]]: 返回一个元组:
+            - pd.Series: 经过量能调整后的分数 (0-100)。
+            - Optional[pd.DataFrame]: 如果 return_analysis=True，则包含量能分析结果
+              (列: 'volume_confirmation_signal', 'volume_spike_signal',
+              'volume_bearish_divergence_signal', 'volume_bullish_divergence_signal')；
+              否则返回 None。
+    """
+    # 初始化调整后的分数，确保索引与输入一致
     adjusted_score = preliminary_score.copy()
+    # 初始化分析结果 DataFrame，确保索引一致
+    volume_analysis_df = pd.DataFrame(index=preliminary_score.index)
 
-    # --- 列名准备 ---
+    # 检查是否启用量能调整，若未启用则直接返回默认值
+    if not vc_params.get('enabled', False):
+        logger.debug("参数中已禁用量能调整，直接返回原始分数。")
+        if return_analysis:
+            volume_analysis_df['volume_confirmation_signal'] = 0
+            volume_analysis_df['volume_spike_signal'] = 0
+            volume_analysis_df['volume_bearish_divergence_signal'] = 0
+            volume_analysis_df['volume_bullish_divergence_signal'] = 0
+            return adjusted_score, volume_analysis_df
+        return adjusted_score, None
+
+    # 提取配置参数，减少字典访问次数以优化性能
+    vol_tf = vc_params.get('tf', '15')
+    boost = vc_params.get('boost_factor', 1.15)
+    penalty = vc_params.get('penalty_factor', 0.85)
+    volume_spike_threshold = vc_params.get('volume_spike_threshold', 2.0)
+    volume_spike_window = vc_params.get('volume_spike_window', 10)
+
+    # 构建所需列名，集中处理以提高可读性
     close_col = f'close_{vol_tf}'
     high_col = f'high_{vol_tf}'
-    # low_col = f'low_{vol_tf}' # 如果需要 MFI 背离中的价格低点
-    amount_col = f'amount_{vol_tf}'
+    low_col = f'low_{vol_tf}'
+    volume_col = f'volume_{vol_tf}'
     amt_ma_col = f'AMT_MA_{vc_params.get("amount_ma_period", 20)}_{vol_tf}'
     cmf_col = f'CMF_{vc_params.get("cmf_period", 20)}_{vol_tf}'
     obv_col = f'OBV_{vol_tf}'
-    obv_ma_col = f'OBV_MA_{vc_params.get("obv_ma_period", 20)}_{vol_tf}'
-    # 假设MFI/OBV列名来自 base_scoring 或 indicator_analysis_params
-    mfi_col = f'MFI_{bs_params.get("mfi_period", 14)}_{vol_tf}' # MFI 用于背离检查
+    obv_ma_col = f'OBV_MA_{vc_params.get("obv_ma_period", 10)}_{vol_tf}'
+    mfi_col = f'MFI_{bs_params.get("mfi_period", 14)}_{vol_tf}'
 
-    # 检查所需列
-    required_cols = [close_col, high_col, amount_col, amt_ma_col, cmf_col, obv_col, obv_ma_col]
-    # MFI 是可选的，用于背离
-    if dd_params.get('enabled', False) and dd_params.get('indicators', {}).get('mfi'):
+    # 检查所需列是否存在，提前定义必需列以避免重复计算
+    required_cols = [close_col, high_col, low_col, volume_col, amt_ma_col, cmf_col, obv_col, obv_ma_col]
+    if dd_params.get('enabled', False) and dd_params.get('indicators', {}).get('mfi', False):
         required_cols.append(mfi_col)
 
     missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
     if missing_cols:
-        logger.warning(f"量能调整缺少数据列: {missing_cols} (时间周期 {vol_tf})。跳过量能调整。")
-        return preliminary_score
+        logger.warning(f"量能调整缺少必需的数据列: {missing_cols} (时间框架: {vol_tf})，跳过量能调整。")
+        if return_analysis:
+            volume_analysis_df['volume_confirmation_signal'] = 0
+            volume_analysis_df['volume_spike_signal'] = 0
+            volume_analysis_df['volume_bearish_divergence_signal'] = 0
+            volume_analysis_df['volume_bullish_divergence_signal'] = 0
+            return adjusted_score, volume_analysis_df
+        return adjusted_score, None
 
-    # 获取数据 Series
-    close = data[close_col]
-    high = data[high_col]
-    amount = data[amount_col]
-    amount_ma = data[amt_ma_col]
-    cmf = data[cmf_col]
-    obv = data[obv_col]
-    obv_ma = data[obv_ma_col]
-    mfi = data.get(mfi_col) # 可能不存在
+    # 获取数据序列并确保索引对齐，集中处理以优化性能
+    data_aligned = data.reindex(preliminary_score.index, fill_value=np.nan)
+    close = data_aligned[close_col]
+    high = data_aligned[high_col]
+    low = data_aligned[low_col]
+    volume = data_aligned[volume_col]
+    amount_ma = data_aligned[amt_ma_col]
+    cmf = data_aligned[cmf_col].fillna(0)
+    obv = data_aligned[obv_col]
+    obv_ma = data_aligned[obv_ma_col]
+    mfi = data_aligned.get(mfi_col, pd.Series(np.nan, index=preliminary_score.index))
 
-    # 1. 量能确认/不确认调整
-    boost = vc_params.get('boost_factor', 1.1) # 默认提升 10%
-    penalty = vc_params.get('penalty_factor', 0.9) # 默认惩罚 10%
+    # 计算量能确认信号，逻辑清晰分块处理
+    is_volume_supportive = (cmf > 0.05) & (obv > obv_ma)
+    is_volume_contradictory = (cmf < -0.05) & (obv < obv_ma)
+    volume_confirmation_signal = pd.Series(0, index=adjusted_score.index)
+    volume_confirmation_signal.loc[is_volume_supportive] = 1
+    volume_confirmation_signal.loc[is_volume_contradictory] = -1
+    if return_analysis:
+        volume_analysis_df['volume_confirmation_signal'] = volume_confirmation_signal
 
-    # 买入量能确认条件 (至少两个条件满足)
-    buy_volume_confirm = ((amount > amount_ma) & (cmf > 0)) | \
-                        ((amount > amount_ma) & (obv > obv_ma)) | \
-                        ((cmf > 0) & (obv > obv_ma))
-    buy_volume_confirm = buy_volume_confirm.fillna(False)
+    # 计算成交量突增信号，优化 rolling 操作
+    volume_ma = volume.rolling(window=volume_spike_window, min_periods=max(1, volume_spike_window // 2)).mean()
+    is_volume_spike = (volume > volume_ma * volume_spike_threshold).fillna(False)
+    volume_spike_signal = is_volume_spike.astype(int)
+    if return_analysis:
+        volume_analysis_df['volume_spike_signal'] = volume_spike_signal
 
-    # 卖出量能确认条件 (可选，例如成交量放大且 CMF<0 或 OBV<OBV_MA)
-    # sell_volume_confirm = ((amount > amount_ma) & (cmf < 0)) | \
-    #                       ((amount > amount_ma) & (obv < obv_ma))
-    # sell_volume_confirm = sell_volume_confirm.fillna(False)
+    # 计算量价背离信号，逻辑分块以提高可读性
+    volume_bearish_divergence_signal = pd.Series(0, index=adjusted_score.index)
+    volume_bullish_divergence_signal = pd.Series(0, index=adjusted_score.index)
+    if dd_params.get('enabled', False) and len(close) >= 10:
+        lookback_div = dd_params.get('price_period', 14)
+        price_high_rolling = high.rolling(window=lookback_div).max()
+        price_low_rolling = low.rolling(window=lookback_div).min()
+        is_new_high = high >= price_high_rolling.shift(1)
+        is_new_low = low <= price_low_rolling.shift(1)
+        obv_trend_up = obv.diff().fillna(0) > 0
+        obv_trend_down = obv.diff().fillna(0) < 0
+        cmf_positive = cmf > 0.05
+        cmf_negative = cmf < -0.05
+        bearish_div_cond = is_new_high & (~obv_trend_up | cmf_negative)
+        volume_bearish_divergence_signal.loc[bearish_div_cond.fillna(False)] = -1
+        bullish_div_cond = is_new_low & (~obv_trend_down | cmf_positive)
+        volume_bullish_divergence_signal.loc[bullish_div_cond.fillna(False)] = 1
+    if return_analysis:
+        volume_analysis_df['volume_bearish_divergence_signal'] = volume_bearish_divergence_signal
+        volume_analysis_df['volume_bullish_divergence_signal'] = volume_bullish_divergence_signal
 
-    is_bullish_score = adjusted_score > 55 # 看涨倾向
-    is_bearish_score = adjusted_score < 45 # 看跌倾向
+    # 应用调整到分数，逻辑分组以提高可读性
+    is_bullish_score = adjusted_score > 55
+    is_bearish_score = adjusted_score < 45
 
-    # 对看涨分数应用确认或惩罚
-    adjusted_score.loc[is_bullish_score & buy_volume_confirm] = (adjusted_score.loc[is_bullish_score & buy_volume_confirm] - 50) * boost + 50
-    adjusted_score.loc[is_bullish_score & (~buy_volume_confirm)] = (adjusted_score.loc[is_bullish_score & (~buy_volume_confirm)] - 50) * penalty + 50
+    # 量能确认调整
+    adjusted_score.loc[is_bullish_score & (volume_confirmation_signal == 1)] *= boost
+    adjusted_score.loc[is_bullish_score & (volume_confirmation_signal == -1)] *= penalty
+    adjusted_score.loc[is_bearish_score & (volume_confirmation_signal == -1)] = 50 - (50 - adjusted_score.loc[is_bearish_score & (volume_confirmation_signal == -1)]) * boost
+    adjusted_score.loc[is_bearish_score & (volume_confirmation_signal == 1)] = 50 - (50 - adjusted_score.loc[is_bearish_score & (volume_confirmation_signal == 1)]) * penalty
 
-    # 对看跌分数应用确认或惩罚 (如果定义了 sell_volume_confirm)
-    # adjusted_score.loc[is_bearish_score & sell_volume_confirm] = (adjusted_score.loc[is_bearish_score & sell_volume_confirm] - 50) * boost + 50 # 负分 * boost -> 更负
-    # adjusted_score.loc[is_bearish_score & (~sell_volume_confirm)] = (adjusted_score.loc[is_bearish_score & (~sell_volume_confirm)] - 50) * penalty + 50 # 负分 * penalty -> 덜负
+    # 量价背离调整
+    divergence_penalty = dd_params.get('divergence_penalty_factor', 0.85)
+    adjusted_score.loc[is_bullish_score & (volume_bearish_divergence_signal == -1)] *= divergence_penalty
+    adjusted_score.loc[is_bearish_score & (volume_bullish_divergence_signal == 1)] = 50 - (50 - adjusted_score.loc[is_bearish_score & (volume_bullish_divergence_signal == 1)]) * penalty
 
-    # 2. 检查量能顶背离并惩罚分数 (基于价格和量能指标) - 主要影响看涨信号
-    if dd_params.get('enabled', False) and dd_params.get('check_regular_bearish', True):
-        price_period = dd_params.get('price_period', 14)
-        cmf_threshold = dd_params.get('thresholds', {}).get('cmf', 0)
-        mfi_threshold = dd_params.get('thresholds', {}).get('mfi', 50) # MFI 弱势区域
-        divergence_penalty_factor = dd_params.get('divergence_penalty_factor', 0.8) # 默认惩罚 20%
+    # 成交量突增调整
+    spike_factor = 0.05
+    adjusted_score.loc[is_bullish_score & (volume_spike_signal == 1)] += (100 - adjusted_score.loc[is_bullish_score & (volume_spike_signal == 1)]) * spike_factor
+    adjusted_score.loc[is_bearish_score & (volume_spike_signal == 1)] -= adjusted_score.loc[is_bearish_score & (volume_spike_signal == 1)] * spike_factor
 
-        if len(high) >= price_period:
-            is_price_high = high == high.rolling(window=price_period, min_periods=price_period).max()
-        else:
-            is_price_high = pd.Series(False, index=high.index)
-
-        is_price_rising = close > close.shift(1)
-        # 量能指标弱势条件
-        is_cmf_weak = cmf < cmf_threshold
-        is_obv_weak = obv < obv_ma
-        is_mfi_weak = mfi < mfi_threshold if mfi is not None else pd.Series(False, index=high.index)
-
-        # 量能顶背离: 价格新高 + 价格上涨 + (CMF弱 或 OBV弱 或 MFI弱)
-        volume_bearish_divergence = is_price_high & is_price_rising & (is_cmf_weak | is_obv_weak | is_mfi_weak)
-        volume_bearish_divergence = volume_bearish_divergence.fillna(False)
-
-        # 对检测到顶背离且分数>55的情况应用惩罚
-        adjusted_score.loc[volume_bearish_divergence & is_bullish_score] = (adjusted_score.loc[volume_bearish_divergence & is_bullish_score] - 50) * divergence_penalty_factor + 50
-
-    # 3. 确保分数在 0-100
+    # 确保分数在 0-100 范围内
     adjusted_score = adjusted_score.clip(0, 100)
-    return adjusted_score
+    logger.debug(f"时间框架 {vol_tf} 的量能调整完成。")
+
+    # 确保 adjusted_score 的索引与 preliminary_score 一致
+    adjusted_score = adjusted_score.reindex(preliminary_score.index, fill_value=preliminary_score)
+
+    # 根据 return_analysis 返回结果
+    if return_analysis:
+        return adjusted_score, volume_analysis_df
+    return adjusted_score, None
 
