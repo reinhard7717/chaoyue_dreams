@@ -2,6 +2,7 @@
 from celery import shared_task
 from chaoyue_dreams.celery import app as celery_app
 from utils.websockets import send_update_to_user_sync # 导入推送函数
+from asgiref.sync import async_to_sync
 import logging
 
 # 获取 logger 实例
@@ -27,11 +28,10 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             logger.error(f"无法找到 stock_id={stock_code} 的股票信息")
             return
         # 2. 获取最新实时数据 (优先从缓存)
-        # 注意：这些 get 方法需要你自己实现，以下是示例逻辑
-        latest_data = realtime_dao.get_latest_realtime_data(stock_code) # 返回包含 price, volume, change_percent 等的字典或对象
+        latest_data = async_to_sync(realtime_dao.get_latest_realtime_data)(stock_code)
         latest_price = latest_data.get('price') if latest_data else None
         volume = latest_data.get('volume') if latest_data else None
-        change_percent = latest_data.get('change_percent') if latest_data else None # 假设 DAO 能提供涨跌幅
+        change_percent = latest_data.get('change_percent') if latest_data else None
         # 3. 获取最新策略信号 (优先从缓存)
         signal_data = strategies_dao.get_latest_strategies(stock_code) # 返回包含 type 和 text 的字典或对象
         print(f"signal_data: {signal_data}")
