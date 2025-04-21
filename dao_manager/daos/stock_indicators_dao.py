@@ -349,13 +349,13 @@ class StockIndicatorsDAO(BaseDAO):
             )
             process_end_time = time_lib.time()
             process_duration = process_end_time - process_start_time
-            finished_count += len(data_dicts_to_save)
-            logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
-            data_dicts_to_save = []
+            finished_count += len(data_dicts)
+            logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts) / process_duration} 个股票")
+            data_dicts = []
             process_start_time = None
             return result
         except Exception as e:
-            logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            logger.warning(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
 
