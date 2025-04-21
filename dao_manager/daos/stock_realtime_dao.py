@@ -1,16 +1,13 @@
 import asyncio
-from decimal import Decimal
 import logging
 import time as time_lib  # 用于测量时间
-from asyncio import Semaphore
-from typing import Dict, List, Any, Optional, Tuple, Set, TypeVar, Generic, Type
-from datetime import datetime, date, time
+from typing import Dict, List, Any, Optional
+from datetime import datetime, date
 from channels.db import database_sync_to_async # 用于同步 ORM 查询
 import json
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
-from django.conf import settings
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 
 from utils.cache_get import StockRealtimeCacheGet
@@ -18,11 +15,6 @@ from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
-from utils.models import ModelJSONEncoder
-
-from django.db import transaction, models
-from django.core.cache import cache
-from django.db.models import Q, F
 
 from api_manager.apis.stock_realtime_api import StockRealtimeAPI
 from dao_manager.base_dao import BaseDAO
@@ -248,7 +240,7 @@ class StockRealtimeDAO(BaseDAO):
                         await self.cache_set.latest_realtime_data(stock_code, prepared_data)
                     else:
                         logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-                total_loop_duration = time_lib.time() - loop_start_time                    
+                total_loop_duration = time_lib.time() - loop_start_time
                 sleep_time = max(0, 0.02 - total_loop_duration)
                 await asyncio.sleep(sleep_time)
             # --- 批量保存到数据库 ---

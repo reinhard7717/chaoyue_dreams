@@ -1,20 +1,16 @@
 import json
 import logging
-import asyncio
-from asyncio import Semaphore
-from typing import Dict, List, Any, Optional, Union, Set, Tuple, Type
-from datetime import datetime, date
+import time as time_lib  # 用于测量时间
+from typing import Dict, List, Optional, Union
+from datetime import datetime
 from asgiref.sync import sync_to_async
 from core.constants import TIME_TEADE_TIME_LEVELS, TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADING
-from stock_models.indicator.boll import StockBOLLIndicator
-from stock_models.indicator.kdj import StockKDJIndicator
 from stock_models.indicator.ma import StockMAIndicator
-from stock_models.indicator.macd import StockMACDIndicator
 from utils import cache_constants as cc # 导入常量
 from django.utils import timezone
 
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI, TimeLevel
-from api_manager.mappings.stock_indicators_mapping import BOLL_INDICATOR_MAPPING, KDJ_INDICATOR_MAPPING, MA_INDICATOR_MAPPING, MACD_INDICATOR_MAPPING, TIME_TRADE_MAPPING
+from api_manager.mappings.stock_indicators_mapping import MA_INDICATOR_MAPPING
 from dao_manager.base_dao import BaseDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
 from dao_manager.daos.user_dao import UserDAO
@@ -320,8 +316,14 @@ class StockIndicatorsDAO(BaseDAO):
         if self.cache_set is None:
                 await self.initialize_cache_objects()
         data_dicts = []
+        process_start_time = time_lib.time()
+        stocks_count = len(stock_codes)
+        finished_count = 0
         try:
             for i, stock_code in enumerate(stock_codes):
+                loop_start_time = time_lib.time()
+                if process_start_time is None:
+                    process_start_time = loop_start_time
                 api_data = await self.api.get_time_trade(stock_code, time_level)
                 if api_data:
                     stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
@@ -345,11 +347,14 @@ class StockIndicatorsDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'time_level', 'trade_time']
             )
-            
-            logger.info(f"股票[{stock}] {time_level}级别分时成交数据保存完成，结果: {result}")
+            process_end_time = time_lib.time()
+            process_duration = process_end_time - process_start_time
+            finished_count += len(data_dicts_to_save)
+            logger.info(f"{finished_count} / {stocks_count} 个股票实时数据保存完成, 耗时: {process_duration} 秒，平均每秒处理 {len(data_dicts_to_save) / process_duration} 个股票")
+            data_dicts_to_save = []
+            process_start_time = None
             return result
         except Exception as e:
-            logger.error(f"保存{stock}股票{time_level}级别  分时成交数据出错: {str(e)}")
             logger.debug(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
             return {'创建': 0, '更新': 0, '跳过': 0}
 
