@@ -142,7 +142,7 @@ class UserCacheGet(CacheGet):
         cache_key = self.cache_key_user.user_favorites(user_id)  # 例如 "user:favorites:123"
         try:
             cached_data_dict = await self.cache_manager.hgetall(cache_key)  # 获取 Hash 数据，返回 Dict[str, Dict]
-            logger.info(f"缓存命中用户 {user_id} 的自选股列表: {cached_data_dict}, key: {cache_key}")
+            # logger.info(f"缓存命中用户 {user_id} 的自选股列表: {cached_data_dict}, key: {cache_key}")
             if cached_data_dict:
                 favorite_list = []  # 用于存储转换后的模型实例
                 for field, item_dict in cached_data_dict.items():

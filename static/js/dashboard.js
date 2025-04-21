@@ -18,36 +18,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
     let socket;
 
-    // --- WebSocket 消息处理 ---
-    socket.onmessage = function(e) {
-        const data = JSON.parse(e.data);
-        console.log('Data received:', data);
-        switch (data.type) {
-            case 'favorite_message':
-                addMessage(favoriteMessagesList, data.payload, MAX_FAV_MESSAGES);
-                break;
-            case 'strategy_message':
-                addMessage(strategyMessagesList, data.payload, MAX_STRATEGY_MESSAGES);
-                break;
-            case 'stock_update':
-                updateStockRow(data.payload);
-                break;
-            // --- 处理新添加的自选股数据 ---
-            case 'favorite_added_with_data':
-                addStockRow(data.payload); // 调用新函数添加行
-                break;
-            // --- 处理删除的自选股通知 ---
-            case 'favorite_removed':
-                removeStockRow(data.payload.id); // 调用新函数移除行
-                break;
-            // case 'favorites_update': // 如果不再需要整个列表更新，可以移除这个 case
-            //     renderFavoritesTable(data.payload);
-            //     break;
-            default:
-                console.warn('Unknown message type:', data.type);
-        }
-    };
-
     function connectWebSocket() {
         console.log('Attempting to connect WebSocket...');
         socket = new WebSocket(wsPath);
@@ -72,12 +42,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'stock_update': // 单个自选股数据更新
                     updateStockRow(data.payload);
                     break;
-                case 'favorites_update': // 整个自选股列表更新 (例如添加/删除后)
+                case 'favorites_update': // 全量刷新自选股列表
                     renderFavoritesTable(data.payload);
                     break;
-                // case 'initial_favorites': // 处理初始自选股列表推送
-                //     renderFavoritesTable(data.payload);
-                //     break;
+                case 'favorite_added_with_data': // 单行更新自选股列表
+                    addStockRow(data.payload);
+                    break;
                 default:
                     console.warn('Unknown message type:', data.type);
             }
@@ -232,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             if (response.ok) {
-                // const newFavorite = await response.json(); // 可能不需要解析响应体了
+                const newFavorite = await response.json(); // 可能不需要解析响应体了
                 console.log('Favorite added:', newFavorite);
                 showNotification(`股票 ${stockCode} 添加成功！`, 'success');
                 // --- 不再手动操作表格，等待 WebSocket 推送 ---
@@ -334,6 +304,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const row = document.createElement('tr');
             row.dataset.stockCode = fav.code;
             row.dataset.favoriteId = fav.id; // <--- 存储 Favorite ID
+            row.dataset.stockName = fav.name; // 储存股票名称
             const changePercent = fav.change_percent;
             let percentClass = '';
             if (changePercent > 0) percentClass = 'positive';
@@ -398,10 +369,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const row = removeButton.closest('tr');
             console.log("Row:", row.dataset.stockName);
             const stockCode = row.dataset.stockCode;
+            const stockName = row.dataset.stockName;
             const favoriteId = row.dataset.favoriteId; // <--- 从行的 data 属性获取 ID
             // 确保获取到了 ID
             if (favoriteId) {
-                removeFavoriteStock(stockCode, favoriteId, row);
+                removeFavoriteStock(stockCode, stockName, favoriteId, row);
             } else {
                 console.error(`无法获取股票 ${stockCode} 的 Favorite ID`);
                 showNotification(`移除股票 ${stockCode} 时出错 (缺少ID)`, 'error');
@@ -414,8 +386,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    async function removeFavoriteStock(stockCode, favoriteId, rowElement) {
-        if (!confirm(`确定要从自选中移除 ${stockCode} 吗？`)) {
+    async function removeFavoriteStock(stockCode, stockName, favoriteId, rowElement) {
+        if (!confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
             return;
         }
         console.log(`Attempting to remove favorite: ${stockCode} (ID: ${favoriteId})`);

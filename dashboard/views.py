@@ -3,10 +3,8 @@ import json
 from asgiref.sync import async_to_sync
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from rest_framework import generics, viewsets, status
+from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
 from django.db.models import Q # 用于复杂查询
 from django.core.serializers.json import DjangoJSONEncoder
 from dao_manager.daos.user_dao import UserDAO
@@ -39,7 +37,7 @@ def dashboard_view(request):
             'volume': None,
             'signal': None,
         } 
-        for fav in user_favorites
+        for fav in user_favorites if fav.stock  # 只保留有 stock 的
     ]
     initial_favorites_json_string = json.dumps(initial_favorites_data, cls=DjangoJSONEncoder)
     # 3. 定义上下文
@@ -87,26 +85,38 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         """
         # 1. 保存 FavoriteStock 实例，并获取创建的对象
         favorite = serializer.save(user=self.request.user)
-
-        # 2. 触发后台任务以获取新添加股票的详细数据并推送
-        #    传递 user_id, stock_id, 和新创建的 favorite_id
+        # 立即推送基础数据
+        payload = {
+            'id': favorite.id,
+            'code': favorite.stock.stock_code,
+            'name': favorite.stock.stock_name,
+            'latest_price': None,
+            'change_percent': None,
+            'volume': None,
+            'signal': None,
+        }
+        send_update_to_user_sync(
+            user_id=self.request.user.id,
+            sub_type='favorite_added_with_data',
+            payload=payload
+        )
+        # 2. 触发 Celery 任务，异步获取行情并推送
         try:
-             # 准备任务参数
+            from tasks.stock_tasks import fetch_data_for_new_favorite
             task_args = (
                 self.request.user.id,
-                favorite.stock.stock_code,
+                favorite.stock.stock_code,  # 注意这里是 stock_code
                 favorite.id
             )
             target_queue = 'dashboard'
             fetch_data_for_new_favorite.apply_async(
                 args=task_args,
                 queue=target_queue,
-                # routing_key=target_queue # (可选) 通常可以省略，如果 queue 定义了 routing_key
             )
             logger.info(f"已将后台任务发送到队列 '{target_queue}' 为用户 {self.request.user.id} 的新自选股 {favorite.stock.stock_code} 获取数据")
         except Exception as task_error:
-            # 记录触发任务时的错误，但这不应阻止 API 返回成功 (因为收藏本身已成功)
             logger.error(f"触发后台任务 fetch_data_for_new_favorite 时出错: {task_error}", exc_info=True)
+
 
         # 3. (隐式) DRF 会自动返回 HTTP 201 Created 响应给前端
         #    我们不再需要手动推送整个列表 ('favorites_update')
