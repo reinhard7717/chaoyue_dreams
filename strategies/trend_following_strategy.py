@@ -957,15 +957,15 @@ class TrendFollowingStrategy(BaseStrategy):
 
         analysis_results = {}
         data = self.intermediate_data
-        latest_data = data.iloc[-1] if not data.empty else pd.Series(dtype=object) # 使用空的 Series 避免后续 get 出错
+        latest_data = data.iloc[-1] if not data.empty else pd.Series(dtype=object)  # 使用空的 Series 避免后续 get 出错
 
         # --- 统计分析 (与原代码类似，可以增加新指标统计) ---
         if 'final_signal' in data:
             final_signal = data['final_signal'].dropna()
             if not final_signal.empty:
                 analysis_results['final_signal_mean'] = final_signal.mean()
-                analysis_results['final_signal_median'] = final_signal.median() # 中位数可能更稳健
-                analysis_results['final_signal_std'] = final_signal.std() # 标准差看信号波动
+                analysis_results['final_signal_median'] = final_signal.median()  # 中位数可能更稳健
+                analysis_results['final_signal_std'] = final_signal.std()  # 标准差看信号波动
                 analysis_results['final_signal_bullish_ratio'] = (final_signal > 55).mean()
                 analysis_results['final_signal_bearish_ratio'] = (final_signal < 45).mean()
                 analysis_results['final_signal_strong_bullish_ratio'] = (final_signal >= 70).mean()
@@ -983,11 +983,11 @@ class TrendFollowingStrategy(BaseStrategy):
                 analysis_results['long_term_bullish_ratio'] = (context == 1).mean()
                 analysis_results['long_term_bearish_ratio'] = (context == -1).mean()
         if 'trend_strength_score' in data:
-             trend_strength = data['trend_strength_score'].dropna()
-             if not trend_strength.empty:
-                 analysis_results['trend_strength_mean'] = trend_strength.mean()
-                 analysis_results['trend_strength_strong_bull_ratio'] = (trend_strength >= 1.5).mean() # 强趋势占比
-                 analysis_results['trend_strength_strong_bear_ratio'] = (trend_strength <= -1.5).mean()
+            trend_strength = data['trend_strength_score'].dropna()
+            if not trend_strength.empty:
+                analysis_results['trend_strength_mean'] = trend_strength.mean()
+                analysis_results['trend_strength_strong_bull_ratio'] = (trend_strength >= 1.5).mean()  # 强趋势占比
+                analysis_results['trend_strength_strong_bear_ratio'] = (trend_strength <= -1.5).mean()
         # --- 计算趋势持续时间 ---
         trend_duration_info = self._calculate_trend_duration(data)
         analysis_results.update(trend_duration_info)
@@ -1003,7 +1003,7 @@ class TrendFollowingStrategy(BaseStrategy):
         duration_status = trend_duration_info['duration_status']
         # 基础判断
         if current_trend == 'bullish':
-            signal_judgment['trend_status'] = f"{trend_strength.capitalize()} Bullish"
+            signal_judgment['trend_status'] = f"看涨趋势 - {trend_strength.capitalize()}"
             if trend_strength in ['strong', 'very strong']:
                 if duration_status == 'long':
                     operation_advice = f"持有或逢低加仓 (趋势强劲且持续) {t_plus_1_note}"
@@ -1022,7 +1022,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 else:
                     operation_advice = f"观望或轻仓试多 (趋势温和启动) {t_plus_1_note}"
         elif current_trend == 'bearish':
-            signal_judgment['trend_status'] = f"{trend_strength.capitalize()} Bearish"
+            signal_judgment['trend_status'] = f"看跌趋势 - {trend_strength.capitalize()}"
             if trend_strength in ['strong', 'very strong']:
                 if duration_status == 'long':
                     operation_advice = f"卖出或逢高减仓 (趋势强劲且持续) {t_plus_1_note}"
@@ -1041,7 +1041,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 else:
                     operation_advice = f"观望或轻仓试空 (趋势温和启动) {t_plus_1_note}"
         else:
-            signal_judgment['trend_status'] = "Neutral / Ranging"
+            signal_judgment['trend_status'] = "中性 / 震荡"
             operation_advice = "中性观望，等待趋势明朗"
         # --- 结合其他指标细化判断和建议 ---
         # EMA 排列
@@ -1065,11 +1065,11 @@ class TrendFollowingStrategy(BaseStrategy):
         else: signal_judgment['long_term_view'] = "长期不明"
         # ADX 强度
         adx_signal = latest_data.get('adx_strength_signal', 0)
-        if adx_signal >= 0.5: signal_judgment['adx_status'] = f"趋势明确 ({'上升' if adx_signal > 0 else '下降'})"
+        if adx_signal >= 0.5: signal_judgment['adx_status'] = f"趋势明确 (上升)"
         elif adx_signal == 0: signal_judgment['adx_status'] = "无明显趋势"
-        else: signal_judgment['adx_status'] = f"趋势明确 ({'上升' if adx_signal > 0 else '下降'})" # adx_signal < 0 implies trend
+        else: signal_judgment['adx_status'] = f"趋势明确 (下降)"
         if abs(adx_signal) < 0.5 and current_trend != 'neutral':
-             risk_warning += "ADX显示趋势减弱，注意震荡风险。 "
+            risk_warning += "ADX显示趋势减弱，注意震荡风险。 "
         # STOCH 状态与风险提示
         stoch_signal = latest_data.get('stoch_signal', 0)
         if stoch_signal == 1: signal_judgment['stoch_status'] = "超卖区金叉"
@@ -1092,18 +1092,18 @@ class TrendFollowingStrategy(BaseStrategy):
             signal_judgment['boll_status'] = "向下突破布林带"
             if current_trend == 'bearish': operation_advice += " - BOLL突破确认"
         else:
-             signal_judgment['boll_status'] = "布林带轨道内运行"
+            signal_judgment['boll_status'] = "布林带轨道内运行"
         # 量能确认 (来自 adjust_score_with_volume 的分析结果)
-        volume_confirm = latest_data.get('volume_confirmation_signal', 0) # 假设返回 1, 0, -1
-        volume_spike = latest_data.get('volume_spike_signal', 0) # 假设返回 1, 0
+        volume_confirm = latest_data.get('volume_confirmation_signal', 0)  # 假设返回 1, 0, -1
+        volume_spike = latest_data.get('volume_spike_signal', 0)  # 假设返回 1, 0
         if volume_confirm == 1: signal_judgment['volume_status'] = "量能配合趋势"
         elif volume_confirm == -1: signal_judgment['volume_status'] = "量能不支持趋势"
         else: signal_judgment['volume_status'] = "量能中性"
         if volume_spike == 1:
-             signal_judgment['volume_spike'] = "出现显著放量"
-             if current_trend == 'bullish': operation_advice += " (放量)"
-             elif current_trend == 'bearish': operation_advice += " (放量)"
-             else: operation_advice += " (放量关注突破)"
+            signal_judgment['volume_spike'] = "出现显著放量"
+            if current_trend == 'bullish': operation_advice += " (放量)"
+            elif current_trend == 'bearish': operation_advice += " (放量)"
+            else: operation_advice += " (放量关注突破)"
         # 背离信号解读与风险提示
         has_bearish_div = latest_data.get('div_has_bearish_divergence', False)
         has_bullish_div = latest_data.get('div_has_bullish_divergence', False)

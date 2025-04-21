@@ -829,18 +829,18 @@ class TrendReversalStrategy(BaseStrategy):
                     if dd_params['indicators'].get(indicator_key):
                         div_col = f'{indicator_key}_divergence'
                         if div_col in latest_data and latest_data[div_col] != 0:
-                            active_signals.append(f"{indicator_key} 背离 ({latest_data[div_col]})")
+                            active_signals.append(f"{indicator_key} 背离 (值: {latest_data[div_col]})")
             if 'kline_pattern' in latest_data and latest_data['kline_pattern'] != 0 and latest_data['kline_pattern'] != 5:
-                active_signals.append(f"K线形态 ({latest_data['kline_pattern']})")
+                active_signals.append(f"K线形态 (值: {latest_data['kline_pattern']})")
             if 'rsi_obos_reversal' in latest_data and latest_data['rsi_obos_reversal'] != 0:
-                active_signals.append(f"RSI OB/OS ({latest_data['rsi_obos_reversal']})")
+                active_signals.append(f"RSI 超买/超卖 (值: {latest_data['rsi_obos_reversal']})")
             if 'willr_reversal' in latest_data and latest_data['willr_reversal'] != 0:
-                active_signals.append(f"Williams %R ({latest_data['willr_reversal']})")
+                active_signals.append(f"Williams %R 反转 (值: {latest_data['willr_reversal']})")
             if 'atr_volatility_signal' in latest_data and latest_data['atr_volatility_signal'] != 0:
-                active_signals.append(f"ATR 波动率 ({latest_data['atr_volatility_signal']})")
+                active_signals.append(f"ATR 波动率 (值: {latest_data['atr_volatility_signal']})")
             if 'hv_environment_signal' in latest_data and latest_data['hv_environment_signal'] != 0:
-                active_signals.append(f"HV 环境 ({latest_data['hv_environment_signal']})")
-            signal_judgment['active_reversal_triggers'] = ", ".join(active_signals) if active_signals else "无"
+                active_signals.append(f"历史波动率环境 (值: {latest_data['hv_environment_signal']})")
+            signal_judgment['active_reversal_triggers'] = ", ".join(active_signals) if active_signals else "暂无活跃反转信号"
             def get_count(key):
                 return analysis_results.get(key, 0)
             kline_bull_rev_strong_count = sum([get_count(f'kline_{k}_count') for k in ['bull_engulf', 'morning_star', 'hammer', 'bull_counter']])
@@ -851,25 +851,26 @@ class TrendReversalStrategy(BaseStrategy):
             kline_bear_cont_count = sum([get_count(f'kline_{k}_count') for k in ['three_crows', 'falling_three', 'downside_tasuki', 'bear_sep_lines', 'bear_marubozu']])
             # 中文解读
             chinese_interpretation = (
-                f"【趋势反转策略分析 - {stock_code} - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
+                f"【趋势反转策略分析报告 - 股票代码: {stock_code} - 分析时间: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
                 f"核心观点:\n"
-                f" - 当前反转潜力: {signal_judgment.get('reversal_potential', '未知')}\n"
+                f" - 当前反转潜力评估: {signal_judgment.get('reversal_potential', '未知')}\n"
                 f" - 确认信号状态: {signal_judgment.get('confirmation_status', '未知')}\n"
-                f" - 当前触发信号: {signal_judgment.get('active_reversal_triggers', '无')}\n"
+                f" - 当前触发信号: {signal_judgment.get('active_reversal_triggers', '暂无')}\n"
                 f"操作建议:\n"
                 f" - {signal_judgment.get('reversal_potential', '未知')} 指示了潜在的交易机会方向。\n"
                 f" - 结合 {signal_judgment.get('confirmation_status', '未知')} 评估信号的可靠性。\n"
-                f" - 关注 {signal_judgment.get('active_reversal_triggers', '无')} 提供的具体反转依据。\n"
-                f"统计数据 (周期内):\n"
+                f" - 关注 {signal_judgment.get('active_reversal_triggers', '暂无')} 提供的具体反转依据。\n"
+                f"统计数据 (分析周期内):\n"
                 f" - 最终信号平均值: {analysis_results.get('final_signal_mean', np.nan):.2f}\n"
                 f" - 强买入反转确认比例: {analysis_results.get('strong_buy_reversal_ratio', np.nan)*100:.2f}%\n"
                 f" - 强卖出反转确认比例: {analysis_results.get('strong_sell_reversal_ratio', np.nan)*100:.2f}%\n"
                 f" - K线强反转信号: 看涨 {kline_bull_rev_strong_count} 次, 看跌 {kline_bear_rev_strong_count} 次\n"
                 f" - K线弱反转信号: 看涨 {kline_bull_rev_weak_count} 次, 看跌 {kline_bear_rev_weak_count} 次\n"
                 f" - K线持续信号: 看涨 {kline_bull_cont_count} 次, 看跌 {kline_bear_cont_count} 次\n"
-                f" - Williams %R 反转: 买入 {get_count('willr_buy_count')} 次, 卖出 {get_count('willr_sell_count')} 次\n"
-                f" - ATR 波动率: 高波动 {get_count('atr_high_vol_count')} 次, 低波动 {get_count('atr_low_vol_count')} 次\n"
+                f" - Williams %R 反转信号: 买入 {get_count('willr_buy_count')} 次, 卖出 {get_count('willr_sell_count')} 次\n"
+                f" - ATR 波动率信号: 高波动 {get_count('atr_high_vol_count')} 次, 低波动 {get_count('atr_low_vol_count')} 次\n"
                 f" - 历史波动率环境: 高波动 {get_count('hv_high_vol_count')} 次, 低波动 {get_count('hv_low_vol_count')} 次\n"
+                f"温馨提示: 本分析仅供参考，不构成投资建议，请结合市场实际情况和个人风险承受能力谨慎决策。"
             )
             logger.info(chinese_interpretation)
             print(chinese_interpretation)

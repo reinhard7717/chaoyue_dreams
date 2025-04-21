@@ -57,11 +57,11 @@ class StockScoreAnalysis(models.Model):
         null=True, blank=True,
         verbose_name='成交量突增信号'   # 0:正常, 1:显著放量
     )
-    has_bullish_divergence = models.BooleanField(
+    div_has_bullish_divergence = models.BooleanField(
         null=True, blank=True,
         verbose_name='存在看涨背离'     # 是否检测到任何类型的看涨背离 (聚合结果)
     )
-    has_bearish_divergence = models.BooleanField(
+    div_has_bearish_divergence = models.BooleanField(
         null=True, blank=True,
         verbose_name='存在看跌背离'     # 是否检测到任何类型的看跌背离 (聚合结果)
     )
@@ -130,6 +130,34 @@ class StockScoreAnalysis(models.Model):
         null=True, blank=True,
         verbose_name='布林带相对位置百分比'  # 价格在布林带中的相对位置百分比 (0-100)
     )
+    final_signal_mean = models.FloatField(
+        null=True, blank=True,
+        verbose_name='最终信号均值'  # 最终信号的平均值
+    )
+    final_signal_potential_buy_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='潜在买入信号比例'  # 最终信号中潜在买入的比例 (>=65)
+    )
+    final_signal_potential_sell_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='潜在卖出信号比例'  # 最终信号中潜在卖出的比例 (<=35)
+    )
+    final_signal_strong_buy_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='强买入信号比例'  # 最终信号中强买入的比例 (>=75)
+    )
+    final_signal_strong_sell_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='强卖出信号比例'  # 最终信号中强卖出的比例 (<=25)
+    )
+    strong_buy_reversal_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='强买入反转比例'  # 强反转确认信号中买入的比例
+    )
+    strong_sell_reversal_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='强卖出反转比例'  # 强反转确认信号中卖出的比例
+    )
 
     # === TrendReversalStrategy (趋势反转策略) 相关中间结果 ===
     reversal_confirmation_signal = models.FloatField(
@@ -172,6 +200,22 @@ class StockScoreAnalysis(models.Model):
         null=True, blank=True, default=0,
         verbose_name='历史波动率环境信号'  # 基于历史波动率的环境信号 (-1低波动环境削弱, 0中性, 1高波动环境增强)
     )
+    macd_hist_divergence = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='MACD柱背离信号'  # MACD柱的背离信号 (-2隐藏看跌, -1常规看跌, 0无, 1常规看涨, 2隐藏看涨)
+    )
+    mfi_divergence = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='MFI背离信号'  # MFI的背离信号 (-2隐藏看跌, -1常规看跌, 0无, 1常规看涨, 2隐藏看涨)
+    )
+    obv_divergence = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='OBV背离信号'  # OBV的背离信号 (-2隐藏看跌, -1常规看跌, 0无, 1常规看涨, 2隐藏看涨)
+    )
+    rsi_divergence = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='RSI背离信号'  # RSI的背离信号 (-2隐藏看跌, -1常规看跌, 0无, 1常规看涨, 2隐藏看涨)
+    )
 
     # === TPlus0Strategy (T+0策略) 相关中间结果 ===
     t0_signal = models.SmallIntegerField(
@@ -181,6 +225,26 @@ class StockScoreAnalysis(models.Model):
     price_vwap_deviation = models.FloatField(
         null=True, blank=True,
         verbose_name='价格相对VWAP偏离度'# T+0 策略可能特别关注的 VWAP 偏离度
+    )
+    t0_buy_count = models.IntegerField(
+        null=True, blank=True,
+        verbose_name='T+0买入信号数量'  # T+0策略中买入信号的总数
+    )
+    t0_buy_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='T+0买入信号比例'  # T+0策略中买入信号的比例
+    )
+    t0_no_signal_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='T+0无信号比例'  # T+0策略中无信号的比例
+    )
+    t0_sell_count = models.IntegerField(
+        null=True, blank=True,
+        verbose_name='T+0卖出信号数量'  # T+0策略中卖出信号的总数
+    )
+    t0_sell_ratio = models.FloatField(
+        null=True, blank=True,
+        verbose_name='T+0卖出信号比例'  # T+0策略中卖出信号的比例
     )
 
     # === 输入数据快照 (可选，用于调试或复现) ===
