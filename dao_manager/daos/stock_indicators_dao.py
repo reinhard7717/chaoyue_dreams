@@ -355,9 +355,8 @@ class StockIndicatorsDAO(BaseDAO):
             process_start_time = None
             return result
         except Exception as e:
-            logger.warning(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}")
+            logger.warning(f"错误数据内容: {data_dicts if 'data_dicts' in locals() else '未获取到数据'}", exc_info=True)
             return {'创建': 0, '更新': 0, '跳过': 0}
-
 
     async def fetch_and_save_latest_time_trade_by_stock_code(self, stock_code: str) -> Dict:
         """
