@@ -167,7 +167,6 @@ def process_stocks_latest_trade_by_time_level(self, time_level: str, stock_codes
     return task_result # 返回单个任务的结果
 
 
-# 任务调度
 @celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level')
 def save_latest_trade_datas_by_time_level(self, time_level: str, batch_size: int = 200):
     """
@@ -195,10 +194,10 @@ def save_latest_trade_datas_by_time_level(self, time_level: str, batch_size: int
         for i in range(0, total_favorite_stocks, batch_size):
             batch = favorite_codes[i:i + batch_size]
             if batch:
-                logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
+                logger.info(f"创建自选股批次任务 (大小: {len(batch)})...")
                 process_stocks_latest_trade_by_time_level.s(batch, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
-                logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
+                logger.info(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
         # 2. 分派非自选股任务链到 STOCKS_SAVE_API_DATA_QUEUE 队列
         for i in range(0, total_non_favorite_stocks, batch_size):
@@ -207,16 +206,13 @@ def save_latest_trade_datas_by_time_level(self, time_level: str, batch_size: int
                 logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
                 process_stocks_latest_trade_by_time_level.s(batch, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
-                total_non_favorite_stocks += 1
-                logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
+                logger.info(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
-        logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派了 {total_non_favorite_stocks} 个批次任务。")
+        logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派了批次任务。")
 
         logger.info(f"任务结束: save_latest_trade_datas_by_time_level (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
 
     except Exception as e:
         logger.error(f"执行 save_latest_trade_datas_by_time_level (调度器模式) 时出错: {e}", exc_info=True)
-        # 可以考虑重试机制
-        # raise self.retry(exc=e, countdown=300, max_retries=1)
         return "调度任务执行失败"

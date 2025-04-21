@@ -653,12 +653,12 @@ LOGGING = {
         },
         'celery.task': {
             'handlers': ['celery'],
-            'level': 'WARNING',
+            'level': 'DEBUG',
             'propagate': False,
         },
         'celery.worker': {
             'handlers': ['celery'],
-            'level': 'INFO',
+            'level': 'DEBUG',
             'propagate': False,
         },
         'celery.app': {
@@ -678,7 +678,7 @@ LOGGING = {
         },
         'tasks': {
             'handlers': ['console', 'tasks'],
-            'level': 'INFO',
+            'level': 'DEBUG',
             'propagate': False,
         },
     },
