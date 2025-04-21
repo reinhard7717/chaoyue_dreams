@@ -128,7 +128,7 @@ class StockBasicDAO(BaseDAO):
             Optional[StockInfo]: 股票信息
         """
         from stock_models.stock_basic import StockInfo
-   
+        stock = StockInfo(stock_code="", stock_name="", exchange="")
         # 使用CacheManager生成标准化缓存键
         cache_key = self.cache_key.stock_data(stock_code)
         # 尝试从缓存获取，指定模型类进行自动转换

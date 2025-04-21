@@ -29,12 +29,11 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             return
         # 2. 获取最新实时数据 (优先从缓存)
         latest_data = async_to_sync(realtime_dao.get_latest_realtime_data)(stock_code)
-        latest_price = latest_data.get('price') if latest_data else None
-        volume = latest_data.get('volume') if latest_data else None
-        change_percent = latest_data.get('change_percent') if latest_data else None
+        current_price = latest_data.current_price if latest_data else None
+        volume = latest_data.volume if latest_data else None
+        turnover_rate = latest_data.turnover_rate if latest_data else None
         # 3. 获取最新策略信号 (优先从缓存)
-        signal_data = strategies_dao.get_latest_strategies(stock_code) # 返回包含 type 和 text 的字典或对象
-        print(f"signal_data: {signal_data}")
+        signal_data = async_to_sync(strategies_dao.get_latest_strategies)(stock_code) # 返回包含 type 和 text 的字典或对象
         signal = {
             'type': signal_data.get('signal_display', 'hold'), 
             'text': signal_data.get('text', 'N/A')
@@ -44,8 +43,8 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             'id': favorite_id, # 使用 FavoriteStock 的 ID
             'code': stock_info.stock_code,
             'name': stock_info.stock_name,
-            'latest_price': latest_price,
-            'change_percent': change_percent,
+            'latest_price': current_price,
+            'change_percent': turnover_rate,
             'volume': volume,
             'signal': signal,
         }
