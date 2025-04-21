@@ -166,9 +166,10 @@ def process_stocks_latest_trade_by_time_level(self, time_level: str, stock_codes
 
     return task_result # 返回单个任务的结果
 
-# 任务调度：计算所有股票的指标
+
+# 任务调度
 @celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level')
-def save_latest_trade_datas_by_time_level(self, time_level: str):
+def save_latest_trade_datas_by_time_level(self, time_level: str, batch_size: int = 200):
     """
     修改后的调度器任务：
     1. 获取自选股和非自选股代码。
@@ -178,33 +179,6 @@ def save_latest_trade_datas_by_time_level(self, time_level: str):
     这个任务由 Celery Beat 调度。
     """
     logger.info("任务启动: save_latest_trade_datas_by_time_level (调度器模式) - 获取股票列表并分派细粒度任务链")
-    try:
-        # 在同步任务中运行异步代码来获取列表
-        sig = process_stocks_latest_trade_by_time_level.s(time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
-        sig.apply_async()  # 分派任务
-
-        logger.info(f"任务结束: save_latest_trade_datas_by_time_level (调度器模式)")
-        return f"已分派 获取最新 {time_level} 级别股票数据 任务"
-
-    except Exception as e:
-        logger.error(f"执行 save_latest_trade_datas_by_time_level (调度器模式) 时出错: {e}", exc_info=True)
-        # 可以考虑重试机制
-        # raise self.retry(exc=e, countdown=300, max_retries=1)
-        return "调度任务执行失败"
-
-
-# 任务调度：计算所有股票的指标
-@celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas')
-def save_latest_trade_datas(self, time_level: str, batch_size: int = 200):
-    """
-    修改后的调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 为每只股票创建任务链 (获取数据 -> 计算指标 -> 执行策略)，并分派到指定的队列。
-    3. 将自选股任务分派到 FAVORITE_SAVE_API_DATA_QUEUE 队列。
-    4. 将非自选股任务分派到 STOCKS_SAVE_API_DATA_QUEUE 队列。
-    这个任务由 Celery Beat 调度。
-    """
-    logger.info("任务启动: save_latest_trade_datas (调度器模式) - 获取股票列表并分派细粒度任务链")
     try:
         # 在同步任务中运行异步代码来获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
@@ -238,11 +212,11 @@ def save_latest_trade_datas(self, time_level: str, batch_size: int = 200):
 
         logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派了 {total_non_favorite_stocks} 个批次任务。")
 
-        logger.info(f"任务结束: save_latest_trade_datas (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
+        logger.info(f"任务结束: save_latest_trade_datas_by_time_level (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
 
     except Exception as e:
-        logger.error(f"执行 save_latest_trade_datas (调度器模式) 时出错: {e}", exc_info=True)
+        logger.error(f"执行 save_latest_trade_datas_by_time_level (调度器模式) 时出错: {e}", exc_info=True)
         # 可以考虑重试机制
         # raise self.retry(exc=e, countdown=300, max_retries=1)
         return "调度任务执行失败"
