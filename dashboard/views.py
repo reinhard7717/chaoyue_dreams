@@ -16,6 +16,7 @@ from tasks.stock_tasks import fetch_data_for_new_favorite # 导入新任务
 import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
+target_queue = 'dashboard'
 # --- 页面视图 ---
 @login_required
 def dashboard_view(request):
@@ -108,7 +109,7 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
                 favorite.stock.stock_code,  # 注意这里是 stock_code
                 favorite.id
             )
-            target_queue = 'dashboard'
+            
             fetch_data_for_new_favorite.apply_async(
                 args=task_args,
                 queue=target_queue,

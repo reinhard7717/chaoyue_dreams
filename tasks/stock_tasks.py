@@ -7,7 +7,7 @@ import logging
 # 获取 logger 实例
 logger = logging.getLogger('tasks') # 或者使用你项目配置的 logger
 
-@celery_app.task(bind=True, name='tasks.stock_tasks.fetch_data_for_new_favorite')
+@celery_app.task(bind=True, name='tasks.stock.fetch_data_for_new_favorite')
 def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id: int):
     """
     为新添加的自选股获取实时数据和信号，并推送给用户。
