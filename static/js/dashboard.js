@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const row = document.createElement('tr');
             row.dataset.stockCode = fav.code;
             row.dataset.favoriteId = fav.id; // <--- 存储 Favorite ID
-            row.dataset.stockName = fav.name; // 储存股票名称
+            row.dataset.stockName = fav.name; // 新增
             const changePercent = fav.change_percent;
             let percentClass = '';
             if (changePercent > 0) percentClass = 'positive';

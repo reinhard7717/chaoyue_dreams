@@ -31,7 +31,7 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
         latest_data = async_to_sync(realtime_dao.get_latest_realtime_data)(stock_code)
         current_price = latest_data.current_price if latest_data else None
         volume = latest_data.volume if latest_data else None
-        turnover_rate = latest_data.turnover_rate if latest_data else None
+        price_change_percent = latest_data.price_change_percent if latest_data else None
         # 3. 获取最新策略信号 (优先从缓存)
         signal_data = async_to_sync(strategies_dao.get_latest_strategies)(stock_code) # 返回包含 type 和 text 的字典或对象
         signal = {
@@ -44,7 +44,7 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             'code': stock_info.stock_code,
             'name': stock_info.stock_name,
             'latest_price': current_price,
-            'change_percent': turnover_rate,
+            'change_percent': price_change_percent,
             'volume': volume,
             'signal': signal,
         }

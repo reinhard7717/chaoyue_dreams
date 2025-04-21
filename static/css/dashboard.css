@@ -189,16 +189,21 @@ section h2 .icon {
     color: #ffffff; /* 价格更突出 */
 }
 .favorites-table .change-percent.positive {
-    color: var(--semi-color-success);
+    color: #e60000;  /* 红色，A股涨 */
     font-weight: 500;
 }
 .favorites-table .change-percent.negative {
-    color: var(--semi-color-danger);
+    color: #009933;  /* 绿色，A股跌 */
     font-weight: 500;
+}
+.favorites-table .change-percent {
+    color: #ffffff;     /* 默认颜色 */
 }
 .favorites-table .volume {
     color: var(--semi-color-text-1);
-    font-size: 0.9em;
+    font-size: 1em;
+    font-weight: 500;
+    text-align: center;
 }
 .favorites-table .strategy-signal .signal {
     /* 继承 .tag 样式 */

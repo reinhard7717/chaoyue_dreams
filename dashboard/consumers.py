@@ -1,7 +1,9 @@
 # dashboard/consumers.py
 import json
+from asgiref.sync import async_to_sync
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async # 异步访问数据库
+from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 from users.models import FavoriteStock
 
 class DashboardConsumer(AsyncWebsocketConsumer):
@@ -29,8 +31,8 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         await self.accept()
         print(f"WebSocket connected for user {self.user.username}")
 
-        # 连接成功后，可以立即发送一些初始状态，例如完整的自选股列表
-        # await self.send_initial_favorites()
+        # 连接成功后，推送所有自选股的最新行情
+        await self.send_initial_favorites_with_realtime()
 
     async def disconnect(self, close_code):
         if hasattr(self, 'user_group_name'):
@@ -44,6 +46,30 @@ class DashboardConsumer(AsyncWebsocketConsumer):
                 self.channel_name
             )
         print(f"WebSocket disconnected for user {self.user.username}")
+
+    async def send_initial_favorites_with_realtime(self):
+        # 获取自选股列表
+        favorites = await database_sync_to_async(lambda: list(FavoriteStock.objects.filter(user=self.user).select_related('stock')))()
+        # 获取行情
+        realtime_dao = StockRealtimeDAO()
+        data = []
+        for fav in favorites:
+            stock_code = fav.stock.stock_code
+            # 用 async_to_sync 包装 DAO 的 async 方法
+            latest_data = await realtime_dao.get_latest_realtime_data(stock_code)
+            data.append({
+                'id': fav.id,
+                'code': stock_code,
+                'name': fav.stock.stock_name,
+                'latest_price': latest_data.current_price if latest_data else None,
+                'change_percent': latest_data.turnover_rate if latest_data else None,
+                'volume': latest_data.volume if latest_data else None,
+                'signal': None,  # 如有策略信号可一并查出
+            })
+        await self.send(text_data=json.dumps({
+            'type': 'favorites_update',
+            'payload': data
+        }))
 
     # 从 WebSocket 接收消息 (前端发送过来的，这个场景可能用得少)
     async def receive(self, text_data):
