@@ -23,7 +23,7 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
         realtime_dao = StockRealtimeDAO()
         strategies_dao = StrategiesDAO()
         # 1. 获取股票基本信息 (code, name)
-        stock_info = stock_basic_dao.get_stock_by_code(stock_code) # 假设 UserDAO 有此方法
+        stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code) # 假设 UserDAO 有此方法
         if not stock_info:
             logger.error(f"无法找到 stock_id={stock_code} 的股票信息")
             return
