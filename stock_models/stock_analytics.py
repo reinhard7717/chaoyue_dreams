@@ -110,6 +110,26 @@ class StockScoreAnalysis(models.Model):
         null=True, blank=True,
         verbose_name='BOLL突破信号'     # 价格与布林带关系 (-1跌破下轨, 0轨道内, 1突破上轨)
     )
+    ema_strength = models.FloatField(
+        null=True, blank=True,
+        verbose_name='EMA强度差'  # 短期与长期 EMA 的强度差
+    )
+    score_momentum_acceleration = models.FloatField(
+        null=True, blank=True,
+        verbose_name='评分动能加速度'  # 评分动能的变化率（二阶导数）
+    )
+    volatility_signal = models.SmallIntegerField(
+        null=True, blank=True,
+        verbose_name='波动率信号'  # 基于评分波动率的信号 (-1高波动不稳定, 0中性, 1低波动稳定)
+    )
+    vwap_deviation_percent = models.FloatField(
+        null=True, blank=True,
+        verbose_name='VWAP偏离百分比'  # 价格相对 VWAP 的偏离百分比
+    )
+    boll_percent_b = models.FloatField(
+        null=True, blank=True,
+        verbose_name='布林带相对位置百分比'  # 价格在布林带中的相对位置百分比 (0-100)
+    )
 
     # === TrendReversalStrategy (趋势反转策略) 相关中间结果 ===
     reversal_confirmation_signal = models.FloatField(
@@ -135,6 +155,22 @@ class StockScoreAnalysis(models.Model):
     bb_reversal = models.SmallIntegerField(
         null=True, blank=True, default=0,
         verbose_name='布林带反转'       # 价格触及布林带上下轨后的反转信号 (-1顶, 1底)
+    )
+    strong_reversal_confirmation = models.SmallIntegerField(
+        null=True, blank=True,
+        verbose_name='强反转确认信号'  # 综合反转信号达到阈值后的强确认 (-1强卖, 0无, 1强买)
+    )
+    willr_reversal = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='Williams %R 反转信号'  # Williams %R 指标在超买/卖区的反转信号 (-1卖, 1买)
+    )
+    atr_volatility_signal = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='ATR波动率信号'  # 基于 ATR 的波动率信号 (-1低波动削弱, 0中性, 1高波动增强)
+    )
+    hv_environment_signal = models.SmallIntegerField(
+        null=True, blank=True, default=0,
+        verbose_name='历史波动率环境信号'  # 基于历史波动率的环境信号 (-1低波动环境削弱, 0中性, 1高波动环境增强)
     )
 
     # === TPlus0Strategy (T+0策略) 相关中间结果 ===
