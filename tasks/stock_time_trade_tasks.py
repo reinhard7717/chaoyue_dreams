@@ -134,53 +134,32 @@ def process_single_stock_latest_trade_trading_hours(self, stock_code: str, time_
 
 @celery_app.task(bind=True, name='tasks.stock_indicators.process_stocks_latest_trade_by_time_level')
 def process_stocks_latest_trade_by_time_level(self, time_level: str, stock_codes: List[str]):
-    """
-    获取并保存所有股票的最新实时数据 (子任务)
-    """
-    # logger.info(f"子任务启动: process_single_stock_realtime_data for {stock_code}")
-    # 导入 DAO，注意路径根据你的项目结构调整
     from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO
-
-    stock_indicators_dao = None # 初始化为 None
-    task_result = f"处理时间级别 {time_level} 全部股票数据失败" # 默认失败结果
+    stock_indicators_dao = None
+    task_result = f"处理时间级别 {time_level} 全部股票数据失败"
 
     try:
         stock_indicators_dao = StockIndicatorsDAO()
-        # 在同步的 Celery 任务中运行异步 DAO 方法
         asyncio.run(stock_indicators_dao.fetch_and_save_latest_time_trade_by_time_level_and_stock_codes(stock_codes, time_level))
-        # task_result = f"成功处理股票 {stock_code} 最新实时数据"
-        # logger.info(task_result)
     except Exception as e:
         logger.error(f"处理时间级别 {time_level} 全部股票数据时发生错误: {e}", exc_info=True)
-        task_result = f"处理时间级别 {time_level} 全部股票数据失败: {e}"
+        task_result = f"处理时间级别 {time_level} 全部股票数据失败: {str(e)}"
     finally:
-        # 确保 DAO 被关闭，即使它在 try 块中未能成功初始化
         if stock_indicators_dao:
             try:
-                # DAO 的 close 方法也可能是异步的
                 asyncio.run(stock_indicators_dao.close())
-                # logger.debug(f"DAO for {time_level} closed.")
             except Exception as close_err:
                 logger.error(f"关闭股票 {time_level} 的 stock_indicators_dao 时出错: {close_err}", exc_info=True)
-        # logger.info(f"子任务结束: process_single_stock_realtime_data for {stock_code}")
 
-    return task_result # 返回单个任务的结果
+    return task_result  # 确保返回的是字符串或其他可序列化的类型
 
 
 @celery_app.task(bind=True, name='tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level')
 def save_latest_trade_datas_by_time_level(self, time_level: str, batch_size: int = 200):
-    """
-    修改后的调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 为每只股票创建任务链 (获取数据 -> 计算指标 -> 执行策略)，并分派到指定的队列。
-    3. 将自选股任务分派到 FAVORITE_SAVE_API_DATA_QUEUE 队列。
-    4. 将非自选股任务分派到 STOCKS_SAVE_API_DATA_QUEUE 队列。
-    这个任务由 Celery Beat 调度。
-    """
     logger.info("任务启动: save_latest_trade_datas_by_time_level (调度器模式) - 获取股票列表并分派细粒度任务链")
     try:
-        # 在同步任务中运行异步代码来获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        logger.info(f"自选股数量: {len(favorite_codes)}, 非自选股数量: {len(non_favorite_codes)}")
 
         if not favorite_codes and not non_favorite_codes:
             logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
@@ -190,29 +169,52 @@ def save_latest_trade_datas_by_time_level(self, time_level: str, batch_size: int
         total_favorite_stocks = len(favorite_codes)
         total_non_favorite_stocks = len(non_favorite_codes)
 
-        # 1. 分派自选股任务链到 FAVORITE_SAVE_API_DATA_QUEUE 队列
         for i in range(0, total_favorite_stocks, batch_size):
             batch = favorite_codes[i:i + batch_size]
             if batch:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch)})...")
-                process_stocks_latest_trade_by_time_level.s(batch, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                task = process_stocks_latest_trade_by_time_level.s(batch, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE)
+                result = task.apply_async()
                 total_dispatched_batches += 1
-                logger.info(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
+                logger.info(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1}), 任务ID: {result.id}")
 
-        # 2. 分派非自选股任务链到 STOCKS_SAVE_API_DATA_QUEUE 队列
         for i in range(0, total_non_favorite_stocks, batch_size):
             batch = non_favorite_codes[i:i + batch_size]
             if batch:
                 logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
-                process_stocks_latest_trade_by_time_level.s(batch, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                task = process_stocks_latest_trade_by_time_level.s(batch, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
+                result = task.apply_async()
                 total_dispatched_batches += 1
-                logger.info(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
+                logger.info(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1}), 任务ID: {result.id}")
 
         logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派了批次任务。")
-
         logger.info(f"任务结束: save_latest_trade_datas_by_time_level (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
-        return {"status": "success", "dispatched_batches": total_dispatched_batches}
+        
+        # 确保返回结果中的数值是 Python 原生类型
+        return {"status": "success", "dispatched_batches": int(total_dispatched_batches)}
 
     except Exception as e:
         logger.error(f"执行 save_latest_trade_datas_by_time_level (调度器模式) 时出错: {e}", exc_info=True)
         return "调度任务执行失败"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
