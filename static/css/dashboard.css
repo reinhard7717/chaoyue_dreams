@@ -203,7 +203,6 @@ section h2 .icon {
     color: var(--semi-color-text-1);
     font-size: 1em;
     font-weight: 500;
-    text-align: center;
 }
 .favorites-table .strategy-signal .signal {
     /* 继承 .tag 样式 */

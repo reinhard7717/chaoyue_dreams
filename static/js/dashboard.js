@@ -523,8 +523,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function formatVolume(value) {
         if (value === null || value === undefined || isNaN(value)) return '--';
-        // 可以根据需要转换为“万手”等单位
-        return value.toLocaleString(); // 添加千位分隔符
+        return Number(value).toLocaleString(); // 强制转为数字
     }
 
     function flashRow(rowElement) {

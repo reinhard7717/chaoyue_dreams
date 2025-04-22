@@ -10,7 +10,20 @@ class StockInfo(models.Model):
     """股票基础信息模型"""
     stock_code = models.CharField(max_length=10, verbose_name='股票代码', primary_key=True)  # 原 dm
     stock_name = models.CharField(max_length=50, verbose_name='股票名称', null=True, blank=True)  # 原 mc
+    area = models.CharField(max_length=20, verbose_name='地域', null=True, blank=True)
+    industry = models.CharField(max_length=50, verbose_name='所属行业', null=True, blank=True)
+    full_name = models.CharField(max_length=100, verbose_name='股票全称', null=True, blank=True)
+    en_name = models.CharField(max_length=100, verbose_name='英文全称', null=True, blank=True)
+    cn_spell = models.CharField(max_length=20, verbose_name='拼音缩写', null=True, blank=True)
+    market_type = models.CharField(max_length=20, verbose_name='市场类型', null=True, blank=True)
     exchange = models.CharField(max_length=10, verbose_name='交易所', null=True, blank=True)  # 原 jys
+    currency_type = models.CharField(max_length=10, verbose_name='交易货币', null=True, blank=True)
+    list_status = models.CharField(max_length=2, verbose_name='上市状态', null=True, blank=True)
+    list_date = models.DateField(verbose_name='上市日期', null=True, blank=True)
+    delist_date = models.DateField(verbose_name='退市日期', null=True, blank=True)
+    is_hs = models.CharField(max_length=2, verbose_name='是否沪深港通标的', null=True, blank=True)
+    actual_controller = models.CharField(max_length=100, verbose_name='实控人名称', null=True, blank=True)
+    actual_controller_type = models.CharField(max_length=50, verbose_name='实控人企业性质', null=True, blank=True)
     circulating_shares = models.BigIntegerField(verbose_name='流通股本', null=True, blank=True)  # 新添加字段
     
     class Meta:

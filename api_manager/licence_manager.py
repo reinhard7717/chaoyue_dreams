@@ -31,10 +31,10 @@ class LicenceManager:
         初始化License管理器
         """
         if not self._initialized:
-            # 从settings中读取API_LICENCES配置
-            self._licenses = getattr(settings, 'API_LICENCES', [])
+            # 从settings中读取API_LICENCES_IG507配置
+            self._licenses = getattr(settings, 'API_LICENCES_IG507', [])
             if not self._licenses:
-                logger.warning("未在settings中找到API_LICENCES配置，或配置为空列表")
+                logger.warning("未在settings中找到API_LICENCES_IG507配置，或配置为空列表")
             else:
                 logger.info(f"从settings中加载了{len(self._licenses)}个license")
             

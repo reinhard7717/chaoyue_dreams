@@ -541,6 +541,40 @@ class IndexCacheSet(CacheSet):
         cache_key = self.cache_key_index.history_boll(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
+class StockTimeTradeCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+        self.cache_key_stock = StockCashKey()
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
+
+    async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        """
+        将处理后的单个最新指数时间序列数据点缓存到 Redis。
+        Args:
+            stock_code: 指数代码。
+            time_level: 时间级别 (e.g., '5', '30', 'Day').
+            data_to_cache: 经过处理的、可JSON序列化的最新时间序列数据字典。
+                           格式应与 get_latest_time_series_from_cache 期望的格式一致。
+        Returns:
+            bool: 缓存操作是否成功。
+        """
+        # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
+        data_to_cache = await self._format_conversion(data_to_cache)
+        if data_to_cache is None:
+            logger.error(f"latest_time_trade.data_to_cache转换失败。")
+            return False
+        cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
+        return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
+
+    async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
+        return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+
+
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):
         self.cache_manager = None  # 初始为 None

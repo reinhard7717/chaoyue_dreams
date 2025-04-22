@@ -5,6 +5,7 @@ import socket # <--- 导入 socket 模块
 from pathlib import Path
 from celery.schedules import crontab
 from kombu import Queue
+from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -210,7 +211,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # API配置
 API_BASE_URL = 'http://ig507.com'  # 修改为http方式
-API_LICENCES = ['6AEE029A-44A4-3404-A405-FB2C20085521', '03B3418F-04F6-5C44-A700-A245F74B8D77', '6AEE029A-44A4-3404-A405-FB2C20085521', '03B3418F-04F6-5C44-A700-A245F74B8D77']
+API_LICENCES_IG507 = ['6AEE029A-44A4-3404-A405-FB2C20085521', '03B3418F-04F6-5C44-A700-A245F74B8D77', '6AEE029A-44A4-3404-A405-FB2C20085521', '03B3418F-04F6-5C44-A700-A245F74B8D77']
+API_LICENCES_TUSHARE = '0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c'
 API_REQUEST_TIMEOUT = 10  # 请求超时时间(秒)
 API_RATE_LIMIT = {
     'default': {'times': 10, 'seconds': 60},  # 默认每分钟10次
@@ -725,43 +727,50 @@ CELERY_TASK_QUEUES = (
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器
 CELERY_BEAT_SCHEDULE = {
     ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
-    '每 60 秒运行一次所有股票的实时数据获取': {
-        'task': 'tasks.stock_realtime.save_stocks_realtime_data_task', # 任务函数名
-        'schedule': crontab(minute='*/1', hour='9,10,11,13,14,15,20,21', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 1 分钟执行
+    '每 5 秒运行一次所有股票的实时Tick数据获取': {
+        'task': 'tasks.tushare.stock_realtime.save_stocks_tick_data_task',
+        'schedule': timedelta(seconds=5),  # 每5秒执行一次
+        'options': {'queue': 'celery'},
+    },
+    '每 1 分钟运行一次所有股票的K线数据获取任务': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'schedule': crontab(minute='*/1', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'kwargs': {'time_level': '1'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 5 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level', # 任务函数名
-        'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15,16,17', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '5'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 15 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level', # 任务函数名
-        'schedule': crontab(minute='*/15', hour='9,10,11,13,14,15,16,17', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'schedule': crontab(minute='*/15', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '15'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 30 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level', # 任务函数名
-        'schedule': crontab(minute='*/30', hour='9,10,11,13,14,15,16,17', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'schedule': crontab(minute='*/30', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '30'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 60 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.stock_time_trade_tasks.save_latest_trade_datas_by_time_level', # 任务函数名
-        'schedule': crontab(minute='*/60', hour='9,10,11,13,14,15,16,17', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'schedule': crontab(minute='*/60', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '60'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 5 分钟运行一次所有股票的策略计算任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.stock_analysis.analyze_all_stocks', # 任务函数名
-        'schedule': crontab(minute='*/5', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
     },
 }
 

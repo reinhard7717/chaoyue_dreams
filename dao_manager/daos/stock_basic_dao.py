@@ -2,8 +2,11 @@ import json
 import logging
 import asyncio
 import sys
+
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Optional
+
+from django.conf import settings
 
 
 from utils import cache_constants as cc
@@ -60,7 +63,6 @@ class StockBasicDAO(BaseDAO):
             pass
     
     # ================= 股票基本信息相关方法 =================
-    
     async def get_stock_list(self) -> List['StockInfo']:
         """
         获取所有股票的基本信息
@@ -341,7 +343,116 @@ class StockBasicDAO(BaseDAO):
             logger.error(f"fetch_and_save_stocks刷新股票数据失败: {str(e)}")
             raise
 
+    async def tukuan_save_stocks(self, stock_code: str) -> Optional['StockInfo']:
+        """
+        通过tushare获取股票数据并保存到数据库
+        """
+        from stock_models.stock_basic import StockInfo
+        stock_dicts = []
+        df = self.ts_pro.stock_basic(**{
+            "ts_code": "", "name": "", "exchange": "", "market": "", "is_hs": "", "list_status": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", 
+            "act_ent_type", "fullname", "exchange", "list_status"
+        ])
+         # 使用CacheManager生成标准化缓存键
+        cache_key = self.cache_key.stock_data(stock_code)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        for row in df.itertuples():
+            stock_dict = self.data_format_process.set_stock_info_data(row)
+            stock_dicts.append(stock_dict)
+            await self.cache_manager.set(key=cache_key, data=stock_dict, timeout=self.cache_manager.get_timeout('st'))
+        if stock_dicts is not None:
+            await self._save_all_to_db_native_upsert(
+                    model_class=StockInfo,
+                    data_list=stock_dicts,
+                    unique_fields=['stock_code'] # ORM 能处理 stock 实例
+                )
+    # ================= 公司信息相关方法 =================
+    async def get_company_info_by_code(self, stock_code: str) -> Optional['CompanyInfo']:
+        """
+        根据股票代码获取公司信息
         
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            Optional[CompanyInfo]: 公司信息
+        """
+        from stock_models.stock_basic import CompanyInfo
+        # 使用CacheManager生成标准化缓存键
+        cache_key = self.cache_key.generate_key('st', 'company', stock_code)
+        
+        # 尝试从缓存获取
+        company = self.cache_manager.get_model(cache_key, CompanyInfo)
+        if company:
+            return company
+            
+        # 从数据库获取
+        try:
+            @sync_to_async
+            def get_db_item():
+                return CompanyInfo.objects.filter(stock_code=stock_code).first()
+            
+            item = await get_db_item()
+            
+            if item:
+                # 序列化并缓存
+                self.cache_manager.set(
+                    cache_key, 
+                    self._serialize_model(item),
+                    timeout=self.cache_manager.get_timeout('st')
+                )
+                return item
+                
+            # 从API获取
+            api_data = await self.api.get_company_info(stock_code)
+            if not api_data:
+                return None
+                
+            # 映射数据
+            mapped_data = self._map_api_to_model(api_data, COMPANY_INFO_MAPPING)
+            mapped_data['stock_code'] = stock_code
+            
+            # 保存到数据库
+            item = await self._save_to_db(CompanyInfo, mapped_data)
+            if item:
+                # 序列化并缓存
+                self.cache_manager.set(
+                    cache_key, 
+                    self._serialize_model(item),
+                    timeout=self.cache_manager.get_timeout('st')
+                )
+                
+            return item
+        except Exception as e:
+            logger.error(f"获取公司信息失败: {e}")
+            return None
+    
+    async def tukuan_save_company_info(self, stock_code: str) -> Optional['CompanyInfo']:
+        """
+        通过tushare获取公司信息并保存到数据库
+        """
+        from stock_models.stock_basic import CompanyInfo
+        # 拉取数据
+        df = self.ts_pro.stock_company(**{
+            "ts_code": "", "exchange": "", "status": "", "limit": "", "offset": ""
+        }, fields=["ts_code", "com_name", "com_id", "chairman", "manager", "secretary", "reg_capital", "setup_date", "province",
+            "city", "introduction", "website", "email", "office", "business_scope", "employees", "main_business", "exchange"
+        ])
+        company_dicts = []
+        for row in df.itertuples():
+            company_info = {
+
+            }
+            print(row.ts_code, row.com_name, row.chairman)
+
+
+        # 使用CacheManager生成标准化缓存键
+        cache_key = self.cache_key.generate_key('st', 'company', stock_code)
+
+
+
     # ================= 新股日历相关方法 =================
     
     async def get_new_stock_by_code(self, stock_code: str) -> Optional['NewStockCalendar']:
@@ -479,10 +590,8 @@ class StockBasicDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取所有新股数据失败: {e}")
             return []
-    
-    
+
     # ================= ST股票相关方法 =================
-    
     async def get_st_stock_by_code(self, stock_code: str) -> Optional['STStockList']:
         """
         根据股票代码获取ST股票信息
@@ -617,65 +726,12 @@ class StockBasicDAO(BaseDAO):
             logger.error(f"获取所有ST股票数据失败: {e}")
             return []
     
-    # ================= 公司信息相关方法 =================
-    
-    async def get_company_info_by_code(self, stock_code: str) -> Optional['CompanyInfo']:
-        """
-        根据股票代码获取公司信息
-        
-        Args:
-            stock_code: 股票代码
-            
-        Returns:
-            Optional[CompanyInfo]: 公司信息
-        """
-        from stock_models.stock_basic import CompanyInfo
-        # 使用CacheManager生成标准化缓存键
-        cache_key = self.cache_key.generate_key('st', 'company', stock_code)
-        
-        # 尝试从缓存获取
-        company = self.cache_manager.get_model(cache_key, CompanyInfo)
-        if company:
-            return company
-            
-        # 从数据库获取
-        try:
-            @sync_to_async
-            def get_db_item():
-                return CompanyInfo.objects.filter(stock_code=stock_code).first()
-            
-            item = await get_db_item()
-            
-            if item:
-                # 序列化并缓存
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(item),
-                    timeout=self.cache_manager.get_timeout('st')
-                )
-                return item
-                
-            # 从API获取
-            api_data = await self.api.get_company_info(stock_code)
-            if not api_data:
-                return None
-                
-            # 映射数据
-            mapped_data = self._map_api_to_model(api_data, COMPANY_INFO_MAPPING)
-            mapped_data['stock_code'] = stock_code
-            
-            # 保存到数据库
-            item = await self._save_to_db(CompanyInfo, mapped_data)
-            if item:
-                # 序列化并缓存
-                self.cache_manager.set(
-                    cache_key, 
-                    self._serialize_model(item),
-                    timeout=self.cache_manager.get_timeout('st')
-                )
-                
-            return item
-        except Exception as e:
-            logger.error(f"获取公司信息失败: {e}")
-            return None
-    
+
+
+
+
+
+
+
+
+

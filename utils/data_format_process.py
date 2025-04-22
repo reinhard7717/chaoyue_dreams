@@ -1,5 +1,6 @@
 from django.utils import timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo, StockTimeTrade
@@ -464,11 +465,86 @@ class StrategiesDataFormatProcess(BaseDAO):
         }
         return data_dict
 
+class StockInfoFormatTuShare(BaseDAO):
+    def set_stock_info_data(self, df_data: Any) -> Dict:
+        data_dict = {
+            "stock_code": df_data.ts_code,
+            "stock_name": df_data.name,
+            "area": df_data.area,
+            "industry": df_data.industry,
+            "full_name": df_data.fullname,
+            "en_name": df_data.en_name,
+            "cn_spell": df_data.cnspell,
+            "market_type": df_data.market,
+            "exchange": df_data.exchange,
+            "currency_type": df_data.curr_type,
+            "list_status": df_data.list_status,
+            "list_date": df_data.list_date,
+            "delist_date": df_data.delist_date,
+            "is_hs": df_data.is_hs,
+            "actual_controller": df_data.act_name,
+            "actual_controller_type": df_data.act_ent_type,
+        }
+        return data_dict
 
+class StockRealtimeDataFormatTuShare(BaseDAO):
+    def set_realtime_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(df_data.date + df_data.time),
+            "open_price": df_data.open,
+            "prev_close_price": df_data.pre_close,
+            "current_price": df_data.price,
+            "high_price": df_data.high,
+            "low_price": df_data.low,
+            "volume": df_data.volume,
+            "turnover_value": df_data.amount,
+        }
+        return data_dict
 
+    def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(df_data.date + df_data.time),
+            "buy_volume1": df_data.b1_v,
+            "buy_price1": df_data.b1_p,
+            "buy_volume2": df_data.b2_v,
+            "buy_price2": df_data.b2_p,
+            "buy_volume3": df_data.b3_v,
+            "buy_price3": df_data.b3_p,
+            "buy_volume4": df_data.b4_v,
+            "buy_price4": df_data.b4_p,
+            "buy_volume5": df_data.b5_v,
+            "buy_price5": df_data.b5_p,
+            "sell_volume1": df_data.s1_v,
+            "sell_price1": df_data.s1_p,
+            "sell_volume2": df_data.s2_v,
+            "sell_price2": df_data.s2_p,
+            "sell_volume3": df_data.s3_v,
+            "sell_price3": df_data.s3_p,
+            "sell_volume4": df_data.s4_v,
+            "sell_price4": df_data.s4_p,
+            "sell_volume5": df_data.s5_v,
+            "sell_price5": df_data.s5_p,
+            "order_diff": df_data.b1_v - df_data.s1_v,
+            "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
+        }
+        return data_dict
 
-
-
-
-
+class StockTimeTradeFormatTuShare(BaseDAO):
+    def set_time_trade_data(self, stock: StockInfo, time_level: str, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(df_data.date),
+            "time_level": time_level,
+            "open_price": df_data.open,
+            "high_price": df_data.high,
+            "low_price": df_data.low,
+            "close_price": df_data.close,
+            "volume": df_data.vol,
+            "price_change_amount": df_data.change,
+            "price_change_percent": df_data.pct_chg,
+            "turnover": df_data.amount,
+        }
+        return data_dict
 

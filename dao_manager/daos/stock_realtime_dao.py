@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time as time_lib  # 用于测量时间
+import pandas as pd
+import tushare as ts
 from typing import Dict, List, Any, Optional
 from datetime import datetime, date
 from channels.db import database_sync_to_async # 用于同步 ORM 查询
@@ -14,7 +16,7 @@ from utils.cache_get import StockRealtimeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
 from utils.cash_key import StockCashKey
-from utils.data_format_process import StockRealtimeDataFormatProcess
+from utils.data_format_process import StockRealtimeDataFormatProcess, StockRealtimeDataFormatTuShare
 
 from api_manager.apis.stock_realtime_api import StockRealtimeAPI
 from dao_manager.base_dao import BaseDAO
@@ -34,6 +36,7 @@ class StockRealtimeDAO(BaseDAO):
         self.api = StockRealtimeAPI()
         self.stock_basic_dao = StockBasicDAO()
         self.data_format_process = StockRealtimeDataFormatProcess()
+        self.data_format_tushare = StockRealtimeDataFormatTuShare()
         self.cache_manager = None  # 初始化缓存管理器
         self.cache_get = None
         self.cache_set = None
@@ -337,6 +340,8 @@ class StockRealtimeDAO(BaseDAO):
             logger.error(f"获取并保存所有股票实时数据失败: {str(e)}", exc_info=True)
             return {} # 返回空字典表示整体失败
     
+
+
     # ================= Level5Data相关方法 =================
     async def get_level5_data_by_code(self, stock_code: str) -> Optional[StockLevel5Data]:
         """

@@ -12,7 +12,7 @@ from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
 from datetime import datetime, date # 日期时间类型
 from decimal import Decimal # 导入 Decimal
-
+import tushare as ts
 from django.conf import settings # Django 设置
 import pytz # 时区处理
 
@@ -23,9 +23,6 @@ from asgiref.sync import sync_to_async # 异步转换工具
 
 # 导入自定义的 CacheManager
 from utils.cache_manager import CacheManager
-# 导入可能的依赖 DAO (用于 build_model)
-# 注意：BaseDAO 不应直接依赖具体子类 DAO，但 build_model 可能需要，通过参数传入
-# from .stock_basic_dao import StockBasicDAO # 示例
 
 logger = logging.getLogger("dao") # 获取日志记录器
 
@@ -51,6 +48,8 @@ class BaseDAO(Generic[T]):
         self.model_class = model_class
         self.api_service = api_service # API 服务实例，子类可以覆盖或使用
         self.cache_timeout = cache_timeout # 默认缓存超时时间
+        self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
+        self.ts = ts.set_token(settings.API_LICENCES_TUSHARE)
 
         # 只有当 model_class 不为 None 时才设置 model_name，用于生成缓存键前缀
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
@@ -942,7 +941,7 @@ class BaseDAO(Generic[T]):
 
             # 尝试常见格式列表
             common_formats = [
-                '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M:%S', '%Y/%m/%d %H:%M',
+                '%Y%m%d%H:%M:%S','%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M:%S', '%Y/%m/%d %H:%M',
                 '%Y%m%d%H%M%S', '%Y%m%d%H%M', '%Y%m%d', '%Y-%m-%d', '%Y/%m/%d',
                 '%Y年%m月%d日 %H时%M分%S秒', '%Y年%m月%d日 %H时%M分', '%Y年%m月%d日',
             ]

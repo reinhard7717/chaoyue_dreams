@@ -26,9 +26,9 @@ class BaseAPI:
         self.timeout = getattr(settings, 'API_REQUEST_TIMEOUT', 30)
         
         # license管理
-        self.licences = getattr(settings, 'API_LICENCES', [])
+        self.licences = getattr(settings, 'API_LICENCES_IG507', [])
         if not self.licences:
-            logger.warning("未在settings中找到API_LICENCES配置，或配置为空列表")
+            logger.warning("未在settings中找到API_LICENCES_IG507配置，或配置为空列表")
         
         # 各license的使用情况记录和冷却状态
         self.licence_usage = {lic: {"count": 0, "last_used": 0, "errors": 0, "cooldown_until": 0} 
