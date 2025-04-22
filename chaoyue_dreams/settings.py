@@ -514,26 +514,6 @@ API_UPDATE_TIME_RANGE = {
     'trading_days': [0, 1, 2, 3, 4],  # 周一到周五
 }
 
-# 技术指标计算设置
-TECHNICAL_INDICATOR_SETTINGS = {
-    'MA_PERIODS': [5, 10, 20, 60],
-    'MACD_SETTINGS': {
-        'FAST': 12,
-        'SLOW': 26,
-        'SIGNAL': 9,
-    },
-    'KDJ_SETTINGS': {
-        'WINDOW': 9,
-    },
-    'RSI_SETTINGS': {
-        'WINDOW': 14,
-    },
-    'BOLL_SETTINGS': {
-        'WINDOW': 20,
-        'STD_DEV': 2,
-    },
-}
-
 # 策略参数设置
 STRATEGY_SETTINGS = {
     'INTRADAY_SETTINGS': {
