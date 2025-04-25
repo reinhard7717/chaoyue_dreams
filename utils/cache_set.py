@@ -550,14 +550,7 @@ class StockInfoCacheSet(CacheSet):
         from utils.cache_manager import CacheManager  # 导入
         self.cache_manager = CacheManager()  # 先实例化
         await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
-
-    async def stock_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        if self.cache_manager is None:
-            await self.initialize_cache_manager()  # 确保初始化
-        cache_key = self.cache_key_stock.stock_data(stock_code)
-        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
-        return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
-    
+   
     async def stock_basic_info_list(self, data_to_cache: Dict[str, Any]) -> bool:
         if self.cache_manager is None:
             await self.initialize_cache_manager()  # 确保初始化
@@ -599,6 +592,14 @@ class StockTimeTradeCacheSet(CacheSet):
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
+    
+    async def stock_day_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
+        cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        return await self._history_data(stock_code, "Day_Basic_Info", data_to_cache, cache_key)
+ 
 
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):

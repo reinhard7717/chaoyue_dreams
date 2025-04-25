@@ -219,6 +219,14 @@ class StockCashKey(CashKey):
         )
         return cache_key
     
+    def stock_day_basic_info(self, stock_code: str) -> str:
+        cache_key = self.generate_key(
+            cache_type=cc.TYPE_STATIC,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype=cc.SUBTYPE_DAY_BASIC_INFO
+        )
+
     # 单个股票的最新分时成交数据cache_key
     def latest_time_trade(self, stock_code: str, time_level: str) -> str:
         """

@@ -411,6 +411,12 @@ class StockTimeTradeCacheGet(CacheGet):
         """
         await super().initialize_cache_manager()  # 调用父类方法初始化 cache_manager
 
+    async def stock_day_basic_info_by_limit(self, stock_code: str, limit: int) -> Optional[Dict[str, Any]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
+        cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
+        return await self._history_data_by_limit(cache_key, limit)
+
     async def latest_time_trade(self, stock_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数和时间级别的最新时间序列数据点。

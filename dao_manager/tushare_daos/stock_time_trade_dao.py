@@ -7,7 +7,6 @@ from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
-from stock_models.stock_realtime import StockRealtimeData
 from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockWeeklyData, StockMonthlyData
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
@@ -61,7 +60,7 @@ class StockTimeTradeDAO(BaseDAO):
                         del cache_data_dict['stock'] # 删除实例键
                     prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
                     if prepared_data:
-                        await self.cache_set.history_time_trade(stock.stock_code, prepared_data)
+                        await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
                         # --- 函数末尾执行最终修剪 ---
                         cache_key =  self.cache_key.history_time_trade(stock.stock_code, "Day")
                         await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
@@ -70,7 +69,7 @@ class StockTimeTradeDAO(BaseDAO):
                         logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockDailyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -105,12 +104,12 @@ class StockTimeTradeDAO(BaseDAO):
                         del cache_data_dict['stock'] # 删除实例键
                     prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
                     if prepared_data:
-                        await self.cache_set.history_time_trade(stock.stock_code, prepared_data)
+                        await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
                     else:
                         logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockDailyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -151,12 +150,12 @@ class StockTimeTradeDAO(BaseDAO):
                         del cache_data_dict['stock'] # 删除实例键
                     prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
                     if prepared_data:
-                        await self.cache_set.history_time_trade(stock.stock_code, prepared_data)
+                        await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
                     else:
                         logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockDailyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -221,7 +220,7 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockDailyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -276,7 +275,7 @@ class StockTimeTradeDAO(BaseDAO):
                 else:
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMinuteData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -318,7 +317,7 @@ class StockTimeTradeDAO(BaseDAO):
                 else:
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMinuteData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -361,7 +360,7 @@ class StockTimeTradeDAO(BaseDAO):
                 else:
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMinuteData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -402,7 +401,7 @@ class StockTimeTradeDAO(BaseDAO):
                             logger.warning(f"为股票 {stock_obj} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMinuteData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
@@ -445,7 +444,7 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if data_dicts:
                 result = await self._save_all_to_db_native_upsert(
-                    model_class=StockRealtimeData,
+                    model_class=StockMinuteData,
                     data_list=data_dicts,
                     unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
                 )
@@ -484,7 +483,7 @@ class StockTimeTradeDAO(BaseDAO):
                     # --- 修剪调用结束 ---
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMinuteData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
@@ -576,7 +575,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockWeeklyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -608,7 +607,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockWeeklyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -655,7 +654,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMonthlyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
@@ -687,14 +686,13 @@ class StockTimeTradeDAO(BaseDAO):
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMonthlyData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
         else:
             result = []
         return result
-
 
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:
         """
@@ -735,7 +733,7 @@ class StockTimeTradeDAO(BaseDAO):
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_stock_daily_basic_data(row, stock)
-                await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
+                await self.cache_set.stock_day_basic_info(row.ts_code, data_dict)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockDailyBasic,
@@ -762,7 +760,7 @@ class StockTimeTradeDAO(BaseDAO):
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_stock_daily_basic_data(row, stock)
-                await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
+                await self.cache_set.stock_day_basic_info(row.ts_code, data_dict)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockDailyBasic,
@@ -779,7 +777,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # 从Redis缓存中获取数据
         cache_key = self.cache_key.today_basic_info(stock_code)
-        data_dicts = await self.cache_get.today_basic_info(cache_key)
+        data_dicts = await self.cache_get.stock_day_basic_info_by_limit(cache_key, self.cache_limit)
         stock_daily_basic_list = []
         if data_dicts:
             for data_dict in data_dicts:
