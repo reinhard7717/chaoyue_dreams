@@ -31,7 +31,6 @@ class StockBasicInfoDao(BaseDAO):
     async def get_stock_list(self) -> List['StockInfo']:
         """
         获取所有股票的基本信息
-        
         Returns:
             List[StockInfo]: 股票基本信息列表（已过滤掉 stock_name 中包含“退”或“债”字的股票）
             过滤逻辑：如果 stock_name 中包含“退”字或“债”字（或的关系），则排除。
@@ -45,8 +44,8 @@ class StockBasicInfoDao(BaseDAO):
                 return_data = []
                 for stock_dict in cached_data:
                     logger.info(f"get_stock_list: {stock_dict}")
-                    stock_dict = self.data_format_process.set_stock_info_data(stock_dict)
                     if stock_dict.get('list_status') == 'L':
+                        stock_dict = self.data_format_process.set_stock_info_basic_data(stock_dict)
                         return_data.append(StockInfo(**stock_dict))
                 # 排序
                 sorted_data = sorted(return_data, key=lambda x: x.stock_code)
@@ -68,21 +67,7 @@ class StockBasicInfoDao(BaseDAO):
                     await self.stock_cache_set.stock_basic_info(stock, stock_dict)
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}")
-        
-        # 如果数据库中没有数据，从API获取并保存
-        logger.info("数据库中没有股票数据，从API获取")
-        await self.fetch_and_save_stocks()
-        # 从数据库读取
-        get_stocks_sync = sync_to_async(
-            lambda: list(StockInfo.objects.filter(list_status='L').order_by('stock_code')),
-            thread_sensitive=True
-        )
-        stocks = await get_stocks_sync()
-        # 过滤掉 stock_name 中包含“退”或“债”字的股票
-        filtered_stocks = [item for item in stocks if '退' not in item.stock_name and '债' not in item.stock_name]
-        # 排序
-        sorted_stocks = sorted(filtered_stocks, key=lambda x: x.stock_code)
-        return sorted_stocks
+        return stocks
 
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
         """
