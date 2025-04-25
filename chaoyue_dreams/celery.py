@@ -36,6 +36,10 @@ app.conf.update(
         'tasks.calculate_tasks',
         'tasks.stock_time_trade_tasks',
         'tasks.management.commands.test_strategy_signals',
+        'tasks.tushare.stock_time_trade',
+        'tasks.tushare.stock',
+        'tasks.tushare.stock_realtime',
+        'tasks.tushare.stock_basic',
         # 如果还有其他文件包含 Celery 任务，也一并添加到这里
         # 例如: 'tasks.other_tasks'
     ]
