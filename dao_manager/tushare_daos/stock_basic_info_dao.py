@@ -92,7 +92,8 @@ class StockBasicInfoDao(BaseDAO):
             Optional[StockInfo]: 股票信息
         """
         from stock_models.stock_basic import StockInfo
-        stock = await self.stock_cache_get.stock_data_by_code(stock_code)
+        stock_dict = await self.stock_cache_get.stock_data_by_code(stock_code)
+        stock = StockInfo(**stock_dict)
         if stock is not None:
             return stock
         # 从数据库获取
@@ -194,10 +195,10 @@ class StockBasicInfoDao(BaseDAO):
             company_dicts.append(company_dict)
         if company_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
-                    model_class=StockCompany,
-                    data_list=company_dicts,
-                    unique_fields=['stock_code'] # ORM 能处理 stock 实例
-                )
+                model_class=StockCompany,
+                data_list=company_dicts,
+                unique_fields=['stock_code'] # ORM 能处理 stock 实例
+            )
         return result
 
     async def save_hs_const(self) -> Dict:
