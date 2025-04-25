@@ -320,7 +320,7 @@ def save_daily_basic_data_history_batch(self, stock_code: str):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_basic_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_history_task')
 def save_stocks_daily_basic_data_history_task(self):
     """
     调度器任务：
