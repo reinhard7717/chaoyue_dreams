@@ -195,7 +195,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_date),
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -249,7 +249,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_date),
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -265,7 +265,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_date),
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -281,7 +281,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": self._parse_datetime(df_data.trade_date),
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "close": df_data.close,
             "turnover_rate": df_data.turnover_rate,
             "turnover_rate_f": df_data.turnover_rate_f,
@@ -303,7 +303,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": self._parse_datetime(df_data.trade_date),
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "his_low": df_data.his_low,
             "his_high": df_data.his_high,
             "cost_5pct": df_data.cost_5pct,
@@ -319,7 +319,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": self._parse_datetime(df_data.trade_date),
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "price": df_data.price,
             "percent": df_data.percent,
         }
@@ -388,7 +388,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "buy_sm_vol": df_data.buy_sm_vol,
             "buy_sm_amount": df_data.buy_sm_amount,
             "sell_sm_vol": df_data.sell_sm_vol,
@@ -413,7 +413,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_data_ths(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "net_amount": df_data.net_amount,
             "net_d5_amount": df_data.net_d5_amount,
             "buy_lg_amount": df_data.buy_lg_amount,
@@ -428,7 +428,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_data_dc(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "net_amount": df_data.net_amount,
             "net_amount_rate": df_data.net_amount_rate,
             "net_d5_amount": df_data.net_d5_amount,
@@ -446,7 +446,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_cnt_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "lead_stock": df_data.lead_stock,
             "pct_change": df_data.pct_change,
             "index_close": df_data.industry_index,
@@ -461,7 +461,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_cnt_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "content_type": df_data.content_type,
             "name": df_data.name,
             "pct_change": df_data.pct_change,
@@ -483,7 +483,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_industry_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "industry_name": df_data.industry,
             "lead_stock": df_data.lead_stock,
             "close": df_data.close,
@@ -500,7 +500,7 @@ class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_market_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_time),
             "close_sh": df_data.close_sh,
             "pct_change_sh": df_data.pct_change_sh,
             "close_sz": df_data.close_sz,

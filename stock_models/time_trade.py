@@ -6,7 +6,7 @@ import pandas as pd
 class StockDailyBasic(models.Model):
     """每日重要基本面指标"""
     stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='daily_basics', verbose_name='股票')
-    trade_date = models.DateField(verbose_name='交易日期')
+    trade_time = models.DateField(verbose_name='交易日期')
     close = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='收盘价')
     turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(%)')
     turnover_rate_f = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(自由流通股)')
@@ -29,11 +29,11 @@ class StockDailyBasic(models.Model):
         verbose_name = '每日基本面指标'
         verbose_name_plural = verbose_name
         db_table = 'stock_time_trade_day_basic'
-        unique_together = ('stock', 'trade_date')
-        ordering = ['-trade_date']
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
 
     def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_date}"
+        return f"{self.stock.stock_code} {self.trade_time}"
 
 # 日线行情模型（StockDailyData）
 class StockDailyData(models.Model):
@@ -46,7 +46,7 @@ class StockDailyData(models.Model):
         related_name='daily_data',
         verbose_name='股票'
     )
-    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     open = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='开盘价')
     high = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='最高价')
     low = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='最低价')
@@ -72,11 +72,11 @@ class StockDailyData(models.Model):
         verbose_name = 'A股日线行情'
         verbose_name_plural = verbose_name
         db_table = 'stock_time_trade_day'
-        unique_together = ('stock', 'trade_date')
-        ordering = ['-trade_date']
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
 
     def __str__(self):
-        return f"{self.stock_id} {self.trade_date}"
+        return f"{self.stock_id} {self.trade_time}"
 
 # 分钟行情模型（StockMinuteData）
 class StockMinuteData(models.Model):
@@ -119,7 +119,7 @@ class StockWeeklyData(models.Model):
         related_name='weekly_data',
         verbose_name='股票'
     )
-    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     open = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='周开盘价')
     high = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='周最高价')
     low = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='周最低价')
@@ -134,11 +134,11 @@ class StockWeeklyData(models.Model):
         verbose_name = 'A股周线行情'
         verbose_name_plural = verbose_name
         db_table = 'stock_time_trade_week'
-        unique_together = ('stock', 'trade_date')
-        ordering = ['-trade_date']
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
 
     def __str__(self):
-        return f"{self.stock_id} {self.trade_date}"
+        return f"{self.stock_id} {self.trade_time}"
 
 # 月线行情模型（StockMonthlyData）
 class StockMonthlyData(models.Model):
@@ -151,7 +151,7 @@ class StockMonthlyData(models.Model):
         related_name='monthly_data',
         verbose_name='股票'
     )
-    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     open = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='月开盘价')
     high = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='月最高价')
     low = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='月最低价')
@@ -166,11 +166,11 @@ class StockMonthlyData(models.Model):
         verbose_name = 'A股月线行情'
         verbose_name_plural = verbose_name
         db_table = 'stock_time_trade_month'
-        unique_together = ('stock', 'trade_date')
-        ordering = ['-trade_date']
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
 
     def __str__(self):
-        return f"{self.stock_id} {self.trade_date}"
+        return f"{self.stock_id} {self.trade_time}"
 
 # 筹码分布模型（StockCyqChips）
 class StockCyqChips(models.Model):
@@ -184,7 +184,7 @@ class StockCyqChips(models.Model):
         verbose_name='股票',
         db_index=True
     )
-    trade_date = models.CharField(max_length=8, verbose_name='交易日期', db_index=True)  # YYYYMMDD
+    trade_time = models.CharField(max_length=8, verbose_name='交易日期', db_index=True)  # YYYYMMDD
     price = models.FloatField(verbose_name='成本价格')
     percent = models.FloatField(verbose_name='价格占比(%)')
 
@@ -192,13 +192,13 @@ class StockCyqChips(models.Model):
         verbose_name = '每日筹码分布'
         verbose_name_plural = '每日筹码分布'
         db_table = 'stock_cyq_chips'
-        unique_together = ('stock', 'trade_date', 'price')
+        unique_together = ('stock', 'trade_time', 'price')
         indexes = [
-            models.Index(fields=['stock', 'trade_date']),
+            models.Index(fields=['stock', 'trade_time']),
         ]
 
     def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_date} {self.price}"
+        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
 
 # 筹码平均成本和胜率模型（StockCyqPerf）
 class StockCyqPerf(models.Model):
@@ -206,7 +206,7 @@ class StockCyqPerf(models.Model):
     A股每日筹码平均成本和胜率模型
     """
     stock = models.ForeignKey('StockInfo', to_field='stock_code', on_delete=models.CASCADE, verbose_name='股票', db_index=True)
-    trade_date = models.CharField(max_length=8, verbose_name='交易日期', db_index=True)  # YYYYMMDD
+    trade_time = models.CharField(max_length=8, verbose_name='交易日期', db_index=True)  # YYYYMMDD
     his_low = models.FloatField(verbose_name='历史最低价', null=True, blank=True)
     his_high = models.FloatField(verbose_name='历史最高价', null=True, blank=True)
     cost_5pct = models.FloatField(verbose_name='5分位成本', null=True, blank=True)
@@ -221,18 +221,18 @@ class StockCyqPerf(models.Model):
         verbose_name = '每日筹码及胜率'
         verbose_name_plural = '每日筹码及胜率'
         db_table = 'stock_cyq_perf'
-        unique_together = ('stock', 'trade_date')
+        unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_date']),
+            models.Index(fields=['stock', 'trade_time']),
         ]
 
     def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_date}"
+        return f"{self.stock.stock_code} {self.trade_time}"
 
 # 指数日线行情(IndexDaily)
 class IndexDaily(models.Model):
     index = models.ForeignKey('IndexInfo', to_field='index_code', db_column='index_code', related_name="index_daily", on_delete=models.CASCADE, verbose_name="指数")
-    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     close = models.FloatField(verbose_name="收盘点位")
     open = models.FloatField(verbose_name="开盘点位")
     high = models.FloatField(verbose_name="最高点位")
@@ -247,12 +247,12 @@ class IndexDaily(models.Model):
         db_table = "index_daily"
         verbose_name = "指数日线行情"
         verbose_name_plural = verbose_name
-        unique_together = ('index', 'trade_date')
+        unique_together = ('index', 'trade_time')
 
 # 指数周线行情(IndexWeekly)
 class IndexWeekly(models.Model):
     index = models.ForeignKey('IndexInfo', to_field='index_code', db_column='index_code', related_name="index_weekly", on_delete=models.CASCADE, verbose_name="指数")
-    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     close = models.FloatField(verbose_name="收盘点位")
     open = models.FloatField(verbose_name="开盘点位")
     high = models.FloatField(verbose_name="最高点位")
@@ -267,12 +267,12 @@ class IndexWeekly(models.Model):
         db_table = "index_weekly"
         verbose_name = "指数周线行情"
         verbose_name_plural = verbose_name
-        unique_together = ('index', 'trade_date')
+        unique_together = ('index', 'trade_time')
 
 # 指数月线行情(IndexMonthly)
 class IndexMonthly(models.Model):
     index = models.ForeignKey('IndexInfo', to_field='index_code', db_column='index_code', related_name="index_monthly", on_delete=models.CASCADE, verbose_name="指数")
-    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     close = models.FloatField(verbose_name="收盘点位")
     open = models.FloatField(verbose_name="开盘点位")
     high = models.FloatField(verbose_name="最高点位")
@@ -287,7 +287,7 @@ class IndexMonthly(models.Model):
         db_table = "index_monthly"
         verbose_name = "指数月线行情"
         verbose_name_plural = verbose_name
-        unique_together = ('index', 'trade_date')
+        unique_together = ('index', 'trade_time')
 
 
 
