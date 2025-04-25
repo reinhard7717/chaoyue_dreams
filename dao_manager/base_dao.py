@@ -903,17 +903,6 @@ class BaseDAO(Generic[T]):
         if value is None or str(value).strip() in ['', '-', 'N/A', '暂无']:
             return None # 处理空值
 
-        # 尝试解析时间戳 (秒或毫秒)
-        try:
-            timestamp = float(str(value))
-            # 简单判断秒或毫秒
-            if timestamp > 2000000000: # 大约 2033 年后的秒数，可能是毫秒
-                timestamp /= 1000
-            dt = datetime.fromtimestamp(timestamp, tz)
-            return dt if settings.USE_TZ else timezone.make_naive(dt, tz)
-        except (ValueError, TypeError):
-            pass # 不是时间戳，继续尝试其他格式
-
         # 尝试解析字符串
         if isinstance(value, (str, bytes)):
             if isinstance(value, bytes):
@@ -951,6 +940,17 @@ class BaseDAO(Generic[T]):
                     return timezone.make_aware(dt, tz) if settings.USE_TZ else dt
                 except ValueError:
                     continue
+
+        # 尝试解析时间戳 (秒或毫秒)
+        try:
+            timestamp = float(str(value))
+            # 简单判断秒或毫秒
+            if timestamp > 2000000000: # 大约 2033 年后的秒数，可能是毫秒
+                timestamp /= 1000
+            dt = datetime.fromtimestamp(timestamp, tz)
+            return dt if settings.USE_TZ else timezone.make_naive(dt, tz)
+        except (ValueError, TypeError):
+            pass # 不是时间戳，继续尝试其他格式
 
         logger.warning(f"无法解析日期时间值: {value}")
         return None # 所有尝试失败
