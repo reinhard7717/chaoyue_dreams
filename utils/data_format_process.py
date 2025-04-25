@@ -195,30 +195,57 @@ class StockInfoFormatProcess(BaseDAO):
 
 class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_date),
-            "open": df_data.open,
-            "high": df_data.high,
-            "low": df_data.low,
-            "close": df_data.close,
-            "pre_close": df_data.pre_close,
-            "change": df_data.change,
-            "pct_change": df_data.pct_change,
-            "vol": df_data.vol,
-            "amount": df_data.amount,
-            "adj_factor": df_data.adj_factor,
-            "open_qfq": df_data.open_qfq,
-            "high_qfq": df_data.high_qfq,
-            "low_qfq": df_data.low_qfq,
-            "close_qfq": df_data.close_qfq,
-            "pre_close_qfq": df_data.pre_close_qfq,
-            "open_hfq": df_data.open_hfq,
-            "high_hfq": df_data.high_hfq,
-            "low_hfq": df_data.low_hfq,
-            "close_hfq": df_data.close_hfq,
-            "pre_close_hfq": df_data.pre_close_hfq,            
-        }
+        if isinstance(df_data, StockDailyData):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "pre_close": df_data.pre_close,
+                "change": df_data.change,
+                "pct_change": df_data.pct_change,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
+                "adj_factor": df_data.adj_factor,
+                "open_qfq": df_data.open_qfq,
+                "high_qfq": df_data.high_qfq,
+                "low_qfq": df_data.low_qfq,
+                "close_qfq": df_data.close_qfq,
+                "pre_close_qfq": df_data.pre_close_qfq,
+                "open_hfq": df_data.open_hfq,
+                "high_hfq": df_data.high_hfq,
+                "low_hfq": df_data.low_hfq,
+                "close_hfq": df_data.close_hfq,
+                "pre_close_hfq": df_data.pre_close_hfq,            
+            }
+        else:
+            logger.info(f"trade_date: {self._parse_datetime(df_data.trade_date)}")
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "pre_close": df_data.pre_close,
+                "change": df_data.change,
+                "pct_change": df_data.pct_change,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
+                "adj_factor": df_data.adj_factor,
+                "open_qfq": df_data.open_qfq,
+                "high_qfq": df_data.high_qfq,
+                "low_qfq": df_data.low_qfq,
+                "close_qfq": df_data.close_qfq,
+                "pre_close_qfq": df_data.pre_close_qfq,
+                "open_hfq": df_data.open_hfq,
+                "high_hfq": df_data.high_hfq,
+                "low_hfq": df_data.low_hfq,
+                "close_hfq": df_data.close_hfq,
+                "pre_close_hfq": df_data.pre_close_hfq,            
+            }
         return data_dict
     
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
