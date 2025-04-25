@@ -156,8 +156,8 @@ class StockBasicInfoDao(BaseDAO):
         df = self.ts_pro.stock_basic(**{
             "ts_code": "", "name": "", "exchange": "", "market": "", "is_hs": "", "list_status": "", "limit": "", "offset": ""
         }, fields=[
-            "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", 
-            "act_ent_type", "fullname", "exchange", "list_status", "delist_date", "is_hs"
+            "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", "act_ent_type",
+            "fullname", "enname", "exchange", "curr_type", "list_status", "delist_date", "is_hs"
         ])
         
         for row in df.itertuples():
