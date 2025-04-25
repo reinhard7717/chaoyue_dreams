@@ -551,7 +551,7 @@ class StockInfoCacheSet(CacheSet):
         self.cache_manager = CacheManager()  # 先实例化
         await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
    
-    async def stock_basic_info_list(self, data_to_cache: Dict[str, Any]) -> bool:
+    async def all_stocks(self, data_to_cache: Dict[str, Any]) -> bool:
         if self.cache_manager is None:
             await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.stocks_data()
