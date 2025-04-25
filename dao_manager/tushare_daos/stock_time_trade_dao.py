@@ -145,6 +145,7 @@ class StockTimeTradeDAO(BaseDAO):
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
+                    logger.info(f"trade_date: {self._parse_datetime(row.trade_date)}")
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)

@@ -221,7 +221,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "pre_close_hfq": df_data.pre_close_hfq,            
             }
         else:
-            logger.info(f"trade_date: {self._parse_datetime(df_data.trade_date)}")
             data_dict = {
                 "stock": stock,
                 "trade_time": self._parse_datetime(df_data.trade_date),
