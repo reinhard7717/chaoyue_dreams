@@ -789,6 +789,10 @@ class StockTimeTradeDAO(BaseDAO):
             )
         else:
             result = []
+        # --- 函数末尾执行最终修剪 ---
+        cache_key = self.cache_key.stock_day_basic_info(stock_code)
+        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+        # --- 修剪调用结束 ---
         return result
 
     async def get_stock_daily_basic(self, stock_code: str) -> None:
