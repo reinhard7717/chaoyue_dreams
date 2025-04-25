@@ -26,20 +26,11 @@ app.conf.update(
 
     # ****** 添加 include 配置 ******
     include=[
-        'tasks.datacenter_tasks',
-        'tasks.index_tasks',
-        'tasks.stock_tasks',
-        'tasks.stock_indicator_tasks',
-        'tasks.stock_realtime_tasks',
-        'tasks.strategy_tasks',      # <<<--- 添加包含策略任务的模块
-        'tasks.stock_analysis_tasks',
-        'tasks.calculate_tasks',
-        'tasks.stock_time_trade_tasks',
         'tasks.management.commands.test_strategy_signals',
         'tasks.tushare.stock_time_trade_tasks',
         'tasks.tushare.stock_tasks',
         'tasks.tushare.stock_realtime_tasks',
-        'tasks.tushare.stock_basic_tasks',
+        'tasks.stock_analysis_tasks',
         # 如果还有其他文件包含 Celery 任务，也一并添加到这里
         # 例如: 'tasks.other_tasks'
     ]
