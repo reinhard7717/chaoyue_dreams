@@ -604,6 +604,7 @@ class StockTimeTradeCacheSet(CacheSet):
         if self.cache_manager is None:
             await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
+        logger.info(f"cache_key: {cache_key}")
         cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
         return await self._history_data(stock_code, "Day_Basic_Info", data_to_cache, cache_key)
  
