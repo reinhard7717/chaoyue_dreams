@@ -202,7 +202,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "close": df_data.close,
             "pre_close": df_data.pre_close,
             "change": df_data.change,
-            "pct_chg": df_data.pct_chg,
+            "pct_change": df_data.pct_change,
             "vol": df_data.vol,
             "amount": df_data.amount,
             "adj_factor": df_data.adj_factor,

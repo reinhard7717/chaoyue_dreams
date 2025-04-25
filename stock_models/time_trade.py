@@ -28,7 +28,7 @@ class StockDailyBasic(models.Model):
     class Meta:
         verbose_name = '每日基本面指标'
         verbose_name_plural = verbose_name
-        db_table = 'daily_basic'
+        db_table = 'stock_time_trade_day_basic'
         unique_together = ('stock', 'trade_date')
         ordering = ['-trade_date']
 
@@ -53,7 +53,7 @@ class StockDailyData(models.Model):
     close = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='收盘价')
     pre_close = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='昨收价')
     change = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='涨跌额')
-    pct_chg = models.DecimalField(max_digits=6, decimal_places=2, verbose_name='涨跌幅')
+    pct_change = models.DecimalField(max_digits=6, decimal_places=2, verbose_name='涨跌幅')
     vol = models.BigIntegerField(verbose_name='成交量（手）')
     amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交额（千元）')
     adj_factor = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, verbose_name='复权因子')
@@ -71,7 +71,7 @@ class StockDailyData(models.Model):
     class Meta:
         verbose_name = 'A股日线行情'
         verbose_name_plural = verbose_name
-        db_table = 'stock_daily_data'
+        db_table = 'stock_time_trade_day'
         unique_together = ('stock', 'trade_date')
         ordering = ['-trade_date']
 
@@ -101,7 +101,7 @@ class StockMinuteData(models.Model):
     class Meta:
         verbose_name = 'A股分钟行情'
         verbose_name_plural = verbose_name
-        db_table = 'stock_minute_data'
+        db_table = 'stock_time_trade_minute'
         unique_together = ('stock', 'trade_time', 'time_level')
         ordering = ['-trade_time']
 
@@ -133,7 +133,7 @@ class StockWeeklyData(models.Model):
     class Meta:
         verbose_name = 'A股周线行情'
         verbose_name_plural = verbose_name
-        db_table = 'stock_weekly_data'
+        db_table = 'stock_time_trade_week'
         unique_together = ('stock', 'trade_date')
         ordering = ['-trade_date']
 
@@ -165,7 +165,7 @@ class StockMonthlyData(models.Model):
     class Meta:
         verbose_name = 'A股月线行情'
         verbose_name_plural = verbose_name
-        db_table = 'stock_monthly_data'
+        db_table = 'stock_time_trade_month'
         unique_together = ('stock', 'trade_date')
         ordering = ['-trade_date']
 
