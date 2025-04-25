@@ -244,7 +244,7 @@ class IndexDaily(models.Model):
     amount = models.FloatField(verbose_name="成交额(千元)")
 
     class Meta:
-        db_table = "index_daily"
+        db_table = "index_time_trade_day"
         verbose_name = "指数日线行情"
         verbose_name_plural = verbose_name
         unique_together = ('index', 'trade_time')
@@ -264,7 +264,7 @@ class IndexWeekly(models.Model):
     amount = models.FloatField(verbose_name="成交额(千元)")
 
     class Meta:
-        db_table = "index_weekly"
+        db_table = "index_time_trade_week"
         verbose_name = "指数周线行情"
         verbose_name_plural = verbose_name
         unique_together = ('index', 'trade_time')
@@ -284,7 +284,7 @@ class IndexMonthly(models.Model):
     amount = models.FloatField(verbose_name="成交额(千元)")
 
     class Meta:
-        db_table = "index_monthly"
+        db_table = "index_time_trade_month"
         verbose_name = "指数月线行情"
         verbose_name_plural = verbose_name
         unique_together = ('index', 'trade_time')

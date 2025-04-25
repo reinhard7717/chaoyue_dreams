@@ -7,18 +7,316 @@ from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
 from utils.cash_key import StockCashKey
 
+# stock_models\financial.py
+class IncomeSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import Income
+        model = Income
+        fields = '__all__'
 
+class BalanceSheetSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import BalanceSheet
+        model = BalanceSheet
+        fields = '__all__'
+
+class CashFlowSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import CashFlow
+        model = CashFlow
+        fields = '__all__'
+
+class ForecastSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import Forecast
+        model = Forecast
+        fields = '__all__'
+
+class ExpressSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import Express
+        model = Express
+        fields = '__all__'
+
+class DividendSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import Dividend
+        model = Dividend
+        fields = '__all__'
+
+class FinaIndicatorSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import FinaIndicator
+        model = FinaIndicator
+        fields = '__all__'
+
+class FinaAuditSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import FinaAudit
+        model = FinaAudit
+        fields = '__all__'
+
+class FinaMainBZSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import FinaMainBZ
+        model = FinaMainBZ
+        fields = '__all__'
+
+class DisclosureDateSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.financial import DisclosureDate
+        model = DisclosureDate
+        fields = '__all__'
+
+# stock_models\fund_flow.py
+class FundFlowDailySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowDaily
+        model = FundFlowDaily
+        fields = '__all__'
+
+class FundFlowDailyTHSSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowDailyTHS
+        model = FundFlowDailyTHS
+        fields = '__all__'
+
+class FundFlowDailyDCSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowDailyDC
+        model = FundFlowDailyDC
+        fields = '__all__'
+
+class FundFlowCntTHSSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowCntTHS
+        model = FundFlowCntTHS
+        fields = '__all__'
+
+class FundFlowCntDCSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowCntDC
+        model = FundFlowCntDC
+        fields = '__all__'
+
+class FundFlowIndustryTHSSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowIndustryTHS
+        model = FundFlowIndustryTHS
+        fields = '__all__'
+
+class FundFlowMarketDcSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.fund_flow import FundFlowMarketDc
+        model = FundFlowMarketDc
+        fields = '__all__'
+
+# stock_models\index.py
 class IndexInfoSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.index import IndexInfo
         model = IndexInfo
         fields = '__all__'
 
+class IndexWeightSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.index import IndexWeight
+        model = IndexWeight
+        fields = '__all__'
+
+class IndexDailyBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.index import IndexDailyBasic
+        model = IndexDailyBasic
+        fields = '__all__'
+
+# stock_models\industry.py
+class SwIndustrySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import SwIndustry
+        model = SwIndustry
+        fields = '__all__'
+
+class SwIndustryMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import SwIndustryMember
+        model = SwIndustryMember
+        fields = '__all__'
+
+class SwIndustryDailySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import SwIndustryDaily
+        model = SwIndustryDaily
+        fields = '__all__'
+
+class CiIndexMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import CiIndexMember
+        model = CiIndexMember
+        fields = '__all__'
+
+class CiDailySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import CiDaily
+        model = CiDaily
+        fields = '__all__'
+
+class KplConceptSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import KplConcept
+        model = KplConcept
+        fields = '__all__'
+
+class KplConceptConstituentSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import KplConceptConstituent
+        model = KplConceptConstituent
+        fields = '__all__'
+
+class ThsIndexSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import ThsIndex
+        model = ThsIndex
+        fields = '__all__'
+
+class ThsMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import ThsMember
+        model = ThsMember
+        fields = '__all__'
+
+class DcIndexSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import DcIndex
+        model = DcIndex
+        fields = '__all__'
+
+class DcMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import DcMember
+        model = DcMember
+        fields = '__all__'
+
+# stock_models\market.py
+class MarketDailyInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.market import MarketDailyInfo
+        model = MarketDailyInfo
+        fields = '__all__'
+
+class HmListSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.market import HmList
+        model = HmList
+        fields = '__all__'
+
+class HmDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.market import HmDetail
+        model = HmDetail
+        fields = '__all__'
+
+# stock_models\stock_analytics.py
+class StockScoreAnalysisSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.stock_analytics import StockScoreAnalysis
+        model = StockScoreAnalysis
+        fields = '__all__'
+
+# stock_models\stock_basic.py
 class StockInfoSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.stock_basic import StockInfo
         model = StockInfo
-        fields = ['stock_code', 'stock_name'] # 只序列化代码和名称
+        fields = '__all__'
+
+class StockCompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.stock_basic import StockCompany
+        model = StockCompany
+        fields = '__all__'
+
+class HSConstSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.stock_basic import HSConst
+        model = HSConst
+        fields = '__all__'
+
+# stock_models\stock_realtime.py
+class StockRealtimeDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.stock_realtime import StockRealtimeData
+        model = StockRealtimeData
+        fields = '__all__'
+
+class StockLevel5DataSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.stock_realtime import StockLevel5Data
+        model = StockLevel5Data
+        fields = '__all__'
+
+# stock_models\time_trade.py
+class StockDailyBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockDailyBasic
+        model = StockDailyBasic
+        fields = '__all__'
+
+class StockDailyDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockDailyData
+        model = StockDailyData
+        fields = '__all__'
+
+class StockMinuteDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockMinuteData
+        model = StockMinuteData
+        fields = '__all__'
+
+class StockWeeklyDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockWeeklyData
+        model = StockWeeklyData
+        fields = '__all__'
+
+class StockMonthlyDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockMonthlyData
+        model = StockMonthlyData
+        fields = '__all__'
+
+class StockCyqChipsSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockCyqChips
+        model = StockCyqChips
+        fields = '__all__'
+
+class StockCyqPerfSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import StockCyqPerf
+        model = StockCyqPerf
+        fields = '__all__'
+
+class IndexDailySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import IndexDaily
+        model = IndexDaily
+        fields = '__all__'
+
+class IndexWeeklySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import IndexWeekly
+        model = IndexWeekly
+        fields = '__all__'
+
+class IndexMonthlySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.time_trade import IndexMonthly
+        model = IndexMonthly
+        fields = '__all__'
+
+
 
 class FavoriteStockSerializer(serializers.ModelSerializer):
     stock = StockInfoSerializer(read_only=True) # 输出时显示 stock 详情
@@ -47,48 +345,6 @@ class FavoriteStockSerializer(serializers.ModelSerializer):
         favorite = FavoriteStock.objects.create(stock=stock_instance, **validated_data)
         return favorite
 
-class StockRealtimeDataSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockRealtimeData
-        model = StockRealtimeData
-        fields = '__all__'
-
-class StockLevel5DataSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockLevel5Data
-        model = StockLevel5Data
-        fields = '__all__'
-
-class StockTradeDetailSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockTradeDetail
-        model = StockTradeDetail
-        fields = '__all__'
-
-class StockTimeDealSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockTimeDeal
-        model = StockTimeDeal
-        fields = '__all__'
-
-
-class StockPricePercentSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockPricePercent
-        model = StockPricePercent
-        fields = '__all__'
-
-class StockBigDealSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockBigDeal
-        model = StockBigDeal
-        fields = '__all__'
-
-class StockAbnormalMovementSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockAbnormalMovement
-        model = StockAbnormalMovement
-        fields = '__all__'
         
         
         
