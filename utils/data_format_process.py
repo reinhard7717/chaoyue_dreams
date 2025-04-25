@@ -195,7 +195,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_date),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -235,7 +235,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
         else:
             data_dict = {
                 "stock": stock,
-                "trade_time": df_data.trade_time,
+                "trade_time": self._parse_datetime(df_data.trade_time),
                 "time_level": df_data.freq,
                 "open": df_data.open,
                 "high": df_data.high,
@@ -249,7 +249,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_date),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -265,7 +265,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": df_data.trade_date,
+            "trade_time": self._parse_datetime(df_data.trade_date),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -281,7 +281,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_date": self._parse_datetime(df_data.trade_date),
             "close": df_data.close,
             "turnover_rate": df_data.turnover_rate,
             "turnover_rate_f": df_data.turnover_rate_f,
@@ -303,7 +303,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_date": self._parse_datetime(df_data.trade_date),
             "his_low": df_data.his_low,
             "his_high": df_data.his_high,
             "cost_5pct": df_data.cost_5pct,
@@ -319,7 +319,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": df_data.trade_date,
+            "trade_date": self._parse_datetime(df_data.trade_date),
             "price": df_data.price,
             "percent": df_data.percent,
         }
@@ -370,113 +370,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
         }
         return data_dict
-    
-    def set_onebyone_trade_data(self, stock: StockInfo, api_data: Dict) -> Dict:
-        data_dict = {
-            'stock': stock,
-            'trade_date': self._parse_datetime(api_data.get('d')),  # 交易时间
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'volume': self._parse_number(api_data.get('v')),  # 成交量
-            'price': self._parse_number(api_data.get('p')),  # 成交价
-            'trade_direction': self._parse_number(api_data.get('ts')),  # 交易方向
-        }
-        return data_dict
-    
-    def set_time_deal_data(self, stock: StockInfo, api_data: Dict) -> Dict:
-        from stock_models.stock_realtime import StockTimeDeal
-        if isinstance(api_data, StockTimeDeal):
-            trade_time = api_data.trade_time
-            trade_date = api_data.trade_date
-            data_dict = {
-                'stock': stock,
-                'trade_date': trade_date,
-                'trade_time': trade_time,
-                'volume': api_data.volume,
-                'price': api_data.price,
-            }
-        else:
-            trade_time = self._parse_datetime(api_data.get('t'))
-            trade_date = self._parse_datetime(api_data.get('d'))
-            data_dict = {
-                'stock': stock,
-                'trade_date': trade_date,
-                'trade_time': trade_time,
-                'volume': self._parse_number(api_data.get('v')),  # 成交量
-                'price': self._parse_number(api_data.get('p')),  # 成交价
-            }
-        if trade_time.tzinfo is not None:
-            trade_time = trade_time.astimezone(timezone.get_current_timezone())
-        if trade_date.tzinfo is not None:
-            trade_date = trade_date.astimezone(timezone.get_current_timezone())
-        data_dict['trade_time'] = trade_time
-        data_dict['trade_date'] = trade_date
-        return data_dict
-    
-    def set_real_percent_data(self, stock: StockInfo, api_data: Dict) -> Dict:
-        from stock_models.stock_realtime import StockPricePercent
-        if isinstance(api_data, StockPricePercent):
-            trade_date = api_data.trade_date
-            data_dict = {
-                'stock': stock,
-                'trade_date': trade_date,
-                'price': api_data.price,
-                'volume': api_data.volume,
-                'percentage': api_data.percentage,
-            }
-        else:
-            trade_date = self._parse_datetime(api_data.get('d'))
-            data_dict = {
-                'stock': stock,
-                'trade_date': trade_date,
-                'volume': self._parse_number(api_data.get('v')),  # 成交量
-                'price': self._parse_number(api_data.get('p')),  # 成交价
-                'percentage': self._parse_number(api_data.get('b')),  # 占比
-            }
-        if trade_date.tzinfo is not None:
-            trade_date = trade_date.astimezone(timezone.get_current_timezone())
-        data_dict['trade_date'] = trade_date
-        return data_dict
-    
-    def set_big_deal_data(self, stock: StockInfo, api_data: Dict) -> Dict:
-        from stock_models.stock_realtime import StockBigDeal
-        if isinstance(api_data, StockBigDeal):
-            trade_time = api_data.trade_time
-            trade_date = api_data.trade_date
-            data_dict = {
-                'stock': stock,
-                'trade_date': trade_date,
-                'trade_time': trade_time,
-                'volume': api_data.volume,
-                'price': api_data.price,
-            }
-        else:
-            trade_time = self._parse_datetime(api_data.get('t'))
-            trade_date = self._parse_datetime(api_data.get('d'))
-            data_dict = {
-                'stock': stock,
-                'trade_date': trade_date,
-                'trade_time': trade_time,
-                'volume': self._parse_number(api_data.get('v')),  # 成交量
-                'price': self._parse_number(api_data.get('p')),  # 成交价
-                'trade_direction': self._parse_number(api_data.get('ts')),  # 交易方向
-            }
-        if trade_time.tzinfo is not None:
-            trade_time = trade_time.astimezone(timezone.get_current_timezone())
-        if trade_date.tzinfo is not None:
-            trade_date = trade_date.astimezone(timezone.get_current_timezone())
-        data_dict['trade_time'] = trade_time
-        data_dict['trade_date'] = trade_date
-        return data_dict
-    
-    def set_abnormal_movement_data(self, stock: StockInfo, api_data: Dict) -> Dict:
-        data_dict = {
-            'stock': stock,
-            'movement_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'movement_type': api_data.get('type'),  # 异动类型
-            'movement_info': api_data.get('xx'),  # 相关信息
-        }
-        return data_dict
-    
+
 class StrategiesDataFormatProcess(BaseDAO):
     def set_strategies_data(self, api_data: Dict) -> Dict:
         data_dict = {
