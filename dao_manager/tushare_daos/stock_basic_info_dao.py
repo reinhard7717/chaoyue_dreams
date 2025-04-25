@@ -35,39 +35,33 @@ class StockBasicInfoDao(BaseDAO):
             List[StockInfo]: 股票基本信息列表（已过滤掉 stock_name 中包含“退”或“债”字的股票）
             过滤逻辑：如果 stock_name 中包含“退”字或“债”字（或的关系），则排除。
         """
-        from stock_models.stock_basic import StockInfo
+        return_data = []
         try:
             # 尝试从缓存获取
             cached_data = await self.stock_cache_get.all_stocks()
             if cached_data:
                 # 将缓存数据转换为模型实例列表
-                return_data = []
+                
                 for stock_dict in cached_data:
                     logger.info(f"get_stock_list: {stock_dict}")
                     if stock_dict.get('list_status') == 'L':
-                        stock_dict = self.data_format_process.set_stock_info_basic_data(stock_dict)
                         return_data.append(StockInfo(**stock_dict))
-                # 排序
-                sorted_data = sorted(return_data, key=lambda x: x.stock_code)
-                return sorted_data  # 返回过滤并排序后的列表
         except Exception as e:
             logger.error(f"从缓存获取股票列表失败: {e}",exc_info=True)
-        
-        stocks = []
         try:
             # 从数据库读取
             get_stocks_sync = sync_to_async(
                 lambda: list(StockInfo.objects.filter(list_status='L').order_by('stock_code')),
                 thread_sensitive=True  # 对于 ORM 操作，通常建议设置为 True
             )
-            stocks = await get_stocks_sync()
-            if stocks:
-                for stock in stocks:
+            return_data = await get_stocks_sync()
+            if return_data:
+                for stock in return_data:
                     stock_dict = self.data_format_process.set_stock_info_basic_data(stock)
                     await self.stock_cache_set.stock_basic_info(stock, stock_dict)
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}")
-        return stocks
+        return return_data
 
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
         """
