@@ -157,7 +157,7 @@ class StockBasicInfoDao(BaseDAO):
             "ts_code": "", "name": "", "exchange": "", "market": "", "is_hs": "", "list_status": "", "limit": "", "offset": ""
         }, fields=[
             "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", 
-            "act_ent_type", "fullname", "exchange", "list_status"
+            "act_ent_type", "fullname", "exchange", "list_status", "delist_date", "is_hs"
         ])
         
         for row in df.itertuples():

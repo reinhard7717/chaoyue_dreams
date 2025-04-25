@@ -57,12 +57,3 @@ def setup_celery_logging(**kwargs):
     from django.conf import settings
     import logging.config
     logging.config.dictConfig(settings.LOGGING)
-
-
-# 调试任务
-@app.task(bind=True)
-def debug_task(self):
-    """
-    用于调试Celery配置的任务
-    """
-    print(f'请求: {self.request!r}') 
