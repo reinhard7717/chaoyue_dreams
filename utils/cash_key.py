@@ -221,10 +221,11 @@ class StockCashKey(CashKey):
 
     def stock_day_basic_info(self, stock_code: str) -> str:
         cache_key = self.generate_key(
-            cache_type=cc.TYPE_STATIC,
+            cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
             entity_id=stock_code,
-            subtype=cc.SUBTYPE_DAY_BASIC_INFO
+            subtype=cc.SUBTYPE_KLINE,
+            params={cc.PARAM_PERIOD: "day_basic_info"}
         )
         return cache_key
 
