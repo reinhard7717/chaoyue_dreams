@@ -73,9 +73,8 @@ class StockBasicInfoDao(BaseDAO):
         """
         from stock_models.stock_basic import StockInfo
         stock_dict = await self.stock_cache_get.stock_data_by_code(stock_code)
-        stock = StockInfo(**stock_dict)
-        if stock is not None:
-            return stock
+        if stock_dict is not None:
+            return StockInfo(**stock_dict)
         # 从数据库获取
         # logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
         stock = await sync_to_async(lambda: StockInfo.objects.filter(stock_code=stock_code).first())()
