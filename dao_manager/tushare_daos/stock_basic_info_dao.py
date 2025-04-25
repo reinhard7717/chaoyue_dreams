@@ -58,7 +58,7 @@ class StockBasicInfoDao(BaseDAO):
             if return_data:
                 for stock in return_data:
                     stock_dict = self.data_format_process.set_stock_info_basic_data(stock)
-                    await self.stock_cache_set.stock_basic_info(stock, stock_dict)
+                    await self.stock_cache_set.stock_basic_info(stock.stock_code, stock_dict)
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}")
         return return_data
