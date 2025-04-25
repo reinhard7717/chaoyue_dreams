@@ -159,14 +159,16 @@ class StockBasicInfoDao(BaseDAO):
             "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", "act_ent_type",
             "fullname", "enname", "exchange", "curr_type", "list_status", "delist_date", "is_hs"
         ])
-        
-        for row in df.itertuples():
-            stock_dict = self.data_format_process.set_stock_info_data(row)
-            cache_dict = self.data_format_process.set_stock_info_basic_data(row)
-            await self.stock_cache_set.stock_basic_info(row.ts_code, cache_dict)
-            stock_dicts.append(stock_dict)
-            cache_dicts.append(cache_dict)
-        await self.stock_cache_set.stock_basic_info_list(cache_dicts)
+        logger.info(f"save_stocks: {df.columns}")
+        if df is not None:
+            for row in df.itertuples():
+                logger.info(f"save_stocks: {row}")
+                stock_dict = self.data_format_process.set_stock_info_data(row)
+                cache_dict = self.data_format_process.set_stock_info_basic_data(row)
+                await self.stock_cache_set.stock_basic_info(row.ts_code, cache_dict)
+                stock_dicts.append(stock_dict)
+                cache_dicts.append(cache_dict)
+            await self.stock_cache_set.stock_basic_info_list(cache_dicts)
         if stock_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                     model_class=StockInfo,
