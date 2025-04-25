@@ -2,9 +2,11 @@ from django.utils import timezone
 from typing import Any, Dict
 import logging
 from dao_manager.base_dao import BaseDAO
+from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
 from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyData, StockMinuteData, StockTimeTrade
+from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
+from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
 from users.models import FavoriteStock
 
 logger = logging.getLogger(__name__)
@@ -195,7 +197,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
+            "trade_time": self._parse_datetime(df_data.trade_date),
             "open": df_data.open,
             "high": df_data.high,
             "low": df_data.low,
@@ -247,128 +249,242 @@ class StockTimeTradeFormatProcess(BaseDAO):
         return data_dict
 
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "open": df_data.open,
-            "high": df_data.high,
-            "low": df_data.low,
-            "close": df_data.close,
-            "pre_close": df_data.pre_close,
-            "change": df_data.change,
-            "pct_chg": df_data.pct_chg,
-            "vol": df_data.vol,
-            "amount": df_data.amount,
-        }
+        if isinstance(df_data, StockWeeklyData):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "pre_close": df_data.pre_close,
+                "change": df_data.change,
+                "pct_chg": df_data.pct_chg,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "pre_close": df_data.pre_close,
+                "change": df_data.change,
+                "pct_chg": df_data.pct_chg,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
+            }
         return data_dict
     
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "open": df_data.open,
-            "high": df_data.high,
-            "low": df_data.low,
-            "close": df_data.close,
-            "pre_close": df_data.pre_close,
-            "change": df_data.change,
-            "pct_chg": df_data.pct_chg,
-            "vol": df_data.vol,
-            "amount": df_data.amount,
-        }
+        if isinstance(df_data, StockMonthlyData):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "pre_close": df_data.pre_close,
+                "change": df_data.change,
+                "pct_chg": df_data.pct_chg,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "pre_close": df_data.pre_close,
+                "change": df_data.change,
+                "pct_chg": df_data.pct_chg,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
+            }
         return data_dict
 
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "close": df_data.close,
-            "turnover_rate": df_data.turnover_rate,
-            "turnover_rate_f": df_data.turnover_rate_f,
-            "volume_ratio": df_data.volume_ratio,
-            "pe": df_data.pe,
-            "pe_ttm": df_data.pe_ttm,
-            "pb": df_data.pb,
-            "ps": df_data.ps,
-            "ps_ttm": df_data.ps_ttm,
-            "total_share": df_data.total_share,
-            "float_share": df_data.float_share,
-            "free_share": df_data.free_share,
-            "total_mv": df_data.total_mv,
-            "circ_mv": df_data.circ_mv,
-            "limit_status": df_data.limit_status,
-        }
+        if isinstance(df_data, StockDailyBasic):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "close": df_data.close,
+                "turnover_rate": df_data.turnover_rate,
+                "turnover_rate_f": df_data.turnover_rate_f,
+                "volume_ratio": df_data.volume_ratio,
+                "pe": df_data.pe,
+                "pe_ttm": df_data.pe_ttm,
+                "pb": df_data.pb,
+                "ps": df_data.ps,
+                "ps_ttm": df_data.ps_ttm,
+                "total_share": df_data.total_share,
+                "float_share": df_data.float_share,
+                "free_share": df_data.free_share,
+                "total_mv": df_data.total_mv,
+                "circ_mv": df_data.circ_mv,
+                "limit_status": df_data.limit_status,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "close": df_data.close,
+                "turnover_rate": df_data.turnover_rate,
+                "turnover_rate_f": df_data.turnover_rate_f,
+                "volume_ratio": df_data.volume_ratio,
+                "pe": df_data.pe,
+                "pe_ttm": df_data.pe_ttm,
+                "pb": df_data.pb,
+                "ps": df_data.ps,
+                "ps_ttm": df_data.ps_ttm,
+                "total_share": df_data.total_share,
+                "float_share": df_data.float_share,
+                "free_share": df_data.free_share,
+                "total_mv": df_data.total_mv,
+                "circ_mv": df_data.circ_mv,
+                "limit_status": df_data.limit_status,
+            }
         return data_dict
 
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "his_low": df_data.his_low,
-            "his_high": df_data.his_high,
-            "cost_5pct": df_data.cost_5pct,
-            "cost_15pct": df_data.cost_15pct,
-            "cost_50pct": df_data.cost_50pct,
-            "cost_85pct": df_data.cost_85pct,
-            "cost_95pct": df_data.cost_95pct,
-            "weight_avg": df_data.weight_avg,
-            "winner_rate": df_data.winner_rate,
-        }
+        if isinstance(df_data, StockCyqPerf):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "his_low": df_data.his_low,
+                "his_high": df_data.his_high,
+                "cost_5pct": df_data.cost_5pct,
+                "cost_15pct": df_data.cost_15pct,
+                "cost_50pct": df_data.cost_50pct,
+                "cost_85pct": df_data.cost_85pct,
+                "cost_95pct": df_data.cost_95pct,
+                "weight_avg": df_data.weight_avg,
+                "winner_rate": df_data.winner_rate,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "his_low": df_data.his_low,
+                "his_high": df_data.his_high,
+                "cost_5pct": df_data.cost_5pct,
+                "cost_15pct": df_data.cost_15pct,
+                "cost_50pct": df_data.cost_50pct,
+                "cost_85pct": df_data.cost_85pct,
+                "cost_95pct": df_data.cost_95pct,
+                "weight_avg": df_data.weight_avg,
+                "winner_rate": df_data.winner_rate,
+            }
         return data_dict
     
     def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "price": df_data.price,
-            "percent": df_data.percent,
-        }
+        if isinstance(df_data, StockCyqChips):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "price": df_data.price,
+                "percent": df_data.percent,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "price": df_data.price,
+                "percent": df_data.percent,
+            }
         return data_dict
 
 class StockRealtimeDataFormatProcess(BaseDAO):
         # ================ 数据格式 ================
-    def set_realtime_tick_data(self, stock: StockInfo, time_level: str, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "time_level": time_level,
-            "trade_time": self._parse_datetime(df_data.date + df_data.time),
-            "open_price": df_data.open,
-            "prev_close_price": df_data.pre_close,
-            "current_price": df_data.price,
-            "high_price": df_data.high,
-            "low_price": df_data.low,
-            "volume": df_data.volume,
-            "turnover_value": df_data.amount,
-        }
+    def set_realtime_tick_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, StockRealtimeData):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "open_price": df_data.open_price,
+                "prev_close_price": df_data.prev_close_price,
+                "current_price": df_data.current_price,
+                "high_price": df_data.high_price,
+                "low_price": df_data.low_price,
+                "volume": df_data.volume,
+                "turnover_value": df_data.turnover_value,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.date + df_data.time),
+                "open_price": df_data.open,
+                "prev_close_price": df_data.pre_close,
+                "current_price": df_data.price,
+                "high_price": df_data.high,
+                "low_price": df_data.low,
+                "volume": df_data.volume,
+                "turnover_value": df_data.amount,
+            }
         return data_dict
 
     def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.date + df_data.time),
-            "buy_volume1": df_data.b1_v,
-            "buy_price1": df_data.b1_p,
-            "buy_volume2": df_data.b2_v,
-            "buy_price2": df_data.b2_p,
-            "buy_volume3": df_data.b3_v,
-            "buy_price3": df_data.b3_p,
-            "buy_volume4": df_data.b4_v,
-            "buy_price4": df_data.b4_p,
-            "buy_volume5": df_data.b5_v,
-            "buy_price5": df_data.b5_p,
-            "sell_volume1": df_data.s1_v,
-            "sell_price1": df_data.s1_p,
-            "sell_volume2": df_data.s2_v,
-            "sell_price2": df_data.s2_p,
-            "sell_volume3": df_data.s3_v,
-            "sell_price3": df_data.s3_p,
-            "sell_volume4": df_data.s4_v,
-            "sell_price4": df_data.s4_p,
-            "sell_volume5": df_data.s5_v,
-            "sell_price5": df_data.s5_p,
-            "order_diff": df_data.b1_v - df_data.s1_v,
-            "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
-        }
+        if isinstance(df_data, StockLevel5Data):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "buy_volume1": df_data.buy_volume1,
+                "buy_price1": df_data.buy_price1,
+                "buy_volume2": df_data.buy_volume2,
+                "buy_price2": df_data.buy_price2,
+                "buy_volume3": df_data.buy_volume3,
+                "buy_price3": df_data.buy_price3,
+                "buy_volume4": df_data.buy_volume4,
+                "buy_price4": df_data.buy_price4,
+                "buy_volume5": df_data.buy_volume5,
+                "buy_price5": df_data.buy_price5,
+                "sell_volume1": df_data.sell_volume1,
+                "sell_price1": df_data.sell_price1,
+                "sell_volume2": df_data.sell_volume2,
+                "sell_price2": df_data.sell_price2,
+                "sell_volume3": df_data.sell_volume3,
+                "sell_price3": df_data.sell_price3,
+                "sell_volume4": df_data.sell_volume4,
+                "sell_price4": df_data.sell_price4,
+                "sell_volume5": df_data.sell_volume5,
+                "sell_price5": df_data.sell_price5,
+                "order_diff": df_data.order_diff,
+                "order_ratio": df_data.order_ratio,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.date + df_data.time),
+                "buy_volume1": df_data.b1_v,
+                "buy_price1": df_data.b1_p,
+                "buy_volume2": df_data.b2_v,
+                "buy_price2": df_data.b2_p,
+                "buy_volume3": df_data.b3_v,
+                "buy_price3": df_data.b3_p,
+                "buy_volume4": df_data.b4_v,
+                "buy_price4": df_data.b4_p,
+                "buy_volume5": df_data.b5_v,
+                "buy_price5": df_data.b5_p,
+                "sell_volume1": df_data.s1_v,
+                "sell_price1": df_data.s1_p,
+                "sell_volume2": df_data.s2_v,
+                "sell_price2": df_data.s2_p,
+                "sell_volume3": df_data.s3_v,
+                "sell_price3": df_data.s3_p,
+                "sell_volume4": df_data.s4_v,
+                "sell_price4": df_data.s4_p,
+                "sell_volume5": df_data.s5_v,
+                "sell_price5": df_data.s5_p,
+                "order_diff": df_data.b1_v - df_data.s1_v,
+                "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
+            }
         return data_dict
 
 class StrategiesDataFormatProcess(BaseDAO):
@@ -386,136 +502,268 @@ class StrategiesDataFormatProcess(BaseDAO):
 
 class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "buy_sm_vol": df_data.buy_sm_vol,
-            "buy_sm_amount": df_data.buy_sm_amount,
-            "sell_sm_vol": df_data.sell_sm_vol,
-            "sell_sm_amount": df_data.sell_sm_amount,
-            "buy_md_vol": df_data.buy_md_vol,
-            "buy_md_amount": df_data.buy_md_amount,
-            "sell_md_vol": df_data.sell_md_vol,
-            "sell_md_amount": df_data.sell_md_amount,
-            "buy_lg_vol": df_data.buy_lg_vol,
-            "buy_lg_amount": df_data.buy_lg_amount,
-            "sell_lg_vol": df_data.sell_lg_vol,
-            "sell_lg_amount": df_data.sell_lg_amount,
-            "buy_elg_vol": df_data.buy_elg_vol,
-            "buy_elg_amount": df_data.buy_elg_amount,
-            "sell_elg_vol": df_data.sell_elg_vol,
-            "sell_elg_amount": df_data.sell_elg_amount,
-            "net_mf_vol": df_data.net_mf_vol,
-            "net_mf_amount": df_data.net_mf_amount,
-        }
+        if isinstance(df_data, FundFlowDaily):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "buy_sm_vol": df_data.buy_sm_vol,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "sell_sm_vol": df_data.sell_sm_vol,
+                "sell_sm_amount": df_data.sell_sm_amount,
+                "buy_md_vol": df_data.buy_md_vol,
+                "buy_md_amount": df_data.buy_md_amount,
+                "sell_md_vol": df_data.sell_md_vol,
+                "sell_md_amount": df_data.sell_md_amount,
+                "buy_lg_vol": df_data.buy_lg_vol,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "sell_lg_vol": df_data.sell_lg_vol,
+                "sell_lg_amount": df_data.sell_lg_amount,
+                "buy_elg_vol": df_data.buy_elg_vol,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "sell_elg_vol": df_data.sell_elg_vol,
+                "sell_elg_amount": df_data.sell_elg_amount,
+                "net_mf_vol": df_data.net_mf_vol,
+                "net_mf_amount": df_data.net_mf_amount,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "buy_sm_vol": df_data.buy_sm_vol,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "sell_sm_vol": df_data.sell_sm_vol,
+                "sell_sm_amount": df_data.sell_sm_amount,
+                "buy_md_vol": df_data.buy_md_vol,
+                "buy_md_amount": df_data.buy_md_amount,
+                "sell_md_vol": df_data.sell_md_vol,
+                "sell_md_amount": df_data.sell_md_amount,
+                "buy_lg_vol": df_data.buy_lg_vol,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "sell_lg_vol": df_data.sell_lg_vol,
+                "sell_lg_amount": df_data.sell_lg_amount,
+                "buy_elg_vol": df_data.buy_elg_vol,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "sell_elg_vol": df_data.sell_elg_vol,
+                "sell_elg_amount": df_data.sell_elg_amount,
+                "net_mf_vol": df_data.net_mf_vol,
+                "net_mf_amount": df_data.net_mf_amount,
+            }
         return data_dict
 
     def set_fund_flow_data_ths(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "net_amount": df_data.net_amount,
-            "net_d5_amount": df_data.net_d5_amount,
-            "buy_lg_amount": df_data.buy_lg_amount,
-            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-            "buy_md_amount": df_data.buy_md_amount,
-            "buy_md_amount_rate": df_data.buy_md_amount_rate,
-            "buy_sm_amount": df_data.buy_sm_amount,
-            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-        }
+        if isinstance(df_data, FundFlowCntTHS):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "net_amount": df_data.net_amount,
+                "net_d5_amount": df_data.net_d5_amount,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "net_amount": df_data.net_amount,
+                "net_d5_amount": df_data.net_d5_amount,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
         return data_dict
     
     def set_fund_flow_data_dc(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "net_amount": df_data.net_amount,
-            "net_amount_rate": df_data.net_amount_rate,
-            "net_d5_amount": df_data.net_d5_amount,
-            "buy_elg_amount": df_data.buy_elg_amount,
-            "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-            "buy_lg_amount": df_data.buy_lg_amount,
-            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-            "buy_md_amount": df_data.buy_md_amount,
-            "buy_md_amount_rate": df_data.buy_md_amount_rate,
-            "buy_sm_amount": df_data.buy_sm_amount,
-            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-        }
+        if isinstance(df_data, FundFlowCntDC):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "content_type": df_data.content_type,
+                "name": df_data.name,
+                "pct_change": df_data.pct_change,
+                "close": df_data.close,
+                "net_amount": df_data.net_amount,
+                "net_amount_rate": df_data.net_amount_rate,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "content_type": df_data.content_type,
+                "name": df_data.name,
+                "pct_change": df_data.pct_change,
+                "close": df_data.close,
+                "net_amount": df_data.net_amount,
+                "net_amount_rate": df_data.net_amount_rate,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
         return data_dict
 
     def set_fund_flow_cnt_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "lead_stock": df_data.lead_stock,
-            "pct_change": df_data.pct_change,
-            "index_close": df_data.industry_index,
-            "company_num": df_data.company_num,
-            "pct_change_stock": df_data.pct_change_stock,
-            "net_buy_amount": df_data.net_buy_amount,
-            "net_sell_amount": df_data.net_sell_amount,
-            "net_amount": df_data.net_amount,
-        }
+        if isinstance(df_data, FundFlowCntTHS):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "lead_stock": df_data.lead_stock,
+                "pct_change": df_data.pct_change,
+                "industry_index": df_data.industry_index,
+                "company_num": df_data.company_num,
+                "pct_change_stock": df_data.pct_change_stock,
+                "net_buy_amount": df_data.net_buy_amount,
+                "net_sell_amount": df_data.net_sell_amount,
+                "net_amount": df_data.net_amount,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "lead_stock": df_data.lead_stock,
+                "pct_change": df_data.pct_change,
+                "industry_index": df_data.industry_index,
+                "company_num": df_data.company_num,
+                "pct_change_stock": df_data.pct_change_stock,
+                "net_buy_amount": df_data.net_buy_amount,
+                "net_sell_amount": df_data.net_sell_amount,
+                "net_amount": df_data.net_amount,
+            }
         return data_dict
 
     def set_fund_flow_cnt_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "content_type": df_data.content_type,
-            "name": df_data.name,
-            "pct_change": df_data.pct_change,
-            "close": df_data.close_price,
-            "net_amount": df_data.net_amount,
-            "net_amount_rate": df_data.net_amount_rate,
-            "buy_elg_amount": df_data.buy_elg_amount,
-            "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-            "buy_lg_amount": df_data.buy_lg_amount,
-            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-            "buy_md_amount": df_data.buy_md_amount,
-            "buy_md_amount_rate": df_data.buy_md_amount_rate,
-            "buy_sm_amount": df_data.buy_sm_amount,
-            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
-        }
+        if isinstance(df_data, FundFlowCntDC):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "content_type": df_data.content_type,
+                "name": df_data.name,
+                "pct_change": df_data.pct_change,
+                "close": df_data.close_price,
+                "net_amount": df_data.net_amount,
+                "net_amount_rate": df_data.net_amount_rate,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+                "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "content_type": df_data.content_type,
+                "name": df_data.name,
+                "pct_change": df_data.pct_change,
+                "close": df_data.close_price,
+                "net_amount": df_data.net_amount,
+                "net_amount_rate": df_data.net_amount_rate,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+                "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
+            }
         return data_dict
 
     def set_fund_flow_industry_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "industry_name": df_data.industry,
-            "lead_stock": df_data.lead_stock,
-            "close": df_data.close,
-            "pct_change": df_data.pct_change,
-            "company_num": df_data.company_num,
-            "pct_change_stock": df_data.pct_change_stock,
-            "close_price": df_data.close_price,
-            "net_buy_amount": df_data.net_buy_amount,
-            "net_sell_amount": df_data.net_sell_amount,
-            "net_amount": df_data.net_amount,
-        }
+        if isinstance(df_data, FundFlowIndustryTHS):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "industry": df_data.industry,
+                "lead_stock": df_data.lead_stock,
+                "close": df_data.close,
+                "pct_change": df_data.pct_change,
+                "company_num": df_data.company_num,
+                "pct_change_stock": df_data.pct_change_stock,
+                "close_price": df_data.close_price,
+                "net_buy_amount": df_data.net_buy_amount,
+                "net_sell_amount": df_data.net_sell_amount,
+                "net_amount": df_data.net_amount,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "industry": df_data.industry,
+                "lead_stock": df_data.lead_stock,
+                "close": df_data.close,
+                "pct_change": df_data.pct_change,
+                "company_num": df_data.company_num,
+                "pct_change_stock": df_data.pct_change_stock,
+                "close_price": df_data.close_price,
+                "net_buy_amount": df_data.net_buy_amount,
+                "net_sell_amount": df_data.net_sell_amount,
+                "net_amount": df_data.net_amount,
+            }
         return data_dict
 
     def set_fund_flow_market_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_time),
-            "close_sh": df_data.close_sh,
-            "pct_change_sh": df_data.pct_change_sh,
-            "close_sz": df_data.close_sz,
-            "pct_change_sz": df_data.pct_change_sz,
-            "net_buy_amount": df_data.net_buy_amount,
-            "net_buy_amount_rate": df_data.net_buy_amount_rate,
-            "buy_elg_amount": df_data.buy_elg_amount,
-            "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-            "buy_lg_amount": df_data.buy_lg_amount,
-            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-            "buy_md_amount": df_data.buy_md_amount,
-            "buy_md_amount_rate": df_data.buy_md_amount_rate,
-            "buy_sm_amount": df_data.buy_sm_amount,
-            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-        }
+        if isinstance(df_data, FundFlowMarketDc):
+            data_dict = {
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "close_sh": df_data.close_sh,
+                "pct_change_sh": df_data.pct_change_sh,
+                "close_sz": df_data.close_sz,
+                "pct_change_sz": df_data.pct_change_sz,
+                "net_buy_amount": df_data.net_buy_amount,
+                "net_buy_amount_rate": df_data.net_buy_amount_rate,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "close_sh": df_data.close_sh,
+                "pct_change_sh": df_data.pct_change_sh,
+                "close_sz": df_data.close_sz,
+                "pct_change_sz": df_data.pct_change_sz,
+                "net_buy_amount": df_data.net_buy_amount,
+                "net_buy_amount_rate": df_data.net_buy_amount_rate,
+                "buy_elg_amount": df_data.buy_elg_amount,
+                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+                "buy_lg_amount": df_data.buy_lg_amount,
+                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+                "buy_md_amount": df_data.buy_md_amount,
+                "buy_md_amount_rate": df_data.buy_md_amount_rate,
+                "buy_sm_amount": df_data.buy_sm_amount,
+                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
         return data_dict
 
 
