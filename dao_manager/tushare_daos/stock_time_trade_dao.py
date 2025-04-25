@@ -138,7 +138,7 @@ class StockTimeTradeDAO(BaseDAO):
         df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": "", "limit": "" }, 
             fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
-        logger.info(f"开始执行{len(stock_codes)}个股票的日线数据保存. 获取df数量: {len(df)}，起始stock_code: {stock_codes[0]}，结束stock_code: {stock_codes[-1]}")
+        logger.info(f"开始执行{len(stock_codes)}个股票的日线数据保存. 获取df数量: {len(df)}，stock_codes: {stock_codes_str}")
         if df is not None:
             df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []

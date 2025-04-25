@@ -237,13 +237,13 @@ def save_day_data_history_batch(self, stock_codes: List[str]):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         return_info = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes))
-        logger.info(f"保存日线数据完成. {return_info}，起始stock_code: {stock_codes[0]}，结束stock_code: {stock_codes[-1]}")
+        # logger.info(f"保存日线数据完成. {return_info}，起始stock_code: {stock_codes[0]}，结束stock_code: {stock_codes[-1]}")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_day_data_history_task')
-def save_stocks_day_data_history_task(self, batch_size: int = 2): # 限量：单次最大6000行数据
+def save_stocks_day_data_history_task(self, batch_size: int = 3): # 限量：单次最大6000行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
