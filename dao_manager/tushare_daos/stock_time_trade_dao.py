@@ -580,6 +580,38 @@ class StockTimeTradeDAO(BaseDAO):
             result = []
         return result
 
+    async def save_weekly_time_trade_by_stock_codes(self, stock_codes: List[str]) -> None:
+        """
+        保存股票的周线交易数据
+        接口：weekly
+        描述：获取A股周线行情
+        限量：单次最大4500行，总量不限制
+        """
+        if self.cache_set is None:
+            await self.initialize_cache_objects()
+        stock_codes_str = ",".join(stock_codes)
+        # 拉取数据
+        df = self.ts_pro.stk_weekly_monthly(**{
+            "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "freq": "week", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_week_data(stock, row)
+                # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+        else:
+            result = []
+        return result
+
     async def get_weekly_time_trade_history(self, stock_code: str) -> None:
         """
         获取股票的历史周线交易数据
@@ -626,6 +658,39 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             result = []
         return result
+
+    async def save_monthly_time_trade_by_stock_codes(self, stock_codes: List[str]) -> None:
+        """
+        保存股票的月线交易数据
+        接口：monthly
+        描述：获取A股月线行情
+        限量：单次最大4500行，总量不限制
+        """
+        if self.cache_set is None:
+            await self.initialize_cache_objects()
+        stock_codes_str = ",".join(stock_codes)
+        # 拉取数据
+        df = self.ts_pro.stk_weekly_monthly(**{
+            "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "freq": "month", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_month_data(stock, row)
+                # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+        else:
+            result = []
+        return result
+
 
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:
         """

@@ -43,7 +43,7 @@ class StockBasicInfoDao(BaseDAO):
                 # 将缓存数据转换为模型实例列表
                 
                 for stock_dict in cached_data:
-                    logger.info(f"get_stock_list: {stock_dict}")
+                    # logger.info(f"get_stock_list: {stock_dict}")
                     if stock_dict.get('list_status') == 'L':
                         return_data.append(StockInfo(**stock_dict))
         except Exception as e:

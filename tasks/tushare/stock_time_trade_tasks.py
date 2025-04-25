@@ -226,7 +226,7 @@ def save_stocks_minute_data_history_task(self, batch_size: int = 2, time_level: 
 
 #  ================ 历史(日线)数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_history_batch')
-def save_day_data_history_batch(self, stock_codes: List[str], time_level: str):
+def save_day_data_history_batch(self, stock_codes: List[str]):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:
@@ -239,13 +239,13 @@ def save_day_data_history_batch(self, stock_codes: List[str], time_level: str):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes, time_level))
+        asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_day_data_history_task')
-def save_stocks_day_data_history_task(self, batch_size: int = 2, time_level: str = 'Day'): # 限量：单次最大6000行数据
+def save_stocks_day_data_history_task(self, batch_size: int = 2): # 限量：单次最大6000行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
@@ -255,7 +255,7 @@ def save_stocks_day_data_history_task(self, batch_size: int = 2, time_level: str
     """
     if not is_trading_time():
         return
-    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
+    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
     try:
         # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
@@ -275,7 +275,7 @@ def save_stocks_day_data_history_task(self, batch_size: int = 2, time_level: str
             if batch:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch)})...")
                 # 使用新的批量任务，并指定队列
-                save_day_data_history_batch.s(batch, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_day_data_history_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
@@ -290,7 +290,7 @@ def save_stocks_day_data_history_task(self, batch_size: int = 2, time_level: str
             if batch:
                 logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
                 # 使用新的批量任务，并指定队列
-                save_day_data_history_batch.s(batch, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                save_day_data_history_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
@@ -472,13 +472,13 @@ def save_week_data_history_batch(self, stock_codes: List[str], time_level: str):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes, time_level))
+        asyncio.run(stock_time_trade_dao.save_weekly_time_trade_by_stock_codes(stock_codes))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_week_data_history_task')
-def save_stocks_week_data_history_task(self, batch_size: int = 5, time_level: str = 'Week'): # 限量：单次最大4500行数据
+def save_stocks_week_data_history_task(self, batch_size: int = 5): # 限量：单次最大4500行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
@@ -488,7 +488,7 @@ def save_stocks_week_data_history_task(self, batch_size: int = 5, time_level: st
     """
     if not is_trading_time():
         return
-    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
+    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
     try:
         # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
@@ -508,7 +508,7 @@ def save_stocks_week_data_history_task(self, batch_size: int = 5, time_level: st
             if batch:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch)})...")
                 # 使用新的批量任务，并指定队列
-                save_week_data_history_batch.s(batch, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_week_data_history_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
@@ -523,7 +523,7 @@ def save_stocks_week_data_history_task(self, batch_size: int = 5, time_level: st
             if batch:
                 logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
                 # 使用新的批量任务，并指定队列
-                save_week_data_history_batch.s(batch, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                save_week_data_history_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
@@ -553,13 +553,13 @@ def save_month_data_history_batch(self, stock_codes: List[str], time_level: str)
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes, time_level))
+        asyncio.run(stock_time_trade_dao.save_monthly_time_trade_by_stock_codes(stock_codes))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_month_data_history_task')
-def save_stocks_month_data_history_task(self, batch_size: int = 10, time_level: str = 'Month'): # 限量：单次最大4500行数据
+def save_stocks_month_data_history_task(self, batch_size: int = 10): # 限量：单次最大4500行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
@@ -569,7 +569,7 @@ def save_stocks_month_data_history_task(self, batch_size: int = 10, time_level: 
     """
     if not is_trading_time():
         return
-    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
+    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
     try:
         # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
@@ -589,7 +589,7 @@ def save_stocks_month_data_history_task(self, batch_size: int = 10, time_level: 
             if batch:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch)})...")
                 # 使用新的批量任务，并指定队列
-                save_month_data_history_batch.s(batch, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_month_data_history_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
@@ -604,7 +604,7 @@ def save_stocks_month_data_history_task(self, batch_size: int = 10, time_level: 
             if batch:
                 logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
                 # 使用新的批量任务，并指定队列
-                save_month_data_history_batch.s(batch, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                save_month_data_history_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
