@@ -142,7 +142,7 @@ class CiDaily(models.Model):
     low = models.FloatField(verbose_name="最低点位")
     high = models.FloatField(verbose_name="最高点位")
     close = models.FloatField(verbose_name="收盘点位")
-    pre_close = models.FloatField(verbose_name="昨日收盘点位")
+    pre_close = models.FloatField(verbose_name="昨日收盘点位", null=True, blank=True )
     change = models.FloatField(verbose_name="涨跌点位")
     pct_change = models.FloatField(verbose_name="涨跌幅")
     vol = models.FloatField(verbose_name="成交量(万股)")

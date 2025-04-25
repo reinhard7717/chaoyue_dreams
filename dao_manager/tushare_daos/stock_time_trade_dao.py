@@ -538,7 +538,7 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
-                model_class=StockRealtimeData,
+                model_class=StockMinuteData,
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
