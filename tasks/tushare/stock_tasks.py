@@ -10,7 +10,7 @@ import logging
 # 获取 logger 实例
 logger = logging.getLogger('tasks') # 或者使用你项目配置的 logger
 
-@celery_app.task(bind=True, name='tasks.tushare.stock.save_stock_list_data')
+@celery_app.task(bind=True, name='tasks.tushare.stock_tasks.save_stock_list_data')
 def save_stock_list_data(self):
     """
     保存股票列表数据
@@ -23,7 +23,7 @@ def save_stock_list_data(self):
     result = asyncio.run(stock_basic_dao.save_hs_const())
     logger.info(f"保存沪深港通数据成功: {result}")
 
-@celery_app.task(bind=True, name='tasks.stock.fetch_data_for_new_favorite')
+@celery_app.task(bind=True, name='tasks.tushare.stock_tasks.fetch_data_for_new_favorite')
 def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id: int):
     """
     为新添加的自选股获取实时数据和信号，并推送给用户。

@@ -76,7 +76,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 
 #  ================ 实时(Tick)数据任务 ================
 # --- 新的批量处理工作任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_realtime.save_tick_data_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_tick_data_batch')
 def save_tick_data_batch(self, stock_codes: List[str]):
     """
     从Tushare批量获取实时Tick交易数据并保存到数据库（异步并发处理）
@@ -95,7 +95,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_realtime.save_stocks_tick_data_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task')
 def save_stocks_tick_data_task(self, batch_size: int = 50): # sina数据最多每次50个
     """
     调度器任务：

@@ -64,7 +64,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     return favorite_stock_codes_list, non_favorite_stock_codes
 
 #  ================ 实时(分钟)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_minute_data_realtime_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_minute_data_realtime_batch')
 def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: str):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -83,7 +83,7 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_minute_data_realtime_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_realtime_task')
 def save_stocks_minute_data_realtime_task(self, batch_size: int = 1000, time_level: str = '5'): # 限量：单次最大1000行数据
     """
     调度器任务：
@@ -145,7 +145,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 1000, time_lev
 
 
 #  ================ 历史(分钟)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_minute_data_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_minute_data_history_batch')
 def save_minute_data_history_batch(self, stock_codes: List[str], time_level: str):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -164,7 +164,7 @@ def save_minute_data_history_batch(self, stock_codes: List[str], time_level: str
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_minute_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_history_task')
 def save_stocks_minute_data_history_task(self, batch_size: int = 2, time_level: str = '5'): # 限量：单次最大8000行数据
     """
     调度器任务：
@@ -226,7 +226,7 @@ def save_stocks_minute_data_history_task(self, batch_size: int = 2, time_level: 
 
 
 #  ================ 历史(日线)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_day_data_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_history_batch')
 def save_day_data_history_batch(self, stock_codes: List[str], time_level: str):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -245,7 +245,7 @@ def save_day_data_history_batch(self, stock_codes: List[str], time_level: str):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_day_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_day_data_history_task')
 def save_stocks_day_data_history_task(self, batch_size: int = 2, time_level: str = 'Day'): # 限量：单次最大6000行数据
     """
     调度器任务：
@@ -306,7 +306,7 @@ def save_stocks_day_data_history_task(self, batch_size: int = 2, time_level: str
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 #  ================ 历史(每日基本信息)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_basic_data_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_basic_data_history_batch')
 def save_daily_basic_data_history_batch(self, stock_code: str):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -325,7 +325,7 @@ def save_daily_basic_data_history_batch(self, stock_code: str):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_basic_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_basic_data_history_task')
 def save_stocks_daily_basic_data_history_task(self):
     """
     调度器任务：
@@ -383,7 +383,7 @@ def save_stocks_daily_basic_data_history_task(self):
         logger.error(f"执行 save_stocks_realtime_min_data_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_daily_basic_data_today_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_daily_basic_data_today_batch')
 def save_daily_basic_data_today_batch(self):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -398,7 +398,7 @@ def save_daily_basic_data_today_batch(self):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_daily_basic_data_today_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task')
 def save_stocks_daily_basic_data_today_task(self):
     """
     调度器任务：
@@ -458,7 +458,7 @@ def save_stocks_daily_basic_data_today_task(self):
 
 
 #  ================ 历史(周线)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_week_data_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_week_data_history_batch')
 def save_week_data_history_batch(self, stock_codes: List[str], time_level: str):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -477,7 +477,7 @@ def save_week_data_history_batch(self, stock_codes: List[str], time_level: str):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_week_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_week_data_history_task')
 def save_stocks_week_data_history_task(self, batch_size: int = 5, time_level: str = 'Week'): # 限量：单次最大4500行数据
     """
     调度器任务：
@@ -539,7 +539,7 @@ def save_stocks_week_data_history_task(self, batch_size: int = 5, time_level: st
 
 
 #  ================ 历史(月线)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_month_data_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_month_data_history_batch')
 def save_month_data_history_batch(self, stock_codes: List[str], time_level: str):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
@@ -558,7 +558,7 @@ def save_month_data_history_batch(self, stock_codes: List[str], time_level: str)
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade.save_stocks_month_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_month_data_history_task')
 def save_stocks_month_data_history_task(self, batch_size: int = 10, time_level: str = 'Month'): # 限量：单次最大4500行数据
     """
     调度器任务：
