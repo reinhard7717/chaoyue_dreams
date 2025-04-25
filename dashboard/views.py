@@ -12,7 +12,7 @@ from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
-from tasks.stock_tasks import fetch_data_for_new_favorite # 导入新任务
+from tasks.tushare.stock_tasks import fetch_data_for_new_favorite # 导入新任务
 import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
@@ -103,7 +103,7 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         )
         # 2. 触发 Celery 任务，异步获取行情并推送
         try:
-            from tasks.stock_tasks import fetch_data_for_new_favorite
+            from tasks.tushare.stock_tasks import fetch_data_for_new_favorite
             task_args = (
                 self.request.user.id,
                 favorite.stock.stock_code,  # 注意这里是 stock_code

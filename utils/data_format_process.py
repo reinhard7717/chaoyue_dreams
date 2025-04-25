@@ -1,11 +1,11 @@
 from django.utils import timezone
-from typing import Any, Dict, List, Optional
-
+from typing import Any, Dict
+import logging
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexInfo
-from stock_models.stock_basic import StockInfo, StockTimeTrade
+from stock_models.stock_basic import StockInfo
+from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyData, StockMinuteData, StockTimeTrade
 from users.models import FavoriteStock
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,6 @@ class UserDataFormatProcess(BaseDAO):
         return data_dict
 
 class IndexDataFormatProcess(BaseDAO):
-
     # ================ 数据格式 ================
     def set_index_data(self, api_data: Dict) -> Dict:
         # logger.info(f"api_data: {api_data}")
@@ -93,256 +92,282 @@ class IndexDataFormatProcess(BaseDAO):
         }
         return data_dict
 
-    def set_kdj_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
-        data_dict = {
-            'index': index,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'k_value': self._parse_number(api_data.get('k')),  # K值
-            'd_value': self._parse_number(api_data.get('d')),  # D值
-            'j_value': self._parse_number(api_data.get('j')),  # J值
-        }
-        return data_dict
-    
-    def set_macd_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
-        data_dict = {
-            'index': index,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-            'dea': self._parse_number(api_data.get('dea')),    # DEA值
-            'macd': self._parse_number(api_data.get('macd')),  # MACD值
-            'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-            'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
-        }
-        return data_dict
-    
-    def set_ma_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
-        data_dict = {
-            'index': index,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'ma3': self._parse_number(api_data.get('ma3')),  # K值
-            'ma5': self._parse_number(api_data.get('ma5')),  # D值
-            'ma10': self._parse_number(api_data.get('ma10')),  # J值
-            'ma15': self._parse_number(api_data.get('ma15')),  # J值
-            'ma20': self._parse_number(api_data.get('ma20')),  # J值
-            'ma30': self._parse_number(api_data.get('ma30')),  # J值
-            'ma60': self._parse_number(api_data.get('ma60')),  # J值
-            'ma120': self._parse_number(api_data.get('ma120')),  # J值
-            'ma200': self._parse_number(api_data.get('ma200')),  # J值
-            'ma250': self._parse_number(api_data.get('ma250')),  # J值
-        }
-        return data_dict
-    
-    def set_boll_data(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
-        data_dict = {
-            'index': index,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'upper': self._parse_number(api_data.get('u')),
-            'middle': self._parse_number(api_data.get('m')),
-            'lower': self._parse_number(api_data.get('d')),
-        }
-        return data_dict
-
 class StockInfoFormatProcess(BaseDAO):
-    def set_stock_info_data(self, api_data: Dict) -> Dict:
+    def set_stock_info_data(self, api_data: Any) -> Dict:
         if isinstance(api_data, StockInfo):
             data_dict = {
                 'stock_code': api_data.stock_code,  # 股票代码
                 'stock_name': api_data.stock_name,  # 股票名称
+                'area': api_data.area,  # 地域
+                'industry': api_data.industry,  # 所属行业
+                'full_name': api_data.full_name,  # 股票全称
+                'en_name': api_data.en_name,  # 英文全称
+                'cn_spell': api_data.cn_spell,  # 拼音缩写
+                'market_type': api_data.market_type,  # 市场类型
                 'exchange': api_data.exchange,  # 交易所代码
+                'currency_type': api_data.currency_type,  # 交易货币
+                'list_status': api_data.list_status,  # 上市状态
+                'list_date': api_data.list_date,  # 上市日期
+                'delist_date': api_data.delist_date,  # 退市日期
+                'is_hs': api_data.is_hs,  # 是否沪深港通标的
+                'actual_controller': api_data.actual_controller,  # 实控人名称
+                'actual_controller_type': api_data.actual_controller_type,  # 实控人企业性质
             }
         else:
             data_dict = {
-                'stock_code': api_data.get('dm', ''),  # 股票代码
-                'stock_name': api_data.get('mc', ''),  # 股票名称
-                'exchange': api_data.get('jys', ''),  # 交易所代码
+                'stock_code': api_data.ts_code,  # 股票代码
+                'stock_name': api_data.name,  # 股票名称
+                'area': api_data.area,  # 地域
+                'industry': api_data.industry,  # 所属行业
+                'full_name': api_data.fullname,  # 股票全称
+                'en_name': api_data.enname,  # 英文全称
+                'cn_spell': api_data.cnspell,  # 拼音缩写
+                'market_type': api_data.market,  # 市场类型
+                'exchange': api_data.exchange,  # 交易所代码
+                'currency_type': api_data.curr_type,  # 交易货币
+                'list_status': api_data.list_status,  # 上市状态
+                'list_date': api_data.list_date,  # 上市日期
+                'delist_date': api_data.delist_date,  # 退市日期
+                'is_hs': api_data.is_hs,  # 是否沪深港通标的
+                'actual_controller': api_data.act_name,  # 实控人名称
+                'actual_controller_type': api_data.act_ent_type,  # 实控人企业性质
+            }
+        return data_dict
+    
+    def set_stock_info_basic_data(self, api_data: Any) -> Dict:
+        if isinstance(api_data, StockInfo):
+             data_dict = {
+                'stock_code': api_data.stock_code,  # 股票代码
+                'stock_name': api_data.stock_name,  # 股票名称
+                'industry': api_data.industry,  # 所属行业
+                'market_type': api_data.market_type,  # 市场类型
+                'exchange': api_data.exchange,  # 交易所代码
+                'currency_type': api_data.currency_type,  # 交易货币
+                'list_status': api_data.list_status,  # 上市状态
+                'is_hs': api_data.is_hs,  # 是否沪深港通标的
+            }
+        else:
+            data_dict = {
+                'stock_code': api_data.ts_code,  # 股票代码
+                'stock_name': api_data.name,  # 股票名称
+                'industry': api_data.industry,  # 所属行业
+                'market_type': api_data.market,  # 市场类型
+                'exchange': api_data.exchange,  # 交易所代码
+                'list_status': api_data.list_status,  # 上市状态
+                'is_hs': api_data.is_hs,  # 是否沪深港通标的
             }
         return data_dict
 
-class StockIndicatorsDataFormatProcess(BaseDAO):
-        # ================= 数据 =================
-    def set_time_trade_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
-        if isinstance(api_data, StockTimeTrade):
-            # 确保时区转换正确
-            trade_time = api_data.trade_time
-            if trade_time.tzinfo is not None:
-                trade_time = trade_time.astimezone(timezone.get_current_timezone())
+    def set_company_info_data(self, stock: StockInfo, api_data: Any) -> Dict:
+        data_dict = {
+            'stock': stock,
+            'com_name': api_data.com_name,
+            'com_id': api_data.com_id,
+            'exchange': api_data.exchange,
+            'chairman': api_data.chairman,
+            'manager': api_data.manager,
+            'secretary': api_data.secretary,
+            'reg_capital': api_data.reg_capital,
+            'setup_date': api_data.setup_date,
+            'province': api_data.province,
+            'city': api_data.city,
+            'introduction': api_data.introduction,
+            'website': api_data.website,
+            'email': api_data.email,
+            'office': api_data.office,
+            'employees': api_data.employees,
+            'main_business': api_data.main_business,
+            'business_scope': api_data.business_scope,
+        }
+        return data_dict
+
+    def set_hs_const_data(self, stock: StockInfo, api_data: Any) -> Dict:
+        data_dict = {
+            'stock': stock,
+            'hs_type': api_data.hs_type,
+            'in_date': api_data.in_date,
+            'out_date': api_data.out_date,
+            'is_new': api_data.is_new,
+        }
+        return data_dict
+
+class StockTimeTradeFormatProcess(BaseDAO):
+    def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_time": df_data.trade_date,
+            "open": df_data.open,
+            "high": df_data.high,
+            "low": df_data.low,
+            "close": df_data.close,
+            "pre_close": df_data.pre_close,
+            "change": df_data.change,
+            "pct_chg": df_data.pct_chg,
+            "vol": df_data.vol,
+            "amount": df_data.amount,
+            "adj_factor": df_data.adj_factor,
+            "open_qfq": df_data.open_qfq,
+            "high_qfq": df_data.high_qfq,
+            "low_qfq": df_data.low_qfq,
+            "close_qfq": df_data.close_qfq,
+            "pre_close_qfq": df_data.pre_close_qfq,
+            "open_hfq": df_data.open_hfq,
+            "high_hfq": df_data.high_hfq,
+            "low_hfq": df_data.low_hfq,
+            "close_hfq": df_data.close_hfq,
+            "pre_close_hfq": df_data.pre_close_hfq,            
+        }
+        return data_dict
+    
+    def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, StockMinuteData):
             data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': trade_time,  # 交易时间
-                'open_price': self._parse_number(api_data.open_price),  # 开盘价
-                'high_price': self._parse_number(api_data.high_price),  # 最高价
-                'low_price': self._parse_number(api_data.low_price),  # 最低价
-                'close_price': self._parse_number(api_data.close_price),  # 收盘价
-                'volume': self._parse_number(api_data.volume),  # 成交量
-                'turnover': self._parse_number(api_data.turnover),  # 成交额
-                'amplitude': self._parse_number(api_data.amplitude),  # 振幅
-                'turnover_rate': self._parse_number(api_data.turnover_rate),  # 换手率
-                'price_change_percent': self._parse_number(api_data.price_change_percent),  # 涨跌幅
-                'price_change_amount': self._parse_number(api_data.price_change_amount),  # 涨跌额   
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "time_level": df_data.time_level,
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
             }
         else:
             data_dict = {
-                'stock': stock,
-                'time_level': time_level,
-                'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-                'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-                'high_price': self._parse_number(api_data.get('h')),  # 最高价
-                'low_price': self._parse_number(api_data.get('l')),  # 最低价
-                'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-                'volume': self._parse_number(api_data.get('v')),  # 成交量
-                'turnover': self._parse_number(api_data.get('e')),  # 成交额
-                'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-                'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-                'price_change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-                'price_change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额   
+                "stock": stock,
+                "trade_time": df_data.trade_time,
+                "time_level": df_data.freq,
+                "open": df_data.open,
+                "high": df_data.high,
+                "low": df_data.low,
+                "close": df_data.close,
+                "vol": df_data.vol,
+                "amount": df_data.amount,
             }
         return data_dict
-    
-    def set_kdj_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
+
+    def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
-            'stock': stock,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'k_value': self._parse_number(api_data.get('k')),  # K值
-            'd_value': self._parse_number(api_data.get('d')),  # D值
-            'j_value': self._parse_number(api_data.get('j')),  # J值
+            "stock": stock,
+            "trade_time": df_data.trade_date,
+            "open": df_data.open,
+            "high": df_data.high,
+            "low": df_data.low,
+            "close": df_data.close,
+            "pre_close": df_data.pre_close,
+            "change": df_data.change,
+            "pct_chg": df_data.pct_chg,
+            "vol": df_data.vol,
+            "amount": df_data.amount,
         }
         return data_dict
     
-    def set_macd_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
+    def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
-            'stock': stock,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'diff': self._parse_number(api_data.get('diff')),  # DIFF值
-            'dea': self._parse_number(api_data.get('dea')),  # DEA值
-            'macd': self._parse_number(api_data.get('macd')),  # MACD值
-            'ema12': self._parse_number(api_data.get('ema12')),  # EMA(12)值
-            'ema26': self._parse_number(api_data.get('ema26')),  # EMA(26)值
+            "stock": stock,
+            "trade_time": df_data.trade_date,
+            "open": df_data.open,
+            "high": df_data.high,
+            "low": df_data.low,
+            "close": df_data.close,
+            "pre_close": df_data.pre_close,
+            "change": df_data.change,
+            "pct_chg": df_data.pct_chg,
+            "vol": df_data.vol,
+            "amount": df_data.amount,
+        }
+        return data_dict
+
+    def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "close": df_data.close,
+            "turnover_rate": df_data.turnover_rate,
+            "turnover_rate_f": df_data.turnover_rate_f,
+            "volume_ratio": df_data.volume_ratio,
+            "pe": df_data.pe,
+            "pe_ttm": df_data.pe_ttm,
+            "pb": df_data.pb,
+            "ps": df_data.ps,
+            "ps_ttm": df_data.ps_ttm,
+            "total_share": df_data.total_share,
+            "float_share": df_data.float_share,
+            "free_share": df_data.free_share,
+            "total_mv": df_data.total_mv,
+            "circ_mv": df_data.circ_mv,
+            "limit_status": df_data.limit_status,
+        }
+        return data_dict
+
+    def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "his_low": df_data.his_low,
+            "his_high": df_data.his_high,
+            "cost_5pct": df_data.cost_5pct,
+            "cost_15pct": df_data.cost_15pct,
+            "cost_50pct": df_data.cost_50pct,
+            "cost_85pct": df_data.cost_85pct,
+            "cost_95pct": df_data.cost_95pct,
+            "weight_avg": df_data.weight_avg,
+            "winner_rate": df_data.winner_rate,
         }
         return data_dict
     
-    def set_ma_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
+    def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
-            'stock': stock,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'ma3': self._parse_number(api_data.get('ma3')),  # MA3值
-            'ma5': self._parse_number(api_data.get('ma5')),  # MA5值
-            'ma10': self._parse_number(api_data.get('ma10')),  # MA10值
-            'ma15': self._parse_number(api_data.get('ma15')),  # MA15值
-            'ma20': self._parse_number(api_data.get('ma20')),  # MA20值
-            'ma30': self._parse_number(api_data.get('ma30')),  # MA30值 
-            'ma60': self._parse_number(api_data.get('ma60')),  # MA60值
-            'ma120': self._parse_number(api_data.get('ma120')),  # MA120值
-            'ma200': self._parse_number(api_data.get('ma200')),  # MA200值
-            'ma250': self._parse_number(api_data.get('ma250')),  # MA250值
-        }
-        return data_dict
-    
-    def set_boll_data(self, stock: StockInfo, time_level: str, api_data: Dict) -> Dict:
-        data_dict = {
-            'stock': stock,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'upper': self._parse_number(api_data.get('u')),  # 上轨
-            'lower': self._parse_number(api_data.get('d')),  # 下轨
-            'mid': self._parse_number(api_data.get('m')),  # 中轨
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "price": df_data.price,
+            "percent": df_data.percent,
         }
         return data_dict
 
 class StockRealtimeDataFormatProcess(BaseDAO):
         # ================ 数据格式 ================
-    def set_realtime_data(self, stock: StockInfo, api_data: Dict) -> Dict:
-        from stock_models.stock_realtime import StockRealtimeData
-        if isinstance(api_data, StockRealtimeData):
-            trade_time = api_data.trade_time
-            if trade_time.tzinfo is not None:
-                trade_time = trade_time.astimezone(timezone.get_current_timezone())
-            data_dict = {
-                'stock': stock,
-                'trade_time': trade_time,
-                'open_price': api_data.open_price,
-                'five_min_change': api_data.five_min_change,
-                'high_price': api_data.high_price,
-                'turnover_rate': api_data.turnover_rate,
-                'volume_ratio': api_data.volume_ratio,
-                'low_price': api_data.low_price,
-                'tradable_market_value': api_data.tradable_market_value,
-                'pe_ratio': api_data.pe_ratio,
-                'price_change_percent': api_data.price_change_percent,
-                'current_price': api_data.current_price,
-                'total_market_value': api_data.total_market_value,
-                'turnover_value': api_data.turnover_value,
-                'price_change': api_data.price_change,
-                'volume': api_data.volume,
-                'prev_close_price': api_data.prev_close_price,
-                'amplitude': api_data.amplitude,
-                'increase_speed': api_data.increase_speed,
-                'pb_ratio': api_data.pb_ratio,
-                'price_change_60d': api_data.price_change_60d,
-                'price_change_ytd': api_data.price_change_ytd,
-            }
-        else:
-            trade_time = self._parse_datetime(api_data.get('t'))
-            data_dict = {
-                'stock': stock,
-                'trade_time': trade_time,
-                'open_price': self._parse_number(api_data.get('o')),
-                'five_min_change': self._parse_number(api_data.get('fm')),
-                'high_price': self._parse_number(api_data.get('h')),
-                'turnover_rate': self._parse_number(api_data.get('hs')),
-                'volume_ratio': self._parse_number(api_data.get('lb')),
-                'low_price': self._parse_number(api_data.get('l')),
-                'tradable_market_value': self._parse_number(api_data.get('lt')),
-                'pe_ratio': self._parse_number(api_data.get('pe')),
-                'price_change_percent': self._parse_number(api_data.get('pc')),
-                'current_price': self._parse_number(api_data.get('p')),
-                'total_market_value': self._parse_number(api_data.get('sz')),
-                'turnover_value': self._parse_number(api_data.get('cje')),
-                'price_change': self._parse_number(api_data.get('ud')),
-                'volume': self._parse_number(api_data.get('v')),
-                'prev_close_price': self._parse_number(api_data.get('yc')),
-                'amplitude': self._parse_number(api_data.get('zf')),
-                'increase_speed': self._parse_number(api_data.get('zs')),
-                'pb_ratio': self._parse_number(api_data.get('sjl')),
-                'price_change_60d': self._parse_number(api_data.get('zdf60')),
-                'price_change_ytd': self._parse_number(api_data.get('zdfnc')),
-            }
-        data_dict['trade_time'] = trade_time
-        return data_dict
-    
-    def set_level5_data(self, stock: StockInfo, api_data: Dict) -> Dict:
+    def set_realtime_tick_data(self, stock: StockInfo, time_level: str, df_data: Any) -> Dict:
         data_dict = {
-            'stock': stock,
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 交易时间
-            'order_diff': self._parse_number(api_data.get('vc')),
-            'order_ratio': self._parse_number(api_data.get('vb')),
-            'buy_price1': self._parse_number(api_data.get('pb1')),
-            'buy_volume1': self._parse_number(api_data.get('vb1')),
-            'buy_price2': self._parse_number(api_data.get('pb2')),
-            'buy_volume2': self._parse_number(api_data.get('vb2')),
-            'buy_price3': self._parse_number(api_data.get('pb3')),
-            'buy_volume3': self._parse_number(api_data.get('vb3')),
-            'buy_price4': self._parse_number(api_data.get('pb4')),
-            'buy_volume4': self._parse_number(api_data.get('vb4')),
-            'buy_price5': self._parse_number(api_data.get('pb5')),
-            'buy_volume5': self._parse_number(api_data.get('vb5')),
-            'sell_price1': self._parse_number(api_data.get('ps1')),
-            'sell_volume1': self._parse_number(api_data.get('vs1')),
-            'sell_price2': self._parse_number(api_data.get('ps2')),
-            'sell_volume2': self._parse_number(api_data.get('vs2')),
-            'sell_price3': self._parse_number(api_data.get('ps3')),
-            'sell_volume3': self._parse_number(api_data.get('vs3')),
-            'sell_price4': self._parse_number(api_data.get('ps4')),
-            'sell_volume4': self._parse_number(api_data.get('vs4')),
-            'sell_price5': self._parse_number(api_data.get('ps5')),
-            'sell_volume5': self._parse_number(api_data.get('vs5')),
+            "stock": stock,
+            "time_level": time_level,
+            "trade_time": self._parse_datetime(df_data.date + df_data.time),
+            "open_price": df_data.open,
+            "prev_close_price": df_data.pre_close,
+            "current_price": df_data.price,
+            "high_price": df_data.high,
+            "low_price": df_data.low,
+            "volume": df_data.volume,
+            "turnover_value": df_data.amount,
+        }
+        return data_dict
+
+    def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(df_data.date + df_data.time),
+            "buy_volume1": df_data.b1_v,
+            "buy_price1": df_data.b1_p,
+            "buy_volume2": df_data.b2_v,
+            "buy_price2": df_data.b2_p,
+            "buy_volume3": df_data.b3_v,
+            "buy_price3": df_data.b3_p,
+            "buy_volume4": df_data.b4_v,
+            "buy_price4": df_data.b4_p,
+            "buy_volume5": df_data.b5_v,
+            "buy_price5": df_data.b5_p,
+            "sell_volume1": df_data.s1_v,
+            "sell_price1": df_data.s1_p,
+            "sell_volume2": df_data.s2_v,
+            "sell_price2": df_data.s2_p,
+            "sell_volume3": df_data.s3_v,
+            "sell_price3": df_data.s3_p,
+            "sell_volume4": df_data.s4_v,
+            "sell_price4": df_data.s4_p,
+            "sell_volume5": df_data.s5_v,
+            "sell_price5": df_data.s5_p,
+            "order_diff": df_data.b1_v - df_data.s1_v,
+            "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
         }
         return data_dict
     
@@ -465,86 +490,154 @@ class StrategiesDataFormatProcess(BaseDAO):
         }
         return data_dict
 
-class StockInfoFormatTuShare(BaseDAO):
-    def set_stock_info_data(self, df_data: Any) -> Dict:
+class FundFlowFormatProcess(BaseDAO):
+    def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
-            "stock_code": df_data.ts_code,
-            "stock_name": df_data.name,
-            "area": df_data.area,
-            "industry": df_data.industry,
-            "full_name": df_data.fullname,
-            "en_name": df_data.en_name,
-            "cn_spell": df_data.cnspell,
-            "market_type": df_data.market,
-            "exchange": df_data.exchange,
-            "currency_type": df_data.curr_type,
-            "list_status": df_data.list_status,
-            "list_date": df_data.list_date,
-            "delist_date": df_data.delist_date,
-            "is_hs": df_data.is_hs,
-            "actual_controller": df_data.act_name,
-            "actual_controller_type": df_data.act_ent_type,
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "buy_sm_vol": df_data.buy_sm_vol,
+            "buy_sm_amount": df_data.buy_sm_amount,
+            "sell_sm_vol": df_data.sell_sm_vol,
+            "sell_sm_amount": df_data.sell_sm_amount,
+            "buy_md_vol": df_data.buy_md_vol,
+            "buy_md_amount": df_data.buy_md_amount,
+            "sell_md_vol": df_data.sell_md_vol,
+            "sell_md_amount": df_data.sell_md_amount,
+            "buy_lg_vol": df_data.buy_lg_vol,
+            "buy_lg_amount": df_data.buy_lg_amount,
+            "sell_lg_vol": df_data.sell_lg_vol,
+            "sell_lg_amount": df_data.sell_lg_amount,
+            "buy_elg_vol": df_data.buy_elg_vol,
+            "buy_elg_amount": df_data.buy_elg_amount,
+            "sell_elg_vol": df_data.sell_elg_vol,
+            "sell_elg_amount": df_data.sell_elg_amount,
+            "net_mf_vol": df_data.net_mf_vol,
+            "net_mf_amount": df_data.net_mf_amount,
         }
         return data_dict
 
-class StockRealtimeDataFormatTuShare(BaseDAO):
-    def set_realtime_data(self, stock: StockInfo, df_data: Any) -> Dict:
+    def set_fund_flow_data_ths(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.date + df_data.time),
-            "open_price": df_data.open,
-            "prev_close_price": df_data.pre_close,
-            "current_price": df_data.price,
-            "high_price": df_data.high,
-            "low_price": df_data.low,
-            "volume": df_data.volume,
-            "turnover_value": df_data.amount,
+            "trade_date": df_data.trade_date,
+            "net_amount": df_data.net_amount,
+            "net_d5_amount": df_data.net_d5_amount,
+            "buy_lg_amount": df_data.buy_lg_amount,
+            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+            "buy_md_amount": df_data.buy_md_amount,
+            "buy_md_amount_rate": df_data.buy_md_amount_rate,
+            "buy_sm_amount": df_data.buy_sm_amount,
+            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+        }
+        return data_dict
+    
+    def set_fund_flow_data_dc(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "net_amount": df_data.net_amount,
+            "net_amount_rate": df_data.net_amount_rate,
+            "net_d5_amount": df_data.net_d5_amount,
+            "buy_elg_amount": df_data.buy_elg_amount,
+            "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+            "buy_lg_amount": df_data.buy_lg_amount,
+            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+            "buy_md_amount": df_data.buy_md_amount,
+            "buy_md_amount_rate": df_data.buy_md_amount_rate,
+            "buy_sm_amount": df_data.buy_sm_amount,
+            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
         }
         return data_dict
 
-    def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
+    def set_fund_flow_cnt_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.date + df_data.time),
-            "buy_volume1": df_data.b1_v,
-            "buy_price1": df_data.b1_p,
-            "buy_volume2": df_data.b2_v,
-            "buy_price2": df_data.b2_p,
-            "buy_volume3": df_data.b3_v,
-            "buy_price3": df_data.b3_p,
-            "buy_volume4": df_data.b4_v,
-            "buy_price4": df_data.b4_p,
-            "buy_volume5": df_data.b5_v,
-            "buy_price5": df_data.b5_p,
-            "sell_volume1": df_data.s1_v,
-            "sell_price1": df_data.s1_p,
-            "sell_volume2": df_data.s2_v,
-            "sell_price2": df_data.s2_p,
-            "sell_volume3": df_data.s3_v,
-            "sell_price3": df_data.s3_p,
-            "sell_volume4": df_data.s4_v,
-            "sell_price4": df_data.s4_p,
-            "sell_volume5": df_data.s5_v,
-            "sell_price5": df_data.s5_p,
-            "order_diff": df_data.b1_v - df_data.s1_v,
-            "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
+            "trade_date": df_data.trade_date,
+            "lead_stock": df_data.lead_stock,
+            "pct_change": df_data.pct_change,
+            "index_close": df_data.industry_index,
+            "company_num": df_data.company_num,
+            "pct_change_stock": df_data.pct_change_stock,
+            "net_buy_amount": df_data.net_buy_amount,
+            "net_sell_amount": df_data.net_sell_amount,
+            "net_amount": df_data.net_amount,
         }
         return data_dict
 
-class StockTimeTradeFormatTuShare(BaseDAO):
-    def set_time_trade_data(self, stock: StockInfo, time_level: str, df_data: Any) -> Dict:
+    def set_fund_flow_cnt_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_date": self._parse_datetime(df_data.date),
-            "time_level": time_level,
-            "open_price": df_data.open,
-            "high_price": df_data.high,
-            "low_price": df_data.low,
-            "close_price": df_data.close,
-            "volume": df_data.vol,
-            "price_change_amount": df_data.change,
-            "price_change_percent": df_data.pct_chg,
-            "turnover": df_data.amount,
+            "trade_date": df_data.trade_date,
+            "content_type": df_data.content_type,
+            "name": df_data.name,
+            "pct_change": df_data.pct_change,
+            "close": df_data.close_price,
+            "net_amount": df_data.net_amount,
+            "net_amount_rate": df_data.net_amount_rate,
+            "buy_elg_amount": df_data.buy_elg_amount,
+            "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+            "buy_lg_amount": df_data.buy_lg_amount,
+            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+            "buy_md_amount": df_data.buy_md_amount,
+            "buy_md_amount_rate": df_data.buy_md_amount_rate,
+            "buy_sm_amount": df_data.buy_sm_amount,
+            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
         }
         return data_dict
+
+    def set_fund_flow_industry_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "industry_name": df_data.industry,
+            "lead_stock": df_data.lead_stock,
+            "close": df_data.close,
+            "pct_change": df_data.pct_change,
+            "company_num": df_data.company_num,
+            "pct_change_stock": df_data.pct_change_stock,
+            "close_price": df_data.close_price,
+            "net_buy_amount": df_data.net_buy_amount,
+            "net_sell_amount": df_data.net_sell_amount,
+            "net_amount": df_data.net_amount,
+        }
+        return data_dict
+
+    def set_fund_flow_market_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        data_dict = {
+            "stock": stock,
+            "trade_date": df_data.trade_date,
+            "close_sh": df_data.close_sh,
+            "pct_change_sh": df_data.pct_change_sh,
+            "close_sz": df_data.close_sz,
+            "pct_change_sz": df_data.pct_change_sz,
+            "net_buy_amount": df_data.net_buy_amount,
+            "net_buy_amount_rate": df_data.net_buy_amount_rate,
+            "buy_elg_amount": df_data.buy_elg_amount,
+            "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
+            "buy_lg_amount": df_data.buy_lg_amount,
+            "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
+            "buy_md_amount": df_data.buy_md_amount,
+            "buy_md_amount_rate": df_data.buy_md_amount_rate,
+            "buy_sm_amount": df_data.buy_sm_amount,
+            "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+        }
+        return data_dict
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

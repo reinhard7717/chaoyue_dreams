@@ -1,58 +1,47 @@
 from datetime import date
 import logging
+from typing import List
 import pandas as pd
-
+from datetime import datetime
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
 from dao_manager.base_dao import BaseDAO
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
-from dao_manager.daos.user_dao import UserDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
 from stock_models.stock_realtime import StockRealtimeData
-from utils.cache_get import StockTimeTradeCacheGet
-from utils.cache_manager import CacheManager
-from utils.cache_set import StockTimeTradeCacheSet
+from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockWeeklyData, StockMonthlyData
+from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
+from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
 from utils.cash_key import StockCashKey
-from utils.data_format_process import StockIndicatorsDataFormatProcess, StockTimeTradeFormatTuShare
+from utils.data_format_process import StockInfoFormatProcess, StockTimeTradeFormatProcess
 
 logger = logging.getLogger("dao")
+time_levels = ["1", "5", "15", "30", "60"]
 
 class StockTimeTradeDAO(BaseDAO):
     def __init__(self):
         """初始化StockIndicatorsDAO"""
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
         self.api = StockIndicatorsAPI()
-        self.stock_basic_dao = StockBasicDAO()
-        self.cache_timeout = 300  # 默认缓存5分钟
+        self.stock_basic_dao = StockBasicInfoDao()
         self.cache_limit = 450 # 定义缓存数量上限
-        self.user_dao = UserDAO()
         self.cache_key = StockCashKey()
-        self.data_format_tushare = StockTimeTradeFormatTuShare()
-        self.cache_manager = None
-        self.cache_get = None
-        self.cache_set = None
+        self.data_format_process_trade = StockTimeTradeFormatProcess()
+        self.data_format_process_stock = StockInfoFormatProcess()
+        self.cache_set = StockTimeTradeCacheSet()
+        self.cache_get = StockTimeTradeCacheGet()
+        self.stock_cache_set = StockInfoCacheSet()
+        self.stock_cache_get = StockInfoCacheGet()
 
-    async def initialize_cache_objects(self):
-        self.cache_manager = CacheManager()  # 先实例化
-        await self.cache_manager.initialize()  # 然后 await 其异步初始化方法，如果存在
-
-        self.cache_set = StockTimeTradeCacheSet()  # 先实例化
-        await self.cache_set.initialize()  # 添加异步初始化方法，如果需要
-
-        self.cache_get = StockTimeTradeCacheGet()  # 先实例化
-        await self.cache_get.initialize()  # 添加异步初始化方法，如果需要
-
-
-    async def save_history_daily_time_deals(self, stock_code: str, trade_date: date) -> None:
+    # =============== A股日线行情 ===============
+    async def save_daily_time_trade_history_by_trade_date(self, trade_date: date) -> None:
         """
         保存股票的历史日线交易数据
-        接口：daily，可以通过数据工具调试和查看数据
-        数据说明：交易日每天15点～16点之间入库。本接口是未复权行情，停牌期间不提供数据
-        调取说明：120积分每分钟内最多调取500次，每次6000条数据，相当于单次提取23年历史
-        描述：获取股票行情数据，或通过通用行情接口获取数据，包含了前后复权数据
+        接口：stk_factor
+        描述：获取股票每日技术面因子数据，用于跟踪股票当前走势情况，数据由Tushare社区自产，覆盖全历史
+        限量：单次最大10000条，可以循环或者分页提取
+        积分：5000积分每分钟可以请求100次，8000积分以上每分钟500次，具体请参阅积分获取办法
         """
-        if self.cache_set is None:
-            await self.initialize_cache_objects()
-        df = self.ts_pro.daily(**{ "ts_code": "", "trade_date": trade_date.strftime("%Y%m%d"), "start_date": "",
+        df = self.ts_pro.stk_factor(**{ "ts_code": "", "trade_date": trade_date.strftime("%Y%m%d"), "start_date": "",
                                   "end_date": "", "offset": "", "limit": "" }, 
             fields=[ "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"])
         if df is not None:
@@ -60,18 +49,22 @@ class StockTimeTradeDAO(BaseDAO):
             for row in df.itertuples():
                 stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
-                    data_dict = self.data_format_tushare.set_time_trade_data(stock, "daily", row)
+                    data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
                     # 2. 准备缓存数据
                     cache_data_dict = data_dict.copy()
                     if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
                         # 替换为 stock_code
-                        cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
+                        cache_data_dict['stock_code'] = stock.stock_code
                         del cache_data_dict['stock'] # 删除实例键
                     prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
                     if prepared_data:
-                        await self.cache_set.latest_realtime_data(stock_code, prepared_data)
+                        await self.cache_set.history_time_trade(stock.stock_code, prepared_data)
+                        # --- 函数末尾执行最终修剪 ---
+                        cache_key =  self.cache_key.history_time_trade(stock.stock_code, "Day")
+                        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                        # --- 修剪调用结束 ---
                     else:
                         logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
@@ -81,11 +74,115 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
         else:
-            result = []
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
 
-    async def save_realtime_daily_time_deals(self, stock_code: str, trade_date: date) -> None:
+    async def save_daily_time_trade_history_by_stock_code(self, stock_code: str) -> None:
         """
+        保存股票的历史日线交易数据
+        接口：stk_factor
+        描述：获取股票每日技术面因子数据，用于跟踪股票当前走势情况，数据由Tushare社区自产，覆盖全历史
+        限量：单次最大10000条，可以循环或者分页提取
+        积分：5000积分每分钟可以请求100次，8000积分以上每分钟500次，具体请参阅积分获取办法
+        """
+        df = self.ts_pro.stk_factor(**{ "ts_code": stock_code, "trade_date": "", "start_date": "","end_date": "", "offset": "", "limit": "" }, 
+            fields=[ "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
+                    # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
+                    data_dicts.append(data_dict)
+                    # 2. 准备缓存数据
+                    cache_data_dict = data_dict.copy()
+                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                        # 替换为 stock_code
+                        cache_data_dict['stock_code'] = stock.stock_code
+                        del cache_data_dict['stock'] # 删除实例键
+                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    if prepared_data:
+                        await self.cache_set.history_time_trade(stock.stock_code, prepared_data)
+                    else:
+                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            # 使用包含 StockInfo 实例的列表
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+            # --- 函数末尾执行最终修剪 ---
+            cache_key =  self.cache_key.history_time_trade(stock_code, "Day")
+            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
+    async def save_daily_time_trade_history_by_stock_codes(self, stock_codes: List[str]) -> None:
+        """
+        保存股票的历史日线交易数据
+        接口：stk_factor
+        描述：获取股票每日技术面因子数据，用于跟踪股票当前走势情况，数据由Tushare社区自产，覆盖全历史
+        限量：单次最大10000条，可以循环或者分页提取
+        积分：5000积分每分钟可以请求100次，8000积分以上每分钟500次，具体请参阅积分获取办法
+        """
+        stock_codes_str = ",".join(stock_codes)
+        df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": "", "limit": "" }, 
+            fields=[ "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
+                    # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
+                    data_dicts.append(data_dict)
+                    # 2. 准备缓存数据
+                    cache_data_dict = data_dict.copy()
+                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                        # 替换为 stock_code
+                        cache_data_dict['stock_code'] = stock.stock_code
+                        del cache_data_dict['stock'] # 删除实例键
+                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    if prepared_data:
+                        await self.cache_set.history_time_trade(stock.stock_code, prepared_data)
+                    else:
+                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            # 使用包含 StockInfo 实例的列表
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+            for stock_code in stock_codes:
+                # --- 函数末尾执行最终修剪 ---
+                cache_key =  self.cache_key.history_time_trade(stock_code, "Day")
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
+    async def save_daily_time_trade_today(self) -> None:
+        """
+        保存股票的今日日线交易数据
+        接口：daily
+        数据说明：交易日每天15点～16点之间入库。本接口是未复权行情，停牌期间不提供数据
+        调取说明：120积分每分钟内最多调取500次，每次6000条数据，相当于单次提取23年历史
+        """
+        # 获取当前日期
+        today = datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
+        result = await self.save_daily_time_trade_history_by_trade_date(today_str)
+        return result
+
+    # 未复权信息，慎用
+    async def save_daily_time_trade_realtime(self, stock_code: str) -> None:
+        """
+        未复权信息，慎用
         保存股票的实时日线交易数据
         接口：rt_k
         描述：获取实时日k线行情，支持按股票代码及股票代码通配符一次性提取全部股票实时日k线行情
@@ -104,7 +201,7 @@ class StockTimeTradeDAO(BaseDAO):
             data_dicts = []
             for row in df.itertuples():
                 stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                data_dict = self.data_format_tushare.set_time_trade_data(stock, "daily", row)
+                data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
                 # 2. 准备缓存数据
@@ -115,7 +212,7 @@ class StockTimeTradeDAO(BaseDAO):
                     del cache_data_dict['stock'] # 删除实例键
                 prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
                 if prepared_data:
-                    await self.cache_set.latest_realtime_data(stock_code, prepared_data)
+                    await self.cache_set.latest_time_trade(stock_code, "Day", prepared_data)
                 else:
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
@@ -125,10 +222,191 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
         else:
-            result = []
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
 
-    async def save_realtime_min_time_deals(self, stock_code: str, time_level: str) -> None:
+    async def get_daily_time_trade_history_by_stock_code(self, stock_code: str) -> None:
+        """
+        获取股票的历史日线交易数据
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.history_time_trade(stock_code, "Day")
+        data_dicts = await self.cache_get.history_time_trade(cache_key)
+        stock_daily_data_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_daily_data_list.append(StockDailyData(**data_dict))
+            return stock_daily_data_list
+        # 从数据库中获取数据
+        stock_daily_data_list = StockDailyData.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
+        return stock_daily_data_list
+
+    # =============== A股分钟行情 ===============
+    async def save_minute_time_trade_history_by_time_level(self, stock_code: str, time_level: str) -> None:
+        """
+        保存股票的历史分钟级交易数据
+        接口：stk_mins
+        描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
+        限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
+        """
+        df = self.ts_pro.stk_mins(**{
+            "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
+                data_dicts.append(data_dict)
+                # 2. 准备缓存数据
+                cache_data_dict = data_dict.copy()
+                if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                    # 替换为 stock_code
+                    cache_data_dict['stock_code'] = row.ts_code
+                    del cache_data_dict['stock'] # 删除实例键
+                prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                if prepared_data:
+                    await self.cache_set.history_time_trade(stock_code, time_level, prepared_data)
+                else:
+                    logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
+    async def save_minute_time_trade_history_by_stock_code(self, stock_code: str) -> None:
+        """
+        保存股票的历史分钟级交易数据
+        接口：stk_mins
+        描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
+        限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
+        """
+        result_df = pd.DataFrame()
+        for time_level in time_level:
+            df = self.ts_pro.stk_mins(**{
+                "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+            ])
+            if df is not None:
+                result_df = pd.concat([result_df, df])
+        if result_df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
+                data_dicts.append(data_dict)
+                # 2. 准备缓存数据
+                cache_data_dict = data_dict.copy()
+                if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                    # 替换为 stock_code
+                    cache_data_dict['stock_code'] = row.ts_code
+                    del cache_data_dict['stock'] # 删除实例键
+                prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                if prepared_data:
+                    await self.cache_set.history_time_trade(stock_code, time_level, prepared_data)
+                else:
+                    logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
+    async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
+        """
+        保存股票的历史分钟级交易数据
+        接口：stk_mins
+        描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
+        限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
+        """
+        result_df = pd.DataFrame()
+        stock_codes_str = ",".join(stock_codes)
+        for time_level in time_level:
+            df = self.ts_pro.stk_mins(**{
+                "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+            ])
+            if df is not None:
+                result_df = pd.concat([result_df, df])
+        if result_df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
+                data_dicts.append(data_dict)
+                # 2. 准备缓存数据
+                cache_data_dict = data_dict.copy()
+                if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                    # 替换为 stock_code
+                    cache_data_dict['stock_code'] = row.ts_code
+                    del cache_data_dict['stock'] # 删除实例键
+                prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                if prepared_data:
+                    await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                else:
+                    logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+            for stock_code in stock_codes:
+                # --- 函数末尾执行最终修剪 ---
+                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
+    async def save_minute_time_trade_history_all(self) -> None:
+        """
+        保存股票的历史分钟级交易数据
+        """
+        stocks = self.stock_basic_dao.get_stock_list()
+        data_dicts = []
+        for stock in stocks:
+            for time_level in time_levels:
+                df = self.ts_pro.stk_mins(**{
+                    "ts_code": stock.stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+                    }, fields=["ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"])
+                if df is not None and not df.empty:
+                    for row in df.itertuples():
+                        stock_obj = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                        data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock_obj, row)
+                        data_dicts.append(data_dict)
+                        # 2. 准备缓存数据
+                        cache_data_dict = data_dict.copy()
+                        if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                            cache_data_dict['stock_code'] = row.ts_code
+                            del cache_data_dict['stock']
+                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                        if prepared_data:
+                            await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                        else:
+                            logger.warning(f"为股票 {stock_obj} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+        if data_dicts:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            return result
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+    async def save_minute_time_trade_realtime(self, stock_code: str, time_level: str) -> None:
         """
         保存股票的实时分钟级交易数据
         接口：rt_min
@@ -147,7 +425,7 @@ class StockTimeTradeDAO(BaseDAO):
             data_dicts = []
             for row in df.itertuples():
                 stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                data_dict = self.data_format_tushare.set_time_trade_data(stock, time_level, row)
+                data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
                 # 2. 准备缓存数据
@@ -158,56 +436,141 @@ class StockTimeTradeDAO(BaseDAO):
                     del cache_data_dict['stock'] # 删除实例键
                 prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
                 if prepared_data:
-                    await self.cache_set.latest_realtime_data(stock_code, prepared_data)
+                    await self.cache_set.history_time_trade(stock_code, time_level, prepared_data)
                 else:
                     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            if data_dicts:
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockRealtimeData,
+                    data_list=data_dicts,
+                    unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+                )
                 # --- 函数末尾执行最终修剪 ---
                 cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
                 await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
+        else:
+            result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
+    async def save_minute_time_trade_realtime_by_stock_codes(self, stock_codes: List[str]) -> None:
+        """
+        保存股票的实时分钟级交易数据
+        接口：rt_min
+        描述：获取全A股票实时分钟数据，包括1~60min
+        限量：单次最大1000行数据，可以通过股票代码提取数据，支持逗号分隔的多个代码同时提取
+        """
+        stock_codes_str = ",".join(stock_codes)
+        # 拉取数据
+        data_dicts = []
+        for time_level in time_levels:
+            df = self.ts_pro.rt_min(**{
+                "topic": "", "freq": time_level + "min", "ts_code": stock_codes_str, "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
+            ])
+            if df is not None:
+                for row in df.itertuples():
+                    stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
+                    data_dicts.append(data_dict)
+                    # --- 函数末尾执行最终修剪 ---
+                    cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
+                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                    # --- 修剪调用结束 ---
+        if data_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockRealtimeData,
                 data_list=data_dicts,
-                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+                unique_fields=['stock', 'trade_time']
             )
+            return result
         else:
-            result = []
-        return result
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-    async def save_history_min_time_deals(self, stock_code: str, time_level: str, trade_date: date) -> None:
+    async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
         """
-        保存股票的分钟级交易数据
+        保存股票的实时分钟级交易数据
+        接口：rt_min
+        描述：获取全A股票实时分钟数据，包括1~60min
+        限量：单次最大1000行数据，可以通过股票代码提取数据，支持逗号分隔的多个代码同时提取
+        """
+        stock_codes_str = ",".join(stock_codes)
+        # 拉取数据
+        data_dicts = []
+        df = self.ts_pro.rt_min(**{
+            "topic": "", "freq": time_level + "min", "ts_code": stock_codes_str, "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
+        ])
+        if df is not None:
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
+                data_dicts.append(data_dict)
+                cache_data_dict = data_dict.copy()
+                if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                    # 替换为 stock_code
+                    cache_data_dict['stock_code'] = row.ts_code
+                    del cache_data_dict['stock'] # 删除实例键
+                prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                if prepared_data:
+                    await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                else:
+                    logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+        if data_dicts:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            for stock_code in stock_codes:
+                # --- 函数末尾执行最终修剪 ---
+                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+            return result
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+    async def get_minute_time_trade_history(self, stock_code: str, time_level: str) -> None:
+        """
+        获取股票的历史分钟级交易数据
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+        data_dicts = await self.cache_get.history_time_trade(cache_key)
+        stock_minute_data_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_minute_data_list.append(StockMinuteData(**data_dict))
+        # 从数据库中获取数据
+        stock_minute_data_list = StockMinuteData.objects.filter(stock_code=stock_code, time_level=time_level).order_by('-trade_time')[:self.cache_limit]
+        return stock_minute_data_list
+
+    #  =============== A股周线行情 ===============
+    async def save_weekly_time_trade(self, stock_code: str) -> None:
+        """
+        保存股票的周线交易数据
+        接口：weekly
+        描述：获取A股周线行情
+        限量：单次最大4500行，总量不限制
         """
         if self.cache_set is None:
             await self.initialize_cache_objects()
         # 拉取数据
-        df = self.ts_pro.stk_mins(**{
-            "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+        df = self.ts_pro.stk_weekly_monthly(**{
+            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "freq": "week", "limit": "", "offset": ""
         }, fields=[
-            "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+            "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
                 stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                data_dict = self.data_format_tushare.set_time_trade_data(stock, time_level, row)
+                data_dict = self.data_format_process_trade.set_time_trade_week_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
-                # 2. 准备缓存数据
-                cache_data_dict = data_dict.copy()
-                if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                    # 替换为 stock_code
-                    cache_data_dict['stock_code'] = row.ts_code
-                    del cache_data_dict['stock'] # 删除实例键
-                prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                if prepared_data:
-                    await self.cache_set.history_time_trade(stock_code, prepared_data)
-                else:
-                    logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-                # --- 函数末尾执行最终修剪 ---
-                cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
-                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                # --- 修剪调用结束 ---
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockRealtimeData,
                 data_list=data_dicts,
@@ -217,8 +580,323 @@ class StockTimeTradeDAO(BaseDAO):
             result = []
         return result
 
+    async def get_weekly_time_trade_history(self, stock_code: str) -> None:
+        """
+        获取股票的历史周线交易数据
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.history_time_trade(stock_code, "Week")
+        data_dicts = await self.cache_get.history_time_trade(cache_key)
+        stock_weekly_data_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_weekly_data_list.append(StockWeeklyData(**data_dict))
+        # 从数据库中获取数据
+        stock_weekly_data_list = StockWeeklyData.objects.filter(stock_code=stock_code, time_level="Week").order_by('-trade_date')[:self.cache_limit]
+        return stock_weekly_data_list
+    
+    #  =============== A股月线行情 ===============
+    async def save_monthly_time_trade(self, stock_code: str) -> None:
+        """
+        保存股票的月线交易数据
+        接口：monthly
+        描述：获取A股月线行情
+        限量：单次最大4500行，总量不限制
+        """
+        if self.cache_set is None:
+            await self.initialize_cache_objects()
+        # 拉取数据
+        df = self.ts_pro.stk_weekly_monthly(**{
+            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "freq": "month", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_time_trade_month_data(stock, row)
+                # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockRealtimeData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+        else:
+            result = []
+        return result
 
+    async def get_monthly_time_trade_history(self, stock_code: str) -> None:
+        """
+        获取股票的历史月线交易数据
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.history_time_trade(stock_code, "Month")
+        data_dicts = await self.cache_get.history_time_trade(cache_key)
+        stock_monthly_data_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_monthly_data_list.append(StockMonthlyData(**data_dict))
+        # 从数据库中获取数据
+        stock_monthly_data_list = StockMonthlyData.objects.filter(stock_code=stock_code, time_level="Month").order_by('-trade_date')[:self.cache_limit]
+        return stock_monthly_data_list
+    
+    #  =============== A股日线基本信息 ===============
+    async def save_today_stock_basic_info(self) -> None:
+        """
+        保存股票的日线基本信息
+        接口：daily_basic，可以通过数据工具调试和查看数据。
+        更新时间：交易日每日15点～17点之间
+        描述：获取全部股票每日重要的基本面指标，可用于选股分析、报表展示等。
+        """
+        # 获取当前日期
+        today = datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
+        # 拉取数据
+        df = self.ts_pro.daily_basic(**{
+            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+            "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_stock_daily_basic_data(row, stock)
+                await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockDailyBasic,
+                data_list=data_dicts,
+                unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+            )
+        else:
+            result = []
+        return result
 
+    async def save_stock_daily_basic_history_by_stock_code(self, stock_code: str) -> None:
+        """
+        保存股票的日线基本信息
+        """
+        # 拉取数据
+        df = self.ts_pro.daily_basic(**{
+            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+            "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_stock_daily_basic_data(row, stock)
+                await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockDailyBasic,
+                data_list=data_dicts,
+                unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+            )
+        else:
+            result = []
+        return result
+
+    async def get_stock_daily_basic(self, stock_code: str) -> None:
+        """
+        获取股票的日线基本信息
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.today_basic_info(stock_code)
+        data_dicts = await self.cache_get.today_basic_info(cache_key)
+        stock_daily_basic_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_daily_basic_list.append(StockDailyBasic(**data_dict))
+        # 从数据库中获取数据
+        stock_daily_basic_list = StockDailyBasic.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
+        return stock_daily_basic_list
+        
+    #  =============== A股筹码及胜率 ===============
+    # 每日筹码及胜率
+    async def save_today_cyq_chips(self) -> None:
+        """
+        保存股票的每日筹码分布数据
+        接口：cyq_perf
+        描述：获取A股每日筹码平均成本和胜率情况，每天17~18点左右更新，数据从2018年开始
+        来源：Tushare社区
+        限量：单次最大5000条，可以分页或者循环提取
+        积分：120积分可以试用(查看数据)，5000积分每天20000次，10000积分每天200000次，15000积分每天不限总量
+        """
+        # 获取当前日期
+        today = datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
+        stocks = self.stock_cache_get.all_stocks()
+        # 提取所有股票代码
+        stock_codes = [stock.stock_code for stock in stocks]
+        # 每5000个为一组，拼接成字符串
+        group_size = 5000
+        stock_code_groups = [
+            ','.join(stock_codes[i:i + group_size])
+            for i in range(0, len(stock_codes), group_size)
+        ]
+        data_dicts = []
+        for stock_codes_str in stock_code_groups:
+            # 拉取数据
+            df = self.ts_pro.cyq_perf(**{
+                "ts_code": stock_codes_str, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
+                "cost_95pct", "weight_avg", "winner_rate"
+            ])
+            if df is not None:
+                for row in df.itertuples():
+                    stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    try:
+                        old_chips_obj = StockCyqPerf.objects.get( stock=stock, trade_date=today_str )
+                    except StockCyqPerf.DoesNotExist:
+                        old_chips_obj = None
+                    row['stock'] = stock  # 先转换好
+                    data_dict = self.data_format_process_trade.set_cyq_perf_data(row, old_obj=old_chips_obj)
+                    await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
+                    data_dicts.append(data_dict)
+        if data_dicts is not None:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockCyqPerf,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_date']
+            )
+        return result
+
+    async def save_cyq_chips_history_by_stock_code(self, stock_code: str) -> None:
+        """
+        保存股票的每日筹码分布数据
+        """
+        # 拉取数据
+        df = self.ts_pro.cyq_perf(**{
+                "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
+                "cost_95pct", "weight_avg", "winner_rate"
+            ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_cyq_perf_data(stock, row)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockCyqPerf,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_date']
+            )
+        return result
+
+    async def get_cyq_chips_history(self, stock_code: str) -> None:
+        """
+        获取股票的每日筹码分布数据
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.cyq_chips(stock_code)
+        data_dicts = await self.cache_get.cyq_chips(cache_key)
+        stock_cyq_chips_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_cyq_chips_list.append(StockCyqChips(**data_dict))
+        # 从数据库中获取数据
+        stock_cyq_chips_list = StockCyqChips.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
+        return stock_cyq_chips_list
+
+    # 每日筹码分布
+    async def save_today_cyq_chips(self) -> None:
+        """
+        保存股票的每日筹码分布数据
+        接口：cyq_chips
+        描述：获取A股每日的筹码分布情况，提供各价位占比，数据从2018年开始，每天17~18点之间更新当日数据
+        来源：Tushare社区
+        限量：单次最大2000条，可以按股票代码和日期循环提取
+        积分：120积分可以试用查看数据，5000积分每天20000次，10000积分每天200000次，15000积分每天不限总量
+        """
+        if self.cache_set is None:
+            await self.initialize_cache_objects()
+        # 获取当前日期
+        today = datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
+        result_all = { "尝试处理": 0, "失败": 0, "创建/更新成功": 0 }
+        stocks = self.stock_cache_get.all_stocks()
+        # 提取所有股票代码
+        stock_codes = [stock.stock_code for stock in stocks]
+        # 每5000个为一组，拼接成字符串
+        group_size = 2000
+        stock_code_groups = [
+            ','.join(stock_codes[i:i + group_size])
+            for i in range(0, len(stock_codes), group_size)
+        ]
+        for stock_codes_str in stock_code_groups:
+            data_dicts = []
+            # 拉取数据
+            df = self.ts_pro.cyq_chips(**{
+                "ts_code": stock_codes_str, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_date", "price", "percent"
+            ])
+            if df is not None:
+                for row in df.itertuples():
+                    stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    data_dict = self.data_format_process_trade.set_cyq_chips_data(stock, row)
+                    data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockCyqChips,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_date', 'price']
+            )
+            result_all['尝试处理'] += result['尝试处理']
+            result_all['失败'] += result['失败']
+            result_all['创建/更新成功'] += result['创建/更新成功']
+        return result_all
+
+    async def save_cyq_chips_history_by_stock_code(self, stock_code: str) -> None:
+        """
+        保存股票的每日筹码分布数据
+        """
+        # 拉取数据
+        df = self.ts_pro.cyq_chips(**{
+            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "price", "percent"
+        ])
+        if df is not None:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                data_dict = self.data_format_process_trade.set_cyq_chips_data(stock, row)
+                data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockCyqChips,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_date', 'price']
+            )
+        return result
+
+    async def get_cyq_chips_history(self, stock_code: str) -> None:
+        """
+        获取股票的每日筹码分布数据
+        """
+        # 从Redis缓存中获取数据
+        cache_key = self.cache_key.cyq_chips(stock_code)
+        data_dicts = await self.cache_get.cyq_chips(cache_key)
+        stock_cyq_chips_list = []
+        if data_dicts:
+            for data_dict in data_dicts:
+                stock_cyq_chips_list.append(StockCyqChips(**data_dict))
+        # 从数据库中获取数据
+        stock_cyq_chips_list = StockCyqChips.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
+        return stock_cyq_chips_list
+    
 
 
 

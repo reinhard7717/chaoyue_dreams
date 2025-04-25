@@ -541,6 +541,26 @@ class IndexCacheSet(CacheSet):
         cache_key = self.cache_key_index.history_boll(index_code, time_level)
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
+class StockInfoCacheSet(CacheSet):
+    def __init__(self):
+        self.cache_manager = None  # 初始为 None
+        self.cache_key_stock = StockCashKey()
+
+    async def initialize(self):
+        from utils.cache_manager import CacheManager  # 导入
+        self.cache_manager = CacheManager()  # 先实例化
+        await self.cache_manager.initialize()  # 然后 await 初始化方法  # 异步初始化
+
+    async def stock_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = self.cache_key_stock.stock_data(stock_code)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+    
+    async def stock_basic_info_list(self, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = self.cache_key_stock.stocks_data()
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+
 class StockTimeTradeCacheSet(CacheSet):
     def __init__(self):
         self.cache_manager = None  # 初始为 None
@@ -573,7 +593,6 @@ class StockTimeTradeCacheSet(CacheSet):
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
-
 
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):

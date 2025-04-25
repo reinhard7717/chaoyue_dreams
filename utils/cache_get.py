@@ -2,6 +2,7 @@ import datetime
 import logging
 import json
 from typing import Any, Dict, List, Optional
+from users.models import FavoriteStock
 from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
 from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
@@ -381,14 +382,26 @@ class StockInfoCacheGet(CacheGet):
         """
         if self.cache_manager is None:
             await self.initialize()  # 在需要时调用初始化
-        cache_key = self.cache_key_index.generate_key(
-            cache_type=cc.TYPE_STATIC,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=cc.ID_ALL
-        )
+        cache_key = self.cache_key_stock.stocks_data()
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return sorted(cached_data, key=lambda x: x['stock_code'])
+        return None
+
+    async def stock_data_by_code(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        从缓存中获取指定股票代码的股票数据
+        Args:
+            stock_code: 股票代码
+        Returns:
+            Optional[Dict[str, Any]]: 缓存中的股票数据字典，如果未命中或发生错误则返回 None。
+        """
+        if self.cache_manager is None:
+            await self.initialize()  # 在需要时调用初始化
+        cache_key = self.cache_key_stock.stock_data(stock_code)
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
         return None
 
 class StockTimeTradeCacheGet(CacheGet):

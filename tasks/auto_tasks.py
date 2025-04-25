@@ -43,7 +43,7 @@ def update_stock_data():
     
     try:
         # 推迟导入，避免循环导入问题
-        from tasks.stock_tasks import refresh_all_stock_basic, refresh_all_favorites_realtime
+        from tasks.tushare.stock_tasks import refresh_all_stock_basic, refresh_all_favorites_realtime
         
         # 更新所有股票基础信息
         refresh_all_stock_basic.delay()

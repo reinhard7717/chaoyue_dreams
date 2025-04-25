@@ -190,7 +190,11 @@ class UserCashKey(CashKey):
 
 class StockCashKey(CashKey):
     # ================= 缓存cache_key设置 =================
+    # 所有股票的cache_key
     def stocks_data(self) -> str:
+        """
+        所有股票的cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_STOCK,
@@ -198,7 +202,15 @@ class StockCashKey(CashKey):
         )
         return cache_key
     
+    # 单个股票的cache_key
     def stock_data(self, stock_code: str) -> str:
+        """
+        单个股票的cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STATIC,
             entity_type=cc.ENTITY_STOCK,
@@ -207,7 +219,16 @@ class StockCashKey(CashKey):
         )
         return cache_key
     
+    # 单个股票的最新分时成交数据cache_key
     def latest_time_trade(self, stock_code: str, time_level: str) -> str:
+        """
+        单个股票的最新分时成交数据cache_key
+        Args:
+            stock_code: 股票代码
+            time_level: 时间级别
+        Returns:
+            str: 单个股票的最新分时成交数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -217,7 +238,16 @@ class StockCashKey(CashKey):
         )
         return cache_key
 
+    # 单个股票的历史分时成交数据cache_key
     def history_time_trade(self, stock_code: str, time_level: str) -> str:
+        """
+        单个股票的历史分时成交数据cache_key
+        Args:
+            stock_code: 股票代码
+            time_level: 时间级别
+        Returns:
+            str: 单个股票的历史分时成交数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
             entity_type=cc.ENTITY_STOCK,
@@ -227,47 +257,15 @@ class StockCashKey(CashKey):
         )
         return cache_key
 
-    def history_kdj(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.generate_key(
-            cache_type=cc.TYPE_TIMESERIES,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_KDJ,
-            params={cc.PARAM_PERIOD: time_level}
-        )
-        return cache_key
-
-    def history_macd(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.generate_key(
-            cache_type=cc.TYPE_TIMESERIES,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_MACD,
-            params={cc.PARAM_PERIOD: time_level}
-        )
-        return cache_key
-
-    def history_ma(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.generate_key(
-            cache_type=cc.TYPE_TIMESERIES,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_MA,
-            params={cc.PARAM_PERIOD: time_level}
-        )
-        return cache_key
-
-    def history_boll(self, stock_code: str, time_level: str) -> str:
-        cache_key = self.generate_key(
-            cache_type=cc.TYPE_TIMESERIES,
-            entity_type=cc.ENTITY_STOCK,
-            entity_id=stock_code,
-            subtype=cc.SUBTYPE_BOLL,
-            params={cc.PARAM_PERIOD: time_level}
-        )
-        return cache_key
-
+    # 单个股票的最新实时数据cache_key
     def latest_realtime_data(self, stock_code: str) -> str:
+        """
+        单个股票的最新实时数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的最新实时数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -276,7 +274,15 @@ class StockCashKey(CashKey):
         )
         return cache_key
 
+    # 单个股票的历史实时数据cache_key
     def history_realtime_data(self, stock_code: str) -> str:
+        """
+        单个股票的历史实时数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的历史实时数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -285,7 +291,15 @@ class StockCashKey(CashKey):
         )
         return cache_key
 
+    # 单个股票的最新买卖五档盘口数据cache_key
     def latest_level5_data(self, stock_code: str) -> str:
+        """
+        单个股票的最新买卖五档盘口数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的最新买卖五档盘口数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -293,8 +307,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_LEVEL5
         )
         return cache_key
-    
+
+    # 单个股票的历史买卖五档盘口数据cache_key
     def history_level5_data(self, stock_code: str) -> str:
+        """
+        单个股票的历史买卖五档盘口数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的历史买卖五档盘口数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -302,8 +324,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_LEVEL5
         )
         return cache_key
-    
+
+    # 单个股票的最新逐笔交易数据cache_key
     def latest_time_deal(self, stock_code: str) -> str:
+        """
+        单个股票的最新逐笔交易数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的最新逐笔交易数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -311,8 +341,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_TIME_DEAL
         )
         return cache_key
-    
+
+    # 单个股票的历史逐笔交易数据cache_key
     def history_time_deal(self, stock_code: str) -> str:
+        """
+        单个股票的历史逐笔交易数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的历史逐笔交易数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -320,8 +358,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_TIME_DEAL
         )
         return cache_key
-    
+
+    # 单个股票的最新分价成交占比数据cache_key
     def latest_real_percent(self, stock_code: str) -> str:
+        """
+        单个股票的最新分价成交占比数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的最新分价成交占比数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -329,8 +375,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_REAL_PERCENT
         )
         return cache_key
-    
+
+    # 单个股票的历史分价成交占比数据cache_key
     def history_real_percent(self, stock_code: str) -> str:
+        """
+        单个股票的历史分价成交占比数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的历史分价成交占比数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -338,8 +392,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_REAL_PERCENT
         )
         return cache_key
-    
+
+    # 单个股票的最新逐笔大单交易数据cache_key
     def latest_big_deal(self, stock_code: str) -> str:
+        """
+        单个股票的最新逐笔大单交易数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的最新逐笔大单交易数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -347,8 +409,16 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_BIG_DEAL
         )
         return cache_key
-    
+
+    # 单个股票的历史逐笔大单交易数据cache_key
     def history_big_deal(self, stock_code: str) -> str:
+        """
+        单个股票的历史逐笔大单交易数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的历史逐笔大单交易数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
@@ -356,13 +426,38 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_BIG_DEAL
         )
         return cache_key
-    
+
+    # 单个股票的最新盘中异动数据
     def latest_abnormal_movement(self, stock_code: str) -> str:
+        """
+        单个股票的最新盘中异动数据cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的最新盘中异动数据cache_key
+        """
         cache_key = self.generate_key(
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
             entity_id=stock_code,
             subtype=cc.SUBTYPE_ABNORMAL_MOVEMENT
+        )
+        return cache_key
+
+    # 单个股票的每日筹码分布
+    def latest_cyq_chips(self, stock_code: str) -> str:
+        """
+        单个股票的每日筹码分布cache_key
+        Args:
+            stock_code: 股票代码
+        Returns:
+            str: 单个股票的每日筹码分布cache_key
+        """
+        cache_key = self.generate_key(
+            cache_type=cc.TYPE_REALTIME,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype=cc.SUBTYPE_CYQ_CHIPS
         )
         return cache_key
 

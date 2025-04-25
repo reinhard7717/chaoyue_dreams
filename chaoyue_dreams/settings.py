@@ -115,6 +115,7 @@ WSGI_APPLICATION = 'chaoyue_dreams.wsgi.application'
 
 # --- Channels 配置 ---
 ASGI_APPLICATION = 'chaoyue_dreams.asgi.application' # 指定 ASGI 入口点
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -219,29 +220,6 @@ API_RATE_LIMIT = {
     'professional': {'times': 50, 'seconds': 1},  # 专业版每秒50次
 }
 
-
-# API缓存超时设置（秒）
-API_CACHE_TIMEOUTS = {
-    'basic': 86400,  # 基础数据缓存24小时
-    'market': 60,  # 市场数据缓存1分钟
-    'technical': 300,  # 技术指标缓存5分钟
-    'fund_flow': 60,  # 资金流向缓存1分钟
-    'index': 60,  # 指数数据缓存1分钟
-    'realtime': 5,  # 实时数据缓存5秒
-    'default': 300,  # 默认缓存5分钟
-}
-
-# API请求设置
-API_REQUEST_SETTINGS = {
-    'timeout': 30,  # 总超时时间（秒）
-    'connect_timeout': 10,  # 连接超时时间（秒）
-    'max_connections': 100,  # 最大连接数
-    'dns_cache_ttl': 300,  # DNS缓存时间（秒）
-    'max_retries': 3,  # 最大重试次数
-    'base_retry_delay': 1,  # 基础重试延迟（秒）
-    'max_retry_delay': 30,  # 最大重试延迟（秒）
-}
-
 # API错误处理设置
 API_ERROR_SETTINGS = {
     'error_threshold': 100,           # 总错误次数阈值
@@ -278,223 +256,10 @@ API_ERROR_SETTINGS = {
     }
 }
 
-API_URL_PATTERNS = {
-    # 实时数据类型 - 更新频率高，对时效性要求高
-    'realtime': [
-        r'data/time/real/',           # 实时交易数据
-        r'data/time/real/trace/',     # 买卖五档、逐笔交易等
-        r'data/all/pzyd',             # 盘中异动
-        r'data/time/real/time/',      # 分时交易数据
-        r'quotes/',                    # 实时报价
-        r'tick/',                      # 实时逐笔
-        r'min/',                       # 分钟线数据
-    ],
-    # 技术指标类型 - 计算密集型
-    'technical': [
-        r'data/time/real/kdj/',       # KDJ指标
-        r'data/time/real/macd/',      # MACD指标
-        r'data/time/real/ma/',        # 移动平均线
-        r'data/time/real/boll/',      # 布林带
-        r'data/time/history/kdj/',    # 历史KDJ
-        r'data/time/history/macd/',   # 历史MACD
-        r'data/time/history/ma/',     # 历史MA
-        r'data/time/history/boll/',   # 历史BOLL
-        r'indicators/',               # 通用技术指标
-    ],
-    # 资金流向类型 - 资金相关数据
-    'fund_flow': [
-        r'data/time/zijin/',          # 资金流向相关接口
-        r'data/time/zdtgc/',          # 涨跌停、强势股池等
-        r'data/all/ld',               # 每日龙虎榜详情
-        r'data/all/gg/',              # 个股上榜统计
-        r'data/all/yyb/',             # 营业部上榜统计
-        r'data/all/jgzz/',            # 机构席位追踪
-        r'data/all/jgcj',             # 机构席位成交明细
-    ],
-    # 市场数据类型 - 市场整体数据
-    'market': [
-        r'data/all/jdgd',             # 阶段最高最低
-        r'data/all/cxg',              # 盘中创新高个股
-        r'data/all/cxd',              # 盘中创新低个股
-        r'data/all/cjzz',             # 成交骤增个股
-        r'data/all/cjzj',             # 成交骤减个股
-        r'data/all/lxfl',             # 连续放量个股
-        r'data/all/lxsl',             # 连续缩量个股
-        r'data/all/lxsz',             # 连续上涨个股
-        r'data/all/lxxd',             # 连续下跌个股
-        r'data/all/zzdpm',            # 周涨跌排名
-        r'data/all/yzdpm',            # 月涨跌排名
-        r'data/all/bzqsg',             # 本周强势股
-        r'data/all/byqsg',             # 本月强势股
-        r'data/all/ltsz',              # 流通市值排行
-        r'data/all/syl',              # 市盈率排行
-        r'data/all/sjl',               # 市净率排行
-        r'data/all/roe',               # 净资产收益率排行(ROE排行)
-        r'data/all/finyl',             # 盈利能力
-        r'data/all/finyynl',           # 运营能力
-        r'data/all/fincznl',           # 成长能力
-        r'data/all/finchzhainl',       # 偿债能力
-        r'data/all/finxjll',           # 现金流量
-        r'data/all/finyjbb',           # 业绩报表
-        r'data/all/finyjyg',           # 业绩预告
-        r'data/all/finyjkb',           # 业绩快报
-        r'data/all/finlrxf',           # 利润细分
-        r'data/all/orgcghz',           # 机构持股汇总
-        r'data/all/orgjjzc',           # 基金重仓
-        r'data/all/orgsbzc',           # 社保重仓
-        r'data/all/orgqfiizc',         # QFII重仓
-        r'data/all/zjlx/zjhhy',        # 证监会行业
-        r'data/all/zjlx/gnbk',         # 概念板块
-
-        r'/market/',                   # 市场概览
-        r'/sector/',                   # 板块数据
-        r'/industry/',                 # 行业数据
-        r'data/all/zjlx/jlrepm',       # 净流入额排名
-        r'data/all/zjlx/jlrlpm',       # 净流入率排名
-        r'data/all/zjlx/zljlrepm',     # 主力净流入额排名
-    ],
-    # 指数数据类型
-    'index': [
-        r'data/base/shsz',            # 沪深主要指数列表
-        r'data/base/sh',              # 沪市指数列表
-        r'data/base/sz',              # 深市指数列表
-        r'data/time/real/shszzdbl',   # 沪深两市上涨下跌数概览
-        r'index/',                    # 指数数据
-        r'indices/',                  # 指数数据
-    ],
-    # 基础数据类型 - 更新频率低，数据稳定
-    'basic': [
-        r'data/base/gplist',          # 股票列表
-        r'data/all/xgrl',             # 新股日历
-        r'data/all/stgplist',         # 风险警示股票列表
-        r'data/time/f10/',            # 公司F10信息
-        r'basic/',                    # 基础数据
-        r'profile/',                  # 公司简介
-        r'company/',                  # 公司信息
-        r'summary/',                  # 摘要信息
-    ],
-}
-
 API_MAX_RETRY_COUNT = 5 # 最大重试次数，默认为5
 API_RETRY_DELAY = 2 # 初始重试延迟（秒），默认为2秒
 API_RETRY_DELAY_FACTOR = 1.5 # 重试延迟增长因子，默认为1.5
 API_MAX_RETRY_DELAY = 30 # 最大重试延迟（秒），默认为30秒
-
-# API频率限制设置
-API_RATE_LIMITS = {
-    'realtime': {  # 实时数据API
-        'basic': {
-            'rate': 0.5,  # 每2秒1个请求
-            'burst': 1,  # 不允许突发
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 50,  # 每秒50个请求
-            'burst': 50,  # 允许突发到50个请求
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-    'basic': {  # 基础数据API
-        'basic': {
-            'rate': 0.5,  # 每2秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 50,  # 每秒50个请求
-            'burst': 50,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-    'index': {  # 指数数据API
-        'basic': {
-            'rate': 0.5,  # 每2秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 40,  # 每秒40个请求
-            'burst': 50,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-    'market': {  # 市场数据API
-        'basic': {
-            'rate': 0.5,  # 每2秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 0.167,  # 每6秒1个请求 - 根据API文档，市场数据请求频率限制为每分钟10次
-            'burst': 2,  # 允许一定程度的突发
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-    'fund_flow': {  # 资金流向API
-        'basic': {
-            'rate': 0.5,  # 每2秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 40,  # 每秒40个请求
-            'burst': 50,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-    'technical': {  # 技术指标API
-        'basic': {
-            'rate': 0.5,  # 每2秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 3,  # 每秒3个请求 - 根据API文档，技术指标API请求频率限制为每秒3次
-            'burst': 5,  # 允许一定程度的突发，但历史数据请求限制为每秒3次
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-    'default': {  # 默认限制
-        'basic': {
-            'rate': 0.167,  # 每6秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-        'pro': {
-            'rate': 0.167,  # 每6秒1个请求
-            'burst': 1,
-            'error_window': 300,  # 错误统计窗口（秒）
-            'min_success_rate': 0.8,  # 最小成功率阈值
-            'error_history_size': 100    # 错误历史记录大小
-        },
-    },
-}
 
 # API自动更新时间设置（秒）
 API_UPDATE_INTERVALS = {
@@ -512,25 +277,6 @@ API_UPDATE_TIME_RANGE = {
     'start_time': '09:15:00',  # 开始更新时间
     'end_time': '15:30:00',  # 结束更新时间
     'trading_days': [0, 1, 2, 3, 4],  # 周一到周五
-}
-
-# 策略参数设置
-STRATEGY_SETTINGS = {
-    'INTRADAY_SETTINGS': {
-        'MIN_PROFIT_PCT': 0.02,  # 最小获利百分比
-        'MAX_LOSS_PCT': 0.01,    # 最大亏损百分比
-        'HOLDING_PERIODS': [5, 15, 30, 60],  # 分钟
-    },
-    'SWING_SETTINGS': {
-        'MIN_TREND_STRENGTH': 0.7,  # 最小趋势强度
-        'REVERSAL_THRESHOLD': 0.3,  # 反转阈值
-        'HOLDING_PERIODS': [1, 3, 5, 10],  # 天
-    },
-    'POSITION_SETTINGS': {
-        'MAX_POSITION': 0.3,     # 最大仓位
-        'MIN_POSITION': 0.1,     # 最小仓位
-        'POSITION_STEP': 0.1,    # 仓位步长
-    },
 }
 
 # 日志配置
@@ -689,12 +435,12 @@ CELERY_TASK_QUEUES = (
     Queue('priority_tasks', routing_key='priority.#'), # 高优先级队列
     Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
     Queue('stock_historical_data_cache', routing_key='stock_historical_data_cache.#'), # 股票历史数据缓存队列
-    Queue('save_api_data_RealTime', routing_key='save_api_data_RealTime.#'), # 保存API数据队列
-    Queue('save_api_data_TimeTrade', routing_key='save_api_data_TimeTrade.#'), # 保存API数据队列
-    Queue('favorite_save_api_data_RealTime', routing_key='favorite_save_api_data_RealTime.#'), # 保存API数据队列
-    Queue('favorite_save_api_data_TimeTrade', routing_key='favorite_save_api_data_TimeTrade.#'), # 保存API数据队列
-    Queue('calculate_indicators', routing_key='calculate_indicators.#'), # 计算股票指标队列
-    Queue('favorite_calculate_indicators', routing_key='favorite_calculate_indicators.#'), # 计算股票指标队列
+    Queue('SaveData_RealTime', routing_key='save_api_data_RealTime.#'), # 保存API数据队列
+    Queue('SaveData_TimeTrade', routing_key='save_api_data_TimeTrade.#'), # 保存API数据队列
+    Queue('favorite_SaveData_RealTime', routing_key='favorite_save_api_data_RealTime.#'), # 保存API数据队列
+    Queue('favorite_SaveData_TimeTrade', routing_key='favorite_save_api_data_TimeTrade.#'), # 保存API数据队列
+    # Queue('calculate_indicators', routing_key='calculate_indicators.#'), # 计算股票指标队列
+    # Queue('favorite_calculate_indicators', routing_key='favorite_calculate_indicators.#'), # 计算股票指标队列
     Queue('calculate_strategy', routing_key='calculate_strategy.#'), # 计算股票指标队列
     Queue('favorite_calculate_strategy', routing_key='favorite_calculate_strategy.#'), # 计算股票指标队列
     Queue('dashboard', routing_key='dashboard.#'), # DRF专用队列
@@ -710,39 +456,39 @@ CELERY_BEAT_SCHEDULE = {
     '每 5 秒运行一次所有股票的实时Tick数据获取': {
         'task': 'tasks.tushare.stock_realtime.save_stocks_tick_data_task',
         'schedule': timedelta(seconds=5),  # 每5秒执行一次
-        'options': {'queue': 'celery'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 1 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
-        'schedule': crontab(minute='*/1', hour='9,10,11,13,14', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'task': 'tasks.tushare.stock_time_trade.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(minute='*/1', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '1'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 5 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'task': 'tasks.tushare.stock_time_trade.save_stocks_minute_data_realtime_task', # 任务函数名
         'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '5'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 15 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'task': 'tasks.tushare.stock_time_trade.save_stocks_minute_data_realtime_task', # 任务函数名
         'schedule': crontab(minute='*/15', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '15'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 30 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'task': 'tasks.tushare.stock_time_trade.save_stocks_minute_data_realtime_task', # 任务函数名
         'schedule': crontab(minute='*/30', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '30'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     '每 60 分钟运行一次所有股票的K线数据获取任务': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
-        'task': 'tasks.tushare.stock_realtime.save_stocks_realtime_min_data_task', # 任务函数名
+        'task': 'tasks.tushare.stock_time_trade.save_stocks_minute_data_realtime_task', # 任务函数名
         'schedule': crontab(minute='*/60', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
         'kwargs': {'time_level': '60'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
@@ -751,6 +497,16 @@ CELERY_BEAT_SCHEDULE = {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.stock_analysis.analyze_all_stocks', # 任务函数名
         'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+    },
+    '每天运行一次保存股票列表数据任务': {
+        'task': 'tasks.tushare.stock.save_stock_list_data',
+        'schedule': crontab(minute=0, hour=19, day_of_week='mon,tue,wed,thu,fri'),  # 每天凌晨1点执行
+        'options': {'queue': 'celery'}, # 指定队列为 celery
+    },
+    '每天运行一次保存股票列表数据任务': {
+        'task': 'tasks.tushare.stock_time_trade.save_stocks_daily_basic_data_today_task',
+        'schedule': crontab(minute=30, hour=17, day_of_week='mon,tue,wed,thu,fri'),  # 每天凌晨1点执行
+        'options': {'queue': 'celery'}, # 指定队列为 celery
     },
 }
 

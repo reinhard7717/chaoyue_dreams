@@ -19,7 +19,7 @@ from api_manager.mappings.datacenter_mappings import (
     NEW_CAPITAL_FLOW_OVERVIEW_MAPPING
 )
 from dao_manager.base_dao import BaseDAO
-from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, NetInflowRanking, NetInflowRateRanking, MainForceNetInflowRanking, MainForceNetInflowRateRanking, RetailNetInflowRanking, RetailNetInflowRateRanking, ConceptCapitalFlowRoute, StockPeriodStatisticsOverview, StockPeriodStatistics, MainForceContinuousFlow, NewCapitalFlowOverview
+from stock_models.datacenter.capital_flow import ConceptCapitalFlow, IndustryCapitalFlow, NetInflowRanking, NetInflowRateRanking, MainForceNetInflowRanking, MainForceNetInflowRateRanking, RetailNetInflowRanking, RetailNetInflowRateRanking, StockPeriodStatisticsOverview
 
 logger = logging.getLogger('dao')
 

@@ -36,17 +36,10 @@ class StockRealtimeDAO(BaseDAO):
         self.api = StockRealtimeAPI()
         self.stock_basic_dao = StockBasicDAO()
         self.data_format_process = StockRealtimeDataFormatProcess()
-        self.data_format_tushare = StockRealtimeDataFormatTuShare()
-        self.cache_manager = None  # 初始化缓存管理器
         self.cache_get = None
         self.cache_set = None
-        self.cache_key = StockCashKey()
-        self.data_format_process = StockRealtimeDataFormatProcess()
 
     async def initialize_cache_objects(self):
-        self.cache_manager = CacheManager()  # 先实例化
-        await self.cache_manager.initialize()  # 然后 await 其异步初始化方法，如果存在
-
         self.cache_set = StockRealtimeCacheSet()  # 先实例化
         await self.cache_set.initialize()  # 添加异步初始化方法，如果需要
 
