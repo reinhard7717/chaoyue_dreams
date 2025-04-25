@@ -31,7 +31,6 @@ async def _get_all_relevant_stock_codes_for_processing():
     stock_basic_dao = StockBasicInfoDao()
     favorite_stock_codes = set()
     all_stock_codes = set()
-
     # 获取自选股
     try:
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
@@ -61,7 +60,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     if not favorite_stock_codes_list and not non_favorite_stock_codes:
          logger.warning("未能获取到任何需要处理的股票代码")
 
-    return favorite_stock_codes_list, non_favorite_stock_codes
+    return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
 #  ================ 实时(分钟)数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_minute_data_realtime_batch')

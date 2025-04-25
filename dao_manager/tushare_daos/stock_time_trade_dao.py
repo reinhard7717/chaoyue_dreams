@@ -1,6 +1,7 @@
 from datetime import date
 import logging
 from typing import List
+import numpy as np
 import pandas as pd
 from datetime import datetime
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
@@ -47,6 +48,7 @@ class StockTimeTradeDAO(BaseDAO):
             fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -91,6 +93,7 @@ class StockTimeTradeDAO(BaseDAO):
             fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -137,6 +140,7 @@ class StockTimeTradeDAO(BaseDAO):
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
         logger.info(f"开始执行{len(stock_codes)}个股票的日线数据保存. 获取df数量: {len(df)}，起始stock_code: {stock_codes[0]}，结束stock_code: {stock_codes[-1]}")
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -198,11 +202,12 @@ class StockTimeTradeDAO(BaseDAO):
             await self.initialize_cache_objects()
         # 拉取数据
         df = self.ts_pro.rt_k(**{
-            "topic": "", "ts_code": stock_code, "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "name", "pre_close", "high", "open", "low", "close", "vol", "amount", "num"
-        ])
+                "topic": "", "ts_code": stock_code, "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "name", "pre_close", "high", "open", "low", "close", "vol", "amount", "num"
+            ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -255,11 +260,12 @@ class StockTimeTradeDAO(BaseDAO):
         限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
         """
         df = self.ts_pro.stk_mins(**{
-            "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
-        ])
+                "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+            ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -300,6 +306,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
             ])
             if df is not None:
+                df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
                 result_df = pd.concat([result_df, df])
         if result_df is not None:
             data_dicts = []
@@ -343,6 +350,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
             ])
             if df is not None:
+                df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
                 result_df = pd.concat([result_df, df])
         if result_df is not None:
             data_dicts = []
@@ -387,6 +395,7 @@ class StockTimeTradeDAO(BaseDAO):
                     "ts_code": stock.stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
                     }, fields=["ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"])
                 if df is not None and not df.empty:
+                    df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
                     for row in df.itertuples():
                         stock_obj = self.stock_basic_dao.get_stock_by_code(row.ts_code)
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock_obj, row)
@@ -427,6 +436,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -475,6 +485,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
             ])
             if df is not None:
+                df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
                 for row in df.itertuples():
                     stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
@@ -509,6 +520,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
@@ -570,6 +582,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -602,6 +615,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -649,6 +663,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -681,6 +696,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -731,6 +747,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -758,6 +775,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -822,6 +840,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
             if df is not None:
+                df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
                 for row in df.itertuples():
                     stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     try:
@@ -852,6 +871,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
@@ -914,6 +934,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_date", "price", "percent"
             ])
             if df is not None:
+                df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
                 for row in df.itertuples():
                     stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     data_dict = self.data_format_process_trade.set_cyq_chips_data(stock, row)
@@ -939,6 +960,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "price", "percent"
         ])
         if df is not None:
+            df = df.replace([np.nan, float('nan'), 'nan', 'NaN', ''], [None, None, None, None, None])
             data_dicts = []
             for row in df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
