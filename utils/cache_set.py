@@ -557,6 +557,13 @@ class StockInfoCacheSet(CacheSet):
         cache_key = self.cache_key_stock.stocks_data()
         cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
         return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+    
+    async def stock_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
+        cache_key = self.cache_key_stock.stock_data(stock_code)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 
 class StockTimeTradeCacheSet(CacheSet):
     def __init__(self):

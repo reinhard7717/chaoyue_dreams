@@ -218,7 +218,7 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_BASIC_INFO
         )
         return cache_key
-    
+
     def stock_day_basic_info(self, stock_code: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STATIC,

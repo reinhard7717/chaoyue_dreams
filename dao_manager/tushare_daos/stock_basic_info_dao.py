@@ -82,7 +82,7 @@ class StockBasicInfoDao(BaseDAO):
         # 如果数据库中有数据，缓存并返回
         if stock:
             cache_data = self.data_format_process.set_stock_info_basic_data(stock)
-            await self.stock_cache_set.stock_basic_info(stock, cache_data)
+            await self.stock_cache_set.stock_basic_info(stock_code, cache_data)
             # logger.info(f"get_stock_by_code,success: {success}")
             return stock
 
