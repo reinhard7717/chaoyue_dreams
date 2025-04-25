@@ -224,7 +224,6 @@ def save_stocks_minute_data_history_task(self, batch_size: int = 2, time_level: 
         logger.error(f"执行 save_stocks_realtime_min_data_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
-
 #  ================ 历史(日线)数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_history_batch')
 def save_day_data_history_batch(self, stock_codes: List[str], time_level: str):

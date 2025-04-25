@@ -44,6 +44,7 @@ class StockBasicInfoDao(BaseDAO):
                 # 将缓存数据转换为模型实例列表
                 return_data = []
                 for stock_dict in cached_data:
+                    logger.info(f"get_stock_list: {stock_dict}")
                     stock_dict = self.data_format_process.set_stock_info_data(stock_dict)
                     if stock_dict.get('list_status') == 'L':
                         return_data.append(StockInfo(**stock_dict))
@@ -160,10 +161,10 @@ class StockBasicInfoDao(BaseDAO):
             "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", "act_ent_type",
             "fullname", "enname", "exchange", "curr_type", "list_status", "delist_date", "is_hs"
         ])
-        logger.info(f"save_stocks: {df.columns}")
+        # logger.info(f"save_stocks: {df.columns}")
         if df is not None:
             for row in df.itertuples():
-                logger.info(f"save_stocks: {row}")
+                # logger.info(f"save_stocks: {row}")
                 stock_dict = self.data_format_process.set_stock_info_data(row)
                 cache_dict = self.data_format_process.set_stock_info_basic_data(row)
                 await self.stock_cache_set.stock_basic_info(row.ts_code, cache_dict)
