@@ -48,7 +48,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
@@ -92,7 +92,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
@@ -138,7 +138,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
@@ -204,7 +204,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_day_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
@@ -261,7 +261,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                 data_dicts.append(data_dict)
                 # 2. 准备缓存数据
@@ -303,7 +303,7 @@ class StockTimeTradeDAO(BaseDAO):
         if result_df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                 data_dicts.append(data_dict)
                 # 2. 准备缓存数据
@@ -346,7 +346,7 @@ class StockTimeTradeDAO(BaseDAO):
         if result_df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                 data_dicts.append(data_dict)
                 # 2. 准备缓存数据
@@ -428,7 +428,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
@@ -475,7 +475,7 @@ class StockTimeTradeDAO(BaseDAO):
             ])
             if df is not None:
                 for row in df.itertuples():
-                    stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                     data_dicts.append(data_dict)
                     # --- 函数末尾执行最终修剪 ---
@@ -509,7 +509,7 @@ class StockTimeTradeDAO(BaseDAO):
         ])
         if df is not None:
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock, row)
                 data_dicts.append(data_dict)
                 cache_data_dict = data_dict.copy()
@@ -571,7 +571,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_week_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
@@ -603,7 +603,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_week_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
@@ -650,7 +650,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_month_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
@@ -682,7 +682,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_time_trade_month_data(stock, row)
                 # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                 data_dicts.append(data_dict)
@@ -733,7 +733,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_stock_daily_basic_data(row, stock)
                 await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
                 data_dicts.append(data_dict)
@@ -760,7 +760,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_stock_daily_basic_data(row, stock)
                 await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
                 data_dicts.append(data_dict)
@@ -823,7 +823,7 @@ class StockTimeTradeDAO(BaseDAO):
             ])
             if df is not None:
                 for row in df.itertuples():
-                    stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     try:
                         old_chips_obj = StockCyqPerf.objects.get( stock=stock, trade_date=today_str )
                     except StockCyqPerf.DoesNotExist:
@@ -854,7 +854,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_cyq_perf_data(stock, row)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
@@ -915,7 +915,7 @@ class StockTimeTradeDAO(BaseDAO):
             ])
             if df is not None:
                 for row in df.itertuples():
-                    stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     data_dict = self.data_format_process_trade.set_cyq_chips_data(stock, row)
                     data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
@@ -941,7 +941,7 @@ class StockTimeTradeDAO(BaseDAO):
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
-                stock = self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 data_dict = self.data_format_process_trade.set_cyq_chips_data(stock, row)
                 data_dicts.append(data_dict)
             result = await self._save_all_to_db_native_upsert(
