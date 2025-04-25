@@ -7,12 +7,11 @@ import numpy as np
 from decimal import Decimal, InvalidOperation
 from asgiref.sync import sync_to_async
 from django.db import models
-from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import FieldDoesNotExist
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP
-from stock_models.stock_basic import StockTimeTrade
+from stock_models.time_trade import StockTimeTrade
 from utils.cache_get import StockIndicatorsCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockIndicatorsCacheSet
@@ -26,8 +25,6 @@ class IndicatorDAO(BaseDAO):
     """
     def __init__(self):
         from dao_manager.daos.stock_basic_dao import StockBasicDAO
-        from utils.cache_get import StockIndicatorsCacheGet
-        from utils.cache_set import StockIndicatorsCacheSet
         # 依赖注入基础DAO和缓存工具
         self.stock_basic_dao = StockBasicDAO()
         self.cache_manager = None

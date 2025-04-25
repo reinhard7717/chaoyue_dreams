@@ -355,7 +355,7 @@ def save_stocks_daily_basic_data_history_task(self):
             if favorite_code:
                 logger.info(f"创建自选股批次任务 (大小: {len(favorite_code)})...")
                 # 使用新的批量任务，并指定队列
-                save_minute_data_history_batch.s(favorite_code, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_minute_data_history_batch.s(favorite_code).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {favorite_code})")
 
@@ -369,7 +369,7 @@ def save_stocks_daily_basic_data_history_task(self):
             if non_favorite_code:
                 logger.info(f"创建非自选股批次任务 (大小: {len(non_favorite_code)})...")
                 # 使用新的批量任务，并指定队列
-                save_minute_data_history_batch.s(non_favorite_code, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                save_minute_data_history_batch.s(non_favorite_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {non_favorite_code})")
@@ -428,7 +428,7 @@ def save_stocks_daily_basic_data_today_task(self):
             if favorite_code:
                 logger.info(f"创建自选股批次任务 (大小: {len(favorite_code)})...")
                 # 使用新的批量任务，并指定队列
-                save_minute_data_history_batch.s(favorite_code, time_level).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_minute_data_history_batch.s(favorite_code).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {favorite_code})")
 
@@ -442,7 +442,7 @@ def save_stocks_daily_basic_data_today_task(self):
             if non_favorite_code:
                 logger.info(f"创建非自选股批次任务 (大小: {len(non_favorite_code)})...")
                 # 使用新的批量任务，并指定队列
-                save_minute_data_history_batch.s(non_favorite_code, time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                save_minute_data_history_batch.s(non_favorite_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {non_favorite_code})")

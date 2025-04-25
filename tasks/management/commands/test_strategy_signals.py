@@ -4,7 +4,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 import json
-from typing import Dict, Any, Optional # 简化
+from typing import Dict, Any # 简化
 from django.core.management.base import BaseCommand, CommandError
 import logging
 from django.utils import timezone
@@ -13,11 +13,8 @@ from asgiref.sync import sync_to_async
 from django.core.cache import cache
 
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
-# from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO # 保留以备T+0策略未来可能的需求
 from stock_models.stock_analytics import StockScoreAnalysis # 导入分析结果模型
 from stock_models.stock_basic import StockInfo
-# from stock_models.stock_realtime import StockRealtimeData # 可能不再需要
-# from utils.cache_manager import CacheManager # 可能不再直接需要，由 timezone 处理
 from django.db import models # 用于 aggregate
 
 # --- 导入时区处理库 (如果保存数据库需要) ---

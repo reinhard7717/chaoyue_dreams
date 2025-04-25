@@ -6,9 +6,8 @@ import os
 import warnings
 import logging
 import pandas as pd
-import numpy as np
 from django.utils import timezone
-from typing import Any, List, Optional, Type, Union, Dict, Tuple
+from typing import Any, List, Optional, Union
 from django.db import models # 确保导入 models
 import pandas_ta as ta
 
@@ -26,7 +25,7 @@ pd.options.mode.chained_assignment = None # default='warn'
 
 from dao_manager.daos.indicator_dao import IndicatorDAO
 from dao_manager.daos.stock_basic_dao import StockBasicDAO
-from core.constants import TimeLevel, FIB_PERIODS
+from core.constants import TimeLevel
 
 logger = logging.getLogger("services")
 
