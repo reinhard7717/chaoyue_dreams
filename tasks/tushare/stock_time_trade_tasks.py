@@ -239,7 +239,8 @@ def save_day_data_history_batch(self, stock_codes: List[str]):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes))
+        return_info = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(stock_codes))
+        logger.info(f"保存日线数据完成. {return_info}，起始stock_code: {stock_codes[0]}，结束stock_code: {stock_codes[-1]}")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 

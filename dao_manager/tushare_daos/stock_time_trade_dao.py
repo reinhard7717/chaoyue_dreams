@@ -131,6 +131,7 @@ class StockTimeTradeDAO(BaseDAO):
         stock_codes_str = ",".join(stock_codes)
         df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": "", "limit": "" }, 
             fields=[ "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"])
+        logger.info(f"开始执行{len(stock_codes)}个股票的日线数据保存. 获取df数量: {len(df)}，起始stock_code: {stock_codes[0]}，结束stock_code: {stock_codes[-1]}")
         if df is not None:
             data_dicts = []
             for row in df.itertuples():
