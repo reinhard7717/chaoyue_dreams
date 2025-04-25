@@ -132,7 +132,6 @@ class UserCacheGet(CacheGet):
         """
         await super().initialize_cache_manager()  # 调用父类方法初始化 cache_manager
 
-
     async def user_favorites(self, user_id: int) -> Optional[List['FavoriteStock']]:
         """
         从缓存中异步读取用户自选股列表，并将字典转换为模型实例。
@@ -421,14 +420,20 @@ class StockTimeTradeCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的最新时间序列数据字典，如果未命中或发生错误则返回 None。
         """
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
 
     async def history_time_trade(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
     
     async def history_time_trade_by_limit(self, stock_code: str, time_level: str, limit: int) -> Optional[List[Dict[str, Any]]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data_by_limit(cache_key, limit)
 
@@ -441,59 +446,27 @@ class StockRealtimeCacheGet(CacheGet):
         await super().initialize_cache_manager()  # 调用父类方法初始化 cache_manager
 
     async def latest_realtime_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         # logger.info(f"尝试从缓存获取股票[{stock_code}]最新实时数据, key: {cache_key}")
         return await self._realtime_data(stock_code=stock_code, cache_key=cache_key)
     
     async def history_realtime_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.history_realtime_data(stock_code)
-        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-
-    async def latest_onebyone_trade(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = self.cache_key_stock.latest_onebyone_trade(stock_code)
-        return await self._stock_latest_data(stock_code, cache_key)
-    
-    async def history_onebyone_trade(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = self.cache_key_stock.history_onebyone_trade(stock_code)
-        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-
-    async def latest_time_deal(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = self.cache_key_stock.latest_time_deal(stock_code)
-        return await self._stock_latest_data(stock_code, cache_key)
-
-    async def history_time_deal(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = self.cache_key_stock.history_time_deal(stock_code)
-        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-
-    async def latest_real_percent(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = self.cache_key_stock.latest_real_percent(stock_code)
-        return await self._stock_latest_data(stock_code, cache_key)
-
-    async def history_real_percent(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = self.cache_key_stock.history_real_percent(stock_code)
-        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-    
-    async def latest_big_deal(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = self.cache_key_stock.latest_big_deal(stock_code)
-        return await self._stock_latest_data(stock_code, cache_key)
-
-    async def history_big_deal(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = self.cache_key_stock.history_big_deal(stock_code)
-        return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-    
-    async def latest_abnormal_movement(self, stock_code: str) -> Optional[Dict[str, Any]]:
-        cache_key = self.cache_key_stock.latest_abnormal_movement(stock_code)
-        return await self._stock_latest_data(stock_code, cache_key)
-
-    async def history_abnormal_movement(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
-        cache_key = self.cache_key_stock.history_abnormal_movement(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
     
     async def latest_level5_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.latest_level5_data(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
 
     async def history_level5_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
+        if self.cache_manager is None:
+            await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
