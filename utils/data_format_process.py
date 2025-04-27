@@ -1,6 +1,7 @@
 from django.utils import timezone
 from typing import Any, Dict
 import logging
+import numpy as np
 from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
 from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight
