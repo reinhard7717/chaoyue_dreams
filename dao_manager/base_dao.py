@@ -624,10 +624,8 @@ class BaseDAO(Generic[T]):
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         if not isinstance(data_list, list):
             data_list = [data_list]
-
         total_attempted = len(data_list)
         failed_count = 0
-
         # --- 确定需要更新的字段 (update_fields) ---
         all_keys = set()
         if data_list:
@@ -639,18 +637,15 @@ class BaseDAO(Generic[T]):
         pk_name = model_class._meta.pk.name
         if pk_name in update_fields:
             update_fields.remove(pk_name)
-
         if not update_fields:
             logger.warning(
                 f"模型 {model_class.__name__} 没有可用于更新的字段（除了唯一字段 {unique_fields}）。"
                 f" bulk_create 在 update_conflicts=True 模式下仍会尝试创建新记录，但现有记录不会被修改。"
             )
-
-        batch_size = 2000 # 定义每个数据库事务处理的批次大小
+        batch_size = 5000 # 定义每个数据库事务处理的批次大小
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i : i + batch_size]
             current_batch_size = len(batch)
-
             # --- 准备模型实例列表 ---
             objs_to_process = []
             for item in batch:
@@ -664,13 +659,11 @@ class BaseDAO(Generic[T]):
                 except Exception as model_init_err:
                     logger.error(f"创建模型 {model_class.__name__} 实例失败: {model_init_err}, data: {prepared_data}", exc_info=True)
                     failed_count += 1 # 单条记录创建失败
-
             # 如果当前批次所有记录都创建失败，则跳过数据库操作
             if len(objs_to_process) == 0 and current_batch_size > 0:
                  logger.error(f"批次 {i // batch_size + 1} 所有记录模型实例化失败，跳过数据库操作")
                  # failed_count 已经在上面累加
                  continue # 处理下一个批次
-
             # 使用 sync_to_async 执行同步的数据库操作
             @sync_to_async
             @transaction.atomic # 确保每个批次在事务中执行
@@ -702,10 +695,8 @@ class BaseDAO(Generic[T]):
                         exc_info=True
                     )
                     failed_count += len(objs_to_process) # 整个批次标记为失败
-
             # 执行异步包裹的数据库操作
             await process_batch_sync()
-
         # --- 计算最终结果 ---
         successful_count = total_attempted - failed_count
         result = {

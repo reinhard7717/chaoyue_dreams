@@ -80,7 +80,8 @@ class HSConst(models.Model):
     stock = models.ForeignKey(
         'StockInfo',
         on_delete=models.CASCADE,
-        to_field='stock_code',
+        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
+        db_column='stock_code', # 数据库字段名
         related_name='hs_constituents',
         verbose_name='股票'
     )
