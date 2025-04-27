@@ -10,7 +10,7 @@ class IndexInfo(models.Model):
     publisher = models.CharField(max_length=50, verbose_name="发布方", blank=True, null=True)
     index_type = models.CharField(max_length=50, verbose_name="指数风格", blank=True, null=True)
     category = models.CharField(max_length=50, verbose_name="指数类别", blank=True, null=True)
-    base_date = models.CharField(max_length=8, verbose_name="基期", blank=True, null=True)
+    base_date = models.DateField(verbose_name=_("基期"), null=True, blank=True)
     base_point = models.FloatField(verbose_name="基点", blank=True, null=True)
     list_date = models.CharField(max_length=8, verbose_name="发布日期", blank=True, null=True)
     weight_rule = models.CharField(max_length=100, verbose_name="加权方式", blank=True, null=True)

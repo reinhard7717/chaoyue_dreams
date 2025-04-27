@@ -3,7 +3,9 @@ from typing import Any, Dict
 import logging
 from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
-from stock_models.index import IndexInfo
+from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight
+from stock_models.industry import DcIndex, DcMember, KplConcept, SwIndustry, ThsIndex, ThsMember
+from stock_models.market import HmDetail, HmList, LimitCptList, LimitListD, LimitListThs, LimitStep, MarketDailyInfo, ThsDaily
 from stock_models.stock_basic import StockInfo
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
 from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
@@ -32,66 +34,92 @@ class UserDataFormatProcess(BaseDAO):
         return data_dict
 
 class IndexDataFormatProcess(BaseDAO):
-    # ================ 数据格式 ================
-    def set_index_data(self, api_data: Dict) -> Dict:
-        # logger.info(f"api_data: {api_data}")
+    # 指数基础信息
+    def set_index_info_data(self, api_data: Any) -> Dict:
         if isinstance(api_data, IndexInfo):
             data_dict = {
-                'code': api_data.code,  # 指数代码
-                'name': api_data.name,  # 指数名称
-                'exchange': api_data.exchange,  # 交易所代码
+                "index_code": api_data.index_code,  # 指数代码
+                "name": api_data.name,  # 简称
+                "fullname": api_data.fullname,  # 指数全称
+                "market": api_data.market,  # 市场
+                "publisher": api_data.publisher,  # 发布方
+                "index_type": api_data.index_type,  # 指数风格
+                "category": api_data.category,  # 指数类别
+                "base_date": api_data.base_date,  # 基期
+                "base_point": api_data.base_point,  # 基点
+                "list_date": api_data.list_date,  # 发布日期
+                "weight_rule": api_data.weight_rule,  # 加权方式
+                "desc": api_data.desc,  # 描述
+                "exp_date": api_data.exp_date,  # 终止日期
             }
         else:
             data_dict = {
-                'code': api_data.get('dm', ''),  # 指数代码
-                'name': api_data.get('mc', ''),  # 指数名称
-                'exchange': api_data.get('jys', ''),  # 交易所代码
+                "index_code": api_data.index_code,  # 指数代码
+                "name": api_data.name,  # 简称
+                "fullname": api_data.fullname,  # 指数全称
+                "market": api_data.market,  # 市场
+                "publisher": api_data.publisher,  # 发布方
+                "index_type": api_data.index_type,  # 指数风格
+                "category": api_data.category,  # 指数类别
+                "base_date": self._parse_datetime(api_data.base_date),  # 基期
+                "base_point": self._parse_number(api_data.base_point),  # 基点
+                "list_date": api_data.list_date,  # 发布日期
+                "weight_rule": api_data.weight_rule,  # 加权方式
+                "desc": api_data.desc,  # 描述
+                "exp_date": api_data.exp_date,  # 终止日期
             }
         return data_dict
-    
-    def set_realtime_data(self, index: IndexInfo, api_data: Dict) -> Dict:
-        data_dict = {
-            'index': index,
-            'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-            'high_price': self._parse_number(api_data.get('h')),  # 最高价
-            'low_price': self._parse_number(api_data.get('l')),  # 最低价
-            'current_price': self._parse_number(api_data.get('p')),  # 当前价格
-            'prev_close_price': self._parse_number(api_data.get('yc')),  # 昨日收盘价
-            'price_change': self._parse_number(api_data.get('ud')),  # 涨跌额
-            'price_change_percent': self._parse_number(api_data.get('pc')),  # 涨跌幅
-            'five_minute_change_percent': self._parse_number(api_data.get('fm')),  # 五分钟涨跌幅
-            'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-            'change_speed': self._parse_number(api_data.get('zs')),  # 涨速
-            'sixty_day_change_percent': self._parse_number(api_data.get('zdf60')),  # 60日涨跌幅
-            'ytd_change_percent': self._parse_number(api_data.get('zdfnc')),  # 年初至今涨跌幅
-            'volume': self._parse_number(api_data.get('v')),  # 成交量
-            'turnover': self._parse_number(api_data.get('cje')),  # 成交额
-            'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-            'volume_ratio': self._parse_number(api_data.get('lb')),  # 量比
-            'pe_ratio': self._parse_number(api_data.get('pe')),  # 市盈率
-            'pb_ratio': self._parse_number(api_data.get('sjl')),  # 市净率
-            'circulating_market_value': self._parse_number(api_data.get('lt')),  # 流通市值
-            'total_market_value': self._parse_number(api_data.get('sz')),  # 总市值
-            'trade_time': self._parse_datetime(api_data.get('t')),  # 更新时间
-        }
+
+    # 指数成分和权重
+    def set_index_weight_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
+        if isinstance(api_data, IndexWeight):
+            data_dict = {
+                "index": index_info,  # 指数代码
+                "stock": api_data.stock_code,  # 股票代码
+                "trade_date": api_data.trade_date,  # 交易日期
+                "weight": api_data.weight,  # 权重
+            }
+        else:
+            data_dict = {
+                "index": index_info,  # 指数代码
+                "stock": api_data.stock,  # 股票代码
+                "trade_date": self._parse_datetime(api_data.trade_date),  # 交易日期
+                "weight": self._parse_number(api_data.weight),  # 权重
+            }
         return data_dict
 
-    def set_time_series(self, index: IndexInfo, time_level: str, api_data: Dict) -> Dict:
-        data_dict = {
-            'index': index.id,
-            'time_level': time_level,
-            'trade_time': self._parse_datetime(api_data.get('d')),  # 交易时间
-            'open_price': self._parse_number(api_data.get('o')),  # 开盘价
-            'high_price': self._parse_number(api_data.get('h')),  # 最高价
-            'low_price': self._parse_number(api_data.get('l')),  # 最低价
-            'close_price': self._parse_number(api_data.get('c')),  # 收盘价
-            'volume': self._parse_number(api_data.get('v')),  # 成交量
-            'turnover': self._parse_number(api_data.get('e')),  # 成交额
-            'amplitude': self._parse_number(api_data.get('zf')),  # 振幅
-            'turnover_rate': self._parse_number(api_data.get('hs')),  # 换手率
-            'change_percent': self._parse_number(api_data.get('zd')),  # 涨跌幅
-            'change_amount': self._parse_number(api_data.get('zde')),  # 涨跌额
-        }
+    # 大盘指数每日指标
+    def set_index_daily_basic_data(self, api_data: Any) -> Dict:
+        if isinstance(api_data, IndexDailyBasic):
+            data_dict = {
+                "index": index_info,  # 指数代码
+                "trade_date": api_data.trade_date,  # 交易日期
+                "total_mv": api_data.total_mv,  # 总市值
+                "float_mv": api_data.float_mv,  # 流通市值
+                "total_share": api_data.total_share,  # 总股本
+                "float_share": api_data.float_share,  # 流通股本
+                "free_share": api_data.free_share,  # 自由流通股本
+                "turnover_rate": api_data.turnover_rate,  # 换手率
+                "turnover_rate_f": api_data.turnover_rate_f,  # 换手率(自由流通)
+                "pe": api_data.pe,  # 市盈率
+                "pe_ttm": api_data.pe_ttm,  # 市盈率TTM
+                "pb": api_data.pb,  # 市净率
+            }
+        else:
+            data_dict = {
+                "index": index_info,  # 指数代码
+                "trade_date": self._parse_datetime(api_data.trade_date),  # 交易日期
+                "total_mv": self._parse_number(api_data.total_mv),  # 总市值
+                "float_mv": self._parse_number(api_data.float_mv),  # 流通市值
+                "total_share": self._parse_number(api_data.total_share),  # 总股本
+                "float_share": self._parse_number(api_data.float_share),  # 流通股本
+                "free_share": self._parse_number(api_data.free_share),  # 自由流通股本
+                "turnover_rate": self._parse_number(api_data.turnover_rate),  # 换手率
+                "turnover_rate_f": self._parse_number(api_data.turnover_rate_f),  # 换手率(自由流通)
+                "pe": self._parse_number(api_data.pe),  # 市盈率
+                "pe_ttm": self._parse_number(api_data.pe_ttm),  # 市盈率TTM
+                "pb": self._parse_number(api_data.pb),  # 市净率
+            }
         return data_dict
 
 class StockInfoFormatProcess(BaseDAO):
@@ -789,6 +817,580 @@ class FundFlowFormatProcess(BaseDAO):
                 "buy_md_amount_rate": df_data.buy_md_amount_rate,
                 "buy_sm_amount": df_data.buy_sm_amount,
                 "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+            }
+        return data_dict
+
+    def set_lhb_daily_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, LhbDailyData):
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_time": df_data.trade_time, # 交易日期
+                "name": df_data.name, # 股票名称
+                "close": df_data.close, # 收盘价
+                "pct_change": df_data.pct_change, # 涨跌幅
+                "turnover_rate": df_data.turnover_rate, # 换手率
+                "amount": df_data.amount, # 总成交额
+                "l_sell": df_data.l_sell, # 龙虎榜卖出额
+                "l_buy": df_data.l_buy, # 龙虎榜买入额
+                "l_amount": df_data.l_amount, # 龙虎榜成交额
+                "net_amount": df_data.net_amount, # 龙虎榜净买入额
+                "net_rate": df_data.net_rate, # 龙虎榜净买入额占比
+                "amount_rate": df_data.amount_rate, # 龙虎榜成交额占比
+                "float_values": df_data.float_values, # 流通市值
+                "reason": df_data.reason, # 上榜原因
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "name": df_data.name,
+                "close": self._parse_number(df_data.close),
+                "pct_change": self._parse_number(df_data.pct_change),
+                "turnover_rate": self._parse_number(df_data.turnover_rate),
+                "amount": self._parse_number(df_data.amount),
+                "l_sell": self._parse_number(df_data.l_sell),
+                "l_buy": self._parse_number(df_data.l_buy),
+                "l_amount": self._parse_number(df_data.l_amount),
+                "net_amount": self._parse_number(df_data.net_amount),
+                "net_rate": self._parse_number(df_data.net_rate),
+                "amount_rate": self._parse_number(df_data.amount_rate),
+                "float_values": self._parse_number(df_data.float_values),
+                "reason": df_data.reason,
+            }
+        return data_dict
+
+    def set_lhb_inst_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, LhbInstData):
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_time": df_data.trade_time, # 交易日期
+                "exalter": df_data.exalter, # 营业部
+                "side": df_data.side, # 买卖买卖类型
+                "buy": df_data.buy, # 买入额
+                "buy_rate": df_data.buy_rate, # 买入占总成交比例
+                "sell": df_data.sell, # 卖出额
+                "sell_rate": df_data.sell_rate, # 卖出占总成交比例
+                "net_buy": df_data.net_buy, # 净买入额
+                "reason": df_data.reason, # 上榜原因
+            }
+        else:
+            data_dict = {
+                "stock": stock,
+                "trade_time": self._parse_datetime(df_data.trade_date),
+                "exalter": df_data.exalter, # 营业部
+                "side": df_data.side, # 买卖买卖类型
+                "buy": self._parse_number(df_data.buy), # 买入额
+                "buy_rate": self._parse_number(df_data.buy_rate), # 买入占总成交比例
+                "sell": self._parse_number(df_data.sell), # 卖出额
+                "sell_rate": self._parse_number(df_data.sell_rate), # 卖出占总成交比例
+                "net_buy": self._parse_number(df_data.net_buy), # 净买入额
+                "reason": df_data.reason, # 上榜原因
+            }
+        return data_dict
+
+class IndustryFormatProcess(BaseDAO):
+    # 申万行业分类
+    def set_sw_industry_data(self, index: IndexInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, SwIndustry):
+            data_dict = {
+                "index": index, # 指数代码
+                "index_code": df_data.index_code, # 指数代码
+                "industry_name": df_data.industry_name, # 行业名称
+                "parent_code": df_data.parent_code, # 父级代码
+                "level": df_data.level, # 行业分级
+                "industry_code": df_data.industry_code, # 行业代码
+                "is_publish": df_data.is_publish, # 是否发布指数
+                "src": df_data.src, # 行业分类来源
+            }
+        else:
+            data_dict = {
+                "index": index, # 指数代码
+                "index_code": df_data.index_code, # 指数代码
+                "industry_name": df_data.industry_name, # 行业名称
+                "parent_code": df_data.parent_code, # 父级代码
+                "level": df_data.level, # 行业分级
+                "industry_code": df_data.industry_code, # 行业代码
+                "is_publish": df_data.is_publish, # 是否发布指数
+                "src": df_data.src, # 行业分类来源
+            }
+        return data_dict
+
+    # 申万行业成分
+    def set_sw_industry_member_data(self, sw_industry: SwIndustry, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, SwIndustryMember):
+            data_dict = {
+                "l3_industry": sw_industry, # 三级行业
+                "stock": stock, # 股票代码
+                "l1_code": df_data.l1_code, # 一级行业代码
+                "l1_name": df_data.l1_name, # 一级行业名称
+                "l2_code": df_data.l2_code, # 二级行业代码
+                "l2_name": df_data.l2_name, # 二级行业名称
+                "l3_code": df_data.l3_code, # 三级行业代码
+                "l3_name": df_data.l3_name, # 三级行业名称
+                "name": df_data.name, # 成分股票名称
+                "in_date": df_data.in_date, # 纳入日期
+                "out_date": df_data.out_date, # 剔除日期
+                "is_new": df_data.is_new, # 是否最新
+            }
+        else:
+            data_dict = {
+                "l3_industry": sw_industry, # 三级行业
+                "stock": stock, # 股票代码
+                "l1_code": df_data.l1_code, # 一级行业代码
+                "l1_name": df_data.l1_name, # 一级行业名称
+                "l2_code": df_data.l2_code, # 二级行业代码
+                "l2_name": df_data.l2_name, # 二级行业名称
+                "l3_code": df_data.l3_code, # 三级行业代码
+                "l3_name": df_data.l3_name, # 三级行业名称
+                "name": df_data.name, # 成分股票名称
+                "in_date": df_data.in_date, # 纳入日期
+                "out_date": df_data.out_date, # 剔除日期
+                "is_new": df_data.is_new, # 是否最新
+            }
+        return data_dict
+
+    # 申万行业日线行情
+    def set_sw_industry_daily_data(self, sw_industry: SwIndustry, index: IndexInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, SwIndustryDaily):
+            data_dict = {
+                "industry": sw_industry, # 三级行业
+                "index": index, # 指数代码
+                "ts_code": df_data.ts_code, # 指数代码
+                "trade_time": df_data.trade_time, # 交易日期
+                "name": df_data.name, # 指数名称
+                "open": df_data.open, # 开盘点位
+                "high": df_data.high, # 最高点位
+                "low": df_data.low, # 最低点位
+                "close": df_data.close, # 收盘点位
+                "change": df_data.change, # 涨跌点位
+                "pct_change": df_data.pct_change, # 涨跌幅
+                "vol": df_data.vol, # 成交量（万股）
+                "amount": df_data.amount, # 成交额（万元）
+                "pe": df_data.pe, # 市盈率
+                "pb": df_data.pb, # 市净率
+                "float_mv": df_data.float_mv, # 流通市值
+                "total_mv": df_data.total_mv, # 总市值
+            }
+        else:
+            data_dict = {
+                "industry": sw_industry, # 三级行业
+                "index": index, # 指数代码
+                "ts_code": df_data.ts_code, # 指数代码
+                "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
+                "name": df_data.name, # 指数名称
+                "open": self._parse_number(df_data.open), # 开盘点位
+                "high": self._parse_number(df_data.high), # 最高点位
+                "low": self._parse_number(df_data.low), # 最低点位
+                "close": self._parse_number(df_data.close), # 收盘点位
+                "change": self._parse_number(df_data.change), # 涨跌点位
+                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
+                "vol": self._parse_number(df_data.vol), # 成交量（万股）
+                "amount": self._parse_number(df_data.amount), # 成交额（万元）
+                "pe": self._parse_number(df_data.pe), # 市盈率
+                "pb": self._parse_number(df_data.pb), # 市净率
+                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
+                "total_mv": self._parse_number(df_data.total_mv), # 总市值
+            }
+        return data_dict
+
+    # 开盘啦题材库
+    def set_kpl_concept_data(self, df_data: Any) -> Dict:
+        if isinstance(df_data, KplConcept):
+            data_dict = {
+                "trade_time": df_data.trade_time, # 交易日期
+                "ts_code": df_data.ts_code, # 题材代码
+                "name": df_data.name, # 题材名称
+                "z_t_num": df_data.z_t_num, # 涨停数
+                "up_num": df_data.up_num, # 排名上升位数
+            }
+        else:
+            data_dict = {
+                "trade_time": df_data.trade_time, # 交易日期
+                "ts_code": df_data.ts_code, # 题材代码
+                "name": df_data.name, # 题材名称
+                "z_t_num": df_data.z_t_num, # 涨停数
+                "up_num": df_data.up_num, # 排名上升位数
+            }
+        return data_dict
+
+    # 开盘啦题材成分股
+    def set_kpl_concept_member_data(self, kpl_concept: KplConcept, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, KplConcept):
+            data_dict = {
+                "concept": kpl_concept, # 所属题材
+                "stock": stock, # 股票代码
+                "name": df_data.name, # 题材名称
+                "con_name": df_data.con_name, # 成分股名称
+                "trade_time": df_data.trade_time, # 交易日期
+                "desc": df_data.desc, # 描述
+                "hot_num": df_data.hot_num, # 人气值
+            }
+        else:
+            data_dict = {
+                "concept": kpl_concept, # 所属题材
+                "stock": stock, # 股票代码
+                "name": df_data.name, # 题材名称
+                "con_name": df_data.con_name, # 成分股名称
+                "trade_time": df_data.trade_time, # 交易日期
+                "desc": df_data.desc, # 描述
+                "hot_num": df_data.hot_num, # 人气值
+            }
+        return data_dict
+
+    # 同花顺概念和行业指数
+    def set_ths_index_data(self, df_data: Any) -> Dict:
+        if isinstance(df_data, ThsIndex):
+            data_dict = {
+                "ts_code": df_data.ts_code, # 指数代码
+                "name": df_data.name, # 指数名称
+                "count": df_data.count, # 成分个数
+                "exchange": df_data.exchange, # 交易所
+                "list_date": df_data.list_date, # 上市日期
+                "type": df_data.type, # 类型指数类型
+            }
+        else:
+            data_dict = {
+                "ts_code": df_data.ts_code, # 指数代码
+                "name": df_data.name, # 指数名称
+                "count": self._parse_number(df_data.count), # 成分个数
+                "exchange": df_data.exchange, # 交易所
+                "list_date": self._parse_datetime(df_data.list_date), # 上市日期
+                "type": df_data.type, # 类型指数类型
+            }
+        return data_dict
+
+    # 同花顺概念板块成分
+    def set_ths_member_data(self, ths_index: ThsIndex, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, ThsMember):
+            data_dict = {
+                "ths_index": ths_index, # 所属概念
+                "stock": stock, # 股票代码
+                "weight": df_data.weight, # 权重
+                "in_date": df_data.in_date, # 纳入日期
+                "out_date": df_data.out_date, # 剔除日期
+                "is_new": df_data.is_new, # 是否最新
+            }
+        else:
+            data_dict = {
+                "ths_index": ths_index, # 所属概念
+                "stock": stock, # 股票代码
+                "weight": df_data.weight, # 权重
+                "in_date": self._parse_datetime(df_data.in_date), # 纳入日期
+                "out_date": self._parse_datetime(df_data.out_date), # 剔除日期
+                "is_new": df_data.is_new, # 是否最新
+            }
+        return data_dict
+
+    # 东方财富概念板块
+    def set_dc_index_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, DcIndex):
+            data_dict = {
+                "ts_code": df_data.ts_code, # 指数代码
+                "trade_time": df_data.trade_time, # 交易日期
+                "name": df_data.name, # 指数名称
+                "leading_stock": df_data.leading_stock, # 领涨股
+                "stock": stock,
+                "pct_change": df_data.pct_change, # 涨跌幅
+                "leading_pct": df_data.leading_pct, # 领涨股涨跌幅
+                "total_mv": df_data.total_mv, # 总市值
+                "turnover_rate": df_data.turnover_rate, # 换手率
+                "up_num": df_data.up_num, # 排名上升位数
+                "down_num": df_data.down_num, # 排名下降位数
+            }
+        else:
+            data_dict = {
+                "ts_code": df_data.ts_code, # 指数代码
+                "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
+                "name": df_data.name, # 指数名称
+                "leading_stock": df_data.leading_stock, # 领涨股
+                "stock": stock,
+                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
+                "leading_pct": self._parse_number(df_data.leading_pct), # 领涨股涨跌幅
+                "total_mv": self._parse_number(df_data.total_mv), # 总市值
+                "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
+                "up_num": self._parse_number(df_data.up_num), # 排名上升位数
+                "down_num": self._parse_number(df_data.down_num), # 排名下降位数
+            }
+        return data_dict
+
+    # 东方财富板块成分
+    def set_dc_member_data(self, dc_index: DcIndex, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, DcMember):
+            data_dict = {
+                "trade_time": df_data.trade_time, # 交易日期
+                "dc_index": dc_index, # 所属概念
+                "stock": stock, # 股票代码
+                "name": df_data.name, # 成分股票名称
+            }
+        else:
+            data_dict = {
+                "trade_time": df_data.trade_time, # 交易日期
+                "dc_index": dc_index, # 所属概念
+                "stock": stock, # 股票代码
+                "name": df_data.name, # 成分股票名称
+            }
+        return data_dict
+
+class MarketFormatProcess(BaseDAO):
+    # 市场交易统计(MarketDailyInfo)
+    def set_market_daily_info_data(self, df_data: Any) -> Dict:
+        if isinstance(df_data, MarketDailyInfo):
+            data_dict = {
+                "trade_date": df_data.trade_date, # 交易日期
+                "ts_code": df_data.ts_code, # 市场代码
+                "ts_name": df_data.ts_name, # 市场名称
+                "com_count": df_data.com_count, # 挂牌数
+                "total_share": df_data.total_share, # 总股本(亿股)
+                "float_share": df_data.float_share, # 流通股本(亿股)
+                "total_mv": df_data.total_mv, # 总市值(亿元)
+                "float_mv": df_data.float_mv, # 流通市值(亿元)
+                "amount": df_data.amount, # 成交金额(亿元)
+                "vol": df_data.vol, # 成交量(亿股)
+                "trans_count": df_data.trans_count, # 成交笔数(万笔)
+                "pe": df_data.pe, # 市盈率
+                "trans_rate": df_data.trans_rate, # 换手率(%)
+                "exchange": df_data.exchange, # 交易所
+            }
+        else:
+            data_dict = {
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "ts_code": df_data.ts_code, # 市场代码
+                "ts_name": df_data.ts_name, # 市场名称
+                "com_count": self._parse_number(df_data.com_count), # 挂牌数
+                "total_share": self._parse_number(df_data.total_share), # 总股本(亿股)
+                "float_share": self._parse_number(df_data.float_share), # 流通股本(亿股)
+                "total_mv": self._parse_number(df_data.total_mv), # 总市值(亿元)
+                "float_mv": self._parse_number(df_data.float_mv), # 流通市值(亿元)
+                "amount": self._parse_number(df_data.amount), # 成交金额(亿元)
+                "vol": self._parse_number(df_data.vol), # 成交量(亿股)
+                "trans_count": self._parse_number(df_data.trans_count), # 成交笔数(万笔)
+                "pe": self._parse_number(df_data.pe), # 市盈率
+                "trans_rate": self._parse_number(df_data.trans_rate), # 换手率(%)
+                "exchange": df_data.exchange, # 交易所
+            }
+        return data_dict
+
+    # 游资名录
+    def set_hm_list_data(self, df_data: Any) -> Dict:
+        if isinstance(df_data, HmList):
+            data_dict = {
+                "name": df_data.name, # 游资名称
+                "desc": df_data.desc, # 说明
+                "orgs": df_data.orgs, # 关联机构
+            }
+        else:
+            data_dict = {
+                "name": df_data.name, # 游资名称
+                "desc": df_data.desc, # 说明
+                "orgs": df_data.orgs, # 关联机构
+            }
+        return data_dict
+
+    # 游资每日明细
+    def set_hm_detail_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, HmDetail):
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": df_data.trade_date, # 交易日期
+                "ts_name": df_data.ts_name, # 股票名称
+                "buy_amount": df_data.buy_amount, # 买入金额(元)
+                "sell_amount": df_data.sell_amount, # 卖出金额(元)
+                "net_amount": df_data.net_amount, # 净买卖(元)
+                "hm_name": df_data.hm_name, # 游资名称
+                "hm_orgs": df_data.hm_orgs, # 关联机构
+                "tag": df_data.tag, # 标签
+            }
+        else:
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "ts_name": df_data.ts_name, # 股票名称
+                "buy_amount": self._parse_number(df_data.buy_amount), # 买入金额(元)
+                "sell_amount": self._parse_number(df_data.sell_amount), # 卖出金额(元)
+                "net_amount": self._parse_number(df_data.net_amount), # 净买卖(元)
+                "hm_name": df_data.hm_name, # 游资名称
+                "hm_orgs": df_data.hm_orgs, # 关联机构
+                "tag": df_data.tag, # 标签
+            }
+        return data_dict
+
+    # 同花顺板块指数行情
+    def set_ths_daily_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
+        if isinstance(df_data, ThsDaily):
+            data_dict = {
+                "ths_index": ths_index, # 板块
+                "trade_date": df_data.trade_date, # 交易日期
+                "close": df_data.close, # 收盘价
+                "open": df_data.open, # 开盘价
+                "high": df_data.high, # 最高价
+                "low": df_data.low, # 最低价
+                "pre_close": df_data.pre_close, # 昨收价
+                "avg_price": df_data.avg_price, # 平均价
+                "change": df_data.change, # 涨跌额
+                "pct_change": df_data.pct_change, # 涨跌幅
+                "vol": df_data.vol, # 成交量
+                "turnover_rate": df_data.turnover_rate, # 换手率
+                "total_mv": df_data.total_mv, # 总市值
+                "float_mv": df_data.float_mv, # 流通市值
+            }
+        else:
+            data_dict = {
+                "ths_index": ths_index, # 板块
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "close": self._parse_number(df_data.close), # 收盘价
+                "open": self._parse_number(df_data.open), # 开盘价
+                "high": self._parse_number(df_data.high), # 最高价
+                "low": self._parse_number(df_data.low), # 最低价
+                "pre_close": self._parse_number(df_data.pre_close), # 昨收价
+                "avg_price": self._parse_number(df_data.avg_price), # 平均价
+                "change": self._parse_number(df_data.change), # 涨跌额
+                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
+                "vol": self._parse_number(df_data.vol), # 成交量
+                "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
+                "total_mv": self._parse_number(df_data.total_mv), # 总市值
+                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
+            }
+        return data_dict
+
+    # 涨跌停榜单 - 同花顺
+    def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, LimitListThs):
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": df_data.trade_date, # 交易日期
+                "name": df_data.name, # 股票名称
+                "price": df_data.price, # 收盘价
+                "pct_chg": df_data.pct_chg, # 涨跌幅%
+                "open_num": df_data.open_num,
+                "lu_desc": df_data.lu_desc, # 涨停原因
+                "limit_type": df_data.limit_type, # 板单类别
+                "tag": df_data.tag, # 涨停标签
+                "status": df_data.status, # 涨停状态
+                "first_lu_time": df_data.first_lu_time, # 首次涨停时间
+                "last_lu_time": df_data.last_lu_time, # 最后涨停时间
+                "first_ld_time": df_data.first_ld_time, # 首次跌停时间
+                "last_ld_time": df_data.last_ld_time, # 最后跌停时间
+                "limit_order": df_data.limit_order, # 封单量
+                "limit_amount": df_data.limit_amount, # 封单额
+                "turnover": df_data.turnover, # 成交额
+                "rise_rate": df_data.rise_rate, # 涨速
+                "sum_float": df_data.sum_float, # 总市值
+                "market_type": df_data.market_type, # 股票类型
+            }
+        else:
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "name": df_data.name, # 股票名称
+                "price": self._parse_number(df_data.price), # 收盘价
+                "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅%
+                "open_num": self._parse_number(df_data.open_num), # 打开次数
+                "lu_desc": df_data.lu_desc, # 涨停原因
+                "limit_type": df_data.limit_type, # 板单类别
+                "tag": df_data.tag, # 涨停标签
+                "status": df_data.status, # 涨停状态
+                "first_lu_time": self._parse_datetime(df_data.first_lu_time), # 首次涨停时间
+                "last_lu_time": self._parse_datetime(df_data.last_lu_time), # 最后涨停时间
+                "first_ld_time": self._parse_datetime(df_data.first_ld_time), # 首次跌停时间
+                "last_ld_time": self._parse_datetime(df_data.last_ld_time), # 最后跌停时间
+                "limit_order": self._parse_number(df_data.limit_order), # 封单量
+                "limit_amount": self._parse_number(df_data.limit_amount), # 封单额
+                "turnover": self._parse_number(df_data.turnover), # 成交额
+                "rise_rate": self._parse_number(df_data.rise_rate), # 涨速
+                "sum_float": self._parse_number(df_data.sum_float), # 总市值
+                "market_type": df_data.market_type, # 股票类型
+            }
+        return data_dict
+
+    # 涨跌停列表
+    def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, LimitListD):
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": df_data.trade_date, # 交易日期
+                "industry": df_data.industry, # 所属行业
+                "name": df_data.name, # 股票名称
+                "close": df_data.close, # 收盘价
+                "pct_chg": df_data.pct_chg, # 涨跌幅
+                "amount": df_data.amount, # 成交额
+                "limit_amount": df_data.limit_amount, # 板上成交金额
+                "float_mv": df_data.float_mv, # 流通市值
+                "total_mv": df_data.total_mv, # 总市值
+                "turnover_ratio": df_data.turnover_ratio, # 换手率
+                "fd_amount": df_data.fd_amount, # 封单金额
+                "first_time": df_data.first_time, # 首次封板时间
+                "last_time": df_data.last_time, # 最后封板时间
+                "open_times": df_data.open_times, # 炸板次数
+                "up_stat": df_data.up_stat, # 涨停统计
+                "limit_times": df_data.limit_times, # 连板数
+                "limit": df_data.limit, # 涨跌停类型
+            }
+        else:
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "industry": df_data.industry, # 所属行业
+                "name": df_data.name, # 股票名称
+                "close": self._parse_number(df_data.close), # 收盘价
+                "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅
+                "amount": self._parse_number(df_data.amount), # 成交额
+                "limit_amount": self._parse_number(df_data.limit_amount), # 板上成交金额
+                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
+                "total_mv": self._parse_number(df_data.total_mv), # 总市值
+                "turnover_ratio": self._parse_number(df_data.turnover_ratio), # 换手率
+                "fd_amount": self._parse_number(df_data.fd_amount), # 封单金额
+                "first_time": self._parse_datetime(df_data.first_time), # 首次封板时间
+                "last_time": self._parse_datetime(df_data.last_time), # 最后封板时间
+                "open_times": self._parse_datetime(df_data.open_times), # 炸板次数
+                "up_stat": df_data.up_stat, # 涨停统计
+                "limit_times": self._parse_number(df_data.limit_times), # 连板数
+                "limit": df_data.limit, # 涨跌停类型
+            }
+        return data_dict
+
+    # 连板天梯
+    def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, LimitStep):
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": df_data.trade_date, # 交易日期
+                "name": df_data.name, # 股票名称
+                "nums": df_data.nums, # 连板数
+            }
+        else:
+            data_dict = {
+                "stock": stock, # 股票代码
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "name": df_data.name, # 股票名称
+                "nums": self._parse_number(df_data.nums), # 连板数
+            }
+        return data_dict
+
+    # 最强板块统计 - 同花顺
+    def set_limit_cpt_list_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
+        if isinstance(df_data, LimitCptList):
+            data_dict = {
+                "ths_index": ths_index, # 板块名称
+                "trade_date": df_data.trade_date, # 交易日期
+                "name": df_data.name, # 板块名称
+                "days": df_data.days, # 上榜天数
+                "up_stat": df_data.up_stat, # 涨停统计
+                "cons_nums": df_data.cons_nums, # 连板数
+                "up_nums": df_data.up_nums, # 涨停数
+                "pct_chg": df_data.pct_chg, # 涨跌幅
+                "rank": df_data.rank, # 板块热点排名
+            }
+        else:
+            data_dict = {
+                "ths_index": ths_index, # 板块名称
+                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
+                "name": df_data.name, # 板块名称
+                "days": self._parse_number(df_data.days), # 上榜天数
+                "up_stat": df_data.up_stat, # 涨停统计
+                "cons_nums": self._parse_number(df_data.cons_nums), # 连板数
+                "up_nums": df_data.up_nums, # 涨停数
+                "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅
+                "rank": df_data.rank, # 板块热点排名
             }
         return data_dict
 

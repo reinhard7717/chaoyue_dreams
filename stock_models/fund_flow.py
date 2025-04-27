@@ -1,7 +1,9 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from stock_models.industry import DcIndex, ThsIndex
 from stock_models.stock_basic import StockInfo
 
+# 日级资金流向数据（moneyflow接口）
 class FundFlowDaily(models.Model):
     """
     日级资金流向数据（moneyflow接口）
@@ -48,7 +50,8 @@ class FundFlowDaily(models.Model):
 
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
-    
+
+# 日级资金流向数据 - 同花顺（moneyflow_ths接口）
 class FundFlowDailyTHS(models.Model):
     """
     日级资金流向数据 - 同花顺（moneyflow_ths接口）
@@ -87,6 +90,7 @@ class FundFlowDailyTHS(models.Model):
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
 
+# 日级资金流向数据 - 东方财富（moneyflow_dc接口）
 class FundFlowDailyDC(models.Model):
     """
     日级资金流向数据 - 东方财富（moneyflow_dc接口）
@@ -126,14 +130,15 @@ class FundFlowDailyDC(models.Model):
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
 
+# 板块资金流向统计数据 - 同花顺（moneyflow_ths接口）
 class FundFlowCntTHS(models.Model):
     """
     板块资金流向统计数据 - 同花顺（moneyflow_ind_ths接口）
     """
-    stock = models.ForeignKey(
-        StockInfo,
-        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='ts_code', # 数据库字段名
+    ths_index = models.ForeignKey(
+        ThsIndex,
+        to_field='ts_code',  # 指定外键对应ThsIndex的ts_code字段
+        db_column='ths_index_code', # 数据库字段名
         on_delete=models.CASCADE, blank=True, null=True,
         related_name="fund_flow_cnt_ths", verbose_name=_("股票")
     )
@@ -151,24 +156,25 @@ class FundFlowCntTHS(models.Model):
         verbose_name = _("板块资金流向统计")
         verbose_name_plural = _("板块资金流向统计")
         db_table = "fund_flow_cnt_ths"
-        unique_together = ['stock', 'trade_time']
+        unique_together = ['ths_index', 'trade_time']
         indexes = [
-            models.Index(fields=['stock']),
+            models.Index(fields=['ths_index']),
             models.Index(fields=['trade_time']),
         ]
     def __str__(self):
-        return f"{self.stock.name if self.stock else ''}板块资金流向统计 - 同花顺({self.trade_time})"
+        return f"{self.ths_index.name if self.ths_index else ''}板块资金流向统计 - 同花顺({self.trade_time})"
     def __code__(self):
-        return self.stock.stock_code if self.stock else ''
+        return self.ths_index.ts_code if self.ths_index else ''
 
+# 板块资金流向统计数据 - 东方财富（moneyflow_dc接口）
 class FundFlowCntDC(models.Model):
     """
     板块资金流向统计数据 - 东方财富（moneyflow_ind_dc接口）
     """
-    stock = models.ForeignKey(
-        StockInfo,
-        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='ts_code', # 数据库字段名
+    dc_index = models.ForeignKey(
+        DcIndex,
+        to_field='ts_code',  # 指定外键对应DcIndex的ts_code字段
+        db_column='dc_index_code', # 数据库字段名
         on_delete=models.CASCADE, blank=True, null=True,
         related_name="fund_flow_cnt_dc", verbose_name=_("股票")
     )
@@ -193,26 +199,27 @@ class FundFlowCntDC(models.Model):
         verbose_name = _("板块资金流向统计")
         verbose_name_plural = _("板块资金流向统计")
         db_table = "fund_flow_cnt_dc"
-        unique_together = ['stock', 'trade_time']
+        unique_together = ['dc_index', 'trade_time']
         indexes = [
-            models.Index(fields=['stock']),
+            models.Index(fields=['dc_index']),
             models.Index(fields=['trade_time']),
         ]
     def __str__(self):
-        return f"{self.stock.name if self.stock else ''}板块资金流向统计 - 同花顺({self.trade_time})"
+        return f"{self.dc_index.name if self.dc_index else ''}板块资金流向统计 - 同花顺({self.trade_time})"
     def __code__(self):
-        return self.stock.stock_code if self.stock else ''
+        return self.dc_index.name if self.dc_index else ''
 
+# 行业资金流向统计数据 - 同花顺（moneyflow_ths接口）
 class FundFlowIndustryTHS(models.Model):
     """
     行业资金流向统计数据 - 同花顺（fundflow_ind_ths接口）
     """
-    stock = models.ForeignKey(
-        StockInfo,
-        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='ts_code', # 数据库字段名
+    ths_index = models.ForeignKey(
+        ThsIndex,
+        to_field='ts_code',  # 指定外键对应ThsIndex的ts_code字段
+        db_column='ths_index_code', # 数据库字段名
         on_delete=models.CASCADE, blank=True, null=True,
-        related_name="fund_flow_ind_ths", verbose_name=_("股票")
+        related_name="fund_flow_industry_ths", verbose_name=_("股票")
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     industry = models.CharField(max_length=20, verbose_name=_("行业名称"), null=True, blank=True)
@@ -230,27 +237,21 @@ class FundFlowIndustryTHS(models.Model):
         verbose_name = _("行业资金流向统计")
         verbose_name_plural = _("行业资金流向统计")
         db_table = "fund_flow_industry_ths"
-        unique_together = ['stock', 'trade_time']
+        unique_together = ['ths_index', 'trade_time']
         indexes = [
-            models.Index(fields=['stock']),
+            models.Index(fields=['ths_index']),
             models.Index(fields=['trade_time']),
         ]
     def __str__(self):
-        return f"{self.stock.name if self.stock else ''}行业资金流向统计 - 同花顺({self.trade_time})"
+        return f"{self.ths_index.name if self.ths_index else ''}行业资金流向统计 - 同花顺({self.trade_time})"
     def __code__(self):
-        return self.stock.stock_code if self.stock else ''
+        return self.ths_index.ts_code if self.ths_index else ''
 
+# 大盘（上证）资金流向统计数据 - 东方财富（moneyflow_dc接口）
 class FundFlowMarketDc(models.Model):
     """
-    市场资金流向统计数据 - 东方财富（moneyflow_mkt_dc接口）
+    大盘（上证）资金流向统计数据 - 东方财富（moneyflow_mkt_dc接口）
     """
-    stock = models.ForeignKey(
-        StockInfo,
-        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='ts_code', # 数据库字段名
-        on_delete=models.CASCADE, blank=True, null=True,
-        related_name="fund_flow_market_dc", verbose_name=_("股票")
-    )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     close_sh = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("上证指数"), null=True, blank=True)
     pct_change_sh = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("上证指数涨跌幅(%)"), null=True, blank=True)
@@ -271,17 +272,71 @@ class FundFlowMarketDc(models.Model):
         verbose_name = _("市场资金流向统计")
         verbose_name_plural = _("市场资金流向统计")
         db_table = "fund_flow_market_dc"
-        unique_together = ['stock', 'trade_time']
         indexes = [
-            models.Index(fields=['stock']),
             models.Index(fields=['trade_time']),
         ]
 
     def __str__(self):
-        return f"{self.stock.name if self.stock else ''}市场资金流向统计 - 东方财富({self.trade_time})"
+        return f"市场资金流向统计 - 东方财富({self.trade_time})"
 
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
 
+# 龙虎榜每日交易明细
+class TopList(models.Model):
+    """龙虎榜每日交易明细"""
+    stock = models.ForeignKey(
+        'StockInfo',to_field='stock_code',
+        db_column='ts_code',on_delete=models.CASCADE,
+        verbose_name='股票',related_name='top_lists'
+    )
+    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    name = models.CharField(max_length=50, verbose_name='名称')
+    close = models.FloatField(verbose_name='收盘价')
+    pct_change = models.FloatField(verbose_name='涨跌幅')
+    turnover_rate = models.FloatField(verbose_name='换手率')
+    amount = models.FloatField(verbose_name='总成交额')
+    l_sell = models.FloatField(verbose_name='龙虎榜卖出额')
+    l_buy = models.FloatField(verbose_name='龙虎榜买入额')
+    l_amount = models.FloatField(verbose_name='龙虎榜成交额')
+    net_amount = models.FloatField(verbose_name='龙虎榜净买入额')
+    net_rate = models.FloatField(verbose_name='龙虎榜净买额占比')
+    amount_rate = models.FloatField(verbose_name='龙虎榜成交额占比')
+    float_values = models.FloatField(verbose_name='当日流通市值')
+    reason = models.CharField(max_length=200, verbose_name='上榜理由')
+
+    class Meta:
+        verbose_name = '龙虎榜每日明细'
+        verbose_name_plural = verbose_name
+        unique_together = ('trade_date', 'stock', 'reason')  # 防止重复
+
+    def __str__(self):
+        return f"{self.trade_date} {self.stock_id} {self.name}"
+
+# 龙虎榜机构成交明细
+class TopInst(models.Model):
+    """龙虎榜机构成交明细"""
+    stock = models.ForeignKey(
+        'StockInfo',to_field='stock_code',
+        db_column='ts_code',on_delete=models.CASCADE,
+        verbose_name='股票',related_name='top_insts'
+    )
+    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    exalter = models.CharField(max_length=100, verbose_name='营业部名称')
+    side = models.CharField(max_length=1, verbose_name='买卖类型')  # 0/1
+    buy = models.FloatField(verbose_name='买入额')
+    buy_rate = models.FloatField(verbose_name='买入占总成交比例')
+    sell = models.FloatField(verbose_name='卖出额')
+    sell_rate = models.FloatField(verbose_name='卖出占总成交比例')
+    net_buy = models.FloatField(verbose_name='净成交额')
+    reason = models.CharField(max_length=200, verbose_name='上榜理由')
+
+    class Meta:
+        verbose_name = '龙虎榜机构明细'
+        verbose_name_plural = verbose_name
+        unique_together = ('trade_date', 'stock', 'exalter', 'side', 'reason')
+
+    def __str__(self):
+        return f"{self.trade_date} {self.stock_id} {self.exalter} {self.side}"
 
 

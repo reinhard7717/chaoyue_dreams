@@ -23,7 +23,7 @@ class StockInfo(models.Model):
     is_hs = models.CharField(max_length=2, verbose_name='是否沪深港通标的', null=True, blank=True)
     actual_controller = models.CharField(max_length=100, verbose_name='实控人名称', null=True, blank=True)
     actual_controller_type = models.CharField(max_length=50, verbose_name='实控人企业性质', null=True, blank=True)
-    
+
     class Meta:
         verbose_name = '股票基础信息'
         verbose_name_plural = verbose_name

@@ -562,6 +562,7 @@ class StockInfoCacheSet(CacheSet):
         if self.cache_manager is None:
             await self.initialize_cache_manager()  # 确保初始化
         cache_key = self.cache_key_stock.stock_data(stock_code)
+        print(f"StockInfoCacheSet.stock_basic_info.cache_key: {cache_key}")
         cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
         return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 

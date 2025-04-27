@@ -409,7 +409,7 @@ class StockTimeTradeDAO(BaseDAO):
                         if prepared_data:
                             await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
                         else:
-                            logger.warning(f"为股票 {stock_obj} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMinuteData,
