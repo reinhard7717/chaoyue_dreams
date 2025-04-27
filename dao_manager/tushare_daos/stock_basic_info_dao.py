@@ -177,8 +177,9 @@ class StockBasicInfoDao(BaseDAO):
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 stock = await self.get_stock_by_code(row.ts_code)
-                company_dict = self.data_format_process.set_company_info_data(stock, row)
-                company_dicts.append(company_dict)
+                if stock:
+                    company_dict = self.data_format_process.set_company_info_data(stock, row)
+                    company_dicts.append(company_dict)
         if company_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCompany,
@@ -203,9 +204,8 @@ class StockBasicInfoDao(BaseDAO):
             stock_dicts = []
             for row in df.itertuples():
                 stock = await self.get_stock_by_code(row.ts_code)
-                
-                hs_const = self.data_format_process.set_hs_const_data(stock, row)
-                if hs_const.get('stock') is not None:
+                if stock:
+                    hs_const = self.data_format_process.set_hs_const_data(stock, row)
                     stock_dicts.append(hs_const)
             if stock_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(

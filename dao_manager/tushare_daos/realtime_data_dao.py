@@ -44,13 +44,13 @@ class StockRealtimeDAO(BaseDAO):
             # sina数据
             df = ts.realtime_quote(ts_code=stock_codes)
             for row in df.itertuples():
-                db_stock_code = row.ts_code.split('.')[0]
-                stock = await self.stock_basic_dao.get_stock_by_code(db_stock_code)
-                real_dict = self.data_format_process.set_realtime_tick_data(stock, row)
-                level5_dict = self.data_format_process.set_level5_data(stock, row)
-                await self.cache_set.latest_realtime_data(stock.stock_code, real_dict)
-                real_data_dicts.append(real_dict)
-                level5_data_dicts.append(level5_dict)
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    real_dict = self.data_format_process.set_realtime_tick_data(stock, row)
+                    level5_dict = self.data_format_process.set_level5_data(stock, row)
+                    await self.cache_set.latest_realtime_data(stock.stock_code, real_dict)
+                    real_data_dicts.append(real_dict)
+                    level5_data_dicts.append(level5_dict)
             # 保存数据
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockRealtimeData,
@@ -76,11 +76,13 @@ class StockRealtimeDAO(BaseDAO):
         real_data_dicts = []
         level5_data_dicts = []
         for row in df.itertuples():
-            real_dict = self.data_format_process.set_realtime_tick_data(row)
-            level5_dict = self.data_format_process.set_level5_data(row)
-            real_data_dicts.append(real_dict)
-            await self.cache_set.latest_realtime_data(row.ts_code, real_dict)
-            level5_data_dicts.append(level5_dict)
+            stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+            if stock:
+                real_dict = self.data_format_process.set_realtime_tick_data(stock, row)
+                level5_dict = self.data_format_process.set_level5_data(stock, row)
+                real_data_dicts.append(real_dict)
+                await self.cache_set.latest_realtime_data(row.ts_code, real_dict)
+                level5_data_dicts.append(level5_dict)
         # 保存数据
         result = await self._save_all_to_db_native_upsert(
             model_class=StockRealtimeData,

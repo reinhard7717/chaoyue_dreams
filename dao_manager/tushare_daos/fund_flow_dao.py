@@ -48,11 +48,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
@@ -79,11 +77,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
@@ -109,11 +105,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
@@ -143,11 +137,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
@@ -173,11 +165,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
@@ -206,11 +196,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
@@ -240,11 +228,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
@@ -270,11 +256,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
@@ -303,11 +287,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
@@ -336,8 +318,10 @@ class FundFlowDao(BaseDAO):
             return
         data_dicts = []
         for row in df.itertuples():
-            data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
-            data_dicts.append(data_dict)
+            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntTHS,
             data_list=data_dicts,
@@ -362,8 +346,10 @@ class FundFlowDao(BaseDAO):
             return
         data_dicts = []
         for row in df.itertuples():
-            data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
-            data_dicts.append(data_dict)
+            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntTHS,
             data_list=data_dicts,
@@ -394,11 +380,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntDC,
             data_list=data_dicts,
@@ -425,11 +409,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntDC,
             data_list=data_dicts,
@@ -459,11 +441,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowIndustryTHS,
             data_list=data_dicts,
@@ -489,11 +469,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowIndustryTHS,
             data_list=data_dicts,
@@ -524,11 +502,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowMarketDc,
             data_list=data_dicts,
@@ -555,11 +531,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowMarketDc,
             data_list=data_dicts,
@@ -589,11 +563,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopList,
             data_list=data_dicts,
@@ -618,11 +590,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopList,
             data_list=data_dicts,
@@ -652,11 +622,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopInst,
             data_list=data_dicts,
@@ -682,11 +650,9 @@ class FundFlowDao(BaseDAO):
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock is None:
-                logger.error(f"股票代码：{row.ts_code} 不存在")
-                continue
-            data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
-            data_dicts.append(data_dict)
+            if stock:
+                data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
+                data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopInst,
             data_list=data_dicts,
