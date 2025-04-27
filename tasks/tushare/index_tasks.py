@@ -6,6 +6,7 @@ from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos import fund_flow_dao
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
 logger = logging.getLogger('tasks')
 

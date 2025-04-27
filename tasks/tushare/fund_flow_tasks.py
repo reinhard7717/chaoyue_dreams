@@ -7,6 +7,7 @@ from chaoyue_dreams.celery import app as celery_app
 # from celery import chain # 不再需要 chain，除非有后续步骤
 from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos import fund_flow_dao
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
 logger = logging.getLogger('tasks')
 
