@@ -391,6 +391,7 @@ class StockTimeTradeDAO(BaseDAO):
                 cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                 await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                 # --- 修剪调用结束 ---
+            logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据完成. 结果: {result}")
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result

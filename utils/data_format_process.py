@@ -291,91 +291,61 @@ class StockTimeTradeFormatProcess(BaseDAO):
     
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockMinuteData):
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "time_level": df_data.time_level,
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-            }
+            time_level = df_data.time_level
         else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_time),
-                "time_level": df_data.freq,
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-            }
+            time_level = df_data.freq
+        # 处理time_level，去掉min，转为int
+        if isinstance(time_level, str) and time_level.endswith('min'):
+            time_level_num = int(time_level.replace('min', ''))
+        else:
+            try:
+                time_level_num = int(time_level)
+            except Exception:
+                return {}  # 不能转为数字的直接丢弃
+        # 构造数据
+        data_dict = {
+            "stock": stock,
+            "trade_time": getattr(df_data, 'trade_time', None) if isinstance(df_data, StockMinuteData) else self._parse_datetime(df_data.trade_time),
+            "time_level": time_level_num,
+            "open": df_data.open,
+            "high": df_data.high,
+            "low": df_data.low,
+            "close": df_data.close,
+            "vol": df_data.vol,
+            "amount": df_data.amount,
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(df_data, StockWeeklyData):
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "pre_close": df_data.pre_close,
-                "change": df_data.change,
-                "pct_chg": df_data.pct_chg,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "pre_close": df_data.pre_close,
-                "change": df_data.change,
-                "pct_chg": df_data.pct_chg,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(df_data.trade_date) if isinstance(df_data.trade_date, str) else df_data.trade_time,
+            "open": self._parse_number(df_data.open) if isinstance(df_data.open, str) else df_data.open,
+            "high": self._parse_number(df_data.high) if isinstance(df_data.high, str) else df_data.high,
+            "low": self._parse_number(df_data.low) if isinstance(df_data.low, str) else df_data.low,
+            "close": self._parse_number(df_data.close) if isinstance(df_data.close, str) else df_data.close,
+            "pre_close": self._parse_number(df_data.pre_close) if isinstance(df_data.pre_close, str) else df_data.pre_close,
+            "change": self._parse_number(df_data.change) if isinstance(df_data.change, str) else df_data.change,
+            "pct_chg": self._parse_number(df_data.pct_chg) if isinstance(df_data.pct_chg, str) else df_data.pct_chg,
+            "vol": self._parse_number(df_data.vol) if isinstance(df_data.vol, str) else df_data.vol,
+            "amount": self._parse_number(df_data.amount) if isinstance(df_data.amount, str) else df_data.amount,
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
     
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(df_data, StockMonthlyData):
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "pre_close": df_data.pre_close,
-                "change": df_data.change,
-                "pct_chg": df_data.pct_chg,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "pre_close": df_data.pre_close,
-                "change": df_data.change,
-                "pct_chg": df_data.pct_chg,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(df_data.trade_date) if isinstance(df_data.trade_date, str) else df_data.trade_time,
+            "open": self._parse_number(df_data.open) if isinstance(df_data.open, str) else df_data.open,
+            "high": self._parse_number(df_data.high) if isinstance(df_data.high, str) else df_data.high,
+            "low": self._parse_number(df_data.low) if isinstance(df_data.low, str) else df_data.low,
+            "close": self._parse_number(df_data.close) if isinstance(df_data.close, str) else df_data.close,
+            "pre_close": self._parse_number(df_data.pre_close) if isinstance(df_data.pre_close, str) else df_data.pre_close,
+            "change": self._parse_number(df_data.change) if isinstance(df_data.change, str) else df_data.change,
+            "pct_chg": self._parse_number(df_data.pct_chg) if isinstance(df_data.pct_chg, str) else df_data.pct_chg,
+            "vol": self._parse_number(df_data.vol) if isinstance(df_data.vol, str) else df_data.vol,
+            "amount": self._parse_number(df_data.amount) if isinstance(df_data.amount, str) else df_data.amount,
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -403,20 +373,20 @@ class StockTimeTradeFormatProcess(BaseDAO):
             data_dict = {
                 "stock": stock,
                 "trade_time": self._parse_datetime(df_data.trade_date),
-                "close": df_data.close,
-                "turnover_rate": df_data.turnover_rate,
-                "turnover_rate_f": df_data.turnover_rate_f,
-                "volume_ratio": df_data.volume_ratio,
-                "pe": df_data.pe,
-                "pe_ttm": df_data.pe_ttm,
-                "pb": df_data.pb,
-                "ps": df_data.ps,
-                "ps_ttm": df_data.ps_ttm,
-                "total_share": df_data.total_share,
-                "float_share": df_data.float_share,
-                "free_share": df_data.free_share,
-                "total_mv": df_data.total_mv,
-                "circ_mv": df_data.circ_mv,
+                "close": self._parse_number(df_data.close),
+                "turnover_rate": self._parse_number(df_data.turnover_rate),
+                "turnover_rate_f": self._parse_number(df_data.turnover_rate_f),
+                "volume_ratio": self._parse_number(df_data.volume_ratio),
+                "pe": self._parse_number(df_data.pe),
+                "pe_ttm": self._parse_number(df_data.pe_ttm),
+                "pb": self._parse_number(df_data.pb),
+                "ps": self._parse_number(df_data.ps),
+                "ps_ttm": self._parse_number(df_data.ps_ttm),
+                "total_share": self._parse_number(df_data.total_share),
+                "float_share": self._parse_number(df_data.float_share),
+                "free_share": self._parse_number(df_data.free_share),
+                "total_mv": self._parse_number(df_data.total_mv),
+                "circ_mv": self._parse_number(df_data.circ_mv),
                 "limit_status": df_data.limit_status,
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
@@ -440,15 +410,15 @@ class StockTimeTradeFormatProcess(BaseDAO):
             data_dict = {
                 "stock": stock,
                 "trade_time": self._parse_datetime(df_data.trade_date),
-                "his_low": df_data.his_low,
-                "his_high": df_data.his_high,
-                "cost_5pct": df_data.cost_5pct,
-                "cost_15pct": df_data.cost_15pct,
-                "cost_50pct": df_data.cost_50pct,
-                "cost_85pct": df_data.cost_85pct,
-                "cost_95pct": df_data.cost_95pct,
-                "weight_avg": df_data.weight_avg,
-                "winner_rate": df_data.winner_rate,
+                "his_low": self._parse_number(df_data.his_low),
+                "his_high": self._parse_number(df_data.his_high),
+                "cost_5pct": self._parse_number(df_data.cost_5pct),
+                "cost_15pct": self._parse_number(df_data.cost_15pct),
+                "cost_50pct": self._parse_number(df_data.cost_50pct),
+                "cost_85pct": self._parse_number(df_data.cost_85pct),
+                "cost_95pct": self._parse_number(df_data.cost_95pct),
+                "weight_avg": self._parse_number(df_data.weight_avg),
+                "winner_rate": self._parse_number(df_data.winner_rate),
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
     
