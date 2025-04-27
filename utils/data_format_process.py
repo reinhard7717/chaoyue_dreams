@@ -658,12 +658,13 @@ class FundFlowFormatProcess(BaseDAO):
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    def set_fund_flow_cnt_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
+    def set_fund_flow_cnt_ths_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowCntTHS):
             data_dict = {
-                "stock": stock,
+                "ths_index": ths_index,
                 "trade_time": df_data.trade_time,
                 "lead_stock": df_data.lead_stock,
+                "close_price": df_data.close_price,
                 "pct_change": df_data.pct_change,
                 "industry_index": df_data.industry_index,
                 "company_num": df_data.company_num,
@@ -674,28 +675,29 @@ class FundFlowFormatProcess(BaseDAO):
             }
         else:
             data_dict = {
-                "stock": stock,
+                "ths_index": ths_index,
                 "trade_time": self._parse_datetime(df_data.trade_date),
                 "lead_stock": df_data.lead_stock,
-                "pct_change": df_data.pct_change,
-                "industry_index": df_data.industry_index,
-                "company_num": df_data.company_num,
-                "pct_change_stock": df_data.pct_change_stock,
-                "net_buy_amount": df_data.net_buy_amount,
-                "net_sell_amount": df_data.net_sell_amount,
-                "net_amount": df_data.net_amount,
+                "close_price": self._parse_number(df_data.close_price),
+                "pct_change": self._parse_number(df_data.pct_change),
+                "industry_index": self._parse_number(df_data.industry_index),
+                "company_num": self._parse_number(df_data.company_num),
+                "pct_change_stock": self._parse_number(df_data.pct_change_stock),
+                "net_buy_amount": self._parse_number(df_data.net_buy_amount),
+                "net_sell_amount": self._parse_number(df_data.net_sell_amount),
+                "net_amount": self._parse_number(df_data.net_amount),
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    def set_fund_flow_cnt_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
+    def set_fund_flow_cnt_dc_data(self, dc_index: DcIndex, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowCntDC):
             data_dict = {
-                "stock": stock,
+                "dc_index": dc_index,
                 "trade_time": df_data.trade_time,
                 "content_type": df_data.content_type,
                 "name": df_data.name,
                 "pct_change": df_data.pct_change,
-                "close": df_data.close_price,
+                "close": df_data.close,
                 "net_amount": df_data.net_amount,
                 "net_amount_rate": df_data.net_amount_rate,
                 "buy_elg_amount": df_data.buy_elg_amount,
@@ -710,22 +712,22 @@ class FundFlowFormatProcess(BaseDAO):
             }
         else:
             data_dict = {
-                "stock": stock,
+                "dc_index": dc_index,
                 "trade_time": self._parse_datetime(df_data.trade_date),
                 "content_type": df_data.content_type,
                 "name": df_data.name,
-                "pct_change": df_data.pct_change,
-                "close": df_data.close_price,
-                "net_amount": df_data.net_amount,
-                "net_amount_rate": df_data.net_amount_rate,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
+                "pct_change": self._parse_number(df_data.pct_change),
+                "close": self._parse_number(df_data.close_price),
+                "net_amount": self._parse_number(df_data.net_amount),
+                "net_amount_rate": self._parse_number(df_data.net_amount_rate),
+                "buy_elg_amount": self._parse_number(df_data.buy_elg_amount),
+                "buy_elg_amount_rate": self._parse_number(df_data.buy_elg_amount_rate),
+                "buy_lg_amount": self._parse_number(df_data.buy_lg_amount),
+                "buy_lg_amount_rate": self._parse_number(df_data.buy_lg_amount_rate),
+                "buy_md_amount": self._parse_number(df_data.buy_md_amount),
+                "buy_md_amount_rate": self._parse_number(df_data.buy_md_amount_rate),
+                "buy_sm_amount": self._parse_number(df_data.buy_sm_amount),
+                "buy_sm_amount_rate": self._parse_number(df_data.buy_sm_amount_rate),
                 "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
             }
         return {k: safe_value(v) for k, v in data_dict.items()}

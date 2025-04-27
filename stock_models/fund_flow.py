@@ -130,10 +130,10 @@ class FundFlowDailyDC(models.Model):
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
 
-# 板块资金流向统计数据 - 同花顺（moneyflow_ths接口）
+# 板块资金流向统计数据 - 同花顺（moneyflow_cnt_ths接口）
 class FundFlowCntTHS(models.Model):
     """
-    板块资金流向统计数据 - 同花顺（moneyflow_ind_ths接口）
+    板块资金流向统计数据 - 同花顺（moneyflow_cnt_ths接口）
     """
     ths_index = models.ForeignKey(
         ThsIndex,
@@ -144,6 +144,7 @@ class FundFlowCntTHS(models.Model):
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     lead_stock = models.CharField(max_length=20, verbose_name=_("领涨股"), null=True, blank=True)
+    close_price = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("收盘价"), null=True, blank=True)
     pct_change = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("行业涨跌幅(%)"), null=True, blank=True)
     industry_index = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("板块指数"), null=True, blank=True)
     company_num = models.IntegerField(verbose_name=_("公司数量"), null=True, blank=True)
@@ -166,7 +167,7 @@ class FundFlowCntTHS(models.Model):
     def __code__(self):
         return self.ths_index.ts_code if self.ths_index else ''
 
-# 板块资金流向统计数据 - 东方财富（moneyflow_dc接口）
+# 板块资金流向统计数据 - 东方财富（moneyflow_ind_dc接口）
 class FundFlowCntDC(models.Model):
     """
     板块资金流向统计数据 - 东方财富（moneyflow_ind_dc接口）
