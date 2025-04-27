@@ -2,6 +2,7 @@
 import logging
 from asgiref.sync import sync_to_async
 from typing import TYPE_CHECKING, Dict, List, Any, Optional
+import numpy as np
 import pandas as pd
 from utils import cache_constants as cc
 from dao_manager.base_dao import BaseDAO
