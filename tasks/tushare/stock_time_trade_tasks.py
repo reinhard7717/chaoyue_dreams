@@ -7,10 +7,10 @@ from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 
-logger = logging.getLogger('tasks')
-
-FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
-STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_TimeTrade'
+# 自选股队列
+FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
+STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
+logger = get_task_logger("tasks")
 
 def is_trading_time():
     now = datetime.datetime.now()

@@ -7,8 +7,10 @@ from utils.websockets import send_update_to_user_sync # 导入推送函数
 from asgiref.sync import async_to_sync
 import logging
 
-# 获取 logger 实例
-logger = logging.getLogger('tasks') # 或者使用你项目配置的 logger
+# 自选股队列
+FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
+STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
+logger = get_task_logger("tasks")
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_tasks.save_stock_list_data')
 def save_stock_list_data(self):

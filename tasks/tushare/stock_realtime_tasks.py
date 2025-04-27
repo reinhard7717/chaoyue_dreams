@@ -13,7 +13,7 @@ from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
 STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
-logger = get_task_logger(__name__)
+logger = get_task_logger("tasks")
 
 def is_trading_time():
     now = datetime.datetime.now()
