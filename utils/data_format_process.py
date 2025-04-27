@@ -13,8 +13,20 @@ from users.models import FavoriteStock
 
 logger = logging.getLogger(__name__)
 
+# 对所有字段做一次NaN/None清洗
+def safe_value(val):
+    # 递归处理list/dict
+    if isinstance(val, dict):
+        return {k: safe_value(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [safe_value(v) for v in val]
+    # 处理float nan
+    if isinstance(val, float) and (np.isnan(val) or math.isnan(val)):
+        return None
+    return val
+
 class UserDataFormatProcess(BaseDAO):
-    def set_user_favorites(self, user_id: int, api_data: FavoriteStock) -> Dict:
+    def set_user_favorites(self, user_id: int, api_data: Any) -> Dict:
         if isinstance(api_data, FavoriteStock):
             data_dict = {
                 'user_id': user_id,
@@ -31,7 +43,7 @@ class UserDataFormatProcess(BaseDAO):
                 'is_pinned': api_data.get('is_pinned'),
                 'tags': api_data.get('tags'),
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class IndexDataFormatProcess(BaseDAO):
     # 指数基础信息
@@ -68,7 +80,7 @@ class IndexDataFormatProcess(BaseDAO):
                 "desc": api_data.desc,  # 描述
                 "exp_date": api_data.exp_date,  # 终止日期
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 指数成分和权重
     def set_index_weight_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
@@ -86,7 +98,7 @@ class IndexDataFormatProcess(BaseDAO):
                 "trade_date": self._parse_datetime(api_data.trade_date),  # 交易日期
                 "weight": self._parse_number(api_data.weight),  # 权重
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 大盘指数每日指标
     def set_index_daily_basic_data(self, api_data: Any) -> Dict:
@@ -120,7 +132,7 @@ class IndexDataFormatProcess(BaseDAO):
                 "pe_ttm": self._parse_number(api_data.pe_ttm),  # 市盈率TTM
                 "pb": self._parse_number(api_data.pb),  # 市净率
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockInfoFormatProcess(BaseDAO):
     def set_stock_info_data(self, api_data: Any) -> Dict:
@@ -162,7 +174,7 @@ class StockInfoFormatProcess(BaseDAO):
                 'actual_controller': api_data.act_name,  # 实控人名称
                 'actual_controller_type': api_data.act_ent_type,  # 实控人企业性质
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
     
     def set_stock_info_basic_data(self, api_data: Any) -> Dict:
         if isinstance(api_data, StockInfo):
@@ -186,7 +198,7 @@ class StockInfoFormatProcess(BaseDAO):
                 'list_status': api_data.list_status,  # 上市状态
                 'is_hs': api_data.is_hs,  # 是否沪深港通标的
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_company_info_data(self, stock: StockInfo, api_data: Any) -> Dict:
         data_dict = {
@@ -209,7 +221,7 @@ class StockInfoFormatProcess(BaseDAO):
             'main_business': api_data.main_business,
             'business_scope': api_data.business_scope,
         }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_hs_const_data(self, stock: StockInfo, api_data: Any) -> Dict:
         data_dict = {
@@ -219,7 +231,7 @@ class StockInfoFormatProcess(BaseDAO):
             'out_date': api_data.out_date,
             'is_new': api_data.is_new,
         }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -273,7 +285,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "close_hfq": df_data.close_hfq,
                 "pre_close_hfq": df_data.pre_close_hfq,            
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
     
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockMinuteData):
@@ -300,7 +312,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "vol": df_data.vol,
                 "amount": df_data.amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockWeeklyData):
@@ -331,7 +343,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "vol": df_data.vol,
                 "amount": df_data.amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
     
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockMonthlyData):
@@ -362,7 +374,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "vol": df_data.vol,
                 "amount": df_data.amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockDailyBasic):
@@ -405,7 +417,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "circ_mv": df_data.circ_mv,
                 "limit_status": df_data.limit_status,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockCyqPerf):
@@ -436,7 +448,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "weight_avg": df_data.weight_avg,
                 "winner_rate": df_data.winner_rate,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
     
     def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockCyqChips):
@@ -453,7 +465,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 "price": df_data.price,
                 "percent": df_data.percent,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockRealtimeDataFormatProcess(BaseDAO):
         # ================ 数据格式 ================
@@ -482,7 +494,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
                 "volume": df_data.volume,
                 "turnover_value": df_data.amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, StockLevel5Data):
@@ -539,7 +551,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
                 "order_diff": df_data.b1_v - df_data.s1_v,
                 "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StrategiesDataFormatProcess(BaseDAO):
     def set_strategies_data(self, api_data: Dict) -> Dict:
@@ -552,7 +564,7 @@ class StrategiesDataFormatProcess(BaseDAO):
             "time_level": api_data.get('time_level'),
             "timestamp": api_data.get('timestamp')
         }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -602,7 +614,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "net_mf_vol": df_data.net_mf_vol,
                 "net_mf_amount": df_data.net_mf_amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_data_ths(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowCntTHS):
@@ -631,7 +643,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "buy_sm_amount": df_data.buy_sm_amount,
                 "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
     
     def set_fund_flow_data_dc(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowCntDC):
@@ -672,7 +684,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "buy_sm_amount": df_data.buy_sm_amount,
                 "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_cnt_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowCntTHS):
@@ -701,7 +713,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "net_sell_amount": df_data.net_sell_amount,
                 "net_amount": df_data.net_amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_cnt_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowCntDC):
@@ -744,7 +756,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
                 "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_industry_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowIndustryTHS):
@@ -777,7 +789,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "net_sell_amount": df_data.net_sell_amount,
                 "net_amount": df_data.net_amount,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_market_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, FundFlowMarketDc):
@@ -818,7 +830,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "buy_sm_amount": df_data.buy_sm_amount,
                 "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_lhb_daily_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, LhbDailyData):
@@ -857,7 +869,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "float_values": self._parse_number(df_data.float_values),
                 "reason": df_data.reason,
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_lhb_inst_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, LhbInstData):
@@ -886,7 +898,7 @@ class FundFlowFormatProcess(BaseDAO):
                 "net_buy": self._parse_number(df_data.net_buy), # 净买入额
                 "reason": df_data.reason, # 上榜原因
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class IndustryFormatProcess(BaseDAO):
     # 申万行业分类
@@ -913,7 +925,7 @@ class IndustryFormatProcess(BaseDAO):
                 "is_publish": df_data.is_publish, # 是否发布指数
                 "src": df_data.src, # 行业分类来源
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 申万行业成分
     def set_sw_industry_member_data(self, sw_industry: SwIndustry, stock: StockInfo, df_data: Any) -> Dict:
@@ -947,7 +959,7 @@ class IndustryFormatProcess(BaseDAO):
                 "out_date": df_data.out_date, # 剔除日期
                 "is_new": df_data.is_new, # 是否最新
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 申万行业日线行情
     def set_sw_industry_daily_data(self, sw_industry: SwIndustry, index: IndexInfo, df_data: Any) -> Dict:
@@ -991,7 +1003,7 @@ class IndustryFormatProcess(BaseDAO):
                 "float_mv": self._parse_number(df_data.float_mv), # 流通市值
                 "total_mv": self._parse_number(df_data.total_mv), # 总市值
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 开盘啦题材库
     def set_kpl_concept_data(self, df_data: Any) -> Dict:
@@ -1011,7 +1023,7 @@ class IndustryFormatProcess(BaseDAO):
                 "z_t_num": df_data.z_t_num, # 涨停数
                 "up_num": df_data.up_num, # 排名上升位数
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 开盘啦题材成分股
     def set_kpl_concept_member_data(self, kpl_concept: KplConcept, stock: StockInfo, df_data: Any) -> Dict:
@@ -1035,7 +1047,7 @@ class IndustryFormatProcess(BaseDAO):
                 "desc": df_data.desc, # 描述
                 "hot_num": df_data.hot_num, # 人气值
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺概念和行业指数
     def set_ths_index_data(self, df_data: Any) -> Dict:
@@ -1057,7 +1069,7 @@ class IndustryFormatProcess(BaseDAO):
                 "list_date": self._parse_datetime(df_data.list_date), # 上市日期
                 "type": df_data.type, # 类型指数类型
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺概念板块成分
     def set_ths_member_data(self, ths_index: ThsIndex, stock: StockInfo, df_data: Any) -> Dict:
@@ -1079,7 +1091,7 @@ class IndustryFormatProcess(BaseDAO):
                 "out_date": self._parse_datetime(df_data.out_date), # 剔除日期
                 "is_new": df_data.is_new, # 是否最新
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富概念板块
     def set_dc_index_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -1111,7 +1123,7 @@ class IndustryFormatProcess(BaseDAO):
                 "up_num": self._parse_number(df_data.up_num), # 排名上升位数
                 "down_num": self._parse_number(df_data.down_num), # 排名下降位数
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块成分
     def set_dc_member_data(self, dc_index: DcIndex, stock: StockInfo, df_data: Any) -> Dict:
@@ -1129,7 +1141,7 @@ class IndustryFormatProcess(BaseDAO):
                 "stock": stock, # 股票代码
                 "name": df_data.name, # 成分股票名称
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class MarketFormatProcess(BaseDAO):
     # 市场交易统计(MarketDailyInfo)
@@ -1168,7 +1180,7 @@ class MarketFormatProcess(BaseDAO):
                 "trans_rate": self._parse_number(df_data.trans_rate), # 换手率(%)
                 "exchange": df_data.exchange, # 交易所
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 游资名录
     def set_hm_list_data(self, df_data: Any) -> Dict:
@@ -1184,7 +1196,7 @@ class MarketFormatProcess(BaseDAO):
                 "desc": df_data.desc, # 说明
                 "orgs": df_data.orgs, # 关联机构
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 游资每日明细
     def set_hm_detail_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -1212,7 +1224,7 @@ class MarketFormatProcess(BaseDAO):
                 "hm_orgs": df_data.hm_orgs, # 关联机构
                 "tag": df_data.tag, # 标签
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺板块指数行情
     def set_ths_daily_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
@@ -1250,7 +1262,7 @@ class MarketFormatProcess(BaseDAO):
                 "total_mv": self._parse_number(df_data.total_mv), # 总市值
                 "float_mv": self._parse_number(df_data.float_mv), # 流通市值
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 涨跌停榜单 - 同花顺
     def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -1300,7 +1312,7 @@ class MarketFormatProcess(BaseDAO):
                 "sum_float": self._parse_number(df_data.sum_float), # 总市值
                 "market_type": df_data.market_type, # 股票类型
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 涨跌停列表
     def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -1346,7 +1358,7 @@ class MarketFormatProcess(BaseDAO):
                 "limit_times": self._parse_number(df_data.limit_times), # 连板数
                 "limit": df_data.limit, # 涨跌停类型
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 连板天梯
     def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
@@ -1364,7 +1376,7 @@ class MarketFormatProcess(BaseDAO):
                 "name": df_data.name, # 股票名称
                 "nums": self._parse_number(df_data.nums), # 连板数
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 最强板块统计 - 同花顺
     def set_limit_cpt_list_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
@@ -1392,7 +1404,7 @@ class MarketFormatProcess(BaseDAO):
                 "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅
                 "rank": df_data.rank, # 板块热点排名
             }
-        return data_dict
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 
 
