@@ -108,7 +108,6 @@ class StockBasicInfoDao(BaseDAO):
         """
         from users.models import FavoriteStock
         fav_datas = []
-        
         try:
             # 使用 sync_to_async 包装 ORM 查询
             items = await sync_to_async(list)(FavoriteStock.objects.all())
@@ -143,6 +142,8 @@ class StockBasicInfoDao(BaseDAO):
         ])
         # logger.info(f"save_stocks: {df.columns}")
         if df is not None:
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 # logger.info(f"save_stocks: {row}")
                 stock_dict = self.data_format_process.set_stock_info_data(row)
@@ -170,10 +171,13 @@ class StockBasicInfoDao(BaseDAO):
             "city", "introduction", "website", "email", "office", "business_scope", "employees", "main_business", "exchange"
         ])
         company_dicts = []
-        for row in df.itertuples():
-            stock = await self.get_stock_by_code(row.ts_code)
-            company_dict = self.data_format_process.set_company_info_data(stock, row)
-            company_dicts.append(company_dict)
+        if df is not None:
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+            for row in df.itertuples():
+                stock = await self.get_stock_by_code(row.ts_code)
+                company_dict = self.data_format_process.set_company_info_data(stock, row)
+                company_dicts.append(company_dict)
         if company_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCompany,
@@ -193,6 +197,8 @@ class StockBasicInfoDao(BaseDAO):
         # 纵向合并
         df = pd.concat([df_sh, df_sz], ignore_index=True)
         if df is not None:
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             stock_dicts = []
             for row in df.itertuples():
                 stock = await self.get_stock_by_code(row.ts_code)
