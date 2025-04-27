@@ -203,7 +203,9 @@ class StockBasicInfoDao(BaseDAO):
             stock_dicts = []
             for row in df.itertuples():
                 stock = await self.get_stock_by_code(row.ts_code)
+                print(f"save_hs_const: {row.ts_code}, {stock}")
                 hs_const = self.data_format_process.set_hs_const_data(stock, row)
+                print(f"save_hs_const: {hs_const}")
                 stock_dicts.append(hs_const)
             if stock_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(
