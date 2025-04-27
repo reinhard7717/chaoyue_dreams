@@ -268,7 +268,7 @@ class StockTimeTradeDAO(BaseDAO):
         df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
@@ -311,7 +311,7 @@ class StockTimeTradeDAO(BaseDAO):
             df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
             if df is not None:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
@@ -344,6 +344,53 @@ class StockTimeTradeDAO(BaseDAO):
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
 
+    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str]) -> None:
+        """
+        保存股票的历史分钟级交易数据
+        接口：stk_mins
+        描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
+        限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
+        """
+        stock_codes_str = ",".join(stock_codes)
+        data_dicts = []
+        for time_level in time_levels:
+            df = self.ts_pro.stk_mins(**{
+                "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
+            ])
+            if df is not None:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+            for row in df.itertuples():
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
+                    # 2. 准备缓存数据
+                    cache_data_dict = data_dict.copy()
+                    if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                        # 替换为 stock_code
+                        cache_data_dict['stock_code'] = row.ts_code
+                        del cache_data_dict['stock'] # 删除实例键
+                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    if prepared_data:
+                        await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                    else:
+                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            for stock_code in stock_codes:
+                # --- 函数末尾执行最终修剪 ---
+                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                # --- 修剪调用结束 ---
+        result = await self._save_all_to_db_native_upsert(
+            model_class=StockMinuteData,
+            data_list=data_dicts,
+            unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+        )
+        logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据完成. 结果: {result}")
+        return result
+
     async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
         """
         保存股票的历史分钟级交易数据
@@ -357,7 +404,7 @@ class StockTimeTradeDAO(BaseDAO):
             df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq", "exchange", "vwap"
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
             if df is not None:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
