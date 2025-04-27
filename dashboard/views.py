@@ -1,13 +1,13 @@
 # dashboard/views.py
 import json
 from asgiref.sync import async_to_sync
+from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q # 用于复杂查询
 from django.core.serializers.json import DjangoJSONEncoder
-from dao_manager.daos.user_dao import UserDAO
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
