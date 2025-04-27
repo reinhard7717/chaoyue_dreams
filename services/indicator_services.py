@@ -5,6 +5,7 @@ import json
 import os
 import warnings
 import logging
+from dao_manager.tushare_daos.indicator_dao import IndicatorDAO
 import pandas as pd
 from django.utils import timezone
 from typing import Any, List, Optional, Union
@@ -23,7 +24,6 @@ warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop t
 # 解决 pandas_ta 可能出现的 SettingWithCopyWarning，虽然通常不影响结果
 pd.options.mode.chained_assignment = None # default='warn'
 
-from dao_manager.daos.indicator_dao import IndicatorDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from core.constants import TimeLevel
 
@@ -35,7 +35,7 @@ class IndicatorService:
     """
     def __init__(self):
         self.indicator_dao = IndicatorDAO()
-        self.stock_basic_dao = StockBasicDAO() # 用于获取 StockInfo 对象
+        self.stock_basic_dao = StockBasicInfoDao() # 用于获取 StockInfo 对象
         # 动态导入 pandas_ta，避免在类实例化时就强制依赖
         try:
             global ta
