@@ -242,6 +242,18 @@ class UserCacheSet(CacheSet):
 class IndexCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_index = IndexCashKey()
+    
+    async def index_info(self, index_code: str, data_to_cache: Dict) -> bool:
+        """
+        将指数基本信息缓存到 Redis，使用 Hash 类型。
+        """
+        cache_key = self.cache_key_index.index_data(index_code)  # 假设返回如 "index:info:000001"
+        try:
+            cache_manager = await self.get_cache_manager()
+            cache_timeout = cache_manager.get_timeout(cc.TYPE_STATIC)
+            return await cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+        except Exception as e:
+            logger.error(f"缓存指数 {index_code} 基本信息失败: {str(e)}", exc_info=True)
 
     async def indexes(self, indexes: List[Dict]) -> bool:
         """

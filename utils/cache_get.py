@@ -167,8 +167,6 @@ class UserCacheGet(CacheGet):
         cache_key = self.cache_key_user.all_favorites()  # 例如 "user:favorites:all"
 
 class IndexCacheGet(CacheGet):
-    async def initialize(self):
-        pass
     async def all_indexes(self) -> Optional[List[Dict]]:
         """
         从缓存中获取所有指数列表，按照指数代码排序
@@ -188,6 +186,21 @@ class IndexCacheGet(CacheGet):
         except Exception as e:
             logger.error(f"从缓存获取所有指数列表时发生错误: {str(e)}", exc_info=True)
             return None
+
+    async def index_data_by_code(self, index_code: str) -> Optional[Dict[str, Any]]:
+        """
+        从缓存中获取指定指数的基础信息。
+        Args:
+            index_code: 指数代码。
+        Returns:
+            Optional[Dict[str, Any]]: 缓存中的基础信息字典，如果未命中或发生错误则返回 None。
+        """
+        cache_manager = await self.get_cache_manager()
+        cache_key = self.cache_key_index.index_data(index_code)
+        cached_data = await cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+        return None
 
     async def realtime_data(self, index_code: str) -> Optional[Dict[str, Any]]:
         """

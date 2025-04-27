@@ -61,7 +61,7 @@ def save_realtime_data_batch(self, stock_codes: List[str]):
     if not stock_codes:
         logger.info("收到空的股票代码列表，任务结束")
         return {"processed": 0, "success": 0, "errors": 0}
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的批次...")
+    # logger.info(f"开始处理包含 {len(stock_codes)} 个股票的批次...")
     # 在任务开始时创建一次 DAO 实例
     stock_realtime_dao = StockRealtimeDAO()
     try:

@@ -21,7 +21,6 @@ class StockBasicInfoDao(BaseDAO):
         from utils.data_format_process import StockInfoFormatProcess
         from utils.cache_manager import CacheManager
         from api_manager.apis.stock_basic_api import StockBasicAPI
-        self.api = StockBasicAPI()
         self.cache_manager = CacheManager()  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()
         self.stock_cache_set = StockInfoCacheSet()
@@ -33,8 +32,7 @@ class StockBasicInfoDao(BaseDAO):
         """
         获取所有股票的基本信息
         Returns:
-            List[StockInfo]: 股票基本信息列表（已过滤掉 stock_name 中包含“退”或“债”字的股票）
-            过滤逻辑：如果 stock_name 中包含“退”字或“债”字（或的关系），则排除。
+            List[StockInfo]: 股票基本信息列表（正常上市状态）
         """
         return_data = []
         try:
