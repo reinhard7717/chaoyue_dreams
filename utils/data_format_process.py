@@ -218,7 +218,7 @@ class StockInfoFormatProcess(BaseDAO):
             'introduction': api_data.introduction,
             'website': api_data.website,
             'email': api_data.email,
-            'office': api_data.office,
+            'office': api_data.office.apply(lambda x: x[:100] if isinstance(x, str) else x),
             'employees': api_data.employees,
             'main_business': api_data.main_business,
             'business_scope': api_data.business_scope,
