@@ -357,7 +357,7 @@ class StockTimeTradeDAO(BaseDAO):
             df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq", "exchange", "vwap"
             ])
             if df is not None:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
