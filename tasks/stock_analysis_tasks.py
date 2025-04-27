@@ -8,7 +8,7 @@ from django.conf import settings
 from asgiref.sync import sync_to_async
 from chaoyue_dreams.celery import app as celery_app
 from django.core.management.base import CommandError
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
 from stock_models.stock_basic import StockInfo
 from strategies.t_plus_0_strategy import TPlus0Strategy

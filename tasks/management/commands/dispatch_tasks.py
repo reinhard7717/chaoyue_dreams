@@ -3,7 +3,7 @@ import asyncio
 import logging
 from django.core.management.base import BaseCommand, CommandError
 from celery import group
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from tasks.stock_indicator_tasks import process_single_stock_history_trade
 
 
@@ -176,7 +176,7 @@ class Command(BaseCommand):
     def dispatch_latest_time_trade(self, *args, **options):
         self.stdout.write("开始分发最新数据处理任务...")
         logger.info("Management Command 启动: dispatch_latest_time_trade")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import process_single_stock_latest_trade
         stock_basic_dao = None # 初始化
         try:
@@ -234,7 +234,7 @@ class Command(BaseCommand):
     def dispatch_latest_time_trade_trading_hours(self, *args, **options):
         self.stdout.write("开始分发交易时段最新数据处理任务...")
         logger.info("Management Command 启动: dispatch_latest_time_trade_trading_hours")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import process_single_stock_latest_trade_trading_hours
         target_queue = 'save_api_data_TimeTrade' # <--- 定义策略执行的目标队列名称
         stock_basic_dao = None # 初始化
@@ -327,7 +327,7 @@ class Command(BaseCommand):
         logger.info(f"Management Command 启动: {log_prefix} 任务分发")
         # 按需导入对应的 Celery 任务
         try:
-            from dao_manager.daos.stock_basic_dao import StockBasicDAO
+            from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
             from tasks.calculate_tasks import calculate_stock_indicators_for_single_stock 
         except ImportError:
             logger.error("无法导入 Celery 任务: tasks.calculate_tasks.calculate_stock_indicators_for_single_stock", exc_info=True)
@@ -415,7 +415,7 @@ class Command(BaseCommand):
     # ========================================================================
     def dispatch_run_strategy(self, stock_codes=None):
         """分发执行 MACD+RSI+KDJ+BOLL 策略信号计算的任务"""
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.strategy_tasks import run_strategy_for_single_stock_task
         log_prefix = "策略信号计算 (MACD+RSI+KDJ+BOLL)"
         target_queue = 'calculate_strategy' # <--- 定义策略执行的目标队列名称
@@ -423,7 +423,7 @@ class Command(BaseCommand):
         logger.info(f"Management Command 启动: {log_prefix} 任务分发")
 
         # 按需导入 DAO (已在文件顶部导入)
-        # from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        # from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         # from tasks.strategy_tasks import run_strategy_for_single_stock_task # 已在文件顶部导入
 
         stock_basic_dao = None
@@ -515,7 +515,7 @@ class Command(BaseCommand):
     def dispatch_latest_kdj(self, *args, **options):
         self.stdout.write("开始分发最新KDJ计算任务...")
         logger.info("Management Command 启动: dispatch_latest_kdj")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import process_single_stock_latest_kdj
         stock_basic_dao = None # 初始化 DAO 实例变量
         try:
@@ -576,7 +576,7 @@ class Command(BaseCommand):
     def dispatch_history_kdj(self, *args, **options):
         self.stdout.write("开始分发历史KDJ计算任务...")
         logger.info("Management Command 启动: dispatch_history_kdj")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import process_single_stock_history_kdj
         stock_basic_dao = None # 初始化 DAO 实例变量
         try:
@@ -637,7 +637,7 @@ class Command(BaseCommand):
     def dispatch_latest_macd(self, *args, **options):
         self.stdout.write("开始分发最新MACD计算任务...")
         logger.info("Management Command 启动: dispatch_latest_macd")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import process_single_stock_latest_macd
         stock_basic_dao = None # 初始化 DAO 实例变量
         try:
@@ -698,7 +698,7 @@ class Command(BaseCommand):
     def dispatch_history_macd(self, *args, **options):
         self.stdout.write("开始分发历史MACD计算任务...")
         logger.info("Management Command 启动: dispatch_history_macd")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import process_single_stock_history_macd
         stock_basic_dao = None # 初始化 DAO 实例变量
         try:
@@ -763,7 +763,7 @@ class Command(BaseCommand):
         log_prefix = "历史交易数据缓存"
         self.stdout.write(f"开始分发{log_prefix}任务...")
         logger.info(f"Management Command 启动: {log_prefix}任务分发")
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         from tasks.stock_indicator_tasks import fetch_single_stock_history_trade_data
         target_queue = 'stock_historical_data_cache'
         stock_basic_dao = None  # 初始化 DAO 实例变量

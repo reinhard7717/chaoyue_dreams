@@ -7,7 +7,7 @@ import os
 import logging
 from typing import Dict, Any, List, Optional
 
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
 # 假设 BaseStrategy 和常量在 .base 或 core.constants
 from .base import BaseStrategy

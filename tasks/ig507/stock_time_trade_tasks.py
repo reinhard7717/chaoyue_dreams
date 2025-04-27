@@ -7,7 +7,7 @@ from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 
 from celery import Celery, chain, group # 导入 group
 from celery.utils.log import get_task_logger
 from core.constants import TIME_TEADE_TIME_LEVELS_LITE, TIME_TEADE_TIME_LEVELS_PER_TRADING
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
 
 logger = logging.getLogger('tasks')

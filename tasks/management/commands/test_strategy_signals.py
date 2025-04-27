@@ -12,7 +12,7 @@ from decimal import Decimal
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_analytics import StockScoreAnalysis # 导入分析结果模型
 from stock_models.stock_basic import StockInfo
 from django.db import models # 用于 aggregate

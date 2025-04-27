@@ -29,7 +29,7 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
     为新添加的自选股获取实时数据和信号，并推送给用户。
     """
     logger.info(f"开始为用户 {user_id} 的新自选股 {stock_code} (Favorite ID: {favorite_id}) 获取数据...")
-    from dao_manager.daos.stock_basic_dao import StockBasicDAO
+    from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
     from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO # 假设有获取最新数据的方法
     from dao_manager.daos.strategies_dao import StrategiesDAO
     try:

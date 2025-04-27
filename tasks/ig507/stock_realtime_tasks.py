@@ -6,7 +6,7 @@ from chaoyue_dreams.celery import app as celery_app
 # from celery import chain # 不再需要 chain，除非有后续步骤
 from celery.utils.log import get_task_logger
 
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 
 # 自选股队列

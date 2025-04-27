@@ -48,7 +48,7 @@ if sys.version_info >= (3, 12):
 # 导入相关API和DAO
 from dao_manager.daos.data_center.capital_flow_dao import CapitalFlowDao
 from dao_manager.daos.data_center.north_south_dao import NorthSouthDao
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.daos.index_dao import StockIndexDAO
 from dao_manager.daos.fund_flow_dao import FundFlowDAO, StockPoolDAO
 from dao_manager.daos.stock_indicators_dao import StockIndicatorsDAO

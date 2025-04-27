@@ -24,7 +24,7 @@ warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop t
 pd.options.mode.chained_assignment = None # default='warn'
 
 from dao_manager.daos.indicator_dao import IndicatorDAO
-from dao_manager.daos.stock_basic_dao import StockBasicDAO
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from core.constants import TimeLevel
 
 logger = logging.getLogger("services")

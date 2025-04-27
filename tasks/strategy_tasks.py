@@ -11,7 +11,7 @@ from services.indicator_services import IndicatorService
 from strategies.base import SIGNAL_BUY, SIGNAL_HOLD, SIGNAL_SELL, SIGNAL_STRONG_BUY, SIGNAL_STRONG_SELL
 from strategies.macd_rsi_kdj_boll_strategy import MacdRsiKdjBollEnhancedStrategy
 from utils.cache_set import StrategyCacheSet
-from dao_manager.daos.stock_basic_dao import StockBasicDAO  # 假设主任务需要
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao  # 假设主任务需要
 
 logger = logging.getLogger('tasks')  # 或者你使用的 logger 名称
 

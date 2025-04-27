@@ -23,9 +23,9 @@ class IndicatorDAO(BaseDAO):
     指标数据访问对象，负责指标数据的读取和存储
     """
     def __init__(self):
-        from dao_manager.daos.stock_basic_dao import StockBasicDAO
         # 依赖注入基础DAO和缓存工具
-        self.stock_basic_dao = StockBasicDAO()
+        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+        self.stock_basic_dao = StockBasicInfoDao()
         self.cache_manager = None
         self.cache_get = None
 
