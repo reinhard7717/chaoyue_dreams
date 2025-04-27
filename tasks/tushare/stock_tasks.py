@@ -8,8 +8,8 @@ from asgiref.sync import async_to_sync
 import logging
 
 # 自选股队列
-FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
-STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
+FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
+STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_TimeTrade'
 logger = logging.getLogger('tasks')
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_tasks.save_stock_list_data')
