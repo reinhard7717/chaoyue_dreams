@@ -58,6 +58,7 @@ def save_index_infos(self):
     index_basic_dao = IndexBasicDAO()
     try:
         # 异步获取数据并保存
+        print(f"开始处理 指数基本信息...")
         asyncio.run(index_basic_dao.save_indexs())
         print("任务完成 - 指数基本信息")
         asyncio.run(index_basic_dao.save_index_weight_monthly())
