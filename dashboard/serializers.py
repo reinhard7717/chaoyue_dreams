@@ -179,10 +179,16 @@ class ThsIndexSerializer(serializers.ModelSerializer):
         model = ThsIndex
         fields = '__all__'
 
-class ThsMemberSerializer(serializers.ModelSerializer):
+class ThsIndexMemberSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.industry import ThsMember
-        model = ThsMember
+        from stock_models.industry import ThsIndexMember
+        model = ThsIndexMember
+        fields = '__all__'
+
+class ThsIndexDailySerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import ThsIndexDaily
+        model = ThsIndexDaily
         fields = '__all__'
 
 class DcIndexSerializer(serializers.ModelSerializer):
@@ -191,10 +197,16 @@ class DcIndexSerializer(serializers.ModelSerializer):
         model = DcIndex
         fields = '__all__'
 
-class DcMemberSerializer(serializers.ModelSerializer):
+class DcIndexDailySerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.industry import DcMember
-        model = DcMember
+        from stock_models.industry import DcIndexDaily
+        model = DcIndexDaily
+        fields = '__all__'
+
+class DcIndexMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        from stock_models.industry import DcIndexMember
+        model = DcIndexMember
         fields = '__all__'
 
 # stock_models\market.py

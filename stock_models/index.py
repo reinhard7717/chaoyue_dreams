@@ -44,7 +44,7 @@ class IndexWeight(models.Model):
 # 大盘指数每日指标
 class IndexDailyBasic(models.Model):
     index = models.ForeignKey(IndexInfo, to_field='index_code', db_column='index_code', related_name="index_dailybasic", on_delete=models.CASCADE, verbose_name="指数")
-    trade_date = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     total_mv = models.FloatField(verbose_name="总市值(元)", null=True, blank=True)
     float_mv = models.FloatField(verbose_name="流通市值(元)", null=True, blank=True)
     total_share = models.FloatField(verbose_name="总股本(股)", null=True, blank=True)
@@ -60,10 +60,43 @@ class IndexDailyBasic(models.Model):
         db_table = "index_dailybasic"
         verbose_name = "大盘指数每日指标"
         verbose_name_plural = verbose_name
-        unique_together = ('index', 'trade_date')
+        unique_together = ('index', 'trade_time')
 
+# 交易日历
+class TradeCalendar(models.Model):
+    EXCHANGE_CHOICES = [
+        ('SSE', '上交所'),
+        ('SZSE', '深交所'),
+        ('CFFEX', '中金所'),
+        ('SHFE', '上期所'),
+        ('CZCE', '郑商所'),
+        ('DCE', '大商所'),
+        ('INE', '上能源'),
+    ]
 
+    exchange = models.CharField(
+        max_length=10,
+        choices=EXCHANGE_CHOICES,
+        default='SSE',
+        verbose_name='交易所'
+    )
+    cal_date = models.DateField(verbose_name='日历日期', db_index=True)
+    is_open = models.BooleanField(verbose_name='是否交易')  # 1为交易，0为休市
+    pretrade_date = models.DateField(
+        verbose_name='上一个交易日',
+        null=True,
+        blank=True
+    )
 
+    class Meta:
+        db_table = 'trade_calendar'
+        verbose_name = '交易日历'
+        verbose_name_plural = '交易日历'
+        unique_together = ('exchange', 'cal_date')
+        ordering = ['-cal_date']
+
+    def __str__(self):
+        return f"{self.exchange} {self.cal_date} {'交易' if self.is_open else '休市'}"
 
 
 

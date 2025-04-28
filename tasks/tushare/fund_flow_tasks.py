@@ -8,6 +8,7 @@ from chaoyue_dreams.celery import app as celery_app
 from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
@@ -72,9 +73,6 @@ def save_fund_flow_daily_data_today(self):
     Args:
         stock_codes: 股票代码列表
     """
-    if not stock_codes:
-        logger.info("收到空的股票代码列表，任务结束")
-        return {"processed": 0, "success": 0, "errors": 0}
     logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （当日）日级资金流向数据 （三种渠道）...")
     # 在任务开始时创建一次 DAO 实例
     fund_flow_dao = FundFlowDao()
@@ -173,29 +171,36 @@ def save_fund_flow_daily_data_ths_history_batch(self, trade_date: str):
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-# --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_task')
-def save_fund_flow_daily_data_ths_history_task(self, batch_size: int = 2): # 限量：单次最大8000行数据
+def save_fund_flow_daily_data_ths_history_task(self, batch_size: int = 2):
     """
     调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
+    1. 获取最近60天的A股交易日。
+    2. 为每个交易日分派 save_fund_flow_daily_data_ths_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
+    from django.db.models import Q
+    from myapp.models import TradeCalendar  # 替换为你的app名
+
+    logger.info(f"任务启动: save_fund_flow_daily_data_ths_history_task (调度器模式) - 只在交易日分派任务 (批次大小: {batch_size})")
     try:
-        from datetime import datetime, timedelta
-        # 获取今天的日期
-        today = datetime.today().date()
-        # 遍历过去60天（包括今天）
-        for i in range(60):
-            day = today - timedelta(days=i)
-            save_fund_flow_daily_data_ths_history_batch.s(day).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
-        logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
+        index_info_dao = IndexBasicDAO()
+        today = datetime.datetime.today().date()
+        start_date = (today - datetime.timedelta(days=120)).strftime('%Y%m%d')  # 多取一些天数，防止节假日
+        end_date = today.strftime('%Y%m%d')
+        trade_days = index_info_dao.get_trade_cal_open(start_date, end_date)
+        trade_days = sorted(trade_days)  # 升序排列
+        total_dispatched_batches = 0
+        for cal_date in trade_days:
+            # cal_date格式为'YYYYMMDD'，转为date对象
+            day_str = datetime.datetime.strptime(cal_date, '%Y%m%d')
+            save_fund_flow_daily_data_ths_history_batch.s(day_str).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+            total_dispatched_batches += 1
+
+        logger.info(f"任务结束: save_fund_flow_daily_data_ths_history_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
     except Exception as e:
-        logger.error(f"执行 save_stocks_realtime_min_data_task (调度器模式) 时出错: {e}", exc_info=True)
+        logger.error(f"执行 save_fund_flow_daily_data_ths_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 

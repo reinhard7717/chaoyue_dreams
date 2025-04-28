@@ -63,6 +63,15 @@ class IndexCashKey(CashKey):
         )
         return cache_key
     
+    def IndexWeight(self, index_code: str) -> str:
+        cache_key = self.generate_key(
+            cache_type=cc.TYPE_STATIC,
+            entity_type=cc.ENTITY_INDEX,
+            entity_id=index_code,
+            subtype=cc.SUBTYPE_CONCEPTS
+        )
+        return cache_key
+
     def realtime_data(self, index_code: str) -> str:
         cache_key = self.generate_key(
                 cache_type=cc.TYPE_REALTIME,    # 实时数据类型

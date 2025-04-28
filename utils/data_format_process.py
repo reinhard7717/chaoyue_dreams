@@ -5,8 +5,8 @@ import numpy as np
 import math
 from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
-from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight
-from stock_models.industry import DcIndex, DcMember, KplConcept, SwIndustry, ThsIndex, ThsMember
+from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar
+from stock_models.industry import DcIndex, DcIndexDaily, DcIndexMember, KplConcept, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily
 from stock_models.market import HmDetail, HmList, LimitCptList, LimitListD, LimitListThs, LimitStep, MarketDailyInfo, ThsDaily
 from stock_models.stock_basic import StockInfo
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
@@ -107,7 +107,7 @@ class IndexDataFormatProcess(BaseDAO):
         if isinstance(api_data, IndexDailyBasic):
             data_dict = {
                 "index": index_info,  # 指数代码
-                "trade_date": api_data.trade_date,  # 交易日期
+                "trade_time": api_data.trade_time,  # 交易日期
                 "total_mv": api_data.total_mv,  # 总市值
                 "float_mv": api_data.float_mv,  # 流通市值
                 "total_share": api_data.total_share,  # 总股本
@@ -122,7 +122,7 @@ class IndexDataFormatProcess(BaseDAO):
         else:
             data_dict = {
                 "index": index_info,  # 指数代码
-                "trade_date": self._parse_datetime(api_data.trade_date),  # 交易日期
+                "trade_time": self._parse_datetime(api_data.trade_date),  # 交易日期
                 "total_mv": self._parse_number(api_data.total_mv),  # 总市值
                 "float_mv": self._parse_number(api_data.float_mv),  # 流通市值
                 "total_share": self._parse_number(api_data.total_share),  # 总股本
@@ -133,6 +133,24 @@ class IndexDataFormatProcess(BaseDAO):
                 "pe": self._parse_number(api_data.pe),  # 市盈率
                 "pe_ttm": self._parse_number(api_data.pe_ttm),  # 市盈率TTM
                 "pb": self._parse_number(api_data.pb),  # 市净率
+            }
+        return {k: safe_value(v) for k, v in data_dict.items()}
+
+    # 交易日历
+    def set_trade_calendar_data(self, api_data: Any) -> Dict:
+        if isinstance(api_data, TradeCalendar):
+            data_dict = {
+                "exchange": api_data.exchange,  # 交易所
+                "cal_date": api_data.cal_date,  # 日历日期
+                "is_open": api_data.is_open,  # 是否交易
+                "pretrade_date": api_data.pretrade_date,  # 上一个交易日
+            }
+        else:
+            data_dict = {
+                "exchange": api_data.exchange,  # 交易所
+                "cal_date": self._parse_datetime(api_data.cal_date),  # 日历日期
+                "is_open": api_data.is_open,  # 是否交易
+                "pretrade_date": self._parse_datetime(api_data.pretrade_date),  # 上一个交易日
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
@@ -911,7 +929,6 @@ class IndustryFormatProcess(BaseDAO):
                 "l1_name": df_data.l1_name, # 一级行业名称
                 "l2_code": df_data.l2_code, # 二级行业代码
                 "l2_name": df_data.l2_name, # 二级行业名称
-                "l3_code": df_data.l3_code, # 三级行业代码
                 "l3_name": df_data.l3_name, # 三级行业名称
                 "name": df_data.name, # 成分股票名称
                 "in_date": df_data.in_date, # 纳入日期
@@ -926,7 +943,6 @@ class IndustryFormatProcess(BaseDAO):
                 "l1_name": df_data.l1_name, # 一级行业名称
                 "l2_code": df_data.l2_code, # 二级行业代码
                 "l2_name": df_data.l2_name, # 二级行业名称
-                "l3_code": df_data.l3_code, # 三级行业代码
                 "l3_name": df_data.l3_name, # 三级行业名称
                 "name": df_data.name, # 成分股票名称
                 "in_date": df_data.in_date, # 纳入日期
@@ -936,12 +952,10 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 申万行业日线行情
-    def set_sw_industry_daily_data(self, sw_industry: SwIndustry, index: IndexInfo, df_data: Any) -> Dict:
+    def set_sw_industry_daily_data(self, index: IndexInfo, df_data: Any) -> Dict:
         if isinstance(df_data, SwIndustryDaily):
             data_dict = {
-                "industry": sw_industry, # 三级行业
                 "index": index, # 指数代码
-                "ts_code": df_data.ts_code, # 指数代码
                 "trade_time": df_data.trade_time, # 交易日期
                 "name": df_data.name, # 指数名称
                 "open": df_data.open, # 开盘点位
@@ -956,12 +970,11 @@ class IndustryFormatProcess(BaseDAO):
                 "pb": df_data.pb, # 市净率
                 "float_mv": df_data.float_mv, # 流通市值
                 "total_mv": df_data.total_mv, # 总市值
+                "weight": df_data.weight, # 成分股权重
             }
         else:
             data_dict = {
-                "industry": sw_industry, # 三级行业
                 "index": index, # 指数代码
-                "ts_code": df_data.ts_code, # 指数代码
                 "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
                 "name": df_data.name, # 指数名称
                 "open": self._parse_number(df_data.open), # 开盘点位
@@ -976,6 +989,7 @@ class IndustryFormatProcess(BaseDAO):
                 "pb": self._parse_number(df_data.pb), # 市净率
                 "float_mv": self._parse_number(df_data.float_mv), # 流通市值
                 "total_mv": self._parse_number(df_data.total_mv), # 总市值
+                "weight": self._parse_number(df_data.weight), # 成分股权重
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
@@ -1046,8 +1060,8 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺概念板块成分
-    def set_ths_member_data(self, ths_index: ThsIndex, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(df_data, ThsMember):
+    def set_ths_index_member_data(self, ths_index: ThsIndex, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, ThsIndexMember):
             data_dict = {
                 "ths_index": ths_index, # 所属概念
                 "stock": stock, # 股票代码
@@ -1067,14 +1081,92 @@ class IndustryFormatProcess(BaseDAO):
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
+    # 同花顺板块指数行情
+    def set_ths_index_daily_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
+        if isinstance(df_data, ThsIndexDaily):
+            data_dict = {
+                "ths_index": ths_index, # 所属概念
+                "trade_time": df_data.trade_time, # 交易日期
+                "close": df_data.close, # 收盘点位
+                "open": df_data.open, # 开盘点位
+                "high": df_data.high, # 最高点位
+                "low": df_data.low, # 最低点位
+                "pre_close": df_data.pre_close, # 昨日收盘点
+                "avg_price": df_data.avg_price, # 平均价
+                "change": df_data.change, # 涨跌点位
+                "pct_change": df_data.pct_change, # 涨跌幅
+                "vol": df_data.vol, # 成交量
+                "turnover_rate": df_data.turnover_rate, # 换手率
+                "total_mv": df_data.total_mv, # 总市值
+                "float_mv": df_data.float_mv, # 流通市值
+                "pe_ttm": df_data.pe_ttm, # 市盈率
+                "pb_mrq": df_data.pb_mrq, # 市净率
+            }
+        else:
+            data_dict = {
+                "ths_index": ths_index, # 所属概念
+                "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
+                "close": self._parse_number(df_data.close), # 收盘点位
+                "open": self._parse_number(df_data.open), # 开盘点位
+                "high": self._parse_number(df_data.high), # 最高点位
+                "low": self._parse_number(df_data.low), # 最低点位
+                "pre_close": self._parse_number(df_data.pre_close), # 昨日收盘点
+                "avg_price": self._parse_number(df_data.avg_price), # 平均价
+                "change": self._parse_number(df_data.change), # 涨跌点位
+                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
+                "vol": self._parse_number(df_data.vol), # 成交量
+                "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
+                "total_mv": self._parse_number(df_data.total_mv), # 总市值
+                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
+                "pe_ttm": self._parse_number(df_data.pe_ttm), # 市盈率
+                "pb_mrq": self._parse_number(df_data.pb_mrq), # 市净率
+            }
+        return {k: safe_value(v) for k, v in data_dict.items()}
+
     # 东方财富概念板块
     def set_dc_index_data(self, stock: StockInfo, df_data: Any) -> Dict:
         if isinstance(df_data, DcIndex):
             data_dict = {
                 "ts_code": df_data.ts_code, # 指数代码
+                "name": df_data.name, # 指数名称
+                "exchange": df_data.exchange, # 交易所
+                "type": df_data.type, # 类型
+            }
+        else:
+            data_dict = {
+                "ts_code": df_data.ts_code, # 指数代码
+                "name": df_data.name, # 指数名称
+                "exchange": df_data.exchange, # 交易所
+                "type": df_data.type, # 类型
+            }
+        return {k: safe_value(v) for k, v in data_dict.items()}
+
+    # 东方财富板块成分
+    def set_dc_member_data(self, dc_index: DcIndex, stock: StockInfo, df_data: Any) -> Dict:
+        if isinstance(df_data, DcIndexMember):
+            data_dict = {
+                "trade_time": df_data.trade_time, # 交易日期
+                "dc_index": dc_index, # 所属概念
+                "stock": stock, # 股票代码
+                "name": df_data.name, # 成分股票名称
+            }
+        else:
+            data_dict = {
+                "trade_time": df_data.trade_time, # 交易日期
+                "dc_index": dc_index, # 所属概念
+                "stock": stock, # 股票代码
+                "name": df_data.name, # 成分股票名称
+            }
+        return {k: safe_value(v) for k, v in data_dict.items()}
+
+    # 东方财富板块指数行情
+    def set_dc_index_daily_data(self, stock: stock, dc_index: DcIndex, df_data: Any) -> Dict:
+        if isinstance(df_data, DcIndexDaily):
+            data_dict = {
+                "dc_index": dc_index, # 指数代码
                 "trade_time": df_data.trade_time, # 交易日期
                 "name": df_data.name, # 指数名称
-                "leading_stock": df_data.leading_stock, # 领涨股
+                "leading": df_data.leading, # 领涨股
                 "stock": stock,
                 "pct_change": df_data.pct_change, # 涨跌幅
                 "leading_pct": df_data.leading_pct, # 领涨股涨跌幅
@@ -1088,7 +1180,7 @@ class IndustryFormatProcess(BaseDAO):
                 "ts_code": df_data.ts_code, # 指数代码
                 "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
                 "name": df_data.name, # 指数名称
-                "leading_stock": df_data.leading_stock, # 领涨股
+                "leading": df_data.leading, # 领涨股
                 "stock": stock,
                 "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
                 "leading_pct": self._parse_number(df_data.leading_pct), # 领涨股涨跌幅
@@ -1096,24 +1188,6 @@ class IndustryFormatProcess(BaseDAO):
                 "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
                 "up_num": self._parse_number(df_data.up_num), # 排名上升位数
                 "down_num": self._parse_number(df_data.down_num), # 排名下降位数
-            }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
-    # 东方财富板块成分
-    def set_dc_member_data(self, dc_index: DcIndex, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(df_data, DcMember):
-            data_dict = {
-                "trade_time": df_data.trade_time, # 交易日期
-                "dc_index": dc_index, # 所属概念
-                "stock": stock, # 股票代码
-                "name": df_data.name, # 成分股票名称
-            }
-        else:
-            data_dict = {
-                "trade_time": df_data.trade_time, # 交易日期
-                "dc_index": dc_index, # 所属概念
-                "stock": stock, # 股票代码
-                "name": df_data.name, # 成分股票名称
             }
         return {k: safe_value(v) for k, v in data_dict.items()}
 

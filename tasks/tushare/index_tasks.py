@@ -6,6 +6,8 @@ from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos import fund_flow_dao
+from dao_manager.tushare_daos import index_basic_dao
+from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
 # 自选股队列
@@ -26,105 +28,54 @@ def is_trading_time():
         return True
     return False
 
-# --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
-async def _get_all_relevant_stock_codes_for_processing():
-    """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
-    stock_basic_dao = StockBasicInfoDao()
-    favorite_stock_codes = set()
-    all_stock_codes = set()
-    # 获取自选股
-    try:
-        favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
-        for fav in favorite_stocks:
-            favorite_stock_codes.add(fav.stock_id)
-        logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
-    except Exception as e:
-        logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-
-    # 获取所有A股 (或者你需要的范围)
-    try:
-        # 注意：如果 get_stock_list() 返回大量数据，考虑分页或流式处理
-        all_stocks = await stock_basic_dao.get_stock_list()
-        for stock in all_stocks:
-            all_stock_codes.add(stock.stock_code)
-        logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
-    except Exception as e:
-        logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
-
-    # 计算非自选股代码 (在所有代码中，但不在自选代码中)
-    non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
-    favorite_stock_codes_list = list(favorite_stock_codes) # 转换为列表
-
-    total_unique_stocks = len(favorite_stock_codes) + len(non_favorite_stock_codes)
-    # logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
-
-    if not favorite_stock_codes_list and not non_favorite_stock_codes:
-         logger.warning("未能获取到任何需要处理的股票代码")
-
-    return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
-
-
-#  ================ （历史）日级资金流向数据 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch')
-def save_fund_flow_daily_data_history_batch(self, stock_code: str):
+#  ================ 交易日历数据 ================
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_trade_cal')
+def save_trade_cal(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     Args:
         stock_codes: 股票代码列表
     """
-    if not stock_codes:
-        logger.info("收到空的股票代码列表，任务结束")
-        return {"processed": 0, "success": 0, "errors": 0}
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （历史）日级资金流向数据...")
+    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （当日）日级资金流向数据 （三种渠道）...")
     # 在任务开始时创建一次 DAO 实例
-    fund_flow_dao = FundFlowDao()
+    index_info_dao = IndexBasicDAO()
     try:
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_history_fund_flow_daily_data_by_stock_code(stock_code))
+        asyncio.run(index_info_dao.save_trade_cal())
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"执行 交易日历数据 任务时发生意外错误: {e}", exc_info=True)
 
-# --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task')
-def save_fund_flow_daily_data_history_task(self, batch_size: int = 2): # 限量：单次最大8000行数据
+#  ================ 指数基本信息 ================
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_infos')
+def save_index_infos(self):
     """
-    调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
-    这个任务由 Celery Beat 调度。
+    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
     """
-    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
+    # 在任务开始时创建一次 DAO 实例
+    index_basic_dao = IndexBasicDAO()
     try:
-        # 在同步任务中运行异步代码获取列表
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-
-        if not favorite_codes and not non_favorite_codes:
-            logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
-            return {"status": "warning", "message": "未获取到股票代码", "dispatched_batches": 0}
-        total_dispatched_batches = 0
-        total_favorite_stocks = len(favorite_codes)
-        total_non_favorite_stocks = len(non_favorite_codes)
-        # 1. 分派自选股批量任务
-        logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
-        for stock_code in favorite_codes:
-            logger.info(f"创建自选股批次任务 (股票代码: {stock_code})...")
-            # 使用新的批量任务，并指定队列
-            save_fund_flow_daily_data_history_batch.s(stock_code).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
-            total_dispatched_batches += 1
-        logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
-        # 2. 分派非自选股批量任务
-        logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
-        non_favorite_batches_dispatched = 0
-        for stock_code in non_favorite_codes:
-            logger.info(f"创建非自选股批次任务 (股票代码: {stock_code})...")
-            # 使用新的批量任务，并指定队列
-            save_fund_flow_daily_data_history_batch.s(stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
-            total_dispatched_batches += 1
-            non_favorite_batches_dispatched += 1
-        logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派了 {non_favorite_batches_dispatched} 个批次任务。")
-        logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
-        return {"status": "success", "dispatched_batches": total_dispatched_batches}
+        # 异步获取数据并保存
+        asyncio.run(index_basic_dao.save_indexs())
+        print("任务完成 - 指数基本信息")
+        asyncio.run(index_basic_dao.save_index_weight_monthly())
+        print("任务完成 - 指数成分和权重")
     except Exception as e:
-        logger.error(f"执行 save_stocks_realtime_min_data_task (调度器模式) 时出错: {e}", exc_info=True)
-        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+        logger.error(f"执行 指数基本信息 任务时发生意外错误: {e}", exc_info=True)
+
+#  ================ 指数每日指标 ================
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_basic_today', queue='SaveData_TimeTrade')
+def save_index_daily_basic_today(self):
+    """
+    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    index_basic_dao = IndexBasicDAO()
+    try:
+        asyncio.run(index_basic_dao.save_index_daily_basic_history())
+        print("任务完成 - 大盘指数每日指标(历史)")
+    except Exception as e:
+        logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)    

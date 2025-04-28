@@ -32,6 +32,7 @@ app.conf.update(
         'tasks.tushare.stock_realtime_tasks',
         'tasks.stock_analysis_tasks',
         'tasks.tushare.fund_flow_tasks',
+        'tasks.tushare.index_tasks',
         # 如果还有其他文件包含 Celery 任务，也一并添加到这里
         # 例如: 'tasks.other_tasks'
     ]

@@ -202,6 +202,21 @@ class IndexCacheGet(CacheGet):
             return cached_data
         return None
 
+    async def index_weight(self, index_code: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        从缓存中获取指定指数的成分权重。
+        Args:
+            index_code: 指数代码。
+        Returns:
+            Optional[List[Dict[str, Any]]]: 缓存中的成分权重列表，如果未命中或发生错误则返回 None。
+        """
+        cache_manager = await self.get_cache_manager()
+        cache_key = self.cache_key_index.index_weight(index_code)
+        cached_data = await cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+        return None
+
     async def realtime_data(self, index_code: str) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数的实时数据。

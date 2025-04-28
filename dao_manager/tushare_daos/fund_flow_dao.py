@@ -1,7 +1,7 @@
 
 import logging
 from datetime import datetime
-from typing import List
+from typing import Dict, List
 from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyDC, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
 from utils.data_format_process import FundFlowFormatProcess
@@ -23,7 +23,7 @@ class FundFlowDao(BaseDAO):
         self.user_cache_get = UserCacheGet()
 
     # ============== 日级资金流向数据 ==============
-    async def save_today_fund_flow_daily_data(self) -> None:
+    async def save_today_fund_flow_daily_data(self) -> Dict:
         """
         保存今天的日级资金流向数据
         接口：moneyflow，可以通过数据工具调试和查看数据。
@@ -59,7 +59,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: str) -> None:
+    async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: str) -> Dict:
         """
         保存历史日级资金流向数据
         """
@@ -88,7 +88,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_data_by_stock_code(self, stock_code: str) -> None:
+    async def save_history_fund_flow_daily_data_by_stock_code(self, stock_code: str) -> Dict:
         """
         保存历史日级资金流向数据
         """
@@ -116,7 +116,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_data_by_stock_codes(self, stock_codes: List[str]) -> None:
+    async def save_history_fund_flow_daily_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
         """
         保存历史日级资金流向数据
         """
@@ -147,7 +147,7 @@ class FundFlowDao(BaseDAO):
 
 
     # ============== 日级资金流向数据 - 同花顺 ==============
-    async def save_today_fund_flow_daily_ths_data(self) -> None:
+    async def save_today_fund_flow_daily_ths_data(self) -> Dict:
         """
         保存今天的日级资金流向数据 - 同花顺
         """
@@ -178,7 +178,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: str) -> None:
+    async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: str) -> Dict:
         """
         保存历史日级资金流向数据 - 同花顺
         """
@@ -206,7 +206,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_ths_data_by_stock_code(self, stock_code: str) -> None:
+    async def save_history_fund_flow_daily_ths_data_by_stock_code(self, stock_code: str) -> Dict:
         """
         保存历史日级资金流向数据 - 同花顺
         接口：moneyflow_ths
@@ -237,7 +237,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_ths_data_by_stock_codes(self, stock_codes: List[str]) -> None:
+    async def save_history_fund_flow_daily_ths_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
         """
         保存历史日级资金流向数据 - 同花顺
         接口：moneyflow_ths
@@ -270,7 +270,7 @@ class FundFlowDao(BaseDAO):
         return result
 
     # ============== 日级资金流向数据 - 东方财富 ==============
-    async def save_today_fund_flow_daily_dc_data(self) -> None:
+    async def save_today_fund_flow_daily_dc_data(self) -> Dict:
         """
         保存今天的日级资金流向数据 - 东方财富
         """
@@ -301,7 +301,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date: str) -> None:
+    async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date: str) -> Dict:
         """
         保存历史日级资金流向数据 - 东方财富
         """
@@ -329,7 +329,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_dc_data_stock_code(self, stock_code: str) -> None:
+    async def save_history_fund_flow_daily_dc_data_stock_code(self, stock_code: str) -> Dict:
         """
         保存历史日级资金流向数据 - 东方财富
         接口：moneyflow_dc
@@ -360,7 +360,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_dc_data_stock_codes(self, stock_codes: List[str]) -> None:
+    async def save_history_fund_flow_daily_dc_data_stock_codes(self, stock_codes: List[str]) -> Dict:
         """
         保存历史日级资金流向数据 - 东方财富
         接口：moneyflow_dc
@@ -393,7 +393,7 @@ class FundFlowDao(BaseDAO):
         return result
 
     # ============== 板块资金流向数据 - 同花顺 ==============
-    async def save_today_fund_flow_cnt_ths_data(self) -> None:
+    async def save_today_fund_flow_cnt_ths_data(self) -> Dict:
         """
         保存今天的板块资金流向数据 - 同花顺
         """
@@ -424,7 +424,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_cnt_ths_data(self, trade_date: str) -> None:
+    async def save_history_fund_flow_cnt_ths_data(self, trade_date: str) -> Dict:
         """
         保存历史板块资金流向数据 - 同花顺
         """
@@ -453,7 +453,7 @@ class FundFlowDao(BaseDAO):
         return result
 
     # ============== 板块资金流向数据 - 东方财富 ==============
-    async def save_today_fund_flow_cnt_dc_data(self) -> None:
+    async def save_today_fund_flow_cnt_dc_data(self) -> Dict:
         """
         保存今天的板块资金流向数据 - 东方财富
         """
@@ -485,7 +485,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_cnt_dc_data(self, trade_date: str) -> None:
+    async def save_history_fund_flow_cnt_dc_data(self, trade_date: str) -> Dict:
         """
         保存历史板块资金流向数据 - 东方财富
         """
@@ -515,7 +515,7 @@ class FundFlowDao(BaseDAO):
         return result
     
     # ============== 行业资金流向数据 - 同花顺 ==============
-    async def save_today_fund_flow_industry_ths_data(self) -> None:
+    async def save_today_fund_flow_industry_ths_data(self) -> Dict:
         """
         保存今天的行业资金流向数据 - 同花顺
         """
@@ -546,7 +546,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_industry_ths_data(self, trade_date: str) -> None:
+    async def save_history_fund_flow_industry_ths_data(self, trade_date: str) -> Dict:
         """
         保存历史行业资金流向数据 - 同花顺
         """
@@ -575,7 +575,7 @@ class FundFlowDao(BaseDAO):
         return result
 
     # ============== 大盘资金流向数据 - 东方财富 ==============
-    async def save_today_fund_flow_market_dc_data(self) -> None:
+    async def save_today_fund_flow_market_dc_data(self) -> Dict:
         """
         保存今天的行业资金流向数据 - 东方财富
         """
@@ -607,7 +607,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_market_dc_data(self, trade_date: str) -> None:
+    async def save_history_fund_flow_market_dc_data(self, trade_date: str) -> Dict:
         """
         保存历史大盘资金流向数据 - 东方财富
         """
@@ -637,7 +637,7 @@ class FundFlowDao(BaseDAO):
         return result
 
     # ============== 龙虎榜每日明细 ==============
-    async def save_today_lhb_daily_data(self) -> None:
+    async def save_today_lhb_daily_data(self) -> Dict:
         """
         保存今天的龙虎榜每日明细
         """
@@ -668,7 +668,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_hisroty_lhb_daily_data(self, trade_date: str) -> None:
+    async def save_hisroty_lhb_daily_data(self, trade_date: str) -> Dict:
         """
         保存历史龙虎榜每日数据
         """
@@ -697,7 +697,7 @@ class FundFlowDao(BaseDAO):
         return result
 
     # ============== 龙虎榜机构明细 ==============
-    async def save_today_lhb_inst_data(self) -> None:
+    async def save_today_lhb_inst_data(self) -> Dict:
         """
         保存今天的龙虎榜机构明细
         """
@@ -727,7 +727,7 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_hisroty_lhb_inst_data(self, trade_date: str) -> None:
+    async def save_hisroty_lhb_inst_data(self, trade_date: str) -> Dict:
         """
         保存历史龙虎榜机构明细
         Args:
