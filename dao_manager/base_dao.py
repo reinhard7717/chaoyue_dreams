@@ -331,6 +331,14 @@ class BaseDAO(Generic[T]):
             except Exception:
                 pass
         return value
+
+    def replace_nan_with_none(self,data):
+        if isinstance(data, dict):
+            return {k: replace_nan_with_none(v) for k, v in data.items()}
+        elif isinstance(data, float) and math.isnan(data):
+            return None
+        else:
+            return data
     # ==================== CRUD 操作 ====================
 
     async def get_by_id(self, id_value: Any, related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> Optional[T]:
@@ -676,6 +684,8 @@ class BaseDAO(Generic[T]):
                 for field_name, is_datefield in date_fields.items():
                     if field_name in prepared_data:
                         prepared_data[field_name] = self.parse_date_auto(prepared_data[field_name], is_datefield)
+                # 批量入库前，将所有 NaN 替换为 None
+                prepared_data = self.replace_nan_with_none(prepared_data)
                 try:
                     objs_to_process.append(model_class(**prepared_data))
                 except Exception as model_init_err:
