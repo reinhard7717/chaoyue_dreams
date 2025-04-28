@@ -211,7 +211,6 @@ class CacheSet():
 class UserCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_user = UserCashKey()
-        self.data_format_process = IndexDataFormatProcess()
 
     async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
         """
@@ -244,6 +243,7 @@ class UserCacheSet(CacheSet):
 class IndexCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_index = IndexCashKey()
+        self.data_format_process = IndexDataFormatProcess()
     
     async def index_info(self, index_code: str, data_to_cache: Dict) -> bool:
         """
@@ -277,7 +277,7 @@ class IndexCacheSet(CacheSet):
         # 可以添加更详细的验证，例如检查列表中的元素是否为字典，是否包含必要的键等
         data_dicts = []
         for item in indexes:
-            data_dict = await self.data_format_process.set_index_data(item)
+            data_dict = await self.data_format_process.set_index_info_data(item)
             data_dicts.append(data_dict)
         logger.debug(f"从数据库获取股票指数列表，共{len(indexes)}条")
         # 2. 生成缓存键 (与 get_all_indexes/fetch_and_save_indexes 保持一致)
