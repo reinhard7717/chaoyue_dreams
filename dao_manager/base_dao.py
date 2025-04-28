@@ -11,6 +11,8 @@ import operator
 from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
 from datetime import datetime, date # 日期时间类型
+import dateutil.parser
+from django.db import models # Django 模型
 from decimal import Decimal # 导入 Decimal
 import tushare as ts
 from django.conf import settings # Django 设置
@@ -319,6 +321,16 @@ class BaseDAO(Generic[T]):
             logger.error(f"从缓存数据构建 {model_class.__name__} 实例时发生未知错误: {e}, data: {cached_data}", exc_info=True)
             return None # 构建失败返回 None
 
+    def parse_date_auto(value, is_datefield=True):
+        if isinstance(value, (date, datetime)):
+            return value.date() if is_datefield and isinstance(value, datetime) else value
+        if isinstance(value, str):
+            try:
+                dt = dateutil.parser.parse(value)
+                return dt.date() if is_datefield else dt
+            except Exception:
+                pass
+        return value
     # ==================== CRUD 操作 ====================
 
     async def get_by_id(self, id_value: Any, related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> Optional[T]:
@@ -648,12 +660,22 @@ class BaseDAO(Generic[T]):
             current_batch_size = len(batch)
             # --- 准备模型实例列表 ---
             objs_to_process = []
+            # 在批次循环外，自动识别所有 DateField/DateTimeField
+            date_fields = {
+                f.name: isinstance(f, models.DateField) and not isinstance(f, models.DateTimeField)
+                for f in model_class._meta.get_fields()
+                if isinstance(f, (models.DateField, models.DateTimeField))
+            }
             for item in batch:
                 # 合并 extra_fields 到每个 item
                 prepared_data = {**item, **extra_fields}
                 # 创建模型实例
                 # 注意：这里假设 prepared_data 中的字段名和类型与模型匹配
                 # 如果 API 返回的数据需要转换 (如日期字符串、数字格式)，应在调用此方法前完成
+                # 自动转换所有日期/时间字段
+                for field_name, is_datefield in date_fields.items():
+                    if field_name in prepared_data:
+                        prepared_data[field_name] = parse_date_auto(prepared_data[field_name], is_datefield)
                 try:
                     objs_to_process.append(model_class(**prepared_data))
                 except Exception as model_init_err:
@@ -810,56 +832,6 @@ class BaseDAO(Generic[T]):
             logger.error(f"删除实体 {self.model_name} (ID: {id_value}) 错误: {str(e)}", exc_info=True)
             return False
 
-    # ==================== 缓存管理方法 ====================
-
-    async def refresh_cache(self, id_value: Any = None) -> None:
-        """
-        (异步) 刷新缓存。
-        如果提供了 id_value，则只刷新该实体的缓存；否则刷新 'all' 缓存。
-        刷新操作包括删除旧缓存，并尝试从数据库重新加载数据写入缓存。
-        Args:
-            id_value: (可选) 要刷新缓存的实体的主键值。
-        """
-        self._ensure_cache_objects()
-        if id_value:
-            # 刷新单个实体缓存
-            cache_key = self._get_cache_key(f"id:{id_value}")
-            try:
-                await self.cache_manager.delete(cache_key)
-                logger.debug(f"已删除实体缓存: {cache_key}")
-                # 尝试重新从数据库加载并缓存
-                await self.get_by_id(id_value) # get_by_id 内部会写缓存
-                logger.info(f"已刷新实体缓存: {self.model_name} (ID: {id_value})")
-            except Exception as e:
-                 logger.error(f"刷新实体缓存 {cache_key} 时出错: {e}", exc_info=True)
-        else:
-            # 刷新 'all' 缓存
-            cache_key_all = self._get_cache_key("all")
-            try:
-                await self.cache_manager.delete(cache_key_all)
-                logger.debug(f"已删除 'all' 缓存: {cache_key_all}")
-                # 尝试重新从数据库加载并缓存
-                await self.get_all() # get_all 内部会写缓存
-                logger.info(f"已刷新所有实体缓存 for {self.model_name}")
-            except Exception as e:
-                 logger.error(f"刷新 'all' 缓存 {cache_key_all} 时出错: {e}", exc_info=True)
-
-    async def clear_cache(self) -> None:
-        """
-        (异步) 清除与此 DAO 模型相关的所有已知缓存键 ('all' 和可能的 ID 键)。
-        注意：此方法可能无法清除所有 filter 缓存键。如果需要更彻底的清除，
-              建议使用 Redis 的 SCAN 命令配合模式匹配（需要在 CacheManager 中实现）。
-        """
-        self._ensure_cache_objects()
-        cache_key_all = self._get_cache_key("all")
-        logger.warning(f"准备清除模型 {self.model_name} 的 'all' 缓存 (key: {cache_key_all})...")
-        try:
-            await self.cache_manager.delete(cache_key_all)
-            logger.info(f"已清除 'all' 缓存 for {self.model_name}")
-            # 简化处理：不再尝试使用 keys 命令删除模式匹配的键，因为这在生产环境有风险
-            # 如果确实需要，应在 CacheManager 中实现基于 SCAN 的 delete_pattern 方法
-        except Exception as e:
-            logger.error(f"清除 'all' 缓存 {cache_key_all} 时出错: {str(e)}", exc_info=True)
 
     # ==================== 数据解析工具方法 ====================
 
