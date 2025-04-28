@@ -157,8 +157,10 @@ class IndexBasicDAO(BaseDAO):
         # 先从缓存中获取
         return_result = None
         index_info = await self.index_cache_get.index_data_by_code(index_code)
+        print(f"get_index_by_code从缓存获取股票111: {index_code}, {index_info}")
         if index_info:
             return_result = IndexInfo(**index_info)
+            print(f"get_index_by_code从缓存获取股票222: {index_code}, {return_result}")
             return return_result
         # 从数据库获取
         index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
