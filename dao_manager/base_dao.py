@@ -321,7 +321,7 @@ class BaseDAO(Generic[T]):
             logger.error(f"从缓存数据构建 {model_class.__name__} 实例时发生未知错误: {e}, data: {cached_data}", exc_info=True)
             return None # 构建失败返回 None
 
-    def parse_date_auto(value, is_datefield=True):
+    def parse_date_auto(self, value, is_datefield=True):
         if isinstance(value, (date, datetime)):
             return value.date() if is_datefield and isinstance(value, datetime) else value
         if isinstance(value, str):
@@ -675,7 +675,7 @@ class BaseDAO(Generic[T]):
                 # 自动转换所有日期/时间字段
                 for field_name, is_datefield in date_fields.items():
                     if field_name in prepared_data:
-                        prepared_data[field_name] = parse_date_auto(prepared_data[field_name], is_datefield)
+                        prepared_data[field_name] = self.parse_date_auto(prepared_data[field_name], is_datefield)
                 try:
                     objs_to_process.append(model_class(**prepared_data))
                 except Exception as model_init_err:
