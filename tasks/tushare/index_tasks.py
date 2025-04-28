@@ -61,8 +61,8 @@ def save_index_infos(self):
         print(f"开始处理 指数基本信息...")
         asyncio.run(index_basic_dao.save_indexs())
         print("任务完成 - 指数基本信息")
-        asyncio.run(index_basic_dao.save_index_weight_monthly())
-        print("任务完成 - 指数成分和权重")
+        # asyncio.run(index_basic_dao.save_index_weight_monthly())
+        # print("任务完成 - 指数成分和权重")
     except Exception as e:
         logger.error(f"执行 指数基本信息 任务时发生意外错误: {e}", exc_info=True)
 
