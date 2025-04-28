@@ -60,270 +60,164 @@ class UserDataFormatProcess(BaseDAO):
 class IndexDataFormatProcess(BaseDAO):
     # 指数基础信息
     def set_index_info_data(self, api_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            print(f"api_data222: {api_data}, type: {type(api_data)} ")
-            data_dict = {
-                "index_code": api_data.ts_code,  # 指数代码
-                "name": api_data.name,  # 简称
-                "fullname": api_data.fullname,  # 指数全称
-                "market": api_data.market,  # 市场
-                "publisher": api_data.publisher,  # 发布方
-                "index_type": api_data.index_type,  # 指数风格
-                "category": api_data.category,  # 指数类别
-                "base_date": self._parse_datetime(api_data.base_date),  # 基期
-                "base_point": self._parse_number(api_data.base_point),  # 基点
-                "list_date": api_data.list_date,  # 发布日期
-                "weight_rule": api_data.weight_rule,  # 加权方式
-                "desc": api_data.desc,  # 描述
-                "exp_date": api_data.exp_date,  # 终止日期
-            }
-        else:
-            print(f"api_data111: {api_data}, type: {type(api_data)} ")
-            data_dict = {
-                "index_code": api_data.index_code,  # 指数代码
-                "name": api_data.name,  # 简称
-                "fullname": api_data.fullname,  # 指数全称
-                "market": api_data.market,  # 市场
-                "publisher": api_data.publisher,  # 发布方
-                "index_type": api_data.index_type,  # 指数风格
-                "category": api_data.category,  # 指数类别
-                "base_date": api_data.base_date,  # 基期
-                "base_point": api_data.base_point,  # 基点
-                "list_date": api_data.list_date,  # 发布日期
-                "weight_rule": api_data.weight_rule,  # 加权方式
-                "desc": api_data.desc,  # 描述
-                "exp_date": api_data.exp_date,  # 终止日期
-            }
+        data_dict = {
+            "index_code": getattr(api_data, "ts_code", getattr(api_data, "index_code", None)),  # 指数代码
+            "name": getattr(api_data, "name", None),  # 简称
+            "fullname": getattr(api_data, "fullname", None),  # 指数全称
+            "market": getattr(api_data, "market", None),  # 市场
+            "publisher": getattr(api_data, "publisher", None),  # 发布方
+            "index_type": getattr(api_data, "index_type", None),  # 指数风格
+            "category": getattr(api_data, "category", None),  # 指数类别
+            "base_date": self._parse_datetime(getattr(api_data, "base_date", None)),  # 基期
+            "base_point": self._parse_number(getattr(api_data, "base_point", None)),  # 基点
+            "list_date": getattr(api_data, "list_date", None),  # 发布日期
+            "weight_rule": getattr(api_data, "weight_rule", None),  # 加权方式
+            "desc": getattr(api_data, "desc", None),  # 描述
+            "exp_date": getattr(api_data, "exp_date", None),  # 终止日期
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 指数成分和权重
     def set_index_weight_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "index": index_info,  # 指数代码
-                "stock": api_data.stock,  # 股票代码
-                "trade_date": self._parse_datetime(api_data.trade_date),  # 交易日期
-                "weight": self._parse_number(api_data.weight),  # 权重
-            }
-        else:
-            data_dict = {
-                "index": index_info,  # 指数代码
-                "stock": api_data.stock_code,  # 股票代码
-                "trade_date": api_data.trade_date,  # 交易日期
-                "weight": api_data.weight,  # 权重
-            }
+        data_dict = {
+            "index": index_info,  # 指数代码
+            "stock": getattr(api_data, "stock", getattr(api_data, "stock_code", None)),  # 股票代码
+            "trade_date": self._parse_datetime(getattr(api_data, "trade_date", None)),  # 交易日期
+            "weight": self._parse_number(getattr(api_data, "weight", None)),  # 权重
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 大盘指数每日指标
-    def set_index_daily_basic_data(self, api_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "index": index_info,  # 指数代码
-                "trade_time": self._parse_datetime(api_data.trade_date),  # 交易日期
-                "total_mv": self._parse_number(api_data.total_mv),  # 总市值
-                "float_mv": self._parse_number(api_data.float_mv),  # 流通市值
-                "total_share": self._parse_number(api_data.total_share),  # 总股本
-                "float_share": self._parse_number(api_data.float_share),  # 流通股本
-                "free_share": self._parse_number(api_data.free_share),  # 自由流通股本
-                "turnover_rate": self._parse_number(api_data.turnover_rate),  # 换手率
-                "turnover_rate_f": self._parse_number(api_data.turnover_rate_f),  # 换手率(自由流通)
-                "pe": self._parse_number(api_data.pe),  # 市盈率
-                "pe_ttm": self._parse_number(api_data.pe_ttm),  # 市盈率TTM
-                "pb": self._parse_number(api_data.pb),  # 市净率
-            }
-        else:
-            data_dict = {
-                "index": index_info,  # 指数代码
-                "trade_time": api_data.trade_time,  # 交易日期
-                "total_mv": api_data.total_mv,  # 总市值
-                "float_mv": api_data.float_mv,  # 流通市值
-                "total_share": api_data.total_share,  # 总股本
-                "float_share": api_data.float_share,  # 流通股本
-                "free_share": api_data.free_share,  # 自由流通股本
-                "turnover_rate": api_data.turnover_rate,  # 换手率
-                "turnover_rate_f": api_data.turnover_rate_f,  # 换手率(自由流通)
-                "pe": api_data.pe,  # 市盈率
-                "pe_ttm": api_data.pe_ttm,  # 市盈率TTM
-                "pb": api_data.pb,  # 市净率
-            }
+    def set_index_daily_basic_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
+        data_dict = {
+            "index": index_info,  # 指数代码
+            "trade_time": self._parse_datetime(
+                getattr(api_data, "trade_date", getattr(api_data, "trade_time", None))
+            ),  # 交易日期
+            "total_mv": self._parse_number(getattr(api_data, "total_mv", None)),  # 总市值
+            "float_mv": self._parse_number(getattr(api_data, "float_mv", None)),  # 流通市值
+            "total_share": self._parse_number(getattr(api_data, "total_share", None)),  # 总股本
+            "float_share": self._parse_number(getattr(api_data, "float_share", None)),  # 流通股本
+            "free_share": self._parse_number(getattr(api_data, "free_share", None)),  # 自由流通股本
+            "turnover_rate": self._parse_number(getattr(api_data, "turnover_rate", None)),  # 换手率
+            "turnover_rate_f": self._parse_number(getattr(api_data, "turnover_rate_f", None)),  # 换手率(自由流通)
+            "pe": self._parse_number(getattr(api_data, "pe", None)),  # 市盈率
+            "pe_ttm": self._parse_number(getattr(api_data, "pe_ttm", None)),  # 市盈率TTM
+            "pb": self._parse_number(getattr(api_data, "pb", None)),  # 市净率
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
+
 
     # 交易日历
     def set_trade_calendar_data(self, api_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "exchange": api_data.exchange,  # 交易所
-                "cal_date": self._parse_datetime(api_data.cal_date),  # 日历日期
-                "is_open": api_data.is_open,  # 是否交易
-                "pretrade_date": self._parse_datetime(api_data.pretrade_date),  # 上一个交易日
-            }
-        else:
-            data_dict = {
-                "exchange": api_data.exchange,  # 交易所
-                "cal_date": api_data.cal_date,  # 日历日期
-                "is_open": api_data.is_open,  # 是否交易
-                "pretrade_date": api_data.pretrade_date,  # 上一个交易日
-            }
+        data_dict = {
+            "exchange": getattr(api_data, "exchange", None),  # 交易所
+            "cal_date": self._parse_datetime(getattr(api_data, "cal_date", None)),  # 日历日期
+            "is_open": getattr(api_data, "is_open", None),  # 是否交易
+            "pretrade_date": self._parse_datetime(getattr(api_data, "pretrade_date", None)),  # 上一个交易日
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
+
 
 class StockInfoFormatProcess(BaseDAO):
     def set_stock_info_data(self, api_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                'stock_code': api_data.ts_code,  # 股票代码
-                'stock_name': api_data.name,  # 股票名称
-                'area': api_data.area,  # 地域
-                'industry': api_data.industry,  # 所属行业
-                'full_name': api_data.fullname,  # 股票全称
-                'en_name': api_data.enname,  # 英文全称
-                'cn_spell': api_data.cnspell,  # 拼音缩写
-                'market_type': api_data.market,  # 市场类型
-                'exchange': api_data.exchange,  # 交易所代码
-                'currency_type': api_data.curr_type,  # 交易货币
-                'list_status': api_data.list_status,  # 上市状态
-                'list_date': api_data.list_date,  # 上市日期
-                'delist_date': api_data.delist_date,  # 退市日期
-                'is_hs': api_data.is_hs,  # 是否沪深港通标的
-                'actual_controller': api_data.act_name,  # 实控人名称
-                'actual_controller_type': api_data.act_ent_type,  # 实控人企业性质
-            }
-        else:
-            data_dict = {
-                'stock_code': api_data.stock_code,  # 股票代码
-                'stock_name': api_data.stock_name,  # 股票名称
-                'area': api_data.area,  # 地域
-                'industry': api_data.industry,  # 所属行业
-                'full_name': api_data.full_name,  # 股票全称
-                'en_name': api_data.en_name,  # 英文全称
-                'cn_spell': api_data.cn_spell,  # 拼音缩写
-                'market_type': api_data.market_type,  # 市场类型
-                'exchange': api_data.exchange,  # 交易所代码
-                'currency_type': api_data.currency_type,  # 交易货币
-                'list_status': api_data.list_status,  # 上市状态
-                'list_date': api_data.list_date,  # 上市日期
-                'delist_date': api_data.delist_date,  # 退市日期
-                'is_hs': api_data.is_hs,  # 是否沪深港通标的
-                'actual_controller': api_data.actual_controller,  # 实控人名称
-                'actual_controller_type': api_data.actual_controller_type,  # 实控人企业性质
-            }
+        data_dict = {
+            'stock_code': getattr(api_data, 'ts_code', getattr(api_data, 'stock_code', None)),  # 股票代码
+            'stock_name': getattr(api_data, 'name', getattr(api_data, 'stock_name', None)),  # 股票名称
+            'area': getattr(api_data, 'area', None),  # 地域
+            'industry': getattr(api_data, 'industry', None),  # 所属行业
+            'full_name': getattr(api_data, 'fullname', getattr(api_data, 'full_name', None)),  # 股票全称
+            'en_name': getattr(api_data, 'enname', getattr(api_data, 'en_name', None)),  # 英文全称
+            'cn_spell': getattr(api_data, 'cnspell', getattr(api_data, 'cn_spell', None)),  # 拼音缩写
+            'market_type': getattr(api_data, 'market', getattr(api_data, 'market_type', None)),  # 市场类型
+            'exchange': getattr(api_data, 'exchange', None),  # 交易所代码
+            'currency_type': getattr(api_data, 'curr_type', getattr(api_data, 'currency_type', None)),  # 交易货币
+            'list_status': getattr(api_data, 'list_status', None),  # 上市状态
+            'list_date': getattr(api_data, 'list_date', None),  # 上市日期
+            'delist_date': getattr(api_data, 'delist_date', None),  # 退市日期
+            'is_hs': getattr(api_data, 'is_hs', None),  # 是否沪深港通标的
+            'actual_controller': getattr(api_data, 'act_name', getattr(api_data, 'actual_controller', None)),  # 实控人名称
+            'actual_controller_type': getattr(api_data, 'act_ent_type', getattr(api_data, 'actual_controller_type', None)),  # 实控人企业性质
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
-    
+
     def set_stock_info_basic_data(self, api_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-             data_dict = {
-                'stock_code': api_data.ts_code,  # 股票代码
-                'stock_name': api_data.name,  # 股票名称
-                'industry': api_data.industry,  # 所属行业
-                'market_type': api_data.market,  # 市场类型
-                'exchange': api_data.exchange,  # 交易所代码
-                'list_status': api_data.list_status,  # 上市状态
-                'is_hs': api_data.is_hs,  # 是否沪深港通标的
-            }
-        else:
-            data_dict = {
-                'stock_code': api_data.stock_code,  # 股票代码
-                'stock_name': api_data.stock_name,  # 股票名称
-                'industry': api_data.industry,  # 所属行业
-                'market_type': api_data.market_type,  # 市场类型
-                'exchange': api_data.exchange,  # 交易所代码
-                'currency_type': api_data.currency_type,  # 交易货币
-                'list_status': api_data.list_status,  # 上市状态
-                'is_hs': api_data.is_hs,  # 是否沪深港通标的
-            }
+        data_dict = {
+            'stock_code': getattr(api_data, 'ts_code', getattr(api_data, 'stock_code', None)),  # 股票代码
+            'stock_name': getattr(api_data, 'name', getattr(api_data, 'stock_name', None)),  # 股票名称
+            'industry': getattr(api_data, 'industry', None),  # 所属行业
+            'market_type': getattr(api_data, 'market', getattr(api_data, 'market_type', None)),  # 市场类型
+            'exchange': getattr(api_data, 'exchange', None),  # 交易所代码
+            'currency_type': getattr(api_data, 'curr_type', getattr(api_data, 'currency_type', None)),  # 交易货币
+            'list_status': getattr(api_data, 'list_status', None),  # 上市状态
+            'is_hs': getattr(api_data, 'is_hs', None),  # 是否沪深港通标的
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_company_info_data(self, stock: StockInfo, api_data: Any) -> Dict:
         data_dict = {
             'stock': stock,
-            'com_name': api_data.com_name,
-            'com_id': api_data.com_id,
-            'exchange': api_data.exchange,
-            'chairman': api_data.chairman,
-            'manager': api_data.manager,
-            'secretary': api_data.secretary,
-            'reg_capital': api_data.reg_capital,
-            'setup_date': api_data.setup_date,
-            'province': api_data.province,
-            'city': api_data.city,
-            'introduction': api_data.introduction,
-            'website': api_data.website,
-            'email': api_data.email,
-            'office': api_data.office[:100],
-            'employees': api_data.employees,
-            'main_business': api_data.main_business,
-            'business_scope': api_data.business_scope,
+            'com_name': getattr(api_data, 'com_name', None),
+            'com_id': getattr(api_data, 'com_id', None),
+            'exchange': getattr(api_data, 'exchange', None),
+            'chairman': getattr(api_data, 'chairman', None),
+            'manager': getattr(api_data, 'manager', None),
+            'secretary': getattr(api_data, 'secretary', None),
+            'reg_capital': getattr(api_data, 'reg_capital', None),
+            'setup_date': getattr(api_data, 'setup_date', None),
+            'province': getattr(api_data, 'province', None),
+            'city': getattr(api_data, 'city', None),
+            'introduction': getattr(api_data, 'introduction', None),
+            'website': getattr(api_data, 'website', None),
+            'email': getattr(api_data, 'email', None),
+            'office': (getattr(api_data, 'office', '') or '')[:100],
+            'employees': getattr(api_data, 'employees', None),
+            'main_business': getattr(api_data, 'main_business', None),
+            'business_scope': getattr(api_data, 'business_scope', None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_hs_const_data(self, stock: StockInfo, api_data: Any) -> Dict:
         data_dict = {
             'stock': stock,
-            'hs_type': api_data.hs_type,
-            'in_date': api_data.in_date,
-            'out_date': api_data.out_date,
-            'is_new': api_data.is_new,
+            'hs_type': getattr(api_data, 'hs_type', None),
+            'in_date': getattr(api_data, 'in_date', None),
+            'out_date': getattr(api_data, 'out_date', None),
+            'is_new': getattr(api_data, 'is_new', None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockTimeTradeFormatProcess(BaseDAO):
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "pre_close": df_data.pre_close,
-                "change": df_data.change,
-                "pct_change": df_data.pct_change,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-                "adj_factor": df_data.adj_factor,
-                "open_qfq": df_data.open_qfq,
-                "high_qfq": df_data.high_qfq,
-                "low_qfq": df_data.low_qfq,
-                "close_qfq": df_data.close_qfq,
-                "pre_close_qfq": df_data.pre_close_qfq,
-                "open_hfq": df_data.open_hfq,
-                "high_hfq": df_data.high_hfq,
-                "low_hfq": df_data.low_hfq,
-                "close_hfq": df_data.close_hfq,
-                "pre_close_hfq": df_data.pre_close_hfq,            
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "open": df_data.open,
-                "high": df_data.high,
-                "low": df_data.low,
-                "close": df_data.close,
-                "pre_close": df_data.pre_close,
-                "change": df_data.change,
-                "pct_change": df_data.pct_change,
-                "vol": df_data.vol,
-                "amount": df_data.amount,
-                "adj_factor": df_data.adj_factor,
-                "open_qfq": df_data.open_qfq,
-                "high_qfq": df_data.high_qfq,
-                "low_qfq": df_data.low_qfq,
-                "close_qfq": df_data.close_qfq,
-                "pre_close_qfq": df_data.pre_close_qfq,
-                "open_hfq": df_data.open_hfq,
-                "high_hfq": df_data.high_hfq,
-                "low_hfq": df_data.low_hfq,
-                "close_hfq": df_data.close_hfq,
-                "pre_close_hfq": df_data.pre_close_hfq,            
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "open": getattr(df_data, "open", None),
+            "high": getattr(df_data, "high", None),
+            "low": getattr(df_data, "low", None),
+            "close": getattr(df_data, "close", None),
+            "pre_close": getattr(df_data, "pre_close", None),
+            "change": getattr(df_data, "change", None),
+            "pct_change": getattr(df_data, "pct_change", getattr(df_data, "pct_chg", None)),
+            "vol": getattr(df_data, "vol", None),
+            "amount": getattr(df_data, "amount", None),
+            "adj_factor": getattr(df_data, "adj_factor", None),
+            "open_qfq": getattr(df_data, "open_qfq", None),
+            "high_qfq": getattr(df_data, "high_qfq", None),
+            "low_qfq": getattr(df_data, "low_qfq", None),
+            "close_qfq": getattr(df_data, "close_qfq", None),
+            "pre_close_qfq": getattr(df_data, "pre_close_qfq", None),
+            "open_hfq": getattr(df_data, "open_hfq", None),
+            "high_hfq": getattr(df_data, "high_hfq", None),
+            "low_hfq": getattr(df_data, "low_hfq", None),
+            "close_hfq": getattr(df_data, "close_hfq", None),
+            "pre_close_hfq": getattr(df_data, "pre_close_hfq", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
-    
+
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            time_level = df_data.freq
-        else:
-            time_level = df_data.time_level
+        # 兼容 freq 和 time_level 字段
+        time_level = getattr(df_data, "freq", getattr(df_data, "time_level", None))
         # 处理time_level，去掉min，转为int
         if isinstance(time_level, str) and time_level.endswith('min'):
             time_level_num = int(time_level.replace('min', ''))
@@ -332,228 +226,189 @@ class StockTimeTradeFormatProcess(BaseDAO):
                 time_level_num = int(time_level)
             except Exception:
                 return {}  # 不能转为数字的直接丢弃
-        # 构造数据
         data_dict = {
             "stock": stock,
-            "trade_time": getattr(df_data, 'trade_time', None) if isinstance(df_data, StockMinuteData) else self._parse_datetime(df_data.trade_time),
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_time", None)),
             "time_level": time_level_num,
-            "open": df_data.open,
-            "high": df_data.high,
-            "low": df_data.low,
-            "close": df_data.close,
-            "vol": df_data.vol,
-            "amount": df_data.amount,
+            "open": getattr(df_data, "open", None),
+            "high": getattr(df_data, "high", None),
+            "low": getattr(df_data, "low", None),
+            "close": getattr(df_data, "close", None),
+            "vol": getattr(df_data, "vol", None),
+            "amount": getattr(df_data, "amount", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_date) if isinstance(df_data.trade_date, str) else df_data.trade_time,
-            "open": self._parse_number(df_data.open) if isinstance(df_data.open, str) else df_data.open,
-            "high": self._parse_number(df_data.high) if isinstance(df_data.high, str) else df_data.high,
-            "low": self._parse_number(df_data.low) if isinstance(df_data.low, str) else df_data.low,
-            "close": self._parse_number(df_data.close) if isinstance(df_data.close, str) else df_data.close,
-            "pre_close": self._parse_number(df_data.pre_close) if isinstance(df_data.pre_close, str) else df_data.pre_close,
-            "change": self._parse_number(df_data.change) if isinstance(df_data.change, str) else df_data.change,
-            "pct_chg": self._parse_number(df_data.pct_chg) if isinstance(df_data.pct_chg, str) else df_data.pct_chg,
-            "vol": self._parse_number(df_data.vol) if isinstance(df_data.vol, str) else df_data.vol,
-            "amount": self._parse_number(df_data.amount) if isinstance(df_data.amount, str) else df_data.amount,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "open": self._parse_number(getattr(df_data, "open", None)),
+            "high": self._parse_number(getattr(df_data, "high", None)),
+            "low": self._parse_number(getattr(df_data, "low", None)),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "pre_close": self._parse_number(getattr(df_data, "pre_close", None)),
+            "change": self._parse_number(getattr(df_data, "change", None)),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", getattr(df_data, "pct_change", None))),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-    
+
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
-            "trade_time": self._parse_datetime(df_data.trade_date) if isinstance(df_data.trade_date, str) else df_data.trade_time,
-            "open": self._parse_number(df_data.open) if isinstance(df_data.open, str) else df_data.open,
-            "high": self._parse_number(df_data.high) if isinstance(df_data.high, str) else df_data.high,
-            "low": self._parse_number(df_data.low) if isinstance(df_data.low, str) else df_data.low,
-            "close": self._parse_number(df_data.close) if isinstance(df_data.close, str) else df_data.close,
-            "pre_close": self._parse_number(df_data.pre_close) if isinstance(df_data.pre_close, str) else df_data.pre_close,
-            "change": self._parse_number(df_data.change) if isinstance(df_data.change, str) else df_data.change,
-            "pct_chg": self._parse_number(df_data.pct_chg) if isinstance(df_data.pct_chg, str) else df_data.pct_chg,
-            "vol": self._parse_number(df_data.vol) if isinstance(df_data.vol, str) else df_data.vol,
-            "amount": self._parse_number(df_data.amount) if isinstance(df_data.amount, str) else df_data.amount,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "open": self._parse_number(getattr(df_data, "open", None)),
+            "high": self._parse_number(getattr(df_data, "high", None)),
+            "low": self._parse_number(getattr(df_data, "low", None)),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "pre_close": self._parse_number(getattr(df_data, "pre_close", None)),
+            "change": self._parse_number(getattr(df_data, "change", None)),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", getattr(df_data, "pct_change", None))),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "close": self._parse_number(df_data.close),
-                "turnover_rate": self._parse_number(df_data.turnover_rate),
-                "turnover_rate_f": self._parse_number(df_data.turnover_rate_f),
-                "volume_ratio": self._parse_number(df_data.volume_ratio),
-                "pe": self._parse_number(df_data.pe),
-                "pe_ttm": self._parse_number(df_data.pe_ttm),
-                "pb": self._parse_number(df_data.pb),
-                "ps": self._parse_number(df_data.ps),
-                "ps_ttm": self._parse_number(df_data.ps_ttm),
-                "total_share": self._parse_number(df_data.total_share),
-                "float_share": self._parse_number(df_data.float_share),
-                "free_share": self._parse_number(df_data.free_share),
-                "total_mv": self._parse_number(df_data.total_mv),
-                "circ_mv": self._parse_number(df_data.circ_mv),
-                "limit_status": df_data.limit_status,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "close": df_data.close,
-                "turnover_rate": df_data.turnover_rate,
-                "turnover_rate_f": df_data.turnover_rate_f,
-                "volume_ratio": df_data.volume_ratio,
-                "pe": df_data.pe,
-                "pe_ttm": df_data.pe_ttm,
-                "pb": df_data.pb,
-                "ps": df_data.ps,
-                "ps_ttm": df_data.ps_ttm,
-                "total_share": df_data.total_share,
-                "float_share": df_data.float_share,
-                "free_share": df_data.free_share,
-                "total_mv": df_data.total_mv,
-                "circ_mv": df_data.circ_mv,
-                "limit_status": df_data.limit_status,
-            }
-            
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
+            "turnover_rate_f": self._parse_number(getattr(df_data, "turnover_rate_f", None)),
+            "volume_ratio": self._parse_number(getattr(df_data, "volume_ratio", None)),
+            "pe": self._parse_number(getattr(df_data, "pe", None)),
+            "pe_ttm": self._parse_number(getattr(df_data, "pe_ttm", None)),
+            "pb": self._parse_number(getattr(df_data, "pb", None)),
+            "ps": self._parse_number(getattr(df_data, "ps", None)),
+            "ps_ttm": self._parse_number(getattr(df_data, "ps_ttm", None)),
+            "total_share": self._parse_number(getattr(df_data, "total_share", None)),
+            "float_share": self._parse_number(getattr(df_data, "float_share", None)),
+            "free_share": self._parse_number(getattr(df_data, "free_share", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "circ_mv": self._parse_number(getattr(df_data, "circ_mv", None)),
+            "limit_status": getattr(df_data, "limit_status", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "his_low": self._parse_number(df_data.his_low),
-                "his_high": self._parse_number(df_data.his_high),
-                "cost_5pct": self._parse_number(df_data.cost_5pct),
-                "cost_15pct": self._parse_number(df_data.cost_15pct),
-                "cost_50pct": self._parse_number(df_data.cost_50pct),
-                "cost_85pct": self._parse_number(df_data.cost_85pct),
-                "cost_95pct": self._parse_number(df_data.cost_95pct),
-                "weight_avg": self._parse_number(df_data.weight_avg),
-                "winner_rate": self._parse_number(df_data.winner_rate),
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "his_low": df_data.his_low,
-                "his_high": df_data.his_high,
-                "cost_5pct": df_data.cost_5pct,
-                "cost_15pct": df_data.cost_15pct,
-                "cost_50pct": df_data.cost_50pct,
-                "cost_85pct": df_data.cost_85pct,
-                "cost_95pct": df_data.cost_95pct,
-                "weight_avg": df_data.weight_avg,
-                "winner_rate": df_data.winner_rate,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "his_low": self._parse_number(getattr(df_data, "his_low", None)),
+            "his_high": self._parse_number(getattr(df_data, "his_high", None)),
+            "cost_5pct": self._parse_number(getattr(df_data, "cost_5pct", None)),
+            "cost_15pct": self._parse_number(getattr(df_data, "cost_15pct", None)),
+            "cost_50pct": self._parse_number(getattr(df_data, "cost_50pct", None)),
+            "cost_85pct": self._parse_number(getattr(df_data, "cost_85pct", None)),
+            "cost_95pct": self._parse_number(getattr(df_data, "cost_95pct", None)),
+            "weight_avg": self._parse_number(getattr(df_data, "weight_avg", None)),
+            "winner_rate": self._parse_number(getattr(df_data, "winner_rate", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
-    
+
     def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "price": df_data.price,
-                "percent": df_data.percent,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "price": df_data.price,
-                "percent": df_data.percent,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "price": self._parse_number(getattr(df_data, "price", None)),
+            "percent": self._parse_number(getattr(df_data, "percent", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockRealtimeDataFormatProcess(BaseDAO):
-        # ================ 数据格式 ================
+    # ================ 数据格式 ================
     def set_realtime_tick_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.date + df_data.time),
-                "open_price": df_data.open,
-                "prev_close_price": df_data.pre_close,
-                "current_price": df_data.price,
-                "high_price": df_data.high,
-                "low_price": df_data.low,
-                "volume": df_data.volume,
-                "turnover_value": df_data.amount,
-            }
+        # 兼容不同字段名
+        date = getattr(df_data, "date", None)
+        time = getattr(df_data, "time", None)
+        trade_time = None
+        if date and time:
+            trade_time = self._parse_datetime(str(date) + str(time))
         else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "open_price": df_data.open_price,
-                "prev_close_price": df_data.prev_close_price,
-                "current_price": df_data.current_price,
-                "high_price": df_data.high_price,
-                "low_price": df_data.low_price,
-                "volume": df_data.volume,
-                "turnover_value": df_data.turnover_value,
-            }
+            trade_time = getattr(df_data, "trade_time", None)
+        data_dict = {
+            "stock": stock,
+            "trade_time": trade_time,
+            "open_price": getattr(df_data, "open", getattr(df_data, "open_price", None)),
+            "prev_close_price": getattr(df_data, "pre_close", getattr(df_data, "prev_close_price", None)),
+            "current_price": getattr(df_data, "price", getattr(df_data, "current_price", None)),
+            "high_price": getattr(df_data, "high", getattr(df_data, "high_price", None)),
+            "low_price": getattr(df_data, "low", getattr(df_data, "low_price", None)),
+            "volume": getattr(df_data, "volume", None),
+            "turnover_value": getattr(df_data, "amount", getattr(df_data, "turnover_value", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.date + df_data.time),
-                "buy_volume1": self._parse_number(df_data.b1_v),
-                "buy_price1": self._parse_number(df_data.b1_p),
-                "buy_volume2": df_data.b2_v,
-                "buy_price2": df_data.b2_p,
-                "buy_volume3": df_data.b3_v,
-                "buy_price3": df_data.b3_p,
-                "buy_volume4": df_data.b4_v,
-                "buy_price4": df_data.b4_p,
-                "buy_volume5": df_data.b5_v,
-                "buy_price5": df_data.b5_p,
-                "sell_volume1": df_data.s1_v,
-                "sell_price1": df_data.s1_p,
-                "sell_volume2": df_data.s2_v,
-                "sell_price2": df_data.s2_p,
-                "sell_volume3": df_data.s3_v,
-                "sell_price3": df_data.s3_p,
-                "sell_volume4": df_data.s4_v,
-                "sell_price4": df_data.s4_p,
-                "sell_volume5": df_data.s5_v,
-                "sell_price5": df_data.s5_p,
-                "order_diff": df_data.b1_v - df_data.s1_v,
-                "order_ratio": (df_data.b1_v + df_data.b2_v + df_data.b3_v + df_data.b4_v + df_data.b5_v) / (df_data.s1_v + df_data.s2_v + df_data.s3_v + df_data.s4_v + df_data.s5_v),
-            }
+        # 兼容不同字段名
+        date = getattr(df_data, "date", None)
+        time = getattr(df_data, "time", None)
+        trade_time = None
+        if date and time:
+            trade_time = self._parse_datetime(str(date) + str(time))
         else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "buy_volume1": df_data.buy_volume1,
-                "buy_price1": df_data.buy_price1,
-                "buy_volume2": df_data.buy_volume2,
-                "buy_price2": df_data.buy_price2,
-                "buy_volume3": df_data.buy_volume3,
-                "buy_price3": df_data.buy_price3,
-                "buy_volume4": df_data.buy_volume4,
-                "buy_price4": df_data.buy_price4,
-                "buy_volume5": df_data.buy_volume5,
-                "buy_price5": df_data.buy_price5,
-                "sell_volume1": df_data.sell_volume1,
-                "sell_price1": df_data.sell_price1,
-                "sell_volume2": df_data.sell_volume2,
-                "sell_price2": df_data.sell_price2,
-                "sell_volume3": df_data.sell_volume3,
-                "sell_price3": df_data.sell_price3,
-                "sell_volume4": df_data.sell_volume4,
-                "sell_price4": df_data.sell_price4,
-                "sell_volume5": df_data.sell_volume5,
-                "sell_price5": df_data.sell_price5,
-                "order_diff": df_data.order_diff,
-                "order_ratio": df_data.order_ratio,
-            }
+            trade_time = getattr(df_data, "trade_time", None)
+
+        # 买卖盘数据兼容
+        b1_v = getattr(df_data, "b1_v", getattr(df_data, "buy_volume1", 0))
+        b2_v = getattr(df_data, "b2_v", getattr(df_data, "buy_volume2", 0))
+        b3_v = getattr(df_data, "b3_v", getattr(df_data, "buy_volume3", 0))
+        b4_v = getattr(df_data, "b4_v", getattr(df_data, "buy_volume4", 0))
+        b5_v = getattr(df_data, "b5_v", getattr(df_data, "buy_volume5", 0))
+        s1_v = getattr(df_data, "s1_v", getattr(df_data, "sell_volume1", 0))
+        s2_v = getattr(df_data, "s2_v", getattr(df_data, "sell_volume2", 0))
+        s3_v = getattr(df_data, "s3_v", getattr(df_data, "sell_volume3", 0))
+        s4_v = getattr(df_data, "s4_v", getattr(df_data, "sell_volume4", 0))
+        s5_v = getattr(df_data, "s5_v", getattr(df_data, "sell_volume5", 0))
+
+        b1_p = getattr(df_data, "b1_p", getattr(df_data, "buy_price1", 0))
+        b2_p = getattr(df_data, "b2_p", getattr(df_data, "buy_price2", 0))
+        b3_p = getattr(df_data, "b3_p", getattr(df_data, "buy_price3", 0))
+        b4_p = getattr(df_data, "b4_p", getattr(df_data, "buy_price4", 0))
+        b5_p = getattr(df_data, "b5_p", getattr(df_data, "buy_price5", 0))
+        s1_p = getattr(df_data, "s1_p", getattr(df_data, "sell_price1", 0))
+        s2_p = getattr(df_data, "s2_p", getattr(df_data, "sell_price2", 0))
+        s3_p = getattr(df_data, "s3_p", getattr(df_data, "sell_price3", 0))
+        s4_p = getattr(df_data, "s4_p", getattr(df_data, "sell_price4", 0))
+        s5_p = getattr(df_data, "s5_p", getattr(df_data, "sell_price5", 0))
+
+        # 盘口差和比率
+        try:
+            order_diff = b1_v - s1_v
+            order_ratio = (b1_v + b2_v + b3_v + b4_v + b5_v) / (s1_v + s2_v + s3_v + s4_v + s5_v) if (s1_v + s2_v + s3_v + s4_v + s5_v) != 0 else 0
+        except Exception:
+            order_diff = 0
+            order_ratio = 0
+
+        data_dict = {
+            "stock": stock,
+            "trade_time": trade_time,
+            "buy_volume1": self._parse_number(b1_v),
+            "buy_price1": self._parse_number(b1_p),
+            "buy_volume2": self._parse_number(b2_v),
+            "buy_price2": self._parse_number(b2_p),
+            "buy_volume3": self._parse_number(b3_v),
+            "buy_price3": self._parse_number(b3_p),
+            "buy_volume4": self._parse_number(b4_v),
+            "buy_price4": self._parse_number(b4_p),
+            "buy_volume5": self._parse_number(b5_v),
+            "buy_price5": self._parse_number(b5_p),
+            "sell_volume1": self._parse_number(s1_v),
+            "sell_price1": self._parse_number(s1_p),
+            "sell_volume2": self._parse_number(s2_v),
+            "sell_price2": self._parse_number(s2_p),
+            "sell_volume3": self._parse_number(s3_v),
+            "sell_price3": self._parse_number(s3_p),
+            "sell_volume4": self._parse_number(s4_v),
+            "sell_price4": self._parse_number(s4_p),
+            "sell_volume5": self._parse_number(s5_v),
+            "sell_price5": self._parse_number(s5_p),
+            "order_diff": order_diff,
+            "order_ratio": order_ratio,
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StrategiesDataFormatProcess(BaseDAO):
@@ -571,901 +426,441 @@ class StrategiesDataFormatProcess(BaseDAO):
 
 class FundFlowFormatProcess(BaseDAO):
     def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "buy_sm_vol": df_data.buy_sm_vol,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "sell_sm_vol": df_data.sell_sm_vol,
-                "sell_sm_amount": df_data.sell_sm_amount,
-                "buy_md_vol": df_data.buy_md_vol,
-                "buy_md_amount": df_data.buy_md_amount,
-                "sell_md_vol": df_data.sell_md_vol,
-                "sell_md_amount": df_data.sell_md_amount,
-                "buy_lg_vol": df_data.buy_lg_vol,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "sell_lg_vol": df_data.sell_lg_vol,
-                "sell_lg_amount": df_data.sell_lg_amount,
-                "buy_elg_vol": df_data.buy_elg_vol,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "sell_elg_vol": df_data.sell_elg_vol,
-                "sell_elg_amount": df_data.sell_elg_amount,
-                "net_mf_vol": df_data.net_mf_vol,
-                "net_mf_amount": df_data.net_mf_amount,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "buy_sm_vol": df_data.buy_sm_vol,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "sell_sm_vol": df_data.sell_sm_vol,
-                "sell_sm_amount": df_data.sell_sm_amount,
-                "buy_md_vol": df_data.buy_md_vol,
-                "buy_md_amount": df_data.buy_md_amount,
-                "sell_md_vol": df_data.sell_md_vol,
-                "sell_md_amount": df_data.sell_md_amount,
-                "buy_lg_vol": df_data.buy_lg_vol,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "sell_lg_vol": df_data.sell_lg_vol,
-                "sell_lg_amount": df_data.sell_lg_amount,
-                "buy_elg_vol": df_data.buy_elg_vol,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "sell_elg_vol": df_data.sell_elg_vol,
-                "sell_elg_amount": df_data.sell_elg_amount,
-                "net_mf_vol": df_data.net_mf_vol,
-                "net_mf_amount": df_data.net_mf_amount,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "buy_sm_vol": getattr(df_data, "buy_sm_vol", None),
+            "buy_sm_amount": getattr(df_data, "buy_sm_amount", None),
+            "sell_sm_vol": getattr(df_data, "sell_sm_vol", None),
+            "sell_sm_amount": getattr(df_data, "sell_sm_amount", None),
+            "buy_md_vol": getattr(df_data, "buy_md_vol", None),
+            "buy_md_amount": getattr(df_data, "buy_md_amount", None),
+            "sell_md_vol": getattr(df_data, "sell_md_vol", None),
+            "sell_md_amount": getattr(df_data, "sell_md_amount", None),
+            "buy_lg_vol": getattr(df_data, "buy_lg_vol", None),
+            "buy_lg_amount": getattr(df_data, "buy_lg_amount", None),
+            "sell_lg_vol": getattr(df_data, "sell_lg_vol", None),
+            "sell_lg_amount": getattr(df_data, "sell_lg_amount", None),
+            "buy_elg_vol": getattr(df_data, "buy_elg_vol", None),
+            "buy_elg_amount": getattr(df_data, "buy_elg_amount", None),
+            "sell_elg_vol": getattr(df_data, "sell_elg_vol", None),
+            "sell_elg_amount": getattr(df_data, "sell_elg_amount", None),
+            "net_mf_vol": getattr(df_data, "net_mf_vol", None),
+            "net_mf_amount": getattr(df_data, "net_mf_amount", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_data_ths(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "net_amount": df_data.net_amount,
-                "net_d5_amount": df_data.net_d5_amount,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "net_amount": df_data.net_amount,
-                "net_d5_amount": df_data.net_d5_amount,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "net_amount": getattr(df_data, "net_amount", None),
+            "net_d5_amount": getattr(df_data, "net_d5_amount", None),
+            "buy_lg_amount": getattr(df_data, "buy_lg_amount", None),
+            "buy_lg_amount_rate": getattr(df_data, "buy_lg_amount_rate", None),
+            "buy_md_amount": getattr(df_data, "buy_md_amount", None),
+            "buy_md_amount_rate": getattr(df_data, "buy_md_amount_rate", None),
+            "buy_sm_amount": getattr(df_data, "buy_sm_amount", None),
+            "buy_sm_amount_rate": getattr(df_data, "buy_sm_amount_rate", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
-    
+
     def set_fund_flow_data_dc(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "content_type": df_data.content_type,
-                "name": df_data.name,
-                "pct_change": df_data.pct_change,
-                "close": df_data.close,
-                "net_amount": df_data.net_amount,
-                "net_amount_rate": df_data.net_amount_rate,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "content_type": df_data.content_type,
-                "name": df_data.name,
-                "pct_change": df_data.pct_change,
-                "close": df_data.close,
-                "net_amount": df_data.net_amount,
-                "net_amount_rate": df_data.net_amount_rate,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            }
-            
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "content_type": getattr(df_data, "content_type", None),
+            "name": getattr(df_data, "name", None),
+            "pct_change": getattr(df_data, "pct_change", None),
+            "close": getattr(df_data, "close", None),
+            "net_amount": getattr(df_data, "net_amount", None),
+            "net_amount_rate": getattr(df_data, "net_amount_rate", None),
+            "buy_elg_amount": getattr(df_data, "buy_elg_amount", None),
+            "buy_elg_amount_rate": getattr(df_data, "buy_elg_amount_rate", None),
+            "buy_lg_amount": getattr(df_data, "buy_lg_amount", None),
+            "buy_lg_amount_rate": getattr(df_data, "buy_lg_amount_rate", None),
+            "buy_md_amount": getattr(df_data, "buy_md_amount", None),
+            "buy_md_amount_rate": getattr(df_data, "buy_md_amount_rate", None),
+            "buy_sm_amount": getattr(df_data, "buy_sm_amount", None),
+            "buy_sm_amount_rate": getattr(df_data, "buy_sm_amount_rate", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    def set_fund_flow_cnt_ths_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ths_index": ths_index,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "lead_stock": df_data.lead_stock,
-                "close_price": self._parse_number(df_data.close_price),
-                "pct_change": self._parse_number(df_data.pct_change),
-                "industry_index": self._parse_number(df_data.industry_index),
-                "company_num": self._parse_number(df_data.company_num),
-                "pct_change_stock": self._parse_number(df_data.pct_change_stock),
-                "net_buy_amount": self._parse_number(df_data.net_buy_amount),
-                "net_sell_amount": self._parse_number(df_data.net_sell_amount),
-                "net_amount": self._parse_number(df_data.net_amount),
-            }
-        else:
-            data_dict = {
-                "ths_index": ths_index,
-                "trade_time": df_data.trade_time,
-                "lead_stock": df_data.lead_stock,
-                "close_price": df_data.close_price,
-                "pct_change": df_data.pct_change,
-                "industry_index": df_data.industry_index,
-                "company_num": df_data.company_num,
-                "pct_change_stock": df_data.pct_change_stock,
-                "net_buy_amount": df_data.net_buy_amount,
-                "net_sell_amount": df_data.net_sell_amount,
-                "net_amount": df_data.net_amount,
-            }
+    def set_fund_flow_cnt_ths_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
+        data_dict = {
+            "ths_index": ths_index,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "lead_stock": getattr(df_data, "lead_stock", None),
+            "close_price": self._parse_number(getattr(df_data, "close_price", None)),
+            "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
+            "industry_index": self._parse_number(getattr(df_data, "industry_index", None)),
+            "company_num": self._parse_number(getattr(df_data, "company_num", None)),
+            "pct_change_stock": self._parse_number(getattr(df_data, "pct_change_stock", None)),
+            "net_buy_amount": self._parse_number(getattr(df_data, "net_buy_amount", None)),
+            "net_sell_amount": self._parse_number(getattr(df_data, "net_sell_amount", None)),
+            "net_amount": self._parse_number(getattr(df_data, "net_amount", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    def set_fund_flow_cnt_dc_data(self, dc_index: DcIndex, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "dc_index": dc_index,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "content_type": df_data.content_type,
-                "name": df_data.name,
-                "pct_change": self._parse_number(df_data.pct_change),
-                "close": self._parse_number(df_data.close_price),
-                "net_amount": self._parse_number(df_data.net_amount),
-                "net_amount_rate": self._parse_number(df_data.net_amount_rate),
-                "buy_elg_amount": self._parse_number(df_data.buy_elg_amount),
-                "buy_elg_amount_rate": self._parse_number(df_data.buy_elg_amount_rate),
-                "buy_lg_amount": self._parse_number(df_data.buy_lg_amount),
-                "buy_lg_amount_rate": self._parse_number(df_data.buy_lg_amount_rate),
-                "buy_md_amount": self._parse_number(df_data.buy_md_amount),
-                "buy_md_amount_rate": self._parse_number(df_data.buy_md_amount_rate),
-                "buy_sm_amount": self._parse_number(df_data.buy_sm_amount),
-                "buy_sm_amount_rate": self._parse_number(df_data.buy_sm_amount_rate),
-                "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
-            }
-        else:
-            data_dict = {
-                "dc_index": dc_index,
-                "trade_time": df_data.trade_time,
-                "content_type": df_data.content_type,
-                "name": df_data.name,
-                "pct_change": df_data.pct_change,
-                "close": df_data.close,
-                "net_amount": df_data.net_amount,
-                "net_amount_rate": df_data.net_amount_rate,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-                "buy_sm_amount_stock": df_data.buy_sm_amount_stock,
-            }
+    def set_fund_flow_cnt_dc_data(self, dc_index: 'DcIndex', df_data: Any) -> Dict:
+        data_dict = {
+            "dc_index": dc_index,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "content_type": getattr(df_data, "content_type", None),
+            "name": getattr(df_data, "name", None),
+            "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
+            "close": self._parse_number(getattr(df_data, "close_price", getattr(df_data, "close", None))),
+            "net_amount": self._parse_number(getattr(df_data, "net_amount", None)),
+            "net_amount_rate": self._parse_number(getattr(df_data, "net_amount_rate", None)),
+            "buy_elg_amount": self._parse_number(getattr(df_data, "buy_elg_amount", None)),
+            "buy_elg_amount_rate": self._parse_number(getattr(df_data, "buy_elg_amount_rate", None)),
+            "buy_lg_amount": self._parse_number(getattr(df_data, "buy_lg_amount", None)),
+            "buy_lg_amount_rate": self._parse_number(getattr(df_data, "buy_lg_amount_rate", None)),
+            "buy_md_amount": self._parse_number(getattr(df_data, "buy_md_amount", None)),
+            "buy_md_amount_rate": self._parse_number(getattr(df_data, "buy_md_amount_rate", None)),
+            "buy_sm_amount": self._parse_number(getattr(df_data, "buy_sm_amount", None)),
+            "buy_sm_amount_rate": self._parse_number(getattr(df_data, "buy_sm_amount_rate", None)),
+            "buy_sm_amount_stock": getattr(df_data, "buy_sm_amount_stock", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_industry_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "industry": df_data.industry,
-                "lead_stock": df_data.lead_stock,
-                "close": df_data.close,
-                "pct_change": df_data.pct_change,
-                "company_num": df_data.company_num,
-                "pct_change_stock": df_data.pct_change_stock,
-                "close_price": df_data.close_price,
-                "net_buy_amount": df_data.net_buy_amount,
-                "net_sell_amount": df_data.net_sell_amount,
-                "net_amount": df_data.net_amount,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "industry": df_data.industry,
-                "lead_stock": df_data.lead_stock,
-                "close": df_data.close,
-                "pct_change": df_data.pct_change,
-                "company_num": df_data.company_num,
-                "pct_change_stock": df_data.pct_change_stock,
-                "close_price": df_data.close_price,
-                "net_buy_amount": df_data.net_buy_amount,
-                "net_sell_amount": df_data.net_sell_amount,
-                "net_amount": df_data.net_amount,
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "industry": getattr(df_data, "industry", None),
+            "lead_stock": getattr(df_data, "lead_stock", None),
+            "close": getattr(df_data, "close", None),
+            "pct_change": getattr(df_data, "pct_change", None),
+            "company_num": getattr(df_data, "company_num", None),
+            "pct_change_stock": getattr(df_data, "pct_change_stock", None),
+            "close_price": getattr(df_data, "close_price", None),
+            "net_buy_amount": getattr(df_data, "net_buy_amount", None),
+            "net_sell_amount": getattr(df_data, "net_sell_amount", None),
+            "net_amount": getattr(df_data, "net_amount", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_fund_flow_market_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "close_sh": df_data.close_sh,
-                "pct_change_sh": df_data.pct_change_sh,
-                "close_sz": df_data.close_sz,
-                "pct_change_sz": df_data.pct_change_sz,
-                "net_buy_amount": df_data.net_buy_amount,
-                "net_buy_amount_rate": df_data.net_buy_amount_rate,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            }
-        else:
-            data_dict = {
-                "stock": stock,
-                "trade_time": df_data.trade_time,
-                "close_sh": df_data.close_sh,
-                "pct_change_sh": df_data.pct_change_sh,
-                "close_sz": df_data.close_sz,
-                "pct_change_sz": df_data.pct_change_sz,
-                "net_buy_amount": df_data.net_buy_amount,
-                "net_buy_amount_rate": df_data.net_buy_amount_rate,
-                "buy_elg_amount": df_data.buy_elg_amount,
-                "buy_elg_amount_rate": df_data.buy_elg_amount_rate,
-                "buy_lg_amount": df_data.buy_lg_amount,
-                "buy_lg_amount_rate": df_data.buy_lg_amount_rate,
-                "buy_md_amount": df_data.buy_md_amount,
-                "buy_md_amount_rate": df_data.buy_md_amount_rate,
-                "buy_sm_amount": df_data.buy_sm_amount,
-                "buy_sm_amount_rate": df_data.buy_sm_amount_rate,
-            }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
-    def set_lhb_daily_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "name": df_data.name,
-                "close": self._parse_number(df_data.close),
-                "pct_change": self._parse_number(df_data.pct_change),
-                "turnover_rate": self._parse_number(df_data.turnover_rate),
-                "amount": self._parse_number(df_data.amount),
-                "l_sell": self._parse_number(df_data.l_sell),
-                "l_buy": self._parse_number(df_data.l_buy),
-                "l_amount": self._parse_number(df_data.l_amount),
-                "net_amount": self._parse_number(df_data.net_amount),
-                "net_rate": self._parse_number(df_data.net_rate),
-                "amount_rate": self._parse_number(df_data.amount_rate),
-                "float_values": self._parse_number(df_data.float_values),
-                "reason": df_data.reason,
-            }
-        else:
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_time": df_data.trade_time, # 交易日期
-                "name": df_data.name, # 股票名称
-                "close": df_data.close, # 收盘价
-                "pct_change": df_data.pct_change, # 涨跌幅
-                "turnover_rate": df_data.turnover_rate, # 换手率
-                "amount": df_data.amount, # 总成交额
-                "l_sell": df_data.l_sell, # 龙虎榜卖出额
-                "l_buy": df_data.l_buy, # 龙虎榜买入额
-                "l_amount": df_data.l_amount, # 龙虎榜成交额
-                "net_amount": df_data.net_amount, # 龙虎榜净买入额
-                "net_rate": df_data.net_rate, # 龙虎榜净买入额占比
-                "amount_rate": df_data.amount_rate, # 龙虎榜成交额占比
-                "float_values": df_data.float_values, # 流通市值
-                "reason": df_data.reason, # 上榜原因
-            }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
-    def set_lhb_inst_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock,
-                "trade_time": self._parse_datetime(df_data.trade_date),
-                "exalter": df_data.exalter, # 营业部
-                "side": df_data.side, # 买卖买卖类型
-                "buy": self._parse_number(df_data.buy), # 买入额
-                "buy_rate": self._parse_number(df_data.buy_rate), # 买入占总成交比例
-                "sell": self._parse_number(df_data.sell), # 卖出额
-                "sell_rate": self._parse_number(df_data.sell_rate), # 卖出占总成交比例
-                "net_buy": self._parse_number(df_data.net_buy), # 净买入额
-                "reason": df_data.reason, # 上榜原因
-            }
-        else:
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_time": df_data.trade_time, # 交易日期
-                "exalter": df_data.exalter, # 营业部
-                "side": df_data.side, # 买卖买卖类型
-                "buy": df_data.buy, # 买入额
-                "buy_rate": df_data.buy_rate, # 买入占总成交比例
-                "sell": df_data.sell, # 卖出额
-                "sell_rate": df_data.sell_rate, # 卖出占总成交比例
-                "net_buy": df_data.net_buy, # 净买入额
-                "reason": df_data.reason, # 上榜原因
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
+            "close_sh": getattr(df_data, "close_sh", None),
+            "pct_change_sh": getattr(df_data, "pct_change_sh", None),
+            "close_sz": getattr(df_data, "close_sz", None),
+            "pct_change_sz": getattr(df_data, "pct_change_sz", None),
+            "net_buy_amount": getattr(df_data, "net_buy_amount", None),
+            "net_buy_amount_rate": getattr(df_data, "net_buy_amount_rate", None),
+            "buy_elg_amount": getattr(df_data, "buy_elg_amount", None),
+            "buy_elg_amount_rate": getattr(df_data, "buy_elg_amount_rate", None),
+            "buy_lg_amount": getattr(df_data, "buy_lg_amount", None),
+            "buy_lg_amount_rate": getattr(df_data, "buy_lg_amount_rate", None),
+            "buy_md_amount": getattr(df_data, "buy_md_amount", None),
+            "buy_md_amount_rate": getattr(df_data, "buy_md_amount_rate", None),
+            "buy_sm_amount": getattr(df_data, "buy_sm_amount", None),
+            "buy_sm_amount_rate": getattr(df_data, "buy_sm_amount_rate", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class IndustryFormatProcess(BaseDAO):
     # 申万行业分类
     def set_sw_industry_data(self, index: IndexInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "index": index, # 指数代码
-                "index_code": df_data.index_code, # 指数代码
-                "industry_name": df_data.industry_name, # 行业名称
-                "parent_code": df_data.parent_code, # 父级代码
-                "level": df_data.level, # 行业分级
-                "industry_code": df_data.industry_code, # 行业代码
-                "is_publish": df_data.is_publish, # 是否发布指数
-                "src": df_data.src, # 行业分类来源
-            }
-        else:
-            data_dict = {
-                "index": index, # 指数代码
-                "index_code": df_data.index_code, # 指数代码
-                "industry_name": df_data.industry_name, # 行业名称
-                "parent_code": df_data.parent_code, # 父级代码
-                "level": df_data.level, # 行业分级
-                "industry_code": df_data.industry_code, # 行业代码
-                "is_publish": df_data.is_publish, # 是否发布指数
-                "src": df_data.src, # 行业分类来源
-            }
+        data_dict = {
+            "index": index,
+            "index_code": getattr(df_data, "index_code", None),
+            "industry_name": getattr(df_data, "industry_name", None),
+            "parent_code": getattr(df_data, "parent_code", None),
+            "level": getattr(df_data, "level", None),
+            "industry_code": getattr(df_data, "industry_code", None),
+            "is_publish": getattr(df_data, "is_publish", None),
+            "src": getattr(df_data, "src", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 申万行业成分
-    def set_sw_industry_member_data(self, sw_industry: SwIndustry, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "l3_industry": sw_industry, # 三级行业
-                "stock": stock, # 股票代码
-                "l1_code": df_data.l1_code, # 一级行业代码
-                "l1_name": df_data.l1_name, # 一级行业名称
-                "l2_code": df_data.l2_code, # 二级行业代码
-                "l2_name": df_data.l2_name, # 二级行业名称
-                "l3_name": df_data.l3_name, # 三级行业名称
-                "name": df_data.name, # 成分股票名称
-                "in_date": df_data.in_date, # 纳入日期
-                "out_date": df_data.out_date, # 剔除日期
-                "is_new": df_data.is_new, # 是否最新
-            }
-        else:
-            data_dict = {
-                "l3_industry": sw_industry, # 三级行业
-                "stock": stock, # 股票代码
-                "l1_code": df_data.l1_code, # 一级行业代码
-                "l1_name": df_data.l1_name, # 一级行业名称
-                "l2_code": df_data.l2_code, # 二级行业代码
-                "l2_name": df_data.l2_name, # 二级行业名称
-                "l3_name": df_data.l3_name, # 三级行业名称
-                "name": df_data.name, # 成分股票名称
-                "in_date": df_data.in_date, # 纳入日期
-                "out_date": df_data.out_date, # 剔除日期
-                "is_new": df_data.is_new, # 是否最新
-            }
+    def set_sw_industry_member_data(self, sw_industry: 'SwIndustry', stock: 'StockInfo', df_data: Any) -> Dict:
+        data_dict = {
+            "l3_industry": sw_industry,
+            "stock": stock,
+            "l1_code": getattr(df_data, "l1_code", None),
+            "l1_name": getattr(df_data, "l1_name", None),
+            "l2_code": getattr(df_data, "l2_code", None),
+            "l2_name": getattr(df_data, "l2_name", None),
+            "l3_name": getattr(df_data, "l3_name", None),
+            "name": getattr(df_data, "name", None),
+            "in_date": getattr(df_data, "in_date", None),
+            "out_date": getattr(df_data, "out_date", None),
+            "is_new": getattr(df_data, "is_new", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 申万行业日线行情
     def set_sw_industry_daily_data(self, index: IndexInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "index": index, # 指数代码
-                "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
-                "name": df_data.name, # 指数名称
-                "open": self._parse_number(df_data.open), # 开盘点位
-                "high": self._parse_number(df_data.high), # 最高点位
-                "low": self._parse_number(df_data.low), # 最低点位
-                "close": self._parse_number(df_data.close), # 收盘点位
-                "change": self._parse_number(df_data.change), # 涨跌点位
-                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
-                "vol": self._parse_number(df_data.vol), # 成交量（万股）
-                "amount": self._parse_number(df_data.amount), # 成交额（万元）
-                "pe": self._parse_number(df_data.pe), # 市盈率
-                "pb": self._parse_number(df_data.pb), # 市净率
-                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
-                "total_mv": self._parse_number(df_data.total_mv), # 总市值
-                "weight": self._parse_number(df_data.weight), # 成分股权重
-            }
-        else:
-            data_dict = {
-                "index": index, # 指数代码
-                "trade_time": df_data.trade_time, # 交易日期
-                "name": df_data.name, # 指数名称
-                "open": df_data.open, # 开盘点位
-                "high": df_data.high, # 最高点位
-                "low": df_data.low, # 最低点位
-                "close": df_data.close, # 收盘点位
-                "change": df_data.change, # 涨跌点位
-                "pct_change": df_data.pct_change, # 涨跌幅
-                "vol": df_data.vol, # 成交量（万股）
-                "amount": df_data.amount, # 成交额（万元）
-                "pe": df_data.pe, # 市盈率
-                "pb": df_data.pb, # 市净率
-                "float_mv": df_data.float_mv, # 流通市值
-                "total_mv": df_data.total_mv, # 总市值
-                "weight": df_data.weight, # 成分股权重
-            }
+        data_dict = {
+            "index": index,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_time", None)),
+            "name": getattr(df_data, "name", None),
+            "open": self._parse_number(getattr(df_data, "open", None)),
+            "high": self._parse_number(getattr(df_data, "high", None)),
+            "low": self._parse_number(getattr(df_data, "low", None)),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "change": self._parse_number(getattr(df_data, "change", None)),
+            "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
+            "pe": self._parse_number(getattr(df_data, "pe", None)),
+            "pb": self._parse_number(getattr(df_data, "pb", None)),
+            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "weight": self._parse_number(getattr(df_data, "weight", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 开盘啦题材库
     def set_kpl_concept_data(self, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "trade_time": df_data.trade_time, # 交易日期
-                "ts_code": df_data.ts_code, # 题材代码
-                "name": df_data.name, # 题材名称
-                "z_t_num": df_data.z_t_num, # 涨停数
-                "up_num": df_data.up_num, # 排名上升位数
-            }
-        else:
-            data_dict = {
-                "trade_time": df_data.trade_time, # 交易日期
-                "ts_code": df_data.ts_code, # 题材代码
-                "name": df_data.name, # 题材名称
-                "z_t_num": df_data.z_t_num, # 涨停数
-                "up_num": df_data.up_num, # 排名上升位数
-            }
+        data_dict = {
+            "trade_time": getattr(df_data, "trade_time", None),
+            "ts_code": getattr(df_data, "ts_code", None),
+            "name": getattr(df_data, "name", None),
+            "z_t_num": getattr(df_data, "z_t_num", None),
+            "up_num": getattr(df_data, "up_num", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 开盘啦题材成分股
-    def set_kpl_concept_member_data(self, kpl_concept: KplConcept, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "concept": kpl_concept, # 所属题材
-                "stock": stock, # 股票代码
-                "name": df_data.name, # 题材名称
-                "con_name": df_data.con_name, # 成分股名称
-                "trade_time": df_data.trade_time, # 交易日期
-                "desc": df_data.desc, # 描述
-                "hot_num": df_data.hot_num, # 人气值
-            }
-        else:
-            data_dict = {
-                "concept": kpl_concept, # 所属题材
-                "stock": stock, # 股票代码
-                "name": df_data.name, # 题材名称
-                "con_name": df_data.con_name, # 成分股名称
-                "trade_time": df_data.trade_time, # 交易日期
-                "desc": df_data.desc, # 描述
-                "hot_num": df_data.hot_num, # 人气值
-            }
+    def set_kpl_concept_member_data(self, kpl_concept: 'KplConcept', stock: 'StockInfo', df_data: Any) -> Dict:
+        data_dict = {
+            "concept": kpl_concept,
+            "stock": stock,
+            "name": getattr(df_data, "name", None),
+            "con_name": getattr(df_data, "con_name", None),
+            "trade_time": getattr(df_data, "trade_time", None),
+            "desc": getattr(df_data, "desc", None),
+            "hot_num": getattr(df_data, "hot_num", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺概念和行业指数
     def set_ths_index_data(self, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ts_code": df_data.ts_code, # 指数代码
-                "name": df_data.name, # 指数名称
-                "count": self._parse_number(df_data.count), # 成分个数
-                "exchange": df_data.exchange, # 交易所
-                "list_date": self._parse_datetime(df_data.list_date), # 上市日期
-                "type": df_data.type, # 类型指数类型
-            }
-        else:
-            data_dict = {
-                "ts_code": df_data.ts_code, # 指数代码
-                "name": df_data.name, # 指数名称
-                "count": df_data.count, # 成分个数
-                "exchange": df_data.exchange, # 交易所
-                "list_date": df_data.list_date, # 上市日期
-                "type": df_data.type, # 类型指数类型
-            }
+        data_dict = {
+            "ts_code": getattr(df_data, "ts_code", None),
+            "name": getattr(df_data, "name", None),
+            "count": self._parse_number(getattr(df_data, "count", None)),
+            "exchange": getattr(df_data, "exchange", None),
+            "list_date": self._parse_datetime(getattr(df_data, "list_date", None)),
+            "type": getattr(df_data, "type", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺概念板块成分
-    def set_ths_index_member_data(self, ths_index: ThsIndex, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ths_index": ths_index, # 所属概念
-                "stock": stock, # 股票代码
-                "weight": df_data.weight, # 权重
-                "in_date": self._parse_datetime(df_data.in_date), # 纳入日期
-                "out_date": self._parse_datetime(df_data.out_date), # 剔除日期
-                "is_new": df_data.is_new, # 是否最新
-            }
-        else:
-            data_dict = {
-                "ths_index": ths_index, # 所属概念
-                "stock": stock, # 股票代码
-                "weight": df_data.weight, # 权重
-                "in_date": df_data.in_date, # 纳入日期
-                "out_date": df_data.out_date, # 剔除日期
-                "is_new": df_data.is_new, # 是否最新
-            }
+    def set_ths_index_member_data(self, ths_index: 'ThsIndex', stock: 'StockInfo', df_data: Any) -> Dict:
+        data_dict = {
+            "ths_index": ths_index,
+            "stock": stock,
+            "weight": getattr(df_data, "weight", None),
+            "in_date": self._parse_datetime(getattr(df_data, "in_date", None)),
+            "out_date": self._parse_datetime(getattr(df_data, "out_date", None)),
+            "is_new": getattr(df_data, "is_new", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺板块指数行情
-    def set_ths_index_daily_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ths_index": ths_index, # 所属概念
-                "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
-                "close": self._parse_number(df_data.close), # 收盘点位
-                "open": self._parse_number(df_data.open), # 开盘点位
-                "high": self._parse_number(df_data.high), # 最高点位
-                "low": self._parse_number(df_data.low), # 最低点位
-                "pre_close": self._parse_number(df_data.pre_close), # 昨日收盘点
-                "avg_price": self._parse_number(df_data.avg_price), # 平均价
-                "change": self._parse_number(df_data.change), # 涨跌点位
-                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
-                "vol": self._parse_number(df_data.vol), # 成交量
-                "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
-                "total_mv": self._parse_number(df_data.total_mv), # 总市值
-                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
-                "pe_ttm": self._parse_number(df_data.pe_ttm), # 市盈率
-                "pb_mrq": self._parse_number(df_data.pb_mrq), # 市净率
-            }
-        else:
-            data_dict = {
-                "ths_index": ths_index, # 所属概念
-                "trade_time": df_data.trade_time, # 交易日期
-                "close": df_data.close, # 收盘点位
-                "open": df_data.open, # 开盘点位
-                "high": df_data.high, # 最高点位
-                "low": df_data.low, # 最低点位
-                "pre_close": df_data.pre_close, # 昨日收盘点
-                "avg_price": df_data.avg_price, # 平均价
-                "change": df_data.change, # 涨跌点位
-                "pct_change": df_data.pct_change, # 涨跌幅
-                "vol": df_data.vol, # 成交量
-                "turnover_rate": df_data.turnover_rate, # 换手率
-                "total_mv": df_data.total_mv, # 总市值
-                "float_mv": df_data.float_mv, # 流通市值
-                "pe_ttm": df_data.pe_ttm, # 市盈率
-                "pb_mrq": df_data.pb_mrq, # 市净率
-            }
+    def set_ths_index_daily_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
+        data_dict = {
+            "ths_index": ths_index,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_time", None)),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "open": self._parse_number(getattr(df_data, "open", None)),
+            "high": self._parse_number(getattr(df_data, "high", None)),
+            "low": self._parse_number(getattr(df_data, "low", None)),
+            "pre_close": self._parse_number(getattr(df_data, "pre_close", None)),
+            "avg_price": self._parse_number(getattr(df_data, "avg_price", None)),
+            "change": self._parse_number(getattr(df_data, "change", None)),
+            "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
+            "pe_ttm": self._parse_number(getattr(df_data, "pe_ttm", None)),
+            "pb_mrq": self._parse_number(getattr(df_data, "pb_mrq", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富概念板块
-    def set_dc_index_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ts_code": df_data.ts_code, # 指数代码
-                "name": df_data.name, # 指数名称
-                "exchange": df_data.exchange, # 交易所
-                "type": df_data.type, # 类型
-            }
-        else:
-            data_dict = {
-                "ts_code": df_data.ts_code, # 指数代码
-                "name": df_data.name, # 指数名称
-                "exchange": df_data.exchange, # 交易所
-                "type": df_data.type, # 类型
-            }
+    def set_dc_index_data(self, stock: 'StockInfo', df_data: Any) -> Dict:
+        data_dict = {
+            "ts_code": getattr(df_data, "ts_code", None),
+            "name": getattr(df_data, "name", None),
+            "exchange": getattr(df_data, "exchange", None),
+            "type": getattr(df_data, "type", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块成分
-    def set_dc_member_data(self, dc_index: DcIndex, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "trade_time": df_data.trade_time, # 交易日期
-                "dc_index": dc_index, # 所属概念
-                "stock": stock, # 股票代码
-                "name": df_data.name, # 成分股票名称
-            }
-        else:
-            data_dict = {
-                "trade_time": df_data.trade_time, # 交易日期
-                "dc_index": dc_index, # 所属概念
-                "stock": stock, # 股票代码
-                "name": df_data.name, # 成分股票名称
-            }
+    def set_dc_member_data(self, dc_index: 'DcIndex', stock: 'StockInfo', df_data: Any) -> Dict:
+        data_dict = {
+            "trade_time": getattr(df_data, "trade_time", None),
+            "dc_index": dc_index,
+            "stock": stock,
+            "name": getattr(df_data, "name", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块指数行情
-    def set_dc_index_daily_data(self, stock: StockInfo, dc_index: DcIndex, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ts_code": df_data.ts_code, # 指数代码
-                "trade_time": self._parse_datetime(df_data.trade_time), # 交易日期
-                "name": df_data.name, # 指数名称
-                "leading": df_data.leading, # 领涨股
-                "stock": stock,
-                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
-                "leading_pct": self._parse_number(df_data.leading_pct), # 领涨股涨跌幅
-                "total_mv": self._parse_number(df_data.total_mv), # 总市值
-                "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
-                "up_num": self._parse_number(df_data.up_num), # 排名上升位数
-                "down_num": self._parse_number(df_data.down_num), # 排名下降位数
-            }
-        else:
-            data_dict = {
-                "dc_index": dc_index, # 指数代码
-                "trade_time": df_data.trade_time, # 交易日期
-                "name": df_data.name, # 指数名称
-                "leading": df_data.leading, # 领涨股
-                "stock": stock,
-                "pct_change": df_data.pct_change, # 涨跌幅
-                "leading_pct": df_data.leading_pct, # 领涨股涨跌幅
-                "total_mv": df_data.total_mv, # 总市值
-                "turnover_rate": df_data.turnover_rate, # 换手率
-                "up_num": df_data.up_num, # 排名上升位数
-                "down_num": df_data.down_num, # 排名下降位数
-            }
+    def set_dc_index_daily_data(self, stock: 'StockInfo', dc_index: 'DcIndex', df_data: Any) -> Dict:
+        data_dict = {
+            "dc_index": dc_index,
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_time", None)),
+            "name": getattr(df_data, "name", None),
+            "leading": getattr(df_data, "leading", None),
+            "stock": stock,
+            "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
+            "leading_pct": self._parse_number(getattr(df_data, "leading_pct", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
+            "up_num": self._parse_number(getattr(df_data, "up_num", None)),
+            "down_num": self._parse_number(getattr(df_data, "down_num", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class MarketFormatProcess(BaseDAO):
     # 市场交易统计(MarketDailyInfo)
     def set_market_daily_info_data(self, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "ts_code": df_data.ts_code, # 市场代码
-                "ts_name": df_data.ts_name, # 市场名称
-                "com_count": self._parse_number(df_data.com_count), # 挂牌数
-                "total_share": self._parse_number(df_data.total_share), # 总股本(亿股)
-                "float_share": self._parse_number(df_data.float_share), # 流通股本(亿股)
-                "total_mv": self._parse_number(df_data.total_mv), # 总市值(亿元)
-                "float_mv": self._parse_number(df_data.float_mv), # 流通市值(亿元)
-                "amount": self._parse_number(df_data.amount), # 成交金额(亿元)
-                "vol": self._parse_number(df_data.vol), # 成交量(亿股)
-                "trans_count": self._parse_number(df_data.trans_count), # 成交笔数(万笔)
-                "pe": self._parse_number(df_data.pe), # 市盈率
-                "trans_rate": self._parse_number(df_data.trans_rate), # 换手率(%)
-                "exchange": df_data.exchange, # 交易所
-            }
-        else:
-            data_dict = {
-                "trade_date": df_data.trade_date, # 交易日期
-                "ts_code": df_data.ts_code, # 市场代码
-                "ts_name": df_data.ts_name, # 市场名称
-                "com_count": df_data.com_count, # 挂牌数
-                "total_share": df_data.total_share, # 总股本(亿股)
-                "float_share": df_data.float_share, # 流通股本(亿股)
-                "total_mv": df_data.total_mv, # 总市值(亿元)
-                "float_mv": df_data.float_mv, # 流通市值(亿元)
-                "amount": df_data.amount, # 成交金额(亿元)
-                "vol": df_data.vol, # 成交量(亿股)
-                "trans_count": df_data.trans_count, # 成交笔数(万笔)
-                "pe": df_data.pe, # 市盈率
-                "trans_rate": df_data.trans_rate, # 换手率(%)
-                "exchange": df_data.exchange, # 交易所
-            }
+        data_dict = {
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "ts_code": getattr(df_data, "ts_code", None),
+            "ts_name": getattr(df_data, "ts_name", None),
+            "com_count": self._parse_number(getattr(df_data, "com_count", None)),
+            "total_share": self._parse_number(getattr(df_data, "total_share", None)),
+            "float_share": self._parse_number(getattr(df_data, "float_share", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "trans_count": self._parse_number(getattr(df_data, "trans_count", None)),
+            "pe": self._parse_number(getattr(df_data, "pe", None)),
+            "trans_rate": self._parse_number(getattr(df_data, "trans_rate", None)),
+            "exchange": getattr(df_data, "exchange", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 游资名录
     def set_hm_list_data(self, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "name": df_data.name, # 游资名称
-                "desc": df_data.desc, # 说明
-                "orgs": df_data.orgs, # 关联机构
-            }
-        else:
-            data_dict = {
-                "name": df_data.name, # 游资名称
-                "desc": df_data.desc, # 说明
-                "orgs": df_data.orgs, # 关联机构
-            }
+        data_dict = {
+            "name": getattr(df_data, "name", None),
+            "desc": getattr(df_data, "desc", None),
+            "orgs": getattr(df_data, "orgs", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 游资每日明细
     def set_hm_detail_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "ts_name": df_data.ts_name, # 股票名称
-                "buy_amount": self._parse_number(df_data.buy_amount), # 买入金额(元)
-                "sell_amount": self._parse_number(df_data.sell_amount), # 卖出金额(元)
-                "net_amount": self._parse_number(df_data.net_amount), # 净买卖(元)
-                "hm_name": df_data.hm_name, # 游资名称
-                "hm_orgs": df_data.hm_orgs, # 关联机构
-                "tag": df_data.tag, # 标签
-            }
-        else:
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": df_data.trade_date, # 交易日期
-                "ts_name": df_data.ts_name, # 股票名称
-                "buy_amount": df_data.buy_amount, # 买入金额(元)
-                "sell_amount": df_data.sell_amount, # 卖出金额(元)
-                "net_amount": df_data.net_amount, # 净买卖(元)
-                "hm_name": df_data.hm_name, # 游资名称
-                "hm_orgs": df_data.hm_orgs, # 关联机构
-                "tag": df_data.tag, # 标签
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "ts_name": getattr(df_data, "ts_name", None),
+            "buy_amount": self._parse_number(getattr(df_data, "buy_amount", None)),
+            "sell_amount": self._parse_number(getattr(df_data, "sell_amount", None)),
+            "net_amount": self._parse_number(getattr(df_data, "net_amount", None)),
+            "hm_name": getattr(df_data, "hm_name", None),
+            "hm_orgs": getattr(df_data, "hm_orgs", None),
+            "tag": getattr(df_data, "tag", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 同花顺板块指数行情
-    def set_ths_daily_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ths_index": ths_index, # 板块
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "close": self._parse_number(df_data.close), # 收盘价
-                "open": self._parse_number(df_data.open), # 开盘价
-                "high": self._parse_number(df_data.high), # 最高价
-                "low": self._parse_number(df_data.low), # 最低价
-                "pre_close": self._parse_number(df_data.pre_close), # 昨收价
-                "avg_price": self._parse_number(df_data.avg_price), # 平均价
-                "change": self._parse_number(df_data.change), # 涨跌额
-                "pct_change": self._parse_number(df_data.pct_change), # 涨跌幅
-                "vol": self._parse_number(df_data.vol), # 成交量
-                "turnover_rate": self._parse_number(df_data.turnover_rate), # 换手率
-                "total_mv": self._parse_number(df_data.total_mv), # 总市值
-                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
-            }
-        else:
-            data_dict = {
-                "ths_index": ths_index, # 板块
-                "trade_date": df_data.trade_date, # 交易日期
-                "close": df_data.close, # 收盘价
-                "open": df_data.open, # 开盘价
-                "high": df_data.high, # 最高价
-                "low": df_data.low, # 最低价
-                "pre_close": df_data.pre_close, # 昨收价
-                "avg_price": df_data.avg_price, # 平均价
-                "change": df_data.change, # 涨跌额
-                "pct_change": df_data.pct_change, # 涨跌幅
-                "vol": df_data.vol, # 成交量
-                "turnover_rate": df_data.turnover_rate, # 换手率
-                "total_mv": df_data.total_mv, # 总市值
-                "float_mv": df_data.float_mv, # 流通市值
-            }
+    def set_ths_daily_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
+        data_dict = {
+            "ths_index": ths_index,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "open": self._parse_number(getattr(df_data, "open", None)),
+            "high": self._parse_number(getattr(df_data, "high", None)),
+            "low": self._parse_number(getattr(df_data, "low", None)),
+            "pre_close": self._parse_number(getattr(df_data, "pre_close", None)),
+            "avg_price": self._parse_number(getattr(df_data, "avg_price", None)),
+            "change": self._parse_number(getattr(df_data, "change", None)),
+            "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 涨跌停榜单 - 同花顺
     def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "name": df_data.name, # 股票名称
-                "price": self._parse_number(df_data.price), # 收盘价
-                "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅%
-                "open_num": self._parse_number(df_data.open_num), # 打开次数
-                "lu_desc": df_data.lu_desc, # 涨停原因
-                "limit_type": df_data.limit_type, # 板单类别
-                "tag": df_data.tag, # 涨停标签
-                "status": df_data.status, # 涨停状态
-                "first_lu_time": self._parse_datetime(df_data.first_lu_time), # 首次涨停时间
-                "last_lu_time": self._parse_datetime(df_data.last_lu_time), # 最后涨停时间
-                "first_ld_time": self._parse_datetime(df_data.first_ld_time), # 首次跌停时间
-                "last_ld_time": self._parse_datetime(df_data.last_ld_time), # 最后跌停时间
-                "limit_order": self._parse_number(df_data.limit_order), # 封单量
-                "limit_amount": self._parse_number(df_data.limit_amount), # 封单额
-                "turnover": self._parse_number(df_data.turnover), # 成交额
-                "rise_rate": self._parse_number(df_data.rise_rate), # 涨速
-                "sum_float": self._parse_number(df_data.sum_float), # 总市值
-                "market_type": df_data.market_type, # 股票类型
-            }
-        else:
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": df_data.trade_date, # 交易日期
-                "name": df_data.name, # 股票名称
-                "price": df_data.price, # 收盘价
-                "pct_chg": df_data.pct_chg, # 涨跌幅%
-                "open_num": df_data.open_num,
-                "lu_desc": df_data.lu_desc, # 涨停原因
-                "limit_type": df_data.limit_type, # 板单类别
-                "tag": df_data.tag, # 涨停标签
-                "status": df_data.status, # 涨停状态
-                "first_lu_time": df_data.first_lu_time, # 首次涨停时间
-                "last_lu_time": df_data.last_lu_time, # 最后涨停时间
-                "first_ld_time": df_data.first_ld_time, # 首次跌停时间
-                "last_ld_time": df_data.last_ld_time, # 最后跌停时间
-                "limit_order": df_data.limit_order, # 封单量
-                "limit_amount": df_data.limit_amount, # 封单额
-                "turnover": df_data.turnover, # 成交额
-                "rise_rate": df_data.rise_rate, # 涨速
-                "sum_float": df_data.sum_float, # 总市值
-                "market_type": df_data.market_type, # 股票类型
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "price": self._parse_number(getattr(df_data, "price", None)),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
+            "open_num": self._parse_number(getattr(df_data, "open_num", None)),
+            "lu_desc": getattr(df_data, "lu_desc", None),
+            "limit_type": getattr(df_data, "limit_type", None),
+            "tag": getattr(df_data, "tag", None),
+            "status": getattr(df_data, "status", None),
+            "first_lu_time": self._parse_datetime(getattr(df_data, "first_lu_time", None)),
+            "last_lu_time": self._parse_datetime(getattr(df_data, "last_lu_time", None)),
+            "first_ld_time": self._parse_datetime(getattr(df_data, "first_ld_time", None)),
+            "last_ld_time": self._parse_datetime(getattr(df_data, "last_ld_time", None)),
+            "limit_order": self._parse_number(getattr(df_data, "limit_order", None)),
+            "limit_amount": self._parse_number(getattr(df_data, "limit_amount", None)),
+            "turnover": self._parse_number(getattr(df_data, "turnover", None)),
+            "rise_rate": self._parse_number(getattr(df_data, "rise_rate", None)),
+            "sum_float": self._parse_number(getattr(df_data, "sum_float", None)),
+            "market_type": getattr(df_data, "market_type", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 涨跌停列表
     def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "industry": df_data.industry, # 所属行业
-                "name": df_data.name, # 股票名称
-                "close": self._parse_number(df_data.close), # 收盘价
-                "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅
-                "amount": self._parse_number(df_data.amount), # 成交额
-                "limit_amount": self._parse_number(df_data.limit_amount), # 板上成交金额
-                "float_mv": self._parse_number(df_data.float_mv), # 流通市值
-                "total_mv": self._parse_number(df_data.total_mv), # 总市值
-                "turnover_ratio": self._parse_number(df_data.turnover_ratio), # 换手率
-                "fd_amount": self._parse_number(df_data.fd_amount), # 封单金额
-                "first_time": self._parse_datetime(df_data.first_time), # 首次封板时间
-                "last_time": self._parse_datetime(df_data.last_time), # 最后封板时间
-                "open_times": self._parse_datetime(df_data.open_times), # 炸板次数
-                "up_stat": df_data.up_stat, # 涨停统计
-                "limit_times": self._parse_number(df_data.limit_times), # 连板数
-                "limit": df_data.limit, # 涨跌停类型
-            }
-        else:
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": df_data.trade_date, # 交易日期
-                "industry": df_data.industry, # 所属行业
-                "name": df_data.name, # 股票名称
-                "close": df_data.close, # 收盘价
-                "pct_chg": df_data.pct_chg, # 涨跌幅
-                "amount": df_data.amount, # 成交额
-                "limit_amount": df_data.limit_amount, # 板上成交金额
-                "float_mv": df_data.float_mv, # 流通市值
-                "total_mv": df_data.total_mv, # 总市值
-                "turnover_ratio": df_data.turnover_ratio, # 换手率
-                "fd_amount": df_data.fd_amount, # 封单金额
-                "first_time": df_data.first_time, # 首次封板时间
-                "last_time": df_data.last_time, # 最后封板时间
-                "open_times": df_data.open_times, # 炸板次数
-                "up_stat": df_data.up_stat, # 涨停统计
-                "limit_times": df_data.limit_times, # 连板数
-                "limit": df_data.limit, # 涨跌停类型
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "industry": getattr(df_data, "industry", None),
+            "name": getattr(df_data, "name", None),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
+            "limit_amount": self._parse_number(getattr(df_data, "limit_amount", None)),
+            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "turnover_ratio": self._parse_number(getattr(df_data, "turnover_ratio", None)),
+            "fd_amount": self._parse_number(getattr(df_data, "fd_amount", None)),
+            "first_time": self._parse_datetime(getattr(df_data, "first_time", None)),
+            "last_time": self._parse_datetime(getattr(df_data, "last_time", None)),
+            "open_times": self._parse_datetime(getattr(df_data, "open_times", None)),
+            "up_stat": getattr(df_data, "up_stat", None),
+            "limit_times": self._parse_number(getattr(df_data, "limit_times", None)),
+            "limit": getattr(df_data, "limit", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 连板天梯
     def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "name": df_data.name, # 股票名称
-                "nums": self._parse_number(df_data.nums), # 连板数
-            }
-        else:
-            data_dict = {
-                "stock": stock, # 股票代码
-                "trade_date": df_data.trade_date, # 交易日期
-                "name": df_data.name, # 股票名称
-                "nums": df_data.nums, # 连板数
-            }
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "nums": self._parse_number(getattr(df_data, "nums", None)),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 最强板块统计 - 同花顺
-    def set_limit_cpt_list_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
-        if isinstance(api_data, pd.DataFrame):
-            data_dict = {
-                "ths_index": ths_index, # 板块名称
-                "trade_date": self._parse_datetime(df_data.trade_date), # 交易日期
-                "name": df_data.name, # 板块名称
-                "days": self._parse_number(df_data.days), # 上榜天数
-                "up_stat": df_data.up_stat, # 涨停统计
-                "cons_nums": self._parse_number(df_data.cons_nums), # 连板数
-                "up_nums": df_data.up_nums, # 涨停数
-                "pct_chg": self._parse_number(df_data.pct_chg), # 涨跌幅
-                "rank": df_data.rank, # 板块热点排名
-            }
-        else:
-            data_dict = {
-                "ths_index": ths_index, # 板块名称
-                "trade_date": df_data.trade_date, # 交易日期
-                "name": df_data.name, # 板块名称
-                "days": df_data.days, # 上榜天数
-                "up_stat": df_data.up_stat, # 涨停统计
-                "cons_nums": df_data.cons_nums, # 连板数
-                "up_nums": df_data.up_nums, # 涨停数
-                "pct_chg": df_data.pct_chg, # 涨跌幅
-                "rank": df_data.rank, # 板块热点排名
-            }
+    def set_limit_cpt_list_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
+        data_dict = {
+            "ths_index": ths_index,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "days": self._parse_number(getattr(df_data, "days", None)),
+            "up_stat": getattr(df_data, "up_stat", None),
+            "cons_nums": self._parse_number(getattr(df_data, "cons_nums", None)),
+            "up_nums": getattr(df_data, "up_nums", None),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
+            "rank": getattr(df_data, "rank", None),
+        }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 
