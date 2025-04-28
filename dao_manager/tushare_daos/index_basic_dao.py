@@ -237,7 +237,8 @@ class IndexBasicDAO(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
-                index_weight_dict = self.data_format_process.set_index_weight_data(row)
+                index_info = await self.get_index_by_code(row.index_code)
+                index_weight_dict = self.data_format_process.set_index_weight_data(index_info=index_info,api_data=row)
                 index_weight_dicts.append(index_weight_dict)
         if index_weight_dicts:
             # 保存到数据库
