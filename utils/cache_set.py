@@ -255,7 +255,7 @@ class IndexCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"缓存指数 {index_code} 基本信息失败: {str(e)}", exc_info=True)
 
-    async def indexes(self, indexes: List[Dict]) -> bool:
+    async def all_indexes(self, indexes: List[Dict]) -> bool:
         """
         将提供的指数数据列表（简单字典格式）设置到缓存中。
         此方法用于手动将准备好的、符合缓存结构的数据放入缓存。
