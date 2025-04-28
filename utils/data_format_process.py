@@ -76,21 +76,24 @@ class IndexDataFormatProcess(BaseDAO):
                 "exp_date": api_data.exp_date,  # 终止日期
             }
         else:
-            data_dict = {
-                "index_code": api_data.ts_code,  # 指数代码
-                "name": api_data.name,  # 简称
-                "fullname": api_data.fullname,  # 指数全称
-                "market": api_data.market,  # 市场
-                "publisher": api_data.publisher,  # 发布方
-                "index_type": api_data.index_type,  # 指数风格
-                "category": api_data.category,  # 指数类别
-                "base_date": self._parse_datetime(api_data.base_date),  # 基期
-                "base_point": self._parse_number(api_data.base_point),  # 基点
-                "list_date": api_data.list_date,  # 发布日期
-                "weight_rule": api_data.weight_rule,  # 加权方式
-                "desc": api_data.desc,  # 描述
-                "exp_date": api_data.exp_date,  # 终止日期
-            }
+            try:
+                data_dict = {
+                    "index_code": api_data.ts_code,  # 指数代码
+                    "name": api_data.name,  # 简称
+                    "fullname": api_data.fullname,  # 指数全称
+                    "market": api_data.market,  # 市场
+                    "publisher": api_data.publisher,  # 发布方
+                    "index_type": api_data.index_type,  # 指数风格
+                    "category": api_data.category,  # 指数类别
+                    "base_date": self._parse_datetime(api_data.base_date),  # 基期
+                    "base_point": self._parse_number(api_data.base_point),  # 基点
+                    "list_date": api_data.list_date,  # 发布日期
+                    "weight_rule": api_data.weight_rule,  # 加权方式
+                    "desc": api_data.desc,  # 描述
+                    "exp_date": api_data.exp_date,  # 终止日期
+                }
+            except Exception as e:
+                logger.error(f"解析指数基础信息时发生错误: {e}, 数据: {api_data}", exc_info=True)
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 指数成分和权重
