@@ -305,7 +305,7 @@ class IndexBasicDAO(BaseDAO):
         """
         result = {}
         # 获取当前日期
-        today = datetime.today()
+        today = datetime.datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
         df = self.ts_pro.index_dailybasic(**{
