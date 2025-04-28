@@ -20,7 +20,7 @@ class IndexBasicDAO(BaseDAO):
         self.index_cache_set = IndexCacheSet()
         self.index_cache_get = IndexCacheGet()
 
-    def get_month_first_last_day(date=None):
+    def get_month_first_last_day(self, date=None):
         """
         获取指定日期所在月份的第一天和最后一天
         :param date: datetime.date 或 datetime.datetime 对象，默认为今天
@@ -228,7 +228,7 @@ class IndexBasicDAO(BaseDAO):
         积分：用户需要至少2000积分才可以调取，具体请参阅积分获取办法
         """
         result = {}
-        first_day, last_day = get_month_first_last_day()
+        first_day, last_day = self.get_month_first_last_day()
         # 拉取数据
         df = self.ts_pro.index_weight(**{
             "index_code": "", "trade_date": "", "start_date": first_day.strftime('%Y%m%d'), "end_date": last_day.strftime('%Y%m%d'), "ts_code": "", "limit": "", "offset": ""
