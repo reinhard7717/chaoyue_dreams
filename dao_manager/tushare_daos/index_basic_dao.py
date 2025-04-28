@@ -192,7 +192,7 @@ class IndexBasicDAO(BaseDAO):
         limit = 8000  # tushare pro接口最大limit一般为8000
         while True:
             df = self.ts_pro.index_basic(**{
-                "ts_code": "", "market": "", "publisher": "", "category": "", "name": "", "limit": "", "offset": ""
+                "ts_code": "", "market": "", "publisher": "", "category": "", "name": "", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "name", "market", "publisher", "category", "base_date", "base_point", "list_date",
                 "fullname", "index_type", "weight_rule", "desc", "exp_date"
