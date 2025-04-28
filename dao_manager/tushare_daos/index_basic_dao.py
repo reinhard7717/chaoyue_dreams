@@ -155,16 +155,17 @@ class IndexBasicDAO(BaseDAO):
         Args
         """
         # 先从缓存中获取
+        return_result = None
         index_info = await self.index_cache_get.index_data_by_code(index_code)
         if index_info:
-            return index_info
+            return_result = IndexInfo(**index_info)
+            return return_result
         # 从数据库获取
         index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
         if index_info:
-            index_dict = self.data_format_process.set_index_info_data(index_info)
-            await self.index_cache_set.index_info(index_code, index_dict)
-            return index_dict
-        pass
+            return_result = self.data_format_process.set_index_info_data(index_info)
+            await self.index_cache_set.index_info(index_code, return_result)
+        return return_result
 
     async def get_indexs_by_publisher(self, publisher: str) -> Optional['IndexInfo']:
         """
