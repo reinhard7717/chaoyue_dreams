@@ -9,6 +9,7 @@ from utils import cache_constants as cc
 import json
 
 from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
+from utils.data_format_process import IndexDataFormatProcess
 
 logger = logging.getLogger("dao")
 
@@ -210,6 +211,7 @@ class CacheSet():
 class UserCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_user = UserCashKey()
+        self.data_format_process = IndexDataFormatProcess()
 
     async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
         """
