@@ -61,6 +61,7 @@ class IndexDataFormatProcess(BaseDAO):
     # 指数基础信息
     def set_index_info_data(self, api_data: Any) -> Dict:
         if isinstance(api_data, pd.DataFrame):
+            print(f"api_data222: {api_data}, type: {type(api_data)} ")
             data_dict = {
                 "index_code": api_data.ts_code,  # 指数代码
                 "name": api_data.name,  # 简称
@@ -77,6 +78,7 @@ class IndexDataFormatProcess(BaseDAO):
                 "exp_date": api_data.exp_date,  # 终止日期
             }
         else:
+            print(f"api_data111: {api_data}, type: {type(api_data)} ")
             data_dict = {
                 "index_code": api_data.index_code,  # 指数代码
                 "name": api_data.name,  # 简称
