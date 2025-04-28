@@ -332,9 +332,9 @@ class BaseDAO(Generic[T]):
                 pass
         return value
 
-    def replace_nan_with_none(self,data):
+    def replace_nan_with_none(self, data):
         if isinstance(data, dict):
-            return {k: replace_nan_with_none(v) for k, v in data.items()}
+            return {k: self.replace_nan_with_none(v) for k, v in data.items()}
         elif isinstance(data, float) and math.isnan(data):
             return None
         else:
