@@ -18,12 +18,13 @@ def save_stock_list_data(self):
     保存股票列表数据
     """
     stock_basic_dao = StockBasicInfoDao()
+    print("开始保存股票列表数据...")
     result = asyncio.run(stock_basic_dao.save_stocks())
-    logger.info(f"保存股票列表数据成功: {result}")
+    print(f"保存股票列表数据成功: {result}")
     result = asyncio.run(stock_basic_dao.save_company_info())
-    logger.info(f"保存公司信息数据成功: {result}")
+    print(f"保存公司信息数据成功: {result}")
     result = asyncio.run(stock_basic_dao.save_hs_const())
-    logger.info(f"保存沪深港通数据成功: {result}")
+    print(f"保存沪深港通数据成功: {result}")
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_tasks.fetch_data_for_new_favorite')
 def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id: int):

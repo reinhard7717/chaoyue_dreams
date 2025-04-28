@@ -318,7 +318,8 @@ class IndexBasicDAO(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
-                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(row)
+                index_info = await self.get_index_by_code(row.ts_code)
+                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
                 index_dailybasic_dicts.append(index_dailybasic_dict)
         if index_dailybasic_dicts:
             # 保存到数据库
@@ -349,7 +350,8 @@ class IndexBasicDAO(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
-                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(row)
+                index_info = await self.get_index_by_code(row.ts_code)
+                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
                 index_dailybasic_dicts.append(index_dailybasic_dict)
         if index_dailybasic_dicts:
             # 保存到数据库
