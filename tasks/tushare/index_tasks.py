@@ -36,12 +36,13 @@ def save_trade_cal(self):
     Args:
         stock_codes: 股票代码列表
     """
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （当日）日级资金流向数据 （三种渠道）...")
+    print(f"开始处理 交易日历数据...")
     # 在任务开始时创建一次 DAO 实例
     index_info_dao = IndexBasicDAO()
     try:
         # 异步获取数据并保存
         asyncio.run(index_info_dao.save_trade_cal())
+        print("任务完成 - 交易日历数据")
     except Exception as e:
         logger.error(f"执行 交易日历数据 任务时发生意外错误: {e}", exc_info=True)
 
@@ -76,6 +77,6 @@ def save_index_daily_basic_today(self):
     index_basic_dao = IndexBasicDAO()
     try:
         asyncio.run(index_basic_dao.save_index_daily_basic_history())
-        print("任务完成 - 大盘指数每日指标(历史)")
+        print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)    
