@@ -3,6 +3,7 @@ import logging
 from asgiref.sync import sync_to_async
 import datetime
 import calendar
+import pandas as pd
 from typing import TYPE_CHECKING, Dict, List, Any, Optional
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar

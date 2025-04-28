@@ -3,7 +3,6 @@ import decimal
 from django.utils import timezone
 from typing import Any, Dict
 import logging
-import pandas as pd
 import numpy as np
 import math
 from dao_manager.base_dao import BaseDAO
