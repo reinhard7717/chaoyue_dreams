@@ -76,7 +76,7 @@ class IndexDataFormatProcess(BaseDAO):
                 "exp_date": api_data.exp_date,  # 终止日期
             }
         else:
-            print(f"api_data: {api_data}")
+            print(f"api_data: {api_data}, type: {type(api_data)}")
             try:
                 data_dict = {
                     "index_code": api_data.ts_code,  # 指数代码
