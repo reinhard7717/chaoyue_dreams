@@ -196,6 +196,7 @@ class IndexBasicDAO(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
+                print(f"row: {row}")
                 index_dict = self.data_format_process.set_index_info_data(row)
                 index_dicts.append(index_dict)
                 await self.index_cache_set.index_info(row.ts_code, index_dict)

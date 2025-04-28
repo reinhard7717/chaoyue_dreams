@@ -78,7 +78,7 @@ class IndexDataFormatProcess(BaseDAO):
         else:
             try:
                 data_dict = {
-                    "index_code": api_data.index_code,  # 指数代码
+                    "index_code": api_data.ts_code,  # 指数代码
                     "name": api_data.name,  # 简称
                     "fullname": api_data.fullname,  # 指数全称
                     "market": api_data.market,  # 市场
