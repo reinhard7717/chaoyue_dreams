@@ -157,10 +157,8 @@ class IndexBasicDAO(BaseDAO):
         # 先从缓存中获取
         return_result = None
         index_info = await self.index_cache_get.index_data_by_code(index_code)
-        print(f"get_index_by_code从缓存获取股票111: {index_code}, {index_info}")
         if index_info:
             return_result = IndexInfo(**index_info)
-            print(f"get_index_by_code从缓存获取股票222: {index_code}, {return_result}")
             return return_result
         # 从数据库获取
         index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
@@ -189,16 +187,27 @@ class IndexBasicDAO(BaseDAO):
         """
         result = {}
         # 拉取数据
-        df = self.ts_pro.index_basic(**{
-            "ts_code": "", "market": "", "publisher": "", "category": "", "name": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "name", "market", "publisher", "category", "base_date", "base_point", "list_date",
-            "fullname", "index_type", "weight_rule", "desc", "exp_date"
-        ])
+        all_dfs = []
+        offset = 0
+        limit = 8000  # tushare pro接口最大limit一般为8000
+        while True:
+            df = self.ts_pro.index_basic(**{
+                "ts_code": "", "market": "", "publisher": "", "category": "", "name": "", "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "name", "market", "publisher", "category", "base_date", "base_point", "list_date",
+                "fullname", "index_type", "weight_rule", "desc", "exp_date"
+            ])
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        # 合并所有df
+        result_df = pd.concat(all_dfs, ignore_index=True)
+        
         index_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
+        if result_df is not None:
+            result_df = result_df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+            for row in result_df.itertuples():
                 index_dict = self.data_format_process.set_index_info_data(row)
                 index_dicts.append(index_dict)
                 await self.index_cache_set.index_info(row.ts_code, index_dict)
