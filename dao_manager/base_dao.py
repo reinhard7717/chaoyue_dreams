@@ -7,7 +7,7 @@ import logging
 import asyncio # 用于异步操作
 from django.utils import timezone
 from django.db.models import Q, Model # Django 查询和模型基类
-import operator
+import math
 from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
 from datetime import datetime, date # 日期时间类型
