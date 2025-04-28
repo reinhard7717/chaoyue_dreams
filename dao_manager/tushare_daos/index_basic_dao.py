@@ -240,6 +240,8 @@ class IndexBasicDAO(BaseDAO):
             for row in df.itertuples():
                 index_info = await self.get_index_by_code(row.index_code)
                 index_weight_dict = self.data_format_process.set_index_weight_data(index_info=index_info,api_data=row)
+                if index_weight_dict.get('index_code') is None:
+                    print(f"row: {row}, index_info: {index_info}, index_weight_dict: {index_weight_dict}")
                 index_weight_dicts.append(index_weight_dict)
         if index_weight_dicts:
             # 保存到数据库
