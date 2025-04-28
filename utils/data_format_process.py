@@ -1160,7 +1160,7 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块指数行情
-    def set_dc_index_daily_data(self, stock: stock, dc_index: DcIndex, df_data: Any) -> Dict:
+    def set_dc_index_daily_data(self, stock: StockInfo, dc_index: DcIndex, df_data: Any) -> Dict:
         if isinstance(df_data, DcIndexDaily):
             data_dict = {
                 "dc_index": dc_index, # 指数代码

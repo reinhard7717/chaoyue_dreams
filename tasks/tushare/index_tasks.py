@@ -29,7 +29,7 @@ def is_trading_time():
     return False
 
 #  ================ 交易日历数据 ================
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_trade_cal')
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_trade_cal', queue='SaveData_TimeTrade')
 def save_trade_cal(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -46,7 +46,7 @@ def save_trade_cal(self):
         logger.error(f"执行 交易日历数据 任务时发生意外错误: {e}", exc_info=True)
 
 #  ================ 指数基本信息 ================
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_infos')
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_infos', queue='SaveData_TimeTrade')
 def save_index_infos(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
