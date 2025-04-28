@@ -17,14 +17,21 @@ logger = logging.getLogger(__name__)
 
 # 对所有字段做一次NaN/None清洗
 def safe_value(val):
-    # 递归处理list/dict
+    # 递归处理 dict
     if isinstance(val, dict):
         return {k: safe_value(v) for k, v in val.items()}
-    if isinstance(val, list):
+    # 递归处理 list/tuple
+    if isinstance(val, (list, tuple)):
         return [safe_value(v) for v in val]
-    # 处理float nan
+    # 处理 float nan
     if isinstance(val, float) and (np.isnan(val) or math.isnan(val)):
         return None
+    # 处理 decimal.Decimal
+    if isinstance(val, decimal.Decimal):
+        return float(val)
+    # 处理 datetime/date
+    if isinstance(val, (datetime.datetime, datetime.date)):
+        return val.isoformat()
     return val
 
 class UserDataFormatProcess(BaseDAO):
