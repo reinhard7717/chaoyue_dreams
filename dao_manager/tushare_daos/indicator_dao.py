@@ -164,7 +164,6 @@ class IndicatorDAO(BaseDAO):
             time_level_val = time_level.value
         else:
             time_level_val = str(time_level)
-
         # 2. 将大写特殊时间级别转换为对应的小写别名
         # D => day； W => week； M => month； 如 5m => 5 等
         tl_lower = time_level_val.lower()
@@ -179,13 +178,11 @@ class IndicatorDAO(BaseDAO):
             time_level_str = tl_lower[:-1]
         else:
             time_level_str = tl_lower
-
         # 3. 调用：根据 time_level_str 获取对应模型数据
         history_trades = await self.get_history_time_trades_by_limit(stock_code, time_level_str, limit)
         if not history_trades:
             logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level_val}")
             return None
-
         try:
             # 4. 模型列表转换成字典列表
             data = []
@@ -202,16 +199,13 @@ class IndicatorDAO(BaseDAO):
                     'volume': int(getattr(trade, 'vol', 0)) if getattr(trade, 'vol', None) is not None else 0,
                     'amount': float(getattr(trade, 'amount', np.nan)) if getattr(trade, 'amount', None) is not None else np.nan,
                 })
-
             if not data:
                 logger.warning(f"从 StockTimeTrade 实例转换的数据列表为空: {stock_code} {time_level_val}")
                 return None
-
             df = pd.DataFrame(data)
             if df.empty:
                 logger.warning(f"转换后的 DataFrame 为空: {stock_code} {time_level_val}")
                 return None
-
             # 5. 类型转换
             for col in df.columns:
                 if col != 'trade_time' and df[col].dtype == 'object':
@@ -219,35 +213,27 @@ class IndicatorDAO(BaseDAO):
                         df[col] = df[col].astype('category')
                     except Exception as e:
                         logger.warning(f"转换列 '{col}' 为 category 类型失败: {e}")
-
             # 6. 重命名列适配 finta
             df.rename(columns=FINTA_OHLCV_MAP, inplace=True)
-
             # 7. 时间列转换设为索引，丢弃解析失败行
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
-
             # 8. 去重索引，保留最后一个
             if df.index.has_duplicates:
                 df = df[~df.index.duplicated(keep='last')]
-
             # 9. 按时间升序排序
             df.sort_index(ascending=True, inplace=True)
-
             # 10. 校验必要列
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 logger.error(f"DataFrame 缺少必要列: {stock_code} {time_level_val}. 需要: {required_cols}, 实际: {df.columns.tolist()}")
                 return None
-
             # 11. 校验是否整张表全部NaN
             if df[required_cols].isnull().all(axis=1).sum() == len(df):
                 logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level_val}")
                 return None
-
             return df
-
         except Exception as e:
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None

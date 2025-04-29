@@ -77,7 +77,7 @@ class IndicatorService:
         df.columns = [col.lower() for col in df.columns]
         # --- 添加：返回前，确保必要的列是 float 类型 ---
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume']
-        if 'turnover' in df.columns: ohlcv_cols.append('turnover')
+        if 'amount' in df.columns: ohlcv_cols.append('amount')
         if 'turnover_rate' in df.columns: ohlcv_cols.append('turnover_rate')  # 新增换手率字段
         for col in ohlcv_cols:
             if col in df.columns:
@@ -111,11 +111,9 @@ class IndicatorService:
     async def prepare_strategy_dataframe(self, stock_code: str, params_file: str) -> Optional[pd.DataFrame]:
         """
         根据策略 JSON 配置文件准备包含基础数据和所有计算指标的 DataFrame。
-        
         Args:
             stock_code (str): 股票代码，用于标识具体股票。
             params_file (str): 策略参数 JSON 文件的路径，包含时间框架和指标参数。
-        
         Returns:
             Optional[pd.DataFrame]: 包含所有所需数据的 DataFrame，列名包含时间级别后缀（如 'RSI_12_15', 'close_60'）。
                                     如果数据准备失败，则返回 None。
@@ -123,7 +121,6 @@ class IndicatorService:
         if ta is None:
             logger.error(f"[{stock_code}] pandas_ta 未加载，无法准备策略数据。")
             return None
-
         # 1. 加载 JSON 参数文件
         try:
             if not os.path.exists(params_file):
@@ -147,7 +144,6 @@ class IndicatorService:
             ta_params = params['trend_analysis']  # 趋势分析参数
             ia_params = params['indicator_analysis_params']  # 指标分析参数
             tr_params = params.get('trend_reversal_params', {})  # 趋势反转参数
-
             # 将所有需要的时间级别添加到集合中
             all_time_levels.update(bs_params['timeframes'])
             if vc_params['enabled']:
@@ -156,27 +152,23 @@ class IndicatorService:
                 all_time_levels.add(dd_params['tf'])
             if kpd_params['enabled']:
                 all_time_levels.add(kpd_params['tf'])
-
             # 确定分析所需的时间框架（优先级：背离 > K线形态 > 成交量 > 默认）
             analysis_tf = (dd_params.get('tf') if dd_params['enabled'] else
                         kpd_params.get('tf') if kpd_params['enabled'] else
                         vc_params.get('tf', bs_params['timeframes'][0]))
             all_time_levels.add(analysis_tf)
-
             # 为 T+0 策略添加 focus_timeframe（如果存在）
             t0_params = params.get('t_plus_0_signals', {})
             if t0_params.get('enabled', False):
                 focus_timeframe = t0_params.get('focus_timeframe', '5')
                 all_time_levels.add(focus_timeframe)
                 logger.info(f"[{stock_code}] 为 T+0 策略添加时间级别: {focus_timeframe}")
-
             # 为换手率过滤添加时间框架（如果启用）
             turnover_filter = tr_params.get('turnover_filter', {})
             if turnover_filter.get('enabled', False):
                 turnover_tf = turnover_filter.get('timeframe', analysis_tf)
                 all_time_levels.add(turnover_tf)
                 logger.info(f"[{stock_code}] 为换手率过滤添加时间级别: {turnover_tf}")
-
             # 计算最大回看期，考虑所有指标的参数，确保数据足够
             lookbacks = [
                 bs_params.get('rsi_period', 0),  # RSI 周期
@@ -209,19 +201,18 @@ class IndicatorService:
         }
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         ohlcv_dfs = dict(zip(all_time_levels, ohlcv_results))
-
         # 检查是否有数据获取失败
         valid_ohlcv_dfs = {}
         for tf, df in ohlcv_dfs.items():
             if df is None or df.empty:
                 logger.warning(f"[{stock_code}] 无法获取时间级别 {tf} 的 OHLCV 数据。")
             else:
-                # 重命名基础列，将 turnover 重命名为 amount，并包含 turnover_rate
+                # 重命名基础列，将 amount 重命名为 amount，并包含 turnover_rate
                 rename_map = {}
                 for col in df.columns:
                     if col in ['open', 'high', 'low', 'close', 'volume']:
                         rename_map[col] = f"{col}_{tf}"
-                    elif col == 'turnover':  # 特别处理 turnover
+                    elif col == 'amount':  # 特别处理 amount
                         rename_map[col] = f"amount_{tf}"  # 重命名为 amount_{tf}
                     elif col == 'turnover_rate':  # 新增换手率字段
                         rename_map[col] = f"turnover_rate_{tf}"
@@ -385,7 +376,7 @@ class IndicatorService:
     async def prepare_strategy_basic_dataframe(self, stock_code: str, timeframes: List[str], limit_per_tf: int = 1200) -> Optional[pd.DataFrame]:
         """
         准备策略所需的基础 OHLCV DataFrame (简化版)。
-        仅获取并合并指定时间周期的 OHLCV 和 Turnover 数据。
+        仅获取并合并指定时间周期的 OHLCV 和 amount 数据。
         Args:
             stock_code (str): 股票代码。
             timeframes (List[str]): 策略需要的时间周期列表 (e.g., ['5', '15', 'Day', 'Week'])。
@@ -393,7 +384,7 @@ class IndicatorService:
             limit_per_tf (int): 为每个时间周期获取的最新记录数。
         Returns:
             Optional[pd.DataFrame]: 合并后的 DataFrame，索引为 trade_time (升序, timezone-aware)，
-                                     列名为带后缀的 OHLCV 和 amount (来自 turnover)。
+                                     列名为带后缀的 OHLCV 和 amount。
                                      如果数据准备失败，则返回 None。
         """
         logger.info(f"[{stock_code}] 开始准备基础策略 DataFrame for timeframes: {timeframes}")
@@ -444,7 +435,7 @@ class IndicatorService:
                 continue
             df = result.copy() # 操作副本
             # --- 定义重命名映射 ---
-            # DAO 返回的列名是 'open', 'high', 'low', 'close', 'volume', 'turnover' (假设)
+            # DAO 返回的列名是 'open', 'high', 'low', 'close', 'volume', 'amount' (假设)
             # 我们需要将它们重命名为带原始后缀的列名
             rename_map = {
                 'open': f'open_{tf_orig}',
@@ -452,7 +443,7 @@ class IndicatorService:
                 'low': f'low_{tf_orig}',
                 'close': f'close_{tf_orig}',
                 'volume': f'volume_{tf_orig}',
-                'turnover': f'amount_{tf_orig}' # 将 turnover 重命名为 amount 并加后缀
+                'amount': f'amount_{tf_orig}' # 将 amount 重命名为 amount 并加后缀
             }
             # --- 执行重命名并检查 ---
             try:
@@ -529,7 +520,7 @@ class IndicatorService:
             ohlc (pd.DataFrame): OHLCV 数据。
             period (int): ATR 计算周期。
         Returns:
-            Optional[pd.DataFrame]: 包含 'ATR_period' 列的 DataFrame，如果计算失败则返回 None。
+            Optional[pd.DataFrame]: 包含 "ATR_period" 列的 DataFrame，如果计算失败则返回 None。
         """
         if ta is None: logger.error("pandas-ta 未加载"); return None
         if ohlc is None or ohlc.empty or len(ohlc) < period: return None
@@ -794,27 +785,47 @@ class IndicatorService:
             logger.error(f"计算 EMA(period={period}) 失败: {e}", exc_info=True)
             return None
         
-    def calculate_amount_ma(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
+    def calculate_amount_ma(self, ohlc: pd.DataFrame, period: int, tf: str = "") -> Optional[pd.DataFrame]:
         """
-        计算指定周期的成交额 SMA。
+        计算指定周期的成交额 SMA，返回列名为 AMT_MA_周期_时间框，满足策略列名需求。
         Args:
-            ohlc (pd.DataFrame): OHLCV 数据 (必须包含 'turnover' 列)。
+            ohlc (pd.DataFrame): OHLCV 数据，必须包含 'amount' 列。
             period (int): SMA 计算周期。
+            tf (str): 时间框后缀，例如 '15', 用于生成列名。
         Returns:
-            Optional[pd.DataFrame]: 包含 'AMT_MA_period' 列的 DataFrame，如果计算失败则返回 None。
+            Optional[pd.DataFrame]: 计算结果DataFrame，列名如 'AMT_MA_15_15'。
+                                计算失败返回 None。
         """
-        if ta is None: logger.error("pandas-ta 未加载"); return None
-        if ohlc is None or ohlc.empty or 'turnover' not in ohlc.columns:
-            logger.error("计算 Amount MA 需要 'turnover' 列")
+        if ta is None:
+            logger.error("pandas-ta 未加载，无法计算成交额均线")
             return None
-        if len(ohlc) < period: return None
+        if ohlc is None or ohlc.empty:
+            logger.error("输入的 OHLCV 数据为空，无法计算成交额均线")
+            return None
+        if 'amount' not in ohlc.columns:
+            logger.error("计算 Amount MA 需要数据包含 'amount' 列")
+            return None
+        if len(ohlc) < period:
+            logger.warning(f"数据长度 {len(ohlc)} 小于所需周期 {period}，成交额均线计算返回 None")
+            return None
         try:
-            amt_ma_series = ohlc.ta.sma(close='turnover', length=period)
-            if amt_ma_series is None: return None
-            # 返回 DataFrame，列名为 AMT_MA_period
-            return amt_ma_series.to_frame(name=f'AMT_MA_{period}')
+            # pandas_ta 用 sma 计算成交额均线，输入列名为 'amount'
+            amt_ma_series = ohlc.ta.sma(close='amount', length=period)
+            if amt_ma_series is None or amt_ma_series.empty:
+                logger.warning("成交额均线计算结果为空")
+                return None
+
+            # 构建列名，格式为 AMT_MA_周期_时间框
+            col_name = f'AMT_MA_{period}'
+            if tf:
+                col_name = f'AMT_MA_{period}_{tf}'
+
+            # 转换为 DataFrame，返回
+            result_df = amt_ma_series.to_frame(name=col_name)
+            return result_df
+
         except Exception as e:
-            logger.error(f"计算 Amount MA(period={period}) 失败: {e}", exc_info=True)
+            logger.error(f"计算成交额均线 AMT_MA(period={period}, tf={tf}) 失败: {e}", exc_info=True)
             return None
 
     def calculate_macd(self, ohlc: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9) -> Optional[pd.DataFrame]:
@@ -934,18 +945,18 @@ class IndicatorService:
         """
         计算指定周期的成交额 ROC。
         Args:
-            ohlc (pd.DataFrame): OHLCV 数据 (必须包含 'turnover' 列)。
+            ohlc (pd.DataFrame): OHLCV 数据 (必须包含 'amount' 列)。
             period (int): ROC 计算周期。
         Returns:
             Optional[pd.DataFrame]: 包含 'AROC_period' 列的 DataFrame，如果计算失败则返回 None。
         """
         if ta is None: logger.error("pandas-ta 未加载"); return None
-        if ohlc is None or ohlc.empty or 'turnover' not in ohlc.columns:
-             logger.error("计算 Amount ROC 需要 'turnover' 列")
+        if ohlc is None or ohlc.empty or 'amount' not in ohlc.columns:
+             logger.error("计算 Amount ROC 需要 'amount' 列")
              return None
         if len(ohlc) < period + 1: return None
         try:
-            aroc_series = ohlc.ta.roc(close='turnover', length=period)
+            aroc_series = ohlc.ta.roc(close='amount', length=period)
             if aroc_series is None: return None
             # 返回 DataFrame，列名为 AROC_period
             df_results = aroc_series.to_frame(name=f'AROC_{period}')

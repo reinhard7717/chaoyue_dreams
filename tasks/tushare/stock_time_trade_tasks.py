@@ -144,7 +144,6 @@ def save_day_data_history_task(self):
     Args:
         stock_codes: 股票代码列表
     """
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 历史(日线)数据任务...")
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
