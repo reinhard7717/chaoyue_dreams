@@ -468,7 +468,6 @@ class FundFlowFormatProcess(BaseDAO):
         data_dict = {
             "stock": stock,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
-            "content_type": getattr(df_data, "content_type", None),
             "name": getattr(df_data, "name", None),
             "pct_change": getattr(df_data, "pct_change", None),
             "close": getattr(df_data, "close", None),
