@@ -70,7 +70,7 @@ class IndexBasicDAO(BaseDAO):
         """
         从数据库中，从今天往前读取n个开盘日期
         """
-        today_str = datetime.now().strftime('%Y%m%d')
+        today_str = datetime.datetime.now().strftime('%Y%m%d')
         # 使用sync_to_async包裹同步ORM查询
         trade_days = await sync_to_async(
             lambda: list(
