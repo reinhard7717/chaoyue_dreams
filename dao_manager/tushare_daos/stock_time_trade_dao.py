@@ -493,11 +493,11 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             today = datetime.today()
             today_str = today.strftime('%Y-%m-%d')
-        data_dicts = []
         result = {}
         batch_size = 200
         num_batches = ceil(len(stock_codes) / batch_size)
         for batch_index in range(num_batches):
+            data_dicts = []
             batch_codes = stock_codes[batch_index * batch_size:(batch_index + 1) * batch_size]
             stock_codes_str = ",".join(batch_codes)
             for time_level in time_levels:
@@ -545,13 +545,13 @@ class StockTimeTradeDAO(BaseDAO):
                 for stock_code in batch_codes:
                     cache_key = self.cache_key.history_time_trade(stock_code, time_level)
                     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        print(f"data_dicts长度: {len(data_dicts)}")
-        result = await self._save_all_to_db_native_upsert(
-            model_class=StockMinuteData,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
-        logger.info(f"保存股票 {len(stock_codes)} 个代码的分钟级交易数据完成。分批大小: {batch_size}。结果: {result}")
+            print(f"data_dicts长度: {len(data_dicts)}")
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockMinuteData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            logger.info(f"保存股票 {len(batch_codes)} 个代码的分钟级交易数据完成。结果: {result}")
         return result
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime(self, stock_code: str, time_level: str) -> None:
