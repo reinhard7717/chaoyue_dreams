@@ -207,7 +207,8 @@ class IndexBasicDAO(BaseDAO):
         
         index_dicts = []
         if result_df is not None:
-            result_df = result_df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+            result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            result_df = result_df.where(pd.notnull(result_df), None)          # 再把所有np.nan变成None
             for row in result_df.itertuples():
                 index_dict = self.data_format_process.set_index_info_data(row)
                 index_dicts.append(index_dict)
@@ -248,7 +249,8 @@ class IndexBasicDAO(BaseDAO):
         }, fields=[ "index_code", "con_code", "trade_date", "weight" ])
         index_weight_dicts = []
         if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 index_info = await self.get_index_by_code(row.index_code)
                 index_weight_dict = self.data_format_process.set_index_weight_data(index_info=index_info,api_data=row)

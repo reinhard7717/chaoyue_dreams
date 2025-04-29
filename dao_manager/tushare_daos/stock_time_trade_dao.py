@@ -480,13 +480,15 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-    async def save_minute_time_trade_history_today(self, stock_codes: List[str]) -> None:
+    async def save_minute_time_trade_history_today(self) -> None:
         """
         保存股票的历史分钟级交易数据
         接口：stk_mins
         描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
         限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
         """
+        stocks = self.stock_basic_dao.get_stock_list()
+        stock_codes = [stock.stock_code for stock in stocks]
         stock_codes_str = ",".join(stock_codes)
         # 获取当前日期
         today = datetime.today()
@@ -494,15 +496,27 @@ class StockTimeTradeDAO(BaseDAO):
         today_str = today.strftime('%Y-%m-%d')
         data_dicts = []
         for time_level in time_levels:
-            df = self.ts_pro.stk_mins(**{
-                "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": today_str + " 09:30:00", "end_date": today_str + " 15:00:00", "limit": "", "offset": ""
-            }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
-            ])
-            if df is not None:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
+            result = {}
+            # 拉取数据
+            all_dfs = []
+            offset = 0
+            limit = 8000  # tushare pro接口最大limit一般为8000
+            while True:
+                df = self.ts_pro.stk_mins(**{
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": today_str + " 09:30:00", "end_date": today_str + " 15:00:00", "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
+                ])
+                all_dfs.append(df)
+                if len(df) < limit:
+                    break
+                offset += limit
+            # 合并所有df
+            result_df = pd.concat(all_dfs, ignore_index=True)
+            if result_df is not None:
+                result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                result_df = result_df.where(pd.notnull(result_df), None)          # 再把所有np.nan变成None
+            for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
