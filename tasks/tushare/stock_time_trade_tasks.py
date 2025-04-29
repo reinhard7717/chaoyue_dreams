@@ -85,7 +85,7 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task')
-def save_stocks_minute_data_today_task(self, batch_size: int = 310, trade_time_str=None): # 最大循环10万个，每310个一组循环一次是99510个
+def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: int = 310): # 最大循环10万个，每310个一组循环一次是99510个
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
