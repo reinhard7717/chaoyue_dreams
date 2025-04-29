@@ -173,17 +173,17 @@ class IndexBasicDAO(BaseDAO):
         Args
         """
         # 先从缓存中获取
-        return_result = None
         index_info = await self.index_cache_get.index_data_by_code(index_code)
         if index_info:
-            return_result = IndexInfo(**index_info)
+            return index_info
         else:
             # 从数据库获取
             index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
             if index_info:
-                return_result = self.data_format_process.set_index_info_data(index_info)
+                index_data_dict = self.data_format_process.set_index_info_data(index_info)
                 await self.index_cache_set.index_info(index_code, return_result)
-        return return_result
+                return index_data_dict
+        return None
 
     async def get_indexs_by_publisher(self, publisher: str) -> Optional['IndexInfo']:
         """
@@ -339,6 +339,7 @@ class IndexBasicDAO(BaseDAO):
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 index_info = await self.get_index_by_code(row.ts_code)
+                print(f"index_info: {index_info}, type {type(index_info)}")  # 添加日志输出以检查 index_info 的内容和类型
                 index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
                 index_dailybasic_dicts.append(index_dailybasic_dict)
         if index_dailybasic_dicts:

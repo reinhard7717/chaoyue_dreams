@@ -106,7 +106,6 @@ class IndexDataFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-
     # 交易日历
     def set_trade_calendar_data(self, api_data: Any) -> Dict:
         data_dict = {
@@ -116,7 +115,6 @@ class IndexDataFormatProcess(BaseDAO):
             "pretrade_date": self._parse_datetime(getattr(api_data, "pretrade_date", None)),  # 上一个交易日
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
 
 class StockInfoFormatProcess(BaseDAO):
     def set_stock_info_data(self, api_data: Any) -> Dict:
