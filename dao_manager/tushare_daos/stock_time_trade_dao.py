@@ -487,7 +487,7 @@ class StockTimeTradeDAO(BaseDAO):
         描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
         限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
         """
-        stocks = self.stock_basic_dao.get_stock_list()
+        stocks = await self.stock_basic_dao.get_stock_list()
         stock_codes = [stock.stock_code for stock in stocks]
         stock_codes_str = ",".join(stock_codes)
         # 获取当前日期
