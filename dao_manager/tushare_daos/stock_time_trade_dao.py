@@ -495,7 +495,7 @@ class StockTimeTradeDAO(BaseDAO):
             today_str = today.strftime('%Y-%m-%d')
         data_dicts = []
         result = {}
-        batch_size = 1000
+        batch_size = 200
         num_batches = ceil(len(stock_codes) / batch_size)
         for batch_index in range(num_batches):
             batch_codes = stock_codes[batch_index * batch_size:(batch_index + 1) * batch_size]
