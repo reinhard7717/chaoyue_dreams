@@ -493,6 +493,7 @@ class StockTimeTradeDAO(BaseDAO):
             today = datetime.today()
             today_str = today.strftime('%Y-%m-%d')
         result = {}
+        data_dicts = []
         for time_level in time_levels:
             # 拉取数据
             all_dfs = []
