@@ -481,12 +481,11 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-    async def save_minute_time_trade_history_today(self, trade_time_str=None) -> None:
+    async def save_minute_time_trade_history_today(self, stock_codes, trade_time_str=None) -> None:
         """
         保存股票的历史分钟级交易数据，分批每1000个stock_code循环一次
         """
-        stocks = await self.stock_basic_dao.get_stock_list()
-        stock_codes = [stock.stock_code for stock in stocks]
+        stock_codes_str = ",".join(stock_codes)
         # 获取当前日期
         if trade_time_str:
             today_str = trade_time_str
@@ -494,64 +493,60 @@ class StockTimeTradeDAO(BaseDAO):
             today = datetime.today()
             today_str = today.strftime('%Y-%m-%d')
         result = {}
-        batch_size = 200
-        num_batches = ceil(len(stock_codes) / batch_size)
-        for batch_index in range(num_batches):
-            data_dicts = []
-            batch_codes = stock_codes[batch_index * batch_size:(batch_index + 1) * batch_size]
-            stock_codes_str = ",".join(batch_codes)
-            for time_level in time_levels:
-                # 拉取数据
-                all_dfs = []
-                offset = 0
-                limit = 8000  # tushare pro接口最大limit一般为8000
-                while True:
-                    df = self.ts_pro.stk_mins(**{
-                        "ts_code": stock_codes_str,
-                        "freq": time_level + "min",
-                        "start_date": today_str + " 09:30:00",
-                        "end_date": today_str + " 15:00:00",
-                        "limit": limit,
-                        "offset": offset
-                    }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
-                    # print(f"{today_str} 拉取数据: {df}")
-                    all_dfs.append(df)
-                    if len(df) < limit:
-                        break
-                    offset += limit
-                if all_dfs:
-                    result_df = pd.concat(all_dfs, ignore_index=True)
-                else:
-                    result_df = pd.DataFrame()
-                if not result_df.empty:
-                    result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 把字符串nan变成np.nan
-                    result_df = result_df.where(pd.notnull(result_df), None)  # np.nan变成None
-                    for row in result_df.itertuples():
-                        stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                        if stock:
-                            data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                            # print(f"处理股票: {stock.stock_code}, 时间: {row.trade_time}, 数据: {data_dict}")
-                            data_dicts.append(data_dict)
-                            # 准备缓存数据
-                            cache_data_dict = data_dict.copy()
-                            if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                                cache_data_dict['stock_code'] = row.ts_code
-                                del cache_data_dict['stock']
-                            prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                            if prepared_data:
-                                await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                            else:
-                                logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-                for stock_code in batch_codes:
-                    cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-            print(f"data_dicts长度: {len(data_dicts)}")
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockMinuteData,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            logger.info(f"保存股票 {len(batch_codes)} 个代码的分钟级交易数据完成。结果: {result}")
+        for time_level in time_levels:
+            # 拉取数据
+            all_dfs = []
+            offset = 0
+            limit = 8000  # tushare pro接口最大limit一般为8000
+            while True:
+                df = self.ts_pro.stk_mins(**{
+                    "ts_code": stock_codes_str,
+                    "freq": time_level + "min",
+                    "start_date": today_str + " 09:30:00",
+                    "end_date": today_str + " 15:00:00",
+                    "limit": limit,
+                    "offset": offset
+                }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
+                # print(f"{today_str} 拉取数据: {df}")
+                all_dfs.append(df)
+                if len(df) < limit:
+                    break
+                offset += limit
+            if all_dfs:
+                result_df = pd.concat(all_dfs, ignore_index=True)
+            else:
+                result_df = pd.DataFrame()
+            if not result_df.empty:
+                result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 把字符串nan变成np.nan
+                result_df = result_df.where(pd.notnull(result_df), None)  # np.nan变成None
+                for row in result_df.itertuples():
+                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    if stock:
+                        data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                        # print(f"处理股票: {stock.stock_code}, 时间: {row.trade_time}, 数据: {data_dict}")
+                        data_dicts.append(data_dict)
+                        # 准备缓存数据
+                        cache_data_dict = data_dict.copy()
+                        if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                            cache_data_dict['stock_code'] = row.ts_code
+                            del cache_data_dict['stock']
+                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                        if prepared_data:
+                            await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                        else:
+                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            for stock_code in batch_codes:
+                cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+        print(f"data_dicts长度: {len(data_dicts)}")
+        result = await self._save_all_to_db_native_upsert(
+            model_class=StockMinuteData,
+            data_list=data_dicts,
+            unique_fields=['stock', 'trade_time']
+        )
+        logger.info(f"保存股票 {len(batch_codes)} 个代码的分钟级交易数据完成。结果: {result}")
+            
+            
         return result
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime(self, stock_code: str, time_level: str) -> None:
