@@ -43,20 +43,19 @@ class FundFlowDao(BaseDAO):
             "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
             "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{today_str}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDaily,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDaily,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date_str: str) -> Dict:
@@ -71,21 +70,20 @@ class FundFlowDao(BaseDAO):
             "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
             "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data(stock=stock, df_data=row)
-                # print(f"日级资金流向数据。trade_date_str: {trade_date_str}, stock: {stock}, dict: {data_dict}")
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDaily,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data(stock=stock, df_data=row)
+                    # print(f"日级资金流向数据。trade_date_str: {trade_date_str}, stock: {stock}, dict: {data_dict}")
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDaily,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_data_by_stock_code(self, stock_code: str) -> Dict:
@@ -100,20 +98,19 @@ class FundFlowDao(BaseDAO):
             "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
             "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDaily,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDaily,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
@@ -129,20 +126,19 @@ class FundFlowDao(BaseDAO):
             "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
             "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDaily,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDaily,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
 
@@ -162,20 +158,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
             "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{today_str}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date_str: str) -> Dict:
@@ -189,20 +184,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
             "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_ths_data_by_stock_code(self, stock_code: str) -> Dict:
@@ -220,20 +214,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
             "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_ths_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
@@ -252,20 +245,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
             "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     # ============== 日级资金流向数据 - 东方财富 ==============
@@ -284,20 +276,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
             "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{today_str}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date_str: str) -> Dict:
@@ -311,20 +302,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
             "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据 - 东方财富 获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_dc_data_stock_code(self, stock_code: str) -> Dict:
@@ -342,20 +332,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
             "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_daily_dc_data_stock_codes(self, stock_codes: List[str]) -> Dict:
@@ -374,20 +363,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
             "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDailyDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     # ============== 板块资金流向数据 - 同花顺 ==============
@@ -406,20 +394,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
             "net_buy_amount", "net_sell_amount", "net_amount"
         ])
-        if df is None:
-            logger.error(f"板块资金流向数据获取失败，日期：{today_str}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowCntTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowCntTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_cnt_ths_data(self, trade_date: str) -> Dict:
@@ -434,20 +421,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
             "net_buy_amount", "net_sell_amount", "net_amount"
         ])
-        if df is None:
-            logger.error(f"板块资金流向数据获取失败，日期：{trade_date}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowCntTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowCntTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     # ============== 板块资金流向数据 - 东方财富 ==============
@@ -467,20 +453,19 @@ class FundFlowDao(BaseDAO):
             "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", 
             "buy_sm_amount_rate", "buy_sm_amount_stock", "rank"
         ])
-        if df is None:
-            logger.error(f"板块资金流向数据获取失败，日期：{today_str}")
-            return {}
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowCntDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowCntDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_cnt_dc_data(self, trade_date: str) -> Dict:
@@ -496,20 +481,19 @@ class FundFlowDao(BaseDAO):
             "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", 
             "buy_sm_amount_rate", "buy_sm_amount_stock", "rank"
         ])
-        if df is None:
-            logger.error(f"板块资金流向数据获取失败，日期：{trade_date}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowCntDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowCntDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
     
     # ============== 行业资金流向数据 - 同花顺 ==============
@@ -528,20 +512,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price", 
             "net_buy_amount", "net_sell_amount", "net_amount"
         ])
-        if df is None:
-            logger.error(f"行业资金流向数据获取失败，日期：{today_str}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowIndustryTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowIndustryTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_industry_ths_data(self, trade_date: str) -> Dict:
@@ -556,20 +539,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price", 
             "net_buy_amount", "net_sell_amount", "net_amount"
         ])
-        if df is None:
-            logger.error(f"行业资金流向数据获取失败，日期：{trade_date}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowIndustryTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowIndustryTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     # ============== 大盘资金流向数据 - 东方财富 ==============
@@ -589,20 +571,19 @@ class FundFlowDao(BaseDAO):
             "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", 
             "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"大盘资金流向数据获取失败，日期：{today_str}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowMarketDc,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowMarketDc,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_history_fund_flow_market_dc_data(self, trade_date: str) -> Dict:
@@ -618,20 +599,19 @@ class FundFlowDao(BaseDAO):
             "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", 
             "buy_sm_amount", "buy_sm_amount_rate"
         ])
-        if df is None:
-            logger.error(f"大盘资金流向数据获取失败，日期：{trade_date}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowMarketDc,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowMarketDc,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     # ============== 龙虎榜每日明细 ==============
@@ -650,20 +630,19 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "close", "pct_change", "turnover_rate", "amount", "l_sell",
             "l_buy", "l_amount", "net_amount", "net_rate", "amount_rate", "float_values", "reason"
         ])
-        if df is None:
-            logger.error(f"龙虎榜每日明细获取失败，日期：{today_str}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=TopList,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=TopList,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_hisroty_lhb_daily_data(self, trade_date: str) -> Dict:
@@ -677,21 +656,20 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "close", "pct_change", "turnover_rate", "amount", "l_sell",
             "l_buy", "l_amount", "net_amount", "net_rate", "amount_rate", "float_values", "reason"
         ])
-        if df is None:
-            logger.error(f"龙虎榜每日明细获取失败，日期：{trade_date}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=TopList,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
-        logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=TopList,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
         return result
 
     # ============== 龙虎榜机构明细 ==============
@@ -709,20 +687,19 @@ class FundFlowDao(BaseDAO):
         }, fields=[
             "trade_date", "ts_code", "exalter", "buy", "buy_rate", "sell", "sell_rate", "net_buy", "side", "reason"
         ])
-        if df is None:
-            logger.error(f"龙虎榜机构明细获取失败，日期：{today_str}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=TopInst,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=TopInst,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
     async def save_hisroty_lhb_inst_data(self, trade_date: str) -> Dict:
@@ -737,20 +714,19 @@ class FundFlowDao(BaseDAO):
         }, fields=[
             "trade_date", "ts_code", "exalter", "buy", "buy_rate", "sell", "sell_rate", "net_buy", "side", "reason"
         ])
-        if df is None:
-            logger.error(f"龙虎榜机构明细获取失败，日期：{trade_date}")
-            return
-        data_dicts = []
-        for row in df.itertuples():
-            stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
-                data_dicts.append(data_dict)
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=TopInst,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=TopInst,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
         return result
 
 

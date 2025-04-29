@@ -48,7 +48,7 @@ class StockTimeTradeDAO(BaseDAO):
                                   "end_date": "", "offset": "", "limit": "" }, 
             fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -94,7 +94,7 @@ class StockTimeTradeDAO(BaseDAO):
         df = self.ts_pro.stk_factor(**{ "ts_code": stock_code, "trade_date": "", "start_date": "","end_date": "", "offset": "", "limit": "" }, 
             fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -222,7 +222,7 @@ class StockTimeTradeDAO(BaseDAO):
             }, fields=[
                 "ts_code", "name", "pre_close", "high", "open", "low", "close", "vol", "amount", "num"
             ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -282,7 +282,7 @@ class StockTimeTradeDAO(BaseDAO):
             }, fields=[
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -325,7 +325,7 @@ class StockTimeTradeDAO(BaseDAO):
             }, fields=[
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
-            if df is not None:
+            if not df.empty:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 result_df = pd.concat([result_df, df])
@@ -431,7 +431,7 @@ class StockTimeTradeDAO(BaseDAO):
             }, fields=[
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
-            if df is not None:
+            if not df.empty:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 result_df = pd.concat([result_df, df])
@@ -590,7 +590,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -641,7 +641,7 @@ class StockTimeTradeDAO(BaseDAO):
             }, fields=[
                 "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
             ])
-            if df is not None:
+            if not df.empty:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in df.itertuples():
@@ -680,7 +680,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
@@ -744,7 +744,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -779,7 +779,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -829,7 +829,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -864,7 +864,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount", "change", "pct_chg"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -917,7 +917,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
             "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -947,7 +947,7 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
             "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -1066,7 +1066,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
-            if df is not None:
+            if not df.empty:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in df.itertuples():
@@ -1095,7 +1095,7 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
@@ -1160,7 +1160,7 @@ class StockTimeTradeDAO(BaseDAO):
             }, fields=[
                 "ts_code", "trade_date", "price", "percent"
             ])
-            if df is not None:
+            if not df.empty:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in df.itertuples():
@@ -1188,7 +1188,7 @@ class StockTimeTradeDAO(BaseDAO):
         }, fields=[
             "ts_code", "trade_date", "price", "percent"
         ])
-        if df is not None:
+        if not df.empty:
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
