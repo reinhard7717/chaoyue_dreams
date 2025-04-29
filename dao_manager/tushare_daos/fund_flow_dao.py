@@ -177,11 +177,10 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: str) -> Dict:
+    async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date_str: str) -> Dict:
         """
         保存历史日级资金流向数据 - 同花顺
         """
-        trade_date_str = trade_date.strftime('%Y%m%d')
         # 获取历史日级资金流向数据 - 同花顺
         df = self.ts_pro.moneyflow_ths(**{
             "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
@@ -300,11 +299,10 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date: str) -> Dict:
+    async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date_str: str) -> Dict:
         """
         保存历史日级资金流向数据 - 东方财富
         """
-        trade_date_str = trade_date.strftime('%Y%m%d')
         # 获取历史日级资金流向数据 - 东方财富
         df = self.ts_pro.moneyflow_dc(**{
             "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
