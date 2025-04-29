@@ -539,13 +539,13 @@ class StockTimeTradeDAO(BaseDAO):
             for stock_code in stock_codes:
                 cache_key = self.cache_key.history_time_trade(stock_code, time_level)
                 await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        print(f"data_dicts长度: {len(data_dicts)}")
+        # print(f"data_dicts长度: {len(data_dicts)}")
         result = await self._save_all_to_db_native_upsert(
             model_class=StockMinuteData,
             data_list=data_dicts,
             unique_fields=['stock', 'trade_time']
         )
-        logger.info(f"保存股票 {len(batch_codes)} 个代码的分钟级交易数据完成。结果: {result}")
+        logger.info(f"保存股票 {len(stock_codes)} 个代码的分钟级交易数据完成。结果: {result}")
             
             
         return result

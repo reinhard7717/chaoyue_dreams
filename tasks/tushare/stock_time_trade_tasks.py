@@ -102,17 +102,18 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
         if not all_stocks:
             logger.warning("未找到任何股票代码，跳过任务")
             return {"status": "skipped", "message": "未找到任何股票代码"}
-        logger.info(f"准备为 {all_stocks} 个股票分派批量任务...")
-        for i in range(0, len(all_stocks), batch_size):
+        total_codes_count = len(all_stocks)  # 用于统计总代码数量
+        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
+        for i in range(0, total_codes_count, batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
             if batch_codes:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch_codes)})...")
                 # 使用新的批量任务，并指定队列
-                save_stocks_minute_data_today_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_stocks_minute_data_today_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
 
-        logger.info(f"已为 {len(all_stocks)} 个股票分派了 {total_dispatched_batches} 个批次任务。")
+        logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
 
         logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
