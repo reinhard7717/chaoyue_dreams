@@ -103,14 +103,14 @@ def save_fund_flow_daily_data_history_batch(self, trade_date_str: str):
     fund_flow_dao = FundFlowDao()
     try:
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_history_fund_flow_daily_data_by_trade_date(trade_date_str))
-        print(f"{trade_date_str} 日级资金流向数据 保存完成")
+        result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_data_by_trade_date(trade_date_str))
+        print(f"{trade_date_str} 日级资金流向数据 保存完成。{result}")
         # 同花顺
-        asyncio.run(fund_flow_dao.save_history_fund_flow_daily_ths_data_by_trade_date(trade_date_str))
-        print(f"{trade_date_str} 日级资金流向数据(同花顺) 保存完成")
+        result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_ths_data_by_trade_date(trade_date_str))
+        print(f"{trade_date_str} 日级资金流向数据(同花顺) 保存完成。{result}")
         # 东方财富
-        asyncio.run(fund_flow_dao.save_history_fund_flow_daily_dc_data_trade_date(trade_date_str))
-        print(f"{trade_date_str} 日级资金流向数据(东方财富) 保存完成")
+        result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_dc_data_trade_date(trade_date_str))
+        print(f"{trade_date_str} 日级资金流向数据(东方财富) 保存完成。{result}")
         time.sleep(2)
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
