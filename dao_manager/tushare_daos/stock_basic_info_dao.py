@@ -48,7 +48,7 @@ class StockBasicInfoDao(BaseDAO):
             logger.error(f"从缓存获取股票列表失败: {e}",exc_info=True)
         try:
             # 从数据库读取
-            get_stocks_sync = sync_to_async(
+            get_stocks_sync = await sync_to_async(
                 lambda: list(StockInfo.objects.filter(list_status='L').order_by('stock_code')),
                 thread_sensitive=True  # 对于 ORM 操作，通常建议设置为 True
             )
