@@ -66,7 +66,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 #                      当日任务
 # ===================================================
 
-#  ================ 分钟数据任务（当日） ================
+#  ================ 分钟数据任务（当日收盘后） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch')
 def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
     """
@@ -135,7 +135,7 @@ def save_stocks_daily_basic_data_today_task(self):
 
 #  ================ 日线数据任务（当日） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_history_task', queue='SaveData_TimeTrade')
-def save_day_data_history_task(self, stock_codes: List[str]):
+def save_day_data_history_task(self):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:

@@ -575,6 +575,7 @@ class StockTimeTradeDAO(BaseDAO):
             
             
         return result
+
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime(self, stock_code: str, time_level: str) -> None:
         """

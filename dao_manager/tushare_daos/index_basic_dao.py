@@ -65,6 +65,22 @@ class IndexBasicDAO(BaseDAO):
         # 从数据库获取
         trade_days = await sync_to_async(lambda: TradeCalendar.objects.filter(cal_date__range=[start_date, end_date], is_open=1).order_by('-cal_date').values_list('cal_date', flat=True))()
         return trade_days
+
+    async def get_last_n_trade_cal_open(self, n: int = 333) -> list[str]:
+        """
+        从数据库中，从今天往前读取n个开盘日期
+        """
+        today_str = datetime.now().strftime('%Y%m%d')
+        # 使用sync_to_async包裹同步ORM查询
+        trade_days = await sync_to_async(
+            lambda: list(
+                TradeCalendar.objects.filter(
+                    cal_date__lte=today_str,
+                    is_open=1
+                ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
+            )
+        )()
+        return trade_days
     
     async def get_trade_cal_list(self) -> List['TradeCalendar']:
         """
