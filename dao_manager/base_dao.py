@@ -686,6 +686,14 @@ class BaseDAO(Generic[T]):
                         prepared_data[field_name] = self.parse_date_auto(prepared_data[field_name], is_datefield)
                 # 批量入库前，将所有 NaN 替换为 None
                 prepared_data = self.replace_nan_with_none(prepared_data)
+                # 处理 ForeignKey 字段 stock（示例，只针对 stock 字段，有多个类似情况需扩展）
+                stock_data = prepared_data.get("stock")
+                if isinstance(stock_data, dict):
+                    stock_instance = await sync_to_async(StockInfo.objects.filter(stock_code=stock_data['stock_code']).first)()
+                    if not stock_instance:
+                        stock_instance = StockInfo(**stock_data)
+                        await sync_to_async(stock_instance.save)()
+                    prepared_data["stock"] = stock_instance
                 try:
                     objs_to_process.append(model_class(**prepared_data))
                 except Exception as model_init_err:

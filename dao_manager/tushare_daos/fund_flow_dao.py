@@ -55,7 +55,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -78,12 +78,12 @@ class FundFlowDao(BaseDAO):
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
             if stock:
-                data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                data_dict = self.data_format_process.set_fund_flow_data(stock=stock, df_data=row)
                 data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -111,7 +111,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -140,7 +140,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -168,12 +168,12 @@ class FundFlowDao(BaseDAO):
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
             if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
                 data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -196,12 +196,12 @@ class FundFlowDao(BaseDAO):
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
             if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
                 data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -227,12 +227,12 @@ class FundFlowDao(BaseDAO):
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
             if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
                 data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -259,12 +259,12 @@ class FundFlowDao(BaseDAO):
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
             if stock:
-                data_dict = self.data_format_process.set_fund_flow_data_ths(stock, row)
+                data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
                 data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -296,7 +296,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -324,7 +324,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -355,7 +355,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -387,7 +387,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDailyDC,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -419,7 +419,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -447,7 +447,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -480,7 +480,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntDC,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -509,7 +509,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntDC,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
     
@@ -541,7 +541,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowIndustryTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -569,7 +569,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowIndustryTHS,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -602,7 +602,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowMarketDc,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -631,7 +631,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowMarketDc,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -663,7 +663,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopList,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -690,7 +690,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopList,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
         return result
@@ -722,7 +722,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopInst,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
@@ -750,7 +750,7 @@ class FundFlowDao(BaseDAO):
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopInst,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_date']
+            unique_fields=['stock', 'trade_time']
         )
         return result
 
