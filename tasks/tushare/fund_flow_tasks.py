@@ -93,16 +93,12 @@ def save_fund_flow_daily_data_history_batch(self, trade_date_str: str):
     Args:
         stock_codes: 股票代码列表
     """
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （历史）日级资金流向数据 （三种渠道）...")
+    logger.info(f"开始处理 {trade_date_str} 的 （历史）日级资金流向数据 （三种渠道）...")
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     Args:
         stock_codes: 股票代码列表
     """
-    if not stock_codes:
-        logger.info("收到空的股票代码列表，任务结束")
-        return {"processed": 0, "success": 0, "errors": 0}
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （历史）日级资金流向数据...")
     # 在任务开始时创建一次 DAO 实例
     fund_flow_dao = FundFlowDao()
     try:

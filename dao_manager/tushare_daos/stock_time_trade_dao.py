@@ -976,12 +976,13 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # 拉取数据
         # 拉取数据
+        stock_codes_str = ",".join(stock_codes)
         all_dfs = []
         offset = 0
         limit = 6000  # tushare pro接口最大limit一般为8000
         while True:
             df = self.ts_pro.daily_basic(**{
-                "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
+                "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
                 "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
