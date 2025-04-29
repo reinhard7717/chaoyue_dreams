@@ -3,6 +3,7 @@ import logging
 from typing import List
 import numpy as np
 import pandas as pd
+from math import ceil
 from datetime import datetime
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
 from dao_manager.base_dao import BaseDAO
