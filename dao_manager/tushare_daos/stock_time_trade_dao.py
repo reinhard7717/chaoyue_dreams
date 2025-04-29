@@ -514,6 +514,7 @@ class StockTimeTradeDAO(BaseDAO):
                         "limit": limit,
                         "offset": offset
                     }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
+                    print(f"拉取数据: {df}")
                     all_dfs.append(df)
                     if len(df) < limit:
                         break
