@@ -44,7 +44,14 @@ class StockTimeTradeDAO(BaseDAO):
         限量：单次最大10000条，可以循环或者分页提取
         积分：5000积分每分钟可以请求100次，8000积分以上每分钟500次，具体请参阅积分获取办法
         """
-        df = self.ts_pro.stk_factor(**{ "ts_code": "", "trade_date": trade_date.strftime("%Y%m%d"), "start_date": "",
+        trade_date_str = ""
+        if isinstance(trade_date, str):
+            trade_date_str = trade_date
+        elif isinstance(trade_date, date):
+            trade_date_str = trade_date.strftime("%Y%m%d")
+        else:
+            raise ValueError("trade_date 必须是 str 或 date 类型")
+        df = self.ts_pro.stk_factor(**{ "ts_code": "", "trade_date": trade_date_str, "start_date": "",
                                   "end_date": "", "offset": "", "limit": "" }, 
             fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                     "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
