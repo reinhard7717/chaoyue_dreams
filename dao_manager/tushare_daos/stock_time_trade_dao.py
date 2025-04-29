@@ -154,14 +154,13 @@ class StockTimeTradeDAO(BaseDAO):
             result_df = pd.concat(all_dfs, ignore_index=True)
         else:
             result_df = pd.DataFrame()
-        if result_df is not None:
+        if not result_df.empty:
             result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
             for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
-                    # logger.info(f"trade_date: {row.trade_date} - {self._parse_datetime(row.trade_date)}")
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
@@ -330,9 +329,9 @@ class StockTimeTradeDAO(BaseDAO):
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 result_df = pd.concat([result_df, df])
-        if result_df is not None:
+        if not result_df.empty:
             data_dicts = []
-            for row in df.itertuples():
+            for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
@@ -384,7 +383,7 @@ class StockTimeTradeDAO(BaseDAO):
                 result_df = pd.concat(all_dfs, ignore_index=True)
             else:
                 result_df = pd.DataFrame()
-            if result_df is not None:
+            if not result_df.empty:
                 result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in result_df.itertuples():
@@ -436,9 +435,9 @@ class StockTimeTradeDAO(BaseDAO):
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 result_df = pd.concat([result_df, df])
-        if result_df is not None:
+        if not result_df.empty:
             data_dicts = []
-            for row in df.itertuples():
+            for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
@@ -995,7 +994,7 @@ class StockTimeTradeDAO(BaseDAO):
             result_df = pd.concat(all_dfs, ignore_index=True)
         else:
             result_df = pd.DataFrame()
-        if result_df is not None:
+        if not result_df.empty:
             result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             result_df = result_df.where(pd.notnull(result_df), None)          # 再把所有np.nan变成None
             data_dicts = []
