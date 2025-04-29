@@ -52,7 +52,6 @@ async def _get_all_relevant_stock_codes_for_processing():
 
     return favorite_stock_codes_list, non_favorite_stock_codes
 
-
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock')
 def analyze_single_stock(self, stock_code: str, params_file: str):
     """
@@ -114,7 +113,7 @@ def analyze_all_stocks(self, params_file: str = "strategies/indicator_parameters
     """
     try:
         logger.info("开始调度所有股票的分析任务")
-        stock_basic_dao = StockBasicDAO()
+        stock_basic_dao = StockBasicInfoDao()
         # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
         if not favorite_codes:
