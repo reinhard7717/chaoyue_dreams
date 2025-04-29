@@ -49,26 +49,21 @@ class IndicatorDAO(BaseDAO):
         Returns:
             包含 `StockTimeTrade` 模型实例的列表 (按时间升序)，如果找不到数据或出错则返回 None。
         """
-        # 确保缓存对象已初始化
         if self.cache_get is None or self.stock_basic_dao is None:
             await self.initialize_cache_objects()
-        # 获取股票基础信息对象
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
-        # 标准化时间级别为字符串
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
-        # --- 1. 尝试从 Redis 缓存获取数据 ---
+        time_level_str = time_level_str.lower()
         cache_data: Optional[List[Dict]] = None
         try:
             cache_data = await self.cache_get.history_time_trade_by_limit(stock_code, time_level_str, limit)
         except Exception as e:
             logger.error(f"从 Redis 获取缓存数据时出错 for {stock} {time_level_str}: {e}", exc_info=True)
             cache_data = None
-        # --- 2. 处理缓存数据 (如果命中) ---
         if cache_data and isinstance(cache_data, list):
-            # logger.debug(f"缓存命中: 获取到 {stock_code} {time_level_str} 历史数据 {len(cache_data)} 条 (limit={limit})，进行手动转换...")
             model_instances = []
             conversion_errors = 0
             for item_dict_str in cache_data:
@@ -77,174 +72,184 @@ class IndicatorDAO(BaseDAO):
                         item_dict = self.cache_manager._deserialize(item_dict_str)
                     else:
                         item_dict = item_dict_str
-                    # 手动将字典转换为 StockTimeTrade 模型实例
                     trade_time = self._safe_datetime(item_dict.get('trade_time'))
-                    if not trade_time: # 如果时间无效，跳过此条记录
+                    if not trade_time:
                         logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
                         conversion_errors += 1
                         continue
-                    # 注意：这里不设置 id，因为缓存字典中没有
-                    instance = StockMinuteData(
-                        stock=stock,
-                        trade_time=self._safe_decimal(item_dict.get('trade_time')),
-                        time_level="Day",
-                        open=self._safe_decimal(item_dict.get('open')),
-                        high=self._safe_decimal(item_dict.get('high')),
-                        low=self._safe_decimal(item_dict.get('low')),
-                        close=self._safe_decimal(item_dict.get('close')),
-                        vol=self._safe_decimal(item_dict.get('vol')),
-                        amount=self._safe_decimal(item_dict.get('amount')),
-                        # 其他 StockTimeTrade 可能有的字段，如果缓存中有，也需要在这里添加转换逻辑
-                    )
-                    model_instances.append(instance)
-                    if time_level_str == "Day":
-                        instance.time_level = "day" # 确保正确设置 time_level，避免重复设置
-                    elif time_level_str == "week":
-                        instance.time_level = "week"
-                    elif time_level_str == "month":
-                        instance.time_level = "month"
-                    else:
+                    # 修改：将缓存字段名映射为模型字段名 --- 注意新增字段名称对应
+                    if time_level_str in ['day', 'week', 'month']:
+                        # 使用对应日/周/月模型
+                        if time_level_str == 'day':
+                            ModelClass = StockDailyData
+                        elif time_level_str == 'week':
+                            ModelClass = StockWeeklyData
+                        else:
+                            ModelClass = StockMonthlyData
+                        instance = ModelClass(
+                            stock=stock,
+                            trade_time=trade_time,
+                            open=self._safe_decimal(item_dict.get('open')),
+                            high=self._safe_decimal(item_dict.get('high')),
+                            low=self._safe_decimal(item_dict.get('low')),
+                            close=self._safe_decimal(item_dict.get('close')),
+                            vol=self._safe_int(item_dict.get('vol')),
+                            amount=self._safe_decimal(item_dict.get('amount')),
+                        )
                         instance.time_level = time_level_str
+                    else:
+                        # 按分钟数据 StockMinuteData
+                        instance = StockMinuteData(
+                            stock=stock,
+                            trade_time=trade_time,
+                            time_level=time_level_str,
+                            open=self._safe_decimal(item_dict.get('open')),
+                            high=self._safe_decimal(item_dict.get('high')),
+                            low=self._safe_decimal(item_dict.get('low')),
+                            close=self._safe_decimal(item_dict.get('close')),
+                            vol=self._safe_int(item_dict.get('vol')),
+                            amount=self._safe_decimal(item_dict.get('amount')),
+                        )
+                    model_instances.append(instance)
                 except Exception as e_conv:
                     conversion_errors += 1
-                    # 记录转换单个字典时的错误，避免打印过多日志可以选择不显示 exc_info
                     logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False)
             if conversion_errors > 0:
-                 logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
+                logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
             if not model_instances:
                 logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}，将尝试从数据库获取。")
-                # 不返回 None，继续尝试数据库
             else:
-                # 按交易时间升序排序
                 model_instances.sort(key=lambda x: x.trade_time)
                 logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
-                return model_instances # 返回成功转换的实例列表
-        # --- 3. 缓存未命中或处理失败，从数据库获取 ---
+                return model_instances
         logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
         try:
-            # 查询数据库，按时间降序获取最新的 limit 条
-            if time_level_str == "Day":
-                data_qs = StockDailyData.objects.filter(
+            if time_level_str == "day":
+                    data_qs = StockDailyData.objects.filter(
                     stock=stock,
-                    time_level=time_level_str
                 ).order_by('-trade_time')[:limit]
             elif time_level_str == "week":
                 data_qs = StockWeeklyData.objects.filter(
                     stock=stock,
-                    time_level=time_level_str
                 ).order_by('-trade_time')[:limit]
             elif time_level_str == "month":
                 data_qs = StockMonthlyData.objects.filter(
                     stock=stock,
-                    time_level=time_level_str
                 ).order_by('-trade_time')[:limit]
             else:
+                # 对分钟线数据，由于分钟线有 time_level 字段，需过滤
                 data_qs = StockMinuteData.objects.filter(
                     stock=stock,
                     time_level=time_level_str
                 ).order_by('-trade_time')[:limit]
-            # 异步执行查询
             data_list = await sync_to_async(list)(data_qs)
             if not data_list:
                 logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
                 return None
-            logger.debug(f"从数据库获取到 {stock_code} {time_level_str} {len(data_list)} 条历史数据")
-            # 反转列表，得到升序排列
             data_list.reverse()
-            return data_list # 返回从数据库获取并排序后的列表
+            return data_list
         except Exception as e_db:
             logger.error(f"从数据库获取股票[{stock_code}] {time_level_str} 级别分时成交数据失败: {str(e_db)}", exc_info=True)
-            return None # 查询失败返回 None
+            return None
 
     # 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[pd.DataFrame]:
         """
         获取历史数据并转换为 finta 需要的 DataFrame 格式。
         返回的 DataFrame 按时间升序排列。
-        (此方法逻辑不变，因为它依赖于 get_history_time_trades_by_limit 返回 List[StockTimeTrade])
+        根据时间级别明确调用对应模型数据读取。
         """
-        time_level_str = ""
-        if time_level == "5m":
-            time_level_str = '5'
-        elif time_level == '15m':
-            time_level_str = '15'
-        elif time_level == '30m':
-            time_level_str = '30'
-        elif time_level == '60m':
-            time_level_str = '60'
-        elif time_level == 'D':
-            time_level_str = 'day'
-        elif time_level == "W":
-            time_level_str = 'week'
-        elif time_level == "M":
-            time_level_str = 'month'
+        # 1. 统一处理 time_level，支持 TimeLevel 枚举及字符串
+        if isinstance(time_level, TimeLevel):
+            time_level_val = time_level.value
         else:
-            time_level_str = time_level
+            time_level_val = str(time_level)
+
+        # 2. 将大写特殊时间级别转换为对应的小写别名
+        # D => day； W => week； M => month； 如 5m => 5 等
+        tl_lower = time_level_val.lower()
+        if tl_lower == 'd' or tl_lower == 'day':
+            time_level_str = 'day'
+        elif tl_lower == 'w' or tl_lower == 'week':
+            time_level_str = 'week'
+        elif tl_lower == 'm' or tl_lower == 'month':
+            time_level_str = 'month'
+        elif tl_lower.endswith('m') and tl_lower[:-1].isdigit():
+            # 类似 '5m', '15m' 变 '5', '15'
+            time_level_str = tl_lower[:-1]
+        else:
+            time_level_str = tl_lower
+
+        # 3. 调用：根据 time_level_str 获取对应模型数据
         history_trades = await self.get_history_time_trades_by_limit(stock_code, time_level_str, limit)
         if not history_trades:
-            logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level}")
+            logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level_val}")
             return None
+
         try:
-            # 1. 将模型列表转换为 DataFrame
-            data = [
-                {
-                    # 使用 getattr 安全访问，并处理 None
-                    'trade_time': getattr(trade, 'trade_time', None),
-                    'open': float(getattr(trade, 'open', None)) if getattr(trade, 'open', None) is not None else np.nan,
-                    'high': float(getattr(trade, 'high', None)) if getattr(trade, 'high', None) is not None else np.nan,
-                    'low': float(getattr(trade, 'low', None)) if getattr(trade, 'low', None) is not None else np.nan,
-                    'close': float(getattr(trade, 'close', None)) if getattr(trade, 'close', None) is not None else np.nan,
-                    'vol': int(getattr(trade, 'vol', 0)) if getattr(trade, 'vol', None) is not None else 0, # finta 需要整数或浮点数
-                    'amount': float(getattr(trade, 'amount', None)) if getattr(trade, 'amount', None) is not None else np.nan,
-                }
-                for trade in history_trades if getattr(trade, 'trade_time', None) is not None # 过滤掉没有时间的记录
-            ]
+            # 4. 模型列表转换成字典列表
+            data = []
+            for trade in history_trades:
+                tt = getattr(trade, 'trade_time', None)
+                if tt is None:
+                    continue
+                data.append({
+                    'trade_time': tt,
+                    'open': float(getattr(trade, 'open', np.nan)) if getattr(trade, 'open', None) is not None else np.nan,
+                    'high': float(getattr(trade, 'high', np.nan)) if getattr(trade, 'high', None) is not None else np.nan,
+                    'low': float(getattr(trade, 'low', np.nan)) if getattr(trade, 'low', None) is not None else np.nan,
+                    'close': float(getattr(trade, 'close', np.nan)) if getattr(trade, 'close', None) is not None else np.nan,
+                    'volume': int(getattr(trade, 'vol', 0)) if getattr(trade, 'vol', None) is not None else 0,
+                    'amount': float(getattr(trade, 'amount', np.nan)) if getattr(trade, 'amount', None) is not None else np.nan,
+                })
+
             if not data:
-                logger.warning(f"从 StockTimeTrade 实例转换的数据列表为空: {stock_code} {time_level}")
+                logger.warning(f"从 StockTimeTrade 实例转换的数据列表为空: {stock_code} {time_level_val}")
                 return None
+
             df = pd.DataFrame(data)
             if df.empty:
-                logger.warning(f"转换后的 DataFrame 为空: {stock_code} {time_level}")
+                logger.warning(f"转换后的 DataFrame 为空: {stock_code} {time_level_val}")
                 return None
-            # 2. 对非数值列应用分类类型 (在 df 创建之后)
-            # 确保在访问 df.columns 之前 df 已经被定义
+
+            # 5. 类型转换
             for col in df.columns:
-                # 检查列是否存在且类型为 object，并且不是时间索引列
-                if col in df.columns and df[col].dtype == 'object' and col != 'trade_time':
+                if col != 'trade_time' and df[col].dtype == 'object':
                     try:
                         df[col] = df[col].astype('category')
-                    except Exception as e_cat:
-                        # 如果转换失败，记录警告但继续
-                        logger.warning(f"转换列 '{col}' 为 category 类型失败: {e_cat}")
-            # 3. 重命名列以匹配 finta 要求
+                    except Exception as e:
+                        logger.warning(f"转换列 '{col}' 为 category 类型失败: {e}")
+
+            # 6. 重命名列适配 finta
             df.rename(columns=FINTA_OHLCV_MAP, inplace=True)
-            # 4. 将 trade_time 设置为索引
-            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+
+            # 7. 时间列转换设为索引，丢弃解析失败行
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
+            df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
-            # 5. 去除重复索引
-            initial_len = len(df)
+
+            # 8. 去重索引，保留最后一个
             if df.index.has_duplicates:
-                # logger.warning(f"发现重复的时间戳索引 for {stock_code} {time_level}，将进行去重处理 (保留最后一个)")
-                # 保留每个重复时间戳的最后一条记录
                 df = df[~df.index.duplicated(keep='last')]
-                # logger.info(f"索引去重完成 for {stock_code} {time_level}，记录数从 {initial_len} 变为 {len(df)}")
-            # --- 去重结束 ---
-            # 6. 确保数据按时间升序排列
+
+            # 9. 按时间升序排序
             df.sort_index(ascending=True, inplace=True)
-            # 7. 验证必要的列是否存在
+
+            # 10. 校验必要列
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
-                logger.error(f"DataFrame 缺少必要列: {stock_code} {time_level}. 需要: {required_cols}, 实际: {df.columns.tolist()}")
+                logger.error(f"DataFrame 缺少必要列: {stock_code} {time_level_val}. 需要: {required_cols}, 实际: {df.columns.tolist()}")
                 return None
-            # 移除完全是 NaN 的行 (如果需要)
-            # df.dropna(subset=required_cols, how='all', inplace=True) # 谨慎使用，可能移除计算指标需要的数据点
-            # 8. 检查是否有足够的非 NaN 数据行
+
+            # 11. 校验是否整张表全部NaN
             if df[required_cols].isnull().all(axis=1).sum() == len(df):
-                 logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level}")
-                 return None # 如果全是 NaN，返回 None
+                logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level_val}")
+                return None
+
             return df
+
         except Exception as e:
-            logger.error(f"转换 {stock_code} {time_level} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
+            logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None
 
     # --- 其他 DAO 方法 ---

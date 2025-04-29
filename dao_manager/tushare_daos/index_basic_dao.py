@@ -176,12 +176,12 @@ class IndexBasicDAO(BaseDAO):
         index_info = await self.index_cache_get.index_data_by_code(index_code)
         if index_info:
             return_result = IndexInfo(**index_info)
-            return return_result
-        # 从数据库获取
-        index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
-        if index_info:
-            return_result = self.data_format_process.set_index_info_data(index_info)
-            await self.index_cache_set.index_info(index_code, return_result)
+        else:
+            # 从数据库获取
+            index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
+            if index_info:
+                return_result = self.data_format_process.set_index_info_data(index_info)
+                await self.index_cache_set.index_info(index_code, return_result)
         return return_result
 
     async def get_indexs_by_publisher(self, publisher: str) -> Optional['IndexInfo']:
@@ -334,7 +334,8 @@ class IndexBasicDAO(BaseDAO):
         ])
         index_dailybasic_dicts = []
         if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 index_info = await self.get_index_by_code(row.ts_code)
                 index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)

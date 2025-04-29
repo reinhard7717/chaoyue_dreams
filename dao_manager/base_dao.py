@@ -14,6 +14,7 @@ from datetime import datetime, date # 日期时间类型
 import dateutil.parser
 from django.db import models # Django 模型
 from decimal import Decimal # 导入 Decimal
+from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo
 import tushare as ts
 from django.conf import settings # Django 设置
@@ -620,6 +621,42 @@ class BaseDAO(Generic[T]):
             logger.error(f"数据库筛选 {self.model_name} 错误: {str(e)}", exc_info=True)
             return []
 
+    async def get_or_create_fk_instance(self, field_name: str, field_model: Type[models.Model],
+        prepared_data: dict, lookup_field: str = "id" ) -> None:
+        """
+        异步获取或创建关联外键实例，替换 prepared_data 中的外键数据字典为模型实例。
+        Args:
+            field_name: 外键字段名，prepared_data 中该字段对应的值是 dict 或已是模型实例。
+            field_model: 外键对应的模型类。
+            prepared_data: 当前准备插入的整条数据字典，会在此函数内修改。
+            lookup_field: 用于查询的唯一字段名，默认为 "id"。
+        Raises:
+            KeyError: 如果 lookup_field 在字典中不存在，则会抛出异常。
+        """
+        fk_data = prepared_data.get(field_name)
+        if isinstance(fk_data, dict):
+            # 异步查询数据库是否已存在对应的关联实例
+            lookup_value = fk_data.get(lookup_field)
+            if lookup_value is None:
+                logger.error(f"外键字段 {field_name} 字典中缺少必须的唯一字段 {lookup_field}: {fk_data}")
+                raise KeyError(f"缺少唯一字段 {lookup_field} 用于查询 {field_name}")
+            instance = await sync_to_async(field_model.objects.filter(**{lookup_field: lookup_value}).first)()
+            if not instance:
+                try:
+                    instance = field_model(**fk_data)
+                    await sync_to_async(instance.save)()
+                except Exception as e:
+                    logger.error(f"创建外键模型 {field_model.__name__} 实例失败: {e}", exc_info=True)
+                    raise
+            # 替换字典为模型实例，供bulk_create使用
+            prepared_data[field_name] = instance
+        elif fk_data is None:
+            # 如果外键允许为空，保持 None
+            prepared_data[field_name] = None
+        else:
+            # 如果已经是模型实例，则不操作
+            pass
+
     # ==================== 批量保存方法 ====================
     # 保留 Django 5 原生 Upsert 方法作为推荐实现
     async def _save_all_to_db_native_upsert( self, model_class: Type[models.Model], data_list: List[Dict[str, Any]],
@@ -688,13 +725,9 @@ class BaseDAO(Generic[T]):
                 # 批量入库前，将所有 NaN 替换为 None
                 prepared_data = self.replace_nan_with_none(prepared_data)
                 # 处理 ForeignKey 字段 stock（示例，只针对 stock 字段，有多个类似情况需扩展）
-                stock_data = prepared_data.get("stock")
-                if isinstance(stock_data, dict):
-                    stock_instance = await sync_to_async(StockInfo.objects.filter(stock_code=stock_data['stock_code']).first)()
-                    if not stock_instance:
-                        stock_instance = StockInfo(**stock_data)
-                        await sync_to_async(stock_instance.save)()
-                    prepared_data["stock"] = stock_instance
+                # 依次处理所有外键字段
+                await self.get_or_create_fk_instance("stock", StockInfo, prepared_data, lookup_field="stock_code")
+                await self.get_or_create_fk_instance("index", IndexInfo, prepared_data, lookup_field="index_code")
                 try:
                     objs_to_process.append(model_class(**prepared_data))
                 except Exception as model_init_err:

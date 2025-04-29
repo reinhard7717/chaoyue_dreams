@@ -87,7 +87,7 @@ class Command(BaseCommand):
         save_analysis = options['save_analysis']
         tail_n = options['tail']
 
-        stock_basic_dao = StockBasicDAO()
+        stock_basic_dao = StockBasicInfoDao()
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             raise CommandError(f"找不到股票代码: {stock_code}")
