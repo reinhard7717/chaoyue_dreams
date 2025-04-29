@@ -97,22 +97,27 @@ class FundFlowDailyDC(models.Model):
     """
     stock = models.ForeignKey(
         StockInfo,
-        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='ts_code', # 数据库字段名
-        on_delete=models.CASCADE, blank=True, null=True,
-        related_name="fund_flow_daily_dc", verbose_name=_("股票")
+        to_field='stock_code',  # 外键对应StockInfo的stock_code字段
+        db_column='ts_code',  # 数据库字段名保持和接口字段一致
+        on_delete=models.CASCADE,
+        blank=True, null=True,
+        related_name="fund_flow_daily_dc",
+        verbose_name=_("股票")
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
+    name = models.CharField(max_length=50, verbose_name=_("股票名称"), null=True, blank=True)
     pct_change = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("涨跌幅(%)"), null=True, blank=True)
+    close = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=_("最新价"), null=True, blank=True)
     net_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日主力净流入额（万元）"), null=True, blank=True)
-    net_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日主力净流入率（%）"), null=True, blank=True)
-    net_d5_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("5日主力净额（万元）"), null=True, blank=True)
+    net_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日主力净流入净占比（%）"), null=True, blank=True)
+    buy_elg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日超大单净流入额（万元）"), null=True, blank=True)
+    buy_elg_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日超大单净流入占比（%）"), null=True, blank=True)
     buy_lg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日大单净流入额（万元）"), null=True, blank=True)
-    buy_lg_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日大单净流入率（%）"), null=True, blank=True)
+    buy_lg_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日大单净流入占比（%）"), null=True, blank=True)
     buy_md_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日中单净流入额（万元）"), null=True, blank=True)
-    buy_md_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日中单净流入率（%）"), null=True, blank=True)
+    buy_md_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日中单净流入占比（%）"), null=True, blank=True)
     buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日小单净流入额（万元）"), null=True, blank=True)
-    buy_sm_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日小单净流入率（%）"), null=True, blank=True)
+    buy_sm_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日小单净流入占比（%）"), null=True, blank=True)
 
     class Meta:
         verbose_name = _("日级资金流向 - 东方财富")
@@ -125,7 +130,7 @@ class FundFlowDailyDC(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.stock.name if self.stock else ''}日级资金流向 - 东方财富({self.trade_time})"
+        return f"{self.stock.name if self.stock else self.name} 日级资金流向 - 东方财富({self.trade_date})"
 
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
