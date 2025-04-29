@@ -44,6 +44,8 @@ class StockBasicInfoDao(BaseDAO):
                     # logger.info(f"get_stock_list: {stock_dict}")
                     if stock_dict.get('list_status') == 'L':
                         return_data.append(StockInfo(**stock_dict))
+            if return_data:
+                return return_data  # 直接返回模型实例列表
         except Exception as e:
             logger.error(f"从缓存获取股票列表失败: {e}",exc_info=True)
         try:
@@ -61,7 +63,7 @@ class StockBasicInfoDao(BaseDAO):
                     await self.stock_cache_set.stock_basic_info(stock.stock_code, stock_dict)
                 await self.stock_cache_set.all_stocks(data_to_cache)
         except Exception as e:
-            logger.error(f"从数据库读取股票列表失败: {e}")
+            logger.error(f"从数据库读取股票列表失败: {e}", exc_info=True)
         return return_data
 
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
