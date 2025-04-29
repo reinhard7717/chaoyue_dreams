@@ -394,7 +394,7 @@ class StockInfoCacheSet(CacheSet):
     async def stock_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_manager = await self.get_cache_manager()
         cache_key = self.cache_key_stock.stock_data(stock_code)
-        print(f"StockInfoCacheSet.stock_basic_info.cache_key: {cache_key}")
+        # print(f"StockInfoCacheSet.stock_basic_info.cache_key: {cache_key}")
         cache_timeout = cache_manager.get_timeout(cc.TYPE_STATIC)
         return await cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 

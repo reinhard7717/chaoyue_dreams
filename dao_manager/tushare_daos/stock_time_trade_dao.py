@@ -494,7 +494,6 @@ class StockTimeTradeDAO(BaseDAO):
         result = {}
         batch_size = 1000
         num_batches = ceil(len(stock_codes) / batch_size)
-
         for batch_index in range(num_batches):
             batch_codes = stock_codes[batch_index * batch_size:(batch_index + 1) * batch_size]
             stock_codes_str = ",".join(batch_codes)
@@ -529,6 +528,7 @@ class StockTimeTradeDAO(BaseDAO):
                         stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                         if stock:
                             data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                            print(f"处理股票: {stock.stock_code}, 时间: {row.trade_time}, 数据: {data_dict}")
                             data_dicts.append(data_dict)
                             # 准备缓存数据
                             cache_data_dict = data_dict.copy()
@@ -543,6 +543,7 @@ class StockTimeTradeDAO(BaseDAO):
                 for stock_code in batch_codes:
                     cache_key = self.cache_key.history_time_trade(stock_code, time_level)
                     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+        print(f"data_dicts长度: {len(data_dicts)}")
         result = await self._save_all_to_db_native_upsert(
             model_class=StockMinuteData,
             data_list=data_dicts,
