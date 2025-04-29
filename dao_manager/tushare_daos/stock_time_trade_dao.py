@@ -1039,7 +1039,7 @@ class StockTimeTradeDAO(BaseDAO):
         
     #  =============== A股筹码及胜率 ===============
     # 每日筹码及胜率
-    async def save_today_cyq_chips(self) -> None:
+    async def save_today_cyq_perf(self) -> None:
         """
         保存股票的每日筹码分布数据
         接口：cyq_perf
@@ -1088,7 +1088,7 @@ class StockTimeTradeDAO(BaseDAO):
             )
         return result
 
-    async def save_cyq_chips_history_by_stock_code(self, stock_code: str) -> None:
+    async def save_cyq_perf_history_by_stock_code(self, stock_code: str) -> None:
         """
         保存股票的每日筹码分布数据
         """
@@ -1115,7 +1115,7 @@ class StockTimeTradeDAO(BaseDAO):
             )
         return result
 
-    async def get_cyq_chips_history(self, stock_code: str) -> None:
+    async def get_cyq_perf_history(self, stock_code: str) -> None:
         """
         获取股票的每日筹码分布数据
         """
