@@ -725,13 +725,19 @@ class BaseDAO(Generic[T]):
                 # 批量入库前，将所有 NaN 替换为 None
                 prepared_data = self.replace_nan_with_none(prepared_data)
                 # 处理 ForeignKey 字段 stock（示例，只针对 stock 字段，有多个类似情况需扩展）
+                # 只保留模型字段里有的字段，避免传入多余字段
+                model_field_names = {f.name for f in model_class._meta.get_fields() if not (f.many_to_many or f.one_to_many)}
+                # 过滤prepared_data
+                filtered_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
                 # 依次处理所有外键字段
-                await self.get_or_create_fk_instance("stock", StockInfo, prepared_data, lookup_field="stock_code")
-                await self.get_or_create_fk_instance("index", IndexInfo, prepared_data, lookup_field="index_code")
+                if "stock" in model_field_names:
+                    await self.get_or_create_fk_instance("stock", StockInfo, filtered_data, lookup_field="stock_code")
+                if "index" in model_field_names:
+                    await self.get_or_create_fk_instance("index", IndexInfo, filtered_data, lookup_field="index_code")
                 try:
-                    objs_to_process.append(model_class(**prepared_data))
+                    objs_to_process.append(model_class(**filtered_data))
                 except Exception as model_init_err:
-                    logger.error(f"创建模型 {model_class.__name__} 实例失败: {model_init_err}, data: {prepared_data}", exc_info=True)
+                    logger.error(f"创建模型 {model_class.__name__} 实例失败: {model_init_err}, data: {filtered_data}", exc_info=True)
                     failed_count += 1 # 单条记录创建失败
             # 如果当前批次所有记录都创建失败，则跳过数据库操作
             if len(objs_to_process) == 0 and current_batch_size > 0:
