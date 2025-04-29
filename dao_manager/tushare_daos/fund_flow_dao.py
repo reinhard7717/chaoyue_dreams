@@ -45,7 +45,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{today_str}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -73,7 +73,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -102,7 +102,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -131,7 +131,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -164,7 +164,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{today_str}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -191,7 +191,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -222,7 +222,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -254,7 +254,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -286,7 +286,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{today_str}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -312,8 +312,8 @@ class FundFlowDao(BaseDAO):
             "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
         if df is None:
-            logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            logger.error(f"日级资金流向数据 - 东方财富 获取失败，日期：{trade_date}")
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -344,7 +344,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -376,7 +376,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"日级资金流向数据获取失败，日期：{trade_date}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -408,7 +408,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"板块资金流向数据获取失败，日期：{today_str}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
@@ -469,7 +469,7 @@ class FundFlowDao(BaseDAO):
         ])
         if df is None:
             logger.error(f"板块资金流向数据获取失败，日期：{today_str}")
-            return
+            return {}
         data_dicts = []
         for row in df.itertuples():
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
