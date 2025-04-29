@@ -116,7 +116,7 @@ def analyze_all_stocks(self, params_file: str = "strategies/indicator_parameters
         stock_basic_dao = StockBasicInfoDao()
         # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-        if not favorite_codes:
+        if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
 
