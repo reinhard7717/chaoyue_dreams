@@ -74,14 +74,12 @@ def save_stocks_minute_data_today_task(self):
     Args:
         stock_codes: 股票代码列表
     """
-    if not stock_codes:
-        logger.info("收到空的股票代码列表，任务结束")
-        return {"processed": 0, "success": 0, "errors": 0}
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 历史(分钟)数据任务...")
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
+        print("开始保存 分钟数据任务（当日）...")
         asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today())
+        print("保存 分钟数据任务（当日） 完成。")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
