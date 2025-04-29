@@ -14,6 +14,7 @@ from datetime import datetime, date # 日期时间类型
 import dateutil.parser
 from django.db import models # Django 模型
 from decimal import Decimal # 导入 Decimal
+from stock_models.stock_basic import StockInfo
 import tushare as ts
 from django.conf import settings # Django 设置
 import pytz # 时区处理
