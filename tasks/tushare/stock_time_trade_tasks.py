@@ -112,16 +112,12 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
                 save_stocks_minute_data_today_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
-
         logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
-
         logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
-
     except Exception as e:
         logger.error(f"执行 save_stocks_minute_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
-
 
 #  ================ 今日基本信息 数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task', queue='SaveData_TimeTrade')
@@ -158,7 +154,6 @@ def save_day_data_history_task(self, stock_codes: List[str]):
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-
 # ===================================================
 #                      历史任务
 # ===================================================
@@ -184,54 +179,38 @@ def save_minute_data_history_batch(self, stock_codes: List[str]):
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_history_task')
-def save_stocks_minute_data_history_task(self, batch_size: int = 5): # 限量：单次最大8000行数据
+def save_stocks_minute_data_history_task(self, batch_size: int = 51): # 限量：单次最大8000行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
     2. 将代码分成批次。
-    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
+    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
+    logger.info(f"任务启动: save_stocks_minute_data_history_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
     try:
-        # 在同步任务中运行异步代码获取列表
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-        if not favorite_codes and not non_favorite_codes:
-            logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
-            return {"status": "warning", "message": "未获取到股票代码", "dispatched_batches": 0}
         total_dispatched_batches = 0
-        total_favorite_stocks = len(favorite_codes)
-        total_non_favorite_stocks = len(non_favorite_codes)
-        # 1. 分派自选股批量任务
-        logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
-        for i in range(0, total_favorite_stocks, batch_size):
-            batch = favorite_codes[i:i + batch_size]
-            if batch:
-                logger.info(f"创建自选股批次任务 (大小: {len(batch)})...")
+        stock_basic_dao = StockBasicInfoDao()
+        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        all_stock_codes = [stock.stock_code for stock in all_stocks]
+        if not all_stocks:
+            logger.warning("未找到任何股票代码，跳过任务")
+            return {"status": "skipped", "message": "未找到任何股票代码"}
+        total_codes_count = len(all_stocks)  # 用于统计总代码数量
+        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
+        for i in range(0, total_codes_count, batch_size):
+            batch_codes = all_stock_codes[i:i + batch_size]
+            if batch_codes:
+                logger.info(f"创建自选股批次任务 (大小: {len(batch_codes)})...")
                 # 使用新的批量任务，并指定队列
-                save_minute_data_history_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+                save_minute_data_history_batch.s(stock_codes=batch_codes).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
-                logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
-        logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
-        favorite_batches_dispatched = total_dispatched_batches
-        # 2. 分派非自选股批量任务
-        logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
-        non_favorite_batches_dispatched = 0
-        for i in range(0, total_non_favorite_stocks, batch_size):
-            batch = non_favorite_codes[i:i + batch_size]
-            if batch:
-                logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
-                # 使用新的批量任务，并指定队列
-                save_minute_data_history_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
-                total_dispatched_batches += 1
-                non_favorite_batches_dispatched += 1
-                logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
-        logger.info(f"已为 {total_non_favorite_stocks} 个非自选股分派了 {non_favorite_batches_dispatched} 个批次任务。")
-        logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
+                logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
+        logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
+        logger.info(f"任务结束: save_stocks_minute_data_history_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
-
     except Exception as e:
-        logger.error(f"执行 save_stocks_realtime_min_data_task (调度器模式) 时出错: {e}", exc_info=True)
+        logger.error(f"执行 save_stocks_minute_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 #  ================ 日线数据任务（历史） ================

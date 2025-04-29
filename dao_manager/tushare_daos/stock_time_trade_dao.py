@@ -355,15 +355,24 @@ class StockTimeTradeDAO(BaseDAO):
         stock_codes_str = ",".join(stock_codes)
         data_dicts = []
         for time_level in time_levels:
-            df = self.ts_pro.stk_mins(**{
-                "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
-            }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
-            ])
-            if df is not None:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
+            # 拉取数据
+            all_dfs = []
+            offset = 0
+            limit = 8000  # tushare pro接口最大limit一般为8000
+            while True:
+                df = self.ts_pro.stk_mins(**{
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "",
+                    "limit": limit, "offset": offset
+                }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
+                all_dfs.append(df)
+                if len(df) < limit:
+                    break
+                offset += limit
+            if all_dfs:
+                result_df = pd.concat(all_dfs, ignore_index=True)
+            else:
+                result_df = pd.DataFrame()
+            for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)

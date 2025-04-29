@@ -662,7 +662,7 @@ class BaseDAO(Generic[T]):
                 f"模型 {model_class.__name__} 没有可用于更新的字段（除了唯一字段 {unique_fields}）。"
                 f" bulk_create 在 update_conflicts=True 模式下仍会尝试创建新记录，但现有记录不会被修改。"
             )
-        batch_size = 5000 # 定义每个数据库事务处理的批次大小
+        batch_size = 8000 # 定义每个数据库事务处理的批次大小
         for i in range(0, len(data_list), batch_size):
             batch = data_list[i : i + batch_size]
             current_batch_size = len(batch)
