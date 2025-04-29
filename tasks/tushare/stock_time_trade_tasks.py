@@ -112,7 +112,7 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
 
-        logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
+        logger.info(f"已为 {len(all_stocks)} 个股票分派了 {total_dispatched_batches} 个批次任务。")
 
         logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
