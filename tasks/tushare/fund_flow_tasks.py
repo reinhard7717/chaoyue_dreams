@@ -129,13 +129,11 @@ def save_fund_flow_daily_data_history_task(self):
     3. 为每个批次分派 save_fund_flow_daily_data_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
+    logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器模式) - 获取股票列表并分派批量任务")
     try:
         total_dispatched_batches = 0
         index_basic_dao = IndexBasicDAO()
         trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open())
-        # 1. 分派自选股批量任务
-        logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
         for trade_date in trade_days_list:
             trade_date_str = trade_date.strftime('%Y%m%d')
             logger.info(f"创建自选股批次任务 (抓取日期: {trade_date_str})...")
