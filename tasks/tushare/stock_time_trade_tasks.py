@@ -79,10 +79,10 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         print("开始保存 分钟数据任务（当日）...")
-        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today(stock_codes=stock_codes,trade_time_str=trade_time_str))
-        print("保存 分钟数据任务（当日） 完成。")
+        result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today(stock_codes=stock_codes,trade_time_str=trade_time_str))
+        print(f"保存股票 {len(stock_codes)} 个的分钟级交易数据完成。结果: {result}")
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"save_stocks_minute_data_today_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task')
@@ -130,9 +130,11 @@ def save_stocks_daily_basic_data_today_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        asyncio.run(stock_time_trade_dao.save_today_stock_basic_info())
+        print("开始保存 今日股票重要的基本面指标...")
+        result = asyncio.run(stock_time_trade_dao.save_today_stock_basic_info())
+        print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 #  ================ 日线数据任务（当日） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_history_task', queue='SaveData_TimeTrade')
@@ -146,14 +148,15 @@ def save_day_data_history_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        return_info = asyncio.run(stock_time_trade_dao.save_daily_time_trade_today())
-        logger.info(f"保存 日线 数据完成。 ")
-        asyncio.run(stock_time_trade_dao.save_today_cyq_chips())
-        logger.info(f"保存 每日筹码及胜率 数据完成。 ")
-        asyncio.run(stock_time_trade_dao.save_today_cyq_chips())
-        logger.info(f"保存 每日筹码分布 数据完成。 ")
+        print("开始保存 日线数据任务（当日）...")
+        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_today())
+        print(f"保存 日线数据任务（当日） 完成。result: {result}")
+        result = asyncio.run(stock_time_trade_dao.save_today_cyq_chips())
+        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+        result = asyncio.run(stock_time_trade_dao.save_today_cyq_chips())
+        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # ===================================================
 #                      历史任务
@@ -176,7 +179,7 @@ def save_minute_data_history_batch(self, stock_codes: List[str]):
     try:
         asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(stock_codes))
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"save_minute_data_history_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_history_task')

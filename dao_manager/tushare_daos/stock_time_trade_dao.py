@@ -569,9 +569,6 @@ class StockTimeTradeDAO(BaseDAO):
             data_list=data_dicts,
             unique_fields=['stock', 'trade_time']
         )
-        logger.info(f"保存股票 {len(stock_codes)} 个代码的分钟级交易数据完成。结果: {result}")
-            
-            
         return result
 
     # =============== A股分钟行情(实时) ===============
