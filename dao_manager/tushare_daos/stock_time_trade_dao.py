@@ -481,7 +481,7 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-    async def save_minute_time_trade_history_today(self, trade_time_str: str) -> None:
+    async def save_minute_time_trade_history_today(self, trade_time_str=None) -> None:
         """
         保存股票的历史分钟级交易数据，分批每1000个stock_code循环一次
         """
@@ -514,7 +514,7 @@ class StockTimeTradeDAO(BaseDAO):
                         "limit": limit,
                         "offset": offset
                     }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
-                    print(f"{today_str} 拉取数据: {df}")
+                    # print(f"{today_str} 拉取数据: {df}")
                     all_dfs.append(df)
                     if len(df) < limit:
                         break
@@ -530,7 +530,7 @@ class StockTimeTradeDAO(BaseDAO):
                         stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                         if stock:
                             data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                            print(f"处理股票: {stock.stock_code}, 时间: {row.trade_time}, 数据: {data_dict}")
+                            # print(f"处理股票: {stock.stock_code}, 时间: {row.trade_time}, 数据: {data_dict}")
                             data_dicts.append(data_dict)
                             # 准备缓存数据
                             cache_data_dict = data_dict.copy()
