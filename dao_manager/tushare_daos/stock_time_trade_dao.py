@@ -134,19 +134,32 @@ class StockTimeTradeDAO(BaseDAO):
         保存股票的历史日线交易数据
         接口：stk_factor
         描述：获取股票每日技术面因子数据，用于跟踪股票当前走势情况，数据由Tushare社区自产，覆盖全历史
-        限量：单次最大10000条，可以循环或者分页提取
+        限量：单次最大6000条，可以循环或者分页提取
         积分：5000积分每分钟可以请求100次，8000积分以上每分钟500次，具体请参阅积分获取办法
         """
         stock_codes_str = ",".join(stock_codes)
-        df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": "", "limit": "" }, 
-            fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
-                    "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
+        # 拉取数据
+        all_dfs = []
+        offset = 0
+        limit = 6000  # tushare pro接口最大limit一般为6000
+        while True:
+            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
+                fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
+                        "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if all_dfs:
+            result_df = pd.concat(all_dfs, ignore_index=True)
+        else:
+            result_df = pd.DataFrame()
         logger.info(f"开始执行{len(stock_codes)}个股票的日线数据保存. 获取df数量: {len(df)}，stock_codes: {stock_codes_str}")
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+        if result_df is not None:
+            result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
-            for row in df.itertuples():
+            for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     # logger.info(f"trade_date: {row.trade_date} - {self._parse_datetime(row.trade_date)}")
@@ -372,32 +385,36 @@ class StockTimeTradeDAO(BaseDAO):
                 result_df = pd.concat(all_dfs, ignore_index=True)
             else:
                 result_df = pd.DataFrame()
-            for row in result_df.itertuples():
-                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                    data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = row.ts_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-            for stock_code in stock_codes:
-                # --- 函数末尾执行最终修剪 ---
-                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                # --- 修剪调用结束 ---
-        result = await self._save_all_to_db_native_upsert(
-            model_class=StockMinuteData,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
-        )
+            if result_df is not None:
+                result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in result_df.itertuples():
+                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                    if stock:
+                        data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                        data_dicts.append(data_dict)
+                        # 2. 准备缓存数据
+                        cache_data_dict = data_dict.copy()
+                        if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                            # 替换为 stock_code
+                            cache_data_dict['stock_code'] = row.ts_code
+                            del cache_data_dict['stock'] # 删除实例键
+                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                        if prepared_data:
+                            await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                        else:
+                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+                for stock_code in stock_codes:
+                    # --- 函数末尾执行最终修剪 ---
+                    cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                    # --- 修剪调用结束 ---
+        if data_dicts is not None:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockMinuteData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
         logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据完成. 结果: {result}")
         return result
 
@@ -936,6 +953,53 @@ class StockTimeTradeDAO(BaseDAO):
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             data_dicts = []
             for row in df.itertuples():
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process_trade.set_stock_daily_basic_data(stock=stock, df_data=row)
+                    await self.cache_set.stock_day_basic_info(row.ts_code, data_dict)
+                    data_dicts.append(data_dict)
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockDailyBasic,
+                data_list=data_dicts,
+                unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+            )
+        else:
+            result = []
+        # --- 函数末尾执行最终修剪 ---
+        cache_key = self.cache_key.stock_day_basic_info(stock_code)
+        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+        # --- 修剪调用结束 ---
+        return result
+
+    async def save_stock_daily_basic_history_by_stock_codes(self, stock_codes: List[str]) -> None:
+        """
+        保存股票的日线基本信息
+        """
+        # 拉取数据
+        # 拉取数据
+        all_dfs = []
+        offset = 0
+        limit = 6000  # tushare pro接口最大limit一般为8000
+        while True:
+            df = self.ts_pro.daily_basic(**{
+                "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
+            }, fields=[
+                "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+                "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
+            ])
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if all_dfs:
+            result_df = pd.concat(all_dfs, ignore_index=True)
+        else:
+            result_df = pd.DataFrame()
+        if result_df is not None:
+            result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            result_df = result_df.where(pd.notnull(result_df), None)          # 再把所有np.nan变成None
+            data_dicts = []
+            for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_stock_daily_basic_data(stock=stock, df_data=row)
