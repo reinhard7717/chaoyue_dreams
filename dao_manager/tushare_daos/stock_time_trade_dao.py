@@ -536,7 +536,7 @@ class StockTimeTradeDAO(BaseDAO):
                             await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
                         else:
                             logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-            for stock_code in batch_codes:
+            for stock_code in stock_codes:
                 cache_key = self.cache_key.history_time_trade(stock_code, time_level)
                 await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
         print(f"data_dicts长度: {len(data_dicts)}")
