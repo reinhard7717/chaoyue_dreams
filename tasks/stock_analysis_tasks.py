@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # --- 辅助函数：获取需要处理的股票代码 (保持不变) ---
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
-    stock_basic_dao = StockBasicDAO()
+    stock_basic_dao = StockBasicInfoDao()
     favorite_stock_codes = set()
     all_stock_codes = set()
     # 获取自选股
@@ -53,7 +53,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     return favorite_stock_codes_list, non_favorite_stock_codes
 
 
-@celery_app.task(bind=True, name='tasks.stock_analysis.analyze_single_stock')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock')
 def analyze_single_stock(self, stock_code: str, params_file: str):
     """
     对单只股票执行所有策略分析并保存结果
@@ -106,7 +106,8 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
         logger.error(f"分析股票 {stock_code} 时发生错误: {e}", exc_info=True)
         raise self.retry(exc=e)
 
-@celery_app.task(bind=True, name='tasks.stock_analysis.analyze_all_stocks')
+# --- 调度任务：获取所有股票并分配分析任务 ---
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks')
 def analyze_all_stocks(self, params_file: str = "strategies/indicator_parameters.json"):
     """
     调度任务：获取所有股票并分配分析任务
