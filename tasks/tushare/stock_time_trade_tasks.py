@@ -68,7 +68,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 
 #  ================ 分钟数据任务（当日） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task', queue='SaveData_TimeTrade')
-def save_stocks_minute_data_today_task(self):
+def save_stocks_minute_data_today_task(self, trade_time_str=None):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:
@@ -78,7 +78,7 @@ def save_stocks_minute_data_today_task(self):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         print("开始保存 分钟数据任务（当日）...")
-        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today())
+        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today(trade_time_str=None))
         print("保存 分钟数据任务（当日） 完成。")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
