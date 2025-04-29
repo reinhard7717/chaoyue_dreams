@@ -78,7 +78,7 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         print("开始保存 分钟数据任务（当日）...")
-        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today(trade_time_str=None))
+        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today(trade_time_str))
         print("保存 分钟数据任务（当日） 完成。")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
