@@ -103,7 +103,7 @@ def save_stocks_minute_data_today_task(self, batch_size: int = 310, trade_time_s
             logger.warning("未找到任何股票代码，跳过任务")
             return {"status": "skipped", "message": "未找到任何股票代码"}
         logger.info(f"准备为 {all_stocks} 个股票分派批量任务...")
-        for i in range(0, all_stocks, batch_size):
+        for i in range(0, len(all_stocks), batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
             if batch_codes:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch_codes)})...")
