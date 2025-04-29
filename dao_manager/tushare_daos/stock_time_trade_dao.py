@@ -154,7 +154,6 @@ class StockTimeTradeDAO(BaseDAO):
             result_df = pd.concat(all_dfs, ignore_index=True)
         else:
             result_df = pd.DataFrame()
-        logger.info(f"开始执行{len(stock_codes)}个股票的日线数据保存. 获取df数量: {len(df)}，stock_codes: {stock_codes_str}")
         if result_df is not None:
             result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
