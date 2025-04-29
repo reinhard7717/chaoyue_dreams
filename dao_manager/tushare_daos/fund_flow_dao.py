@@ -79,6 +79,7 @@ class FundFlowDao(BaseDAO):
             stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
             if stock:
                 data_dict = self.data_format_process.set_fund_flow_data(stock=stock, df_data=row)
+                print(f"日级资金流向数据。trade_date_str: {trade_date_str}, stock: {stock}, dict: {data_dict}")
                 data_dicts.append(data_dict)
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowDaily,
