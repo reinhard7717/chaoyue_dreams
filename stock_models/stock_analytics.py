@@ -66,8 +66,8 @@ class StockScoreAnalysis(models.Model):
         verbose_name='存在看跌背离'     # 是否检测到任何类型的看跌背离 (聚合结果)
     )
     # 可选：存储更详细的背离信息 (如果需要)
-    # div_rsi_regular_bullish = models.SmallIntegerField(null=True, blank=True, verbose_name='RSI常规看涨背离')
-    # div_macd_hist_hidden_bearish = models.SmallIntegerField(null=True, blank=True, verbose_name='MACD隐藏看跌背离')
+    div_rsi_regular_bullish = models.SmallIntegerField(null=True, blank=True, verbose_name='RSI常规看涨背离')
+    div_macd_hist_hidden_bearish = models.SmallIntegerField(null=True, blank=True, verbose_name='MACD隐藏看跌背离')
 
     # === TrendFollowingStrategy (趋势跟踪策略) 相关中间结果 ===
     alignment_signal = models.SmallIntegerField(
@@ -216,6 +216,7 @@ class StockScoreAnalysis(models.Model):
         null=True, blank=True, default=0,
         verbose_name='RSI背离信号'  # RSI的背离信号 (-2隐藏看跌, -1常规看跌, 0无, 1常规看涨, 2隐藏看涨)
     )
+    volume_spike = models.IntegerField(null=True, blank=True, verbose_name="量能放量信号")
 
     # === TPlus0Strategy (T+0策略) 相关中间结果 ===
     t0_signal = models.SmallIntegerField(
