@@ -168,7 +168,7 @@ def save_cyq_chips_today_batch(self, stock_code: str):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_chips(stock_code))
+        result = asyncio.run(stock_time_trade_dao.save_cyq_chips_history_by_stock_code(stock_code))
         print(f"保存 {stock_code} 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -183,7 +183,7 @@ def save_cyq_perf_today_batch(self, stock_code: str):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf(stock_code))
+        result = asyncio.run(stock_time_trade_dao.save_cyq_perf_history_by_stock_code(stock_code))
         print(f"保存 {stock_code} 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
