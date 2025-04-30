@@ -67,7 +67,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
 #  ================ （当日）日级资金流向数据 （三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_today(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
