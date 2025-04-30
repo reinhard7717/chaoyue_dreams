@@ -6,7 +6,6 @@ import asyncio
 from chaoyue_dreams.celery import app as celery_app
 from django.core.management.base import CommandError
 from services.indicator_services import IndicatorService
-from strategies.train_lstm import stock_code
 from strategies.trend_following_strategy import TrendFollowingStrategy
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,7 @@ def batch_train_following_strategy_lstm(stock_code, params_file: str = "strategi
 
 
 @celery_app.task(bind=True, name='tasks.tushare.train_lstm_tasks.train_lstm_task')
-def train_lstm_trend_following_strategy_task(self, trade_time_str=None): # 最大循环10万个，每310个一组循环一次是99510个
+def train_lstm_trend_following_strategy_task(self): # 最大循环10万个，每310个一组循环一次是99510个
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
