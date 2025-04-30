@@ -1051,28 +1051,38 @@ class StockTimeTradeDAO(BaseDAO):
         # 获取当前日期
         today = datetime.today()
         # 转换为YYYYMMDD格式
-        today_str = "" # today.strftime('%Y%m%d')
+        today_str = today.strftime('%Y%m%d')
         data_dicts = []
-        stocks = await self.stock_cache_get.all_stocks()
-        for stock in stocks:
-            stock_code = stock.get("stock_code")
+        # 拉取数据
+        all_dfs = []
+        offset = 0
+        limit = 5000  # tushare pro接口最大limit一般为8000
+        while True:
             # 拉取数据
             df = self.ts_pro.cyq_perf(**{
-                "ts_code": stock_code, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
-            if not df.empty:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                    if stock:
-                        row['stock'] = stock  # 先转换好
-                        data_dict = self.data_format_process_trade.set_cyq_perf_data(stock=stock, df_data=row)
-                        await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
-                        data_dicts.append(data_dict)
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if all_dfs:
+            result_df = pd.concat(all_dfs, ignore_index=True)
+        else:
+            result_df = pd.DataFrame()
+        if not result_df.empty:
+            result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+            for row in result_df.itertuples():
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    row['stock'] = stock  # 先转换好
+                    data_dict = self.data_format_process_trade.set_cyq_perf_data(stock=stock, df_data=row)
+                    await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
+                    data_dicts.append(data_dict)
         if data_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCyqPerf,
@@ -1136,26 +1146,35 @@ class StockTimeTradeDAO(BaseDAO):
         # 获取当前日期
         today = datetime.today()
         # 转换为YYYYMMDD格式
-        today_str = "" # today.strftime('%Y%m%d')
-        stocks = await self.stock_cache_get.all_stocks()
-        # 提取所有股票代码
+        today_str = today.strftime('%Y%m%d')
         data_dicts = []
-        for stock in stocks:
-            stock_code = stock.get("stock_code")
+        # 拉取数据
+        all_dfs = []
+        offset = 0
+        limit = 2000  # tushare pro接口最大limit一般为8000
+        while True:
             # 拉取数据
             df = self.ts_pro.cyq_chips(**{
-                "ts_code": stock_code, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_date", "price", "percent"
             ])
-            if not df.empty:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                    if stock:
-                        data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
-                        data_dicts.append(data_dict)
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if all_dfs:
+            result_df = pd.concat(all_dfs, ignore_index=True)
+        else:
+            result_df = pd.DataFrame()
+        if not result_df.empty:
+            result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+            for row in result_df.itertuples():
+                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
         result = await self._save_all_to_db_native_upsert(
             model_class=StockCyqChips,
             data_list=data_dicts,
