@@ -1037,11 +1037,11 @@ class TrendFollowingStrategy(BaseStrategy):
                 analysis_results['long_term_bullish_ratio'] = (context == 1).mean()
                 analysis_results['long_term_bearish_ratio'] = (context == -1).mean()
         if 'trend_strength_score' in data:
-            trend_strength = data['trend_strength_score'].dropna()
-            if not trend_strength.empty:
-                analysis_results['trend_strength_mean'] = trend_strength.mean()
-                analysis_results['trend_strength_strong_bull_ratio'] = (trend_strength >= 1.5).mean()  # 强趋势占比
-                analysis_results['trend_strength_strong_bear_ratio'] = (trend_strength <= -1.5).mean()
+            trend_strength_score_series = data['trend_strength_score'].dropna()
+            if not trend_strength_score_series.empty:
+                analysis_results['trend_strength_mean'] = trend_strength_score_series.mean()
+                analysis_results['trend_strength_strong_bull_ratio'] = (trend_strength_score_series >= 1.5).mean()  # 强趋势占比
+                analysis_results['trend_strength_strong_bear_ratio'] = (trend_strength_score_series <= -1.5).mean()
         # --- 计算趋势持续时间 ---
         trend_duration_info = self._calculate_trend_duration(data)
         analysis_results.update(trend_duration_info)
@@ -1053,7 +1053,7 @@ class TrendFollowingStrategy(BaseStrategy):
         stop_loss_profit_advice = ""  # 新增止损止盈建议
         final_score = latest_data.get('final_signal', 50.0)
         current_trend = trend_duration_info['current_trend']
-        trend_strength = trend_duration_info['trend_strength']
+        trend_strength = trend_duration_info['trend_strength']  # 注意：这里是字符串形式，如 'strong'
         duration_status = trend_duration_info['duration_status']
         # 基础判断
         if current_trend == 'bullish':
@@ -1102,35 +1102,48 @@ class TrendFollowingStrategy(BaseStrategy):
         alignment = latest_data.get('alignment_signal', 0)
         if alignment == 3:
             signal_judgment['alignment_status'] = "完全多头排列"
-            if current_trend == 'bullish': operation_advice += " - EMA确认"
+            if current_trend == 'bullish':
+                operation_advice += " - EMA确认"
         elif alignment > 0:
             signal_judgment['alignment_status'] = "偏多头排列"
         elif alignment == -3:
             signal_judgment['alignment_status'] = "完全空头排列"
-            if current_trend == 'bearish': operation_advice += " - EMA确认"
+            if current_trend == 'bearish':
+                operation_advice += " - EMA确认"
         elif alignment < 0:
             signal_judgment['alignment_status'] = "偏空头排列"
         else:
             signal_judgment['alignment_status'] = "排列混乱"
         # 长期背景
         long_context = latest_data.get('long_term_context', 0)
-        if long_context == 1: signal_judgment['long_term_view'] = "长期看涨"
-        elif long_context == -1: signal_judgment['long_term_view'] = "长期看跌"
-        else: signal_judgment['long_term_view'] = "长期不明"
+        if long_context == 1:
+            signal_judgment['long_term_view'] = "长期看涨"
+        elif long_context == -1:
+            signal_judgment['long_term_view'] = "长期看跌"
+        else:
+            signal_judgment['long_term_view'] = "长期不明"
         # ADX 强度
         adx_signal = latest_data.get('adx_strength_signal', 0)
-        if adx_signal >= 0.5: signal_judgment['adx_status'] = f"趋势明确 (上升)"
-        elif adx_signal == 0: signal_judgment['adx_status'] = "无明显趋势"
-        else: signal_judgment['adx_status'] = f"趋势明确 (下降)"
+        if adx_signal >= 0.5:
+            signal_judgment['adx_status'] = f"趋势明确 (上升)"
+        elif adx_signal == 0:
+            signal_judgment['adx_status'] = "无明显趋势"
+        else:
+            signal_judgment['adx_status'] = f"趋势明确 (下降)"
         if abs(adx_signal) < 0.5 and current_trend != 'neutral':
             risk_warning += "ADX显示趋势减弱，注意震荡风险。 "
         # STOCH 状态与风险提示
         stoch_signal = latest_data.get('stoch_signal', 0)
-        if stoch_signal == 1: signal_judgment['stoch_status'] = "超卖区金叉"
-        elif stoch_signal == -1: signal_judgment['stoch_status'] = "超买区死叉"
-        elif stoch_signal == 0.5: signal_judgment['stoch_status'] = "超卖区域"
-        elif stoch_signal == -0.5: signal_judgment['stoch_status'] = "超买区域"
-        else: signal_judgment['stoch_status'] = "中间区域"
+        if stoch_signal == 1:
+            signal_judgment['stoch_status'] = "超卖区金叉"
+        elif stoch_signal == -1:
+            signal_judgment['stoch_status'] = "超买区死叉"
+        elif stoch_signal == 0.5:
+            signal_judgment['stoch_status'] = "超卖区域"
+        elif stoch_signal == -0.5:
+            signal_judgment['stoch_status'] = "超买区域"
+        else:
+            signal_judgment['stoch_status'] = "中间区域"
         if current_trend == 'bullish' and stoch_signal <= -0.5:
             risk_warning += "STOCH进入超买区，警惕回调。 "
             stop_loss_profit_advice = "建议设置止盈（当前价上方5-8%）"
@@ -1141,23 +1154,29 @@ class TrendFollowingStrategy(BaseStrategy):
         boll_signal = latest_data.get('boll_breakout_signal', 0)
         if boll_signal == 1:
             signal_judgment['boll_status'] = "向上突破布林带"
-            if current_trend == 'bullish': operation_advice += " - BOLL突破确认"
+            if current_trend == 'bullish':
+                operation_advice += " - BOLL突破确认"
         elif boll_signal == -1:
             signal_judgment['boll_status'] = "向下突破布林带"
-            if current_trend == 'bearish': operation_advice += " - BOLL突破确认"
+            if current_trend == 'bearish':
+                operation_advice += " - BOLL突破确认"
         else:
             signal_judgment['boll_status'] = "布林带轨道内运行"
         # 量能确认 (来自 adjust_score_with_volume 的分析结果)
         volume_confirm = latest_data.get('volume_confirmation_signal', 0)  # 假设返回 1, 0, -1
         volume_spike = latest_data.get('volume_spike_signal', 0)  # 假设返回 1, 0
-        if volume_confirm == 1: signal_judgment['volume_status'] = "量能配合趋势"
-        elif volume_confirm == -1: signal_judgment['volume_status'] = "量能不支持趋势"
-        else: signal_judgment['volume_status'] = "量能中性"
+        if volume_confirm == 1:
+            signal_judgment['volume_status'] = "量能配合趋势"
+        elif volume_confirm == -1:
+            signal_judgment['volume_status'] = "量能不支持趋势"
+        else:
+            signal_judgment['volume_status'] = "量能中性"
         if volume_spike == 1:
             signal_judgment['volume_spike'] = "出现显著放量"
-            if current_trend == 'bullish': operation_advice += " (放量)"
-            elif current_trend == 'bearish': operation_advice += " (放量)"
-            else: operation_advice += " (放量关注突破)"
+            if current_trend in ['bullish', 'bearish']:
+                operation_advice += " (放量)"
+            else:
+                operation_advice += " (放量关注突破)"
         # 背离信号解读与风险提示
         has_bearish_div = latest_data.get('div_has_bearish_divergence', False)
         has_bullish_div = latest_data.get('div_has_bullish_divergence', False)
@@ -1180,8 +1199,9 @@ class TrendFollowingStrategy(BaseStrategy):
                         f"看跌持续 {bearish_duration_text}" if current_trend == 'bearish' and trend_duration_info['bearish_duration'] > 0 else \
                         "趋势持续时间不足"
 
+        now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
         chinese_interpretation = (
-            f"【趋势跟踪策略分析 - {stock_code} - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
+            f"【趋势跟踪策略分析 - {stock_code} - {now_str}】\n"
             f"最新信号分: {final_score:.2f}\n"
             f"核心判断:\n"
             f" - 趋势状态: {signal_judgment.get('trend_status', '未知')}\n"
@@ -1201,8 +1221,28 @@ class TrendFollowingStrategy(BaseStrategy):
             f"统计数据 (最近周期):\n"
             f" - 信号均值/中位数: {analysis_results.get('final_signal_mean', np.nan):.2f} / {analysis_results.get('final_signal_median', np.nan):.2f}\n"
         )
+        
+        # 保存结果到文件：以 stock_code 为文件夹，时间为文件名
+        base_path = os.path.join("analysis_results", stock_code)  # 根路径可自定义
+        os.makedirs(base_path, exist_ok=True)
+        filename = pd.Timestamp.now().strftime('%Y%m%d_%H%M.txt')
+        file_path = os.path.join(base_path, filename)
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(chinese_interpretation)
+            logger.info(f"分析结果已保存至文件: {file_path}")
+        except Exception as e:
+            logger.error(f"保存分析结果文件失败: {e}")
+
+        # 如果是强趋势，则打印到屏幕
+        is_strong_trend = False
+        if current_trend in ['bullish', 'bearish'] and trend_strength in ['strong', 'very strong']:
+            is_strong_trend = True
+
+        if is_strong_trend:
+            print(chinese_interpretation)
+
         logger.info(f"\n{chinese_interpretation}")
-        print(chinese_interpretation)
 
         analysis_results.update(signal_judgment)
         analysis_results['risk_warning'] = risk_warning

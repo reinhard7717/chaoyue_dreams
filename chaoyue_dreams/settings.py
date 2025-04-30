@@ -419,7 +419,7 @@ LOGGING = {
             'propagate': False,
         },
         'strategy_trend_following': {
-            'handlers': ['console', 'tasks'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
         },
