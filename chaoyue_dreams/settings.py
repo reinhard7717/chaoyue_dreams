@@ -362,6 +362,15 @@ LOGGING = {
             'formatter': 'verbose', # 使用verbose格式
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
+        'strategy_trend_following': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'strategy_trend_following.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5, # 备份5个文件
+            'formatter': 'verbose', # 使用verbose格式
+            'encoding': 'utf-8',  # 设置编码为utf-8
+        },
     },
     'loggers': {
         'django': {
@@ -407,6 +416,11 @@ LOGGING = {
         'tasks': {
             'handlers': ['console', 'tasks'],
             'level': 'DEBUG',
+            'propagate': False,
+        },
+        'strategy_trend_following': {
+            'handlers': ['console', 'tasks'],
+            'level': 'INFO',
             'propagate': False,
         },
     },
