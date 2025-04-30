@@ -1084,7 +1084,7 @@ class StockTimeTradeDAO(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCyqPerf,
                 data_list=data_dicts,
-                unique_fields=['stock', 'trade_date']
+                unique_fields=['stock', 'trade_time']
             )
         return result
 
@@ -1175,7 +1175,7 @@ class StockTimeTradeDAO(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCyqChips,
                 data_list=data_dicts,
-                unique_fields=['stock', 'trade_date', 'price']
+                unique_fields=['stock', 'trade_time', 'price']
             )
             result_all['尝试处理'] += result['尝试处理']
             result_all['失败'] += result['失败']
