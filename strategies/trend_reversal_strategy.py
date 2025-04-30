@@ -70,12 +70,12 @@ class TrendReversalStrategy(BaseStrategy):
             tr_params['reversal_indicators'] = ['rsi', 'kdj', 'cci', 'boll'] # 设置默认值
 
         # 检查背离和 K 线参数（如果启用）
-        if dd_params.get('enabled', False) and (dd_params.get('tf') != self.focus_timeframe):
-             logger.warning(f"背离检测时间框 ({dd_params.get('tf')}) 与反转策略焦点时间框 ({self.focus_timeframe}) 不同")
-        if kpd_params.get('enabled', False) and (kpd_params.get('tf') != self.focus_timeframe):
-             logger.warning(f"K线形态检测时间框 ({kpd_params.get('tf')}) 与反转策略焦点时间框 ({self.focus_timeframe}) 不同")
+        # if dd_params.get('enabled', False) and (dd_params.get('tf') != self.focus_timeframe):
+        #      logger.warning(f"背离检测时间框 ({dd_params.get('tf')}) 与反转策略焦点时间框 ({self.focus_timeframe}) 不同")
+        # if kpd_params.get('enabled', False) and (kpd_params.get('tf') != self.focus_timeframe):
+        #      logger.warning(f"K线形态检测时间框 ({kpd_params.get('tf')}) 与反转策略焦点时间框 ({self.focus_timeframe}) 不同")
 
-        logger.info(f"[{self.strategy_name}] 参数验证通过，主要关注时间框架: {self.focus_timeframe}")
+        # logger.info(f"[{self.strategy_name}] 参数验证通过，主要关注时间框架: {self.focus_timeframe}")
 
     def get_required_columns(self) -> List[str]:
         """

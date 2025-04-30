@@ -5,6 +5,8 @@ import numpy as np
 import json
 import os
 import logging
+import joblib
+import tensorflow as tf
 from typing import Dict, Any, List, Optional
 # 导入深度学习工具函数
 from .utils.deep_learning_utils import prepare_data_for_lstm, build_lstm_model, train_lstm_model
@@ -37,11 +39,12 @@ class TrendFollowingStrategy(BaseStrategy):
     strategy_name = "TrendFollowingStrategy"
     focus_timeframe = '30' # 默认主要关注的时间框架
 
-    def __init__(self, params_file: str = "strategies/indicator_parameters.json"):
+    def __init__(self, params_file: str = "strategies/indicator_parameters.json", model_dir="models"):
         """初始化策略，加载参数"""
         self.params_file = params_file
         self.params = self._load_params()
         self.strategy_name = self.params.get('trend_following_strategy_name', self.strategy_name)
+        self.model_dir = model_dir
 
         # --- 加载趋势跟踪特定参数 ---
         self.tf_params = self.params.get('trend_following_params', {})
@@ -103,9 +106,16 @@ class TrendFollowingStrategy(BaseStrategy):
             'monitor_metric': 'val_loss',
             'verbose': 1
         }
-        self.load_lstm_model()
 
         super().__init__(self.params)
+
+    def set_model_paths(self, stock_code):
+        # 每只股票单独一个目录
+        stock_model_dir = os.path.join(self.model_dir, stock_code)
+        if not os.path.exists(stock_model_dir):
+            os.makedirs(stock_model_dir)
+        self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.h5")
+        self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_scaler.save")
 
     def _load_params(self) -> Dict[str, Any]:
         """从 JSON 文件加载参数"""
@@ -174,10 +184,10 @@ class TrendFollowingStrategy(BaseStrategy):
         if 'boll' in self.trend_indicators and ('boll_period' not in bs_params or 'boll_std_dev' not in bs_params):
             logger.warning("趋势指标包含 'boll'，但 'base_scoring' 中缺少 'boll_period' 或 'boll_std_dev'。")
 
-        logger.info(f"[{self.strategy_name}] 参数验证通过，主要关注时间框架: {self.focus_timeframe}")
-        logger.info(f"[{self.strategy_name}] 使用的时间框架权重: {self.timeframe_weights}")
-        logger.info(f"[{self.strategy_name}] 关注的趋势指标: {self.trend_indicators}")
-        logger.info(f"[{self.strategy_name}] 信号组合权重: {self.signal_weights}")
+        # logger.info(f"[{self.strategy_name}] 参数验证通过，主要关注时间框架: {self.focus_timeframe}")
+        # logger.info(f"[{self.strategy_name}] 使用的时间框架权重: {self.timeframe_weights}")
+        # logger.info(f"[{self.strategy_name}] 关注的趋势指标: {self.trend_indicators}")
+        # logger.info(f"[{self.strategy_name}] 信号组合权重: {self.signal_weights}")
 
     def get_required_columns(self) -> List[str]:
         """返回趋势跟踪策略所需的列"""
@@ -680,7 +690,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 self.volatility_adjust_factor = max(1.0, latest_volatility / 5.0)  # 假设基准波动率为5.0
                 self.volatility_threshold_high = self.tf_params.get('volatility_threshold_high', 10) * self.volatility_adjust_factor
                 self.volatility_threshold_low = self.tf_params.get('volatility_threshold_low', 5) * self.volatility_adjust_factor
-                logger.info(f"动态调整波动率阈值: high={self.volatility_threshold_high}, low={self.volatility_threshold_low}, factor={self.volatility_adjust_factor}")
+                # logger.info(f"动态调整波动率阈值: high={self.volatility_threshold_high}, low={self.volatility_threshold_low}, factor={self.volatility_adjust_factor}")
             else:
                 logger.warning("波动率数据不可用，无法动态调整参数。")
         else:
@@ -751,7 +761,7 @@ class TrendFollowingStrategy(BaseStrategy):
         """
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
         """
-        logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
+        # logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
         if data is None or data.empty:
             logger.warning("输入数据为空，无法生成信号。")
             return pd.Series(dtype=float)
@@ -790,7 +800,7 @@ class TrendFollowingStrategy(BaseStrategy):
         if dd_params.get('enabled', True):
             try:
                 divergence_signals = strategy_utils.detect_divergence(data, dd_params, bs_params)
-                logger.info(f"背离检测完成，发现信号: {divergence_signals.iloc[-1].to_dict() if not divergence_signals.empty else '无'}")
+                # logger.info(f"背离检测完成，发现信号: {divergence_signals.iloc[-1].to_dict() if not divergence_signals.empty else '无'}")
             except Exception as e:
                 logger.error(f"执行背离检测时出错: {e}")
         # --- 组合最终信号 ---
@@ -840,8 +850,10 @@ class TrendFollowingStrategy(BaseStrategy):
         logger.debug(f"成交量突增调整: {volume_spike_adjustment.iloc[-1] if not volume_spike_adjustment.empty else 'N/A'}")
         final_signal = self._apply_trend_confirmation(final_signal)
         final_signal = final_signal.clip(0, 100).round(2)
+        self.load_lstm_model(data)  # 加载模型
         # LSTM模型预测
         lstm_signal = pd.Series(50.0, index=data.index)
+        print(f"LSTM模型对象: {self.lstm_model}, Scaler对象: {self.scaler}")
         if self.lstm_model is not None and self.scaler is not None:
             try:
                 required_cols = self.get_required_columns()
@@ -857,10 +869,12 @@ class TrendFollowingStrategy(BaseStrategy):
                             X.append(features_scaled[i:i + self.window_size])
                         X = np.array(X)
                         if X.shape[0] > 0:
+                            print(f"准备进行LSTM预测，X shape: {X.shape}")
                             lstm_pred = self.lstm_model.predict(X, verbose=0)
+                            print(f"LSTM预测结果: {lstm_pred[:5]}")
                             if len(lstm_pred) <= len(lstm_signal):
                                 lstm_signal.iloc[-len(lstm_pred):] = lstm_pred.flatten() * 100.0
-                                logger.info(f"LSTM模型预测完成，最新信号: {lstm_signal.iloc[-1]}")
+                                print(f"LSTM模型预测完成，最新信号: {lstm_signal.iloc[-1]}")
                             else:
                                 logger.warning("LSTM预测结果长度超出信号长度，忽略多余预测。")
                         else:
@@ -1325,73 +1339,100 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.error(f"保存 {stock_code} 的趋势跟踪策略分析结果时出错: {e}", exc_info=True)
             # logger.error(f"尝试保存的数据: {defaults_cleaned}") # 调试时可以取消注释此行
 
-    def load_lstm_model(self):
-        """加载已训练的LSTM模型"""
+    def load_lstm_model(self, data: pd.DataFrame):
+        """
+        加载已训练的LSTM模型和Scaler。
+        如果模型文件和Scaler文件都存在，则直接加载；
+        如果不存在，则自动训练模型和Scaler，并保存到指定路径。
+        日志会详细记录每一步的状态。
+        """
         try:
+            # 1. 优先加载主模型文件
             if os.path.exists(self.model_path):
-                import tensorflow as tf
                 self.lstm_model = tf.keras.models.load_model(self.model_path)
                 logger.info(f"成功加载LSTM模型: {self.model_path}")
-            elif os.path.exists(self.checkpoint_path):
-                import tensorflow as tf
-                self.lstm_model = tf.keras.models.load_model(self.checkpoint_path)
-                logger.info(f"成功加载检查点模型: {self.checkpoint_path}")
-            else:
-                logger.warning(f"LSTM模型文件不存在: {self.model_path} 或 {self.checkpoint_path}，将在首次训练时创建。")
-                self.lstm_model = None
-        except Exception as e:
-            logger.error(f"加载LSTM模型时出错: {e}")
-            self.lstm_model = None
 
-    def train_and_save_lstm_model(self, data: pd.DataFrame):
-        """训练LSTM模型并保存"""
-        try:
-            required_cols = self.get_required_columns()
-            X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
-                data,
-                required_cols,
-                target_column='final_signal',
-                window_size=self.window_size,
-                scaler_type='minmax',
-                train_split=0.7,
-                val_split=0.15,
-                fill_na_method='ffill',
-                augment_data=False
-            )
-            if X_train.shape[0] > 0:
-                self.lstm_model = build_lstm_model(
-                    self.window_size,
-                    len(required_cols),
-                    model_config=self.model_config,
-                    model_type='lstm',
-                    summary=True
-                )
-                # 确保模型目录存在
-                model_dir = os.path.dirname(self.model_path)
-                if model_dir and not os.path.exists(model_dir):
-                    os.makedirs(model_dir)
-                    logger.info(f"创建模型目录: {model_dir}")
-                checkpoint_dir = os.path.dirname(self.checkpoint_path)
-                if checkpoint_dir and not os.path.exists(checkpoint_dir):
-                    os.makedirs(checkpoint_dir)
-                    logger.info(f"创建检查点目录: {checkpoint_dir}")
-                
-                history = train_lstm_model(
-                    X_train, y_train,
-                    X_val, y_val,
-                    self.lstm_model,
-                    training_config=self.training_config,
-                    checkpoint_path=self.checkpoint_path,
-                    plot_training_history=True
-                )
-                self.lstm_model.save(self.model_path)
-                logger.info(f"LSTM模型训练完成并保存至: {self.model_path}")
-                return history
+                # 尝试加载Scaler
+                scaler_path = self.model_path.replace('.h5', '_scaler.save')
+                if os.path.exists(scaler_path):
+                    self.scaler = joblib.load(scaler_path)
+                    logger.info(f"成功加载Scaler: {scaler_path}")
+                else:
+                    self.scaler = None
+                    logger.warning(f"Scaler文件不存在: {scaler_path}，后续LSTM预测将无法进行。")
+
+            # 2. 如果主模型不存在，尝试加载检查点模型
+            elif os.path.exists(self.checkpoint_path):
+                self.lstm_model = tf.keras.models.load_model(self.checkpoint_path)
+                logger.info(f"成功加载检查点LSTM模型: {self.checkpoint_path}")
+
+                # 尝试加载Scaler
+                scaler_path = self.checkpoint_path.replace('.h5', '_scaler.save')
+                if os.path.exists(scaler_path):
+                    self.scaler = joblib.load(scaler_path)
+                    logger.info(f"成功加载Scaler: {scaler_path}")
+                else:
+                    self.scaler = None
+                    logger.warning(f"Scaler文件不存在: {scaler_path}，后续LSTM预测将无法进行。")
+
+            # 3. 如果模型和检查点都不存在，则自动训练并保存
             else:
-                logger.warning("数据不足以训练LSTM模型。")
-                return None
+                logger.warning(f"LSTM模型文件不存在: {self.model_path} 或 {self.checkpoint_path}，将自动训练新模型。")
+                # 自动训练并保存模型和Scaler
+                # self.train_and_save_lstm_model(data)
+                # train_and_save_lstm_model方法内部应负责赋值self.lstm_model和self.scaler
+
+            # 4. 最后输出当前模型和Scaler的状态
+            logger.info(f"load_lstm_model结束，self.lstm_model: {self.lstm_model}, self.scaler: {self.scaler}")
+
         except Exception as e:
-            logger.error(f"训练LSTM模型时出错: {e}")
+            logger.error(f"加载LSTM模型或Scaler时出错: {e}", exc_info=True)
+            self.lstm_model = None
+            self.scaler = None
+
+    def train_and_save_lstm_model(self, data: pd.DataFrame, stock_code: str):
+        """
+        训练LSTM模型并保存（模型和Scaler分开保存，支持多股票）。
+        """
+        import joblib
+        self.set_model_paths(stock_code)
+        required_cols = self.get_required_columns()
+        if 'final_signal' not in data.columns:
+            data = data.copy()
+            data['final_signal'] = self.generate_signals(data, stock_code)
+        X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
+            data,
+            required_cols,
+            target_column='final_signal',
+            window_size=self.window_size,
+            scaler_type='minmax',
+            train_split=0.7,
+            val_split=0.15,
+            fill_na_method='ffill',
+            augment_data=False
+        )
+        if X_train.shape[0] > 0:
+            self.lstm_model = build_lstm_model(
+                self.window_size,
+                len(required_cols),
+                model_config=self.model_config,
+                model_type='lstm',
+                summary=True
+            )
+            history = train_lstm_model(
+                X_train, y_train,
+                X_val, y_val,
+                self.lstm_model,
+                training_config=self.training_config,
+                checkpoint_path=self.model_path.replace('.h5', '_checkpoint.h5'),
+                plot_training_history=True
+            )
+            self.lstm_model.save(self.model_path)
+            joblib.dump(self.scaler, self.scaler_path)
+            logger.info(f"[{stock_code}] LSTM模型和Scaler已保存至: {self.model_path}, {self.scaler_path}")
+            return history
+        else:
+            logger.warning(f"[{stock_code}] 数据不足以训练LSTM模型。")
             return None
 
 

@@ -26,7 +26,7 @@ def log_execution_time(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logger.info(f"函数 {func.__name__} 执行耗时: {end_time - start_time:.2f} 秒")
+        print(f"函数 {func.__name__} 执行耗时: {end_time - start_time:.2f} 秒")
         return result
     return wrapper
 
@@ -119,7 +119,7 @@ def prepare_data_for_lstm(
     if augment_data:
         noise = np.random.normal(0, 0.01, features_scaled.shape)
         features_scaled = features_scaled + noise
-        logger.info("已应用数据增强（添加高斯噪声）。")
+        print("已应用数据增强（添加高斯噪声）。")
     
     # 构建时间序列窗口
     X, y = [], []
@@ -141,7 +141,8 @@ def prepare_data_for_lstm(
     X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=test_split, shuffle=False)
     X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=val_split/(train_split + val_split), shuffle=False)
     
-    logger.info(f"数据准备完成，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条")
+    print(f"数据准备完成，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条")
+    print(f"X_train样本: {X_train[:1]}, y_train样本: {y_train[:5]}")
     return X_train, y_train, X_val, y_val, X_test, y_test, scaler
 
 @log_execution_time
@@ -246,8 +247,8 @@ def build_lstm_model(
     )
     
     if summary:
-        model.summary(print_fn=lambda x: logger.info(x))
-    
+        model.summary(print_fn=lambda x: print(x))
+    print(f"LSTM模型构建完成，输入形状: {window_size} x {num_features}")
     return model
 
 @log_execution_time
@@ -279,6 +280,7 @@ def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarra
     }
     
     config = training_config if training_config is not None else default_config
+    print(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}")
     
     # 将目标变量缩放到0-1范围
     y_train_scaled = y_train / 100.0
@@ -288,7 +290,7 @@ def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarra
     checkpoint_dir = os.path.dirname(checkpoint_path)
     if checkpoint_dir and not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
-        logger.info(f"创建检查点目录: {checkpoint_dir}")
+        print(f"创建检查点目录: {checkpoint_dir}")
     
     # 设置回调函数
     callbacks = []
@@ -324,6 +326,8 @@ def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarra
         callbacks=callbacks,
         verbose=config['verbose']
     )
+    print(f"训练历史: {history.history}")
+
     
     # 绘制训练历史曲线（可选）
     if plot_training_history:
@@ -353,7 +357,6 @@ def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarra
         plt.tight_layout()
         plt.savefig('training_history.png')
         plt.close()
-        logger.info("训练历史曲线已保存至 training_history.png")
-    
-    logger.info("模型训练完成。")
+        print("训练历史曲线已保存至 training_history.png")
+    print("模型训练完成。")
     return history.history

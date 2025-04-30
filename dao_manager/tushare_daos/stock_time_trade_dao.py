@@ -1056,11 +1056,12 @@ class StockTimeTradeDAO(BaseDAO):
         # 提取所有股票代码
         stock_codes = [stock.get("stock_code") for stock in stocks]
         # 每5000个为一组，拼接成字符串
-        group_size = 5000
+        group_size = 500
         stock_code_groups = [
             ','.join(stock_codes[i:i + group_size])
             for i in range(0, len(stock_codes), group_size)
         ]
+        print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
         data_dicts = []
         for stock_codes_str in stock_code_groups:
             # 拉取数据
@@ -1151,11 +1152,12 @@ class StockTimeTradeDAO(BaseDAO):
         # 提取所有股票代码
         stock_codes = [stock.get("stock_code") for stock in stocks]
         # 每5000个为一组，拼接成字符串
-        group_size = 2000
+        group_size = 500
         stock_code_groups = [
             ','.join(stock_codes[i:i + group_size])
             for i in range(0, len(stock_codes), group_size)
         ]
+        print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
         for stock_codes_str in stock_code_groups:
             data_dicts = []
             # 拉取数据
