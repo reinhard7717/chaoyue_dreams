@@ -6,8 +6,8 @@ import json
 import os
 import logging
 from typing import Dict, Any, List, Optional
-
-from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+# 导入深度学习工具函数
+from .utils.deep_learning_utils import prepare_data_for_lstm, build_lstm_model, train_lstm_model
 
 # 假设 BaseStrategy 和常量在 .base 或 core.constants
 from .base import BaseStrategy
@@ -76,6 +76,34 @@ class TrendFollowingStrategy(BaseStrategy):
         if ta is None:
              logger.error(f"[{self.strategy_name}] pandas_ta 未加载或 EMA 不可用，无法计算趋势指标。")
              raise ImportError("pandas_ta with EMA is required for TrendFollowingStrategy.")
+
+        # --- 动态加载深度学习模型 ---
+        self.lstm_model = None
+        self.scaler = None
+        self.window_size = 60
+        self.model_path = "models/trend_following_lstm.h5"
+        self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.h5"
+        self.model_config = {
+            'layers': [
+                {'units': 64, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},
+                {'units': 32, 'return_sequences': False, 'dropout': 0.3, 'l2_reg': 0.01}
+            ],
+            'dense_layers': [{'units': 16, 'dropout': 0.1, 'l2_reg': 0.01}],
+            'optimizer': 'adam',
+            'learning_rate': 0.001,
+            'loss': 'mse',
+            'metrics': ['mae']
+        }
+        self.training_config = {
+            'epochs': 100,
+            'batch_size': 32,
+            'early_stopping_patience': 15,
+            'reduce_lr_patience': 5,
+            'reduce_lr_factor': 0.5,
+            'monitor_metric': 'val_loss',
+            'verbose': 1
+        }
+        self.load_lstm_model()
 
         super().__init__(self.params)
 
@@ -721,24 +749,23 @@ class TrendFollowingStrategy(BaseStrategy):
 
     def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
         """
-        生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息。
+        生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
         """
-        # print("传入generate_signals的DataFrame列名：", data.columns.tolist())
         logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
         if data is None or data.empty:
             logger.warning("输入数据为空，无法生成信号。")
             return pd.Series(dtype=float)
         # --- 检查必需列 ---
         required_cols = self.get_required_columns()
-        missing_cols = [col for col in required_cols if col not in data.columns] # 只检查列是否存在
+        missing_cols = [col for col in required_cols if col not in data.columns]
         if missing_cols:
             logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
-            return pd.Series(50.0, index=data.index)  # 返回中性分
+            return pd.Series(50.0, index=data.index)
         # 检查数据完整性（是否有过多 NaN）
-        nan_check_cols = [f'close_{self.focus_timeframe}', f'ADX_{self.params["base_scoring"]["dmi_period"]}_{self.focus_timeframe}'] # 抽查关键列
+        nan_check_cols = [f'close_{self.focus_timeframe}', f'ADX_{self.params["base_scoring"]["dmi_period"]}_{self.focus_timeframe}']
         if data[nan_check_cols].isnull().all().any():
-             logger.error(f"[{self.strategy_name}] 关键输入数据 ({nan_check_cols}) 全为 NaN。策略无法运行。")
-             return pd.Series(50.0, index=data.index) # 返回中性分
+            logger.error(f"[{self.strategy_name}] 关键输入数据 ({nan_check_cols}) 全为 NaN。策略无法运行。")
+            return pd.Series(50.0, index=data.index)
         # --- 动态调整参数 ---
         self._adjust_volatility_parameters(data)
         # --- 计算趋势导向的基础评分 ---
@@ -768,7 +795,6 @@ class TrendFollowingStrategy(BaseStrategy):
                 logger.error(f"执行背离检测时出错: {e}")
         # --- 组合最终信号 ---
         final_signal = pd.Series(50.0, index=data.index)
-        # 获取各信号分量
         base_score_norm = (base_scores_df['base_score_volume_adjusted'].fillna(50.0) - 50) / 50
         alignment_norm = trend_analysis_df.get('alignment_signal', pd.Series(0, index=data.index)).fillna(0) / 3
         long_context_norm = trend_analysis_df.get('long_term_context', pd.Series(0, index=data.index)).fillna(0)
@@ -778,7 +804,6 @@ class TrendFollowingStrategy(BaseStrategy):
         adx_strength_norm = trend_analysis_df.get('adx_strength_signal', pd.Series(0, index=data.index)).fillna(0)
         vwap_dev_norm = trend_analysis_df.get('vwap_deviation_signal', pd.Series(0, index=data.index)).fillna(0)
         volume_spike_signal = base_scores_df.get('volume_spike_signal', pd.Series(0, index=data.index)).fillna(0)
-        # 计算各分量贡献值
         total_weighted_contribution = pd.Series(0.0, index=data.index)
         total_weight = 0.0
         w_base = self.signal_weights.get('base_score', 0.5)
@@ -799,43 +824,70 @@ class TrendFollowingStrategy(BaseStrategy):
         w_boll = self.boll_breakout_weight
         total_weighted_contribution += boll_breakout_norm * w_boll
         total_weight += w_boll
-        # 归一化加权贡献并映射回 0-100
         if total_weight > 0:
             normalized_contribution = (total_weighted_contribution / total_weight).clip(-1, 1)
             final_signal = 50.0 + normalized_contribution * 50.0
         else:
+            logger.warning("信号权重总和为0，使用中性分50.0作为最终信号。")
             final_signal = pd.Series(50.0, index=data.index)
-        # --- 模块化信号调整 ---
         final_signal = self._apply_adx_boost(final_signal, adx_strength_norm, normalized_contribution)
         final_signal = self._apply_divergence_penalty(final_signal, divergence_signals, dd_params)
-        # --- 新增 VWAP 偏离调整逻辑 ---
-        # 价格显著偏离 VWAP 可能预示短期回调或反弹
-        # 上涨趋势中（信号>50），价格远高于 VWAP（vwap_dev_norm=1），可能回调，减分
-        # 下跌趋势中（信号<50），价格远低于 VWAP（vwap_dev_norm=-1），可能反弹，加分
-        vwap_adjustment = -vwap_dev_norm * np.sign(normalized_contribution) * 2  # 调整幅度为 +/-2 分
+        vwap_adjustment = -vwap_dev_norm * np.sign(normalized_contribution) * 2
         final_signal += vwap_adjustment
         logger.debug(f"VWAP 偏离调整: {vwap_adjustment.iloc[-1] if not vwap_adjustment.empty else 'N/A'}")
-        # --- 新增成交量突增调整逻辑 ---
-        # 成交量突增可能确认趋势
-        # 上涨趋势中（信号>50），放量突增（volume_spike_signal=1），加分
-        # 下跌趋势中（信号<50），放量突增（volume_spike_signal=1），减分（确认下跌）
-        volume_spike_adjustment = volume_spike_signal * np.sign(normalized_contribution) * 3  # 调整幅度为 +/-3 分
+        volume_spike_adjustment = volume_spike_signal * np.sign(normalized_contribution) * 3
         final_signal += volume_spike_adjustment
         logger.debug(f"成交量突增调整: {volume_spike_adjustment.iloc[-1] if not volume_spike_adjustment.empty else 'N/A'}")
-        # --- 增强假信号过滤 ---
         final_signal = self._apply_trend_confirmation(final_signal)
-        # --- 最终裁剪到 0-100 ---
         final_signal = final_signal.clip(0, 100).round(2)
+        # LSTM模型预测
+        lstm_signal = pd.Series(50.0, index=data.index)
+        if self.lstm_model is not None and self.scaler is not None:
+            try:
+                required_cols = self.get_required_columns()
+                data_copy = data[required_cols].copy()
+                data_copy = data_copy.ffill().bfill()
+                if not data_copy.isnull().any().any():
+                    features_scaled = self.scaler.transform(data_copy.values)
+                    X = []
+                    if not hasattr(self, 'window_size') or self.window_size <= 0:
+                        logger.error("window_size 未定义或无效，无法生成LSTM预测数据。")
+                    elif len(features_scaled) >= self.window_size:
+                        for i in range(len(features_scaled) - self.window_size):
+                            X.append(features_scaled[i:i + self.window_size])
+                        X = np.array(X)
+                        if X.shape[0] > 0:
+                            lstm_pred = self.lstm_model.predict(X, verbose=0)
+                            if len(lstm_pred) <= len(lstm_signal):
+                                lstm_signal.iloc[-len(lstm_pred):] = lstm_pred.flatten() * 100.0
+                                logger.info(f"LSTM模型预测完成，最新信号: {lstm_signal.iloc[-1]}")
+                            else:
+                                logger.warning("LSTM预测结果长度超出信号长度，忽略多余预测。")
+                        else:
+                            logger.warning("数据不足以生成LSTM预测信号。")
+                    else:
+                        logger.warning(f"数据长度 {len(features_scaled)} 小于窗口大小 {self.window_size}，无法生成LSTM预测信号。")
+                else:
+                    logger.warning("数据中仍有缺失值，无法生成LSTM预测信号。")
+            except Exception as e:
+                logger.error(f"LSTM模型预测出错: {e}")
+        # 结合规则信号和LSTM信号
+        combined_signal = 0.7 * final_signal + 0.3 * lstm_signal
+        combined_signal = combined_signal.clip(0, 100).round(2)
         # --- 存储中间数据 ---
         self.intermediate_data = pd.concat([
             base_scores_df,
             trend_analysis_df,
             divergence_signals.add_prefix('div_'),
-            pd.DataFrame({'final_signal': final_signal}, index=data.index)
+            pd.DataFrame({
+                'final_signal': final_signal,
+                'lstm_signal': lstm_signal,
+                'combined_signal': combined_signal
+            }, index=data.index)
         ], axis=1)
-        logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新信号: {final_signal.iloc[-1] if not final_signal.empty else 'N/A'}")
+        logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新组合信号: {combined_signal.iloc[-1] if not combined_signal.empty else 'N/A'}")
         self.analyze_signals(stock_code)
-        return final_signal
+        return combined_signal
 
     def get_intermediate_data(self) -> Optional[pd.DataFrame]:
         """返回中间计算结果"""
@@ -1232,5 +1284,83 @@ class TrendFollowingStrategy(BaseStrategy):
             # 打印更详细的错误信息，特别是 defaults_cleaned 的内容
             logger.error(f"保存 {stock_code} 的趋势跟踪策略分析结果时出错: {e}", exc_info=True)
             # logger.error(f"尝试保存的数据: {defaults_cleaned}") # 调试时可以取消注释此行
+
+    def load_lstm_model(self):
+        """加载已训练的LSTM模型"""
+        try:
+            if os.path.exists(self.model_path):
+                import tensorflow as tf
+                self.lstm_model = tf.keras.models.load_model(self.model_path)
+                logger.info(f"成功加载LSTM模型: {self.model_path}")
+            elif os.path.exists(self.checkpoint_path):
+                import tensorflow as tf
+                self.lstm_model = tf.keras.models.load_model(self.checkpoint_path)
+                logger.info(f"成功加载检查点模型: {self.checkpoint_path}")
+            else:
+                logger.warning(f"LSTM模型文件不存在: {self.model_path} 或 {self.checkpoint_path}，将在首次训练时创建。")
+                self.lstm_model = None
+        except Exception as e:
+            logger.error(f"加载LSTM模型时出错: {e}")
+            self.lstm_model = None
+
+    def train_and_save_lstm_model(self, data: pd.DataFrame):
+        """训练LSTM模型并保存"""
+        try:
+            required_cols = self.get_required_columns()
+            X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
+                data,
+                required_cols,
+                target_column='final_signal',
+                window_size=self.window_size,
+                scaler_type='minmax',
+                train_split=0.7,
+                val_split=0.15,
+                fill_na_method='ffill',
+                augment_data=False
+            )
+            if X_train.shape[0] > 0:
+                self.lstm_model = build_lstm_model(
+                    self.window_size,
+                    len(required_cols),
+                    model_config=self.model_config,
+                    model_type='lstm',
+                    summary=True
+                )
+                # 确保模型目录存在
+                model_dir = os.path.dirname(self.model_path)
+                if model_dir and not os.path.exists(model_dir):
+                    os.makedirs(model_dir)
+                    logger.info(f"创建模型目录: {model_dir}")
+                checkpoint_dir = os.path.dirname(self.checkpoint_path)
+                if checkpoint_dir and not os.path.exists(checkpoint_dir):
+                    os.makedirs(checkpoint_dir)
+                    logger.info(f"创建检查点目录: {checkpoint_dir}")
+                
+                history = train_lstm_model(
+                    X_train, y_train,
+                    X_val, y_val,
+                    self.lstm_model,
+                    training_config=self.training_config,
+                    checkpoint_path=self.checkpoint_path,
+                    plot_training_history=True
+                )
+                self.lstm_model.save(self.model_path)
+                logger.info(f"LSTM模型训练完成并保存至: {self.model_path}")
+                return history
+            else:
+                logger.warning("数据不足以训练LSTM模型。")
+                return None
+        except Exception as e:
+            logger.error(f"训练LSTM模型时出错: {e}")
+            return None
+
+
+
+
+
+
+
+
+
 
 
