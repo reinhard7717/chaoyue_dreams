@@ -1052,7 +1052,7 @@ class StockTimeTradeDAO(BaseDAO):
         today = datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
-        stocks = self.stock_cache_get.all_stocks()
+        stocks = await self.stock_cache_get.all_stocks()
         # 提取所有股票代码
         stock_codes = [stock.stock_code for stock in stocks]
         # 每5000个为一组，拼接成字符串
@@ -1147,7 +1147,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
         result_all = { "尝试处理": 0, "失败": 0, "创建/更新成功": 0 }
-        stocks = self.stock_cache_get.all_stocks()
+        stocks = await self.stock_cache_get.all_stocks()
         # 提取所有股票代码
         stock_codes = [stock.stock_code for stock in stocks]
         # 每5000个为一组，拼接成字符串
