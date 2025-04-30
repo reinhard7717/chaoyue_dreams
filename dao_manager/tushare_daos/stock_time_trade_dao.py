@@ -1061,9 +1061,9 @@ class StockTimeTradeDAO(BaseDAO):
             ','.join(stock_codes[i:i + group_size])
             for i in range(0, len(stock_codes), group_size)
         ]
-        print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
         data_dicts = []
         for stock_codes_str in stock_code_groups:
+            print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
             # 拉取数据
             df = self.ts_pro.cyq_perf(**{
                 "ts_code": stock_codes_str, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
@@ -1157,8 +1157,8 @@ class StockTimeTradeDAO(BaseDAO):
             ','.join(stock_codes[i:i + group_size])
             for i in range(0, len(stock_codes), group_size)
         ]
-        print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
         for stock_codes_str in stock_code_groups:
+            print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
             data_dicts = []
             # 拉取数据
             df = self.ts_pro.cyq_chips(**{
