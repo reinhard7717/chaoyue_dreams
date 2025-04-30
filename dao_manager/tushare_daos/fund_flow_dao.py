@@ -43,6 +43,7 @@ class FundFlowDao(BaseDAO):
             "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
             "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
         ])
+        print(f"今天的日级资金流向数据 数量: {len(df)}")
         result = {}
         if not df.empty:
             data_dicts = []
@@ -158,6 +159,7 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
             "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
+        print(f"今天的日级资金流向数据 - 同花顺 数量: {len(df)}")
         result = {}
         if not df.empty:
             data_dicts = []
@@ -276,6 +278,7 @@ class FundFlowDao(BaseDAO):
             "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
             "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
         ])
+        print(f"今天的日级资金流向数据 - 东方财富 数量: {len(df)}")
         result = {}
         if not df.empty:
             data_dicts = []
