@@ -1051,22 +1051,14 @@ class StockTimeTradeDAO(BaseDAO):
         # 获取当前日期
         today = datetime.today()
         # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        stocks = await self.stock_cache_get.all_stocks()
-        # 提取所有股票代码
-        stock_codes = [stock.get("stock_code") for stock in stocks]
-        # 每5000个为一组，拼接成字符串
-        group_size = 500
-        stock_code_groups = [
-            ','.join(stock_codes[i:i + group_size])
-            for i in range(0, len(stock_codes), group_size)
-        ]
+        today_str = "" # today.strftime('%Y%m%d')
         data_dicts = []
-        for stock_codes_str in stock_code_groups:
-            print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
+        stocks = await self.stock_cache_get.all_stocks()
+        for stock in stocks:
+            stock_code = stock.get("stock_code")
             # 拉取数据
             df = self.ts_pro.cyq_perf(**{
-                "ts_code": stock_codes_str, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": stock_code, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
                 "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
                 "cost_95pct", "weight_avg", "winner_rate"
@@ -1141,28 +1133,18 @@ class StockTimeTradeDAO(BaseDAO):
         限量：单次最大2000条，可以按股票代码和日期循环提取
         积分：120积分可以试用查看数据，5000积分每天20000次，10000积分每天200000次，15000积分每天不限总量
         """
-        if self.cache_set is None:
-            await self.initialize_cache_objects()
         # 获取当前日期
         today = datetime.today()
         # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        result_all = { "尝试处理": 0, "失败": 0, "创建/更新成功": 0 }
+        today_str = "" # today.strftime('%Y%m%d')
         stocks = await self.stock_cache_get.all_stocks()
         # 提取所有股票代码
-        stock_codes = [stock.get("stock_code") for stock in stocks]
-        # 每5000个为一组，拼接成字符串
-        group_size = 500
-        stock_code_groups = [
-            ','.join(stock_codes[i:i + group_size])
-            for i in range(0, len(stock_codes), group_size)
-        ]
-        for stock_codes_str in stock_code_groups:
-            print(f"开始处理股票代码分组...stock_codes_str: {stock_codes_str}")
-            data_dicts = []
+        data_dicts = []
+        for stock in stocks:
+            stock_code = stock.get("stock_code")
             # 拉取数据
             df = self.ts_pro.cyq_chips(**{
-                "ts_code": stock_codes_str, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": stock_code, "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
                 "ts_code", "trade_date", "price", "percent"
             ])
@@ -1174,15 +1156,12 @@ class StockTimeTradeDAO(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockCyqChips,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time', 'price']
-            )
-            result_all['尝试处理'] += result['尝试处理']
-            result_all['失败'] += result['失败']
-            result_all['创建/更新成功'] += result['创建/更新成功']
-        return result_all
+        result = await self._save_all_to_db_native_upsert(
+            model_class=StockCyqChips,
+            data_list=data_dicts,
+            unique_fields=['stock', 'trade_time', 'price']
+        )
+        return result
 
     async def save_cyq_chips_history_by_stock_code(self, stock_code: str) -> None:
         """
