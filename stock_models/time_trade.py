@@ -184,7 +184,7 @@ class StockCyqChips(models.Model):
         verbose_name='股票',
         db_index=True
     )
-    trade_time = models.CharField(max_length=8, verbose_name='交易日期', db_index=True)  # YYYYMMDD
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     price = models.FloatField(verbose_name='成本价格')
     percent = models.FloatField(verbose_name='价格占比(%)')
 
@@ -206,7 +206,7 @@ class StockCyqPerf(models.Model):
     A股每日筹码平均成本和胜率模型
     """
     stock = models.ForeignKey('StockInfo', to_field='stock_code', on_delete=models.CASCADE, verbose_name='股票', db_index=True)
-    trade_time = models.CharField(max_length=8, verbose_name='交易日期', db_index=True)  # YYYYMMDD
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     his_low = models.FloatField(verbose_name='历史最低价', null=True, blank=True)
     his_high = models.FloatField(verbose_name='历史最高价', null=True, blank=True)
     cost_5pct = models.FloatField(verbose_name='5分位成本', null=True, blank=True)
