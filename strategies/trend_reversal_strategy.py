@@ -727,11 +727,13 @@ class TrendReversalStrategy(BaseStrategy):
         if self.intermediate_data is None or self.intermediate_data.empty:
             logger.warning("中间数据为空，无法进行信号分析。")
             return None
+        
         analysis_results = {}
         data = self.intermediate_data
         latest_data = data.iloc[-1] if not data.empty else None
         dd_params = self.params.get('divergence_detection', {})
         kpd_params = self.params.get('kline_pattern_detection', {})
+
         # 统计分析
         if 'final_signal' in data:
             final_signal = data['final_signal'].dropna()
@@ -808,21 +810,35 @@ class TrendReversalStrategy(BaseStrategy):
             if not hv_series.empty:
                 analysis_results['hv_high_vol_count'] = (hv_series == 1).sum()
                 analysis_results['hv_low_vol_count'] = (hv_series == -1).sum()
+
         # 最新信号判断
         signal_judgment = {}
+        is_strong_trend = False  # 标识是否强趋势
         if latest_data is not None:
             if 'final_signal' in latest_data:
                 score = latest_data['final_signal']
-                if score >= 75: signal_judgment['reversal_potential'] = "极强买入反转潜力"
-                elif score >= 65: signal_judgment['reversal_potential'] = "较强买入反转潜力"
-                elif score <= 25: signal_judgment['reversal_potential'] = "极强卖出反转潜力"
-                elif score <= 35: signal_judgment['reversal_potential'] = "较强卖出反转潜力"
-                else: signal_judgment['reversal_potential'] = "反转信号不明确"
+                if score >= 75:
+                    signal_judgment['reversal_potential'] = "极强买入反转潜力"
+                elif score >= 65:
+                    signal_judgment['reversal_potential'] = "较强买入反转潜力"
+                elif score <= 25:
+                    signal_judgment['reversal_potential'] = "极强卖出反转潜力"
+                elif score <= 35:
+                    signal_judgment['reversal_potential'] = "较强卖出反转潜力"
+                else:
+                    signal_judgment['reversal_potential'] = "反转信号不明确"
             if 'strong_reversal_confirmation' in latest_data:
                 strong_conf = latest_data['strong_reversal_confirmation']
-                if strong_conf == 1: signal_judgment['confirmation_status'] = "强确认看涨反转"
-                elif strong_conf == -1: signal_judgment['confirmation_status'] = "强确认看跌反转"
-                else: signal_judgment['confirmation_status'] = "无强反转确认"
+                if strong_conf == 1:
+                    signal_judgment['confirmation_status'] = "强确认看涨反转"
+                elif strong_conf == -1:
+                    signal_judgment['confirmation_status'] = "强确认看跌反转"
+                else:
+                    signal_judgment['confirmation_status'] = "无强反转确认"
+                # 判断强趋势条件
+                if ((score >= 75 or score <= 25) and strong_conf in [1, -1]):
+                    is_strong_trend = True
+
             # 检查是否有活跃的反转信号
             active_signals = []
             if dd_params.get('enabled', False):
@@ -842,42 +858,63 @@ class TrendReversalStrategy(BaseStrategy):
             if 'hv_environment_signal' in latest_data and latest_data['hv_environment_signal'] != 0:
                 active_signals.append(f"历史波动率环境 (值: {latest_data['hv_environment_signal']})")
             signal_judgment['active_reversal_triggers'] = ", ".join(active_signals) if active_signals else "暂无活跃反转信号"
-            def get_count(key):
-                return analysis_results.get(key, 0)
-            kline_bull_rev_strong_count = sum([get_count(f'kline_{k}_count') for k in ['bull_engulf', 'morning_star', 'hammer', 'bull_counter']])
-            kline_bear_rev_strong_count = sum([get_count(f'kline_{k}_count') for k in ['bear_engulf', 'evening_star', 'hanging_man', 'bear_counter', 'upside_gap_two_crows']])
-            kline_bull_rev_weak_count = sum([get_count(f'kline_{k}_count') for k in ['piercing', 'bull_harami', 'bull_harami_cross', 'tweezer_bottom']])
-            kline_bear_rev_weak_count = sum([get_count(f'kline_{k}_count') for k in ['dark_cloud', 'bear_harami', 'bear_harami_cross', 'tweezer_top']])
-            kline_bull_cont_count = sum([get_count(f'kline_{k}_count') for k in ['three_soldiers', 'rising_three', 'upside_tasuki', 'bull_sep_lines', 'bull_marubozu']])
-            kline_bear_cont_count = sum([get_count(f'kline_{k}_count') for k in ['three_crows', 'falling_three', 'downside_tasuki', 'bear_sep_lines', 'bear_marubozu']])
-            # 中文解读
-            chinese_interpretation = (
-                f"【趋势反转策略分析报告 - 股票代码: {stock_code} - 分析时间: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
-                f"核心观点:\n"
-                f" - 当前反转潜力评估: {signal_judgment.get('reversal_potential', '未知')}\n"
-                f" - 确认信号状态: {signal_judgment.get('confirmation_status', '未知')}\n"
-                f" - 当前触发信号: {signal_judgment.get('active_reversal_triggers', '暂无')}\n"
-                f"操作建议:\n"
-                f" - {signal_judgment.get('reversal_potential', '未知')} 指示了潜在的交易机会方向。\n"
-                f" - 结合 {signal_judgment.get('confirmation_status', '未知')} 评估信号的可靠性。\n"
-                f" - 关注 {signal_judgment.get('active_reversal_triggers', '暂无')} 提供的具体反转依据。\n"
-                f"统计数据 (分析周期内):\n"
-                f" - 最终信号平均值: {analysis_results.get('final_signal_mean', np.nan):.2f}\n"
-                f" - 强买入反转确认比例: {analysis_results.get('strong_buy_reversal_ratio', np.nan)*100:.2f}%\n"
-                f" - 强卖出反转确认比例: {analysis_results.get('strong_sell_reversal_ratio', np.nan)*100:.2f}%\n"
-                f" - K线强反转信号: 看涨 {kline_bull_rev_strong_count} 次, 看跌 {kline_bear_rev_strong_count} 次\n"
-                f" - K线弱反转信号: 看涨 {kline_bull_rev_weak_count} 次, 看跌 {kline_bear_rev_weak_count} 次\n"
-                f" - K线持续信号: 看涨 {kline_bull_cont_count} 次, 看跌 {kline_bear_cont_count} 次\n"
-                f" - Williams %R 反转信号: 买入 {get_count('willr_buy_count')} 次, 卖出 {get_count('willr_sell_count')} 次\n"
-                f" - ATR 波动率信号: 高波动 {get_count('atr_high_vol_count')} 次, 低波动 {get_count('atr_low_vol_count')} 次\n"
-                f" - 历史波动率环境: 高波动 {get_count('hv_high_vol_count')} 次, 低波动 {get_count('hv_low_vol_count')} 次\n"
-                f"温馨提示: 本分析仅供参考，不构成投资建议，请结合市场实际情况和个人风险承受能力谨慎决策。"
-            )
-            logger.info(chinese_interpretation)
+        
+        def get_count(key):
+            return analysis_results.get(key, 0)
+
+        kline_bull_rev_strong_count = sum([get_count(f'kline_{k}_count') for k in ['bull_engulf', 'morning_star', 'hammer', 'bull_counter']])
+        kline_bear_rev_strong_count = sum([get_count(f'kline_{k}_count') for k in ['bear_engulf', 'evening_star', 'hanging_man', 'bear_counter', 'upside_gap_two_crows']])
+        kline_bull_rev_weak_count = sum([get_count(f'kline_{k}_count') for k in ['piercing', 'bull_harami', 'bull_harami_cross', 'tweezer_bottom']])
+        kline_bear_rev_weak_count = sum([get_count(f'kline_{k}_count') for k in ['dark_cloud', 'bear_harami', 'bear_harami_cross', 'tweezer_top']])
+        kline_bull_cont_count = sum([get_count(f'kline_{k}_count') for k in ['three_soldiers', 'rising_three', 'upside_tasuki', 'bull_sep_lines', 'bull_marubozu']])
+        kline_bear_cont_count = sum([get_count(f'kline_{k}_count') for k in ['three_crows', 'falling_three', 'downside_tasuki', 'bear_sep_lines', 'bear_marubozu']])
+
+        chinese_interpretation = (
+            f"【趋势反转策略分析报告 - 股票代码: {stock_code} - 分析时间: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}】\n"
+            f"核心观点:\n"
+            f" - 当前反转潜力评估: {signal_judgment.get('reversal_potential', '未知')}\n"
+            f" - 确认信号状态: {signal_judgment.get('confirmation_status', '未知')}\n"
+            f" - 当前触发信号: {signal_judgment.get('active_reversal_triggers', '暂无')}\n"
+            f"操作建议:\n"
+            f" - {signal_judgment.get('reversal_potential', '未知')} 指示了潜在的交易机会方向。\n"
+            f" - 结合 {signal_judgment.get('confirmation_status', '未知')} 评估信号的可靠性。\n"
+            f" - 关注 {signal_judgment.get('active_reversal_triggers', '暂无')} 提供的具体反转依据。\n"
+            f"统计数据 (分析周期内):\n"
+            f" - 最终信号平均值: {analysis_results.get('final_signal_mean', np.nan):.2f}\n"
+            f" - 强买入反转确认比例: {analysis_results.get('strong_buy_reversal_ratio', np.nan)*100:.2f}%\n"
+            f" - 强卖出反转确认比例: {analysis_results.get('strong_sell_reversal_ratio', np.nan)*100:.2f}%\n"
+            f" - K线强反转信号: 看涨 {kline_bull_rev_strong_count} 次, 看跌 {kline_bear_rev_strong_count} 次\n"
+            f" - K线弱反转信号: 看涨 {kline_bull_rev_weak_count} 次, 看跌 {kline_bear_rev_weak_count} 次\n"
+            f" - K线持续信号: 看涨 {kline_bull_cont_count} 次, 看跌 {kline_bear_cont_count} 次\n"
+            f" - Williams %R 反转信号: 买入 {get_count('willr_buy_count')} 次, 卖出 {get_count('willr_sell_count')} 次\n"
+            f" - ATR 波动率信号: 高波动 {get_count('atr_high_vol_count')} 次, 低波动 {get_count('atr_low_vol_count')} 次\n"
+            f" - 历史波动率环境: 高波动 {get_count('hv_high_vol_count')} 次, 低波动 {get_count('hv_low_vol_count')} 次\n"
+            f"温馨提示: 本分析仅供参考，不构成投资建议，请结合市场实际情况和个人风险承受能力谨慎决策。"
+        )
+
+        # 生成路径并保存文件
+        base_path = os.path.join("analysis_results", "TrendReversalStrategy", stock_code)
+        os.makedirs(base_path, exist_ok=True)
+        filename = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S.txt')
+        file_path = os.path.join(base_path, filename)
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(chinese_interpretation)
+            logger.info(f"分析结果已保存至文件: {file_path}")
+        except Exception as e:
+            logger.error(f"保存分析结果文件失败: {e}")
+
+        # 强趋势时输出到屏幕
+        if is_strong_trend:
             print(chinese_interpretation)
+
+        logger.info(chinese_interpretation)
+
         analysis_results.update(signal_judgment)
         self.analysis_results = pd.DataFrame([analysis_results])
         return self.analysis_results
+
     
     def save_analysis_results(self, stock_code: str, timestamp: pd.Timestamp, data: pd.DataFrame):
         """

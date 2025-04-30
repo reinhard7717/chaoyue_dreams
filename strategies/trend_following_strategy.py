@@ -1223,7 +1223,7 @@ class TrendFollowingStrategy(BaseStrategy):
         )
         
         # 保存结果到文件：以 stock_code 为文件夹，时间为文件名
-        base_path = os.path.join("analysis_results", stock_code)  # 根路径可自定义
+        base_path = os.path.join("analysis_results", "TrendFollowingStrategy", stock_code)
         os.makedirs(base_path, exist_ok=True)
         filename = pd.Timestamp.now().strftime('%Y%m%d_%H%M.txt')
         file_path = os.path.join(base_path, filename)
