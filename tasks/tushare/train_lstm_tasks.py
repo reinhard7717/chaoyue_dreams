@@ -11,7 +11,7 @@ from strategies.trend_following_strategy import TrendFollowingStrategy
 logger = logging.getLogger(__name__)
 
 @celery_app.task(bind=True, name='tasks.tushare.train_lstm_tasks.batch_train_following_strategy_lstm')
-def batch_train_following_strategy_lstm(stock, params_file: str = "strategies/indicator_parameters.json", model_dir="models"):
+def batch_train_following_strategy_lstm(self, stock, params_file: str = "strategies/indicator_parameters.json", model_dir="models"):
     """
     批量训练LSTM模型并自动保存模型和Scaler
     :param stock_list: 股票代码列表
