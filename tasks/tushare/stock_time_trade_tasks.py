@@ -188,8 +188,8 @@ def save_cyq_perf_today_batch(self, stock_code: str):
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_history_task', queue='SaveData_TimeTrade')
-def save_day_data_history_task(self): # 限量：单次最大8000行数据
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_today_task', queue='SaveData_TimeTrade')
+def save_cyq_data_today_task(self): # 限量：单次最大8000行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
@@ -197,7 +197,7 @@ def save_day_data_history_task(self): # 限量：单次最大8000行数据
     3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_day_data_history_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
+    logger.info(f"任务启动: save_cyq_data_today_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
     try:
         total_dispatched_batches = 0
         stock_basic_dao = StockBasicInfoDao()
@@ -214,10 +214,10 @@ def save_day_data_history_task(self): # 限量：单次最大8000行数据
             total_dispatched_batches += 1
             logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
         logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
-        logger.info(f"任务结束: save_day_data_history_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
+        logger.info(f"任务结束: save_cyq_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
     except Exception as e:
-        logger.error(f"执行 save_day_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
+        logger.error(f"执行 save_cyq_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 # ===================================================
