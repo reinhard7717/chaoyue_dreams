@@ -611,12 +611,13 @@ class TrendReversalStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
         """生成趋势反转信号"""
         logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})")
+        # print("传入generate_signals的DataFrame列名：", data.columns.tolist())
         if data is None or data.empty:
             logger.warning("输入数据为空，无法生成信号。")
             return pd.Series(dtype=float)
         # 检查必需列
         required_cols = self.get_required_columns()
-        missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
+        missing_cols = [col for col in required_cols if col not in data.columns]
         if missing_cols:
             logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
             return pd.Series(50.0, index=data.index)

@@ -188,7 +188,7 @@ class IndicatorService:
                 ia_params.get('volume_ma_period', 0),  # 成交量均线周期
                 55  # SAR 默认回看期或固定值
             ]
-            max_lookback = max(lookbacks) + 50  # 增加 50 个 bar 作为缓冲
+            max_lookback = max(lookbacks) + 100  # 增加 100 个 bar 作为缓冲
             logger.info(f"[{stock_code}] 需要的时间级别: {all_time_levels}, 最大回看期: {max_lookback}")
         except KeyError as e:
             logger.error(f"[{stock_code}] 参数文件 {params_file} 缺少键: {e}", exc_info=True)
@@ -207,6 +207,7 @@ class IndicatorService:
             if df is None or df.empty:
                 logger.warning(f"[{stock_code}] 无法获取时间级别 {tf} 的 OHLCV 数据。")
             else:
+                df = self.filter_to_period_points(df, tf)  # <--- 周期对齐
                 # 重命名基础列，将 amount 重命名为 amount，并包含 turnover_rate
                 rename_map = {}
                 for col in df.columns:
@@ -243,6 +244,7 @@ class IndicatorService:
                         return None
                     result = calculation_func(base_df_clean, *args, **kwargs)
                     if result is not None and not result.empty:
+                        result = self.filter_to_period_points(result, tf)  # <--- 周期对齐
                         # 统一为所有结果列添加时间后缀
                         result_renamed = result.rename(columns=lambda x: f"{x}_{tf}")
                         return (tf, result_renamed)
@@ -367,151 +369,38 @@ class IndicatorService:
             # 处理重复列名，保留第一个出现的列
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
+            # 以5分钟为基准索引补齐
+            base_5min_df = valid_ohlcv_dfs.get('5')
+            if base_5min_df is not None and not base_5min_df.empty:
+                base_index = base_5min_df.index
+                combined_df = combined_df.reindex(base_index)
+                combined_df.ffill(inplace=True)  # 或 bfill
+                logger.info(f"[{stock_code}] 用5分钟索引补齐所有周期数据，最终形状: {combined_df.shape}")
+            # 彻底消除None，强制所有列为float
+            for col in combined_df.columns:
+                combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
             return combined_df
         except Exception as e:
             logger.error(f"[{stock_code}] 合并数据帧时出错: {e}", exc_info=True)
             return None
-    
-    # --- 新增方法：准备基础 OHLCV 数据 ---
-    async def prepare_strategy_basic_dataframe(self, stock_code: str, timeframes: List[str], limit_per_tf: int = 1200) -> Optional[pd.DataFrame]:
+
+    # --- 周期对齐函数 ---
+    def filter_to_period_points(self, df: pd.DataFrame, tf: str) -> pd.DataFrame:
         """
-        准备策略所需的基础 OHLCV DataFrame (简化版)。
-        仅获取并合并指定时间周期的 OHLCV 和 amount 数据。
-        Args:
-            stock_code (str): 股票代码。
-            timeframes (List[str]): 策略需要的时间周期列表 (e.g., ['5', '15', 'Day', 'Week'])。
-                                     数据库存储格式: ['5','15','30','60','Day','Week','Month','Year']
-            limit_per_tf (int): 为每个时间周期获取的最新记录数。
-        Returns:
-            Optional[pd.DataFrame]: 合并后的 DataFrame，索引为 trade_time (升序, timezone-aware)，
-                                     列名为带后缀的 OHLCV 和 amount。
-                                     如果数据准备失败，则返回 None。
+        只保留周期对齐的时间点，自动适配K线收盘分钟。
         """
-        logger.info(f"[{stock_code}] 开始准备基础策略 DataFrame for timeframes: {timeframes}")
-        # --- 1. 处理和映射时间周期 ---
-        tf_map = {'Day': 'D', 'Week': 'W', 'Month': 'M'}
-        valid_timeframes_dao = [] # 用于 DAO 查询的周期
-        valid_timeframes_orig = [] # 用于列名后缀的原始周期
-        for tf in timeframes:
-            if tf.isdigit(): # 数字周期直接使用
-                valid_timeframes_dao.append(tf)
-                valid_timeframes_orig.append(tf)
-            elif tf in tf_map: # 映射 Day, Week, Month
-                valid_timeframes_dao.append(tf_map[tf])
-                valid_timeframes_orig.append(tf) # 后缀使用原始名称
-            else:
-                logger.warning(f"[{stock_code}] 不支持或无法映射的时间周期: '{tf}'，将被忽略。")
-        if not valid_timeframes_dao:
-            logger.error(f"[{stock_code}] 没有有效的 timeframes 可供查询。")
-            return None
-        # --- 2. 创建并发任务列表 ---
-        tasks = []
-        task_descriptions = {} # 用于追踪任务
-        for i, tf_dao in enumerate(valid_timeframes_dao):
-            tf_orig = valid_timeframes_orig[i] # 获取对应的原始名称用于后缀
-            ohlcv_task = self.indicator_dao.get_history_ohlcv_df(stock_code, tf_dao, limit=limit_per_tf)
-            tasks.append(ohlcv_task)
-            # 描述信息包含 DAO 使用的周期和原始周期（用于后缀）
-            task_descriptions[len(tasks)-1] = {'type': 'ohlcv', 'tf_dao': tf_dao, 'tf_orig': tf_orig}
-        # --- 3. 并发执行所有 DAO 查询 ---
-        logger.debug(f"[{stock_code}] 开始并发执行 {len(tasks)} 个 OHLCV 数据获取任务...")
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        logger.debug(f"[{stock_code}] OHLCV 数据获取任务执行完毕.")
-        # --- 4. 处理结果并重命名列 ---
-        dfs_to_merge: List[pd.DataFrame] = []
-        fetched_data_summary = {}
-        for i, result in enumerate(results):
-            desc = task_descriptions[i]
-            tf_orig = desc['tf_orig'] # 使用原始周期名作为后缀
-            tf_dao = desc['tf_dao']   # 用于日志或调试
-            data_key = f"ohlcv_{tf_orig}" # 使用原始名构建 key
-            if isinstance(result, Exception):
-                logger.warning(f"[{stock_code}] 获取 {data_key} (DAO: {tf_dao}) 数据时出错: {result}", exc_info=False)
-                fetched_data_summary[data_key] = "Error"
-                continue
-            if result is None or result.empty:
-                # logger.warning(f"[{stock_code}] 未获取到有效的 {data_key} (DAO: {tf_dao}) 数据")
-                fetched_data_summary[data_key] = "Empty/None"
-                continue
-            df = result.copy() # 操作副本
-            # --- 定义重命名映射 ---
-            # DAO 返回的列名是 'open', 'high', 'low', 'close', 'volume', 'amount' (假设)
-            # 我们需要将它们重命名为带原始后缀的列名
-            rename_map = {
-                'open': f'open_{tf_orig}',
-                'high': f'high_{tf_orig}',
-                'low': f'low_{tf_orig}',
-                'close': f'close_{tf_orig}',
-                'volume': f'volume_{tf_orig}',
-                'amount': f'amount_{tf_orig}' # 将 amount 重命名为 amount 并加后缀
-            }
-            # --- 执行重命名并检查 ---
-            try:
-                # 检查原始列是否存在
-                missing_original_cols = [orig_col for orig_col in rename_map.keys() if orig_col not in df.columns]
-                if missing_original_cols:
-                    logger.warning(f"[{stock_code}] 获取的 {data_key} 数据缺少原始列: {missing_original_cols}. 可用列: {df.columns.tolist()}")
-                    # 移除缺失的映射，继续处理存在的列
-                    rename_map = {k: v for k, v in rename_map.items() if k in df.columns}
-                    if not rename_map: # 如果所有需要的列都缺失
-                        fetched_data_summary[data_key] = "Missing All Original Cols"
-                        continue # 跳过这个 DataFrame
-                df.rename(columns=rename_map, inplace=True)
-                renamed_cols = list(rename_map.values())
-                # 只保留重命名后的列
-                df_to_add = df[renamed_cols]
-                # --- 确保索引是 DatetimeIndex 且时区感知 ---
-                if not isinstance(df_to_add.index, pd.DatetimeIndex):
-                    try:
-                        df_to_add.index = pd.to_datetime(df_to_add.index)
-                    except Exception as e_idx:
-                        logger.warning(f"[{stock_code}] 无法将 {data_key} 的索引转换为 DatetimeIndex: {e_idx}")
-                        fetched_data_summary[data_key] = "Index Error"
-                        continue # 跳过这个 DataFrame
-                # 确保时区（与 Django 默认时区一致）
-                target_tz_final = timezone.get_default_timezone()
-                try:
-                    if df_to_add.index.tz is None:
-                        df_to_add.index = df_to_add.index.tz_localize('UTC').tz_convert(target_tz_final)
-                    elif df_to_add.index.tz != target_tz_final:
-                        df_to_add.index = df_to_add.index.tz_convert(target_tz_final)
-                except Exception as e_tz:
-                    logger.warning(f"[{stock_code}] 处理 {data_key} 索引时区时出错: {e_tz}")
-                    fetched_data_summary[data_key] = "Timezone Error"
-                    continue # 跳过
-                dfs_to_merge.append(df_to_add)
-                fetched_data_summary[data_key] = "Success"
-            except Exception as e_process:
-                logger.error(f"[{stock_code}] 处理或重命名 {data_key} 列时出错: {e_process}", exc_info=True)
-                fetched_data_summary[data_key] = "Processing Exception"
-        # --- 5. 合并 DataFrame ---
-        if not dfs_to_merge:
-            logger.error(f"[{stock_code}] 没有成功获取或处理任何有效的 OHLCV 数据用于合并。")
-            return None
-        try:
-            logger.debug(f"[{stock_code}] 开始合并 {len(dfs_to_merge)} 个基础 OHLCV DataFrame...")
-            # 使用 concat 进行合并，基于索引对齐
-            merged_df = pd.concat(dfs_to_merge, axis=1, join='outer') # outer join 保留所有时间点
-            merged_df.sort_index(ascending=True, inplace=True)
-            # --- 6. 填充 NaN 值 ---
-            # 向前填充通常是合理的策略，表示沿用上一时间点的值
-            # 对于不同频率的数据合并，这可能导致低频数据在高频时间点重复
-            # 但对于基础数据，这通常是期望的行为（例如，日线的开盘价在当天所有5分钟线上都一样）
-            merged_df.ffill(inplace=True)
-            # （可选）清理：如果需要，可以在这里加入基于某个关键列（如 close_5）删除头部 NaN 的逻辑
-            # key_col = f'close_{valid_timeframes_orig[0]}' # 例如用第一个周期的 close
-            # if key_col in merged_df.columns:
-            #     merged_df.dropna(subset=[key_col], inplace=True)
-            # 最后检查是否为空
-            if merged_df.empty:
-                logger.error(f"[{stock_code}] 合并并清理基础 OHLCV 数据后 DataFrame 为空。")
-                return None
-            logger.info(f"[{stock_code}] 基础策略 DataFrame 准备完成，最终形状: {merged_df.shape}")
-            # logger.debug(f"[{stock_code}] 最终列名: {merged_df.columns.tolist()}")
-            return merged_df
-        except Exception as e_merge:
-            logger.error(f"[{stock_code}] 合并或后处理基础 OHLCV DataFrame 时出错: {e_merge}", exc_info=True)
-            return None
+        if not isinstance(df.index, pd.DatetimeIndex):
+            return df
+        if tf.isdigit() and int(tf) < 60:
+            period = int(tf)
+            # 取所有分钟的模period的分布，选出现次数最多的那个余数
+            mod_counts = df.index.minute % period
+            most_common_mod = mod_counts.value_counts().idxmax()
+            mask = (df.index.minute % period == most_common_mod) & (df.index.second == 0)
+            return df[mask]
+        else:
+            return df
+
 
     def calculate_atr(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
         """

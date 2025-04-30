@@ -417,7 +417,6 @@ class TrendFollowingStrategy(BaseStrategy):
         if base_score_series.isnull().all():
             logger.warning("基础分数全为 NaN，无法执行趋势分析。")
             return analysis_df  # 返回空的分析结果
-
         score_series = base_score_series
 
         # --- 1. 计算分数 EMA ---
@@ -428,6 +427,11 @@ class TrendFollowingStrategy(BaseStrategy):
             except Exception as e:
                 logger.error(f"计算 EMA Score {period} 时出错: {e}")
                 analysis_df[f'ema_score_{period}'] = np.nan
+        # 彻底消除所有None，防止后续比较报错
+        for col in analysis_df.columns:
+            if col.startswith('ema_score_'):
+                analysis_df[col] = pd.to_numeric(analysis_df[col], errors='coerce')
+                # print(f"EMA 计算结果: {col} - {analysis_df[col]} - {analysis_df[col].dtype}")
 
         # --- 2. 计算 EMA 排列信号 ---
         ema_cols_align = [f'ema_score_{p}' for p in all_ema_periods[:4]]  # 假设使用前4个周期进行排列判断
@@ -436,15 +440,12 @@ class TrendFollowingStrategy(BaseStrategy):
             signal_s_m1 = pd.Series(0, index=analysis_df.index)
             signal_s_m1 = signal_s_m1.where(analysis_df[short_ema_col] <= analysis_df[mid1_ema_col], 1)
             signal_s_m1 = signal_s_m1.where(analysis_df[short_ema_col] >= analysis_df[mid1_ema_col], -1)
-
             signal_m1_m2 = pd.Series(0, index=analysis_df.index)
             signal_m1_m2 = signal_m1_m2.where(analysis_df[mid1_ema_col] <= analysis_df[mid2_ema_col], 1)
             signal_m1_m2 = signal_m1_m2.where(analysis_df[mid1_ema_col] >= analysis_df[mid2_ema_col], -1)
-
             signal_m2_l = pd.Series(0, index=analysis_df.index)
             signal_m2_l = signal_m2_l.where(analysis_df[mid2_ema_col] <= analysis_df[long_ema_col], 1)
             signal_m2_l = signal_m2_l.where(analysis_df[mid2_ema_col] >= analysis_df[long_ema_col], -1)
-
             analysis_df['alignment_signal'] = signal_s_m1 + signal_m1_m2 + signal_m2_l
             analysis_df.loc[analysis_df[ema_cols_align].isna().any(axis=1), 'alignment_signal'] = np.nan
         else:
@@ -558,7 +559,7 @@ class TrendFollowingStrategy(BaseStrategy):
             analysis_df['stoch_signal'] = 0.0  # STOCH 未启用
 
         # --- 10. VWAP 偏离判断 (使用 focus_timeframe) ---
-        vwap_col = f'vwap_{focus_tf}'
+        vwap_col = f'VWAP_{focus_tf}'
         close_col = f'close_{focus_tf}'
         if vwap_col in data and close_col in data:  # 使用 data 变量
             vwap = data[vwap_col]
@@ -722,6 +723,7 @@ class TrendFollowingStrategy(BaseStrategy):
         """
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息。
         """
+        # print("传入generate_signals的DataFrame列名：", data.columns.tolist())
         logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
         if data is None or data.empty:
             logger.warning("输入数据为空，无法生成信号。")

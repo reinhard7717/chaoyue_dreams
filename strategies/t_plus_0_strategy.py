@@ -106,8 +106,8 @@ class TPlus0Strategy(BaseStrategy):
         analysis_tf = self.focus_timeframe
 
         # 确定 VWAP 列名
-        vwap_col_tf = f'vwap_{analysis_tf}'
-        vwap_col_no_tf = 'vwap'
+        vwap_col_tf = f'VWAP_{analysis_tf}'
+        vwap_col_no_tf = 'VWAP'
         vwap_col = None
         if vwap_col_tf in data and data[vwap_col_tf].notna().any():
             vwap_col = vwap_col_tf
@@ -154,10 +154,8 @@ class TPlus0Strategy(BaseStrategy):
                   buy_condition &= (long_term_context >= 0)
                   # 只有在长期趋势向下 (<=0, 即 -1 或 0) 时才考虑卖出信号
                   sell_condition &= (long_term_context <= 0)
-
         signals.loc[buy_condition, 't0_signal'] = 1
         signals.loc[sell_condition, 't0_signal'] = -1
-
         return signals
 
     def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
@@ -173,29 +171,23 @@ class TPlus0Strategy(BaseStrategy):
         required_cols = self.get_required_columns()
         # 处理 VWAP 列名的不确定性
         has_vwap = False
-        vwap_cols_to_check = [f'vwap_{self.focus_timeframe}', 'vwap']
+        vwap_cols_to_check = [f'VWAP_{self.focus_timeframe}', 'vwap']
         actual_vwap_cols = [col for col in vwap_cols_to_check if col in data and data[col].notna().any()]
         if actual_vwap_cols:
             has_vwap = True
         else:
             # 如果 VWAP 列不存在，从 required_cols 中移除它们，避免报错
             required_cols = [col for col in required_cols if col not in vwap_cols_to_check]
-
-
-        missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
+        missing_cols = [col for col in required_cols if col not in data.columns]
         if not has_vwap:
              missing_cols.append("vwap (找不到有效的列)")
-
         if missing_cols:
             logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
             return pd.Series(0, index=data.index) # 返回无信号
-
         # --- 步骤 1: 生成 T+0 信号 ---
         t0_signals_df = self._generate_t0_signals_internal(data)
-
         # --- 步骤 2: 存储中间数据 (可选，T+0 比较简单) ---
         self.intermediate_data = t0_signals_df # 只包含 t0_signal 列
-
         final_signal = t0_signals_df['t0_signal']
 
         logger.info(f"{self.strategy_name}: 信号生成完毕。")
