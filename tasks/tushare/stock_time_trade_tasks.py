@@ -197,22 +197,20 @@ def save_cyq_data_today_task(self): # 限量：单次最大8000行数据
     3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_cyq_data_today_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
+    logger.info(f"任务启动: save_cyq_data_today_task (调度器模式) - 获取股票列表并分派批量任务")
     try:
         total_dispatched_batches = 0
         stock_basic_dao = StockBasicInfoDao()
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
-        all_stock_codes = [stock.stock_code for stock in all_stocks]
         if not all_stocks:
             logger.warning("未找到任何股票代码，跳过任务")
             return {"status": "skipped", "message": "未找到任何股票代码"}
         total_codes_count = len(all_stocks)  # 用于统计总代码数量
         logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
-        for stock_code in all_stock_codes:
-            save_cyq_chips_today_batch.s(stock_code=stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
-            save_cyq_perf_today_batch.s(stock_code=stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+        for stock in all_stocks:
+            save_cyq_chips_today_batch.s(stock_code=stock.stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+            save_cyq_perf_today_batch.s(stock_code=stock.stock_code).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
             total_dispatched_batches += 1
-            logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
         logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
         logger.info(f"任务结束: save_cyq_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
