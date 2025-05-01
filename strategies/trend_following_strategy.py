@@ -1400,6 +1400,7 @@ class TrendFollowingStrategy(BaseStrategy):
         if 'final_signal' not in data.columns:
             data = data.copy()
             data['final_signal'] = self.generate_signals(data, stock_code)
+
         X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
             data,
             required_cols,
@@ -1411,6 +1412,17 @@ class TrendFollowingStrategy(BaseStrategy):
             fill_na_method='ffill',
             augment_data=False
         )
+        # 验证内容输出
+        logger.info(f"LSTM数据集 shape: X_train={X_train.shape}, y_train={y_train.shape}, "
+                    f"X_val={X_val.shape}, y_val={y_val.shape}, "
+                    f"X_test={X_test.shape}, y_test={y_test.shape}")
+        logger.info(f"Scaler对象: {self.scaler}")
+        if X_train.shape[0] == 0:
+            logger.warning("X_train 为空，无法训练LSTM模型。")
+        if X_val.shape[0] == 0:
+            logger.warning("X_val 为空，验证集将无法用于早停。")
+        if X_test.shape[0] == 0:
+            logger.warning("X_test 为空，测试集将无法用于评估。")
         if X_train.shape[0] > 0:
             self.lstm_model = build_lstm_model(
                 self.window_size,
@@ -1430,6 +1442,11 @@ class TrendFollowingStrategy(BaseStrategy):
             self.lstm_model.save(self.model_path)
             joblib.dump(self.scaler, self.scaler_path)
             logger.info(f"[{stock_code}] LSTM模型和Scaler已保存至: {self.model_path}, {self.scaler_path}")
+            if X_test.shape[0] > 0:
+                test_loss, test_mae = self.lstm_model.evaluate(X_test, y_test, verbose=0)
+                logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE: {test_mae:.4f}")
+            else:
+                logger.warning("测试集为空，无法评估LSTM模型。")
             return history
         else:
             logger.warning(f"[{stock_code}] 数据不足以训练LSTM模型。")
