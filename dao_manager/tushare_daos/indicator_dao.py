@@ -16,7 +16,6 @@ from utils.cache_get import  StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 
-
 logger = logging.getLogger("dao")
 
 class IndicatorDAO(BaseDAO):
@@ -150,34 +149,31 @@ class IndicatorDAO(BaseDAO):
                 return None
             data_list.reverse()
             #  ====================================
-            # 1. 获取实际有的数据时间点
-            trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
-            trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
+            # 只对分钟线做检测
+            if time_level_str.isdigit():
+                freq = int(time_level_str)
+                # 1. 获取实际有的数据时间点
+                trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
+                trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
 
-            # 2. 获取应有的交易日
-            index_basic_dao = IndexBasicDAO()
-            start_date = trade_times[0].strftime('%Y%m%d')
-            end_date = trade_times[-1].strftime('%Y%m%d')
-            trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
-            trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
+                # 2. 获取应有的交易日
+                index_basic_dao = IndexBasicDAO()
+                start_date = trade_times[0].strftime('%Y%m%d')
+                end_date = trade_times[-1].strftime('%Y%m%d')
+                trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
+                trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
 
-            # 3. 生成应有的5分钟K线时间点
-            expected_times = []
-            for day in trade_days:
-                # 上午
-                for h, m in [(9,30), (9,35), (9,40), (9,45), (9,50), (9,55), (10,0), (10,5), (10,10), (10,15), (10,20), (10,25), (10,30), (10,35), (10,40), (10,45), (10,50), (10,55), (11,0), (11,5), (11,10), (11,15), (11,20), (11,25)]:
-                    expected_times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(h, m)), tz='Asia/Shanghai'))
-                # 下午
-                for h, m in [(13,0), (13,5), (13,10), (13,15), (13,20), (13,25), (13,30), (13,35), (13,40), (13,45), (13,50), (13,55), (14,0), (14,5), (14,10), (14,15), (14,20), (14,25), (14,30), (14,35), (14,40), (14,45), (14,50), (14,55)]:
-                    expected_times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(h, m)), tz='Asia/Shanghai'))
+                # 3. 生成应有的K线时间点（调用你刚写的函数）
+                expected_times = []
+                for day in trade_days:
+                    expected_times.extend(get_china_a_stock_minute_times(day, freq))
 
-            # 4. 检查缺失
-            actual_times_set = set([t.tz_convert('Asia/Shanghai').replace(second=0, microsecond=0) for t in trade_times])
-            expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
-            missing_times = expected_times_set - actual_times_set
-            if missing_times:
-                logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
-
+                # 4. 检查缺失
+                actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
+                expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
+                missing_times = expected_times_set - actual_times_set
+                if missing_times:
+                    logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
             #  ====================================
             return data_list
         except Exception as e_db:
