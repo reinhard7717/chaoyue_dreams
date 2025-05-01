@@ -1401,6 +1401,11 @@ class TrendFollowingStrategy(BaseStrategy):
             data = data.copy()
             data['final_signal'] = self.generate_signals(data, stock_code)
 
+        print("准备训练LSTM前输入数据缺失情况：")
+        pd.set_option('display.max_rows', None)
+        pd.set_option('display.max_columns', None)
+        print(data[required_cols + ['final_signal']].isna().sum().to_dict())
+
         X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
             data,
             required_cols,

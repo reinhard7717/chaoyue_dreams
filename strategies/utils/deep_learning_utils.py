@@ -45,20 +45,12 @@ def handle_exceptions(func):
 @log_execution_time
 @handle_exceptions
 def prepare_data_for_lstm(
-    data: pd.DataFrame,
-    required_columns: List[str],
-    target_column: str = 'final_signal',
-    window_size: int = 60,
-    scaler_type: str = 'minmax',
-    train_split: float = 0.7,
-    val_split: float = 0.15,
-    fill_na_method: str = 'ffill',
-    feature_selection: Optional[List[str]] = None,
-    augment_data: bool = False
+    data: pd.DataFrame, required_columns: List[str], target_column: str = 'final_signal', window_size: int = 60,
+    scaler_type: str = 'minmax', train_split: float = 0.7, val_split: float = 0.15, fill_na_method: str = 'ffill',
+    feature_selection: Optional[List[str]] = None, augment_data: bool = False
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
     """
     准备LSTM模型的训练数据，支持多种预处理选项和数据集分割。
-    
     参数:
         data: 包含特征和目标变量的DataFrame。
         required_columns: 模型输入特征列名列表。
@@ -70,7 +62,6 @@ def prepare_data_for_lstm(
         fill_na_method: 缺失值填充方法，'ffill'（向前填充）、'bfill'（向后填充）或'mean'（均值填充），默认为'ffill'。
         feature_selection: 可选的特征子集列名列表，若为None则使用required_columns。
         augment_data: 是否进行数据增强（如添加噪声），默认为False。
-    
     返回:
         X_train, y_train: 训练集特征和目标。
         X_val, y_val: 验证集特征和目标。
@@ -79,17 +70,15 @@ def prepare_data_for_lstm(
     """
     if data.empty:
         raise ValueError("输入数据为空，无法准备训练数据。")
-    
     # 选择特征列
     selected_columns = feature_selection if feature_selection is not None else required_columns
     missing_cols = [col for col in selected_columns if col not in data.columns]
     if missing_cols:
         raise ValueError(f"数据缺少必需特征列: {missing_cols}")
-    
     # 缺失值处理
     data_copy = data.copy()
     print("处理缺失值前，缺失值统计:")
-    print(data_copy[selected_columns + [target_column]].isna().sum())
+    print(data_copy[selected_columns + [target_column]].isna().sum().to_dict())
     if fill_na_method == 'ffill':
         data_copy[selected_columns] = data_copy[selected_columns].ffill()
     elif fill_na_method == 'bfill':
@@ -99,7 +88,7 @@ def prepare_data_for_lstm(
     else:
         raise ValueError(f"不支持的缺失值填充方法: {fill_na_method}")
     print("处理缺失值后，缺失值统计:")
-    print(data_copy[selected_columns + [target_column]].isna().sum())
+    print(data_copy[selected_columns + [target_column]].isna().sum().to_dict())
     
     # 再次检查缺失值
     data_copy = data_copy.dropna(subset=selected_columns + [target_column])
