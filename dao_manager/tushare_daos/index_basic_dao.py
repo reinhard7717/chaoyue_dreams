@@ -1,4 +1,4 @@
-
+# dao_manager\tushare_daos\index_basic_dao.py
 import logging
 from asgiref.sync import sync_to_async
 import datetime
