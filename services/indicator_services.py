@@ -369,13 +369,13 @@ class IndicatorService:
             # 处理重复列名，保留第一个出现的列
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
-            # =========================
-            print(f"[{stock_code}] 合并后数据缺失值统计（完整）:")
-            pd.set_option('display.max_rows', None)
-            pd.set_option('display.max_columns', None)
-            pd.set_option('display.width', 300)
-            print(combined_df.isna().sum().to_dict())
-            # =========================
+            # # =========================
+            # print(f"[{stock_code}] 合并后数据缺失值统计（完整）:")
+            # pd.set_option('display.max_rows', None)
+            # pd.set_option('display.max_columns', None)
+            # pd.set_option('display.width', 300)
+            # print(combined_df.isna().sum().to_dict())
+            # # =========================
             # 以5分钟为基准索引补齐
             base_5min_df = valid_ohlcv_dfs.get('5')
             if base_5min_df is not None and not base_5min_df.empty:
@@ -383,19 +383,19 @@ class IndicatorService:
                 combined_df = combined_df.reindex(base_index)
                 combined_df.ffill(inplace=True)  # 或 bfill
                 logger.info(f"[{stock_code}] 用5分钟索引补齐所有周期数据，最终形状: {combined_df.shape}")
-                # =========================
-                print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
-                print(combined_df.isna().sum().to_dict())
-                print(f"[{stock_code}] 缺失占比统计（%）:")
-                print((combined_df.isna().mean() * 100).round(2))
-                # =========================
+                # # =========================
+                # print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
+                # print(combined_df.isna().sum().to_dict())
+                # print(f"[{stock_code}] 缺失占比统计（%）:")
+                # print((combined_df.isna().mean() * 100).round(2))
+                # # =========================
             # 彻底消除None，强制所有列为float
             for col in combined_df.columns:
                 combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
-                # =========================
-                print(f"[{stock_code}] 转换数值后数据缺失值统计:")
-                print(combined_df.isna().sum().to_dict())
-                # =========================
+                # # =========================
+                # print(f"[{stock_code}] 转换数值后数据缺失值统计:")
+                # print(combined_df.isna().sum().to_dict())
+                # # =========================
             return combined_df
         except Exception as e:
             logger.error(f"[{stock_code}] 合并数据帧时出错: {e}", exc_info=True)

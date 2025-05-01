@@ -183,6 +183,31 @@ class IndicatorDAO(BaseDAO):
         if not history_trades:
             logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level_val}")
             return None
+        #  ====================================
+        # 检查原始K线数据是否有缺失
+        trade_times = [getattr(trade, 'trade_time', None) for trade in history_trades]
+        if None in trade_times:
+            logger.warning(f"原始K线数据存在 trade_time 缺失: {stock_code} {time_level_val}")
+
+        # 检查时间连续性（以日线为例，分钟线可用pd.date_range灵活调整）
+        if len(trade_times) > 1:
+            trade_times_sorted = sorted([pd.to_datetime(t) for t in trade_times if t is not None])
+            freq = None
+            if time_level_str == 'day':
+                freq = 'D'  # 工作日
+            elif time_level_str == 'week':
+                freq = 'W'
+            elif time_level_str == 'month':
+                freq = 'M'
+            elif time_level_str.isdigit():
+                freq = f'{time_level_str}T'  # 分钟线
+            if freq:
+                expected_times = pd.date_range(start=trade_times_sorted[0], end=trade_times_sorted[-1], freq=freq)
+                missing_times = set(expected_times) - set(trade_times_sorted)
+                if missing_times:
+                    logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_val}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
+
+        #  ====================================
         try:
             # 4. 模型列表转换成字典列表
             data = []
