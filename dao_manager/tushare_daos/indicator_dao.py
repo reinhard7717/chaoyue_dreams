@@ -7,7 +7,6 @@ from django.db.models import Max # <--- 确保导入 Max
 import numpy as np
 from decimal import Decimal, InvalidOperation
 from asgiref.sync import sync_to_async
-from django.db import models
 from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP
@@ -17,6 +16,62 @@ from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 
 logger = logging.getLogger("dao")
+
+def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
+    """
+    生成A股应有的K线时间点
+    trade_days: list of datetime.date
+    time_level: 'day', 'week', 'month', '5', '15', '30', '60'
+    返回: list of pd.Timestamp (Asia/Shanghai)
+    """
+    times = []
+    if time_level == 'day':
+        for day in trade_days:
+            times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz='Asia/Shanghai'))
+    elif time_level == 'week':
+        # 只保留每周最后一个交易日
+        week_map = {}
+        for day in trade_days:
+            week = pd.Timestamp(day).isocalendar()[1]
+            year = pd.Timestamp(day).year
+            key = (year, week)
+            if key not in week_map or day > week_map[key]:
+                week_map[key] = day
+        for day in week_map.values():
+            times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz='Asia/Shanghai'))
+    elif time_level == 'month':
+        # 只保留每月最后一个交易日
+        month_map = {}
+        for day in trade_days:
+            month = pd.Timestamp(day).month
+            year = pd.Timestamp(day).year
+            key = (year, month)
+            if key not in month_map or day > month_map[key]:
+                month_map[key] = day
+        for day in month_map.values():
+            times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz='Asia/Shanghai'))
+    elif time_level in ['5', '15', '30', '60']:
+        freq = int(time_level)
+        for day in trade_days:
+            # 上午
+            morning_start = datetime.datetime.combine(day, datetime.time(9, 30))
+            morning_end = datetime.datetime.combine(day, datetime.time(11, 30))
+            t = morning_start
+            while t <= morning_end:
+                times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
+                t += datetime.timedelta(minutes=freq)
+            # 下午
+            afternoon_start = datetime.datetime.combine(day, datetime.time(13, 0))
+            afternoon_end = datetime.datetime.combine(day, datetime.time(15, 0))
+            t = afternoon_start
+            while t <= afternoon_end:
+                times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
+                t += datetime.timedelta(minutes=freq)
+            # 去除超出收盘的时间点
+            times = [x for x in times if (x.time() <= datetime.time(11,30) or (x.time() >= datetime.time(13,0) and x.time() <= datetime.time(15,0)))]
+    else:
+        raise ValueError(f"不支持的K线类型: {time_level}")
+    return sorted(times)
 
 class IndicatorDAO(BaseDAO):
     """
@@ -148,39 +203,32 @@ class IndicatorDAO(BaseDAO):
                 logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
                 return None
             data_list.reverse()
-            #  ====================================
-            # 只对分钟线做检测
-            if time_level_str.isdigit():
-                freq = int(time_level_str)
-                # 1. 获取实际有的数据时间点
-                trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
-                trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
 
-                # 2. 获取应有的交易日
-                index_basic_dao = IndexBasicDAO()
-                start_date = trade_times[0].strftime('%Y%m%d')
-                end_date = trade_times[-1].strftime('%Y%m%d')
-                trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
-                trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
-
-                # 3. 生成应有的K线时间点（调用你刚写的函数）
-                expected_times = []
-                for day in trade_days:
-                    expected_times.extend(get_china_a_stock_minute_times(day, freq))
-
-                # 4. 检查缺失
-                actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
-                expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
-                missing_times = expected_times_set - actual_times_set
-                if missing_times:
-                    logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
-            #  ====================================
+            #  =================================
+            # 1. 获取实际有的数据时间点
+            trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
+            trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
+            # 2. 获取应有的交易日
+            index_basic_dao = IndexBasicDAO()
+            start_date = trade_times[0].strftime('%Y%m%d')
+            end_date = trade_times[-1].strftime('%Y%m%d')
+            trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
+            trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
+            # 3. 生成应有的K线时间点（通用）
+            expected_times = get_china_a_stock_kline_times(trade_days, time_level_str)
+            # 4. 检查缺失
+            actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
+            expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
+            missing_times = expected_times_set - actual_times_set
+            if missing_times:
+                logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
+            else:
+                logger.info(f"原始K线数据时间序列无缺失: {stock_code} {time_level_str}")
             return data_list
         except Exception as e_db:
             logger.error(f"从数据库获取股票[{stock_code}] {time_level_str} 级别分时成交数据失败: {str(e_db)}", exc_info=True)
             return None
 
-    # 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[pd.DataFrame]:
         """
         获取历史数据并转换为 finta 需要的 DataFrame 格式。
@@ -211,31 +259,6 @@ class IndicatorDAO(BaseDAO):
         if not history_trades:
             logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level_val}")
             return None
-        #  ====================================
-        # 检查原始K线数据是否有缺失
-        trade_times = [getattr(trade, 'trade_time', None) for trade in history_trades]
-        if None in trade_times:
-            logger.warning(f"原始K线数据存在 trade_time 缺失: {stock_code} {time_level_val}")
-
-        # 检查时间连续性（以日线为例，分钟线可用pd.date_range灵活调整）
-        if len(trade_times) > 1:
-            trade_times_sorted = sorted([pd.to_datetime(t) for t in trade_times if t is not None])
-            freq = None
-            if time_level_str == 'day':
-                freq = 'D'  # 工作日
-            elif time_level_str == 'week':
-                freq = 'W'
-            elif time_level_str == 'month':
-                freq = 'M'
-            elif time_level_str.isdigit():
-                freq = f'{time_level_str}T'  # 分钟线
-            if freq:
-                expected_times = pd.date_range(start=trade_times_sorted[0], end=trade_times_sorted[-1], freq=freq)
-                missing_times = set(expected_times) - set(trade_times_sorted)
-                if missing_times:
-                    logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_val}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
-
-        #  ====================================
         try:
             # 4. 模型列表转换成字典列表
             data = []

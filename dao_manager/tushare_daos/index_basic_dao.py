@@ -74,7 +74,6 @@ class IndexBasicDAO(BaseDAO):
         )()
         return trade_days
 
-
     async def get_last_n_trade_cal_open(self, n: int = 333) -> list[str]:
         """
         从数据库中，从今天往前读取n个开盘日期

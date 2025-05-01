@@ -1,5 +1,6 @@
 import asyncio
 from collections import defaultdict
+import datetime
 from functools import reduce
 import json
 import os
@@ -132,7 +133,6 @@ class IndicatorService:
         except Exception as e:
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
             return None
-
         # 2. 识别需求：时间级别和最大回看期
         all_time_levels = set()
         max_lookback = 0
@@ -193,7 +193,6 @@ class IndicatorService:
         except KeyError as e:
             logger.error(f"[{stock_code}] 参数文件 {params_file} 缺少键: {e}", exc_info=True)
             return None
-
         # 3. 并行获取基础 OHLCV 数据（开、高、低、收、成交量、换手率）
         ohlcv_tasks = {
             tf: self._get_ohlcv_data(stock_code, tf, max_lookback)
@@ -222,10 +221,8 @@ class IndicatorService:
         if not valid_ohlcv_dfs:
             logger.error(f"[{stock_code}] 无法获取任何有效的基础 OHLCV 数据。")
             return None
-
         # 4. 计算所有指标 - 使用并行任务
         calculated_indicators = defaultdict(list)  # {tf: [indicator_df1, indicator_df2, ...]}
-
         # 辅助函数：安全计算指标并存储结果
         async def _calculate_and_store_async(tf, indicator_name, calculation_func, *args, **kwargs):
             if tf in valid_ohlcv_dfs:
@@ -255,7 +252,6 @@ class IndicatorService:
                     logger.error(f"[{stock_code}] 计算指标 {indicator_name} (时间 {tf}) 时出错: {e}", exc_info=True)
                     return None
             return None
-
         # 创建并行任务列表
         indicator_tasks = []
         for indi_key in bs_params.get('score_indicators', []):
@@ -369,13 +365,13 @@ class IndicatorService:
             # 处理重复列名，保留第一个出现的列
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
-            # # =========================
-            # print(f"[{stock_code}] 合并后数据缺失值统计（完整）:")
-            # pd.set_option('display.max_rows', None)
-            # pd.set_option('display.max_columns', None)
-            # pd.set_option('display.width', 300)
-            # print(combined_df.isna().sum().to_dict())
-            # # =========================
+            # =========================
+            print(f"[{stock_code}] 合并后数据缺失值统计（完整）:")
+            pd.set_option('display.max_rows', None)
+            pd.set_option('display.max_columns', None)
+            pd.set_option('display.width', 300)
+            print(combined_df.isna().sum().to_dict())
+            # =========================
             # 以5分钟为基准索引补齐
             base_5min_df = valid_ohlcv_dfs.get('5')
             if base_5min_df is not None and not base_5min_df.empty:
@@ -383,19 +379,19 @@ class IndicatorService:
                 combined_df = combined_df.reindex(base_index)
                 combined_df.ffill(inplace=True)  # 或 bfill
                 logger.info(f"[{stock_code}] 用5分钟索引补齐所有周期数据，最终形状: {combined_df.shape}")
-                # # =========================
-                # print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
-                # print(combined_df.isna().sum().to_dict())
-                # print(f"[{stock_code}] 缺失占比统计（%）:")
-                # print((combined_df.isna().mean() * 100).round(2))
-                # # =========================
+                # =========================
+                print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
+                print(combined_df.isna().sum().to_dict())
+                print(f"[{stock_code}] 缺失占比统计（%）:")
+                print((combined_df.isna().mean() * 100).round(2))
+                # =========================
             # 彻底消除None，强制所有列为float
             for col in combined_df.columns:
                 combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
-                # # =========================
-                # print(f"[{stock_code}] 转换数值后数据缺失值统计:")
-                # print(combined_df.isna().sum().to_dict())
-                # # =========================
+                # =========================
+                print(f"[{stock_code}] 转换数值后数据缺失值统计:")
+                print(combined_df.isna().sum().to_dict())
+                # =========================
             return combined_df
         except Exception as e:
             logger.error(f"[{stock_code}] 合并数据帧时出错: {e}", exc_info=True)
@@ -418,6 +414,29 @@ class IndicatorService:
         else:
             return df
 
+    def get_china_a_stock_minute_times(self, trade_date: datetime.date, freq: int) -> list:
+        """
+        生成A股某一天的有效分钟K线起始时间点（Asia/Shanghai时区）
+        freq: 5/15/30/60
+        """
+        times = []
+        # 上午
+        morning_start = datetime.datetime.combine(trade_date, datetime.time(9, 30))
+        morning_end = datetime.datetime.combine(trade_date, datetime.time(11, 30))
+        t = morning_start
+        while t <= morning_end:
+            times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
+            t += datetime.timedelta(minutes=freq)
+        # 下午
+        afternoon_start = datetime.datetime.combine(trade_date, datetime.time(13, 0))
+        afternoon_end = datetime.datetime.combine(trade_date, datetime.time(15, 0))
+        t = afternoon_start
+        while t <= afternoon_end:
+            times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
+            t += datetime.timedelta(minutes=freq)
+        # 去除超出收盘的时间点
+        times = [x for x in times if (x.time() <= datetime.time(11,30) or (x.time() >= datetime.time(13,0) and x.time() <= datetime.time(15,0)))]
+        return times
 
     def calculate_atr(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
         """
