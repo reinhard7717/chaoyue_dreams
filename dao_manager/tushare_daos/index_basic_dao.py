@@ -54,18 +54,26 @@ class IndexBasicDAO(BaseDAO):
         trade_cals = await sync_to_async(lambda: TradeCalendar.objects.filter(cal_date__range=[start_date, end_date]).all())()
         return trade_cals
 
-    async def get_trade_cal_open(self, start_date: str, end_date: str) -> datetime.datetime:
+    async def get_trade_cal_open(self, start_date: str, end_date: str) -> list:
         """
         获取指定日期范围内的交易日历
         Args:
             start_date: 开始日期，格式为 YYYYMMDD
             end_date: 结束日期，格式为 YYYYMMDD
         Returns:
-            List[IndexDailyBasic]: 交易日历列表
+            List[str]: 交易日字符串列表
         """
-        # 从数据库获取
-        trade_days = await sync_to_async(lambda: TradeCalendar.objects.filter(cal_date__range=[start_date, end_date], is_open=1).order_by('-cal_date').values_list('cal_date', flat=True))()
+        # 一定要加list()，否则返回的是QuerySet，不能在async里遍历
+        trade_days = await sync_to_async(
+            lambda: list(
+                TradeCalendar.objects.filter(
+                    cal_date__range=[start_date, end_date],
+                    is_open=1
+                ).order_by('-cal_date').values_list('cal_date', flat=True)
+            )
+        )()
         return trade_days
+
 
     async def get_last_n_trade_cal_open(self, n: int = 333) -> list[str]:
         """
