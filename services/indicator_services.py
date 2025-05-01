@@ -361,7 +361,7 @@ class IndicatorService:
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
             # =========================
-            _log_dataframe_missing(combined_df, stock_code)
+            self._log_dataframe_missing(combined_df, stock_code)
             # =========================
             # 以5分钟为基准索引补齐
             base_5min_df = valid_ohlcv_dfs.get('5')
