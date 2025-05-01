@@ -88,6 +88,8 @@ def prepare_data_for_lstm(
     
     # 缺失值处理
     data_copy = data.copy()
+    print("处理缺失值前，缺失值统计:")
+    print(data_copy[selected_columns + [target_column]].isna().sum())
     if fill_na_method == 'ffill':
         data_copy[selected_columns] = data_copy[selected_columns].ffill()
     elif fill_na_method == 'bfill':
@@ -96,6 +98,8 @@ def prepare_data_for_lstm(
         data_copy[selected_columns] = data_copy[selected_columns].fillna(data_copy[selected_columns].mean())
     else:
         raise ValueError(f"不支持的缺失值填充方法: {fill_na_method}")
+    print("处理缺失值后，缺失值统计:")
+    print(data_copy[selected_columns + [target_column]].isna().sum())
     
     # 再次检查缺失值
     data_copy = data_copy.dropna(subset=selected_columns + [target_column])
