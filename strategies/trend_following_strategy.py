@@ -1399,6 +1399,20 @@ class TrendFollowingStrategy(BaseStrategy):
         required_cols = self.get_required_columns()
         if 'final_signal' not in data.columns:
             data = data.copy()
+            print("填充缺失值前，前5行示例：")
+            print(data_copy[selected_columns + [target_column]].head())
+
+            if fill_na_method == 'ffill':
+                data_copy[selected_columns] = data_copy[selected_columns].ffill()
+            elif fill_na_method == 'bfill':
+                data_copy[selected_columns] = data_copy[selected_columns].bfill()
+            elif fill_na_method == 'mean':
+                data_copy[selected_columns] = data_copy[selected_columns].fillna(data_copy[selected_columns].mean())
+            else:
+                raise ValueError(f"不支持的缺失值填充方法: {fill_na_method}")
+
+            print("填充缺失值后，前5行示例：")
+            print(data_copy[selected_columns + [target_column]].head())
             data['final_signal'] = self.generate_signals(data, stock_code)
 
         print("准备训练LSTM前输入数据缺失情况：")
