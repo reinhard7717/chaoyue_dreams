@@ -300,30 +300,25 @@ class IndicatorService:
             vol_ma_exists = any(vol_ma_col_name in df.columns for df in calculated_indicators.get(tf, []))
             if not vol_ma_exists:
                 indicator_tasks.append(_calculate_and_store_async(tf, 'VOL_MA', lambda df: df.ta.sma(close='volume', length=ia_params['volume_ma_period']).to_frame(name=f'VOL_MA_{ia_params["volume_ma_period"]}')))
-
         # 计算布林带（如果未计算）
         bb_tf = analysis_tf
         bb_col_name = f'BB_UPPER_{bs_params["boll_period"]}_{bb_tf}'
         bb_exists = any(bb_col_name in df.columns for df in calculated_indicators.get(bb_tf, []))
         if not bb_exists:
             indicator_tasks.append(_calculate_and_store_async(bb_tf, 'BOLL', self.calculate_boll, period=bs_params['boll_period'], std_dev=bs_params['boll_std_dev']))
-
         # 计算 VWAP（无论 T+0 策略是否启用，确保在所有时间级别上计算）
         for tf in bs_params.get('timeframes', []):
             indicator_tasks.append(_calculate_and_store_async(tf, 'VWAP', self.calculate_vwap))
-
         # 如果 T+0 策略启用，额外确保 focus_timeframe 被覆盖
         if params.get('t_plus_0_signals', {}).get('enabled'):
             vwap_tf = analysis_tf
             indicator_tasks.append(_calculate_and_store_async(vwap_tf, 'VWAP', self.calculate_vwap))
-
         # 并行执行所有指标计算任务
         results = await asyncio.gather(*indicator_tasks, return_exceptions=True)
         for result in results:
             if result and isinstance(result, tuple):
                 tf, indicator_df = result
                 calculated_indicators[tf].append(indicator_df)
-
         # 后处理 OBV 均线（需要在 OBV 计算后）
         if vc_params['enabled']:
             obv_timeframes = bs_params.get('timeframes', [])
@@ -366,11 +361,7 @@ class IndicatorService:
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
             # =========================
-            print(f"[{stock_code}] 合并后数据缺失值统计（完整）:")
-            pd.set_option('display.max_rows', None)
-            pd.set_option('display.max_columns', None)
-            pd.set_option('display.width', 300)
-            print(combined_df.isna().sum().to_dict())
+            _log_dataframe_missing(combined_df, stock_code)
             # =========================
             # 以5分钟为基准索引补齐
             base_5min_df = valid_ohlcv_dfs.get('5')
@@ -379,19 +370,19 @@ class IndicatorService:
                 combined_df = combined_df.reindex(base_index)
                 combined_df.ffill(inplace=True)  # 或 bfill
                 logger.info(f"[{stock_code}] 用5分钟索引补齐所有周期数据，最终形状: {combined_df.shape}")
-                # =========================
-                print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
-                print(combined_df.isna().sum().to_dict())
-                print(f"[{stock_code}] 缺失占比统计（%）:")
-                print((combined_df.isna().mean() * 100).round(2))
-                # =========================
+                # # =========================
+                # print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
+                # print(combined_df.isna().sum().to_dict())
+                # print(f"[{stock_code}] 缺失占比统计（%）:")
+                # print((combined_df.isna().mean() * 100).round(2))
+                # # =========================
             # 彻底消除None，强制所有列为float
             for col in combined_df.columns:
                 combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
-                # =========================
-                print(f"[{stock_code}] 转换数值后数据缺失值统计:")
-                print(combined_df.isna().sum().to_dict())
-                # =========================
+                # # =========================
+                # print(f"[{stock_code}] 转换数值后数据缺失值统计:")
+                # print(combined_df.isna().sum().to_dict())
+                # # =========================
             return combined_df
         except Exception as e:
             logger.error(f"[{stock_code}] 合并数据帧时出错: {e}", exc_info=True)
@@ -414,29 +405,23 @@ class IndicatorService:
         else:
             return df
 
-    def get_china_a_stock_minute_times(self, trade_date: datetime.date, freq: int) -> list:
-        """
-        生成A股某一天的有效分钟K线起始时间点（Asia/Shanghai时区）
-        freq: 5/15/30/60
-        """
-        times = []
-        # 上午
-        morning_start = datetime.datetime.combine(trade_date, datetime.time(9, 30))
-        morning_end = datetime.datetime.combine(trade_date, datetime.time(11, 30))
-        t = morning_start
-        while t <= morning_end:
-            times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
-            t += datetime.timedelta(minutes=freq)
-        # 下午
-        afternoon_start = datetime.datetime.combine(trade_date, datetime.time(13, 0))
-        afternoon_end = datetime.datetime.combine(trade_date, datetime.time(15, 0))
-        t = afternoon_start
-        while t <= afternoon_end:
-            times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
-            t += datetime.timedelta(minutes=freq)
-        # 去除超出收盘的时间点
-        times = [x for x in times if (x.time() <= datetime.time(11,30) or (x.time() >= datetime.time(13,0) and x.time() <= datetime.time(15,0)))]
-        return times
+    # --- 检查缺失项目并记录 ---
+    def _log_dataframe_missing(self, df: pd.DataFrame, stock_code: str):
+        missing_count = df.isna().sum()
+        missing_ratio = (df.isna().mean() * 100).round(2)
+        logger.warning(f"[{stock_code}] 合并后各列缺失数量: {missing_count.to_dict()}")
+        logger.warning(f"[{stock_code}] 合并后各列缺失比例(%): {missing_ratio.to_dict()}")
+        all_nan_rows = df.isna().all(axis=1).sum()
+        if all_nan_rows > 0:
+            logger.warning(f"[{stock_code}] 合并后DataFrame存在{all_nan_rows}行全部为NaN的数据！")
+        key_cols = [col for col in df.columns if 'close' in col]
+        if key_cols:
+            close_nan_rows = df[key_cols].isna().all(axis=1).sum()
+            if close_nan_rows > 0:
+                logger.warning(f"[{stock_code}] 合并后DataFrame存在{close_nan_rows}行所有close相关列均为NaN！")
+        top_missing = missing_ratio.sort_values(ascending=False).head(5)
+        logger.warning(f"[{stock_code}] 缺失比例最高的5列: {top_missing.to_dict()}")
+
 
     def calculate_atr(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
         """
