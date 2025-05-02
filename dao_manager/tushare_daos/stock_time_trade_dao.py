@@ -378,9 +378,9 @@ class StockTimeTradeDAO(BaseDAO):
         max_offset = 100000  # 最大偏移量，可作为配置参数
         limit = 8000  # tushare pro接口最大limit一般为8000
         # 并行获取股票信息，减少数据库查询时间
-        stock_tasks = [self.stock_basic_dao.get_stock_by_code(code) for code in stock_codes]
+        stock_tasks = [self.stock_basic_dao.get_stock_by_code(stock_code) for stock_code in stock_codes]
         stock_results = await asyncio.gather(*stock_tasks, return_exceptions=True)
-        stock_map = {stock.code: stock for stock in stock_results if stock and not isinstance(stock, Exception)}
+        stock_map = {stock.stock_code: stock for stock in stock_results if stock and not isinstance(stock, Exception)}
         for time_level in time_levels:
             offset = 0
             while True:
@@ -399,7 +399,6 @@ class StockTimeTradeDAO(BaseDAO):
                 # 数据清洗
                 df = df.replace(['nan', 'NaN', ''], np.nan).where(df.notnull(), None)
                 df = df.dropna(subset=['ts_code', 'trade_time'], how='any')
-
                 # 批量处理数据
                 data_dicts = []
                 cache_data_batch = []
@@ -408,7 +407,6 @@ class StockTimeTradeDAO(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-
                         # 准备缓存数据
                         cache_data_dict = data_dict.copy()
                         cache_data_dict['stock_code'] = row['ts_code']
@@ -419,7 +417,6 @@ class StockTimeTradeDAO(BaseDAO):
                             cache_data_batch.append((row['ts_code'], time_level, prepared_data))
                         else:
                             logger.warning(f"为股票 {row['ts_code']} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
-
                 # 批量保存数据到数据库
                 if data_dicts:
                     result = await self._save_all_to_db_native_upsert(
@@ -1006,9 +1003,9 @@ class StockTimeTradeDAO(BaseDAO):
         max_offset = 100000  # 最大偏移量，可作为配置参数
         limit = 6000  # tushare pro接口最大limit一般为8000
         # 并行获取股票信息，减少数据库查询时间
-        stock_tasks = [self.stock_basic_dao.get_stock_by_code(code) for code in stock_codes]
+        stock_tasks = [self.stock_basic_dao.get_stock_by_code(stock_code) for stock_code in stock_codes]
         stock_results = await asyncio.gather(*stock_tasks, return_exceptions=True)
-        stock_map = {stock.code: stock for stock in stock_results if stock and not isinstance(stock, Exception)}
+        stock_map = {stock.stock_code: stock for stock in stock_results if stock and not isinstance(stock, Exception)}
         # 拉取数据
         all_dfs = []
         offset = 0
