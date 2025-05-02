@@ -421,6 +421,7 @@ class StockTimeTradeDAO(BaseDAO):
                     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                     # --- 修剪调用结束 ---
             if data_dicts is not None:
+                print(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. data_dicts 长度: {len(data_dicts)}")
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockMinuteData,
                     data_list=data_dicts,
