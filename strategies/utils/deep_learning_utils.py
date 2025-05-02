@@ -46,98 +46,157 @@ def handle_exceptions(func):
 @handle_exceptions
 def prepare_data_for_lstm(
         data: pd.DataFrame, required_columns: List[str], target_column: str = 'final_signal', window_size: int = 60,
-        scaler_type: str = 'minmax', train_split: float = 0.7, val_split: float = 0.15, fill_na_method: str = 'ffill',
-        feature_selection: Optional[List[str]] = None, augment_data: bool = False
+        scaler_type: str = 'minmax', train_split: float = 0.7, val_split: float = 0.15,
+        feature_selection: Optional[List[str]] = None, augment_data: bool = False # 移除了 fill_na_method 参数
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
     """
-    准备LSTM模型的训练数据，支持多种预处理选项和数据集分割。
-    参数:
-        data: 包含特征和目标变量的DataFrame。
-        required_columns: 模型输入特征列名列表。
-        target_column: 目标变量列名，默认为'final_signal'。
-        window_size: 时间序列窗口大小，默认为60。
-        scaler_type: 归一化方法，'minmax' 或 'standard'，默认为'minmax'。
-        train_split: 训练集比例，默认为0.7。
-        val_split: 验证集比例，默认为0.15（剩余为测试集）。
-        fill_na_method: 缺失值填充方法，'ffill'（向前填充）、'bfill'（向后填充）或'mean'（均值填充），默认为'ffill'。
-        feature_selection: 可选的特征子集列名列表，若为None则使用required_columns。
-        augment_data: 是否进行数据增强（如添加噪声），默认为False。
-    返回:
-        X_train, y_train: 训练集特征和目标。
-        X_val, y_val: 验证集特征和目标。
-        X_test, y_test: 测试集特征和目标。
-        scaler: 用于归一化的Scaler对象。
+    准备LSTM模型的训练数据，修正了Scaler的使用以防止数据泄露。
+
+    Args:
+        data (pd.DataFrame): 包含特征和目标变量的DataFrame。**假设此数据已由上游服务完成缺失值填充**。
+        required_columns (List[str]): 模型输入特征列名列表。
+        target_column (str): 目标变量列名，默认为'final_signal'。
+        window_size (int): 时间序列窗口大小，默认为60。
+        scaler_type (str): 归一化方法，'minmax' 或 'standard'，默认为'minmax'。
+        train_split (float): 训练集比例，默认为0.7。
+        val_split (float): 验证集比例，默认为0.15（剩余为测试集）。
+        feature_selection (Optional[List[str]]): 可选的特征子集列名列表，若为None则使用required_columns。
+        augment_data (bool): 是否进行数据增强（如添加噪声），默认为False。
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
+            X_train, y_train: 训练集特征和目标。
+            X_val, y_val: 验证集特征和目标。
+            X_test, y_test: 测试集特征和目标。
+            scaler: 在训练集上拟合好的Scaler对象。
     """
     if data.empty:
         raise ValueError("输入数据为空，无法准备训练数据。")
-    # 选择特征列
+
+    # --- 1. 选择特征列 ---
     selected_columns = feature_selection if feature_selection is not None else required_columns
     missing_cols = [col for col in selected_columns if col not in data.columns]
     if missing_cols:
         raise ValueError(f"数据缺少必需特征列: {missing_cols}")
-    # 缺失值处理
-    data_copy = data.copy()
-    # # ======================================
-    # print("处理缺失值前，缺失值统计:")
-    # print(data_copy[selected_columns + [target_column]].isna().sum().to_dict())
-    # if fill_na_method == 'ffill':
-    #     data_copy[selected_columns] = data_copy[selected_columns].ffill()
-    # elif fill_na_method == 'bfill':
-    #     data_copy[selected_columns] = data_copy[selected_columns].bfill()
-    # elif fill_na_method == 'mean':
-    #     data_copy[selected_columns] = data_copy[selected_columns].fillna(data_copy[selected_columns].mean())
-    # else:
-    #     raise ValueError(f"不支持的缺失值填充方法: {fill_na_method}")
-    # print("处理缺失值后，缺失值统计:")
-    # print(data_copy[selected_columns + [target_column]].isna().sum().to_dict())
-    # # ======================================
-    # 再次检查缺失值
-    data_copy = data_copy.dropna(subset=selected_columns + [target_column])
-    if data_copy.empty:
-        raise ValueError("处理缺失值后数据为空，无法准备训练数据。")
-    
-    # 提取特征和目标
-    features = data_copy[selected_columns].values
-    targets = data_copy[target_column].values
-    
-    # 归一化特征
+    if target_column not in data.columns:
+        raise ValueError(f"数据缺少目标列: {target_column}")
+
+    # --- 2. 检查并处理剩余的NaN (防御性编程) ---
+    # 假设上游已填充，但仍检查一下。如果还有NaN，说明上游填充不完全。
+    # 之前的dropna()可能过于激进，这里改为打印警告并继续（或根据需要决定是否填充/删除）
+    nan_check = data[selected_columns + [target_column]].isna().sum()
+    nan_cols = nan_check[nan_check > 0]
+    if not nan_cols.empty:
+        logger.warning(f"输入数据在进行窗口化前仍存在NaN值: {nan_cols.to_dict()}。这可能影响模型训练。考虑检查上游填充逻辑。")
+        # 根据策略决定如何处理，例如再次填充或删除包含NaN的行
+        # data = data.dropna(subset=selected_columns + [target_column]) # 如果选择删除
+        # 或者再次尝试填充
+        data = data.copy() # 避免SettingWithCopyWarning
+        data.ffill(inplace=True)
+        data.bfill(inplace=True)
+        # 再次检查
+        nan_check_after = data[selected_columns + [target_column]].isna().sum()
+        if nan_check_after.any():
+             logger.error(f"填充后仍有NaN，无法继续: {nan_check_after[nan_check_after > 0].to_dict()}")
+             raise ValueError("数据填充后仍存在NaN，无法准备训练数据。")
+
+
+    # --- 3. 提取特征和目标 ---
+    # 使用 .loc 避免潜在的链式索引警告
+    features = data.loc[:, selected_columns].values
+    targets = data.loc[:, target_column].values
+
+    # --- 4. 构建时间序列窗口 (X是3D, y是1D) ---
+    X, y = [], []
+    # 循环范围修正：应该是 len(features) - window_size
+    # 因为 X[i] 包含 features[i] 到 features[i+window_size-1]
+    # 对应的 y[i] 应该是 features[i+window_size] 的目标值
+    for i in range(len(features) - window_size):
+        X.append(features[i:(i + window_size)])
+        y.append(targets[i + window_size]) # y[i] 对应 X[i] 窗口之后的值
+
+    if not X: # 检查列表是否为空
+        raise ValueError(f"数据长度 ({len(features)}) 不足以构建窗口大小为 {window_size} 的时间序列。至少需要 {window_size + 1} 条数据。")
+
+    X = np.array(X)
+    y = np.array(y)
+
+    # --- 5. 分割数据集 (在缩放之前！) ---
+    test_split_ratio = 1.0 - train_split - val_split
+    if test_split_ratio < 0 or test_split_ratio > 1: # 增加检查
+        raise ValueError(f"训练集({train_split})、验证集({val_split})和测试集({test_split_ratio})的比例设置无效。")
+
+    # 计算分割点索引 (整数)
+    n_samples = X.shape[0]
+    n_train = int(n_samples * train_split)
+    n_val = int(n_samples * val_split)
+    n_test = n_samples - n_train - n_val # 确保加起来是总数
+
+    if n_train == 0 or n_val == 0 or n_test == 0:
+        logger.warning(f"数据集过小或分割比例不当，导致某个子集为空。样本总数: {n_samples}, 训练集: {n_train}, 验证集: {n_val}, 测试集: {n_test}")
+        # 可以选择抛出错误或返回空值，这里先继续，但后续步骤可能失败
+        if n_train == 0: raise ValueError("训练集样本数为0，无法继续。")
+
+
+    # 按时间顺序分割
+    X_train, y_train = X[:n_train], y[:n_train]
+    X_val, y_val = X[n_train : n_train + n_val], y[n_train : n_train + n_val]
+    X_test, y_test = X[n_train + n_val:], y[n_train + n_val:]
+
+    print(f"数据分割完成 (按时间顺序)，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条")
+
+    # --- 6. 初始化并拟合Scaler (仅在训练集上！) ---
     if scaler_type == 'minmax':
         scaler = MinMaxScaler()
     elif scaler_type == 'standard':
         scaler = StandardScaler()
     else:
         raise ValueError(f"不支持的归一化方法: {scaler_type}")
-    features_scaled = scaler.fit_transform(features)
-    
-    # 数据增强（可选）
+
+    # Scaler 需要 2D 输入: (样本数 * 时间步, 特征数)
+    # Reshape X_train for fitting the scaler
+    # X_train 的形状是 (n_train_samples, window_size, num_features)
+    num_features = X_train.shape[2]
+    X_train_reshaped = X_train.reshape(-1, num_features) # 变成 (n_train_samples * window_size, num_features)
+
+    print(f"拟合Scaler: 使用 {X_train_reshaped.shape[0]} 个时间点的数据 (来自训练集)。")
+    # --- 关键：只在训练数据上 fit ---
+    scaler.fit(X_train_reshaped)
+    print(f"Scaler拟合完成。Scaler对象: {scaler}")
+
+    # --- 7. 使用拟合好的Scaler转换所有数据集 ---
+    # Transform training data
+    X_train_scaled_reshaped = scaler.transform(X_train_reshaped)
+    X_train_scaled = X_train_scaled_reshaped.reshape(X_train.shape) # Reshape back to 3D
+
+    # Transform validation data
+    if X_val.shape[0] > 0: # 确保验证集非空
+        X_val_reshaped = X_val.reshape(-1, num_features)
+        X_val_scaled_reshaped = scaler.transform(X_val_reshaped)
+        X_val_scaled = X_val_scaled_reshaped.reshape(X_val.shape)
+    else:
+        X_val_scaled = X_val # 如果为空，保持为空
+
+    # Transform test data
+    if X_test.shape[0] > 0: # 确保测试集非空
+        X_test_reshaped = X_test.reshape(-1, num_features)
+        X_test_scaled_reshaped = scaler.transform(X_test_reshaped)
+        X_test_scaled = X_test_scaled_reshaped.reshape(X_test.shape)
+    else:
+        X_test_scaled = X_test # 如果为空，保持为空
+
+    # --- 8. 数据增强（可选，在缩放后应用） ---
     if augment_data:
-        noise = np.random.normal(0, 0.01, features_scaled.shape)
-        features_scaled = features_scaled + noise
-        print("已应用数据增强（添加高斯噪声）。")
-    
-    # 构建时间序列窗口
-    X, y = [], []
-    for i in range(len(features_scaled) - window_size):
-        X.append(features_scaled[i:i + window_size])
-        y.append(targets[i + window_size])
-    
-    X = np.array(X)
-    y = np.array(y)
-    
-    if X.shape[0] == 0:
-        raise ValueError(f"数据不足以构建窗口大小为 {window_size} 的时间序列。")
-    
-    # 分割数据集
-    test_split = 1.0 - train_split - val_split
-    if test_split < 0:
-        raise ValueError("训练集和验证集比例之和不能大于1.0。")
-    
-    X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=test_split, shuffle=False)
-    X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=val_split/(train_split + val_split), shuffle=False)
-    
-    print(f"数据准备完成，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条")
-    print(f"X_train样本: {X_train[:1]}, y_train样本: {y_train[:5]}")
-    return X_train, y_train, X_val, y_val, X_test, y_test, scaler
+        # 仅对训练集应用增强
+        noise = np.random.normal(0, 0.01, X_train_scaled.shape)
+        X_train_scaled = X_train_scaled + noise
+        print("已对训练集应用数据增强（添加高斯噪声）。")
+
+    print(f"数据准备完成 (已缩放)，训练集: {X_train_scaled.shape[0]} 条，验证集: {X_val_scaled.shape[0]} 条，测试集: {X_test_scaled.shape[0]} 条")
+    print(f"X_train_scaled样本 (前1个窗口): {X_train_scaled[:1]}, y_train样本 (前5个): {y_train[:5]}") # y 保持原始值，在训练函数中缩放
+
+    # 返回缩放后的特征数据和原始的目标数据，以及拟合好的 scaler
+    return X_train_scaled, y_train, X_val_scaled, y_val, X_test_scaled, y_test, scaler
 
 @log_execution_time
 @handle_exceptions
@@ -150,18 +209,16 @@ def build_lstm_model(
 ) -> Sequential:
     """
     构建深度学习模型，支持LSTM、Bidirectional LSTM和GRU，允许自定义配置。
-    
-    参数:
-        window_size: 时间序列窗口大小。
-        num_features: 输入特征数量。
-        model_config: 模型配置字典，包含层数、单元数、dropout率、正则化等参数。
-        model_type: 模型类型，'lstm'、'bilstm'（双向LSTM）或'gru'，默认为'lstm'。
-        summary: 是否打印模型摘要，默认为True。
-    
-    返回:
-        model: 编译好的Keras模型。
+    Args:
+        window_size (int): 时间序列窗口大小 (时间步)。
+        num_features (int): 输入特征数量。
+        model_config (Dict[str, Any]): 模型配置字典。
+        model_type (str): 模型类型 ('lstm', 'bilstm', 'gru')。
+        summary (bool): 是否打印模型摘要。
+    Returns:
+        Sequential: 编译好的Keras模型。
     """
-    # 默认配置
+    # 默认配置 (保持不变)
     default_config = {
         'layers': [
             {'units': 50, 'return_sequences': True, 'dropout': 0.2, 'l2_reg': 0.01},
@@ -170,56 +227,47 @@ def build_lstm_model(
         'dense_layers': [{'units': 25, 'dropout': 0.1, 'l2_reg': 0.01}],
         'optimizer': 'adam',
         'learning_rate': 0.001,
-        'loss': 'mse',
-        'metrics': ['mae']
+        'loss': 'mse', # 使用均方误差作为损失函数
+        'metrics': ['mae'] # 使用平均绝对误差作为评估指标
     }
-    
     config = model_config if model_config is not None else default_config
     
-    # 构建模型
+    # --- 模型构建逻辑 (基本保持不变) ---
     model = Sequential()
-    
-    # 选择模型类型
-    if model_type == 'lstm':
-        layer_class = LSTM
-    elif model_type == 'bilstm':
-        layer_class = lambda *args, **kwargs: Bidirectional(LSTM(*args, **kwargs))
-    elif model_type == 'gru':
-        layer_class = GRU
-    else:
-        raise ValueError(f"不支持的模型类型: {model_type}")
-    
+    if model_type == 'lstm': layer_class = LSTM
+    elif model_type == 'bilstm': layer_class = lambda *args, **kwargs: Bidirectional(LSTM(*args, **kwargs))
+    elif model_type == 'gru': layer_class = GRU
+    else: raise ValueError(f"不支持的模型类型: {model_type}")
+
     # 添加循环层
     for i, layer_conf in enumerate(config['layers']):
-        l2_reg = l2(layer_conf.get('l2_reg', 0.01))
+        l2_reg_val = layer_conf.get('l2_reg', 0.0) # 获取L2正则化值，默认为0
+        regularizer = l2(l2_reg_val) if l2_reg_val > 0 else None # 只有大于0时才应用
+        layer_args = {
+            'units': layer_conf['units'],
+            'return_sequences': layer_conf['return_sequences'],
+            'kernel_regularizer': regularizer,
+            'recurrent_regularizer': regularizer
+            # 'bias_regularizer': regularizer # 也可以考虑偏置正则化
+        }
         if i == 0:
-            # 第一层需要指定input_shape
-            model.add(layer_class(
-                units=layer_conf['units'],
-                return_sequences=layer_conf['return_sequences'],
-                input_shape=(window_size, num_features),
-                kernel_regularizer=l2_reg,
-                recurrent_regularizer=l2_reg
-            ))
-        else:
-            model.add(layer_class(
-                units=layer_conf['units'],
-                return_sequences=layer_conf['return_sequences'],
-                kernel_regularizer=l2_reg,
-                recurrent_regularizer=l2_reg
-            ))
+            layer_args['input_shape'] = (window_size, num_features)
+        model.add(layer_class(**layer_args))
         if layer_conf.get('dropout', 0.0) > 0:
             model.add(Dropout(layer_conf['dropout']))
-    
+
     # 添加全连接层
     for dense_conf in config.get('dense_layers', []):
-        l2_reg = l2(dense_conf.get('l2_reg', 0.01))
-        model.add(Dense(units=dense_conf['units'], kernel_regularizer=l2_reg))
+        l2_reg_val = dense_conf.get('l2_reg', 0.0)
+        regularizer = l2(l2_reg_val) if l2_reg_val > 0 else None
+        model.add(Dense(units=dense_conf['units'], kernel_regularizer=regularizer, activation='relu')) # 可以指定激活函数，如ReLU
         if dense_conf.get('dropout', 0.0) > 0:
             model.add(Dropout(dense_conf['dropout']))
-    
+
     # 输出层
-    model.add(Dense(units=1, activation='sigmoid'))  # 输出0-1范围，稍后缩放到0-100
+    # 使用 sigmoid 激活函数，输出值在 0 到 1 之间。
+    # 这要求目标变量 y 在训练时也被缩放到 0 到 1 范围。
+    model.add(Dense(units=1, activation='sigmoid'))
     
     # 选择优化器
     optimizer_name = config.get('optimizer', 'adam')
@@ -241,44 +289,54 @@ def build_lstm_model(
     )
     
     if summary:
-        model.summary(print_fn=lambda x: print(x))
-    print(f"LSTM模型构建完成，输入形状: {window_size} x {num_features}")
+        model.summary(print_fn=lambda x: print(x)) # 使用 print 函数输出摘要
+    print(f"模型构建完成 ({model_type.upper()})，输入形状: {window_size} x {num_features}")
     return model
 
 @log_execution_time
 @handle_exceptions
-def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, model: Sequential,
+def train_lstm_model(
+    X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, model: Sequential,
     training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.keras", plot_training_history: bool = False
 ) -> Dict:
     """
     训练深度学习模型，支持早停、学习率调度和模型检查点保存。
-    参数:
-        X_train, y_train: 训练集特征和目标。
-        X_val, y_val: 验证集特征和目标。
-        model: 未训练的Keras模型。
-        training_config: 训练配置字典，包含epochs、batch_size、callbacks等参数。
-        checkpoint_path: 模型检查点保存路径。
-        plot_training_history: 是否绘制训练历史曲线，默认为False。
-    返回:
-        history: 训练历史记录字典。
+    目标变量 y 会在此函数内部缩放到 0-1 范围以匹配模型的 sigmoid 输出。
+    Args:
+        X_train (np.ndarray): 训练集特征 (已缩放)。
+        y_train (np.ndarray): 训练集目标 (原始值, e.g., 0-100)。
+        X_val (np.ndarray): 验证集特征 (已缩放)。
+        y_val (np.ndarray): 验证集目标 (原始值, e.g., 0-100)。
+        model (Sequential): 未训练或已编译的Keras模型。
+        training_config (Dict[str, Any]): 训练配置字典。
+        checkpoint_path (str): 模型检查点保存路径。
+        plot_training_history (bool): 是否绘制训练历史曲线。
+    Returns:
+        Dict: 训练历史记录字典。
     """
-    # 默认训练配置
+        # 默认训练配置 (保持不变)
     default_config = {
         'epochs': 50,
         'batch_size': 32,
         'early_stopping_patience': 10,
         'reduce_lr_patience': 5,
         'reduce_lr_factor': 0.5,
-        'monitor_metric': 'val_loss',
+        'monitor_metric': 'val_loss', # 监控验证集损失
         'verbose': 1
     }
-    
     config = training_config if training_config is not None else default_config
     print(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}")
     
-    # 将目标变量缩放到0-1范围
+    # --- 将目标变量 y 缩放到 0-1 范围 ---
+    # 假设原始 y 值在 0-100 范围
+    # 注意：如果 y 的范围不是 0-100，需要调整这里的缩放逻辑
     y_train_scaled = y_train / 100.0
     y_val_scaled = y_val / 100.0
+    # 检查缩放后的值是否在合理范围 (可选)
+    if np.any(y_train_scaled < 0) or np.any(y_train_scaled > 1):
+        logger.warning(f"训练集目标缩放后存在超出 [0, 1] 范围的值。最小值: {np.min(y_train_scaled)}, 最大值: {np.max(y_train_scaled)}")
+    if np.any(y_val_scaled < 0) or np.any(y_val_scaled > 1):
+        logger.warning(f"验证集目标缩放后存在超出 [0, 1] 范围的值。最小值: {np.min(y_val_scaled)}, 最大值: {np.max(y_val_scaled)}")
     
     # 确保检查点目录存在
     checkpoint_dir = os.path.dirname(checkpoint_path)
@@ -286,32 +344,37 @@ def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarra
         os.makedirs(checkpoint_dir)
         print(f"创建检查点目录: {checkpoint_dir}")
     
-    # 设置回调函数
+    # --- 设置回调函数 ---
     callbacks = []
+    # 早停：如果在 patience 个轮次内，监控指标没有改善，则停止训练
     if config.get('early_stopping_patience', 0) > 0:
         callbacks.append(EarlyStopping(
             monitor=config['monitor_metric'],
             patience=config['early_stopping_patience'],
-            restore_best_weights=True,
+            restore_best_weights=True, # 关键：训练结束后，模型权重会恢复到最佳轮次的状态
             verbose=config['verbose']
         ))
+    # 学习率衰减：当监控指标停止改善时，降低学习率
     if config.get('reduce_lr_patience', 0) > 0:
         callbacks.append(ReduceLROnPlateau(
             monitor=config['monitor_metric'],
-            factor=config['reduce_lr_factor'],
+            factor=config['reduce_lr_factor'], # 学习率乘以的因子
             patience=config['reduce_lr_patience'],
-            min_lr=1e-6,
+            min_lr=1e-6, # 学习率下限
             verbose=config['verbose']
         ))
+    # 模型检查点：只保存在验证集上性能最好的模型
     callbacks.append(ModelCheckpoint(
-        checkpoint_path,
+        filepath=checkpoint_path, # 使用 filepath 参数
         monitor=config['monitor_metric'],
         save_best_only=True,
-        mode='min' if 'loss' in config['monitor_metric'] else 'max',
+        save_weights_only=False, # 可以选择只保存权重或整个模型，False表示保存整个模型
+        mode='min' if 'loss' in config['monitor_metric'].lower() else 'max', # 根据监控指标判断模式
         verbose=config['verbose']
     ))
     
-    # 训练模型
+    # --- 训练模型 ---
+    # 使用缩放后的 y 值进行训练
     history = model.fit(
         X_train, y_train_scaled,
         validation_data=(X_val, y_val_scaled),
@@ -320,37 +383,47 @@ def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarra
         callbacks=callbacks,
         verbose=config['verbose']
     )
-    print(f"训练历史: {history.history}")
+    print(f"训练历史 (部分): { {k: v[:3] for k, v in history.history.items()} }...") # 打印部分历史记录
 
-    
-    # 绘制训练历史曲线（可选）
+    # --- 绘制训练历史曲线 ---
     if plot_training_history:
-        plt.figure(figsize=(12, 4))
-        
-        # 绘制损失曲线
-        plt.subplot(1, 2, 1)
-        plt.plot(history.history['loss'], label='训练损失')
-        plt.plot(history.history['val_loss'], label='验证损失')
-        plt.title('模型损失')
-        plt.xlabel('轮数')
-        plt.ylabel('损失')
-        plt.legend()
-        plt.grid(True)
-        
-        # 绘制指标曲线（假设有mae）
-        if 'mae' in history.history:
-            plt.subplot(1, 2, 2)
-            plt.plot(history.history['mae'], label='训练MAE')
-            plt.plot(history.history['val_mae'], label='验证MAE')
-            plt.title('模型MAE')
-            plt.xlabel('轮数')
-            plt.ylabel('MAE')
+        try:
+            plt.figure(figsize=(12, 5)) # 调整图形大小
+
+            # 绘制损失曲线
+            plt.subplot(1, 2, 1)
+            plt.plot(history.history['loss'], label='训练损失 (loss)')
+            plt.plot(history.history['val_loss'], label='验证损失 (val_loss)')
+            plt.title('模型损失')
+            plt.xlabel('轮数 (Epoch)')
+            plt.ylabel('损失值')
             plt.legend()
             plt.grid(True)
-        
-        plt.tight_layout()
-        plt.savefig('training_history.png')
-        plt.close()
-        print("训练历史曲线已保存至 training_history.png")
+
+            # 绘制第一个指标曲线 (通常是 mae)
+            metric_key = config.get('metrics', ['mae'])[0] # 获取第一个指标的名称
+            val_metric_key = f"val_{metric_key}"
+            if metric_key in history.history and val_metric_key in history.history:
+                plt.subplot(1, 2, 2)
+                plt.plot(history.history[metric_key], label=f'训练 {metric_key.upper()}')
+                plt.plot(history.history[val_metric_key], label=f'验证 {metric_key.upper()}')
+                plt.title(f'模型 {metric_key.upper()}')
+                plt.xlabel('轮数 (Epoch)')
+                plt.ylabel(f'{metric_key.upper()} 值')
+                plt.legend()
+                plt.grid(True)
+
+            plt.tight_layout() # 调整子图布局
+            plot_filename = 'training_history.png'
+            # 可以考虑将图片保存在 checkpoint 相同的目录下
+            # plot_filepath = os.path.join(checkpoint_dir, plot_filename) if checkpoint_dir else plot_filename
+            plt.savefig(plot_filename) # 直接保存在当前目录
+            plt.close() # 关闭图形，释放内存
+            print(f"训练历史曲线已保存至 {plot_filename}")
+        except Exception as plot_err:
+            logger.error(f"绘制训练历史图时出错: {plot_err}", exc_info=True)
+
     print("模型训练完成。")
+    # 因为使用了 restore_best_weights=True，model 对象现在持有最佳权重
+    # history.history 包含了所有轮次的记录
     return history.history
