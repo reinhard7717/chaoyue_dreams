@@ -384,7 +384,7 @@ class StockTimeTradeDAO(BaseDAO):
                 df = self.ts_pro.stk_mins(
                     ts_code=stock_codes_str,
                     freq=time_level + "min",
-                    start_date="2022-01-01 00:00:00",
+                    start_date="2020-01-01 00:00:00",
                     end_date="",
                     limit=limit,
                     offset=offset
@@ -1000,7 +1000,7 @@ class StockTimeTradeDAO(BaseDAO):
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                 break
             df = self.ts_pro.daily_basic(**{
-                "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
+                "ts_code": stock_codes_str, "trade_date": "", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
                 "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
