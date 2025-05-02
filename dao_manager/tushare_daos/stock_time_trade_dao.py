@@ -376,8 +376,10 @@ class StockTimeTradeDAO(BaseDAO):
         stock_codes_str = ",".join(stock_codes)
         max_offset = 100000  # 最大偏移量，可作为配置参数
         limit = 8000  # tushare pro接口最大limit一般为8000
-        # 批量获取股票信息，减少数据库查询次数
-        stock_map = {stock.code: stock for stock in await self.stock_basic_dao.get_stocks_by_codes(stock_codes)}
+        # 并行获取股票信息，减少数据库查询时间
+        stock_tasks = [self.stock_basic_dao.get_stock_by_code(code) for code in stock_codes]
+        stock_results = await asyncio.gather(*stock_tasks, return_exceptions=True)
+        stock_map = {stock.code: stock for stock in stock_results if stock and not isinstance(stock, Exception)}
         for time_level in time_levels:
             offset = 0
             while True:
@@ -1002,8 +1004,10 @@ class StockTimeTradeDAO(BaseDAO):
         stock_codes_str = ",".join(stock_codes)
         max_offset = 100000  # 最大偏移量，可作为配置参数
         limit = 6000  # tushare pro接口最大limit一般为8000
-        # 批量获取股票信息，减少数据库查询次数
-        stock_map = {stock.code: stock for stock in await self.stock_basic_dao.get_stocks_by_codes(stock_codes)}
+        # 并行获取股票信息，减少数据库查询时间
+        stock_tasks = [self.stock_basic_dao.get_stock_by_code(code) for code in stock_codes]
+        stock_results = await asyncio.gather(*stock_tasks, return_exceptions=True)
+        stock_map = {stock.code: stock for stock in stock_results if stock and not isinstance(stock, Exception)}
         # 拉取数据
         all_dfs = []
         offset = 0
