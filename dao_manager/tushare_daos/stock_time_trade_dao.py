@@ -405,7 +405,7 @@ class StockTimeTradeDAO(BaseDAO):
                 result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in result_df.itertuples():
                     row_count += 1
-                    print(f"row.ts_code: {row.ts_code}, row.trade_time: {row.trade_time}")
+                    # print(f"row.ts_code: {row.ts_code}, row.trade_time: {row.trade_time}")
                     stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
