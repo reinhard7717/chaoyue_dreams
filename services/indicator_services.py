@@ -1,3 +1,4 @@
+# services\indicator_services.py
 import asyncio
 from collections import defaultdict
 import datetime
@@ -371,12 +372,12 @@ class IndicatorService:
             # 处理重复列名，保留第一个出现的列
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
-            # =========================
-            self._log_dataframe_missing(combined_df, stock_code)
-            # =========================
             # 对合并后的数据进行填充，确保数据完整性
             combined_df.ffill(inplace=True)
             combined_df.bfill(inplace=True)
+            # =========================
+            self._log_dataframe_missing(combined_df, stock_code)
+            # =========================
             logger.info(f"[{stock_code}] 合并后数据填充完成，最终形状: {combined_df.shape}")
             # 彻底消除None，强制所有列为float
             for col in combined_df.columns:
