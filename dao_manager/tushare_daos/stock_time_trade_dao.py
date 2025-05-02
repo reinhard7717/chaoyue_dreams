@@ -396,7 +396,6 @@ class StockTimeTradeDAO(BaseDAO):
             else:
                 result_df = pd.DataFrame()
             data_dicts = []
-            counts = 0
             row_count = 0
             if not result_df.empty:
                 print(f"处理股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. result_df 长度: {len(result_df)}")
@@ -404,11 +403,11 @@ class StockTimeTradeDAO(BaseDAO):
                 result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in result_df.itertuples():
                     row_count += 1
+                    print(f"row.ts_code: {row.ts_code}, row.trade_time: {row.trade_time}")
                     stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-                        counts += 1
                         # 2. 准备缓存数据
                         cache_data_dict = data_dict.copy()
                         if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
@@ -425,7 +424,7 @@ class StockTimeTradeDAO(BaseDAO):
                     cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                     # --- 修剪调用结束 ---
-            print(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. data_dicts 长度: {len(data_dicts)}, counts: {counts}, row_count: {row_count}")
+            print(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. data_dicts 长度: {len(data_dicts)}, row_count: {row_count}")
             if data_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockMinuteData,
