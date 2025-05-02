@@ -374,8 +374,8 @@ class StockTimeTradeDAO(BaseDAO):
         限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
         """
         stock_codes_str = ",".join(stock_codes)
-        data_dicts = []
         for time_level in time_levels:
+            data_dicts = []
             # 拉取数据
             all_dfs = []
             offset = 0
@@ -420,13 +420,13 @@ class StockTimeTradeDAO(BaseDAO):
                     cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
                     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                     # --- 修剪调用结束 ---
-        if data_dicts is not None:
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockMinuteData,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
-            )
-        logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据完成. 结果: {result}")
+            if data_dicts is not None:
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockMinuteData,
+                    data_list=data_dicts,
+                    unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+                )
+            logger.info(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 完成. 结果: {result}")
         return result
 
     async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
