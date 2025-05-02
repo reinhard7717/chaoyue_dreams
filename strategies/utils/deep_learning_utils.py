@@ -248,7 +248,7 @@ def build_lstm_model(
 @log_execution_time
 @handle_exceptions
 def train_lstm_model( X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, model: Sequential,
-    training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.h5", plot_training_history: bool = False
+    training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.keras", plot_training_history: bool = False
 ) -> Dict:
     """
     训练深度学习模型，支持早停、学习率调度和模型检查点保存。

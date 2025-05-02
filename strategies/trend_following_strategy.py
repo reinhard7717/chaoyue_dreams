@@ -84,8 +84,8 @@ class TrendFollowingStrategy(BaseStrategy):
         self.lstm_model = None
         self.scaler = None
         self.window_size = 60
-        self.model_path = "models/trend_following_lstm.h5"
-        self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.h5"
+        self.model_path = "models/trend_following_lstm.keras"
+        self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.keras"
         self.model_config = {
             'layers': [
                 {'units': 64, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},
@@ -114,7 +114,7 @@ class TrendFollowingStrategy(BaseStrategy):
         stock_model_dir = os.path.join(self.model_dir, stock_code)
         if not os.path.exists(stock_model_dir):
             os.makedirs(stock_model_dir)
-        self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.h5")
+        self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.keras")
         self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_scaler.save")
 
     def _load_params(self) -> Dict[str, Any]:
@@ -1353,7 +1353,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 logger.info(f"成功加载LSTM模型: {self.model_path}")
 
                 # 尝试加载Scaler
-                scaler_path = self.model_path.replace('.h5', '_scaler.save')
+                scaler_path = self.model_path.replace('.keras', '_scaler.save')
                 if os.path.exists(scaler_path):
                     self.scaler = joblib.load(scaler_path)
                     logger.info(f"成功加载Scaler: {scaler_path}")
@@ -1367,7 +1367,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 logger.info(f"成功加载检查点LSTM模型: {self.checkpoint_path}")
 
                 # 尝试加载Scaler
-                scaler_path = self.checkpoint_path.replace('.h5', '_scaler.save')
+                scaler_path = self.checkpoint_path.replace('.keras', '_scaler.save')
                 if os.path.exists(scaler_path):
                     self.scaler = joblib.load(scaler_path)
                     logger.info(f"成功加载Scaler: {scaler_path}")
@@ -1443,7 +1443,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 X_val, y_val,
                 self.lstm_model,
                 training_config=self.training_config,
-                checkpoint_path=self.model_path.replace('.h5', '_checkpoint.h5'),
+                checkpoint_path=self.model_path.replace('.keras', '_checkpoint.keras'),
                 plot_training_history=True
             )
             self.lstm_model.save(self.model_path)
