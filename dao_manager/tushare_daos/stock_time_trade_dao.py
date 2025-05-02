@@ -397,11 +397,13 @@ class StockTimeTradeDAO(BaseDAO):
                 result_df = pd.DataFrame()
             data_dicts = []
             counts = 0
+            row_count = 0
             if not result_df.empty:
                 print(f"处理股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. result_df 长度: {len(result_df)}")
                 result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in result_df.itertuples():
+                    row_count += 1
                     stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
@@ -424,7 +426,7 @@ class StockTimeTradeDAO(BaseDAO):
                     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
                     # --- 修剪调用结束 ---
             if data_dicts is not None:
-                print(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. data_dicts 长度: {len(data_dicts)}, counts: {counts}")
+                print(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. data_dicts 长度: {len(data_dicts)}, counts: {counts}, row_count: {row_count}")
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockMinuteData,
                     data_list=data_dicts,
