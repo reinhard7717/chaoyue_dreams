@@ -150,6 +150,9 @@ class StockTimeTradeDAO(BaseDAO):
         offset = 0
         limit = 6000  # tushare pro接口最大limit一般为6000
         while True:
+            if offset >= 100000:
+                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                break
             df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
                 fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                         "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
@@ -378,6 +381,9 @@ class StockTimeTradeDAO(BaseDAO):
             offset = 0
             limit = 8000  # tushare pro接口最大limit一般为8000
             while True:
+                if offset >= 100000:
+                    logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                    break
                 df = self.ts_pro.stk_mins(**{
                     "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "2022-01-01 00:00:00", "end_date": "",
                     "limit": limit, "offset": offset
@@ -531,13 +537,12 @@ class StockTimeTradeDAO(BaseDAO):
             offset = 0
             limit = 8000  # tushare pro接口最大limit一般为8000
             while True:
+                if offset >= 100000:
+                    logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                    break
                 df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock_codes_str,
-                    "freq": time_level + "min",
-                    "start_date": today_str + " 09:30:00",
-                    "end_date": today_str + " 15:00:00",
-                    "limit": limit,
-                    "offset": offset
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": today_str + " 09:30:00",
+                    "end_date": today_str + " 15:00:00", "limit": limit, "offset": offset
                 }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 # print(f"{today_str} 拉取数据: {df}")
                 all_dfs.append(df)
@@ -985,6 +990,9 @@ class StockTimeTradeDAO(BaseDAO):
         offset = 0
         limit = 6000  # tushare pro接口最大limit一般为8000
         while True:
+            if offset >= 100000:
+                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                break
             df = self.ts_pro.daily_basic(**{
                 "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
             }, fields=[
@@ -1058,6 +1066,9 @@ class StockTimeTradeDAO(BaseDAO):
         offset = 0
         limit = 5000  # tushare pro接口最大limit一般为8000
         while True:
+            if offset >= 100000:
+                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                break
             # 拉取数据
             df = self.ts_pro.cyq_perf(**{
                 "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": limit, "offset": offset
@@ -1153,6 +1164,9 @@ class StockTimeTradeDAO(BaseDAO):
         offset = 0
         limit = 2000  # tushare pro接口最大limit一般为8000
         while True:
+            if offset >= 100000:
+                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                break
             # 拉取数据
             df = self.ts_pro.cyq_chips(**{
                 "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": limit, "offset": offset
