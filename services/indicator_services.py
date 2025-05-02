@@ -200,13 +200,52 @@ class IndicatorService:
         }
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         ohlcv_dfs = dict(zip(all_time_levels, ohlcv_results))
-        # 检查是否有数据获取失败
-        valid_ohlcv_dfs = {}
+        # 输出每个时间级别获取到的数据量
         for tf, df in ohlcv_dfs.items():
-            if df is None or df.empty:
-                logger.warning(f"[{stock_code}] 无法获取时间级别 {tf} 的 OHLCV 数据。")
+            if df is not None and not df.empty:
+                logger.info(f"[{stock_code}] 时间级别 {tf} 获取到 {len(df)} 条K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
             else:
-                df = self.filter_to_period_points(df, tf)  # <--- 周期对齐
+                logger.warning(f"[{stock_code}] 时间级别 {tf} 未获取到数据或数据为空")
+        # 检查是否有数据获取失败，并尝试基于5分钟数据聚合高时间级别数据
+        valid_ohlcv_dfs = {}
+        base_5min_df = ohlcv_dfs.get('5')
+        for tf in all_time_levels:
+            df = ohlcv_dfs.get(tf)
+            if df is None or df.empty or len(df) < max_lookback // 2:  # 如果数据为空或不足以支持指标计算
+                if tf == '5':  # 5分钟数据必须存在，否则无法继续
+                    logger.error(f"[{stock_code}] 5分钟数据为空或不可用，无法继续处理")
+                    return None
+                elif base_5min_df is not None and not base_5min_df.empty and tf.isdigit() and int(tf) > 5:
+                    # 基于5分钟数据聚合生成高时间级别数据
+                    logger.warning(f"[{stock_code}] 时间级别 {tf} 数据为空或不足（{len(df) if df is not None else 0} 条），使用5分钟数据聚合生成")
+                    period = int(tf) // 5  # 计算聚合周期，例如15分钟需要聚合3个5分钟数据
+                    try:
+                        # 确保5分钟数据的索引是DatetimeIndex
+                        if not isinstance(base_5min_df.index, pd.DatetimeIndex):
+                            base_5min_df.index = pd.to_datetime(base_5min_df.index)
+                        # 按指定分钟周期聚合
+                        agg_df = base_5min_df.resample(f'{tf}T', closed='right', label='right').agg({
+                            'open': 'first',
+                            'high': 'max',
+                            'low': 'min',
+                            'close': 'last',
+                            'volume': 'sum',
+                            'amount': 'sum' if 'amount' in base_5min_df.columns else None
+                        }).dropna(subset=['open', 'high', 'low', 'close'])
+                        if not agg_df.empty:
+                            logger.info(f"[{stock_code}] 成功基于5分钟数据聚合生成 {tf} 分钟数据，条数: {len(agg_df)}")
+                            ohlcv_dfs[tf] = agg_df
+                            df = agg_df
+                        else:
+                            logger.warning(f"[{stock_code}] 基于5分钟数据聚合 {tf} 分钟数据失败，结果为空")
+                    except Exception as e:
+                        logger.error(f"[{stock_code}] 基于5分钟数据聚合 {tf} 分钟数据时出错: {e}", exc_info=True)
+                        df = None
+                else:
+                    logger.warning(f"[{stock_code}] 无法基于5分钟数据聚合 {tf} 分钟数据，5分钟数据不可用")
+                    df = None
+            if df is not None and not df.empty:
+                df = self.filter_to_period_points(df, tf)  # 周期对齐
                 # 重命名基础列，将 amount 重命名为 amount，并包含 turnover_rate
                 rename_map = {}
                 for col in df.columns:
@@ -218,6 +257,8 @@ class IndicatorService:
                         rename_map[col] = f"turnover_rate_{tf}"
                     # 其他列名不变（如 stock_code, time_level）
                 valid_ohlcv_dfs[tf] = df.rename(columns=rename_map)
+            else:
+                logger.warning(f"[{stock_code}] 无法获取时间级别 {tf} 的 OHLCV 数据。")
         if not valid_ohlcv_dfs:
             logger.error(f"[{stock_code}] 无法获取任何有效的基础 OHLCV 数据。")
             return None
