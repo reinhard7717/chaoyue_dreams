@@ -280,7 +280,6 @@ class IndicatorService:
                     indicator_tasks.append(_calculate_and_store_async(tf, 'DMI', self.calculate_dmi, period=bs_params['dmi_period']))
                 elif indi_key == 'sar':
                     indicator_tasks.append(_calculate_and_store_async(tf, 'SAR', self.calculate_sar, af=bs_params['sar_step'], max_af=bs_params['sar_max']))
-
         # 计算成交量确认指标
         if vc_params['enabled']:
             tf = vc_params['tf']
@@ -289,7 +288,6 @@ class IndicatorService:
             obv_timeframes = bs_params.get('timeframes', [])
             for tf in obv_timeframes:
                 indicator_tasks.append(_calculate_and_store_async(tf, 'OBV', self.calculate_obv))
-
         # 计算分析所需的指标 - 对所有时间级别计算 STOCH 和 VOL_MA
         for tf in bs_params.get('timeframes', []):
             indicator_tasks.append(_calculate_and_store_async(tf, 'STOCH', self.calculate_stoch,
