@@ -153,7 +153,7 @@ class StockTimeTradeDAO(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                 break
-            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
+            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "2020-01-01 00:00:00", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
                 fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                         "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
             all_dfs.append(df)
