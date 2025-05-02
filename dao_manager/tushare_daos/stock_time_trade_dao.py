@@ -393,10 +393,12 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 offset += limit
             if all_dfs:
+                print(f"合并股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. all_dfs 长度: {len(all_dfs)}")
                 result_df = pd.concat(all_dfs, ignore_index=True)
             else:
                 result_df = pd.DataFrame()
             if not result_df.empty:
+                print(f"处理股票 {stock_codes_str} 的 {time_level}分钟级交易数据 开始. result_df 长度: {len(result_df)}")
                 result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 result_df = result_df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in result_df.itertuples():
