@@ -513,22 +513,50 @@ class IndicatorService:
 
     # --- 检查缺失项目并记录 ---
     def _log_dataframe_missing(self, df: pd.DataFrame, stock_code: str):
+        """
+        记录 DataFrame 中填充后的缺失值情况，只报告存在缺失的列。
+        """
+        if df.empty:
+            logger.warning(f"[{stock_code}] DataFrame 为空，无法检查缺失值。")
+            return
+
+        # 计算所有列的缺失数量和比例
         missing_count = df.isna().sum()
         missing_ratio = (df.isna().mean() * 100).round(2)
-        logger.warning(f"[{stock_code}] 合并后各列缺失数量: {missing_count.to_dict()}")
-        logger.warning(f"[{stock_code}] 合并后各列缺失比例(%): {missing_ratio.to_dict()}")
+
+        # 筛选出缺失数量大于 0 的列
+        non_zero_missing_count = missing_count[missing_count > 0]
+        non_zero_missing_ratio = missing_ratio[non_zero_missing_count.index] # 使用相同索引确保对应
+
+        # 检查是否有任何列存在缺失
+        if not non_zero_missing_count.empty:
+            logger.warning(f"[{stock_code}] 合并填充后存在缺失值的列 - 数量: {non_zero_missing_count.to_dict()}")
+            logger.warning(f"[{stock_code}] 合并填充后存在缺失值的列 - 比例(%): {non_zero_missing_ratio.to_dict()}")
+
+            # 检查关键列的缺失情况 (只检查那些实际有缺失的关键列)
+            key_cols = [col for col in df.columns if any(k in col for k in ['open', 'high', 'low', 'close', 'volume'])]
+            # 从有缺失的列中筛选出关键列
+            key_missing_count_filtered = non_zero_missing_count.filter(items=key_cols)
+            key_missing_ratio_filtered = non_zero_missing_ratio.filter(items=key_cols)
+
+            if not key_missing_count_filtered.empty:
+                logger.warning(f"[{stock_code}] 关键列缺失数量 (仅显示有缺失的): {key_missing_count_filtered.to_dict()}")
+                logger.warning(f"[{stock_code}] 关键列缺失比例(%)(仅显示有缺失的): {key_missing_ratio_filtered.to_dict()}")
+
+            # 报告缺失比例最高的列 (只考虑实际有缺失的列)
+            top_missing = non_zero_missing_ratio.sort_values(ascending=False).head(5)
+            if not top_missing.empty:
+                 logger.warning(f"[{stock_code}] 缺失比例最高的5列 (仅显示有缺失的): {top_missing.to_dict()}")
+
+        else:
+            # 如果没有任何列缺失，打印一条信息日志
+            logger.info(f"[{stock_code}] 合并填充后所有列数据完整，无缺失值。")
+
+        # 检查是否存在整行都是 NaN 的情况 (这个检查仍然有用)
         all_nan_rows = df.isna().all(axis=1).sum()
         if all_nan_rows > 0:
-            logger.warning(f"[{stock_code}] 合并后DataFrame存在{all_nan_rows}行全部为NaN的数据！")
-        # 突出关键列的缺失情况
-        key_cols = [col for col in df.columns if any(k in col for k in ['open', 'high', 'low', 'close', 'volume'])]
-        if key_cols:
-            key_missing_count = missing_count[key_cols].to_dict()
-            key_missing_ratio = missing_ratio[key_cols].to_dict()
-            logger.warning(f"[{stock_code}] 关键列缺失数量: {key_missing_count}")
-            logger.warning(f"[{stock_code}] 关键列缺失比例(%): {key_missing_ratio}")
-        top_missing = missing_ratio.sort_values(ascending=False).head(5)
-        logger.warning(f"[{stock_code}] 缺失比例最高的5列: {top_missing.to_dict()}")
+            logger.warning(f"[{stock_code}] 注意：合并填充后 DataFrame 仍存在 {all_nan_rows} 行全部为 NaN 的数据！可能由数据源开头缺失导致。")
+
 
 
     def calculate_atr(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
