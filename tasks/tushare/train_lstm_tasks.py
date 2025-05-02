@@ -25,7 +25,8 @@ def batch_train_following_strategy_lstm(self, stock_code: str, params_file: str 
         logger.info(f"开始执行 {stock_code} 的深度学习任务")
         data_df = asyncio.run(indicator_service.prepare_strategy_dataframe(
             stock_code=stock_code,
-            params_file=params_file # 传递参数文件路径
+            params_file=params_file, # 传递参数文件路径
+            needed_bars=10000,  # 确保至少有足够的数据
         ))
     except Exception as prep_err:
         logger.warning(f"[{stock_code}] 调用 prepare_strategy_dataframe 准备数据时出错: {prep_err}")

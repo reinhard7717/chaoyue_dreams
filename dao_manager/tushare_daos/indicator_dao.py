@@ -119,66 +119,67 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"从 Redis 获取缓存数据时出错 for {stock} {time_level_str}: {e}", exc_info=True)
             cache_data = None
-        if cache_data and isinstance(cache_data, list):
-            model_instances = []
-            conversion_errors = 0
-            for item_dict_str in cache_data:
-                try:
-                    if isinstance(item_dict_str, bytes):
-                        item_dict = self.cache_manager._deserialize(item_dict_str)
-                    else:
-                        item_dict = item_dict_str
-                    trade_time = self._safe_datetime(item_dict.get('trade_time'))
-                    if not trade_time:
-                        logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
-                        conversion_errors += 1
-                        continue
-                    # 修改：将缓存字段名映射为模型字段名 --- 注意新增字段名称对应
-                    if time_level_str in ['day', 'week', 'month']:
-                        # 使用对应日/周/月模型
-                        if time_level_str == 'day':
-                            ModelClass = StockDailyData
-                        elif time_level_str == 'week':
-                            ModelClass = StockWeeklyData
+        if len(cache_data) >= limit:
+            if cache_data and isinstance(cache_data, list):
+                model_instances = []
+                conversion_errors = 0
+                for item_dict_str in cache_data:
+                    try:
+                        if isinstance(item_dict_str, bytes):
+                            item_dict = self.cache_manager._deserialize(item_dict_str)
                         else:
-                            ModelClass = StockMonthlyData
-                        instance = ModelClass(
-                            stock=stock,
-                            trade_time=trade_time,
-                            open=self._safe_decimal(item_dict.get('open')),
-                            high=self._safe_decimal(item_dict.get('high')),
-                            low=self._safe_decimal(item_dict.get('low')),
-                            close=self._safe_decimal(item_dict.get('close')),
-                            vol=self._safe_int(item_dict.get('vol')),
-                            amount=self._safe_decimal(item_dict.get('amount')),
-                        )
-                        instance.time_level = time_level_str
-                    else:
-                        # 按分钟数据 StockMinuteData
-                        instance = StockMinuteData(
-                            stock=stock,
-                            trade_time=trade_time,
-                            time_level=time_level_str,
-                            open=self._safe_decimal(item_dict.get('open')),
-                            high=self._safe_decimal(item_dict.get('high')),
-                            low=self._safe_decimal(item_dict.get('low')),
-                            close=self._safe_decimal(item_dict.get('close')),
-                            vol=self._safe_int(item_dict.get('vol')),
-                            amount=self._safe_decimal(item_dict.get('amount')),
-                        )
-                    model_instances.append(instance)
-                except Exception as e_conv:
-                    conversion_errors += 1
-                    logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False)
-            if conversion_errors > 0:
-                logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
-            if not model_instances:
-                logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}，将尝试从数据库获取。")
-            else:
-                model_instances.sort(key=lambda x: x.trade_time)
-                logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
-                return model_instances
-        logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
+                            item_dict = item_dict_str
+                        trade_time = self._safe_datetime(item_dict.get('trade_time'))
+                        if not trade_time:
+                            logger.warning(f"缓存数据中发现无效的 trade_time: {item_dict.get('trade_time')}")
+                            conversion_errors += 1
+                            continue
+                        # 修改：将缓存字段名映射为模型字段名 --- 注意新增字段名称对应
+                        if time_level_str in ['day', 'week', 'month']:
+                            # 使用对应日/周/月模型
+                            if time_level_str == 'day':
+                                ModelClass = StockDailyData
+                            elif time_level_str == 'week':
+                                ModelClass = StockWeeklyData
+                            else:
+                                ModelClass = StockMonthlyData
+                            instance = ModelClass(
+                                stock=stock,
+                                trade_time=trade_time,
+                                open=self._safe_decimal(item_dict.get('open')),
+                                high=self._safe_decimal(item_dict.get('high')),
+                                low=self._safe_decimal(item_dict.get('low')),
+                                close=self._safe_decimal(item_dict.get('close')),
+                                vol=self._safe_int(item_dict.get('vol')),
+                                amount=self._safe_decimal(item_dict.get('amount')),
+                            )
+                            instance.time_level = time_level_str
+                        else:
+                            # 按分钟数据 StockMinuteData
+                            instance = StockMinuteData(
+                                stock=stock,
+                                trade_time=trade_time,
+                                time_level=time_level_str,
+                                open=self._safe_decimal(item_dict.get('open')),
+                                high=self._safe_decimal(item_dict.get('high')),
+                                low=self._safe_decimal(item_dict.get('low')),
+                                close=self._safe_decimal(item_dict.get('close')),
+                                vol=self._safe_int(item_dict.get('vol')),
+                                amount=self._safe_decimal(item_dict.get('amount')),
+                            )
+                        model_instances.append(instance)
+                    except Exception as e_conv:
+                        conversion_errors += 1
+                        logger.error(f"转换缓存字典为 StockTimeTrade 实例时出错: {e_conv}. Dict: {item_dict}", exc_info=False)
+                if conversion_errors > 0:
+                    logger.warning(f"转换缓存数据时遇到 {conversion_errors} 个错误 for {stock_code} {time_level_str}")
+                if not model_instances:
+                    logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}，将尝试从数据库获取。")
+                else:
+                    model_instances.sort(key=lambda x: x.trade_time)
+                    logger.debug(f"成功从缓存转换 {len(model_instances)} 条 StockTimeTrade 实例 for {stock_code} {time_level_str}")
+                    return model_instances
+            logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
         try:
             if time_level_str == "day":
                     data_qs = StockDailyData.objects.filter(

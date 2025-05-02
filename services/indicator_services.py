@@ -109,7 +109,7 @@ class IndicatorService:
         # --- 时区处理结束 ---
         return df
 
-    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str) -> Optional[pd.DataFrame]:
+    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, needed_bars: int = None) -> Optional[pd.DataFrame]:
         """
         根据策略 JSON 配置文件准备包含基础数据和所有计算指标的 DataFrame。
         Args:
@@ -188,7 +188,10 @@ class IndicatorService:
                 ia_params.get('volume_ma_period', 0),  # 成交量均线周期
                 55  # SAR 默认回看期或固定值
             ]
-            max_lookback = max(lookbacks) + 100  # 增加 100 个 bar 作为缓冲
+            if needed_bars is not None:
+                max_lookback = needed_bars
+            else:
+                max_lookback = max(lookbacks) + 100  # 增加 100 个 bar 作为缓冲
             logger.info(f"[{stock_code}] 需要的时间级别: {all_time_levels}, 最大回看期: {max_lookback}")
         except KeyError as e:
             logger.error(f"[{stock_code}] 参数文件 {params_file} 缺少键: {e}", exc_info=True)
