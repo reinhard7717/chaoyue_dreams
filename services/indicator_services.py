@@ -280,11 +280,16 @@ class IndicatorService:
                 ia_params.get('volume_ma_period', 0),  # 成交量均线周期
                 55  # SAR 默认回看期或固定值
             ]
-            if needed_bars is not None:
-                max_lookback = needed_bars
+            # 确保 lookbacks 列表非空且包含有效数值
+            valid_lookbacks = [lb for lb in lookbacks if isinstance(lb, (int, float)) and lb > 0]
+            if not valid_lookbacks:
+                logger.warning(f"[{stock_code}] 未能从参数计算出有效的指标回看期，将使用默认值 100。")
+                global_max_lookback = 100
             else:
-                max_lookback = max(lookbacks) + 100  # 增加 100 个 bar 作为缓冲
-            logger.info(f"[{stock_code}] 需要的时间级别: {all_time_levels}, 最大回看期: {max_lookback}")
+                global_max_lookback = max(valid_lookbacks) + 100 # 增加 100 bar 缓冲
+
+            logger.info(f"[{stock_code}] 需要的时间级别: {all_time_levels}, 全局指标最大回看期: {global_max_lookback}")
+
         except KeyError as e:
             logger.error(f"[{stock_code}] 参数文件 {params_file} 缺少键: {e}", exc_info=True)
             return None
