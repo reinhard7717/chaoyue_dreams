@@ -211,39 +211,48 @@ class IndicatorService:
         base_5min_df = ohlcv_dfs.get('5')
         for tf in all_time_levels:
             df = ohlcv_dfs.get(tf)
-            if df is None or df.empty or len(df) < max_lookback // 2:  # 如果数据为空或不足以支持指标计算
-                if tf == '5':  # 5分钟数据必须存在，否则无法继续
-                    logger.error(f"[{stock_code}] 5分钟数据为空或不可用，无法继续处理")
-                    return None
-                elif base_5min_df is not None and not base_5min_df.empty and tf.isdigit() and int(tf) > 5:
-                    # 基于5分钟数据聚合生成高时间级别数据
-                    logger.warning(f"[{stock_code}] 时间级别 {tf} 数据为空或不足（{len(df) if df is not None else 0} 条），使用5分钟数据聚合生成")
-                    period = int(tf) // 5  # 计算聚合周期，例如15分钟需要聚合3个5分钟数据
-                    try:
-                        # 确保5分钟数据的索引是DatetimeIndex
-                        if not isinstance(base_5min_df.index, pd.DatetimeIndex):
-                            base_5min_df.index = pd.to_datetime(base_5min_df.index)
-                        # 按指定分钟周期聚合
-                        agg_df = base_5min_df.resample(f'{tf}T', closed='right', label='right').agg({
-                            'open': 'first',
-                            'high': 'max',
-                            'low': 'min',
-                            'close': 'last',
-                            'volume': 'sum',
-                            'amount': 'sum' if 'amount' in base_5min_df.columns else None
-                        }).dropna(subset=['open', 'high', 'low', 'close'])
-                        if not agg_df.empty:
-                            logger.info(f"[{stock_code}] 成功基于5分钟数据聚合生成 {tf} 分钟数据，条数: {len(agg_df)}")
-                            ohlcv_dfs[tf] = agg_df
-                            df = agg_df
-                        else:
-                            logger.warning(f"[{stock_code}] 基于5分钟数据聚合 {tf} 分钟数据失败，结果为空")
-                    except Exception as e:
-                        logger.error(f"[{stock_code}] 基于5分钟数据聚合 {tf} 分钟数据时出错: {e}", exc_info=True)
-                        df = None
-                else:
-                    logger.warning(f"[{stock_code}] 无法基于5分钟数据聚合 {tf} 分钟数据，5分钟数据不可用")
+            if (df is None or df.empty or len(df) < max_lookback // 2) and tf != '5' and base_5min_df is not None and not base_5min_df.empty and tf.isdigit() and int(tf) > 5:
+                # 基于5分钟数据聚合生成高时间级别数据
+                logger.warning(f"[{stock_code}] 时间级别 {tf} 数据为空或不足（{len(df) if df is not None else 0} 条），使用5分钟数据聚合生成")
+                period = int(tf) // 5  # 计算聚合周期，例如15分钟需要聚合3个5分钟数据
+                try:
+                    # 确保5分钟数据的索引是DatetimeIndex
+                    if not isinstance(base_5min_df.index, pd.DatetimeIndex):
+                        base_5min_df.index = pd.to_datetime(base_5min_df.index)
+                    # 按指定分钟周期聚合，确保覆盖整个时间范围
+                    agg_df = base_5min_df.resample(f'{tf}T', closed='right', label='right').agg({
+                        'open': 'first',
+                        'high': 'max',
+                        'low': 'min',
+                        'close': 'last',
+                        'volume': 'sum',
+                        'amount': 'sum' if 'amount' in base_5min_df.columns else None
+                    }).dropna(subset=['open', 'high', 'low', 'close'])
+                    if not agg_df.empty:
+                        logger.info(f"[{stock_code}] 成功基于5分钟数据聚合生成 {tf} 分钟数据，条数: {len(agg_df)}")
+                        ohlcv_dfs[tf] = agg_df
+                        df = agg_df
+                    else:
+                        logger.warning(f"[{stock_code}] 基于5分钟数据聚合 {tf} 分钟数据失败，结果为空")
+                except Exception as e:
+                    logger.error(f"[{stock_code}] 基于5分钟数据聚合 {tf} 分钟数据时出错: {e}", exc_info=True)
                     df = None
+
+            if df is not None and not df.empty:
+                df = self.filter_to_period_points(df, tf)  # 周期对齐
+                # 重命名基础列，将 amount 重命名为 amount，并包含 turnover_rate
+                rename_map = {}
+                for col in df.columns:
+                    if col in ['open', 'high', 'low', 'close', 'volume']:
+                        rename_map[col] = f"{col}_{tf}"
+                    elif col == 'amount':  # 特别处理 amount
+                        rename_map[col] = f"amount_{tf}"  # 重命名为 amount_{tf}
+                    elif col == 'turnover_rate':  # 新增换手率字段
+                        rename_map[col] = f"turnover_rate_{tf}"
+                    # 其他列名不变（如 stock_code, time_level）
+                valid_ohlcv_dfs[tf] = df.rename(columns=rename_map)
+            else:
+                logger.warning(f"[{stock_code}] 无法获取时间级别 {tf} 的 OHLCV 数据。")
             if df is not None and not df.empty:
                 df = self.filter_to_period_points(df, tf)  # 周期对齐
                 # 重命名基础列，将 amount 重命名为 amount，并包含 turnover_rate
@@ -276,9 +285,14 @@ class IndicatorService:
                     for col in ['open', 'high', 'low', 'close', 'volume']:
                         if col in base_df.columns:
                             base_df[col] = pd.to_numeric(base_df[col], errors='coerce')
-                    base_df_clean = base_df.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
-                    if base_df_clean.empty:
-                        logger.warning(f"[{stock_code}] 清理 NaN 后时间级别 {tf} 数据为空，无法计算 {indicator_name}")
+                    # 填充NaN值，确保计算不因少量缺失而失败
+                    base_df_clean = base_df.copy()
+                    for col in ['open', 'high', 'low', 'close', 'volume']:
+                        if col in base_df_clean.columns:
+                            base_df_clean[col].ffill(inplace=True)
+                            base_df_clean[col].bfill(inplace=True)
+                    if base_df_clean[['open', 'high', 'low', 'close', 'volume']].isnull().any(axis=1).all():
+                        logger.warning(f"[{stock_code}] 清理 NaN 后时间级别 {tf} 数据仍为空，无法计算 {indicator_name}")
                         return None
                     result = calculation_func(base_df_clean, *args, **kwargs)
                     if result is not None and not result.empty:
@@ -402,19 +416,33 @@ class IndicatorService:
             # =========================
             self._log_dataframe_missing(combined_df, stock_code)
             # =========================
-            # 以5分钟为基准索引补齐
+            # 以5分钟为基准索引补齐，但限制补齐范围到5分钟数据的有效时间范围内
             base_5min_df = valid_ohlcv_dfs.get('5')
             if base_5min_df is not None and not base_5min_df.empty:
                 base_index = base_5min_df.index
+                # 限制combined_df的索引范围到5分钟数据的有效时间范围
                 combined_df = combined_df.reindex(base_index)
-                combined_df.ffill(inplace=True)  # 或 bfill
+                # 先向前填充，再向后填充，确保尽可能补齐缺失值
+                combined_df.ffill(inplace=True)
+                combined_df.bfill(inplace=True)
                 logger.info(f"[{stock_code}] 用5分钟索引补齐所有周期数据，最终形状: {combined_df.shape}")
-                # # =========================
-                # print(f"[{stock_code}] 索引补齐及缺失填充后数据缺失值统计（完整）:")
-                # print(combined_df.isna().sum().to_dict())
-                # print(f"[{stock_code}] 缺失占比统计（%）:")
-                # print((combined_df.isna().mean() * 100).round(2))
-                # # =========================
+                # 再次检查缺失情况，确保关键列有数据
+                self._log_dataframe_missing(combined_df, stock_code)
+            else:
+                logger.warning(f"[{stock_code}] 5分钟数据为空或不可用，无法以5分钟为基准补齐数据")
+                # 如果5分钟数据不可用，尝试使用其他周期（如15分钟）作为基准
+                alternative_base_df = valid_ohlcv_dfs.get('15') or valid_ohlcv_dfs.get('30') or valid_ohlcv_dfs.get('60')
+                if alternative_base_df is not None and not alternative_base_df.empty:
+                    base_index = alternative_base_df.index
+                    combined_df = combined_df.reindex(base_index)
+                    combined_df.ffill(inplace=True)
+                    combined_df.bfill(inplace=True)
+                    logger.info(f"[{stock_code}] 使用备用周期数据补齐所有周期数据，最终形状: {combined_df.shape}")
+                    self._log_dataframe_missing(combined_df, stock_code)
+                else:
+                    logger.error(f"[{stock_code}] 无可用基准数据进行补齐，数据可能存在大量缺失")
+                    return None
+
             # 彻底消除None，强制所有列为float
             for col in combined_df.columns:
                 combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
@@ -453,11 +481,13 @@ class IndicatorService:
         all_nan_rows = df.isna().all(axis=1).sum()
         if all_nan_rows > 0:
             logger.warning(f"[{stock_code}] 合并后DataFrame存在{all_nan_rows}行全部为NaN的数据！")
-        key_cols = [col for col in df.columns if 'close' in col]
+        # 突出关键列的缺失情况
+        key_cols = [col for col in df.columns if any(k in col for k in ['open', 'high', 'low', 'close', 'volume'])]
         if key_cols:
-            close_nan_rows = df[key_cols].isna().all(axis=1).sum()
-            if close_nan_rows > 0:
-                logger.warning(f"[{stock_code}] 合并后DataFrame存在{close_nan_rows}行所有close相关列均为NaN！")
+            key_missing_count = missing_count[key_cols].to_dict()
+            key_missing_ratio = missing_ratio[key_cols].to_dict()
+            logger.warning(f"[{stock_code}] 关键列缺失数量: {key_missing_count}")
+            logger.warning(f"[{stock_code}] 关键列缺失比例(%): {key_missing_ratio}")
         top_missing = missing_ratio.sort_values(ascending=False).head(5)
         logger.warning(f"[{stock_code}] 缺失比例最高的5列: {top_missing.to_dict()}")
 
