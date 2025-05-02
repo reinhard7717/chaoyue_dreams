@@ -51,7 +51,6 @@ def prepare_data_for_lstm(
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
     """
     准备LSTM模型的训练数据，修正了Scaler的使用以防止数据泄露。
-
     Args:
         data (pd.DataFrame): 包含特征和目标变量的DataFrame。**假设此数据已由上游服务完成缺失值填充**。
         required_columns (List[str]): 模型输入特征列名列表。
@@ -62,7 +61,6 @@ def prepare_data_for_lstm(
         val_split (float): 验证集比例，默认为0.15（剩余为测试集）。
         feature_selection (Optional[List[str]]): 可选的特征子集列名列表，若为None则使用required_columns。
         augment_data (bool): 是否进行数据增强（如添加噪声），默认为False。
-
     Returns:
         Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
             X_train, y_train: 训练集特征和目标。
@@ -72,7 +70,7 @@ def prepare_data_for_lstm(
     """
     if data.empty:
         raise ValueError("输入数据为空，无法准备训练数据。")
-
+    
     # --- 1. 选择特征列 ---
     selected_columns = feature_selection if feature_selection is not None else required_columns
     missing_cols = [col for col in selected_columns if col not in data.columns]

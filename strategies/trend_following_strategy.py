@@ -762,94 +762,7 @@ class TrendFollowingStrategy(BaseStrategy):
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
         """
         # logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
-        if data is None or data.empty:
-            logger.warning("输入数据为空，无法生成信号。")
-            return pd.Series(dtype=float)
-        # --- 检查必需列 ---
-        required_cols = self.get_required_columns()
-        missing_cols = [col for col in required_cols if col not in data.columns]
-        if missing_cols:
-            logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
-            return pd.Series(50.0, index=data.index)
-        # 检查数据完整性（是否有过多 NaN）
-        nan_check_cols = [f'close_{self.focus_timeframe}', f'ADX_{self.params["base_scoring"]["dmi_period"]}_{self.focus_timeframe}']
-        if data[nan_check_cols].isnull().all().any():
-            logger.error(f"[{self.strategy_name}] 关键输入数据 ({nan_check_cols}) 全为 NaN。策略无法运行。")
-            return pd.Series(50.0, index=data.index)
-        # --- 动态调整参数 ---
-        self._adjust_volatility_parameters(data)
-        # --- 计算趋势导向的基础评分 ---
-        base_scores_df = self._calculate_trend_focused_score(data)
-        # --- 应用量能调整 ---
-        vc_params = self.params.get('volume_confirmation', {})
-        vc_params_adjusted = vc_params.copy()
-        vc_params_adjusted['boost_factor'] = self.volume_boost_factor
-        vc_params_adjusted['penalty_factor'] = self.volume_penalty_factor
-        vc_params_adjusted['volume_spike_threshold'] = self.volume_spike_threshold
-        dd_params = self.params.get('divergence_detection', {})
-        bs_params = self.params.get('base_scoring', {})
-        base_score_adjusted, volume_analysis = strategy_utils.adjust_score_with_volume(
-            base_scores_df['base_score_raw'], data, vc_params_adjusted, dd_params, bs_params, return_analysis=True
-        )
-        base_scores_df['base_score_volume_adjusted'] = base_score_adjusted
-        base_scores_df = pd.concat([base_scores_df, volume_analysis], axis=1)
-        # --- 执行趋势分析 ---
-        trend_analysis_df = self._perform_trend_analysis(data, base_scores_df['base_score_volume_adjusted'])
-        # --- 检测背离信号 ---
-        divergence_signals = pd.DataFrame(index=data.index)
-        if dd_params.get('enabled', True):
-            try:
-                divergence_signals = strategy_utils.detect_divergence(data, dd_params, bs_params)
-                # logger.info(f"背离检测完成，发现信号: {divergence_signals.iloc[-1].to_dict() if not divergence_signals.empty else '无'}")
-            except Exception as e:
-                logger.error(f"执行背离检测时出错: {e}")
-        # --- 组合最终信号 ---
-        final_signal = pd.Series(50.0, index=data.index)
-        base_score_norm = (base_scores_df['base_score_volume_adjusted'].fillna(50.0) - 50) / 50
-        alignment_norm = trend_analysis_df.get('alignment_signal', pd.Series(0, index=data.index)).fillna(0) / 3
-        long_context_norm = trend_analysis_df.get('long_term_context', pd.Series(0, index=data.index)).fillna(0)
-        momentum_norm = np.sign(trend_analysis_df.get('score_momentum', pd.Series(0, index=data.index)).fillna(0))
-        ema_cross_norm = trend_analysis_df.get('ema_cross_signal', pd.Series(0, index=data.index)).fillna(0)
-        boll_breakout_norm = trend_analysis_df.get('boll_breakout_signal', pd.Series(0, index=data.index)).fillna(0)
-        adx_strength_norm = trend_analysis_df.get('adx_strength_signal', pd.Series(0, index=data.index)).fillna(0)
-        vwap_dev_norm = trend_analysis_df.get('vwap_deviation_signal', pd.Series(0, index=data.index)).fillna(0)
-        volume_spike_signal = base_scores_df.get('volume_spike_signal', pd.Series(0, index=data.index)).fillna(0)
-        total_weighted_contribution = pd.Series(0.0, index=data.index)
-        total_weight = 0.0
-        w_base = self.signal_weights.get('base_score', 0.5)
-        total_weighted_contribution += base_score_norm * w_base
-        total_weight += w_base
-        w_align = self.signal_weights.get('alignment', 0.25)
-        total_weighted_contribution += alignment_norm * w_align
-        total_weight += w_align
-        w_context = self.signal_weights.get('long_context', 0.1)
-        total_weighted_contribution += long_context_norm * w_context
-        total_weight += w_context
-        w_momentum = self.signal_weights.get('momentum', 0.15)
-        total_weighted_contribution += momentum_norm * w_momentum
-        total_weight += w_momentum
-        w_ema_cross = self.ema_cross_weight
-        total_weighted_contribution += ema_cross_norm * w_ema_cross
-        total_weight += w_ema_cross
-        w_boll = self.boll_breakout_weight
-        total_weighted_contribution += boll_breakout_norm * w_boll
-        total_weight += w_boll
-        if total_weight > 0:
-            normalized_contribution = (total_weighted_contribution / total_weight).clip(-1, 1)
-            final_signal = 50.0 + normalized_contribution * 50.0
-        else:
-            logger.warning("信号权重总和为0，使用中性分50.0作为最终信号。")
-            final_signal = pd.Series(50.0, index=data.index)
-        final_signal = self._apply_adx_boost(final_signal, adx_strength_norm, normalized_contribution)
-        final_signal = self._apply_divergence_penalty(final_signal, divergence_signals, dd_params)
-        vwap_adjustment = -vwap_dev_norm * np.sign(normalized_contribution) * 2
-        final_signal += vwap_adjustment
-        logger.debug(f"VWAP 偏离调整: {vwap_adjustment.iloc[-1] if not vwap_adjustment.empty else 'N/A'}")
-        volume_spike_adjustment = volume_spike_signal * np.sign(normalized_contribution) * 3
-        final_signal += volume_spike_adjustment
-        logger.debug(f"成交量突增调整: {volume_spike_adjustment.iloc[-1] if not volume_spike_adjustment.empty else 'N/A'}")
-        final_signal = self._apply_trend_confirmation(final_signal)
-        final_signal = final_signal.clip(0, 100).round(2)
+        final_signal = self._calculate_rule_based_signal(data=data, stock_code=stock_code)
         self.load_lstm_model(data)  # 加载模型
         # LSTM模型预测
         lstm_signal = pd.Series(50.0, index=data.index)
@@ -1394,19 +1307,18 @@ class TrendFollowingStrategy(BaseStrategy):
         """
         训练LSTM模型并保存（模型和Scaler分开保存，支持多股票）。
         """
-        import joblib
         self.set_model_paths(stock_code)
         required_cols = self.get_required_columns()
-        if 'final_signal' not in data.columns:
-            data = data.copy()
-            data['final_signal'] = self.generate_signals(data, stock_code)
 
-        # # ======================================
-        # print("准备训练LSTM前输入数据缺失情况：")
-        # pd.set_option('display.max_rows', None)
-        # pd.set_option('display.max_columns', None)
-        # print(data[required_cols + ['final_signal']].isna().sum().to_dict())
-        # # ======================================
+        # --- 确保目标列存在且是纯规则信号 ---
+        if 'final_signal' not in data.columns:
+            logger.info(f"[{stock_code}] 目标列 'final_signal' 不存在，将计算纯规则信号作为目标。")
+            data = data.copy() # 避免修改原始传入的 DataFrame
+            data['final_signal'] = self._calculate_rule_based_signal(data, stock_code)
+        elif self.lstm_model is not None: # 如果目标列已存在，但可能被污染了，重新计算
+            logger.warning(f"[{stock_code}] 目标列 'final_signal' 已存在，为确保是纯规则信号，将重新计算。")
+            data = data.copy()
+            data['final_signal'] = self._calculate_rule_based_signal(data, stock_code)
 
         X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
             data=data,
@@ -1459,7 +1371,96 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.warning(f"[{stock_code}] 数据不足以训练LSTM模型。")
             return None
 
-
+    def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
+        if data is None or data.empty:
+            logger.warning("输入数据为空，无法生成信号。")
+            return pd.Series(dtype=float)
+        # --- 检查必需列 ---
+        required_cols = self.get_required_columns()
+        missing_cols = [col for col in required_cols if col not in data.columns]
+        if missing_cols:
+            logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
+            return pd.Series(50.0, index=data.index)
+        # 检查数据完整性（是否有过多 NaN）
+        nan_check_cols = [f'close_{self.focus_timeframe}', f'ADX_{self.params["base_scoring"]["dmi_period"]}_{self.focus_timeframe}']
+        if data[nan_check_cols].isnull().all().any():
+            logger.error(f"[{self.strategy_name}] 关键输入数据 ({nan_check_cols}) 全为 NaN。策略无法运行。")
+            return pd.Series(50.0, index=data.index)
+        # --- 动态调整参数 ---
+        self._adjust_volatility_parameters(data)
+        # --- 计算趋势导向的基础评分 ---
+        base_scores_df = self._calculate_trend_focused_score(data)
+        # --- 应用量能调整 ---
+        vc_params = self.params.get('volume_confirmation', {})
+        vc_params_adjusted = vc_params.copy()
+        vc_params_adjusted['boost_factor'] = self.volume_boost_factor
+        vc_params_adjusted['penalty_factor'] = self.volume_penalty_factor
+        vc_params_adjusted['volume_spike_threshold'] = self.volume_spike_threshold
+        dd_params = self.params.get('divergence_detection', {})
+        bs_params = self.params.get('base_scoring', {})
+        base_score_adjusted, volume_analysis = strategy_utils.adjust_score_with_volume(
+            base_scores_df['base_score_raw'], data, vc_params_adjusted, dd_params, bs_params, return_analysis=True
+        )
+        base_scores_df['base_score_volume_adjusted'] = base_score_adjusted
+        base_scores_df = pd.concat([base_scores_df, volume_analysis], axis=1)
+        # --- 执行趋势分析 ---
+        trend_analysis_df = self._perform_trend_analysis(data, base_scores_df['base_score_volume_adjusted'])
+        # --- 检测背离信号 ---
+        divergence_signals = pd.DataFrame(index=data.index)
+        if dd_params.get('enabled', True):
+            try:
+                divergence_signals = strategy_utils.detect_divergence(data, dd_params, bs_params)
+                # logger.info(f"背离检测完成，发现信号: {divergence_signals.iloc[-1].to_dict() if not divergence_signals.empty else '无'}")
+            except Exception as e:
+                logger.error(f"执行背离检测时出错: {e}")
+        # --- 组合最终信号 ---
+        final_signal = pd.Series(50.0, index=data.index)
+        base_score_norm = (base_scores_df['base_score_volume_adjusted'].fillna(50.0) - 50) / 50
+        alignment_norm = trend_analysis_df.get('alignment_signal', pd.Series(0, index=data.index)).fillna(0) / 3
+        long_context_norm = trend_analysis_df.get('long_term_context', pd.Series(0, index=data.index)).fillna(0)
+        momentum_norm = np.sign(trend_analysis_df.get('score_momentum', pd.Series(0, index=data.index)).fillna(0))
+        ema_cross_norm = trend_analysis_df.get('ema_cross_signal', pd.Series(0, index=data.index)).fillna(0)
+        boll_breakout_norm = trend_analysis_df.get('boll_breakout_signal', pd.Series(0, index=data.index)).fillna(0)
+        adx_strength_norm = trend_analysis_df.get('adx_strength_signal', pd.Series(0, index=data.index)).fillna(0)
+        vwap_dev_norm = trend_analysis_df.get('vwap_deviation_signal', pd.Series(0, index=data.index)).fillna(0)
+        volume_spike_signal = base_scores_df.get('volume_spike_signal', pd.Series(0, index=data.index)).fillna(0)
+        total_weighted_contribution = pd.Series(0.0, index=data.index)
+        total_weight = 0.0
+        w_base = self.signal_weights.get('base_score', 0.5)
+        total_weighted_contribution += base_score_norm * w_base
+        total_weight += w_base
+        w_align = self.signal_weights.get('alignment', 0.25)
+        total_weighted_contribution += alignment_norm * w_align
+        total_weight += w_align
+        w_context = self.signal_weights.get('long_context', 0.1)
+        total_weighted_contribution += long_context_norm * w_context
+        total_weight += w_context
+        w_momentum = self.signal_weights.get('momentum', 0.15)
+        total_weighted_contribution += momentum_norm * w_momentum
+        total_weight += w_momentum
+        w_ema_cross = self.ema_cross_weight
+        total_weighted_contribution += ema_cross_norm * w_ema_cross
+        total_weight += w_ema_cross
+        w_boll = self.boll_breakout_weight
+        total_weighted_contribution += boll_breakout_norm * w_boll
+        total_weight += w_boll
+        if total_weight > 0:
+            normalized_contribution = (total_weighted_contribution / total_weight).clip(-1, 1)
+            final_signal = 50.0 + normalized_contribution * 50.0
+        else:
+            logger.warning("信号权重总和为0，使用中性分50.0作为最终信号。")
+            final_signal = pd.Series(50.0, index=data.index)
+        final_signal = self._apply_adx_boost(final_signal, adx_strength_norm, normalized_contribution)
+        final_signal = self._apply_divergence_penalty(final_signal, divergence_signals, dd_params)
+        vwap_adjustment = -vwap_dev_norm * np.sign(normalized_contribution) * 2
+        final_signal += vwap_adjustment
+        logger.debug(f"VWAP 偏离调整: {vwap_adjustment.iloc[-1] if not vwap_adjustment.empty else 'N/A'}")
+        volume_spike_adjustment = volume_spike_signal * np.sign(normalized_contribution) * 3
+        final_signal += volume_spike_adjustment
+        logger.debug(f"成交量突增调整: {volume_spike_adjustment.iloc[-1] if not volume_spike_adjustment.empty else 'N/A'}")
+        final_signal = self._apply_trend_confirmation(final_signal)
+        rule_signal = final_signal.clip(0, 100).round(2)
+        return rule_signal
 
 
 
