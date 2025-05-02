@@ -54,13 +54,86 @@ class IndicatorService:
             logger.error("pandas-ta 库未安装，请运行 'pip install pandas-ta'")
             ta = None # 设置为 None，后续计算会失败但不会在导入时崩溃
 
+    # --- 新增辅助函数：将时间级别字符串转换为近似分钟数 ---
+    def _get_timeframe_in_minutes(self, tf_str: str) -> Optional[int]:
+        """
+        将时间级别字符串（如 '5', '15', 'D', 'W', 'M'）转换为近似的分钟数。
+        注意：'D', 'W', 'M' 是基于标准交易时间的估算。
+        """
+        tf_str = str(tf_str).upper() # 转换为大写以便处理 'd', 'w', 'm'
+        if tf_str.isdigit():
+            return int(tf_str)
+        elif tf_str == 'D':
+            return 240 # A股主要交易时间 4 小时 * 60 分钟/小时
+        elif tf_str == 'W':
+            return 240 * 5 # 每周 5 个交易日
+        elif tf_str == 'M':
+            # 月度交易日数不固定，使用一个近似值，例如 21 天
+            return 240 * 21
+        else:
+            logger.warning(f"无法将时间级别 '{tf_str}' 转换为分钟数，将返回 None。")
+            return None
+
+    # --- 新增辅助函数：计算特定时间级别所需的 K 线数量 ---
+    def _calculate_needed_bars_for_tf(
+        self,
+        target_tf: str,
+        min_tf: str,
+        base_needed_bars: int,
+        global_max_lookback: int
+    ) -> int:
+        """
+        计算目标时间级别需要获取的 K 线数量。
+
+        Args:
+            target_tf (str): 目标时间级别 (e.g., '15', 'D').
+            min_tf (str): 基础（最小）时间级别 (e.g., '5').
+            base_needed_bars (int): 基础时间级别要求的 K 线数量.
+            global_max_lookback (int): 所有指标计算所需的最大回看期.
+
+        Returns:
+            int: 最终计算出的目标时间级别应获取的 K 线数量.
+        """
+        if target_tf == min_tf:
+            # 如果是最小时间级别本身，直接取基础需求和指标需求的较大值
+            needed = max(base_needed_bars, global_max_lookback)
+            # logger.debug(f"计算 K 线数 for {target_tf} (最小级别): max({base_needed_bars}, {global_max_lookback}) -> {needed}")
+            return needed
+        else:
+            # 计算基于时间覆盖比例的等效 K 线数
+            min_tf_minutes = self._get_timeframe_in_minutes(min_tf)
+            target_tf_minutes = self._get_timeframe_in_minutes(target_tf)
+
+            if min_tf_minutes is None or target_tf_minutes is None or min_tf_minutes == 0:
+                logger.warning(f"无法计算 {target_tf} 的时间比例 (min={min_tf_minutes}, target={target_tf_minutes})，将仅使用指标回看期 {global_max_lookback}")
+                return global_max_lookback # 出错时，至少保证指标计算
+
+            # conversion_factor = target_tf_minutes / min_tf_minutes
+            # 修正：应该是 target_tf 的一根 bar 包含多少根 min_tf 的 bar
+            if target_tf_minutes < min_tf_minutes:
+                 logger.warning(f"目标时间级别 {target_tf} ({target_tf_minutes}min) 比最小级别 {min_tf} ({min_tf_minutes}min) 更短，逻辑可能不适用。将仅使用指标回看期。")
+                 return global_max_lookback
+
+            conversion_factor = target_tf_minutes / min_tf_minutes
+            if conversion_factor < 1: # 防止因子小于1导致所需bar数增加很多
+                conversion_factor = 1 # 至少是1:1
+
+            # 向上取整，确保覆盖足够时长
+            duration_equivalent_bars = math.ceil(base_needed_bars / conversion_factor)
+            # logger.debug(f"计算 K 线数 for {target_tf}: min_tf={min_tf}({min_tf_minutes}m), target_tf={target_tf}({target_tf_minutes}m), factor={conversion_factor:.2f}, duration_equivalent={duration_equivalent_bars}")
+
+            # 最终需要的 K 线数是“时间覆盖等效数”和“指标计算必须数”中的较大者
+            needed = max(duration_equivalent_bars, global_max_lookback)
+            # logger.debug(f"计算 K 线数 for {target_tf}: max({duration_equivalent_bars}, {global_max_lookback}) -> {needed}")
+            return needed
+
     async def _get_ohlcv_data(self, stock_code: str, time_level: Union[TimeLevel, str], needed_bars: int) -> Optional[pd.DataFrame]:
         """获取足够用于计算的历史数据"""
-        limit = needed_bars  # 增加一些 buffer
-        # logger.debug(f"为计算指标 {stock_code} {time_level}，尝试获取 {limit} 条历史数据")
+        limit = needed_bars # 直接使用计算好的 needed_bars 作为 limit
+        # logger.debug(f"为计算指标 {stock_code} {time_level}，尝试获取 {limit} 条历史数据 (动态计算值)")
         df = await self.indicator_dao.get_history_ohlcv_df(stock_code, time_level, limit=limit)
         if df is None or df.empty:
-            logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level}")
+            logger.warning(f"无法获取足够的历史数据来计算指标: {stock_code} {time_level} (请求 {limit} 条)")
             return None
         # --- 添加代码：将 stock_code 和 time_level 列转换为 category 类型 (如果存在) ---
         if 'stock_code' in df.columns:
@@ -110,7 +183,7 @@ class IndicatorService:
         # --- 时区处理结束 ---
         return df
 
-    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, needed_bars: int = None) -> Optional[pd.DataFrame]:
+    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: int = None) -> Optional[pd.DataFrame]:
         """
         根据策略 JSON 配置文件准备包含基础数据和所有计算指标的 DataFrame。
         Args:
@@ -134,9 +207,11 @@ class IndicatorService:
         except Exception as e:
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
             return None
-        # 2. 识别需求：时间级别和最大回看期
+        # 2. 识别需求：时间级别和全局指标最大回看期
         all_time_levels = set()
-        max_lookback = 0
+        global_max_lookback = 0 # 重命名，表示全局指标所需的最大回看期
+        min_time_level = None # 用于存储找到的最小时间级别
+        min_tf_minutes = float('inf') # 用于比较找到最小时间级别
         try:
             bs_params = params['base_scoring']  # 基础评分参数
             vc_params = params['volume_confirmation']  # 成交量确认参数
@@ -145,6 +220,8 @@ class IndicatorService:
             ta_params = params['trend_analysis']  # 趋势分析参数
             ia_params = params['indicator_analysis_params']  # 指标分析参数
             tr_params = params.get('trend_reversal_params', {})  # 趋势反转参数
+            t0_params = params.get('t_plus_0_signals', {})
+            turnover_filter = tr_params.get('turnover_filter', {})
             # 将所有需要的时间级别添加到集合中
             all_time_levels.update(bs_params['timeframes'])
             if vc_params['enabled']:
@@ -170,6 +247,20 @@ class IndicatorService:
                 turnover_tf = turnover_filter.get('timeframe', analysis_tf)
                 all_time_levels.add(turnover_tf)
                 logger.info(f"[{stock_code}] 为换手率过滤添加时间级别: {turnover_tf}")
+            # --- 找到实际定义的最小时间级别 ---
+            if not all_time_levels:
+                 logger.error(f"[{stock_code}] 未能从参数文件中确定任何需要的时间级别。")
+                 return None
+            for tf in all_time_levels:
+                minutes = self._get_timeframe_in_minutes(tf)
+                if minutes is not None and minutes < min_tf_minutes:
+                    min_tf_minutes = minutes
+                    min_time_level = tf
+            if min_time_level is None:
+                logger.error(f"[{stock_code}] 无法确定有效的最小时间级别，请检查参数文件中的时间级别定义: {all_time_levels}")
+                return None
+            logger.info(f"[{stock_code}] 识别出的最小时间级别为: {min_time_level} ({min_tf_minutes} 分钟)")
+
             # 计算最大回看期，考虑所有指标的参数，确保数据足够
             lookbacks = [
                 bs_params.get('rsi_period', 0),  # RSI 周期
@@ -197,11 +288,19 @@ class IndicatorService:
         except KeyError as e:
             logger.error(f"[{stock_code}] 参数文件 {params_file} 缺少键: {e}", exc_info=True)
             return None
-        # 3. 并行获取基础 OHLCV 数据（开、高、低、收、成交量、换手率）
-        ohlcv_tasks = {
-            tf: self._get_ohlcv_data(stock_code, tf, max_lookback)
-            for tf in all_time_levels
-        }
+        # 3. 并行获取基础 OHLCV 数据（使用动态计算的 needed_bars）
+        ohlcv_tasks = {}
+        for tf in all_time_levels:
+            # 为当前时间级别计算所需的 K 线数量
+            needed_bars_for_tf = self._calculate_needed_bars_for_tf(
+                target_tf=tf,
+                min_tf=min_time_level,
+                base_needed_bars=base_needed_bars, # 使用传入的基础 K 线数
+                global_max_lookback=global_max_lookback
+            )
+            logger.info(f"[{stock_code}] 时间级别 {tf}: 基础({min_time_level})需{base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条.")
+            ohlcv_tasks[tf] = self._get_ohlcv_data(stock_code, tf, needed_bars_for_tf) # 使用计算出的数量
+
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         ohlcv_dfs = dict(zip(all_time_levels, ohlcv_results))
         # 输出每个时间级别获取到的数据量
@@ -372,16 +471,18 @@ class IndicatorService:
             # 处理重复列名，保留第一个出现的列
             combined_df = combined_df.loc[:, ~combined_df.columns.duplicated(keep='first')]
             logger.info(f"[{stock_code}] 成功合并所有数据帧，形状: {combined_df.shape}")
-            # 对合并后的数据进行填充，确保数据完整性
+            # --- 填充逻辑 ---
             combined_df.ffill(inplace=True)
-            combined_df.bfill(inplace=True)
-            # =========================
-            self._log_dataframe_missing(combined_df, stock_code)
-            # =========================
+            combined_df.bfill(inplace=True) # bfill 用于填充序列最开始的 NaN 值
+            # --- 记录填充后的缺失状态 (重要) ---
             logger.info(f"[{stock_code}] 合并后数据填充完成，最终形状: {combined_df.shape}")
-            # 彻底消除None，强制所有列为float
+            self._log_dataframe_missing(combined_df, stock_code) # 记录填充后的状态
+            # --- 强制类型转换 ---
+            all_dfs_were_empty = all(df is None or df.empty for df in all_dfs) # 检查是否所有输入都为空
             for col in combined_df.columns:
                 combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
+                if combined_df[col].isnull().all() and not all_dfs_were_empty:
+                     logger.warning(f"[{stock_code}] 列 '{col}' 在填充和数值转换后全部为 NaN。")
             return combined_df
         except Exception as e:
             logger.error(f"[{stock_code}] 合并数据帧时出错: {e}", exc_info=True)
