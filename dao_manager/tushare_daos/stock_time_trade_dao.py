@@ -388,11 +388,11 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"offset已达{max_offset}，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
                 # 获取数据
-                df = self.ts_pro.stk_mins(
-                    ts_code=stock_codes_str, freq=time_level + "min", start_date="2022-01-01 00:00:00",
-                    end_date="", limit=limit, offset=offset,
-                    fields=["ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"]
-                )
+                df = self.ts_pro.stk_mins(**{
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "2022-01-01 00:00:00", "end_date": "", "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
+                ])
                 if df.empty:
                     logger.info(f"数据为空，停止拉取。ts_code={stock_codes_str}, freq={time_level}min, offset={offset}")
                     break
@@ -1049,7 +1049,7 @@ class StockTimeTradeDAO(BaseDAO):
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockDailyBasic,
                     data_list=data_dicts,
-                    unique_fields=['stock', 'trade_date']
+                    unique_fields=['stock', 'trade_time']
                 )
                 logger.info(f"保存股票 {stock_codes_str} 的日线基本数据完成。结果: {result}")
             else:
