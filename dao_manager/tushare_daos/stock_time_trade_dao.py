@@ -17,7 +17,7 @@ from utils.cash_key import StockCashKey
 from utils.data_format_process import StockInfoFormatProcess, StockTimeTradeFormatProcess
 
 logger = logging.getLogger("dao")
-time_levels = ["1", "5", "15", "30", "60"]
+time_levels = ["5", "15", "30", "60"] # "1", 
 
 class StockTimeTradeDAO(BaseDAO):
     def __init__(self):
