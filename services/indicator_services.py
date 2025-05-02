@@ -10,6 +10,7 @@ import logging
 from dao_manager.tushare_daos.indicator_dao import IndicatorDAO
 import numpy as np
 import pandas as pd
+import math
 from django.utils import timezone
 from typing import Any, List, Optional, Union
 from django.db import models # 确保导入 models
