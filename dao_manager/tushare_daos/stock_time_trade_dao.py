@@ -25,7 +25,7 @@ class StockTimeTradeDAO(BaseDAO):
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
         self.api = StockIndicatorsAPI()
         self.stock_basic_dao = StockBasicInfoDao()
-        self.cache_limit = 333 # 定义缓存数量上限
+        self.cache_limit = 500 # 定义缓存数量上限
         self.cache_manager = CacheManager()
         self.cache_key = StockCashKey()
         self.data_format_process_trade = StockTimeTradeFormatProcess()
@@ -379,7 +379,7 @@ class StockTimeTradeDAO(BaseDAO):
             limit = 8000  # tushare pro接口最大limit一般为8000
             while True:
                 df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "",
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "2022-01-01 00:00:00", "end_date": "",
                     "limit": limit, "offset": offset
                 }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 all_dfs.append(df)
