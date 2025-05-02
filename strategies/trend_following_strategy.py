@@ -1409,14 +1409,14 @@ class TrendFollowingStrategy(BaseStrategy):
         # # ======================================
 
         X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
-            data,
-            required_cols,
+            data=data,
+            required_columns=required_cols,
             target_column='final_signal',
             window_size=self.window_size,
             scaler_type='minmax',
             train_split=0.7,
             val_split=0.15,
-            fill_na_method='ffill',
+            feature_selection=required_cols,
             augment_data=False
         )
         # 验证内容输出
