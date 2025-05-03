@@ -762,7 +762,8 @@ class TrendFollowingStrategy(BaseStrategy):
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
         """
         # logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
-        final_signal = self._calculate_rule_based_signal(data=data, stock_code=stock_code)
+        # 调用 _calculate_rule_based_signal 方法，获取 final_signal 和中间结果
+        final_signal, intermediate_results = self._calculate_rule_based_signal(data=data, stock_code=stock_code)
         self.load_lstm_model(data)  # 加载模型
         # LSTM模型预测
         lstm_signal = pd.Series(50.0, index=data.index)
@@ -802,16 +803,27 @@ class TrendFollowingStrategy(BaseStrategy):
         combined_signal = 0.7 * final_signal + 0.3 * lstm_signal
         combined_signal = combined_signal.clip(0, 100).round(2)
         # --- 存储中间数据 ---
-        self.intermediate_data = pd.concat([
-            base_scores_df,
-            trend_analysis_df,
-            divergence_signals.add_prefix('div_'),
-            pd.DataFrame({
+        try:
+            base_scores_df = intermediate_results.get('base_scores_df', pd.DataFrame(index=data.index))
+            trend_analysis_df = intermediate_results.get('trend_analysis_df', pd.DataFrame(index=data.index))
+            divergence_signals = intermediate_results.get('divergence_signals', pd.DataFrame(index=data.index))
+            self.intermediate_data = pd.concat([
+                base_scores_df,
+                trend_analysis_df,
+                divergence_signals.add_prefix('div_'),
+                pd.DataFrame({
+                    'final_signal': final_signal,
+                    'lstm_signal': lstm_signal,
+                    'combined_signal': combined_signal
+                }, index=data.index)
+            ], axis=1)
+        except Exception as e:
+            logger.warning(f"存储中间数据时出错: {e}，将仅存储最终信号数据。")
+            self.intermediate_data = pd.DataFrame({
                 'final_signal': final_signal,
                 'lstm_signal': lstm_signal,
                 'combined_signal': combined_signal
             }, index=data.index)
-        ], axis=1)
         logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新组合信号: {combined_signal.iloc[-1] if not combined_signal.empty else 'N/A'}")
         self.analyze_signals(stock_code)
         return combined_signal
@@ -1373,26 +1385,38 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.warning(f"[{stock_code}] 数据不足以训练LSTM模型。")
             return None
 
-
-    def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
+    def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str) -> Tuple[pd.Series, Dict]:
+        """
+        计算基于规则的信号，并返回中间结果。
+        Args:
+            data (pd.DataFrame): 输入数据。
+            stock_code (str): 股票代码。
+        Returns:
+            Tuple[pd.Series, Dict]: 最终信号和中间结果字典。
+        """
         if data is None or data.empty:
             logger.warning("输入数据为空，无法生成信号。")
-            return pd.Series(dtype=float)
+            return pd.Series(dtype=float), {}
+
         # --- 检查必需列 ---
         required_cols = self.get_required_columns()
         missing_cols = [col for col in required_cols if col not in data.columns]
         if missing_cols:
             logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
-            return pd.Series(50.0, index=data.index)
+            return pd.Series(50.0, index=data.index), {}
+
         # 检查数据完整性（是否有过多 NaN）
         nan_check_cols = [f'close_{self.focus_timeframe}', f'ADX_{self.params["base_scoring"]["dmi_period"]}_{self.focus_timeframe}']
         if data[nan_check_cols].isnull().all().any():
             logger.error(f"[{self.strategy_name}] 关键输入数据 ({nan_check_cols}) 全为 NaN。策略无法运行。")
-            return pd.Series(50.0, index=data.index)
+            return pd.Series(50.0, index=data.index), {}
+
         # --- 动态调整参数 ---
         self._adjust_volatility_parameters(data)
+
         # --- 计算趋势导向的基础评分 ---
         base_scores_df = self._calculate_trend_focused_score(data)
+
         # --- 应用量能调整 ---
         vc_params = self.params.get('volume_confirmation', {})
         vc_params_adjusted = vc_params.copy()
@@ -1406,8 +1430,10 @@ class TrendFollowingStrategy(BaseStrategy):
         )
         base_scores_df['base_score_volume_adjusted'] = base_score_adjusted
         base_scores_df = pd.concat([base_scores_df, volume_analysis], axis=1)
+
         # --- 执行趋势分析 ---
         trend_analysis_df = self._perform_trend_analysis(data, base_scores_df['base_score_volume_adjusted'])
+
         # --- 检测背离信号 ---
         divergence_signals = pd.DataFrame(index=data.index)
         if dd_params.get('enabled', True):
@@ -1416,6 +1442,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 # logger.info(f"背离检测完成，发现信号: {divergence_signals.iloc[-1].to_dict() if not divergence_signals.empty else '无'}")
             except Exception as e:
                 logger.error(f"执行背离检测时出错: {e}")
+
         # --- 组合最终信号 ---
         final_signal = pd.Series(50.0, index=data.index)
         base_score_norm = (base_scores_df['base_score_volume_adjusted'].fillna(50.0) - 50) / 50
@@ -1463,7 +1490,14 @@ class TrendFollowingStrategy(BaseStrategy):
         logger.debug(f"成交量突增调整: {volume_spike_adjustment.iloc[-1] if not volume_spike_adjustment.empty else 'N/A'}")
         final_signal = self._apply_trend_confirmation(final_signal)
         rule_signal = final_signal.clip(0, 100).round(2)
-        return rule_signal
+        
+        # 返回最终信号和中间结果
+        intermediate_results = {
+            'base_scores_df': base_scores_df,
+            'trend_analysis_df': trend_analysis_df,
+            'divergence_signals': divergence_signals
+        }
+        return rule_signal, intermediate_results
 
 
 
