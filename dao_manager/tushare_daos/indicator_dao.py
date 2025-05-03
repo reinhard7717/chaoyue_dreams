@@ -540,6 +540,11 @@ class IndicatorDAO(BaseDAO):
             # 7. 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
 
+            # --- 记录应用重命名和排序后的最终列名 ---
+            logger.debug(f"转换并重命名后的 DataFrame 列名: {df.columns.tolist()} for {stock_code} {time_level_val}")
+            # ----------------------------------------------------
+
+
             # 8. 校验必要列是否存在
             required_cols = ['open', 'high', 'low', 'close', 'volume'] # 注意这里用的是小写标准列名
             if not all(col in df.columns for col in required_cols):

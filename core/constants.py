@@ -19,13 +19,13 @@ class TimeLevel(Enum):
 
 # finta 需要的列名
 FINTA_OHLCV_MAP = {
-    'open_price': 'open',
-    'high_price': 'high',
-    'low_price': 'low',
-    'close_price': 'close',
-    'volume': 'volume',
-    'turnover': 'turnover', # 保留成交额用于计算
-    'trade_time': 'trade_time' # 用于设置索引
+    'open': 'open', # 假设原始就是 open，映射为 open
+    'high': 'high',
+    'low': 'low',
+    'close': 'close',
+    'vol': 'volume',       # <-- 确保这一条存在！将原始的 'vol' 映射为标准的 'volume'
+    'amount': 'amount',    # 假设原始是 amount
+    'trade_time': 'trade_time', # 时间列可能也需要标准化，但通常单独处理
 }
 
 TIME_TEADE_TIME_LEVELS = ['5','15','30','60','Day','Day_qfq','Day_hfq','Week','Week_qfq','Week_hfq','Month','Month_qfq','Month_hfq','Year','Year_qfq','Year_hfq']

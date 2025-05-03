@@ -162,8 +162,24 @@ class IndicatorService:
         # DAO 已经处理了列名小写、转换为数值、设为时区感知的 DatetimeIndex 并排序
         # 在这里不需要再次处理
 
-        # 记录获取到的原始数据的时间范围和数量
-        logger.info(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
+        # --- 检查并标准化列名 ---
+        # 您的日志显示 DAO 返回的成交量列名是 'vol'，但后续代码期望 'volume'
+        # 在此处统一列名以确保后续处理的正确性
+        if 'vol' in df.columns and 'volume' not in df.columns:
+            df.rename(columns={'vol': 'volume'}, inplace=True)
+            logger.debug(f"[{stock_code}] 时间级别 {time_level}: 将原始数据列名 'vol' 重命名为 'volume'.")
+        # 可以根据需要添加其他列名的检查和标准化
+        # 例如，如果 amount 列名也可能不一致，可以添加类似逻辑
+        if 'amount_col_from_dao' in df.columns and 'amount' not in df.columns:
+            df.rename(columns={'amount_col_from_dao': 'amount'}, inplace=True)
+            logger.debug(...)
+        # --------------------------------------
+
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tzinfo is not None:
+             logger.info(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
+        else:
+             logger.warning(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，但索引不是时区感知的 DatetimeIndex。")
+             # 如果索引格式不正确，后续 resample 会出错，需要检查 DAO 确保其返回正确格式的索引。
 
         return df
 
