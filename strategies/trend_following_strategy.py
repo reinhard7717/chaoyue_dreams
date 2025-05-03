@@ -7,7 +7,7 @@ import os
 import logging
 import joblib
 import tensorflow as tf
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 # 导入深度学习工具函数
 from .utils.deep_learning_utils import prepare_data_for_lstm, build_lstm_model, train_lstm_model
 
