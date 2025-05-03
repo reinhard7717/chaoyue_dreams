@@ -1,5 +1,7 @@
 # apps/strategies/utils/deep_learning_utils.py
 import os
+
+from sklearn.ensemble import RandomForestRegressor
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # 禁用GPU
 import pandas as pd
 import numpy as np
@@ -283,6 +285,24 @@ def build_lstm_model(
     logger.info(f"模型构建完成 ({model_type.upper()})，输入形状: {window_size} x {num_features}")
     return model
 
+def analyze_target_distribution(y_train, y_val, y_test):
+    plt.figure(figsize=(15, 5))
+    for i, (y, name) in enumerate(zip([y_train, y_val, y_test], ['训练集', '验证集', '测试集'])):
+        plt.subplot(1, 3, i+1)
+        sns.histplot(y, bins=30, kde=True, alpha=0.7)  # 使用seaborn绘制直方图和核密度估计
+        plt.title(f'{name} 目标变量分布')
+        plt.xlabel('目标值')
+        plt.ylabel('频次')
+    plt.tight_layout()
+    plt.savefig('target_distribution.png')
+    plt.close()
+    logger.info("目标变量分布图已保存至 target_distribution.png")
+    
+    # 输出描述性统计信息
+    logger.info("训练集目标变量描述：\n%s", pd.Series(y_train).describe())
+    logger.info("验证集目标变量描述：\n%s", pd.Series(y_val).describe())
+    logger.info("测试集目标变量描述：\n%s", pd.Series(y_test).describe())
+
 @log_execution_time
 @handle_exceptions
 def train_lstm_model(
@@ -293,13 +313,13 @@ def train_lstm_model(
 ) -> Dict:
     # 默认训练配置，优化CPU训练效率
     default_config = {
-        'epochs': 20,  # 减少最大epoch数量
-        'batch_size': 128,  # 增加批次大小，减少迭代次数
-        'early_stopping_patience': 5,  # 缩短早停耐心值
+        'epochs': 20,
+        'batch_size': 128,
+        'early_stopping_patience': 5,
         'reduce_lr_patience': 3,
         'reduce_lr_factor': 0.5,
         'monitor_metric': 'val_loss',
-        'verbose': 0  # 减少日志输出
+        'verbose': 0
     }
     config = training_config if training_config is not None else default_config
     logger.info(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}, y_test: {y_test.shape}")
@@ -351,8 +371,8 @@ def train_lstm_model(
         y_pred = model.predict(X_test, verbose=0)
         y_pred_original = y_pred * 100.0
         plt.figure(figsize=(8, 5))
-        sns.histplot(y_test, bins=30, kde=True, alpha=0.7, label='真实值')
-        sns.histplot(y_pred_original, bins=30, kde=True, alpha=0.7, label='预测值')
+        sns.histplot(y_test, bins=30, kde=True, alpha=0.7, label='真实值')  # 使用seaborn绘制
+        sns.histplot(y_pred_original, bins=30, kde=True, alpha=0.7, label='预测值')  # 使用seaborn绘制
         plt.title('测试集真实值与预测值分布对比')
         plt.xlabel('目标值')
         plt.ylabel('频次')
@@ -365,27 +385,6 @@ def train_lstm_model(
     
     logger.info("模型训练完成。")
     return history.history
-
-def analyze_target_distribution(y_train, y_val, y_test):
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    plt.figure(figsize=(15, 5))
-    for i, (y, name) in enumerate(zip([y_train, y_val, y_test], ['训练集', '验证集', '测试集'])):
-        plt.subplot(1, 3, i+1)
-        sns.histplot(y, bins=30, kde=True, alpha=0.7)
-        plt.title(f'{name} 目标变量分布')
-        plt.xlabel('目标值')
-        plt.ylabel('频次')
-    plt.tight_layout()
-    plt.savefig('target_distribution.png')
-    plt.close()
-    logger.info("目标变量分布图已保存至 target_distribution.png")
-    
-    # 输出描述性统计信息
-    logger.info("训练集目标变量描述：\n%s", pd.Series(y_train).describe())
-    logger.info("验证集目标变量描述：\n%s", pd.Series(y_val).describe())
-    logger.info("测试集目标变量描述：\n%s", pd.Series(y_test).describe())
-
 
 
 
