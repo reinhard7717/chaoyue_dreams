@@ -73,6 +73,13 @@ def prepare_data_for_lstm(
     
     # --- 1. 选择特征列 ---
     selected_columns = feature_selection if feature_selection is not None else required_columns
+    if feature_selection is None:
+        from sklearn.feature_selection import VarianceThreshold
+        selector = VarianceThreshold(threshold=0.01)
+        features_reduced = selector.fit_transform(features)
+        selected_columns = [selected_columns[i] for i in selector.get_support(indices=True)]
+        features = features_reduced
+        logger.info(f"特征选择完成，保留 {len(selected_columns)} 个特征。")
     missing_cols = [col for col in selected_columns if col not in data.columns]
     if missing_cols:
         raise ValueError(f"数据缺少必需特征列: {missing_cols}")
@@ -219,14 +226,14 @@ def build_lstm_model(
     # 默认配置 (保持不变)
     default_config = {
         'layers': [
-            {'units': 50, 'return_sequences': True, 'dropout': 0.2, 'l2_reg': 0.01},
-            {'units': 50, 'return_sequences': False, 'dropout': 0.2, 'l2_reg': 0.01}
+            {'units': 128, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},  # 增加单元数和 dropout
+            {'units': 64, 'return_sequences': False, 'dropout': 0.3, 'l2_reg': 0.01}
         ],
-        'dense_layers': [{'units': 25, 'dropout': 0.1, 'l2_reg': 0.01}],
+        'dense_layers': [{'units': 32, 'dropout': 0.2, 'l2_reg': 0.01}],
         'optimizer': 'adam',
-        'learning_rate': 0.001,
-        'loss': 'mse', # 使用均方误差作为损失函数
-        'metrics': ['mae'] # 使用平均绝对误差作为评估指标
+        'learning_rate': 0.0005,  # 降低初始学习率
+        'loss': 'mse',
+        'metrics': ['mae']
     }
     config = model_config if model_config is not None else default_config
     
@@ -265,7 +272,9 @@ def build_lstm_model(
     # 输出层
     # 使用 sigmoid 激活函数，输出值在 0 到 1 之间。
     # 这要求目标变量 y 在训练时也被缩放到 0 到 1 范围。
-    model.add(Dense(units=1, activation='sigmoid'))
+    # model.add(Dense(units=1, activation='sigmoid'))
+
+    model.add(Dense(units=1, activation=None))  # 无激活函数，直接输出
     
     # 选择优化器
     optimizer_name = config.get('optimizer', 'adam')

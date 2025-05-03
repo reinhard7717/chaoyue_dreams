@@ -205,7 +205,6 @@ class IndicatorDAO(BaseDAO):
                 logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
                 return None
             data_list.reverse()
-
             #  =================================
             # 1. 获取实际有的数据时间点
             trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
@@ -218,12 +217,17 @@ class IndicatorDAO(BaseDAO):
             trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
             # 3. 生成应有的K线时间点（通用）
             expected_times = get_china_a_stock_kline_times(trade_days, time_level_str)
-            # 4. 检查缺失
+            # 4. 检查缺失比例并决定是否返回数据
             actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
             expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
             missing_times = expected_times_set - actual_times_set
+            missing_ratio = len(missing_times) / len(expected_times_set) if expected_times_set else 0
+            missing_threshold = 0.1  # 缺失比例阈值，10%
             if missing_times:
-                logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失时间: {sorted(list(missing_times))[:5]} ...")
+                logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失比例: {missing_ratio:.2%}，缺失时间: {sorted(list(missing_times))[:5]} ...")
+                if missing_ratio > missing_threshold:
+                    logger.error(f"数据缺失比例 {missing_ratio:.2%} 超过阈值 {missing_threshold}，拒绝返回数据: {stock_code} {time_level_str}")
+                    return None
             else:
                 logger.info(f"原始K线数据时间序列无缺失: {stock_code} {time_level_str}")
             return data_list
@@ -311,6 +315,15 @@ class IndicatorDAO(BaseDAO):
             if df[required_cols].isnull().all(axis=1).sum() == len(df):
                 logger.warning(f"处理后 DataFrame 只包含 NaN 值: {stock_code} {time_level_val}")
                 return None
+            
+            # 12. 检查缺失比例（基于必要列）
+            missing_ratio = df[required_cols].isnull().mean().mean()  # 计算必要列的平均缺失比例
+            missing_threshold = 0.1  # 缺失比例阈值，10%
+            if missing_ratio > missing_threshold:
+                logger.error(f"数据缺失比例 {missing_ratio:.2%} 超过阈值 {missing_threshold}，拒绝返回 DataFrame: {stock_code} {time_level_val}")
+                return None
+            
+            logger.info(f"返回 DataFrame，缺失比例: {missing_ratio:.2%}，数据量: {len(df)} 条: {stock_code} {time_level_val}")
             return df
         except Exception as e:
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)

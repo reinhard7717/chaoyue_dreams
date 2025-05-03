@@ -460,13 +460,23 @@ class IndicatorService:
                         f'BB_MIDDLE_{period}': f'BB_MIDDLE_{period}_{tf}',
                         f'BB_LOWER_{period}': f'BB_LOWER_{period}_{tf}'
                     }, inplace=True)
-        # 5. 合并所有数据到一个 DataFrame - 使用 pd.concat 提高性能，不以5分钟为基准对齐
+        # 在合并数据之前，确定最小时间级别的时间索引作为基准
+        min_tf_df = valid_ohlcv_dfs.get(min_time_level)
+        if min_tf_df is None or min_tf_df.empty:
+            logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 数据为空，无法作为合并基准。")
+            return None
+
+        base_index = min_tf_df.index
+        # 合并所有数据到一个 DataFrame - 使用 pd.concat 提高性能，以最小时间级别为基准对齐
         all_dfs = []
         for tf in valid_ohlcv_dfs:
             # 添加基础 OHLCV 数据
-            all_dfs.append(valid_ohlcv_dfs[tf][[col for col in valid_ohlcv_dfs[tf].columns if col.endswith(f'_{tf}')]])
+            df_tf = valid_ohlcv_dfs[tf][[col for col in valid_ohlcv_dfs[tf].columns if col.endswith(f'_{tf}')]]
+            df_tf = df_tf.reindex(base_index, method='ffill')  # 对齐到基准索引
+            all_dfs.append(df_tf)
             # 添加计算的指标数据
             for indicator_df in calculated_indicators.get(tf, []):
+                indicator_df = indicator_df.reindex(base_index, method='ffill')  # 对齐到基准索引
                 all_dfs.append(indicator_df)
         if not all_dfs:
             logger.error(f"[{stock_code}] 没有可用的数据帧进行合并。")
@@ -556,7 +566,6 @@ class IndicatorService:
         all_nan_rows = df.isna().all(axis=1).sum()
         if all_nan_rows > 0:
             logger.warning(f"[{stock_code}] 注意：合并填充后 DataFrame 仍存在 {all_nan_rows} 行全部为 NaN 的数据！可能由数据源开头缺失导致。")
-
 
 
     def calculate_atr(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
