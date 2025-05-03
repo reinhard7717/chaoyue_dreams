@@ -188,7 +188,7 @@ class IndexBasicDAO(BaseDAO):
             index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
             if index_info:
                 index_data_dict = self.data_format_process.set_index_info_data(index_info)
-                await self.index_cache_set.index_info(index_code, return_result)
+                await self.index_cache_set.index_info(index_code, index_info)
                 return index_data_dict
         return None
 

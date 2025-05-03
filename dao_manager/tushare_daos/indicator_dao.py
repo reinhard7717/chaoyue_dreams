@@ -210,22 +210,34 @@ class IndicatorDAO(BaseDAO):
             trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
             trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
             
-            # 2. 获取应有的交易日
+            # 2. 记录实际数据时间范围
+            if trade_times:
+                min_time = trade_times[0]
+                max_time = trade_times[-1]
+                logger.info(f"实际数据时间范围: {min_time} 至 {max_time}，数据量: {len(trade_times)} 条，股票: {stock_code} {time_level_str}")
+            else:
+                logger.warning(f"实际数据时间范围为空，股票: {stock_code} {time_level_str}")
+                return data_list
+
+            # 3. 获取应有的交易日，基于实际数据时间范围
             index_basic_dao = IndexBasicDAO()
-            start_date = trade_times[0].strftime('%Y%m%d') if trade_times else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
-            end_date = trade_times[-1].strftime('%Y%m%d') if trade_times else timezone.now().strftime('%Y%m%d')
+            start_date = min_time.strftime('%Y%m%d') if trade_times else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
+            end_date = max_time.strftime('%Y%m%d') if trade_times else timezone.now().strftime('%Y%m%d')
             trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
             trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
             
-            # 3. 生成应有的K线时间点（基于实际交易日）
+            # 4. 生成应有的K线时间点（基于实际交易日和实际数据时间范围）
             expected_times = get_china_a_stock_kline_times(trade_days, time_level_str)
+            if trade_times:
+                expected_times = [t for t in expected_times if min_time <= t <= max_time]
+                logger.info(f"预期时间点范围调整为: {min_time} 至 {max_time}，调整后预期时间点数量: {len(expected_times)}，股票: {stock_code} {time_level_str}")
             
-            # 4. 检查缺失比例并决定是否返回数据
+            # 5. 检查缺失比例并决定是否返回数据，统一时间点精度（去掉秒和微秒）
             actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
             expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
             missing_times = expected_times_set - actual_times_set
             missing_ratio = len(missing_times) / len(expected_times_set) if expected_times_set else 0
-            missing_threshold = 0.5 if time_level_str in ['5', '15', '30', '60'] else 0.1  # 分钟级别放宽阈值到50%
+            missing_threshold = 0.95 if time_level_str in ['5', '15', '30', '60'] else 0.1  # 分钟级别放宽阈值到95%
             
             if missing_times:
                 logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失比例: {missing_ratio:.2%}，缺失时间: {sorted(list(missing_times))[:5]} ...")
