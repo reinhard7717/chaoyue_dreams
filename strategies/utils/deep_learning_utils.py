@@ -1,6 +1,8 @@
 # apps/strategies/utils/deep_learning_utils.py
 import pandas as pd
 import numpy as np
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # 禁用GPU,放置在代码的顶部（在导入TensorFlow之前）
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
@@ -10,15 +12,16 @@ from tensorflow.keras.optimizers import Adam, RMSprop, SGD
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow.keras.regularizers import l2
 from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.feature_selection import VarianceThreshold
 from typing import Any, Tuple, List, Dict, Optional, Union, Callable
 import logging
 import time
-import os
+
 from functools import wraps
 import matplotlib.pyplot as plt
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # 禁用GPU
+
 logger = logging.getLogger("strategy_deep_learning_utils")
 
 # 装饰器：记录执行时间
@@ -51,27 +54,32 @@ def prepare_data_for_lstm(
     data: pd.DataFrame, required_columns: List[str], target_column: str = 'final_signal', window_size: int = 60,
     scaler_type: str = 'minmax', train_split: float = 0.7, val_split: float = 0.15,
     feature_selection: Optional[List[str]] = None, augment_data: bool = False,
-    use_pca: bool = False, n_components: int = 0.95
+    use_pca: bool = True, n_components: Union[int, float] = 0.95,
+    use_feature_importance: bool = False, importance_threshold: float = 0.01
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
-    # 选择特征列
     selected_columns = feature_selection if feature_selection is not None else required_columns
-    
-    # 特征选择：移除低方差特征
     features = data.loc[:, selected_columns].values
-    if feature_selection is None:
-        selector = VarianceThreshold(threshold=0.01)
-        features_reduced = selector.fit_transform(features)
-        selected_columns = [selected_columns[i] for i in selector.get_support(indices=True)]
-        features = features_reduced
-        logger.info(f"特征选择完成，保留 {len(selected_columns)} 个特征。")
+    targets = data.loc[:, target_column].values
 
-    # 使用PCA降维（可选）
+    # 基于特征重要性筛选
+    if use_feature_importance:
+        model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+        model.fit(features, targets)
+        importances = model.feature_importances_
+        important_features = [selected_columns[i] for i in range(len(selected_columns)) if importances[i] >= importance_threshold]
+        if len(important_features) == 0:
+            logger.warning("特征重要性筛选后无特征保留，使用原始特征。")
+        else:
+            selected_columns = important_features
+            features = data.loc[:, selected_columns].values
+            logger.info(f"特征重要性筛选完成，保留 {len(selected_columns)} 个特征。")
+
+    # PCA降维
     if use_pca:
         pca = PCA(n_components=n_components if isinstance(n_components, int) else n_components)
         features_pca = pca.fit_transform(features)
         logger.info(f"PCA降维完成，保留 {pca.n_components_} 个主成分，解释方差比: {sum(pca.explained_variance_ratio_):.4f}")
         features = features_pca
-        selected_columns = [f'PC{i+1}' for i in range(pca.n_components_)]
 
     # --- 2. 检查并处理剩余的NaN (防御性编程) ---
     # 假设上游已填充，但仍检查一下。如果还有NaN，说明上游填充不完全。
@@ -304,13 +312,13 @@ def train_lstm_model(
     """
     # 默认训练配置
     default_config = {
-        'epochs': 30,  # 减少epoch数量，结合早停机制避免过长训练
-        'batch_size': 64,  # 增加批次大小，减少迭代次数
-        'early_stopping_patience': 8,  # 缩短早停耐心值，尽早停止无效训练
-        'reduce_lr_patience': 3,  # 缩短学习率衰减耐心值
+        'epochs': 30,
+        'batch_size': 128,  # 增加批次大小
+        'early_stopping_patience': 8,
+        'reduce_lr_patience': 3,
         'reduce_lr_factor': 0.5,
         'monitor_metric': 'val_loss',
-        'verbose': 1
+        'verbose': 0  # 减少日志输出
     }
     config = training_config if training_config is not None else default_config
     logger.info(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}, y_test: {y_test.shape}")
