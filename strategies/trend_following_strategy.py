@@ -1326,11 +1326,13 @@ class TrendFollowingStrategy(BaseStrategy):
         if 'final_signal' not in data.columns:
             logger.info(f"[{stock_code}] 目标列 'final_signal' 不存在，将计算纯规则信号作为目标。")
             data = data.copy()  # 避免修改原始传入的 DataFrame
-            data['final_signal'] = self._calculate_rule_based_signal(data, stock_code)
+            rule_signal, _ = self._calculate_rule_based_signal(data, stock_code)
+            data['final_signal'] = rule_signal
         elif self.lstm_model is not None:  # 如果目标列已存在，但可能被污染了，重新计算
             logger.warning(f"[{stock_code}] 目标列 'final_signal' 已存在，为确保是纯规则信号，将重新计算。")
             data = data.copy()
-            data['final_signal'] = self._calculate_rule_based_signal(data, stock_code)
+            rule_signal, _ = self._calculate_rule_based_signal(data, stock_code)
+            data['final_signal'] = rule_signal
 
         X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
             data=data,
