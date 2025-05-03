@@ -47,7 +47,7 @@ def handle_exceptions(func):
 def prepare_data_for_lstm(
         data: pd.DataFrame, required_columns: List[str], target_column: str = 'final_signal', window_size: int = 60,
         scaler_type: str = 'minmax', train_split: float = 0.7, val_split: float = 0.15,
-        feature_selection: Optional[List[str]] = None, augment_data: bool = False # 移除了 fill_na_method 参数
+        feature_selection: Optional[List[str]] = None, augment_data: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
     """
     准备LSTM模型的训练数据，修正了Scaler的使用以防止数据泄露。
@@ -105,7 +105,6 @@ def prepare_data_for_lstm(
              logger.error(f"填充后仍有NaN，无法继续: {nan_check_after[nan_check_after > 0].to_dict()}")
              raise ValueError("数据填充后仍存在NaN，无法准备训练数据。")
 
-
     # --- 3. 提取特征和目标 ---
     # 使用 .loc 避免潜在的链式索引警告
     features = data.loc[:, selected_columns].values
@@ -141,7 +140,6 @@ def prepare_data_for_lstm(
         logger.warning(f"数据集过小或分割比例不当，导致某个子集为空。样本总数: {n_samples}, 训练集: {n_train}, 验证集: {n_val}, 测试集: {n_test}")
         # 可以选择抛出错误或返回空值，这里先继续，但后续步骤可能失败
         if n_train == 0: raise ValueError("训练集样本数为0，无法继续。")
-
 
     # 按时间顺序分割
     X_train, y_train = X[:n_train], y[:n_train]
@@ -200,6 +198,8 @@ def prepare_data_for_lstm(
     print(f"数据准备完成 (已缩放)，训练集: {X_train_scaled.shape[0]} 条，验证集: {X_val_scaled.shape[0]} 条，测试集: {X_test_scaled.shape[0]} 条")
     print(f"X_train_scaled样本 (前1个窗口): {X_train_scaled[:1]}, y_train样本 (前5个): {y_train[:5]}") # y 保持原始值，在训练函数中缩放
 
+    analyze_target_distribution(y_train, y_val, y_test)
+
     # 返回缩放后的特征数据和原始的目标数据，以及拟合好的 scaler
     return X_train_scaled, y_train, X_val_scaled, y_val, X_test_scaled, y_test, scaler
 
@@ -219,7 +219,8 @@ def build_lstm_model(
     default_config = {
         'layers': [
             {'units': 128, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},  # 增加单元数和dropout
-            {'units': 64, 'return_sequences': False, 'dropout': 0.3, 'l2_reg': 0.01}
+            {'units': 64, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},  # 增加一层LSTM
+            {'units': 32, 'return_sequences': False, 'dropout': 0.3, 'l2_reg': 0.01}
         ],
         'dense_layers': [{'units': 32, 'dropout': 0.2, 'l2_reg': 0.01}],
         'optimizer': 'adam',
@@ -436,3 +437,29 @@ def train_lstm_model(
     # 因为使用了 restore_best_weights=True，model 对象现在持有最佳权重
     # history.history 包含了所有轮次的记录
     return history.history
+
+def analyze_target_distribution(y_train, y_val, y_test):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(12,4))
+    for i, (y, name) in enumerate(zip([y_train, y_val, y_test], ['训练集', '验证集', '测试集'])):
+        plt.subplot(1,3,i+1)
+        plt.hist(y, bins=20, alpha=0.7)
+        plt.title(f'{name}目标分布')
+    plt.tight_layout()
+    plt.show()
+    print("训练集目标变量描述：", pd.Series(y_train).describe())
+    print("验证集目标变量描述：", pd.Series(y_val).describe())
+    print("测试集目标变量描述：", pd.Series(y_test).describe())
+
+
+
+
+
+
+
+
+
+
+
+
+
