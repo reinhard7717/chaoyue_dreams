@@ -214,19 +214,11 @@ def build_lstm_model(
 ) -> Sequential:
     """
     构建深度学习模型，支持LSTM、Bidirectional LSTM和GRU，允许自定义配置。
-    Args:
-        window_size (int): 时间序列窗口大小 (时间步)。
-        num_features (int): 输入特征数量。
-        model_config (Dict[str, Any]): 模型配置字典。
-        model_type (str): 模型类型 ('lstm', 'bilstm', 'gru')。
-        summary (bool): 是否打印模型摘要。
-    Returns:
-        Sequential: 编译好的Keras模型。
     """
-    # 默认配置 (保持不变)
+    # 默认配置 (增加模型复杂度)
     default_config = {
         'layers': [
-            {'units': 128, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},  # 增加单元数和 dropout
+            {'units': 128, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},  # 增加单元数和dropout
             {'units': 64, 'return_sequences': False, 'dropout': 0.3, 'l2_reg': 0.01}
         ],
         'dense_layers': [{'units': 32, 'dropout': 0.2, 'l2_reg': 0.01}],
@@ -303,8 +295,10 @@ def build_lstm_model(
 @log_execution_time
 @handle_exceptions
 def train_lstm_model(
-    X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, model: Sequential,
-    training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.keras", plot_training_history: bool = False
+    X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, 
+    X_test: np.ndarray, y_test: np.ndarray, model: Sequential,  # 添加 X_test 和 y_test 参数
+    training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.keras", 
+    plot_training_history: bool = False
 ) -> Dict:
     """
     训练深度学习模型，支持早停、学习率调度和模型检查点保存。
@@ -314,6 +308,8 @@ def train_lstm_model(
         y_train (np.ndarray): 训练集目标 (原始值, e.g., 0-100)。
         X_val (np.ndarray): 验证集特征 (已缩放)。
         y_val (np.ndarray): 验证集目标 (原始值, e.g., 0-100)。
+        X_test (np.ndarray): 测试集特征 (已缩放)。
+        y_test (np.ndarray): 测试集目标 (原始值, e.g., 0-100)。
         model (Sequential): 未训练或已编译的Keras模型。
         training_config (Dict[str, Any]): 训练配置字典。
         checkpoint_path (str): 模型检查点保存路径。
@@ -321,22 +317,20 @@ def train_lstm_model(
     Returns:
         Dict: 训练历史记录字典。
     """
-        # 默认训练配置 (保持不变)
+    # 默认训练配置
     default_config = {
-        'epochs': 50,
-        'batch_size': 32,
-        'early_stopping_patience': 10,
-        'reduce_lr_patience': 5,
+        'epochs': 30,  # 减少epoch数量，结合早停机制避免过长训练
+        'batch_size': 64,  # 增加批次大小，减少迭代次数
+        'early_stopping_patience': 8,  # 缩短早停耐心值，尽早停止无效训练
+        'reduce_lr_patience': 3,  # 缩短学习率衰减耐心值
         'reduce_lr_factor': 0.5,
-        'monitor_metric': 'val_loss', # 监控验证集损失
+        'monitor_metric': 'val_loss',
         'verbose': 1
     }
     config = training_config if training_config is not None else default_config
-    print(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}")
+    print(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}, y_test: {y_test.shape}")
     
     # --- 将目标变量 y 缩放到 0-1 范围 ---
-    # 假设原始 y 值在 0-100 范围
-    # 注意：如果 y 的范围不是 0-100，需要调整这里的缩放逻辑
     y_train_scaled = y_train / 100.0
     y_val_scaled = y_val / 100.0
     # 检查缩放后的值是否在合理范围 (可选)
@@ -358,25 +352,25 @@ def train_lstm_model(
         callbacks.append(EarlyStopping(
             monitor=config['monitor_metric'],
             patience=config['early_stopping_patience'],
-            restore_best_weights=True, # 关键：训练结束后，模型权重会恢复到最佳轮次的状态
+            restore_best_weights=True,  # 关键：训练结束后，模型权重会恢复到最佳轮次的状态
             verbose=config['verbose']
         ))
     # 学习率衰减：当监控指标停止改善时，降低学习率
     if config.get('reduce_lr_patience', 0) > 0:
         callbacks.append(ReduceLROnPlateau(
             monitor=config['monitor_metric'],
-            factor=config['reduce_lr_factor'], # 学习率乘以的因子
+            factor=config['reduce_lr_factor'],  # 学习率乘以的因子
             patience=config['reduce_lr_patience'],
-            min_lr=1e-6, # 学习率下限
+            min_lr=1e-6,  # 学习率下限
             verbose=config['verbose']
         ))
     # 模型检查点：只保存在验证集上性能最好的模型
     callbacks.append(ModelCheckpoint(
-        filepath=checkpoint_path, # 使用 filepath 参数
+        filepath=checkpoint_path,  # 使用 filepath 参数
         monitor=config['monitor_metric'],
         save_best_only=True,
-        save_weights_only=False, # 可以选择只保存权重或整个模型，False表示保存整个模型
-        mode='min' if 'loss' in config['monitor_metric'].lower() else 'max', # 根据监控指标判断模式
+        save_weights_only=False,  # 可以选择只保存权重或整个模型，False表示保存整个模型
+        mode='min' if 'loss' in config['monitor_metric'].lower() else 'max',  # 根据监控指标判断模式
         verbose=config['verbose']
     ))
     
@@ -390,12 +384,12 @@ def train_lstm_model(
         callbacks=callbacks,
         verbose=config['verbose']
     )
-    print(f"训练历史 (部分): { {k: v[:3] for k, v in history.history.items()} }...") # 打印部分历史记录
+    print(f"训练历史 (部分): { {k: v[:3] for k, v in history.history.items()} }...")  # 打印部分历史记录
 
     # --- 绘制训练历史曲线 ---
     if plot_training_history:
         try:
-            plt.figure(figsize=(12, 5)) # 调整图形大小
+            plt.figure(figsize=(12, 5))  # 调整图形大小
 
             # 绘制损失曲线
             plt.subplot(1, 2, 1)
@@ -408,7 +402,7 @@ def train_lstm_model(
             plt.grid(True)
 
             # 绘制第一个指标曲线 (通常是 mae)
-            metric_key = config.get('metrics', ['mae'])[0] # 获取第一个指标的名称
+            metric_key = config.get('metrics', ['mae'])[0]  # 获取第一个指标的名称
             val_metric_key = f"val_{metric_key}"
             if metric_key in history.history and val_metric_key in history.history:
                 plt.subplot(1, 2, 2)
@@ -420,16 +414,24 @@ def train_lstm_model(
                 plt.legend()
                 plt.grid(True)
 
-            plt.tight_layout() # 调整子图布局
+            plt.tight_layout()  # 调整子图布局
             plot_filename = 'training_history.png'
-            # 可以考虑将图片保存在 checkpoint 相同的目录下
-            # plot_filepath = os.path.join(checkpoint_dir, plot_filename) if checkpoint_dir else plot_filename
-            plt.savefig(plot_filename) # 直接保存在当前目录
-            plt.close() # 关闭图形，释放内存
+            plt.savefig(plot_filename)  # 直接保存在当前目录
+            plt.close()  # 关闭图形，释放内存
             print(f"训练历史曲线已保存至 {plot_filename}")
         except Exception as plot_err:
             logger.error(f"绘制训练历史图时出错: {plot_err}", exc_info=True)
 
+    # --- 模型训练完成后的评估 ---
+    if X_test.shape[0] > 0:
+        y_test_scaled = y_test / 100.0  # 缩放测试集目标变量
+        test_loss, test_mae = model.evaluate(X_test, y_test_scaled, verbose=0)
+        # 反缩放MAE值以反映原始范围
+        test_mae_original = test_mae * 100.0
+        logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE: {test_mae_original:.4f} (原始范围)")
+    else:
+        logger.warning("测试集为空，无法评估LSTM模型。")
+    
     print("模型训练完成。")
     # 因为使用了 restore_best_weights=True，model 对象现在持有最佳权重
     # history.history 包含了所有轮次的记录

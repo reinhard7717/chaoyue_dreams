@@ -1313,9 +1313,9 @@ class TrendFollowingStrategy(BaseStrategy):
         # --- 确保目标列存在且是纯规则信号 ---
         if 'final_signal' not in data.columns:
             logger.info(f"[{stock_code}] 目标列 'final_signal' 不存在，将计算纯规则信号作为目标。")
-            data = data.copy() # 避免修改原始传入的 DataFrame
+            data = data.copy()  # 避免修改原始传入的 DataFrame
             data['final_signal'] = self._calculate_rule_based_signal(data, stock_code)
-        elif self.lstm_model is not None: # 如果目标列已存在，但可能被污染了，重新计算
+        elif self.lstm_model is not None:  # 如果目标列已存在，但可能被污染了，重新计算
             logger.warning(f"[{stock_code}] 目标列 'final_signal' 已存在，为确保是纯规则信号，将重新计算。")
             data = data.copy()
             data['final_signal'] = self._calculate_rule_based_signal(data, stock_code)
@@ -1353,6 +1353,7 @@ class TrendFollowingStrategy(BaseStrategy):
             history = train_lstm_model(
                 X_train, y_train,
                 X_val, y_val,
+                X_test, y_test,  # 传递 X_test 和 y_test 参数
                 self.lstm_model,
                 training_config=self.training_config,
                 checkpoint_path=self.model_path.replace('.keras', '_checkpoint.keras'),
@@ -1362,14 +1363,16 @@ class TrendFollowingStrategy(BaseStrategy):
             joblib.dump(self.scaler, self.scaler_path)
             logger.info(f"[{stock_code}] LSTM模型和Scaler已保存至: {self.model_path}, {self.scaler_path}")
             if X_test.shape[0] > 0:
-                test_loss, test_mae = self.lstm_model.evaluate(X_test, y_test, verbose=0)
-                logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE: {test_mae:.4f}")
+                test_loss, test_mae = self.lstm_model.evaluate(X_test, y_test / 100.0, verbose=0)
+                test_mae_original = test_mae * 100.0
+                logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE: {test_mae_original:.4f} (原始范围)")
             else:
                 logger.warning("测试集为空，无法评估LSTM模型。")
             return history
         else:
             logger.warning(f"[{stock_code}] 数据不足以训练LSTM模型。")
             return None
+
 
     def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
         if data is None or data.empty:
