@@ -215,7 +215,7 @@ class IndicatorDAO(BaseDAO):
                 for t in trade_times if t is not None
             ])
             
-            # 2. 对分钟级别数据，将时间对齐到最近的5分钟间隔（向下取整）
+            # 2. 对分钟级别数据，将时间对齐到最近的分钟间隔（向下取整）
             if time_level_str in ['5', '15', '30', '60']:
                 freq = int(time_level_str)
                 trade_times_aligned = []
@@ -227,7 +227,9 @@ class IndicatorDAO(BaseDAO):
                 logger.info(f"对齐分钟时间到 {freq} 分钟间隔，原始时间点数量: {len(trade_times)}，对齐后数量: {len(trade_times_aligned)}，股票: {stock_code} {time_level_str}")
                 trade_times = trade_times_aligned
             else:
-                trade_times = [t.replace(second=0, microsecond=0) for t in trade_times]
+                # 对于日线数据，去掉时间部分，仅保留日期
+                trade_times = [t.replace(hour=0, minute=0, second=0, microsecond=0) for t in trade_times]
+                logger.info(f"日线数据时间去掉时间部分，仅保留日期，股票: {stock_code} {time_level_str}")
             
             # 3. 记录实际数据时间范围
             if trade_times:
@@ -251,12 +253,16 @@ class IndicatorDAO(BaseDAO):
                 expected_times = [t for t in expected_times if min_time <= t <= max_time]
                 logger.info(f"预期时间点范围调整为: {min_time} 至 {max_time}，调整后预期时间点数量: {len(expected_times)}，股票: {stock_code} {time_level_str}")
             
-            # 6. 检查缺失比例并决定是否返回数据，统一时间点精度（去掉秒和微秒）
-            actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
-            expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
+            # 6. 检查缺失比例并决定是否返回数据，统一时间点精度（对于日线数据，仅匹配日期部分）
+            if time_level_str in ['day', 'week', 'month']:
+                actual_times_set = set([t.date() for t in trade_times])
+                expected_times_set = set([t.date() for t in expected_times])
+            else:
+                actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
+                expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
             missing_times = expected_times_set - actual_times_set
             missing_ratio = len(missing_times) / len(expected_times_set) if expected_times_set else 0
-            missing_threshold = 0.95 if time_level_str in ['5', '15', '30', '60'] else 0.1  # 分钟级别放宽阈值到95%
+            missing_threshold = 0.95 if time_level_str in ['5', '15', '30', '60'] else 0.5  # 日线级别放宽阈值到50%
             
             if missing_times:
                 logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失比例: {missing_ratio:.2%}，缺失时间: {sorted(list(missing_times))[:5]} ...")
