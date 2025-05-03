@@ -206,11 +206,30 @@ class IndicatorDAO(BaseDAO):
                 return None
             data_list.reverse()
 
-            # 1. 获取实际有的数据时间点
+            # 1. 获取实际有的数据时间点，并明确时区转换
             trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
-            trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
+            # 假设数据库返回的时间是 UTC 时间，明确本地化为 UTC 然后转换为上海时区
+            trade_times = sorted([
+                pd.to_datetime(t, utc=True).tz_convert('Asia/Shanghai') if not pd.to_datetime(t).tzinfo 
+                else pd.to_datetime(t).tz_convert('Asia/Shanghai') 
+                for t in trade_times if t is not None
+            ])
             
-            # 2. 记录实际数据时间范围
+            # 2. 对分钟级别数据，将时间对齐到最近的5分钟间隔（向下取整）
+            if time_level_str in ['5', '15', '30', '60']:
+                freq = int(time_level_str)
+                trade_times_aligned = []
+                for t in trade_times:
+                    minute = t.minute
+                    aligned_minute = (minute // freq) * freq  # 向下取整到最近的freq分钟间隔
+                    aligned_time = t.replace(minute=aligned_minute, second=0, microsecond=0)
+                    trade_times_aligned.append(aligned_time)
+                logger.info(f"对齐分钟时间到 {freq} 分钟间隔，原始时间点数量: {len(trade_times)}，对齐后数量: {len(trade_times_aligned)}，股票: {stock_code} {time_level_str}")
+                trade_times = trade_times_aligned
+            else:
+                trade_times = [t.replace(second=0, microsecond=0) for t in trade_times]
+            
+            # 3. 记录实际数据时间范围
             if trade_times:
                 min_time = trade_times[0]
                 max_time = trade_times[-1]
@@ -219,20 +238,20 @@ class IndicatorDAO(BaseDAO):
                 logger.warning(f"实际数据时间范围为空，股票: {stock_code} {time_level_str}")
                 return data_list
 
-            # 3. 获取应有的交易日，基于实际数据时间范围
+            # 4. 获取应有的交易日，基于实际数据时间范围
             index_basic_dao = IndexBasicDAO()
             start_date = min_time.strftime('%Y%m%d') if trade_times else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
             end_date = max_time.strftime('%Y%m%d') if trade_times else timezone.now().strftime('%Y%m%d')
             trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
             trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
             
-            # 4. 生成应有的K线时间点（基于实际交易日和实际数据时间范围）
+            # 5. 生成应有的K线时间点（基于实际交易日和实际数据时间范围）
             expected_times = get_china_a_stock_kline_times(trade_days, time_level_str)
             if trade_times:
                 expected_times = [t for t in expected_times if min_time <= t <= max_time]
                 logger.info(f"预期时间点范围调整为: {min_time} 至 {max_time}，调整后预期时间点数量: {len(expected_times)}，股票: {stock_code} {time_level_str}")
             
-            # 5. 检查缺失比例并决定是否返回数据，统一时间点精度（去掉秒和微秒）
+            # 6. 检查缺失比例并决定是否返回数据，统一时间点精度（去掉秒和微秒）
             actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
             expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
             missing_times = expected_times_set - actual_times_set
