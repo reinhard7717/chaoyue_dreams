@@ -20,8 +20,8 @@ logger = logging.getLogger("dao")
 
 def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
     """
-    生成A股应有的K线时间点
-    trade_days: list of datetime.date
+    生成A股应有的K线时间点，基于实际交易日历。
+    trade_days: list of datetime.date，实际交易日列表
     time_level: 'day', 'week', 'month', '5', '15', '30', '60'
     返回: list of pd.Timestamp (Asia/Shanghai)
     """
@@ -54,14 +54,14 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
     elif time_level in ['5', '15', '30', '60']:
         freq = int(time_level)
         for day in trade_days:
-            # 上午
+            # 上午交易时间：9:30 - 11:30
             morning_start = datetime.datetime.combine(day, datetime.time(9, 30))
             morning_end = datetime.datetime.combine(day, datetime.time(11, 30))
             t = morning_start
             while t <= morning_end:
                 times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
                 t += datetime.timedelta(minutes=freq)
-            # 下午
+            # 下午交易时间：13:00 - 15:00
             afternoon_start = datetime.datetime.combine(day, datetime.time(13, 0))
             afternoon_end = datetime.datetime.combine(day, datetime.time(15, 0))
             t = afternoon_start
@@ -69,7 +69,7 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
                 times.append(pd.Timestamp(t, tz='Asia/Shanghai'))
                 t += datetime.timedelta(minutes=freq)
             # 去除超出收盘的时间点
-            times = [x for x in times if (x.time() <= datetime.time(11,30) or (x.time() >= datetime.time(13,0) and x.time() <= datetime.time(15,0)))]
+            times = [x for x in times if (x.time() <= datetime.time(11, 30) or (x.time() >= datetime.time(13, 0) and x.time() <= datetime.time(15, 0)))]
     else:
         raise ValueError(f"不支持的K线类型: {time_level}")
     return sorted(times)
@@ -183,7 +183,7 @@ class IndicatorDAO(BaseDAO):
             logger.debug(f"缓存未命中或处理失败 for {stock_code} {time_level_str}，从数据库获取...")
         try:
             if time_level_str == "day":
-                    data_qs = StockDailyData.objects.filter(
+                data_qs = StockDailyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
             elif time_level_str == "week":
@@ -205,24 +205,28 @@ class IndicatorDAO(BaseDAO):
                 logger.warning(f"数据库中未找到 {stock_code} {time_level_str} 的历史数据")
                 return None
             data_list.reverse()
-            #  =================================
+
             # 1. 获取实际有的数据时间点
             trade_times = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
             trade_times = sorted([pd.to_datetime(t).tz_convert('Asia/Shanghai') if pd.to_datetime(t).tzinfo else pd.to_datetime(t).tz_localize('Asia/Shanghai') for t in trade_times])
+            
             # 2. 获取应有的交易日
             index_basic_dao = IndexBasicDAO()
-            start_date = trade_times[0].strftime('%Y%m%d')
-            end_date = trade_times[-1].strftime('%Y%m%d')
+            start_date = trade_times[0].strftime('%Y%m%d') if trade_times else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
+            end_date = trade_times[-1].strftime('%Y%m%d') if trade_times else timezone.now().strftime('%Y%m%d')
             trade_days = await index_basic_dao.get_trade_cal_open(start_date, end_date)
             trade_days = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
-            # 3. 生成应有的K线时间点（通用）
+            
+            # 3. 生成应有的K线时间点（基于实际交易日）
             expected_times = get_china_a_stock_kline_times(trade_days, time_level_str)
+            
             # 4. 检查缺失比例并决定是否返回数据
             actual_times_set = set([t.replace(second=0, microsecond=0) for t in trade_times])
             expected_times_set = set([t.replace(second=0, microsecond=0) for t in expected_times])
             missing_times = expected_times_set - actual_times_set
             missing_ratio = len(missing_times) / len(expected_times_set) if expected_times_set else 0
-            missing_threshold = 0.1  # 缺失比例阈值，10%
+            missing_threshold = 0.5 if time_level_str in ['5', '15', '30', '60'] else 0.1  # 分钟级别放宽阈值到50%
+            
             if missing_times:
                 logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {len(missing_times)}，缺失比例: {missing_ratio:.2%}，缺失时间: {sorted(list(missing_times))[:5]} ...")
                 if missing_ratio > missing_threshold:
@@ -230,6 +234,7 @@ class IndicatorDAO(BaseDAO):
                     return None
             else:
                 logger.info(f"原始K线数据时间序列无缺失: {stock_code} {time_level_str}")
+            
             return data_list
         except Exception as e_db:
             logger.error(f"从数据库获取股票[{stock_code}] {time_level_str} 级别分时成交数据失败: {str(e_db)}", exc_info=True)
