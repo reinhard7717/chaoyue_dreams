@@ -236,7 +236,7 @@ def train_lstm_model(
 @handle_exceptions
 def build_lstm_model(
     window_size: int,
-    num_features: int,
+    num_features: int,  # 确保传入正确的特征维度
     model_config: Dict[str, Any] = None,
     model_type: str = 'lstm',
     summary: bool = True
@@ -244,7 +244,6 @@ def build_lstm_model(
     """
     构建深度学习模型，支持LSTM、Bidirectional LSTM和GRU，允许自定义配置。
     """
-    # 默认配置，优化为更轻量级模型以提高CPU训练效率
     default_config = {
         'layers': [
             {'units': 64, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},
@@ -279,7 +278,7 @@ def build_lstm_model(
             'recurrent_regularizer': regularizer
         }
         if i == 0:
-            layer_args['input_shape'] = (window_size, num_features)
+            layer_args['input_shape'] = (window_size, num_features)  # 确保输入形状正确
         model.add(layer_class(**layer_args))
         if layer_conf.get('dropout', 0.0) > 0:
             model.add(Dropout(layer_conf['dropout']))
