@@ -151,7 +151,7 @@ class StockTimeTradeDAO(BaseDAO):
         limit = 6000  # tushare pro接口最大limit一般为6000
         while True:
             if offset >= 100000:
-                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
                 break
             df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "2020-01-01 00:00:00", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
                 fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
@@ -423,13 +423,14 @@ class StockTimeTradeDAO(BaseDAO):
                     )
                     logger.info(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 offset={offset} 完成. 结果: {result}")
 
+                # 修剪缓存
+                for stock_code in stock_codes:
+                    cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+
                 if len(df) < limit:
                     break
                 offset += limit
-        # 修剪缓存
-        for stock_code in stock_codes:
-            cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
 
         logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据全部完成.")
         return

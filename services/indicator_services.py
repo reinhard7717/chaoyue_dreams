@@ -341,7 +341,7 @@ class IndicatorService:
         # 辅助函数：安全计算指标并存储结果
         async def _calculate_and_store_async(tf, indicator_name, calculation_func, *args, **kwargs):
             if tf in valid_ohlcv_dfs:
-                base_df = ohlcv_dfs[tf]  # 使用原始未重命名的 DF 进行计算
+                base_df = ohlcv_dfs[tf].copy()  # 使用原始未重命名的 DF 进行计算, 使用 copy 避免原地修改
                 if base_df is None or base_df.empty:
                     logger.warning(f"[{stock_code}] 时间级别 {tf} 的基础数据为空，无法计算 {indicator_name}")
                     return None
@@ -350,15 +350,7 @@ class IndicatorService:
                     for col in ['open', 'high', 'low', 'close', 'volume']:
                         if col in base_df.columns:
                             base_df[col] = pd.to_numeric(base_df[col], errors='coerce')
-                    base_df_clean = base_df.copy()
-                    for col in ['open', 'high', 'low', 'close', 'volume']:
-                        if col in base_df_clean.columns:
-                            base_df_clean[col].ffill(inplace=True)
-                            base_df_clean[col].bfill(inplace=True)
-                    if base_df_clean[['open', 'high', 'low', 'close', 'volume']].isnull().any(axis=1).all():
-                        logger.warning(f"[{stock_code}] 清理 NaN 后时间级别 {tf} 数据仍为空，无法计算 {indicator_name}")
-                        return None
-                    result = calculation_func(base_df_clean, *args, **kwargs)
+                    result = calculation_func(base_df, *args, **kwargs)
                     if result is not None and not result.empty:
                         result = self.filter_to_period_points(result, tf)  # <--- 周期对齐
                         # 统一为所有结果列添加时间后缀
