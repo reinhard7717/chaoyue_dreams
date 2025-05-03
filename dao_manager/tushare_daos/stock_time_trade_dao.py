@@ -423,14 +423,13 @@ class StockTimeTradeDAO(BaseDAO):
                     )
                     logger.info(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 offset={offset} 完成. 结果: {result}")
 
-                # 修剪缓存
-                for stock_code in stock_codes:
-                    cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-
                 if len(df) < limit:
                     break
                 offset += limit
+        # 修剪缓存
+        for stock_code in stock_codes:
+            cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
 
         logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据全部完成.")
         return

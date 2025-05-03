@@ -1343,7 +1343,8 @@ class TrendFollowingStrategy(BaseStrategy):
             train_split=0.7,
             val_split=0.15,
             feature_selection=required_cols,
-            augment_data=False
+            augment_data=False,
+            use_pca=True  # 启用PCA降维，确保特征维度可能变化
         )
         # 验证内容输出
         logger.info(f"LSTM数据集 shape: X_train={X_train.shape}, y_train={y_train.shape}, "
@@ -1357,9 +1358,14 @@ class TrendFollowingStrategy(BaseStrategy):
         if X_test.shape[0] == 0:
             logger.warning("X_test 为空，测试集将无法用于评估。")
         if X_train.shape[0] > 0:
+            # 动态获取特征维度，确保模型输入形状与数据匹配
+            num_features = X_train.shape[2]
+            logger.info(f"[{stock_code}] 动态获取特征维度: {num_features}")
+            
+            # 构建新模型，确保输入形状正确
             self.lstm_model = build_lstm_model(
                 self.window_size,
-                len(required_cols),
+                num_features,  # 使用处理后的实际特征维度
                 model_config=self.model_config,
                 model_type='lstm',
                 summary=True

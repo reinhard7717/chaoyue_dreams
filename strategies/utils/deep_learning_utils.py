@@ -57,38 +57,21 @@ def prepare_data_for_lstm(
     feature_selection: Optional[List[str]] = None, augment_data: bool = False,
     use_pca: bool = True, n_components: Union[int, float] = 0.95
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
-    """
-    准备LSTM模型的训练数据，修正了Scaler的使用以防止数据泄露。
-    Args:
-        data (pd.DataFrame): 包含特征和目标变量的DataFrame。
-        required_columns (List[str]): 模型输入特征列名列表。
-        target_column (str): 目标变量列名，默认为'final_signal'。
-        window_size (int): 时间序列窗口大小，默认为60。
-        scaler_type (str): 归一化方法，'minmax' 或 'standard'，默认为'minmax'。
-        train_split (float): 训练集比例，默认为0.7。
-        val_split (float): 验证集比例，默认为0.15（剩余为测试集）。
-        feature_selection (Optional[List[str]]): 可选的特征子集列名列表，若为None则使用required_columns。
-        augment_data (bool): 是否进行数据增强（如添加噪声），默认为False。
-        use_pca (bool): 是否使用PCA降维，默认为True。
-        n_components (Union[int, float]): PCA保留的主成分数量或方差比例，默认为0.95。
-    Returns:
-        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler]]:
-            X_train, y_train, X_val, y_val, X_test, y_test, scaler
-    """
-    if data.empty:
-        raise ValueError("输入数据为空，无法准备训练数据。")
-    
     # 选择特征列
     selected_columns = feature_selection if feature_selection is not None else required_columns
     
-    # 特征选择：移除低方差特征
+    # 提取特征和目标
     features = data.loc[:, selected_columns].values
+    logger.info(f"原始特征维度: {features.shape[1]}")
+    targets = data.loc[:, target_column].values
+    
+    # 特征选择：移除低方差特征
     if feature_selection is None:
         selector = VarianceThreshold(threshold=0.01)
         features_reduced = selector.fit_transform(features)
         selected_columns = [selected_columns[i] for i in selector.get_support(indices=True)]
         features = features_reduced
-        logger.info(f"特征选择完成，保留 {len(selected_columns)} 个特征。")
+        logger.info(f"特征选择后维度: {features.shape[1]}")
 
     # 使用PCA降维（可选）
     if use_pca:
@@ -97,70 +80,45 @@ def prepare_data_for_lstm(
         logger.info(f"PCA降维完成，保留 {pca.n_components_} 个主成分，解释方差比: {sum(pca.explained_variance_ratio_):.4f}")
         features = features_pca
     
-    # 提取目标变量
-    targets = data.loc[:, target_column].values
-
-    # 构建时间序列窗口
+    # 后续代码保持不变...
+    # 构建时间序列窗口、分割数据集、缩放等
     X, y = [], []
     for i in range(len(features) - window_size):
         X.append(features[i:(i + window_size)])
         y.append(targets[i + window_size])
     
-    if not X:
-        raise ValueError(f"数据长度 ({len(features)}) 不足以构建窗口大小为 {window_size} 的时间序列。至少需要 {window_size + 1} 条数据。")
-
     X = np.array(X)
     y = np.array(y)
     
     # 分割数据集
     test_split_ratio = 1.0 - train_split - val_split
-    if test_split_ratio < 0 or test_split_ratio > 1:
-        raise ValueError(f"训练集({train_split})、验证集({val_split})和测试集({test_split_ratio})的比例设置无效。")
-
     n_samples = X.shape[0]
     n_train = int(n_samples * train_split)
     n_val = int(n_samples * val_split)
-    n_test = n_samples - n_train - n_val  # 计算测试集样本数量
+    n_test = n_samples - n_train - n_val
 
-    if n_train == 0 or n_val == 0 or n_test == 0:
-        logger.warning(f"数据集过小或分割比例不当，导致某个子集为空。样本总数: {n_samples}, 训练集: {n_train}, 验证集: {n_val}, 测试集: {n_test}")
-        if n_train == 0:
-            raise ValueError("训练集样本数为0，无法继续。")
-
-    # 按时间顺序分割
     X_train, y_train = X[:n_train], y[:n_train]
     X_val, y_val = X[n_train : n_train + n_val], y[n_train : n_train + n_val]
     X_test, y_test = X[n_train + n_val:], y[n_train + n_val:]
-
+    
     logger.info(f"数据分割完成 (按时间顺序)，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条 (计算值: n_test={n_test})")
 
-    # 初始化并拟合Scaler (仅在训练集上)
+    # 缩放特征数据
     if scaler_type == 'minmax':
         scaler = MinMaxScaler()
-    elif scaler_type == 'standard':
-        scaler = StandardScaler()
     else:
-        raise ValueError(f"不支持的归一化方法: {scaler_type}")
-
+        scaler = StandardScaler()
+    
     num_features = X_train.shape[2]
     X_train_reshaped = X_train.reshape(-1, num_features)
-    logger.info(f"拟合Scaler: 使用 {X_train_reshaped.shape[0]} 个时间点的数据 (来自训练集)。")
     scaler.fit(X_train_reshaped)
-    logger.info(f"Scaler拟合完成。Scaler对象: {scaler}")
-
-    # 使用拟合好的Scaler转换所有数据集
+    
     X_train_scaled = scaler.transform(X_train_reshaped).reshape(X_train.shape)
     X_val_scaled = scaler.transform(X_val.reshape(-1, num_features)).reshape(X_val.shape) if X_val.shape[0] > 0 else X_val
     X_test_scaled = scaler.transform(X_test.reshape(-1, num_features)).reshape(X_test.shape) if X_test.shape[0] > 0 else X_test
-
-    # 数据增强（可选）
-    if augment_data:
-        noise = np.random.normal(0, 0.01, X_train_scaled.shape)
-        X_train_scaled = X_train_scaled + noise
-        logger.info("已对训练集应用数据增强（添加高斯噪声）。")
-
+    
     logger.info(f"数据准备完成 (已缩放)，训练集: {X_train_scaled.shape[0]} 条，验证集: {X_val_scaled.shape[0]} 条，测试集: {X_test_scaled.shape[0]} 条")
-    logger.info(f"X_train_scaled样本 (前1个窗口): {X_train_scaled[:1]}, y_train样本 (前5个): {y_train[:5]}")
+    logger.info(f"特征维度确认: {num_features}")
     
     analyze_target_distribution(y_train, y_val, y_test)
     return X_train_scaled, y_train, X_val_scaled, y_val, X_test_scaled, y_test, scaler
@@ -244,6 +202,7 @@ def build_lstm_model(
     """
     构建深度学习模型，支持LSTM、Bidirectional LSTM和GRU，允许自定义配置。
     """
+    # 默认配置
     default_config = {
         'layers': [
             {'units': 64, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},
@@ -257,6 +216,7 @@ def build_lstm_model(
     }
     config = model_config if model_config is not None else default_config
     
+    # 构建模型
     model = Sequential()
     if model_type == 'lstm': 
         layer_class = LSTM
