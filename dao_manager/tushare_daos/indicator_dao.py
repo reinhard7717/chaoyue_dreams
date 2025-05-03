@@ -5,6 +5,7 @@ import logging
 from typing import Any, List, Optional, Set, Union, Dict, Type
 import pandas as pd
 from django.db.models import Max # <--- 确保导入 Max
+from django.db import models # <--- 确保导入 models 以支持类型提示
 import numpy as np
 from decimal import Decimal, InvalidOperation
 from asgiref.sync import sync_to_async
@@ -165,8 +166,9 @@ class IndicatorDAO(BaseDAO):
                          if isinstance(item_dict_raw, bytes):
                              # 如果缓存中存储的是 bytes，尝试反序列化 (取决于 cache_manager._deserialize 实现)
                               item_dict = self.cache_manager._deserialize(item_dict_raw)
+                              # 反序列化后再次检查类型
                               if not isinstance(item_dict, dict):
-                                   logger.warning(f"缓存反序列化结果不是字典: {type(item_dict_raw)}, raw: {item_dict_raw[:100]}")
+                                   logger.warning(f"缓存反序列化结果不是字典: {type(item_dict_raw).__name__}, raw: {item_dict_raw[:100]}")
                                    conversion_errors += 1
                                    continue
 
@@ -182,17 +184,18 @@ class IndicatorDAO(BaseDAO):
                              ModelClass = StockMinuteData # 分钟线模型
 
                          # 安全获取并转换字段值
+                         # 确保这里使用的键名与缓存中存储的字段名一致
                          trade_time = self._safe_datetime(item_dict.get('trade_time'))
                          open_price = self._safe_decimal(item_dict.get('open'))
                          high_price = self._safe_decimal(item_dict.get('high'))
                          low_price = self._safe_decimal(item_dict.get('low'))
                          close_price = self._safe_decimal(item_dict.get('close'))
-                         volume = self._safe_int(item_dict.get('vol'))
+                         volume = self._safe_int(item_dict.get('vol')) # 缓存中存储的字段名是 'vol'
                          amount = self._safe_decimal(item_dict.get('amount'))
-                         # 其他字段根据模型实际情况添加
+                         # 添加其他字段根据模型实际情况添加，确保键名一致
 
-                         if not trade_time:
-                             logger.warning(f"缓存数据中发现无效的 trade_time for {stock_code} {time_level_str}: {item_dict.get('trade_time')}")
+                         if trade_time is None: # trade_time 是关键字段，如果为 None 则跳过此条
+                             logger.warning(f"缓存数据中发现无效或缺失的 trade_time for {stock_code} {time_level_str}")
                              conversion_errors += 1
                              continue
 
@@ -228,7 +231,9 @@ class IndicatorDAO(BaseDAO):
                      except Exception as e_conv:
                          conversion_errors += 1
                          # 仅记录错误类型和少量信息，避免日志过长
-                         logger.error(f"转换缓存字典为 Model 实例时出错 ({type(e_conv).__name__}) for {stock_code} {time_level_str}. Sample Dict: {list(item_dict.keys())}", exc_info=False)
+                         # 尝试打印导致错误的字典键，如果 item_dict 是字典
+                         sample_keys = list(item_dict.keys()) if isinstance(item_dict, dict) else 'N/A'
+                         logger.error(f"转换缓存字典为 Model 实例时出错 ({type(e_conv).__name__}) for {stock_code} {time_level_str}. Sample Dict Keys: {sample_keys}", exc_info=False)
 
                  if conversion_errors > 0:
                      logger.warning(f"从缓存转换 {stock_code} {time_level_str} 数据时遇到 {conversion_errors} 个错误。")
@@ -283,109 +288,89 @@ class IndicatorDAO(BaseDAO):
             # --- 以下是原始数据缺失检查部分 ---
             # 1. 获取实际有的数据时间点，并明确时区转换
             # 假设数据库返回的时间是 timezone aware 或 naive UTC
-            trade_times_naive = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
+            trade_times_raw = [getattr(trade, 'trade_time', None) for trade in data_list if getattr(trade, 'trade_time', None) is not None]
 
             # 将数据库时间转换为上海时区，如果已经是 aware，则直接转；如果是 naive，假设是 UTC
             trade_times = []
-            for t in trade_times_naive:
+            for t_raw in trade_times_raw:
                 try:
-                    if isinstance(t, datetime.datetime):
-                        # 如果是 datetime 对象
-                        if t.tzinfo is None:
-                            # Naive datetime, assume UTC and convert to Shanghai
-                            aware_t = timezone.make_aware(t, timezone.utc) # 标记为 UTC
-                            trade_times.append(aware_t.astimezone(timezone.get_default_timezone())) # 转换为默认时区 (假设是上海)
-                        else:
-                            # Aware datetime, convert to Shanghai
-                            trade_times.append(t.astimezone(timezone.get_default_timezone())) # 转换为默认时区 (假设是上海)
-                    elif isinstance(t, datetime.date):
-                        # 如果是 date 对象 (通常用于日线，时间部分后续处理)
-                        # 先转换为 datetime，假设时间是午夜 00:00
-                        dt_t = datetime.datetime.combine(t, datetime.time(0,0))
-                        # 标记为默认时区 (通常是上海)
-                        trade_times.append(timezone.make_aware(dt_t, timezone.get_default_timezone()))
+                    # 使用 _safe_datetime 辅助函数进行安全转换和时区处理
+                    safe_dt = self._safe_datetime(t_raw)
+                    if safe_dt:
+                        trade_times.append(safe_dt)
                     else:
-                        logger.warning(f"未知的时间类型在 trade_times 中: {type(t)}")
-                        continue
+                        logger.warning(f"从数据库获取的数据中发现无效或无法转换的 trade_time: {t_raw}")
                 except Exception as e_tz_conv:
-                    logger.warning(f"转换 trade_time 时出错 ({t}): {e_tz_conv}", exc_info=False)
-                    continue
+                    # _safe_datetime 内部已经有日志，这里可以简单处理
+                    pass # 或者再次记录更高级别的警告
 
             trade_times.sort() # 确保时间排序
 
-            # 2. 对分钟级别数据，将时间对齐到最近的分钟间隔（向下取整），或者更准确地，对齐到预期的K线结束时间点
-            if time_level_str in ['5', '15', '30', '60']:
-                freq = int(time_level_str)
-                 # 对于分钟线数据，将实际获取的时间点对齐到预期的 K 线结束时间点
-                 # 例如，对于 5分钟 K线，数据点时间应是 9:35, 9:40, ..., 15:00
-                 # 这里不对原始数据的时间进行修改，仅用于后续的缺失点比较
-                 # actual_times_aligned = []
-                 # for t in trade_times:
-                 #     minute = t.minute
-                 #     aligned_minute = (minute // freq) * freq # 向下取整到最近的freq分钟间隔 (K线开始时间)
-                 #     aligned_time = t.replace(minute=aligned_minute, second=0, microsecond=0)
-                 #     actual_times_aligned.append(aligned_time)
-                 # logger.info(f"对齐分钟时间到 {freq} 分钟间隔（K线开始时间），原始时间点数量: {len(trade_times)}，对齐后数量: {len(actual_times_aligned)}，股票: {stock_code} {time_level_str}")
-                 # No, let's just keep the original times for comparison
-
-                # 保留原始的分钟时间点用于比较
-                logger.info(f"获取到分钟级别数据时间点数量: {len(trade_times)}，股票: {stock_code} {time_level_str}")
-
-            else:
-                # 对于日线数据，去掉时间部分，仅保留日期
-                trade_times = [t.replace(hour=0, minute=0, second=0, microsecond=0) for t in trade_times]
-                logger.info(f"日线/周线/月线数据时间去掉时间部分，仅保留日期，股票: {stock_code} {time_level_str}")
-
-            # 3. 记录实际数据时间范围
+            # 2. 记录实际数据时间范围
+            min_time: Optional[datetime.datetime] = None
+            max_time: Optional[datetime.datetime] = None
             if trade_times:
-                # 对于分钟线，实际范围是 trade_times 中的最早和最晚时间
-                # 对于日/周/月线，实际范围是 trade_times (日期) 中的最早和最晚日期
                 min_time = trade_times[0]
                 max_time = trade_times[-1]
+                # 对于分钟线，实际范围是 trade_times 中的最早和最晚时间
+                # 对于日/周/月线，实际范围是 trade_times (日期) 中的最早和最晚日期
                 logger.info(f"实际数据时间范围: {min_time} 至 {max_time}，数据量: {len(data_list)} 条，股票: {stock_code} {time_level_str}")
             else:
-                # 如果 trade_times 是空的，但 data_list 不为空，可能是数据问题
-                logger.warning(f"无法确定实际数据时间范围，trade_times 列表为空，股票: {stock_code} {time_level_str}")
+                logger.warning(f"无法确定实际数据时间范围，从数据库获取的 trade_times 列表为空，股票: {stock_code} {time_level_str}")
+                # 如果没有时间点，但 data_list 不为空（理论上不发生），则返回原始列表
+                # 但如果 trade_times 为空，说明所有 trade.trade_time 都是 None，数据有问题
+                return None # 没有有效时间点，数据无效
 
-
-            # 4. 获取应有的交易日，基于实际数据时间范围
+            # 3. 获取应有的交易日，基于实际数据时间范围
             index_basic_dao = IndexBasicDAO()
             # 使用实际获取数据的日期范围来确定交易日历
             # 确保 start_date 和 end_date 是 YYYYMMDD 格式字符串
-            start_date_str = min_time.strftime('%Y%m%d') if trade_times else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
-            end_date_str = max_time.strftime('%Y%m%d') if trade_times else timezone.now().strftime('%Y%m%d')
+            # 如果 min_time 或 max_time 为 None，则使用默认日期范围
+            start_date_str = min_time.strftime('%Y%m%d') if min_time else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
+            end_date_str = max_time.strftime('%Y%m%d') if max_time else timezone.now().strftime('%Y%m%d')
 
             trade_days = await index_basic_dao.get_trade_cal_open(start_date_str, end_date_str)
             trade_days_date = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
 
-            # 5. 生成应有的K线时间点（基于实际交易日和实际数据时间范围）
+            # 4. 生成应有的K线时间点（基于实际交易日）
             expected_times = get_china_a_stock_kline_times(trade_days_date, time_level_str)
-            # expected_times 函数已经会生成在交易日内的标准时间点
+            # expected_times 函数已经会生成在交易日内的标准时间点 (pd.Timestamp, Asia/Shanghai)
 
-            if trade_times:
-                 # 进一步过滤 expected_times，使其落在实际获取数据的最小到最大时间范围内
-                 # 注意：这里使用 <= 比较，确保包含边界时间
-                 # 对于日/周/月线，min_time/max_time 已经是午夜0点
-                 # 对于分钟线，min_time/max_time 是实际数据的最小和最大时间点
-                 expected_times_filtered = [t for t in expected_times if min_time.tz_convert(t.tz) <= t <= max_time.tz_convert(t.tz)]
+            # 5. 进一步过滤应有的时间点，使其落在实际获取数据的最小到最大时间范围内
+            if min_time and max_time: # 确保 min_time 和 max_time 有效
+                 # 将 min_time 和 max_time 转换为 pd.Timestamp 以便与 expected_times 中的元素 (pd.Timestamp) 比较
+                 min_ts = pd.Timestamp(min_time)
+                 max_ts = pd.Timestamp(max_time)
+                 # 使用转换后的 pd.Timestamp 进行比较
+                 expected_times_filtered = [t for t in expected_times if min_ts <= t <= max_ts]
+
                  # 记录调整后的预期时间点数量
                  if expected_times_filtered:
                      logger.info(f"预期时间点范围调整为: {expected_times_filtered[0]} 至 {expected_times_filtered[-1]}，调整后预期时间点数量: {len(expected_times_filtered)}，股票: {stock_code} {time_level_str}")
                  else:
                      logger.warning(f"在实际数据时间范围 {min_time} 至 {max_time} 内没有找到预期时间点，股票: {stock_code} {time_level_str}")
                      expected_times = [] # 如果过滤后为空，将预期时间点列表设为空
-
+                 
                  expected_times = expected_times_filtered # 使用过滤后的预期时间点
 
-            # 6. 检查缺失比例并决定是否返回数据
+            # 6. 检查缺失比例
             if not expected_times:
                 logger.warning(f"无法生成任何预期时间点，跳过缺失检查。股票: {stock_code} {time_level_str}")
                 # 即使无法检查缺失，如果 data_list 有数据，仍然返回
                 return data_list
 
-            # 将实际获取的时间点和预期时间点都标准化为 DatetimeIndex 以便比较
-            actual_times_index = pd.DatetimeIndex(trade_times).normalize() if time_level_str in ['day', 'week', 'month'] else pd.DatetimeIndex(trade_times).round(f'{freq}min') # 分钟线对齐到分钟间隔
-            expected_times_index = pd.DatetimeIndex(expected_times).normalize() if time_level_str in ['day', 'week', 'month'] else pd.DatetimeIndex(expected_times).round(f'{freq}min') # 分钟线对齐到分钟间隔
+            # 将实际获取的时间点和预期时间点都转换为 DatetimeIndex 以便使用 difference 方法
+            # 确保时间点精度一致以便比较
+            # 对于分钟线，对齐到分钟；对于日/周/月线，只保留日期
+            if time_level_str in ['5', '15', '30', '60']:
+                freq = int(time_level_str)
+                 # 实际时间点对齐到分钟间隔（如果原始数据不是精确对齐的，可能需要round）
+                actual_times_index = pd.DatetimeIndex(trade_times).round(f'{freq}min')
+                 # 预期时间点本身已经是对齐的 K线结束时间点
+                expected_times_index = pd.DatetimeIndex(expected_times)
+            else: # 日线、周线、月线
+                actual_times_index = pd.DatetimeIndex(trade_times).normalize() # 只保留日期部分
+                expected_times_index = pd.DatetimeIndex(expected_times).normalize() # 只保留日期部分
 
             # 找到缺失的时间点
             missing_index = expected_times_index.difference(actual_times_index)
@@ -396,20 +381,18 @@ class IndicatorDAO(BaseDAO):
 
             if missing_count > 0:
                 # 打印缺失警告，包括数量、比例和部分缺失时间点
+                # 将缺失时间转换为字符串列表以便日志打印
                 logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {missing_count}，缺失比例: {missing_ratio:.2%}，缺失时间 (部分): {[str(t) for t in missing_index[:5]]} ...")
 
-                # --- 移除高阈值拒绝返回数据的逻辑 ---
-                # missing_threshold = 0.95 if time_level_str in ['5', '15', '30', '60'] else 0.5
-                # if missing_ratio > missing_threshold:
-                #     logger.error(f"数据缺失比例 {missing_ratio:.2%} 超过阈值 {missing_threshold}，拒绝返回数据: {stock_code} {time_level_str}")
-                #     return None
-                # --- 保留警告，但不拒绝返回数据 ---
+                # --- 移除之前基于高阈值拒绝返回数据的逻辑 (已在上一次修改中移除) ---
+                # 保留警告，但不在这里拒绝返回数据
 
             else:
                 # 如果没有缺失，记录信息
                 logger.info(f"原始K线数据时间序列无缺失: {stock_code} {time_level_str}")
 
             # 无论缺失多少，只要数据库查询有数据，就返回数据列表
+            # 数据质量的最终判断和处理应由调用方 (Service 层) 负责
             return data_list
 
         except Exception as e_db:
