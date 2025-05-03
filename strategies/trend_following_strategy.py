@@ -1342,8 +1342,8 @@ class TrendFollowingStrategy(BaseStrategy):
             scaler_type='minmax',
             train_split=0.7,
             val_split=0.15,
-            feature_selection=required_cols,
-            augment_data=False,
+            # feature_selection=required_cols,
+            # augment_data=False,
             use_pca=True  # 启用PCA降维，确保特征维度可能变化
         )
         # 验证内容输出
