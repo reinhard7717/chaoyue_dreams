@@ -293,28 +293,11 @@ def train_lstm_model(
     training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.keras", 
     plot_training_history: bool = False
 ) -> Dict:
-    """
-    训练深度学习模型，支持早停、学习率调度和模型检查点保存。
-    目标变量 y 会在此函数内部缩放到 0-1 范围以匹配模型的 sigmoid 输出。
-    Args:
-        X_train (np.ndarray): 训练集特征 (已缩放)。
-        y_train (np.ndarray): 训练集目标 (原始值, e.g., 0-100)。
-        X_val (np.ndarray): 验证集特征 (已缩放)。
-        y_val (np.ndarray): 验证集目标 (原始值, e.g., 0-100)。
-        X_test (np.ndarray): 测试集特征 (已缩放)。
-        y_test (np.ndarray): 测试集目标 (原始值, e.g., 0-100)。
-        model (Sequential): 未训练或已编译的Keras模型。
-        training_config (Dict[str, Any]): 训练配置字典。
-        checkpoint_path (str): 模型检查点保存路径。
-        plot_training_history (bool): 是否绘制训练历史曲线。
-    Returns:
-        Dict: 训练历史记录字典。
-    """
-    # 默认训练配置
+    # 默认训练配置，优化CPU训练效率
     default_config = {
-        'epochs': 30,
-        'batch_size': 128,  # 增加批次大小
-        'early_stopping_patience': 8,
+        'epochs': 20,  # 减少最大epoch数量
+        'batch_size': 128,  # 增加批次大小，减少迭代次数
+        'early_stopping_patience': 5,  # 缩短早停耐心值
         'reduce_lr_patience': 3,
         'reduce_lr_factor': 0.5,
         'monitor_metric': 'val_loss',
@@ -323,18 +306,18 @@ def train_lstm_model(
     config = training_config if training_config is not None else default_config
     logger.info(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}, X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}, y_test: {y_test.shape}")
     
-    # --- 将目标变量 y 缩放到 0-1 范围 ---
+    # 缩放目标变量
     y_train_scaled = y_train / 100.0
     y_val_scaled = y_val / 100.0
-    y_test_scaled = y_test / 100.0  # 缩放测试集目标变量
+    y_test_scaled = y_test / 100.0
     
-    # 检查缩放后的值是否在合理范围 (可选)
+    # 检查缩放范围
     if np.any(y_train_scaled < 0) or np.any(y_train_scaled > 1):
-        logger.warning(f"训练集目标缩放后存在超出 [0, 1] 范围的值。最小值: {np.min(y_train_scaled)}, 最大值: {np.max(y_train_scaled)}")
+        logger.warning(f"训练集目标缩放后超出 [0, 1] 范围。最小值: {np.min(y_train_scaled)}, 最大值: {np.max(y_train_scaled)}")
     if np.any(y_val_scaled < 0) or np.any(y_val_scaled > 1):
-        logger.warning(f"验证集目标缩放后存在超出 [0, 1] 范围的值。最小值: {np.min(y_val_scaled)}, 最大值: {np.max(y_val_scaled)}")
+        logger.warning(f"验证集目标缩放后超出 [0, 1] 范围。最小值: {np.min(y_val_scaled)}, 最大值: {np.max(y_val_scaled)}")
     if np.any(y_test_scaled < 0) or np.any(y_test_scaled > 1):
-        logger.warning(f"测试集目标缩放后存在超出 [0, 1] 范围的值。最小值: {np.min(y_test_scaled)}, 最大值: {np.max(y_test_scaled)}")
+        logger.warning(f"测试集目标缩放后超出 [0, 1] 范围。最小值: {np.min(y_test_scaled)}, 最大值: {np.max(y_test_scaled)}")
     
     # 确保检查点目录存在
     checkpoint_dir = os.path.dirname(checkpoint_path)
@@ -342,37 +325,14 @@ def train_lstm_model(
         os.makedirs(checkpoint_dir)
         logger.info(f"创建检查点目录: {checkpoint_dir}")
     
-    # --- 设置回调函数 ---
-    callbacks = []
-    # 早停：如果在 patience 个轮次内，监控指标没有改善，则停止训练
-    if config.get('early_stopping_patience', 0) > 0:
-        callbacks.append(EarlyStopping(
-            monitor=config['monitor_metric'],
-            patience=config['early_stopping_patience'],
-            restore_best_weights=True,  # 关键：训练结束后，模型权重会恢复到最佳轮次的状态
-            verbose=config['verbose']
-        ))
-    # 学习率衰减：当监控指标停止改善时，降低学习率
-    if config.get('reduce_lr_patience', 0) > 0:
-        callbacks.append(ReduceLROnPlateau(
-            monitor=config['monitor_metric'],
-            factor=config['reduce_lr_factor'],  # 学习率乘以的因子
-            patience=config['reduce_lr_patience'],
-            min_lr=1e-6,  # 学习率下限
-            verbose=config['verbose']
-        ))
-    # 模型检查点：只保存在验证集上性能最好的模型
-    callbacks.append(ModelCheckpoint(
-        filepath=checkpoint_path,  # 使用 filepath 参数
-        monitor=config['monitor_metric'],
-        save_best_only=True,
-        save_weights_only=False,  # 可以选择只保存权重或整个模型，False表示保存整个模型
-        mode='min' if 'loss' in config['monitor_metric'].lower() else 'max',  # 根据监控指标判断模式
-        verbose=config['verbose']
-    ))
+    # 设置回调函数
+    callbacks = [
+        EarlyStopping(monitor=config['monitor_metric'], patience=config['early_stopping_patience'], restore_best_weights=True, verbose=config['verbose']),
+        ReduceLROnPlateau(monitor=config['monitor_metric'], factor=config['reduce_lr_factor'], patience=config['reduce_lr_patience'], min_lr=1e-6, verbose=config['verbose']),
+        ModelCheckpoint(filepath=checkpoint_path, monitor=config['monitor_metric'], save_best_only=True, save_weights_only=False, mode='min' if 'loss' in config['monitor_metric'].lower() else 'max', verbose=config['verbose'])
+    ]
     
-    # --- 训练模型 ---
-    # 使用缩放后的 y 值进行训练
+    # 训练模型
     history = model.fit(
         X_train, y_train_scaled,
         validation_data=(X_val, y_val_scaled),
@@ -382,55 +342,30 @@ def train_lstm_model(
         verbose=config['verbose']
     )
     logger.info(f"训练历史 (部分): { {k: v[:3] for k, v in history.history.items()} }...")  # 打印部分历史记录
-
-    # --- 绘制训练历史曲线 ---
-    if plot_training_history:
-        try:
-            plt.figure(figsize=(12, 5))  # 调整图形大小
-
-            # 绘制损失曲线
-            plt.subplot(1, 2, 1)
-            plt.plot(history.history['loss'], label='训练损失 (loss)')
-            plt.plot(history.history['val_loss'], label='验证损失 (val_loss)')
-            plt.title('模型损失')
-            plt.xlabel('轮数 (Epoch)')
-            plt.ylabel('损失值')
-            plt.legend()
-            plt.grid(True)
-
-            # 绘制第一个指标曲线 (通常是 mae)
-            metric_key = config.get('metrics', ['mae'])[0]  # 获取第一个指标的名称
-            val_metric_key = f"val_{metric_key}"
-            if metric_key in history.history and val_metric_key in history.history:
-                plt.subplot(1, 2, 2)
-                plt.plot(history.history[metric_key], label=f'训练 {metric_key.upper()}')
-                plt.plot(history.history[val_metric_key], label=f'验证 {metric_key.upper()}')
-                plt.title(f'模型 {metric_key.upper()}')
-                plt.xlabel('轮数 (Epoch)')
-                plt.ylabel(f'{metric_key.upper()} 值')
-                plt.legend()
-                plt.grid(True)
-
-            plt.tight_layout()  # 调整子图布局
-            plot_filename = 'training_history.png'
-            plt.savefig(plot_filename)  # 直接保存在当前目录
-            plt.close()  # 关闭图形，释放内存
-            logger.info(f"训练历史曲线已保存至 {plot_filename}")
-        except Exception as plot_err:
-            logger.error(f"绘制训练历史图时出错: {plot_err}", exc_info=True)
-
-    # --- 模型训练完成后的评估 ---
+    
+    # 测试集评估
     if X_test.shape[0] > 0:
         test_loss, test_mae = model.evaluate(X_test, y_test_scaled, verbose=0)
-        # 反缩放MAE值以反映原始范围
         test_mae_original = test_mae * 100.0
         logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE: {test_mae_original:.4f} (原始范围)")
+        
+        # 分析测试集预测分布
+        y_pred = model.predict(X_test, verbose=0)
+        y_pred_original = y_pred * 100.0
+        plt.figure(figsize=(8, 5))
+        sns.histplot(y_test, bins=30, kde=True, alpha=0.7, label='真实值')
+        sns.histplot(y_pred_original, bins=30, kde=True, alpha=0.7, label='预测值')
+        plt.title('测试集真实值与预测值分布对比')
+        plt.xlabel('目标值')
+        plt.ylabel('频次')
+        plt.legend()
+        plt.savefig('test_distribution_comparison.png')
+        plt.close()
+        logger.info("测试集分布对比图已保存至 test_distribution_comparison.png")
     else:
         logger.warning("测试集为空，无法评估LSTM模型。")
     
     logger.info("模型训练完成。")
-    # 因为使用了 restore_best_weights=True，model 对象现在持有最佳权重
-    # history.history 包含了所有轮次的记录
     return history.history
 
 def analyze_target_distribution(y_train, y_val, y_test):
