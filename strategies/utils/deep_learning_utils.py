@@ -1,26 +1,24 @@
 # apps/strategies/utils/deep_learning_utils.py
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # 禁用GPU
 import pandas as pd
 import numpy as np
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # 禁用GPU,放置在代码的顶部（在导入TensorFlow之前）
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.decomposition import PCA
+from sklearn.feature_selection import VarianceThreshold
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional, GRU
 from tensorflow.keras.optimizers import Adam, RMSprop, SGD
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow.keras.regularizers import l2
-from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.feature_selection import VarianceThreshold
-from typing import Any, Tuple, List, Dict, Optional, Union, Callable
 import logging
 import time
-
-from functools import wraps
 import matplotlib.pyplot as plt
-
+import seaborn as sns  # 添加seaborn导入
+from typing import Any, Tuple, List, Dict, Optional, Union, Callable
+from functools import wraps
 
 logger = logging.getLogger("strategy_deep_learning_utils")
 
