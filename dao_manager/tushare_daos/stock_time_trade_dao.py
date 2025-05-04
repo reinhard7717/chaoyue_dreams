@@ -149,13 +149,16 @@ class StockTimeTradeDAO(BaseDAO):
         all_dfs = []
         offset = 0
         limit = 6000  # tushare pro接口最大limit一般为6000
+        print(f"开始日线历史任务：{stock_codes_str}")
         while True:
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
                 break
-            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "2000-01-01 00:00:00", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
-                fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
-                        "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
+            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "", "start_date": "2000-01-01 00:00:00", 
+                                           "end_date": "", "offset": offset, "limit": limit }, 
+                fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", 
+                        "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", 
+                        "low_qfq", "pre_close_hfq", "pre_close_qfq",])
             all_dfs.append(df)
             if len(df) < limit:
                 break
@@ -489,7 +492,6 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
-
 
     async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
         """
