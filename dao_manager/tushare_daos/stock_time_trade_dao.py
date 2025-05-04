@@ -445,21 +445,19 @@ class StockTimeTradeDAO(BaseDAO):
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         offset = 0
         limit = 8000
+        data_dicts = []
         while True:
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。{stock}, time_level={time_level}min")
                 break
             df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_code, "freq": time_level + "min", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": limit, "offset": offset
-            }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
-            ])
+            }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
             if df.empty:
                 break
             else:
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            data_dicts = []
             if not df.empty:
                 for row in df.itertuples():
                     if stock:
@@ -485,7 +483,6 @@ class StockTimeTradeDAO(BaseDAO):
             # cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
             # await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
-            logger.info(f"保存股票 {stock} 的{time_level}分钟级交易数据完成. 结果: {result}")
             if len(df) < limit:
                     break
             offset += limit
@@ -1055,7 +1052,7 @@ class StockTimeTradeDAO(BaseDAO):
         limit = 6000  # tushare pro接口最大limit一般为8000
         while True:
             if offset >= 100000:
-                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
                 break
             df = self.ts_pro.daily_basic(**{
                 "ts_code": stock_codes_str, "trade_date": "", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": limit, "offset": offset
@@ -1089,8 +1086,9 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             result = []
         # --- 函数末尾执行最终修剪 ---
-        cache_key = self.cache_key.stock_day_basic_info(stock_code)
-        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+        for stock_code in stock_codes:
+            cache_key = self.cache_key.stock_day_basic_info(stock_code)
+            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
         # --- 修剪调用结束 ---
         return result
 
@@ -1131,7 +1129,7 @@ class StockTimeTradeDAO(BaseDAO):
         limit = 5000  # tushare pro接口最大limit一般为8000
         while True:
             if offset >= 100000:
-                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                logger.warning(f"每日筹码及胜率 offset已达10万，停止拉取。")
                 break
             # 拉取数据
             df = self.ts_pro.cyq_perf(**{
@@ -1229,7 +1227,7 @@ class StockTimeTradeDAO(BaseDAO):
         limit = 2000  # tushare pro接口最大limit一般为8000
         while True:
             if offset >= 100000:
-                logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
+                logger.warning(f"每日筹码分布 offset已达10万，停止拉取。")
                 break
             # 拉取数据
             df = self.ts_pro.cyq_chips(**{

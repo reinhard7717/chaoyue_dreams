@@ -1319,80 +1319,139 @@ class TrendFollowingStrategy(BaseStrategy):
         """
         训练LSTM模型并保存（模型和Scaler分开保存，支持多股票）。
         """
-        self.set_model_paths(stock_code)
-        required_cols = self.get_required_columns()
+        self.set_model_paths(stock_code) # 设置该股票模型的保存路径
+        required_cols = self.get_required_columns() # 获取策略所需的所有列名
 
         # --- 确保目标列存在且是纯规则信号 ---
-        if 'final_signal' not in data.columns:
-            logger.info(f"[{stock_code}] 目标列 'final_signal' 不存在，将计算纯规则信号作为目标。")
+        target_col_name = 'final_signal' # 定义目标列名
+        if target_col_name not in data.columns:
+            logger.info(f"[{stock_code}] 目标列 '{target_col_name}' 不存在，将计算纯规则信号作为目标。")
             data = data.copy()  # 避免修改原始传入的 DataFrame
+            # 调用内部方法计算基于规则的信号
             rule_signal, _ = self._calculate_rule_based_signal(data, stock_code)
-            data['final_signal'] = rule_signal
-        elif self.lstm_model is not None:  # 如果目标列已存在，但可能被污染了，重新计算
-            logger.warning(f"[{stock_code}] 目标列 'final_signal' 已存在，为确保是纯规则信号，将重新计算。")
-            data = data.copy()
-            rule_signal, _ = self._calculate_rule_based_signal(data, stock_code)
-            data['final_signal'] = rule_signal
+            data[target_col_name] = rule_signal # 将规则信号作为目标列
+        # 可选：如果目标列已存在，但想确保它是最新的纯规则信号，可以取消下面的注释
+        # elif self.lstm_model is not None: # 如果目标列已存在，但可能被污染了，重新计算
+        #     logger.warning(f"[{stock_code}] 目标列 '{target_col_name}' 已存在，为确保是纯规则信号，将重新计算。")
+        #     data = data.copy()
+        #     rule_signal, _ = self._calculate_rule_based_signal(data, stock_code)
+        #     data[target_col_name] = rule_signal
 
-        X_train, y_train, X_val, y_val, X_test, y_test, self.scaler = prepare_data_for_lstm(
-            data=data,
-            required_columns=required_cols,
-            target_column='final_signal',
-            window_size=self.window_size,
-            scaler_type='minmax',
-            train_split=0.7,
-            val_split=0.15,
-            # feature_selection=required_cols,
-            # augment_data=False,
-            use_pca=True  # 启用PCA降维，确保特征维度可能变化
-        )
-        # 验证内容输出
-        logger.info(f"LSTM数据集 shape: X_train={X_train.shape}, y_train={y_train.shape}, "
-                    f"X_val={X_val.shape}, y_val={y_val.shape}, "
-                    f"X_test={X_test.shape}, y_test={y_test.shape}")
-        logger.info(f"Scaler对象: {self.scaler}")
-        if X_train.shape[0] == 0:
-            logger.warning("X_train 为空，无法训练LSTM模型。")
-        if X_val.shape[0] == 0:
-            logger.warning("X_val 为空，验证集将无法用于早停。")
-        if X_test.shape[0] == 0:
-            logger.warning("X_test 为空，测试集将无法用于评估。")
-        if X_train.shape[0] > 0:
-            # 动态获取特征维度，确保模型输入形状与数据匹配
-            num_features = X_train.shape[2]
-            logger.info(f"[{stock_code}] 动态获取特征维度: {num_features}")
-            
-            # 构建新模型，确保输入形状正确
-            self.lstm_model = build_lstm_model(
-                self.window_size,
-                num_features,  # 使用处理后的实际特征维度
-                model_config=self.model_config,
-                model_type='lstm',
-                summary=True
-            )
-            history = train_lstm_model(
-                X_train, y_train,
-                X_val, y_val,
-                X_test, y_test,  # 传递 X_test 和 y_test 参数
-                self.lstm_model,
-                training_config=self.training_config,
-                checkpoint_path=self.model_path.replace('.keras', '_checkpoint.keras'),
-                plot_training_history=True
-            )
-            self.lstm_model.save(self.model_path)
-            joblib.dump(self.scaler, self.scaler_path)
-            logger.info(f"[{stock_code}] LSTM模型和Scaler已保存至: {self.model_path}, {self.scaler_path}")
-            if X_test.shape[0] > 0:
-                test_loss, test_mae = self.lstm_model.evaluate(X_test, y_test / 100.0, verbose=0)
-                test_mae_original = test_mae * 100.0
-                logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE: {test_mae_original:.4f} (原始范围)")
-            else:
-                logger.warning("测试集为空，无法评估LSTM模型。")
-            return history
-        else:
-            logger.warning(f"[{stock_code}] 数据不足以训练LSTM模型。")
+        # --- 检查数据是否足够 ---
+        if data.shape[0] < self.window_size + 10: # 至少需要 window_size + 少量样本来训练和测试
+            logger.warning(f"[{stock_code}] 数据量 ({data.shape[0]}) 过少，不足以进行窗口大小为 {self.window_size} 的LSTM训练。跳过训练。")
             return None
 
+        try:
+            # --- 调用 prepare_data_for_lstm 并接收所有 8 个返回值 ---
+            X_train, y_train, X_val, y_val, X_test, y_test, feature_scaler, target_scaler = prepare_data_for_lstm(
+                data=data,                      # 包含特征和目标列的完整数据
+                required_columns=required_cols, # 策略所需的特征列（函数内部会排除目标列）
+                target_column=target_col_name,  # 指定目标列名
+                window_size=self.window_size,   # LSTM 时间窗口大小
+                scaler_type='minmax',           # 特征缩放器类型 ('minmax' 或 'standard')
+                target_scaler_type='minmax',    # 目标变量缩放器类型 ('minmax' 或 'standard') <--- 确保传递此参数
+                train_split=0.7,                # 训练集比例
+                val_split=0.15,                 # 验证集比例
+                use_pca=True,                   # 是否启用PCA降维
+                n_components=0.99               # PCA保留的方差比例 (如果 use_pca=True)
+                # apply_variance_threshold=False # 可选：是否应用方差阈值过滤
+            )
+
+            # --- 将 feature_scaler 赋值给 self.scaler ---
+            # 注意：prepare_data_for_lstm 返回的是 feature_scaler，我们将其赋给 self.scaler
+            self.scaler = feature_scaler
+
+            # --- 验证数据准备结果 ---
+            logger.info(f"[{stock_code}] LSTM数据集 shape: X_train={X_train.shape}, y_train={y_train.shape}, "
+                        f"X_val={X_val.shape}, y_val={y_val.shape}, "
+                        f"X_test={X_test.shape}, y_test={y_test.shape}")
+            logger.info(f"[{stock_code}] 特征 Scaler对象: {self.scaler}")
+            logger.info(f"[{stock_code}] 目标 Scaler对象: {target_scaler}") # 记录目标 scaler
+
+            # --- 检查训练数据是否有效 ---
+            if X_train.shape[0] == 0:
+                logger.warning(f"[{stock_code}] 准备数据后 X_train 为空，无法训练LSTM模型。")
+                return None # 无法训练，直接返回
+
+            # --- 如果训练数据有效，则继续 ---
+            # 动态获取处理后的特征维度 (PCA可能改变维度)
+            num_features = X_train.shape[2]
+            logger.info(f"[{stock_code}] 动态获取的特征维度 (可能经过PCA): {num_features}")
+
+            # --- 构建新模型，确保输入形状正确 ---
+            self.lstm_model = build_lstm_model(
+                window_size=self.window_size, # 时间窗口大小
+                num_features=num_features,    # 使用处理后的实际特征维度
+                model_config=self.model_config,# 模型配置字典
+                model_type='lstm',            # 模型类型 (lstm, bilstm, gru)
+                summary=True                  # 是否打印模型结构
+            )
+
+            # --- 训练模型，并将 target_scaler 传递给训练函数 ---
+            history = train_lstm_model(
+                X_train, y_train, # 训练数据 (特征和目标都已缩放)
+                X_val, y_val,     # 验证数据 (特征和目标都已缩放)
+                X_test, y_test,   # 测试数据 (特征和目标都已缩放)
+                model=self.lstm_model, # 已构建和编译的模型
+                target_scaler=target_scaler, # <--- 传入目标变量的缩放器
+                training_config=self.training_config, # 训练配置 (epochs, batch_size 等)
+                checkpoint_path=self.checkpoint_path, # 最佳模型保存路径 <--- 使用 self.checkpoint_path
+                plot_training_history=True # 是否绘制训练历史图
+            )
+
+            # --- 保存最终模型和特征缩放器 ---
+            # train_lstm_model 中的 ModelCheckpoint 会保存最佳模型到 checkpoint_path
+            # 这里可以选择保存训练完成后的最终模型状态到 self.model_path
+            # 或者直接使用 checkpoint_path 作为最终模型路径
+            # 为了清晰，我们假设 train_lstm_model 恢复了最佳权重，然后保存到 self.model_path
+            self.lstm_model.save(self.model_path)
+            logger.info(f"[{stock_code}] 最终LSTM模型已保存至: {self.model_path}")
+
+            # 保存特征缩放器 (self.scaler)
+            joblib.dump(self.scaler, self.scaler_path)
+            logger.info(f"[{stock_code}] 特征Scaler已保存至: {self.scaler_path}")
+
+            # --- (可选) 保存目标缩放器 ---
+            # 如果预测时需要逆缩放结果，也需要保存 target_scaler
+            target_scaler_path = self.model_path.replace('.keras', '_target_scaler.save')
+            joblib.dump(target_scaler, target_scaler_path)
+            logger.info(f"[{stock_code}] 目标Scaler已保存至: {target_scaler_path}")
+
+
+            # --- (可选) 在测试集上评估最终模型 ---
+            # train_lstm_model 内部已经进行了评估并打印日志
+            # 如果需要在这里再次评估或获取评估结果，可以取消注释
+            # if X_test.shape[0] > 0:
+            #     test_loss, test_mae_scaled = self.lstm_model.evaluate(X_test, y_test, verbose=0)
+            #     # 使用 target_scaler 估算原始范围的 MAE
+            #     try:
+            #         dummy_values = np.array([[0.0], [test_mae_scaled]])
+            #         original_values = target_scaler.inverse_transform(dummy_values)
+            #         mae_original_approx = abs(original_values[1][0] - original_values[0][0])
+            #     except Exception: mae_original_approx = np.nan
+            #     logger.info(f"[{stock_code}] 最终模型在测试集上的损失: {test_loss:.4f}, MAE (缩放后): {test_mae_scaled:.4f}, MAE (原始范围估算): {mae_original_approx:.4f}")
+            # else:
+            #     logger.warning(f"[{stock_code}] 测试集为空，无法评估最终LSTM模型。")
+
+            return history # 返回训练历史
+
+        except ValueError as ve: # 捕获特定的 ValueError
+             if "unpack" in str(ve):
+                 logger.error(f"[{stock_code}] 训练时发生解包错误: {ve}。请检查 prepare_data_for_lstm 的返回值数量和接收变量数量是否匹配。", exc_info=True)
+             else:
+                 logger.error(f"[{stock_code}] 训练时发生值错误: {ve}", exc_info=True)
+             # 清理可能未完全初始化的模型和 scaler
+             self.lstm_model = None
+             self.scaler = None
+             return None
+        except Exception as e:
+            logger.error(f"[{stock_code}] 训练和保存LSTM模型时发生未知错误: {e}", exc_info=True)
+            # 清理可能未完全初始化的模型和 scaler
+            self.lstm_model = None
+            self.scaler = None
+            return None
+        
     def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str) -> Tuple[pd.Series, Dict]:
         """
         计算基于规则的信号，并返回中间结果。

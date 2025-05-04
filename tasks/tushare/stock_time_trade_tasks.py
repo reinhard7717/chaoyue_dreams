@@ -226,7 +226,8 @@ def save_minute_data_history_batch(self, stock_code: str, time_level: str):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_code_and_time_level(stock_code, time_level))
+        result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_code_and_time_level(stock_code, time_level))
+        logger.info(f"保存股票 {stock_code} 的{time_level}分钟级交易数据完成. 结果: {result}")
     except Exception as e:
         logger.error(f"save_minute_data_history_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -329,7 +330,7 @@ def save_daily_basic_data_history_batch(self, stock_codes: List[str]):
     Args:
         stock_codes: 股票代码列表
     """
-    logger.info(f"开始处理{stock_code} 历史(每日基本信息)数据任务...")
+    logger.info(f"开始处理{','.join(stock_codes)} 历史(每日基本信息)数据任务...")
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
@@ -363,7 +364,7 @@ def save_stocks_daily_basic_data_history_task(self, batch_size: int = 16):
             if batch_codes:
                 logger.info(f"创建自选股批次任务 (大小: {len(batch_codes)})...")
                 # 使用新的批量任务，并指定队列
-                save_daily_basic_data_history_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+                save_daily_basic_data_history_batch.s(stock_codes=batch_codes).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch_codes)-1})")
         logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
