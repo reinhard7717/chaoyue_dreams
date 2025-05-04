@@ -473,7 +473,8 @@ def train_lstm_model(
         logger.warning("测试集为空，无法评估LSTM模型。")
 
     logger.info("模型训练完成。")
-    logger.info(f"训练历史: loss={history['loss'][-1]:.4f}, val_loss={history['val_loss'][-1] if 'val_loss' in history else 'N/A':.4f}")
+    logger.info(f"训练历史: loss={history.history['loss'][-1]:.4f}, val_loss={history.history['val_loss'][-1] if 'val_loss' in history.history else 'N/A':.4f}")
+
 
 
     # 可选：绘制训练历史图
