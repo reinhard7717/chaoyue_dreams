@@ -1344,17 +1344,19 @@ class TrendFollowingStrategy(BaseStrategy):
 
         try:
             # --- 调用 prepare_data_for_lstm 并接收所有 8 个返回值 ---
+            # --- 修改：明确设置 use_feature_selection=False 以避免与 use_pca=True 冲突 ---
             X_train, y_train, X_val, y_val, X_test, y_test, feature_scaler, target_scaler = prepare_data_for_lstm(
                 data=data,                      # 包含特征和目标列的完整数据
                 required_columns=required_cols, # 策略所需的特征列（函数内部会排除目标列）
                 target_column=target_col_name,  # 指定目标列名
                 window_size=self.window_size,   # LSTM 时间窗口大小
                 scaler_type='minmax',           # 特征缩放器类型 ('minmax' 或 'standard')
-                target_scaler_type='minmax',    # 目标变量缩放器类型 ('minmax' 或 'standard') <--- 确保传递此参数
+                target_scaler_type='minmax',    # 目标变量缩放器类型 ('minmax' 或 'standard')
                 train_split=0.7,                # 训练集比例
                 val_split=0.15,                 # 验证集比例
-                use_pca=True,                   # 是否启用PCA降维
-                n_components=0.99               # PCA保留的方差比例 (如果 use_pca=True)
+                use_pca=True,                   # 保持启用PCA降维 (因为原代码是这样写的)
+                use_feature_selection=False,    # <--- 显式禁用基于模型的特征选择
+                n_components=0.99,              # PCA保留的方差比例 (如果 use_pca=True)
                 # apply_variance_threshold=False # 可选：是否应用方差阈值过滤
             )
 
@@ -1377,7 +1379,7 @@ class TrendFollowingStrategy(BaseStrategy):
             # --- 如果训练数据有效，则继续 ---
             # 动态获取处理后的特征维度 (PCA可能改变维度)
             num_features = X_train.shape[2]
-            logger.info(f"[{stock_code}] 动态获取的特征维度 (可能经过PCA): {num_features}")
+            logger.info(f"[{stock_code}] 动态获取的特征维度 (经过PCA): {num_features}") # 修改日志说明
 
             # --- 构建新模型，确保输入形状正确 ---
             self.lstm_model = build_lstm_model(
@@ -1402,9 +1404,7 @@ class TrendFollowingStrategy(BaseStrategy):
 
             # --- 保存最终模型和特征缩放器 ---
             # train_lstm_model 中的 ModelCheckpoint 会保存最佳模型到 checkpoint_path
-            # 这里可以选择保存训练完成后的最终模型状态到 self.model_path
-            # 或者直接使用 checkpoint_path 作为最终模型路径
-            # 为了清晰，我们假设 train_lstm_model 恢复了最佳权重，然后保存到 self.model_path
+            # 这里我们假设 train_lstm_model 恢复了最佳权重，然后保存到 self.model_path
             self.lstm_model.save(self.model_path)
             logger.info(f"[{stock_code}] 最终LSTM模型已保存至: {self.model_path}")
 
@@ -1413,11 +1413,9 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.info(f"[{stock_code}] 特征Scaler已保存至: {self.scaler_path}")
 
             # --- (可选) 保存目标缩放器 ---
-            # 如果预测时需要逆缩放结果，也需要保存 target_scaler
             target_scaler_path = self.model_path.replace('.keras', '_target_scaler.save')
             joblib.dump(target_scaler, target_scaler_path)
             logger.info(f"[{stock_code}] 目标Scaler已保存至: {target_scaler_path}")
-
 
             # --- (可选) 在测试集上评估最终模型 ---
             # train_lstm_model 内部已经进行了评估并打印日志

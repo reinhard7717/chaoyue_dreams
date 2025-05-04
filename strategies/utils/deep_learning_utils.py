@@ -12,7 +12,6 @@ try:
 except ImportError:
     xgb = None # 如果未安装，则设为 None
     # logger.warning("XGBoost 未安装，如果选择使用 XGBoost 进行特征选择将会失败。请运行 'pip install xgboost'") # 日志记录器可能尚未初始化，暂时注释
-# from sklearn.decomposition import PCA # 不再需要 PCA
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import VarianceThreshold
 from tensorflow.keras.models import Sequential
