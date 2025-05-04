@@ -186,24 +186,20 @@ class IndicatorService:
     def _resample_and_clean_dataframe(self, df: pd.DataFrame, tf: str, min_periods: int = 1, fill_method: str = 'ffill') -> Optional[pd.DataFrame]:
         """
         对原始 DataFrame 进行重采样到标准的 K 线时间点，并进行初步填充。
-
         Args:
             df (pd.DataFrame): 从 DAO 获取的原始 DataFrame (index 是 DatetimeIndex, tz-aware)。
             tf (str): 目标时间级别字符串 (e.g., '5', '15', 'D').
             min_periods (int): 重采样聚合所需的最小原始数据点数量，小于此数量将产生 NaN。
             fill_method (str): 重采样后填充 NaN 的方法 ('ffill', 'bfill', None)。
-
         Returns:
             Optional[pd.DataFrame]: 重采样并初步填充后的 DataFrame，如果重采样后数据量过少或全为 NaN 则返回 None。
         """
         if df is None or df.empty:
             return None
-
         freq = self._get_resample_freq_str(tf)
         if freq is None:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 无法转换为有效的重采样频率。")
             return None
-
         # 定义重采样聚合规则：OHLCV + amount + turnover_rate
         # 假设原始 DataFrame 包含 'open', 'high', 'low', 'close', 'volume', 'amount', 'turnover_rate' (小写)
         agg_rules = {
@@ -218,11 +214,9 @@ class IndicatorService:
         }
         # 过滤掉 DataFrame 中不存在的列
         agg_rules = {col: rule for col, rule in agg_rules.items() if col in df.columns}
-
         if not agg_rules:
             logger.warning(f"[{df.index.name}] 时间级别 {tf} 没有找到可以聚合的列，无法进行重采样。")
             return None
-
         try:
             # 进行重采样。 label='right', closed='right' 表示时间戳代表 K 线结束时间点
             # origin='start_day' 或 'end_day' 根据需要调整，或者使用默认行为
@@ -238,17 +232,14 @@ class IndicatorService:
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             # 确保必要列在 agg_rules 中被聚合了
             required_agg_cols = [col for col in required_cols if col in agg_rules]
-
             if resampled_df[required_agg_cols].isnull().all().all():
                 logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后必要列全部为 NaN，数据无效。")
                 return None
-
             # 初步填充重采样引入的 NaN
             if fill_method == 'ffill':
                 resampled_df.ffill(inplace=True)
             elif fill_method == 'bfill':
                 resampled_df.bfill(inplace=True)
-
             # 记录重采样后的数据量和缺失情况 (初步填充后)
             missing_after_resample_fill = resampled_df.isnull().sum().sum()
             if missing_after_resample_fill > 0:
@@ -258,27 +249,20 @@ class IndicatorService:
                  missing_cols_detail = missing_cols_detail[missing_cols_detail > 0].sort_values(ascending=False).head()
                  if not missing_cols_detail.empty:
                      logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后缺失比例较高的列 (初步填充后): {missing_cols_detail.to_dict()}")
-
-
             logger.info(f"[{df.index.name}] 时间级别 {tf} 重采样完成，数据量: {len(resampled_df)} 条。")
-
             return resampled_df
-
         except Exception as e:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 重采样和清理数据时出错: {e}", exc_info=True)
             return None
-
 
     async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: int = None) -> Optional[pd.DataFrame]:
         """
         根据策略 JSON 配置文件准备包含重采样基础数据和所有计算指标的 DataFrame。
         处理数据源时间戳不规范的问题。
-
         Args:
             stock_code (str): 股票代码，用于标识具体股票。
             params_file (str): 策略参数 JSON 文件的路径，包含时间框架和指标参数。
             base_needed_bars (int, optional): 基础时间级别（最小级别）需要覆盖的大致 K 线数量（用于训练窗口等），影响 DAO 获取数据量。如果为 None，则从参数文件或使用默认值确定。
-
         Returns:
             Optional[pd.DataFrame]: 包含所有所需数据的 DataFrame，列名包含时间级别后缀（如 'RSI_12_15', 'close_60'）。
                                     数据已按最小时间级别索引对齐并最终填充。
@@ -429,31 +413,25 @@ class IndicatorService:
         # 设定一个重采样后数据量阈值，如果小于此值则认为数据不可用
         # 例如，要求重采样后数据量至少是所需基础 bar 数量的 80%
         min_usable_bars = math.ceil((base_needed_bars if base_needed_bars is not None else 30000) * 0.8)
-
         for tf, raw_df in raw_ohlcv_dfs.items():
             if raw_df is None or raw_df.empty:
                 logger.warning(f"[{stock_code}] 时间级别 {tf} 没有获取到原始数据，跳过重采样和计算。")
                 continue
-
             # 对原始数据进行重采样和初步填充
             # min_periods=1 表示只要重采样周期内有 1 个原始数据点就进行聚合
             resampled_df = self._resample_and_clean_dataframe(raw_df, tf, min_periods=1, fill_method='ffill')
-
             if resampled_df is None or resampled_df.empty:
                 logger.warning(f"[{stock_code}] 时间级别 {tf} 重采样后数据为空，跳过计算。")
                 continue
-
             # 检查重采样后数据量是否足够（特别是最小时间级别）
             if tf == min_time_level and len(resampled_df) < min_usable_bars:
                  logger.error(f"[{stock_code}] 最小时间级别 {tf} 重采样后数据量 {len(resampled_df)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。")
                  return None # 如果最小时间级别数据不可用，整个流程中断
-
             # 对于其他时间级别，如果数据量太少，也可能影响指标计算，可以设置一个相对阈值
             # 例如，重采样后数据量少于 global_max_lookback，可能指标计算会产生大量NaN
             if len(resampled_df) < global_max_lookback:
                  logger.warning(f"[{stock_code}] 时间级别 {tf} 重采样后数据量 {len(resampled_df)} 条，少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能包含大量 NaN。")
                  # 仍然保留数据，让后续填充处理
-
             # 重命名基础列，添加时间级别后缀
             rename_map = {}
             for col in resampled_df.columns:
@@ -463,29 +441,22 @@ class IndicatorService:
                       rename_map[col] = f"{col}_{tf}"
                  # 其他可能存在的列名（如 stock_code, time_level，虽然 DAO 返回的 DataFrame 索引是时间，这些列不应存在）
                  # 如果存在且需要保留，则不重命名或根据需要重命名
-
             # 如果没有需要重命名的列（例如 DataFrame 只有索引），则跳过 rename
             if rename_map:
                 resampled_df_renamed = resampled_df.rename(columns=rename_map)
             else:
                 resampled_df_renamed = resampled_df.copy()
-
             resampled_ohlcv_dfs[tf] = resampled_df_renamed
             logger.info(f"[{stock_code}] 时间级别 {tf} 重采样并清洗完成，数据量: {len(resampled_df_renamed)} 条。")
-
-
         # 确保最小时间级别的数据可用
         if min_time_level not in resampled_ohlcv_dfs or resampled_ohlcv_dfs[min_time_level] is None or resampled_ohlcv_dfs[min_time_level].empty:
              logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 重采样后的数据不可用。终止数据准备。")
              return None
-
         # 确定最小时间级别重采样后的时间索引作为合并基准
         base_index = resampled_ohlcv_dfs[min_time_level].index
         logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，索引数量: {len(base_index)}。")
-
         # 5. 计算所有指标 - 使用并行任务，基于重采样后的 OHLCV 数据
         calculated_indicators = defaultdict(list)  # {tf: [indicator_df1, indicator_df2, ...]}
-
         # 辅助函数：安全计算指标并存储结果
         async def _calculate_and_store_async(tf, indicator_name, calculation_func, base_ohlcv_df, *args, **kwargs):
             """
@@ -533,52 +504,50 @@ class IndicatorService:
                 logger.error(f"[{stock_code}] 计算指标 {indicator_name} (时间 {tf}) 时出错: {e}", exc_info=True)
                 return None
             return None # Should not reach here
-
         # 创建并行任务列表 for indicator calculation
         indicator_tasks = []
         # 遍历所有已成功重采样并清洗的时间级别
         for tf, base_ohlcv_df in resampled_ohlcv_dfs.items():
             if base_ohlcv_df is None or base_ohlcv_df.empty:
                  continue # 跳过没有数据的级别
-
             # --- 添加所有指标计算任务 ---
             # 确保这里调用 calculate_* 函数时，传入的是临时的、列名不带后缀的 DataFrame
             # 辅助函数 _calculate_and_store_async 会处理列名恢复和结果列名添加后缀
 
             # 基础评分指标
             for indi_key in bs_params.get('score_indicators', []):
-                 if tf not in bs_params.get('timeframes', []): continue # 只在指定的时间级别计算评分指标
-                 if indi_key == 'macd':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'MACD', self.calculate_macd, base_ohlcv_df,
-                                                                     period_fast=bs_params['macd_fast'],
-                                                                     period_slow=bs_params['macd_slow'],
-                                                                     signal_period=bs_params['macd_signal']))
-                 elif indi_key == 'rsi':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'RSI', self.calculate_rsi, base_ohlcv_df, period=bs_params['rsi_period']))
-                 elif indi_key == 'kdj':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'KDJ', self.calculate_kdj, base_ohlcv_df,
-                                                                     period=bs_params['kdj_period_k'],
-                                                                     signal_period=bs_params['kdj_period_d'],
-                                                                     smooth_k_period=bs_params['kdj_period_j']))
-                 elif indi_key == 'boll':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'BOLL', self.calculate_boll, base_ohlcv_df, period=bs_params['boll_period'], std_dev=bs_params['boll_std_dev']))
-                 elif indi_key == 'cci':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'CCI', self.calculate_cci, base_ohlcv_df, period=bs_params['cci_period']))
-                 elif indi_key == 'mfi':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'MFI', self.calculate_mfi, base_ohlcv_df, period=bs_params['mfi_period']))
-                 elif indi_key == 'roc':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'ROC', self.calculate_roc, base_ohlcv_df, period=bs_params['roc_period']))
-                 elif indi_key == 'dmi':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'DMI', self.calculate_dmi, base_ohlcv_df, period=bs_params['dmi_period']))
-                 elif indi_key == 'sar':
-                     indicator_tasks.append(_calculate_and_store_async(tf, 'SAR', self.calculate_sar, base_ohlcv_df, af=bs_params['sar_step'], max_af=bs_params['sar_max']))
+                if tf not in bs_params.get('timeframes', []): continue # 只在指定的时间级别计算评分指标
+                if indi_key == 'macd':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'MACD', self.calculate_macd, base_ohlcv_df,
+                                                                    period_fast=bs_params['macd_fast'],
+                                                                    period_slow=bs_params['macd_slow'],
+                                                                    signal_period=bs_params['macd_signal']))
+                elif indi_key == 'rsi':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'RSI', self.calculate_rsi, base_ohlcv_df, period=bs_params['rsi_period']))
+                elif indi_key == 'kdj':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'KDJ', self.calculate_kdj, base_ohlcv_df,
+                                                                    period=bs_params['kdj_period_k'],
+                                                                    signal_period=bs_params['kdj_period_d'],
+                                                                    smooth_k_period=bs_params['kdj_period_j']))
+                elif indi_key == 'boll':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'BOLL', self.calculate_boll, base_ohlcv_df, period=bs_params['boll_period'], std_dev=bs_params['boll_std_dev']))
+                elif indi_key == 'cci':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'CCI', self.calculate_cci, base_ohlcv_df, period=bs_params['cci_period']))
+                elif indi_key == 'mfi':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'MFI', self.calculate_mfi, base_ohlcv_df, period=bs_params['mfi_period']))
+                elif indi_key == 'roc':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'ROC', self.calculate_roc, base_ohlcv_df, period=bs_params['roc_period']))
+                elif indi_key == 'dmi':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'DMI', self.calculate_dmi, base_ohlcv_df, period=bs_params['dmi_period']))
+                elif indi_key == 'sar':
+                    indicator_tasks.append(_calculate_and_store_async(tf, 'SAR', self.calculate_sar, base_ohlcv_df, af=bs_params['sar_step'], max_af=bs_params['sar_max']))
 
             # 计算成交量确认指标 (仅在指定的时间级别计算)
             if vc_params.get('enabled', False) and tf == vc_params.get('tf'):
                 indicator_tasks.append(_calculate_and_store_async(tf, 'AMT_MA', self.calculate_amount_ma, base_ohlcv_df, period=vc_params.get('amount_ma_period', 10)))
                 indicator_tasks.append(_calculate_and_store_async(tf, 'CMF', self.calculate_cmf, base_ohlcv_df, period=vc_params.get('cmf_period', 20)))
-                # OBV 均线在 OBV 计算后处理
-                indicator_tasks.append(_calculate_and_store_async(tf, 'OBV', self.calculate_obv, base_ohlcv_df))
+            # OBV 均线在 OBV 计算后处理
+            indicator_tasks.append(_calculate_and_store_async(tf, 'OBV', self.calculate_obv, base_ohlcv_df))
 
             # 计算分析所需的指标 (STOCH, VOL_MA, VWAP) - 在所有需要的时间级别计算
             # STOCH
@@ -598,29 +567,34 @@ class IndicatorService:
                 tf, indicator_df = result
                 calculated_indicators[tf].append(indicator_df)
 
-        # 后处理 OBV 均线（需要在 OBV 计算后）
-        # 确保在 vc_params['tf'] 级别处理 OBV 均线
-        if vc_params.get('enabled', False) and vc_params.get('tf') in resampled_ohlcv_dfs:
-             tf = vc_params.get('tf')
-             # 找到该时间级别下计算出的 OBV 数据帧
-             obv_df = next((df for df in calculated_indicators.get(tf, []) if f'OBV_{tf}' in df.columns), None)
-             if obv_df is not None:
-                 obv_series_name = f'OBV_{tf}'
-                 if obv_series_name in obv_df.columns and not obv_df[obv_series_name].isnull().all():
-                     obv_series = obv_df[obv_series_name]
-                     obv_ma_period = vc_params.get('obv_ma_period', 10)
-                     try:
-                         # 在 OBV Series 上计算 SMA
-                         obv_ma_series = ta.sma(obv_series, length=obv_ma_period)
-                         if obv_ma_series is not None:
-                             obv_ma_df = obv_ma_series.to_frame(name=f'OBV_MA_{obv_ma_period}_{tf}')
-                             calculated_indicators[tf].append(obv_ma_df)
-                             logger.debug(f"[{stock_code}] 计算并添加 {tf} 级别 OBV_MA ({obv_ma_period})")
-                         else:
-                             logger.warning(f"[{stock_code}] 计算 {tf} 级别 OBV_MA ({obv_ma_period}) 返回 None")
-                     except Exception as e:
-                         logger.error(f"[{stock_code}] 计算 {tf} 级别 OBV_MA ({obv_ma_period}) 时出错: {e}", exc_info=True)
-
+        # --- 修改：后处理 OBV 均线 (在所有成功计算 OBV 的级别上计算) ---
+        obv_ma_period = vc_params.get('obv_ma_period', 10) # 获取均线周期参数
+        # 遍历所有时间级别，检查是否计算出了 OBV
+        for tf in all_time_levels: # 或者遍历 calculated_indicators.keys() 更安全
+            if tf not in calculated_indicators: # 如果这个级别没有任何指标计算成功，跳过
+                continue
+            # 查找该时间级别下计算出的 OBV 数据帧
+            obv_df = next((df for df in calculated_indicators.get(tf, []) if f'OBV_{tf}' in df.columns), None)
+            if obv_df is not None:
+                obv_series_name = f'OBV_{tf}'
+                # 检查 OBV 列是否存在且包含有效数据
+                if obv_series_name in obv_df.columns and not obv_df[obv_series_name].isnull().all():
+                    try:
+                        obv_ma_series = ta.sma(obv_df[obv_series_name], length=obv_ma_period)
+                        # 检查均线计算结果是否有效
+                        if obv_ma_series is not None and not obv_ma_series.isnull().all():
+                            obv_ma_df = obv_ma_series.to_frame(name=f'OBV_MA_{obv_ma_period}_{tf}')
+                            calculated_indicators[tf].append(obv_ma_df) # 添加到对应 tf 的列表中
+                            # logger.debug(f"[{stock_code}] 时间级别 {tf} 计算 OBV 均线 (周期 {obv_ma_period}) 完成。") # 使用 debug 级别
+                        else:
+                            logger.warning(f"[{stock_code}] 时间级别 {tf} 计算 OBV 均线 (周期 {obv_ma_period}) 结果为空或全为 NaN。OBV 数据可能存在问题。")
+                            # logger.debug(f"[{stock_code}] 时间级别 {tf} 用于计算 MA 的 OBV 数据 (前5行):\n{obv_df[obv_series_name].head()}") # 可选调试信息
+                    except Exception as e:
+                         logger.error(f"[{stock_code}] 时间级别 {tf} 计算 OBV 均线 (周期 {obv_ma_period}) 时出错: {e}", exc_info=True)
+                else:
+                    logger.warning(f"[{stock_code}] 时间级别 {tf} 未找到有效的 OBV 列 ({obv_series_name}) 或该列全为 NaN，无法计算 OBV 均线。")
+            # else: # OBV 本身就没计算出来，MA 自然也无法计算
+            #     logger.debug(f"[{stock_code}] 时间级别 {tf} 未找到 OBV 数据帧，跳过 OBV 均线计算。")
 
         # 后处理布林带列名修正 (已在 _calculate_and_store_async 添加后缀，这里可能不需要额外修正，除非 pandas_ta 返回的原始列名不是标准格式)
         # 检查 calculate_boll 的返回值列名格式，如果它是 BB_UPPER_period 这种格式，_calculate_and_store_async 会自动加上时间后缀
