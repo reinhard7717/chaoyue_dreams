@@ -394,17 +394,17 @@ class IndicatorDAO(BaseDAO):
             expected_count = len(expected_times_index)
             missing_ratio = missing_count / expected_count if expected_count else 0
 
-            if missing_count > 0:
-                # 打印缺失警告，包括数量、比例和部分缺失时间点
-                # 将缺失时间转换为字符串列表以便日志打印，最多打印前 10 个
-                logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {missing_count}，缺失比例: {missing_ratio:.2%}，缺失时间 (部分): {[str(t) for t in missing_index[:10]]} ...")
+            # if missing_count > 0:
+            #     # 打印缺失警告，包括数量、比例和部分缺失时间点
+            #     # 将缺失时间转换为字符串列表以便日志打印，最多打印前 10 个
+            #     logger.warning(f"原始K线数据时间序列有缺失: {stock_code} {time_level_str}，缺失数量: {missing_count}，缺失比例: {missing_ratio:.2%}，缺失时间 (部分): {[str(t) for t in missing_index[:10]]} ...")
 
-                # --- 移除之前基于高阈值拒绝返回数据的逻辑 (已在上一次修改中移除) ---
-                # 保留警告，但不在这里拒绝返回数据
+            #     # --- 移除之前基于高阈值拒绝返回数据的逻辑 (已在上一次修改中移除) ---
+            #     # 保留警告，但不在这里拒绝返回数据
 
-            else:
-                # 如果没有缺失，记录信息
-                logger.info(f"原始K线数据时间序列无缺失: {stock_code} {time_level_str}")
+            # else:
+            #     # 如果没有缺失，记录信息
+            #     logger.info(f"原始K线数据时间序列无缺失: {stock_code} {time_level_str}")
 
             # 无论缺失多少，只要数据库查询有数据，就返回数据列表
             # 数据质量的最终判断和处理应由调用方 (Service 层) 负责

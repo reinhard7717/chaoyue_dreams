@@ -153,7 +153,7 @@ class StockTimeTradeDAO(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
                 break
-            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "2020-01-01 00:00:00", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
+            df = self.ts_pro.stk_factor(**{ "ts_code": stock_codes_str, "trade_date": "2000-01-01 00:00:00", "start_date": "","end_date": "", "offset": offset, "limit": limit }, 
                 fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", "amount", "adj_factor",
                         "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", "low_qfq", "pre_close_hfq", "pre_close_qfq",])
             all_dfs.append(df)
@@ -330,8 +330,10 @@ class StockTimeTradeDAO(BaseDAO):
         """
         result_df = pd.DataFrame()
         for time_level in time_level:
+            offset = 0
+            limit = 8000  # tushare pro接口最大limit一般为8000
             df = self.ts_pro.stk_mins(**{
-                "ts_code": stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": stock_code, "freq": time_level + "min", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
             ])
@@ -381,17 +383,12 @@ class StockTimeTradeDAO(BaseDAO):
                 if offset >= 100000:
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
-                df = self.ts_pro.stk_mins(
-                    ts_code=stock_codes_str,
-                    freq=time_level + "min",
-                    start_date="2020-01-01 00:00:00",
-                    end_date="",
-                    limit=limit,
-                    offset=offset
-                , fields=["ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"])
+                df = self.ts_pro.stk_mins(**{
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "2020-01-01 00:00:00", "end_date": "", 
+                    "limit": limit, "offset": offset
+                }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 if df.empty:
                     break
-
                 # 数据清洗
                 df = df.replace(['nan', 'NaN', ''], np.nan)
                 df = df.where(pd.notnull(df), None)
@@ -403,16 +400,16 @@ class StockTimeTradeDAO(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-                        # 2. 准备缓存数据
-                        cache_data_dict = data_dict.copy()
-                        if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                            cache_data_dict['stock_code'] = row.ts_code
-                            del cache_data_dict['stock']
-                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                        else:
-                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+                        # # 2. 准备缓存数据
+                        # cache_data_dict = data_dict.copy()
+                        # if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                        #     cache_data_dict['stock_code'] = row.ts_code
+                        #     del cache_data_dict['stock']
+                        # prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                        # if prepared_data:
+                        #     await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                        # else:
+                        #     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
 
                 # 保存本批次数据
                 if data_dicts:
@@ -423,10 +420,10 @@ class StockTimeTradeDAO(BaseDAO):
                     )
                     logger.info(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 offset={offset} 完成. 结果: {result}")
 
-                # 修剪缓存
-                for stock_code in stock_codes:
-                    cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                # # 修剪缓存
+                # for stock_code in stock_codes:
+                #     cache_key = self.cache_key.history_time_trade(stock_code, time_level)
+                #     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
 
                 if len(df) < limit:
                     break
@@ -434,6 +431,65 @@ class StockTimeTradeDAO(BaseDAO):
 
         logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据全部完成.")
         return
+
+    async def save_minute_time_trade_history_by_stock_code_and_time_level(self, stock_code: str, time_level: str) -> None:
+        """
+        保存股票的历史分钟级交易数据
+        接口：stk_mins
+        描述：获取A股分钟数据，支持1min/5min/15min/30min/60min行情，提供Python SDK和 http Restful API两种方式
+        限量：单次最大8000行数据，可以通过股票代码和时间循环获取，本接口可以提供超过10年历史分钟数据
+        """
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        offset = 0
+        limit = 8000
+        while True:
+            if offset >= 100000:
+                logger.warning(f"offset已达10万，停止拉取。{stock}, time_level={time_level}min")
+                break
+            df = self.ts_pro.stk_mins(**{
+                "ts_code": stock_code, "freq": time_level + "min", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": limit, "offset": offset
+            }, fields=[
+                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
+            ])
+            if df.empty:
+                break
+            else:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+            data_dicts = []
+            if not df.empty:
+                for row in df.itertuples():
+                    if stock:
+                        data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                        data_dicts.append(data_dict)
+                        # # 2. 准备缓存数据
+                        # cache_data_dict = data_dict.copy()
+                        # if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                        #     # 替换为 stock_code
+                        #     cache_data_dict['stock_code'] = row.ts_code
+                        #     del cache_data_dict['stock'] # 删除实例键
+                        # prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                        # if prepared_data:
+                        #     await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                        # else:
+                        #     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockMinuteData,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
+            )
+             # --- 函数末尾执行最终修剪 ---
+            # cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+            # await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+            # --- 修剪调用结束 ---
+            logger.info(f"保存股票 {stock} 的{time_level}分钟级交易数据完成. 结果: {result}")
+            if len(df) < limit:
+                    break
+            offset += limit
+        else:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        return result
+
 
     async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
         """
