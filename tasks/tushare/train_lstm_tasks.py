@@ -36,7 +36,7 @@ def batch_train_following_strategy_lstm(self, stock_code: str, params_file: str 
         logger.warning(f"[{stock_code}] 未能准备足够的数据 (prepare_strategy_dataframe 返回空)。")
         return
     logger.info(f"开始训练: {stock_code}")
-    strategy = TrendFollowingStrategy(params_file, model_dir=model_dir)
+    strategy = TrendFollowingStrategy(params_file, base_model_dir=model_dir)
     try:
         strategy.train_and_save_lstm_model(data_df, stock_code)
     except Exception as e:
