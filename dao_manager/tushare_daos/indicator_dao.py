@@ -28,18 +28,18 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
     生成A股应有的K线标准结束时间点，基于实际交易日历。
     Args:
         trade_days: list of datetime.date，实际交易日列表 (naive date)
-        time_level: 'day', 'week', 'month', '5', '15', '30', '60'
+        time_level: 'd', 'w', 'm', '5', '15', '30', '60'
     Returns:
         list of pd.Timestamp (Asia/Shanghai)，按时间升序排列
     """
     times = []
     default_tz = timezone.get_default_timezone() # 获取默认时区 (Asia/Shanghai)
 
-    if time_level == 'day':
+    if time_level.lower() == 'd':
         for day in trade_days:
             # 日线数据的时间点通常设为当日开始（午夜 00:00:00），并标记为默认时区
             times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz=default_tz))
-    elif time_level == 'week':
+    elif time_level.lower() == 'w':
         # 只保留每周最后一个交易日的午夜时间点
         week_map = {}
         for day in trade_days:
@@ -52,7 +52,7 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
         # 按照日期排序，转换为时区感知的 Timestamp
         for day in sorted(week_map.values()):
             times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz=default_tz))
-    elif time_level == 'month':
+    elif time_level.lower() == 'm':
         # 只保留每月最后一个交易日的午夜时间点
         month_map = {}
         for day in trade_days:
@@ -204,11 +204,11 @@ class IndicatorDAO(BaseDAO):
 
                          # 根据时间级别选择对应的模型类
                          ModelClass: Type[models.Model] # Django Model 类型提示
-                         if time_level_str == 'day':
+                         if time_level_str.lower() == 'd':
                              ModelClass = StockDailyData
-                         elif time_level_str == 'week':
+                         elif time_level_str.lower() == 'w':
                              ModelClass = StockWeeklyData
-                         elif time_level_str == 'month':
+                         elif time_level_str.lower() == 'm':
                              ModelClass = StockMonthlyData
                          else:
                              ModelClass = StockMinuteData # 分钟线模型
