@@ -39,12 +39,12 @@ class TrendFollowingStrategy(BaseStrategy):
     strategy_name = "TrendFollowingStrategy"
     focus_timeframe = '30' # 默认主要关注的时间框架
 
-    def __init__(self, params_file: str = "strategies/indicator_parameters.json", model_dir="models"):
+    def __init__(self, params_file: str = "strategies/indicator_parameters.json", base_model_dir="models"):
         """初始化策略，加载参数"""
         self.params_file = params_file
         self.params = self._load_params()
         self.strategy_name = self.params.get('trend_following_strategy_name', self.strategy_name)
-        self.model_dir = model_dir
+        self.base_model_dir = base_model_dir # 存储基础模型目录
 
         # --- 加载趋势跟踪特定参数 ---
         self.tf_params = self.params.get('trend_following_params', {})
@@ -68,9 +68,9 @@ class TrendFollowingStrategy(BaseStrategy):
         self.stoch_oversold_threshold = self.tf_params.get('stoch_oversold_threshold', 20)
         self.stoch_overbought_threshold = self.tf_params.get('stoch_overbought_threshold', 80)
         self.vwap_deviation_threshold = self.tf_params.get('vwap_deviation_threshold', 0.01)
-        # --- 新增趋势确认周期参数 ---
+        # --- 趋势确认周期参数 ---
         self.trend_confirmation_periods = self.tf_params.get('trend_confirmation_periods', 3)  # 默认值为3个周期
-        # --- 新增动态参数调整相关变量 ---
+        # --- 动态参数调整相关变量 ---
         self.volatility_adjust_factor = 1.0  # 波动率调整因子，初始值为1.0
         # --- 结束加载参数 ---
         self.intermediate_data: Optional[pd.DataFrame] = None
@@ -82,41 +82,147 @@ class TrendFollowingStrategy(BaseStrategy):
 
         # --- 动态加载深度学习模型 ---
         self.lstm_model = None
+        self.feature_scaler = None # 区分特征和目标变量的 scaler
         self.scaler = None
-        self.window_size = 60
-        self.model_path = "models/trend_following_lstm.keras"
+        # 从参数文件加载窗口大小，如果不存在则使用默认值 60
+        self.window_size = self.tf_params.get('lstm_window_size', 60)
+        # 股票特定的模型和 scaler 路径将在 set_model_paths 中设置
+        self.model_path = None
+        self.scaler_path = None
         self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.keras"
-        self.model_config = {
-            'layers': [  # <--- 减少单元数，增加 Dropout
-                {'units': 32, 'return_sequences': True, 'dropout': 0.4, 'l2_reg': 0.01},  # 单元数从 64 减到 32
-                {'units': 16, 'return_sequences': False, 'dropout': 0.4, 'l2_reg': 0.01}  # 单元数从 32 减到 16
+        # LSTM 模型和训练配置 (从参数文件加载或使用默认值)
+        self.model_config = self.tf_params.get('lstm_model_config', {
+            'layers': [
+                {'units': 32, 'return_sequences': True, 'dropout': 0.4, 'l2_reg': 0.01},
+                {'units': 16, 'return_sequences': False, 'dropout': 0.4, 'l2_reg': 0.01}
             ],
-            'dense_layers': [{'units': 8, 'dropout': 0.3, 'l2_reg': 0.01}],  # <--- 减少 dense 层单元数
+            'dense_layers': [{'units': 8, 'dropout': 0.3, 'l2_reg': 0.01}],
             'optimizer': 'adam',
-            'learning_rate': 0.001,  # 稍后在 train_lstm_model 中调整
+            'learning_rate': 0.001,
             'loss': 'mse',
             'metrics': ['mae']
-        }
-        self.training_config = {
-            'epochs': 100,  # 保持原有
+        })
+        self.training_config = self.tf_params.get('lstm_training_config', {
+            'epochs': 100,
             'batch_size': 32,
-            'early_stopping_patience': 20,  # <--- 增加耐心值，从 15 改为 20
+            'early_stopping_patience': 20,
             'reduce_lr_patience': 5,
             'reduce_lr_factor': 0.5,
             'monitor_metric': 'val_loss',
             'verbose': 1,
-            'learning_rate': 0.0005  # <--- 降低学习率，从 0.001 改为 0.0005（在 train_lstm_model 中会使用）
-        }
+            'learning_rate': 0.0005
+        })
+        # 确保训练配置中的学习率覆盖模型配置中的学习率
+        if 'learning_rate' in self.training_config:
+             self.model_config['learning_rate'] = self.training_config['learning_rate']
 
         super().__init__(self.params)
 
-    def set_model_paths(self, stock_code):
+    def set_model_paths(self, stock_code: str):
+        """
+        为特定股票设置模型和 scaler 的保存路径。
+        """
         # 每只股票单独一个目录
-        stock_model_dir = os.path.join(self.model_dir, stock_code)
+        stock_model_dir = os.path.join(self.base_model_dir, stock_code)
         if not os.path.exists(stock_model_dir):
             os.makedirs(stock_model_dir)
+            logger.info(f"创建股票模型目录: {stock_model_dir}")
+
         self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.keras")
         self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_scaler.save")
+        logger.debug(f"设置股票 {stock_code} 的模型路径: {self.model_path}, Scaler路径: {self.scaler_path}")
+
+    # 为特定股票训练 LSTM 模型并保存
+    def train_lstm_model_for_stock(self, data: pd.DataFrame, stock_code: str, required_columns: List[str]):
+        """
+        为特定股票训练 LSTM 模型并保存模型和 scaler。
+        """
+        self.set_model_paths(stock_code) # 设置股票特定的路径
+
+        logger.info(f"开始为股票 {stock_code} 训练 LSTM 模型...")
+
+        # 1. 数据准备
+        try:
+            # 使用 prepare_data_for_lstm 准备数据，目标变量是规则生成的 final_signal
+            X_train, y_train, X_val, y_val, X_test, y_test, feature_scaler, target_scaler = prepare_data_for_lstm(
+                data=data,
+                required_columns=required_columns,
+                target_column='final_signal', # 目标列是规则生成的 final_signal
+                window_size=self.window_size,
+                # 从参数加载 scaler 类型，如果不存在则使用默认值
+                scaler_type=self.tf_params.get('lstm_scaler_type', 'minmax'),
+                train_split=self.tf_params.get('lstm_train_split', 0.7),
+                val_split=self.tf_params.get('lstm_val_split', 0.15),
+                # 从参数加载特征选择和 PCA 配置
+                use_feature_selection=self.tf_params.get('lstm_use_feature_selection', True),
+                feature_selector_model=self.tf_params.get('lstm_feature_selector_model', 'rf'),
+                max_features_fs=self.tf_params.get('lstm_max_features_fs', 50),
+                feature_selection_threshold=self.tf_params.get('lstm_feature_selection_threshold', 'median'),
+                use_pca=self.tf_params.get('lstm_use_pca', False),
+                n_components=self.tf_params.get('lstm_pca_n_components', 0.99),
+                target_scaler_type=self.tf_params.get('lstm_target_scaler_type', 'minmax')
+            )
+            self.feature_scaler = feature_scaler
+            self.target_scaler = target_scaler
+
+            # 检查数据是否有效
+            if X_train.shape[0] == 0 or X_train.shape[2] == 0:
+                 logger.error(f"股票 {stock_code} 数据准备失败，训练集为空或特征维度为零。")
+                 self.lstm_model = None
+                 self.feature_scaler = None
+                 self.target_scaler = None
+                 return # 停止训练
+
+            num_features = X_train.shape[2] # 获取实际使用的特征数量
+
+        except Exception as e:
+            logger.error(f"股票 {stock_code} 数据准备出错: {e}", exc_info=True)
+            self.lstm_model = None
+            self.feature_scaler = None
+            self.target_scaler = None
+            return # 停止训练
+
+        # 2. 构建模型
+        try:
+            model = build_lstm_model(
+                window_size=self.window_size,
+                num_features=num_features,
+                model_config=self.model_config,
+                # 从参数加载模型类型，如果不存在则使用默认值
+                model_type=self.tf_params.get('lstm_model_type', 'lstm'),
+                summary=True
+            )
+            self.lstm_model = model # 暂存模型对象
+        except Exception as e:
+            logger.error(f"股票 {stock_code} 构建 LSTM 模型出错: {e}", exc_info=True)
+            self.lstm_model = None
+            return # 停止训练
+
+        # 3. 训练模型
+        try:
+            # 使用 stock-specific model_path 作为 checkpoint_path
+            train_lstm_model(
+                X_train, y_train, X_val, y_val, X_test, y_test,
+                model=self.lstm_model,
+                target_scaler=self.target_scaler, # 传入目标变量 scaler
+                training_config=self.training_config,
+                checkpoint_path=self.model_path, # 保存到股票特定的路径
+                # 从参数加载是否绘图，如果不存在则使用默认值 False
+                plot_training_history=self.tf_params.get('lstm_plot_history', False)
+            )
+            logger.info(f"股票 {stock_code} LSTM 模型训练完成，最佳模型已保存到 {self.model_path}")
+
+            # 4. 保存 Scaler
+            try:
+                # 使用 joblib 保存 feature_scaler 和 target_scaler
+                joblib.dump({'feature_scaler': self.feature_scaler, 'target_scaler': self.target_scaler}, self.scaler_path)
+                logger.info(f"股票 {stock_code} Scaler 已保存到 {self.scaler_path}")
+            except Exception as e:
+                logger.error(f"股票 {stock_code} 保存 Scaler 出错: {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"股票 {stock_code} 训练 LSTM 模型出错: {e}", exc_info=True)
+            self.lstm_model = None # 训练失败，模型对象置空
 
     def _load_params(self) -> Dict[str, Any]:
         """从 JSON 文件加载参数"""
@@ -762,59 +868,134 @@ class TrendFollowingStrategy(BaseStrategy):
         """
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
         """
-        # logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
-        # 调用 _calculate_rule_based_signal 方法，获取 final_signal 和中间结果
+        logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
+
+        # 1. 计算规则基础信号 (final_signal)
+        # 假设 _calculate_rule_based_signal 方法存在并返回规则信号和中间结果
         final_signal, intermediate_results = self._calculate_rule_based_signal(data=data, stock_code=stock_code)
-        self.load_lstm_model(data, stock_code)  # 加载模型
-        # LSTM模型预测
+
+        # 2. LSTM模型预测
+        # 初始化 LSTM 信号为中性分
         lstm_signal = pd.Series(50.0, index=data.index)
-        print(f"LSTM模型对象: {self.lstm_model}, Scaler对象: {self.scaler}")
-        if self.lstm_model is not None and self.scaler is not None:
+        # 获取 LSTM 需要的特征列 (与 prepare_data_for_lstm 中的 required_columns 一致)
+        required_cols = self.get_required_columns()
+
+        # 设置股票特定的模型路径
+        self.set_model_paths(stock_code)
+
+        # 检查模型和 scaler 是否存在，如果不存在则训练
+        if not os.path.exists(self.model_path) or not os.path.exists(self.scaler_path):
+            logger.info(f"股票 {stock_code} 的 LSTM 模型或 Scaler 不存在，开始训练...")
+            # 训练模型，训练完成后 self.lstm_model, self.feature_scaler, self.target_scaler 会被设置
+            # 注意：这里需要将规则生成的 final_signal 添加到 data 中，作为 LSTM 的目标变量
+            data_with_target = data.copy()
+            data_with_target['final_signal'] = final_signal # 将规则信号作为 LSTM 的训练目标
+            self.train_lstm_model_for_stock(data_with_target, stock_code, required_cols)
+        else:
+            # 如果模型和 scaler 存在，则加载
+            self.load_lstm_model(stock_code)
+
+        # 如果模型和 scaler 成功加载或训练，则进行预测
+        if self.lstm_model is not None and self.feature_scaler is not None and self.target_scaler is not None:
             try:
-                required_cols = self.get_required_columns()
-                data_copy = data[required_cols].copy()
-                data_copy = data_copy.ffill().bfill()
-                if not data_copy.isnull().any().any():
-                    features_scaled = self.scaler.transform(data_copy.values)
-                    X = []
-                    if not hasattr(self, 'window_size') or self.window_size <= 0:
-                        logger.error("window_size 未定义或无效，无法生成LSTM预测数据。")
-                    elif len(features_scaled) >= self.window_size:
-                        for i in range(len(features_scaled) - self.window_size):
-                            X.append(features_scaled[i:i + self.window_size])
-                        X = np.array(X)
-                        if X.shape[0] > 0:
-                            print(f"准备进行LSTM预测，X shape: {X.shape}")
-                            lstm_pred = self.lstm_model.predict(X, verbose=0)
-                            print(f"LSTM预测结果: {lstm_pred[:5]}")
-                            if len(lstm_pred) <= len(lstm_signal):
-                                lstm_signal.iloc[-len(lstm_pred):] = lstm_pred.flatten() * 100.0
-                                print(f"LSTM模型预测完成，最新信号: {lstm_signal.iloc[-1]}")
-                            else:
-                                logger.warning("LSTM预测结果长度超出信号长度，忽略多余预测。")
-                        else:
-                            logger.warning("数据不足以生成LSTM预测信号。")
+                # 准备用于预测的数据
+                # 使用 get_required_columns 获取特征列，并确保这些列在 data 中存在
+                # 填充 NaN 值，与 prepare_data_for_lstm 中的处理一致
+                # 只选择实际存在的列进行预测
+                features_for_prediction = data.loc[:, [col for col in required_cols if col in data.columns]].copy()
+                features_for_prediction = features_for_prediction.ffill().bfill()
+
+                if features_for_prediction.isnull().any().any():
+                    logger.warning(f"股票 {stock_code} 用于 LSTM 预测的数据中仍有 NaN 值，可能影响预测结果。将尝试填充为0。")
+                    features_for_prediction.fillna(0, inplace=True)
+
+
+                if not features_for_prediction.empty and len(features_for_prediction) >= self.window_size:
+                    # 应用特征缩放 (使用加载或训练好的 feature_scaler)
+                    features_scaled = self.feature_scaler.transform(features_for_prediction.values)
+
+                    # 构建预测所需的窗口数据
+                    X_predict = []
+                    # 从倒数 window_size 个数据点开始构建最后一个窗口
+                    if len(features_scaled) >= self.window_size:
+                         X_predict.append(features_scaled[-self.window_size:])
+                         X_predict = np.array(X_predict)
+
+                         if X_predict.shape[0] > 0:
+                             # 进行预测
+                             # predict 返回的是缩放后的结果
+                             lstm_pred_scaled = self.lstm_model.predict(X_predict, verbose=0)
+
+                             # 逆缩放预测结果 (使用加载或训练好的 target_scaler)
+                             # lstm_pred_scaled 是二维数组 (n_samples, 1)
+                             lstm_pred_original_scale = self.target_scaler.inverse_transform(lstm_pred_scaled)
+
+                             # 将预测结果映射到信号 Series 的最后一个位置
+                             # 注意：LSTM 预测的是窗口 *之后* 的一个点
+                             # 如果我们预测的是当前时间点的信号，那么需要将预测结果对应到 data 的最后一个索引
+                             # 如果预测的是未来一个时间点的信号，则需要不同的处理
+                             # 假设这里预测的是当前时间点的信号
+                             if not lstm_pred_original_scale.flatten().tolist():
+                                 logger.warning(f"股票 {stock_code} LSTM 预测结果为空。")
+                             else:
+                                 # 将预测结果（原始尺度）转换为 0-100 的信号分
+                                 # 假设原始尺度的目标变量 (final_signal) 范围大致就是 0-100 分
+                                 # 那么逆缩放后的值就是预测的分数
+                                 lstm_signal_score = lstm_pred_original_scale.flatten()[-1] # 取最后一个预测值
+                                 # 将预测分数限制在 0-100 范围内
+                                 lstm_signal.iloc[-1] = np.clip(lstm_signal_score, 0, 100)
+                                 logger.info(f"股票 {stock_code} LSTM 模型预测完成，最新预测信号: {lstm_signal.iloc[-1]:.2f}")
+                         else:
+                             logger.warning(f"股票 {stock_code} 数据不足以构建 LSTM 预测窗口。")
                     else:
-                        logger.warning(f"数据长度 {len(features_scaled)} 小于窗口大小 {self.window_size}，无法生成LSTM预测信号。")
+                         logger.warning(f"股票 {stock_code} 数据长度 {len(features_for_prediction)} 小于窗口大小 {self.window_size}，无法进行 LSTM 预测。")
                 else:
-                    logger.warning("数据中仍有缺失值，无法生成LSTM预测信号。")
+                    logger.warning(f"股票 {stock_code} 用于 LSTM 预测的数据为空或长度不足。")
+
             except Exception as e:
-                logger.error(f"LSTM模型预测出错: {e}")
-        # 结合规则信号和LSTM信号
-        combined_signal = 0.7 * final_signal + 0.3 * lstm_signal
-        combined_signal = combined_signal.clip(0, 100).round(2)
+                logger.error(f"股票 {stock_code} LSTM 模型预测出错: {e}", exc_info=True)
+                # 预测出错时，lstm_signal 保持默认的 50.0
+
+        else:
+            logger.warning(f"股票 {stock_code} 的 LSTM 模型或 Scaler 未成功加载/训练，跳过 LSTM 预测。")
+
+        # 3. 结合规则信号和LSTM信号
+        # 确保 combined_signal 的长度与原始数据一致
+        combined_signal = pd.Series(50.0, index=data.index) # 初始化为中性分
+        # 只有当 final_signal 和 lstm_signal 都有值时才进行组合
+        # 注意：lstm_signal 目前只在最后一个点有预测值，其他点是 50.0
+        # 如果需要对历史数据也进行 LSTM 预测，需要修改上面的预测逻辑
+        # 假设我们只关心最新的组合信号
+        if not final_signal.empty and not lstm_signal.empty:
+             # 组合最新的信号点
+             latest_final_signal = final_signal.iloc[-1] if not final_signal.isnull().all() else 50.0
+             latest_lstm_signal = lstm_signal.iloc[-1] if not lstm_signal.isnull().all() else 50.0
+             latest_combined_signal = 0.7 * latest_final_signal + 0.3 * latest_lstm_signal
+             combined_signal.iloc[-1] = np.clip(latest_combined_signal, 0, 100).round(2)
+             # 对于历史数据，combined_signal 可以等于 final_signal，或者也进行历史 LSTM 预测
+             # 为了简化，这里只组合最新的点，历史点使用规则信号
+             combined_signal.iloc[:-1] = final_signal.iloc[:-1] # 历史数据使用规则信号
+        else:
+             # 如果规则信号或 LSTM 信号为空，则组合信号也为空或中性
+             logger.warning(f"股票 {stock_code} 规则信号或 LSTM 信号为空，组合信号将不完整或为中性。")
+             combined_signal = final_signal.copy() # 如果规则信号存在，使用规则信号
+
+
         # --- 存储中间数据 ---
         try:
+            # 从 intermediate_results 获取规则计算的中间数据
             base_scores_df = intermediate_results.get('base_scores_df', pd.DataFrame(index=data.index))
             trend_analysis_df = intermediate_results.get('trend_analysis_df', pd.DataFrame(index=data.index))
             divergence_signals = intermediate_results.get('divergence_signals', pd.DataFrame(index=data.index))
+
+            # 将规则信号、LSTM信号和组合信号添加到中间数据中
             self.intermediate_data = pd.concat([
                 base_scores_df,
                 trend_analysis_df,
-                divergence_signals.add_prefix('div_'),
+                divergence_signals.add_prefix('div_'), # 给背离信号列加前缀，避免冲突
                 pd.DataFrame({
                     'final_signal': final_signal,
-                    'lstm_signal': lstm_signal,
+                    'lstm_signal': lstm_signal, # 这里的 lstm_signal 只有最后一个点有预测值
                     'combined_signal': combined_signal
                 }, index=data.index)
             ], axis=1)
@@ -825,10 +1006,15 @@ class TrendFollowingStrategy(BaseStrategy):
                 'lstm_signal': lstm_signal,
                 'combined_signal': combined_signal
             }, index=data.index)
-        logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新组合信号: {combined_signal.iloc[-1] if not combined_signal.empty else 'N/A'}")
-        self.analyze_signals(stock_code)
-        return combined_signal
 
+
+        logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新组合信号: {combined_signal.iloc[-1] if not combined_signal.empty else 'N/A'}")
+
+        # 调用 analyze_signals 方法进行分析，传入股票代码
+        self.analyze_signals(stock_code)
+
+        return combined_signal
+    
     def get_intermediate_data(self) -> Optional[pd.DataFrame]:
         """返回中间计算结果"""
         return self.intermediate_data
@@ -937,7 +1123,8 @@ class TrendFollowingStrategy(BaseStrategy):
              trend_duration_info['duration_status'] = 'short'
         return trend_duration_info
 
-    def analyze_signals(self, stock_code: str) -> Optional[pd.DataFrame]:
+    # 修改 analyze_signals 方法，主要分析 combined_signal
+    def analyze_signals(self, stock_code: str) -> Optional[Dict[str, Any]]: # Changed return type to Dict
         """
         分析趋势策略信号，增加对新指标、趋势增强/枯竭、背离的解读，优化操作建议。
         适应A股 T+1 交易制度，增加止损止盈建议。
@@ -951,19 +1138,20 @@ class TrendFollowingStrategy(BaseStrategy):
 
         analysis_results = {}
         data = self.intermediate_data
-        latest_data = data.iloc[-1] if not data.empty else pd.Series(dtype=object)  # 使用空的 Series 避免后续 get 出错
+        latest_data = data.iloc[-1] if not data.empty else pd.Series(dtype=object)
 
-        # --- 统计分析 (与原代码类似，可以增加新指标统计) ---
-        if 'final_signal' in data:
-            final_signal = data['final_signal'].dropna()
-            if not final_signal.empty:
-                analysis_results['final_signal_mean'] = final_signal.mean()
-                analysis_results['final_signal_median'] = final_signal.median()  # 中位数可能更稳健
-                analysis_results['final_signal_std'] = final_signal.std()  # 标准差看信号波动
-                analysis_results['final_signal_bullish_ratio'] = (final_signal > 55).mean()
-                analysis_results['final_signal_bearish_ratio'] = (final_signal < 45).mean()
-                analysis_results['final_signal_strong_bullish_ratio'] = (final_signal >= 70).mean()
-                analysis_results['final_signal_strong_bearish_ratio'] = (final_signal <= 30).mean()
+        # --- 统计分析 (基于 combined_signal) ---
+        if 'combined_signal' in data:
+            combined_signal = data['combined_signal'].dropna()
+            if not combined_signal.empty:
+                analysis_results['combined_signal_mean'] = combined_signal.mean()
+                analysis_results['combined_signal_median'] = combined_signal.median()
+                analysis_results['combined_signal_std'] = combined_signal.std()
+                analysis_results['combined_signal_bullish_ratio'] = (combined_signal > 55).mean()
+                analysis_results['combined_signal_bearish_ratio'] = (combined_signal < 45).mean()
+                analysis_results['combined_signal_strong_bullish_ratio'] = (combined_signal >= 70).mean()
+                analysis_results['combined_signal_strong_bearish_ratio'] = (combined_signal <= 30).mean()
+        # Keep analysis for other intermediate signals if needed
         if 'alignment_signal' in data:
             alignment = data['alignment_signal'].dropna()
             if not alignment.empty:
@@ -980,81 +1168,92 @@ class TrendFollowingStrategy(BaseStrategy):
             trend_strength_score_series = data['trend_strength_score'].dropna()
             if not trend_strength_score_series.empty:
                 analysis_results['trend_strength_mean'] = trend_strength_score_series.mean()
-                analysis_results['trend_strength_strong_bull_ratio'] = (trend_strength_score_series >= 1.5).mean()  # 强趋势占比
+                analysis_results['trend_strength_strong_bull_ratio'] = (trend_strength_score_series >= 1.5).mean()
                 analysis_results['trend_strength_strong_bear_ratio'] = (trend_strength_score_series <= -1.5).mean()
-        # --- 计算趋势持续时间 ---
-        trend_duration_info = self._calculate_trend_duration(data)
+
+        # --- 计算趋势持续时间 (基于 final_signal，因为 combined_signal 历史数据可能不包含 LSTM 预测) ---
+        # 或者，如果 combined_signal 历史数据也包含规则信号，可以使用 combined_signal
+        # 假设 trend duration 仍然基于规则信号更稳定
+        trend_duration_info = self._calculate_trend_duration(data) # This method uses 'final_signal'
         analysis_results.update(trend_duration_info)
-        # --- 最新信号判断和细化操作建议 ---
+
+        # --- 最新信号判断和细化操作建议 (基于 combined_signal) ---
         signal_judgment = {}
         operation_advice = "中性观望"
         risk_warning = ""
-        t_plus_1_note = "（受 T+1 限制，建议次日操作）"  # 新增 T+1 提示
-        stop_loss_profit_advice = ""  # 新增止损止盈建议
-        final_score = latest_data.get('final_signal', 50.0)
-        current_trend = trend_duration_info['current_trend']
-        trend_strength = trend_duration_info['trend_strength']  # 注意：这里是字符串形式，如 'strong'
+        t_plus_1_note = "（受 T+1 限制，建议次日操作）"
+        stop_loss_profit_advice = ""
+        # 使用最新的 combined_signal 进行判断
+        final_score = latest_data.get('combined_signal', 50.0) # Use combined_signal here
+        current_trend = trend_duration_info['current_trend'] # Trend status from rule-based signal
+        trend_strength = trend_duration_info['trend_strength']
         duration_status = trend_duration_info['duration_status']
-        # 基础判断
-        if current_trend == 'bullish':
-            signal_judgment['trend_status'] = f"看涨趋势 - {trend_strength.capitalize()}"
-            if trend_strength in ['strong', 'very strong']:
-                if duration_status == 'long':
-                    operation_advice = f"持有或逢低加仓 (趋势强劲且持续) {t_plus_1_note}"
-                    stop_loss_profit_advice = "建议设置止盈（接近近期高点）"
-                elif duration_status == 'moderate':
-                    operation_advice = f"持有或试探加仓 (趋势强劲但需确认持续) {t_plus_1_note}"
-                    stop_loss_profit_advice = "建议设置止损（近期低点下方）"
-                else:
-                    operation_advice = f"关注买入信号 (趋势强劲但刚启动) {t_plus_1_note}"
-                    stop_loss_profit_advice = "建议设置止损（入场价下方3-5%）"
-            elif trend_strength == 'moderate':
-                if duration_status == 'long':
-                    operation_advice = f"谨慎持有 (趋势温和但持续较长) {t_plus_1_note}"
-                elif duration_status == 'moderate':
-                    operation_advice = f"持有观察 (趋势温和且持续中) {t_plus_1_note}"
-                else:
-                    operation_advice = f"观望或轻仓试多 (趋势温和启动) {t_plus_1_note}"
-        elif current_trend == 'bearish':
-            signal_judgment['trend_status'] = f"看跌趋势 - {trend_strength.capitalize()}"
-            if trend_strength in ['strong', 'very strong']:
-                if duration_status == 'long':
-                    operation_advice = f"卖出或逢高减仓 (趋势强劲且持续) {t_plus_1_note}"
-                    stop_loss_profit_advice = "建议设置止盈（接近近期低点）"
-                elif duration_status == 'moderate':
-                    operation_advice = f"减仓或准备卖出 (趋势强劲但需确认持续) {t_plus_1_note}"
-                    stop_loss_profit_advice = "建议设置止损（近期高点上方）"
-                else:
-                    operation_advice = f"关注卖出信号 (趋势强劲但刚启动) {t_plus_1_note}"
-                    stop_loss_profit_advice = "建议设置止损（入场价上方3-5%）"
-            elif trend_strength == 'moderate':
-                if duration_status == 'long':
-                    operation_advice = f"谨慎持有空头或卖出 (趋势温和但持续较长) {t_plus_1_note}"
-                elif duration_status == 'moderate':
-                    operation_advice = f"持有空头或观望 (趋势温和且持续中) {t_plus_1_note}"
-                else:
-                    operation_advice = f"观望或轻仓试空 (趋势温和启动) {t_plus_1_note}"
+
+        # 基础判断 (基于 combined_signal 的值)
+        if final_score >= 60: # 调整阈值以适应 0-100 分数
+             signal_judgment['overall_signal'] = "看涨信号"
+             if final_score >= 75:
+                  signal_judgment['overall_signal'] += " (强)"
+                  if duration_status == 'long':
+                      operation_advice = f"持有或逢低加仓 (信号强劲且趋势持续) {t_plus_1_note}"
+                      stop_loss_profit_advice = "建议设置止盈（接近近期高点）"
+                  elif duration_status == 'moderate':
+                      operation_advice = f"持有或试探加仓 (信号强劲但需确认趋势持续) {t_plus_1_note}"
+                      stop_loss_profit_advice = "建议设置止损（近期低点下方）"
+                  else:
+                      operation_advice = f"关注买入信号 (信号强劲但趋势刚启动) {t_plus_1_note}"
+                      stop_loss_profit_advice = "建议设置止损（入场价下方3-5%）"
+             else: # 60 <= final_score < 75
+                  signal_judgment['overall_signal'] += " (温和)"
+                  if duration_status == 'long':
+                      operation_advice = f"谨慎持有 (信号温和但趋势持续较长) {t_plus_1_note}"
+                  elif duration_status == 'moderate':
+                      operation_advice = f"持有观察 (信号温和且趋势持续中) {t_plus_1_note}"
+                  else:
+                      operation_advice = f"观望或轻仓试多 (信号温和启动) {t_plus_1_note}"
+
+        elif final_score <= 40: # 调整阈值
+             signal_judgment['overall_signal'] = "看跌信号"
+             if final_score <= 25:
+                  signal_judgment['overall_signal'] += " (强)"
+                  if duration_status == 'long':
+                      operation_advice = f"卖出或逢高减仓 (信号强劲且趋势持续) {t_plus_1_note}"
+                      stop_loss_profit_advice = "建议设置止盈（接近近期低点）"
+                  elif duration_status == 'moderate':
+                      operation_advice = f"减仓或准备卖出 (信号强劲但需确认趋势持续) {t_plus_1_note}"
+                      stop_loss_profit_advice = "建议设置止损（近期高点上方）"
+                  else:
+                      operation_advice = f"关注卖出信号 (信号强劲但趋势刚启动) {t_plus_1_note}"
+                      stop_loss_profit_advice = "建议设置止损（入场价上方3-5%）"
+             else: # 25 < final_score <= 40
+                  signal_judgment['overall_signal'] += " (温和)"
+                  if duration_status == 'long':
+                      operation_advice = f"谨慎持有空头或卖出 (信号温和但趋势持续较长) {t_plus_1_note}"
+                  elif duration_status == 'moderate':
+                      operation_advice = f"持有空头或观望 (信号温和且趋势持续中) {t_plus_1_note}"
+                  else:
+                      operation_advice = f"观望或轻仓试空 (信号温和启动) {t_plus_1_note}"
         else:
-            signal_judgment['trend_status'] = "中性 / 震荡"
-            operation_advice = "中性观望，等待趋势明朗"
+            signal_judgment['overall_signal'] = "中性信号"
+            operation_advice = "中性观望，等待信号明朗"
+
         # --- 结合其他指标细化判断和建议 ---
-        # EMA 排列
+        # EMA 排列 (基于规则信号的中间结果)
         alignment = latest_data.get('alignment_signal', 0)
         if alignment == 3:
             signal_judgment['alignment_status'] = "完全多头排列"
-            if current_trend == 'bullish':
-                operation_advice += " - EMA确认"
+            if final_score > 50: operation_advice += " - EMA确认"
         elif alignment > 0:
             signal_judgment['alignment_status'] = "偏多头排列"
         elif alignment == -3:
             signal_judgment['alignment_status'] = "完全空头排列"
-            if current_trend == 'bearish':
-                operation_advice += " - EMA确认"
+            if final_score < 50: operation_advice += " - EMA确认"
         elif alignment < 0:
             signal_judgment['alignment_status'] = "偏空头排列"
         else:
             signal_judgment['alignment_status'] = "排列混乱"
-        # 长期背景
+
+        # 长期背景 (基于规则信号的中间结果)
         long_context = latest_data.get('long_term_context', 0)
         if long_context == 1:
             signal_judgment['long_term_view'] = "长期看涨"
@@ -1062,7 +1261,8 @@ class TrendFollowingStrategy(BaseStrategy):
             signal_judgment['long_term_view'] = "长期看跌"
         else:
             signal_judgment['long_term_view'] = "长期不明"
-        # ADX 强度
+
+        # ADX 强度 (基于规则信号的中间结果)
         adx_signal = latest_data.get('adx_strength_signal', 0)
         if adx_signal >= 0.5:
             signal_judgment['adx_status'] = f"趋势明确 (上升)"
@@ -1070,9 +1270,11 @@ class TrendFollowingStrategy(BaseStrategy):
             signal_judgment['adx_status'] = "无明显趋势"
         else:
             signal_judgment['adx_status'] = f"趋势明确 (下降)"
-        if abs(adx_signal) < 0.5 and current_trend != 'neutral':
-            risk_warning += "ADX显示趋势减弱，注意震荡风险。 "
-        # STOCH 状态与风险提示
+        # 如果 combined_signal 显示强趋势，但 ADX 弱，则提示风险
+        if abs(final_score - 50) > 20 and abs(adx_signal) < 0.5:
+            risk_warning += "ADX显示趋势强度不足，注意假突破风险。 "
+
+        # STOCH 状态与风险提示 (基于规则信号的中间结果)
         stoch_signal = latest_data.get('stoch_signal', 0)
         if stoch_signal == 1:
             signal_judgment['stoch_status'] = "超卖区金叉"
@@ -1084,27 +1286,31 @@ class TrendFollowingStrategy(BaseStrategy):
             signal_judgment['stoch_status'] = "超买区域"
         else:
             signal_judgment['stoch_status'] = "中间区域"
-        if current_trend == 'bullish' and stoch_signal <= -0.5:
+        # 如果 combined_signal 看涨，但 STOCH 超买，则提示风险
+        if final_score > 50 and stoch_signal <= -0.5:
             risk_warning += "STOCH进入超买区，警惕回调。 "
-            stop_loss_profit_advice = "建议设置止盈（当前价上方5-8%）"
-        if current_trend == 'bearish' and stoch_signal >= 0.5:
+            if "止盈" not in stop_loss_profit_advice: # 避免重复建议
+                 stop_loss_profit_advice = "建议设置止盈（当前价上方5-8%）"
+        # 如果 combined_signal 看跌，但 STOCH 超卖，则提示风险
+        if final_score < 50 and stoch_signal >= 0.5:
             risk_warning += "STOCH进入超卖区，警惕反弹。 "
-            stop_loss_profit_advice = "建议设置止盈（当前价下方5-8%）"
-        # BOLL 突破
+            if "止盈" not in stop_loss_profit_advice: # 避免重复建议
+                 stop_loss_profit_advice = "建议设置止盈（当前价下方5-8%）"
+
+        # BOLL 突破 (基于规则信号的中间结果)
         boll_signal = latest_data.get('boll_breakout_signal', 0)
         if boll_signal == 1:
             signal_judgment['boll_status'] = "向上突破布林带"
-            if current_trend == 'bullish':
-                operation_advice += " - BOLL突破确认"
+            if final_score > 50: operation_advice += " - BOLL突破确认"
         elif boll_signal == -1:
             signal_judgment['boll_status'] = "向下突破布林带"
-            if current_trend == 'bearish':
-                operation_advice += " - BOLL突破确认"
+            if final_score < 5_0: operation_advice += " - BOLL突破确认"
         else:
             signal_judgment['boll_status'] = "布林带轨道内运行"
-        # 量能确认 (来自 adjust_score_with_volume 的分析结果)
-        volume_confirm = latest_data.get('volume_confirmation_signal', 0)  # 假设返回 1, 0, -1
-        volume_spike = latest_data.get('volume_spike_signal', 0)  # 假设返回 1, 0
+
+        # 量能确认 (基于规则信号的中间结果)
+        volume_confirm = latest_data.get('volume_confirmation_signal', 0)
+        volume_spike = latest_data.get('volume_spike_signal', 0)
         if volume_confirm == 1:
             signal_judgment['volume_status'] = "量能配合趋势"
         elif volume_confirm == -1:
@@ -1113,86 +1319,71 @@ class TrendFollowingStrategy(BaseStrategy):
             signal_judgment['volume_status'] = "量能中性"
         if volume_spike == 1:
             signal_judgment['volume_spike'] = "出现显著放量"
-            if current_trend in ['bullish', 'bearish']:
+            if abs(final_score - 50) > 10: # 如果信号偏离中性且放量
                 operation_advice += " (放量)"
-            else:
+            else: # 如果信号中性但放量
                 operation_advice += " (放量关注突破)"
-        # 背离信号解读与风险提示
+
+        # 背离信号解读与风险提示 (基于规则信号的中间结果)
         has_bearish_div = latest_data.get('div_has_bearish_divergence', False)
         has_bullish_div = latest_data.get('div_has_bullish_divergence', False)
-        if has_bearish_div and current_trend == 'bullish':
+        if has_bearish_div and final_score > 50: # 看涨信号但有顶背离
             signal_judgment['divergence_status'] = "检测到顶背离"
             risk_warning += "检测到顶背离，趋势可能衰竭或反转！ "
-            operation_advice = operation_advice.replace("加仓", "观望").replace("买入", "谨慎买入")
-            stop_loss_profit_advice = "建议设置止损（当前价下方3-5%）"
-        elif has_bullish_div and current_trend == 'bearish':
+            operation_advice = operation_advice.replace("加仓", "观望").replace("买入", "谨慎买入").replace("持有", "谨慎持有")
+            if "止损" not in stop_loss_profit_advice: # 避免重复建议
+                 stop_loss_profit_advice = "建议设置止损（当前价下方3-5%）"
+        elif has_bullish_div and final_score < 50: # 看跌信号但有底背离
             signal_judgment['divergence_status'] = "检测到底背离"
             risk_warning += "检测到底背离，趋势可能衰竭或反转！ "
-            operation_advice = operation_advice.replace("减仓", "观望").replace("卖出", "谨慎卖出")
-            stop_loss_profit_advice = "建议设置止损（当前价上方3-5%）"
+            operation_advice = operation_advice.replace("减仓", "观望").replace("卖出", "谨慎卖出").replace("持有空头", "谨慎持有空头")
+            if "止损" not in stop_loss_profit_advice: # 避免重复建议
+                 stop_loss_profit_advice = "建议设置止损（当前价上方3-5%）"
         else:
             signal_judgment['divergence_status'] = "无明显背离"
+
         # --- 生成中文解读 ---
         bullish_duration_text = trend_duration_info['bullish_duration_text']
         bearish_duration_text = trend_duration_info['bearish_duration_text']
-        duration_text = f"看涨持续 {bullish_duration_text}" if current_trend == 'bullish' and trend_duration_info['bullish_duration'] > 0 else \
-                        f"看跌持续 {bearish_duration_text}" if current_trend == 'bearish' and trend_duration_info['bearish_duration'] > 0 else \
+        duration_text = f"看涨持续 {bullish_duration_text}" if trend_duration_info['current_trend'] == 'bullish' and trend_duration_info['bullish_duration'] > 0 else \
+                        f"看跌持续 {bearish_duration_text}" if trend_duration_info['current_trend'] == 'bearish' and trend_duration_info['bearish_duration'] > 0 else \
                         "趋势持续时间不足"
 
         now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
         chinese_interpretation = (
             f"【趋势跟踪策略分析 - {stock_code} - {now_str}】\n"
-            f"最新信号分: {final_score:.2f}\n"
-            f"核心判断:\n"
-            f" - 趋势状态: {signal_judgment.get('trend_status', '未知')}\n"
-            f" - 持续时间: {duration_text} ({duration_status})\n"
-            f" - 趋势强度(ADX): {signal_judgment.get('adx_status', '未知')}\n"
-            f" - EMA排列: {signal_judgment.get('alignment_status', '未知')}\n"
-            f" - 长期背景: {signal_judgment.get('long_term_view', '未知')}\n"
-            f"辅助信号:\n"
-            f" - STOCH: {signal_judgment.get('stoch_status', '未启用')}\n"
-            f" - BOLL: {signal_judgment.get('boll_status', '未知')}\n"
-            f" - 量能: {signal_judgment.get('volume_status', '未知')} {'(放量)' if latest_data.get('volume_spike_signal', 0) == 1 else ''}\n"
-            f" - 背离: {signal_judgment.get('divergence_status', '未检测')}\n"
+            f"最新组合信号分: {final_score:.2f} (规则信号: {latest_data.get('final_signal', 50.0):.2f}, LSTM预测: {latest_data.get('lstm_signal', 50.0):.2f})\n" # 显示规则和LSTM原始分
+            f"当前趋势状态: {signal_judgment.get('overall_signal', '中性')}\n" # 使用组合信号判断整体状态
+            f"规则趋势判断: {trend_duration_info['current_trend'].capitalize()} ({trend_duration_info['trend_strength'].capitalize()})\n" # 显示规则判断的趋势状态和强度
+            f"趋势持续: {duration_text} ({trend_duration_info['duration_status'].capitalize()})\n"
+            f"EMA排列: {signal_judgment.get('alignment_status', '未知')}\n"
+            f"长期背景: {signal_judgment.get('long_term_view', '未知')}\n"
+            f"ADX强度: {signal_judgment.get('adx_status', '未知')}\n"
+            f"STOCH状态: {signal_judgment.get('stoch_status', '未知')}\n"
+            f"BOLL状态: {signal_judgment.get('boll_status', '未知')}\n"
+            f"量能状态: {signal_judgment.get('volume_status', '未知')}{f' ({signal_judgment["volume_spike"]})' if 'volume_spike' in signal_judgment else ''}\n"
+            f"背离状态: {signal_judgment.get('divergence_status', '未知')}\n"
             f"操作建议: {operation_advice}\n"
-            f"止损止盈建议: {stop_loss_profit_advice if stop_loss_profit_advice else '暂无具体建议'}\n"
-            f"风险提示: {risk_warning if risk_warning else '暂无明显风险信号'}\n"
-            f"--------------------\n"
-            f"统计数据 (最近周期):\n"
-            f" - 信号均值/中位数: {analysis_results.get('final_signal_mean', np.nan):.2f} / {analysis_results.get('final_signal_median', np.nan):.2f}\n"
+            f"风险提示: {risk_warning if risk_warning else '无明显风险提示。'}\n"
+            f"止损止盈建议: {stop_loss_profit_advice if stop_loss_profit_advice else '根据自身风险偏好设置。'}"
         )
-        
-        # 保存结果到文件：以 stock_code 为文件夹，时间为文件名
-        base_path = os.path.join("analysis_results", "TrendFollowingStrategy", stock_code)
-        os.makedirs(base_path, exist_ok=True)
-        filename = pd.Timestamp.now().strftime('%Y%m%d_%H%M.txt')
-        file_path = os.path.join(base_path, filename)
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(chinese_interpretation)
-            logger.info(f"分析结果已保存至文件: {file_path}")
-        except Exception as e:
-            logger.error(f"保存分析结果文件失败: {e}")
 
-        # 如果是强趋势，则打印到屏幕
-        is_strong_trend = False
-        if current_trend in ['bullish', 'bearish'] and trend_strength in ['strong', 'very strong']:
-            is_strong_trend = True
-
-        if is_strong_trend:
-            print(chinese_interpretation)
-
-        logger.info(f"\n{chinese_interpretation}")
-
-        analysis_results.update(signal_judgment)
-        analysis_results['risk_warning'] = risk_warning
+        analysis_results['signal_judgment'] = signal_judgment
         analysis_results['operation_advice'] = operation_advice
-        analysis_results['stop_loss_profit_advice'] = stop_loss_profit_advice  # 新增止损止盈建议
+        analysis_results['risk_warning'] = risk_warning
+        analysis_results['stop_loss_profit_advice'] = stop_loss_profit_advice
         analysis_results['chinese_interpretation'] = chinese_interpretation
 
-        self.analysis_results = pd.DataFrame([analysis_results])
+        self.analysis_results = analysis_results
+        logger.info(f"[{stock_code}] 信号分析完成。")
+        logger.info(chinese_interpretation) # 打印分析结果
+
+        return analysis_results
+
+    def get_analysis_results(self) -> Optional[Dict[str, Any]]:
+        """返回信号分析结果"""
         return self.analysis_results
-    
+
     def save_analysis_results(self, stock_code: str, timestamp: pd.Timestamp, data: pd.DataFrame):
         """
         保存趋势跟踪策略的分析结果到数据库
@@ -1265,58 +1456,43 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.error(f"保存 {stock_code} 的趋势跟踪策略分析结果时出错: {e}", exc_info=True)
             # logger.error(f"尝试保存的数据: {defaults_cleaned}") # 调试时可以取消注释此行
 
-    def load_lstm_model(self, data: pd.DataFrame, stock_code: str):
+    def load_lstm_model(self, stock_code: str):
         """
-        加载已训练的LSTM模型和Scaler。
-        如果模型文件和Scaler文件都存在，则直接加载；
-        如果不存在，则自动训练模型和Scaler，并保存到指定路径。
-        日志会详细记录每一步的状态。
+        为特定股票加载 LSTM 模型和 scaler。
         """
-        # 修改点 3: 在方法开始时设置股票特定的模型路径
-        self.set_model_paths(stock_code)
-        try:
-            # 1. 优先加载主模型文件
-            if os.path.exists(self.model_path):
+        self.set_model_paths(stock_code) # 设置股票特定的路径
+
+        # 检查模型和 scaler 文件是否存在
+        if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
+            try:
+                # 加载模型
+                # 如果模型使用了自定义层、激活函数、损失函数或指标，需要提供 custom_objects
+                # 目前 build_lstm_model 使用标准 Keras 层和激活函数，所以可能不需要
                 self.lstm_model = tf.keras.models.load_model(self.model_path)
-                logger.info(f"成功加载LSTM模型: {self.model_path}")
+                logger.info(f"股票 {stock_code} LSTM 模型从 {self.model_path} 加载成功。")
 
-                # 尝试加载Scaler
-                scaler_path = self.model_path.replace('.keras', '_scaler.save')
-                if os.path.exists(scaler_path):
-                    self.scaler = joblib.load(scaler_path)
-                    logger.info(f"成功加载Scaler: {scaler_path}")
+                # 加载 Scaler
+                scalers = joblib.load(self.scaler_path)
+                self.feature_scaler = scalers.get('feature_scaler')
+                self.target_scaler = scalers.get('target_scaler')
+                if self.feature_scaler and self.target_scaler:
+                    logger.info(f"股票 {stock_code} Scaler 从 {self.scaler_path} 加载成功。")
                 else:
-                    self.scaler = None
-                    logger.warning(f"Scaler文件不存在: {scaler_path}，后续LSTM预测将无法进行。")
+                    logger.warning(f"股票 {stock_code} Scaler 文件 {self.scaler_path} 内容不完整，加载失败。")
+                    self.feature_scaler = None
+                    self.target_scaler = None
+                    self.lstm_model = None # Scaler 加载失败，模型也视为无效
 
-            # 2. 如果主模型不存在，尝试加载检查点模型
-            elif os.path.exists(self.checkpoint_path):
-                self.lstm_model = tf.keras.models.load_model(self.checkpoint_path)
-                logger.info(f"成功加载检查点LSTM模型: {self.checkpoint_path}")
-
-                # 尝试加载Scaler
-                scaler_path = self.checkpoint_path.replace('.keras', '_scaler.save')
-                if os.path.exists(scaler_path):
-                    self.scaler = joblib.load(scaler_path)
-                    logger.info(f"成功加载Scaler: {scaler_path}")
-                else:
-                    self.scaler = None
-                    logger.warning(f"Scaler文件不存在: {scaler_path}，后续LSTM预测将无法进行。")
-
-            # 3. 如果模型和检查点都不存在，则自动训练并保存
-            else:
-                logger.warning(f"LSTM模型文件不存在: {self.model_path} 或 {self.checkpoint_path}，将自动训练新模型。")
-                # 自动训练并保存模型和Scaler
-                self.train_and_save_lstm_model(data)
-                # train_and_save_lstm_model方法内部应负责赋值self.lstm_model和self.scaler
-
-            # 4. 最后输出当前模型和Scaler的状态
-            logger.info(f"load_lstm_model结束，self.lstm_model: {self.lstm_model}, self.scaler: {self.scaler}")
-
-        except Exception as e:
-            logger.error(f"加载LSTM模型或Scaler时出错: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"股票 {stock_code} 加载 LSTM 模型或 Scaler 出错: {e}", exc_info=True)
+                self.lstm_model = None
+                self.feature_scaler = None
+                self.target_scaler = None
+        else:
+            logger.warning(f"股票 {stock_code} 的 LSTM 模型或 Scaler 文件不存在 ({self.model_path}, {self.scaler_path})，将跳过加载。")
             self.lstm_model = None
-            self.scaler = None
+            self.feature_scaler = None
+            self.target_scaler = None
 
     def train_and_save_lstm_model(self, data: pd.DataFrame, stock_code: str):
         """
