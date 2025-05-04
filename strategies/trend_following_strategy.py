@@ -765,7 +765,7 @@ class TrendFollowingStrategy(BaseStrategy):
         # logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
         # 调用 _calculate_rule_based_signal 方法，获取 final_signal 和中间结果
         final_signal, intermediate_results = self._calculate_rule_based_signal(data=data, stock_code=stock_code)
-        self.load_lstm_model(data)  # 加载模型
+        self.load_lstm_model(data, stock_code)  # 加载模型
         # LSTM模型预测
         lstm_signal = pd.Series(50.0, index=data.index)
         print(f"LSTM模型对象: {self.lstm_model}, Scaler对象: {self.scaler}")
@@ -1265,13 +1265,15 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.error(f"保存 {stock_code} 的趋势跟踪策略分析结果时出错: {e}", exc_info=True)
             # logger.error(f"尝试保存的数据: {defaults_cleaned}") # 调试时可以取消注释此行
 
-    def load_lstm_model(self, data: pd.DataFrame):
+    def load_lstm_model(self, data: pd.DataFrame, stock_code: str):
         """
         加载已训练的LSTM模型和Scaler。
         如果模型文件和Scaler文件都存在，则直接加载；
         如果不存在，则自动训练模型和Scaler，并保存到指定路径。
         日志会详细记录每一步的状态。
         """
+        # 修改点 3: 在方法开始时设置股票特定的模型路径
+        self.set_model_paths(stock_code)
         try:
             # 1. 优先加载主模型文件
             if os.path.exists(self.model_path):
@@ -1305,7 +1307,7 @@ class TrendFollowingStrategy(BaseStrategy):
             else:
                 logger.warning(f"LSTM模型文件不存在: {self.model_path} 或 {self.checkpoint_path}，将自动训练新模型。")
                 # 自动训练并保存模型和Scaler
-                # self.train_and_save_lstm_model(data)
+                self.train_and_save_lstm_model(data)
                 # train_and_save_lstm_model方法内部应负责赋值self.lstm_model和self.scaler
 
             # 4. 最后输出当前模型和Scaler的状态
