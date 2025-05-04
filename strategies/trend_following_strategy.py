@@ -87,24 +87,25 @@ class TrendFollowingStrategy(BaseStrategy):
         self.model_path = "models/trend_following_lstm.keras"
         self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.keras"
         self.model_config = {
-            'layers': [
-                {'units': 64, 'return_sequences': True, 'dropout': 0.3, 'l2_reg': 0.01},
-                {'units': 32, 'return_sequences': False, 'dropout': 0.3, 'l2_reg': 0.01}
+            'layers': [  # <--- 减少单元数，增加 Dropout
+                {'units': 32, 'return_sequences': True, 'dropout': 0.4, 'l2_reg': 0.01},  # 单元数从 64 减到 32
+                {'units': 16, 'return_sequences': False, 'dropout': 0.4, 'l2_reg': 0.01}  # 单元数从 32 减到 16
             ],
-            'dense_layers': [{'units': 16, 'dropout': 0.1, 'l2_reg': 0.01}],
+            'dense_layers': [{'units': 8, 'dropout': 0.3, 'l2_reg': 0.01}],  # <--- 减少 dense 层单元数
             'optimizer': 'adam',
-            'learning_rate': 0.001,
+            'learning_rate': 0.001,  # 稍后在 train_lstm_model 中调整
             'loss': 'mse',
             'metrics': ['mae']
         }
         self.training_config = {
-            'epochs': 100,
+            'epochs': 100,  # 保持原有
             'batch_size': 32,
-            'early_stopping_patience': 15,
+            'early_stopping_patience': 20,  # <--- 增加耐心值，从 15 改为 20
             'reduce_lr_patience': 5,
             'reduce_lr_factor': 0.5,
             'monitor_metric': 'val_loss',
-            'verbose': 1
+            'verbose': 1,
+            'learning_rate': 0.0005  # <--- 降低学习率，从 0.001 改为 0.0005（在 train_lstm_model 中会使用）
         }
 
         super().__init__(self.params)
@@ -1354,8 +1355,11 @@ class TrendFollowingStrategy(BaseStrategy):
                 target_scaler_type='minmax',    # 目标变量缩放器类型 ('minmax' 或 'standard')
                 train_split=0.7,                # 训练集比例
                 val_split=0.15,                 # 验证集比例
-                use_pca=True,                   # 保持启用PCA降维 (因为原代码是这样写的)
-                use_feature_selection=False,    # <--- 显式禁用基于模型的特征选择
+                use_pca=False,                   # 保持启用PCA降维 (因为原代码是这样写的)
+                use_feature_selection=True,    # <--- 显式禁用基于模型的特征选择
+                feature_selector_model='rf',  # <--- 使用随机森林作为选择器
+                max_features_fs=20,             # <--- 选择前20个重要特征
+                feature_selection_threshold='median',  # <--- 阈值设置
                 n_components=0.99,              # PCA保留的方差比例 (如果 use_pca=True)
                 # apply_variance_threshold=False # 可选：是否应用方差阈值过滤
             )
@@ -1401,6 +1405,8 @@ class TrendFollowingStrategy(BaseStrategy):
                 checkpoint_path=self.checkpoint_path, # 最佳模型保存路径 <--- 使用 self.checkpoint_path
                 plot_training_history=True # 是否绘制训练历史图
             )
+            if 'val_loss' in history:
+                logger.info(f"[{stock_code}] 训练完成，最新 val_loss: {history['val_loss'][-1]:.4f}，是否改善: {'是' if history['val_loss'][-1] < 0.02362 else '否'}")
 
             # --- 保存最终模型和特征缩放器 ---
             # train_lstm_model 中的 ModelCheckpoint 会保存最佳模型到 checkpoint_path
