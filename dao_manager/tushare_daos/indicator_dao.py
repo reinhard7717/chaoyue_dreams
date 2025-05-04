@@ -277,7 +277,6 @@ class IndicatorDAO(BaseDAO):
                       logger.warning(f"缓存数据转换后为空列表 for {stock_code} {time_level_str}，将尝试从数据库获取。")
             else:
                 logger.debug(f"缓存未命中或数量不足 ({len(cache_data) if cache_data else 0} < {limit}) for {stock_code} {time_level_str}，从数据库获取...")
-
         except Exception as e:
             # 捕获缓存获取或初步处理时的异常
             logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
@@ -286,15 +285,15 @@ class IndicatorDAO(BaseDAO):
         # 从数据库查询
         try:
             # 根据时间级别选择对应的查询集
-            if time_level_str == "day":
+            if time_level_str == "D":
                 data_qs = StockDailyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
-            elif time_level_str == "week":
+            elif time_level_str == "W":
                 data_qs = StockWeeklyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
-            elif time_level_str == "month":
+            elif time_level_str == "M":
                 data_qs = StockMonthlyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
