@@ -285,15 +285,15 @@ class IndicatorDAO(BaseDAO):
         # 从数据库查询
         try:
             # 根据时间级别选择对应的查询集
-            if time_level_str == "D":
+            if time_level_str.lower() == "d":
                 data_qs = StockDailyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
-            elif time_level_str == "W":
+            elif time_level_str.lower() == "w":
                 data_qs = StockWeeklyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
-            elif time_level_str == "M":
+            elif time_level_str.lower() == "m":
                 data_qs = StockMonthlyData.objects.filter(
                     stock=stock,
                 ).order_by('-trade_time')[:limit]
