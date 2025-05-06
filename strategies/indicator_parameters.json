@@ -107,11 +107,11 @@
         "60": 0.15,
         "D": 0.05
     },
-    "trend_indicators": ["dmi", "sar", "macd", "ema_alignment", "obv", "rsi"], 
+    "trend_indicators": ["dmi", "sar", "macd", "ema_alignment", "obv", "rsi"],
     "signal_weights": {
         "base_score": 0.5,
         "alignment": 0.25,
-        "long_context": 0.1,  
+        "long_context": 0.1,
         "momentum": 0.15
     },
     "volume_boost_factor": 1.3,
@@ -127,7 +127,45 @@
     "stoch_oversold_threshold": 20,
     "stoch_overbought_threshold": 80,
     "vwap_deviation_threshold": 0.01,
-    "boll_breakout_weight": 0.1
+    "boll_breakout_weight": 0.1,
+
+    "lstm_window_size": 60,
+    "lstm_scaler_type": "minmax",
+    "lstm_target_scaler_type": "minmax",
+    "lstm_train_split": 0.7,
+    "lstm_val_split": 0.15,
+    "lstm_use_feature_selection": true,
+    "lstm_feature_selector_model": "rf",
+    "lstm_max_features_fs": 50,
+    "lstm_feature_selection_threshold": "median",
+    "lstm_use_pca": false,
+    "lstm_pca_n_components": 0.99,
+    "lstm_plot_history": false,
+
+    "lstm_model_config": {
+      "model_type": "lstm",
+      "layers": [
+        {"units": 16, "return_sequences": true, "dropout": 0.5, "l2_reg": 0.02},
+        {"units": 8, "return_sequences": false, "dropout": 0.5, "l2_reg": 0.02}
+      ],
+      "dense_layers": [
+        {"units": 4, "dropout": 0.4, "l2_reg": 0.02}
+      ],
+      "optimizer": "adam",
+      "learning_rate": 0.0005,
+      "loss": "mse",
+      "metrics": ["mae"]
+    },
+    "lstm_training_config": {
+      "epochs": 100,
+      "batch_size": 64, 
+      "early_stopping_patience": 20,
+      "reduce_lr_patience": 10, 
+      "reduce_lr_factor": 0.5,
+      "monitor_metric": "val_loss",
+      "verbose": 1,
+      "learning_rate": 0.0005
+    }
   },
 
   "trend_reversal_params": {
@@ -249,4 +287,3 @@
     "volume_spike_factor": 2.3
   }
 }
-  
