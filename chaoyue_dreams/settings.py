@@ -371,6 +371,15 @@ LOGGING = {
             'formatter': 'verbose', # 使用verbose格式
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
+        'strategy_deep_learning_utils': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'strategy_deep_learning_utils.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5, # 备份5个文件
+            'formatter': 'verbose', # 使用verbose格式
+            'encoding': 'utf-8',  # 设置编码为utf-8
+        },
     },
     'loggers': {
         'django': {
@@ -419,6 +428,11 @@ LOGGING = {
             'propagate': False,
         },
         'strategy_trend_following': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'strategy_deep_learning_utils': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
