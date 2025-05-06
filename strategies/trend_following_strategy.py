@@ -1465,8 +1465,12 @@ class TrendFollowingStrategy(BaseStrategy):
         """
         self.set_model_paths(stock_code) # 设置股票特定的路径
 
+        # 确定目标 scaler 的路径 (与保存时一致)
+        target_scaler_path = self.model_path.replace('.keras', '_target_scaler.save')
+
         # 检查模型和 scaler 文件是否存在
-        if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
+        # 需要检查模型文件、特征 scaler 文件和目标 scaler 文件
+        if os.path.exists(self.model_path) and os.path.exists(self.scaler_path) and os.path.exists(target_scaler_path):
             try:
                 # 加载模型
                 # 如果模型使用了自定义层、激活函数、损失函数或指标，需要提供 custom_objects
@@ -1474,17 +1478,20 @@ class TrendFollowingStrategy(BaseStrategy):
                 self.lstm_model = tf.keras.models.load_model(self.model_path)
                 logger.info(f"股票 {stock_code} LSTM 模型从 {self.model_path} 加载成功。")
 
-                # 加载 Scaler
-                scalers = joblib.load(self.scaler_path)
-                self.feature_scaler = scalers.get('feature_scaler')
-                self.target_scaler = scalers.get('target_scaler')
-                if self.feature_scaler and self.target_scaler:
-                    logger.info(f"股票 {stock_code} Scaler 从 {self.scaler_path} 加载成功。")
-                else:
-                    logger.warning(f"股票 {stock_code} Scaler 文件 {self.scaler_path} 内容不完整，加载失败。")
-                    self.feature_scaler = None
-                    self.target_scaler = None
-                    self.lstm_model = None # Scaler 加载失败，模型也视为无效
+                # 加载特征 Scaler
+                self.feature_scaler = joblib.load(self.scaler_path)
+                logger.info(f"股票 {stock_code} 特征 Scaler 从 {self.scaler_path} 加载成功。")
+
+                # 加载目标 Scaler
+                self.target_scaler = joblib.load(target_scaler_path)
+                logger.info(f"股票 {stock_code} 目标 Scaler 从 {target_scaler_path} 加载成功。")
+
+                # 检查是否成功加载了所有必需对象
+                if self.lstm_model is None or self.feature_scaler is None or self.target_scaler is None:
+                     logger.warning(f"股票 {stock_code} 加载 LSTM 模型或 Scaler 失败，部分对象为 None。")
+                     self.lstm_model = None
+                     self.feature_scaler = None
+                     self.target_scaler = None
 
             except Exception as e:
                 logger.error(f"股票 {stock_code} 加载 LSTM 模型或 Scaler 出错: {e}", exc_info=True)
@@ -1492,7 +1499,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 self.feature_scaler = None
                 self.target_scaler = None
         else:
-            logger.warning(f"股票 {stock_code} 的 LSTM 模型或 Scaler 文件不存在 ({self.model_path}, {self.scaler_path})，将跳过加载。")
+            logger.warning(f"股票 {stock_code} 的 LSTM 模型或 Scaler 文件不存在 ({self.model_path}, {self.scaler_path}, {target_scaler_path})，将跳过加载。")
             self.lstm_model = None
             self.feature_scaler = None
             self.target_scaler = None

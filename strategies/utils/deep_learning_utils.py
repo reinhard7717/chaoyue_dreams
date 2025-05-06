@@ -319,7 +319,7 @@ def prepare_data_for_lstm(
              logger.warning(f"训练集特征维度 ({flat_features_train.shape[1]}) 或样本数 ({flat_features_train.shape[0]}) 过低，跳过基于模型的特征选择。")
         else:
             logger.info(f"启用基于模型 '{feature_selector_model}' 的特征选择。在训练集上拟合...")
-            logger.info("注意：此步骤（模型拟合）可能耗时较长，特别是特征数量多或样本量大时。尝试 'xgb' 可能加速。")
+            # logger.info("注意：此步骤（模型拟合）可能耗时较长，特别是特征数量多或样本量大时。尝试 'xgb' 可能加速。")
 
             # 特征选择模型拟合前，通常对特征进行缩放（使用临时 scaler），在训练集上拟合
             # 缩放有助于某些模型收敛，但对于基于树的模型，直接使用原始特征通常也无妨。
