@@ -1561,7 +1561,7 @@ class TrendFollowingStrategy(BaseStrategy):
             # --- 如果训练数据有效，则继续 ---
             # 动态获取处理后的特征维度 (PCA可能改变维度)
             num_features = X_train.shape[2]
-            logger.info(f"[{stock_code}] 动态获取的特征维度 (经过PCA): {num_features}") # 修改日志说明
+            logger.info(f"[{stock_code}] 动态获取的特征维度: {num_features}") # 修改日志说明
 
             # --- 构建新模型，确保输入形状正确 ---
             self.lstm_model = build_lstm_model(

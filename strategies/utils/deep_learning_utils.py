@@ -103,18 +103,30 @@ def prepare_data_for_lstm(
         feature_scaler (Union[MinMaxScaler, StandardScaler]): 用于最终特征的缩放器 (在训练集上拟合)。
         target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的缩放器 (在训练集上拟合)。
     """
+    # --- 添加调试日志：打印接收到的参数 ---
+    logger.info(f"prepare_data_for_lstm 接收参数: use_pca={use_pca}, use_feature_selection={use_feature_selection}, feature_selector_model='{feature_selector_model}', max_features_fs={max_features_fs}, n_components={n_components}")
+
+
     # --- 参数优先级和冲突检查 ---
-    if use_pca and use_feature_selection:
+    # 注意：这里的 use_pca 和 use_feature_selection 是函数参数的局部副本
+    _use_pca_internal = use_pca
+    _use_feature_selection_internal = use_feature_selection
+
+    if _use_pca_internal and _use_feature_selection_internal:
         logger.warning("use_pca 和 use_feature_selection 都设置为 True。将优先使用 PCA 降维。")
-        use_feature_selection = False # PCA 优先
-    elif use_pca:
+        _use_feature_selection_internal = False # PCA 优先
+    elif _use_pca_internal:
         logger.info("启用 PCA 降维。")
-        use_feature_selection = False
-    elif use_feature_selection:
+        _use_feature_selection_internal = False
+    elif _use_feature_selection_internal:
         logger.info(f"启用基于模型 '{feature_selector_model}' 的特征选择。")
-        use_pca = False
+        _use_pca_internal = False
     else:
         logger.info("未启用 PCA 或基于模型的特征选择。")
+
+    # --- 添加调试日志：打印冲突解决后的内部标志 ---
+    logger.info(f"冲突解决后内部标志: _use_pca_internal={_use_pca_internal}, _use_feature_selection_internal={_use_feature_selection_internal}")
+
 
     # --- 检查目标列 ---
     if target_column not in data.columns:
@@ -166,7 +178,8 @@ def prepare_data_for_lstm(
              logger.warning("特征方差过低或样本不足，跳过方差阈值选择。")
 
     # --- 2. (可选) PCA 降维 ---
-    if use_pca:
+    # 使用内部标志 _use_pca_internal
+    if _use_pca_internal:
         if features_original.shape[1] > 1 and features_original.shape[0] > features_original.shape[1]:
             # PCA 前最好先标准化数据
             scaler_pca = StandardScaler()
@@ -183,7 +196,8 @@ def prepare_data_for_lstm(
         features_final_before_windowing = features_processed # PCA后的特征直接用于窗口化
 
     # --- 3. (可选) 基于模型的特征选择 ---
-    elif use_feature_selection:
+    # 使用内部标志 _use_feature_selection_internal
+    elif _use_feature_selection_internal:
         if features_original.shape[1] <= 1:
              logger.warning(f"特征维度 ({features_original.shape[1]}) 过低，跳过基于模型的特征选择。")
              features_final_before_windowing = features_original # 未处理
@@ -227,7 +241,7 @@ def prepare_data_for_lstm(
                 selected_indices = selector.get_support(indices=True)
                 current_feature_columns = [current_feature_columns[i] for i in selected_indices] # 更新选中的列名
                 num_features = features_selected.shape[1]
-                logger.info(f"基于模型选择后维度: {num_features}")
+                logger.info(f"基于模型选择后维度: {num_features}") # <-- 特征选择成功会打印这个
 
                 if num_features == 0:
                     logger.error("基于模型选择后没有剩余特征。请检查模型、阈值或数据。")
@@ -246,6 +260,7 @@ def prepare_data_for_lstm(
 
     # --- 4. 未启用 PCA 或特征选择 ---
     else:
+        logger.info("未启用 PCA 或基于模型的特征选择，使用所有初始特征。") # <-- 添加日志
         features_final_before_windowing = features_original # 使用经过方差过滤（如果启用）的特征
         num_features = features_final_before_windowing.shape[1]
 
@@ -253,7 +268,7 @@ def prepare_data_for_lstm(
     logger.info(f"最终用于窗口化的特征列名: {current_feature_columns}") # 打印最终使用的列名
 
     # --- 5. 构建时间序列窗口 ---
-    # 使用 features_final_before_windowing 和 targets_original
+    # ... (这部分代码保持不变) ...
     X, y = [], []
     if len(features_final_before_windowing) <= window_size:
         logger.error(f"处理后数据长度 {len(features_final_before_windowing)} 不足以构建窗口 (window_size={window_size})。")
