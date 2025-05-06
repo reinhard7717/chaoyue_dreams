@@ -61,12 +61,12 @@ def prepare_data_for_lstm(
     required_columns: List[str], # 仍然需要知道原始可能需要的列
     target_column: str = 'final_signal',
     window_size: int = 60,
-    scaler_type: str = 'minmax',
+    scaler_type: str = 'minmax', # 特征缩放器类型
     train_split: float = 0.7,
     val_split: float = 0.15,
-    apply_variance_threshold: bool = False, # 保留方差过滤选项
+    apply_variance_threshold: bool = False, # 是否应用方差阈值进行特征选择 (在模型选择前)
     variance_threshold_value: float = 0.01,
-    # --- 新增特征选择参数 ---
+    # --- 特征选择参数 ---
     use_feature_selection: bool = True, # 是否启用基于模型的特征选择 (默认启用)
     feature_selector_model: str = 'rf', # 选择器模型: 'rf' (随机森林) 或 'xgb' (XGBoost)
     max_features_fs: Optional[int] = 50, # 选择最重要的特征数量 (例如选择前 50 个)；设为 None 则使用阈值
@@ -74,10 +74,23 @@ def prepare_data_for_lstm(
     # --- PCA 参数 (保留但默认关闭) ---
     use_pca: bool = False, # 默认关闭 PCA
     n_components: Union[int, float] = 0.99,
-    target_scaler_type: str = 'minmax'
+    target_scaler_type: str = 'minmax' # 目标变量缩放器类型
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Union[MinMaxScaler, StandardScaler], Union[MinMaxScaler, StandardScaler]]:
     """
-    准备用于LSTM训练的时间序列数据，包括特征选择(方差阈值 或 基于模型)、缩放、窗口化和数据集分割。
+    准备用于LSTM训练的时间序列数据，包括特征处理(方差阈值、基于模型选择、PCA)、缩放、窗口化和数据集分割。
+
+    处理流程:
+    1. 检查目标列。
+    2. 筛选初始特征列 (基于 required_columns 并排除目标列)。
+    3. 处理 NaN 值 (前向填充后向填充，剩余 NaN 填充 0)。
+    4. 应用方差阈值过滤 (可选)。
+    5. 应用 PCA 降维 (可选，如果启用则忽略基于模型的特征选择)。
+    6. 应用基于模型的特征选择 (可选，如果 PCA 未启用)。
+       - 在临时缩放后的特征和原始目标上拟合选择器。
+       - 从原始尺度的特征中提取选中的列。
+    7. 对处理后的特征和原始目标变量进行最终缩放 (在整个数据集上拟合和转换)。
+    8. 构建时间序列窗口 (在缩放后的数据上)。
+    9. 按时间顺序分割窗口化后的数据集为训练集、验证集和测试集。
 
     Args:
         data (pd.DataFrame): 包含所有特征和目标列的原始DataFrame。
@@ -100,115 +113,98 @@ def prepare_data_for_lstm(
     Returns:
         Tuple containing:
         X_train, y_train, X_val, y_val, X_test, y_test (np.ndarray): 分割和处理后的数据集。
-        feature_scaler (Union[MinMaxScaler, StandardScaler]): 用于最终特征的缩放器 (在训练集上拟合)。
-        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的缩放器 (在训练集上拟合)。
+        feature_scaler (Union[MinMaxScaler, StandardScaler]): 用于最终特征的缩放器 (在整个处理后的特征集上拟合)。
+        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的缩放器 (在整个原始目标集上拟合)。
     """
-    # --- 添加调试日志：打印接收到的参数 ---
-    logger.info(f"prepare_data_for_lstm 接收参数: use_pca={use_pca}, use_feature_selection={use_feature_selection}, feature_selector_model='{feature_selector_model}', max_features_fs={max_features_fs}, n_components={n_components}")
+    logger.info(f"开始准备 LSTM 数据...")
+    logger.info(f"参数: window_size={window_size}, scaler_type='{scaler_type}', train_split={train_split}, val_split={val_split}, apply_variance_threshold={apply_variance_threshold}, variance_threshold_value={variance_threshold_value}, use_feature_selection={use_feature_selection}, feature_selector_model='{feature_selector_model}', max_features_fs={max_features_fs}, feature_selection_threshold='{feature_selection_threshold}', use_pca={use_pca}, n_components={n_components}, target_scaler_type='{target_scaler_type}'")
 
-
-    # --- 参数优先级和冲突检查 ---
-    # 注意：这里的 use_pca 和 use_feature_selection 是函数参数的局部副本
-    _use_pca_internal = use_pca
-    _use_feature_selection_internal = use_feature_selection
-
-    if _use_pca_internal and _use_feature_selection_internal:
-        logger.warning("use_pca 和 use_feature_selection 都设置为 True。将优先使用 PCA 降维。")
-        _use_feature_selection_internal = False # PCA 优先
-    elif _use_pca_internal:
-        logger.info("启用 PCA 降维。")
-        _use_feature_selection_internal = False
-    elif _use_feature_selection_internal:
-        logger.info(f"启用基于模型 '{feature_selector_model}' 的特征选择。")
-        _use_pca_internal = False
-    else:
-        logger.info("未启用 PCA 或基于模型的特征选择。")
-
-    # --- 添加调试日志：打印冲突解决后的内部标志 ---
-    logger.info(f"冲突解决后内部标志: _use_pca_internal={_use_pca_internal}, _use_feature_selection_internal={_use_feature_selection_internal}")
-
-
-    # --- 检查目标列 ---
+    # --- 1. 检查目标列 ---
     if target_column not in data.columns:
         logger.error(f"目标列 '{target_column}' 不存在于输入数据中。")
         raise ValueError(f"目标列 '{target_column}' 不存在。")
 
-    # --- 初始特征列选择 (基于 required_columns 并排除目标列) ---
+    # --- 2. 初始特征列选择 (基于 required_columns 并排除目标列) ---
     # 确保只选择 data 中实际存在的列
-    feature_columns = [col for col in required_columns if col in data.columns and col != target_column]
-    if not feature_columns:
+    initial_feature_columns = [col for col in required_columns if col in data.columns and col != target_column]
+    if not initial_feature_columns:
          logger.error("根据 required_columns 筛选后，没有可用的特征列。")
          raise ValueError("没有可用的特征列。")
 
-    # --- 处理 NaN 值 (在特征选择/PCA之前填充) ---
+    # --- 3. 处理 NaN 值 (在特征选择/PCA之前填充) ---
     # 使用前向填充然后后向填充，尽量保留数据
     data_filled = data.ffill().bfill()
     # 检查填充后是否仍有 NaN (如果整个列都是 NaN)
-    if data_filled[feature_columns].isnull().any().any():
-        nan_cols = data_filled[feature_columns].isnull().sum()
-        nan_cols = nan_cols[nan_cols > 0]
-        logger.warning(f"填充后以下特征列仍包含 NaN 值 (可能整列为空)，将尝试填充为 0: {nan_cols.index.tolist()}")
+    nan_cols_after_ffill = data_filled[initial_feature_columns].isnull().sum()
+    nan_cols_after_ffill = nan_cols_after_ffill[nan_cols_after_ffill > 0]
+    if not nan_cols_after_ffill.empty:
+        logger.warning(f"填充后以下特征列仍包含 NaN 值 (可能整列为空)，将尝试填充为 0: {nan_cols_after_ffill.index.tolist()}")
         # 对于仍然是 NaN 的列，填充为 0 (或者可以选择删除这些列)
-        for col in nan_cols.index:
+        for col in nan_cols_after_ffill.index:
             data_filled[col].fillna(0, inplace=True)
 
-    features_original = data_filled.loc[:, feature_columns].values
+    # 提取处理后的特征和目标变量
+    features_processed = data_filled.loc[:, initial_feature_columns].values
     targets_original = data_filled.loc[:, target_column].values # 使用填充后的目标值
+    current_feature_columns = initial_feature_columns[:] # 创建副本，用于跟踪列名
 
-    logger.info(f"初始特征维度: {features_original.shape[1]}")
-    current_feature_columns = feature_columns[:] # 创建副本，用于跟踪列名
+    logger.info(f"初始特征维度 (处理NaN后): {features_processed.shape[1]}")
 
-    # --- 1. (可选) 方差阈值过滤 ---
+    # --- 4. (可选) 方差阈值过滤 ---
     if apply_variance_threshold:
-        if features_original.shape[0] > 1 and np.var(features_original, axis=0).max() > 0:
-            selector_var = VarianceThreshold(threshold=variance_threshold_value)
+        if features_processed.shape[0] > 1 and features_processed.shape[1] > 0 and np.var(features_processed, axis=0).max() > 1e-9: # 检查是否有非零方差
             try:
-                features_after_var = selector_var.fit_transform(features_original)
+                selector_var = VarianceThreshold(threshold=variance_threshold_value)
+                features_after_var = selector_var.fit_transform(features_processed)
                 selected_indices_var = selector_var.get_support(indices=True)
                 current_feature_columns = [current_feature_columns[i] for i in selected_indices_var]
-                features_original = features_after_var # 更新特征矩阵
-                logger.info(f"方差阈值 ({variance_threshold_value}) 选择后维度: {features_original.shape[1]}")
-                if features_original.shape[1] == 0:
+                features_processed = features_after_var # 更新特征矩阵
+                logger.info(f"方差阈值 ({variance_threshold_value}) 选择后维度: {features_processed.shape[1]}")
+                if features_processed.shape[1] == 0:
                     logger.error("方差阈值选择后没有剩余特征。请检查阈值或数据。")
-                    raise ValueError("没有剩余特征。")
+                    raise ValueError("方差阈值选择后没有剩余特征。")
             except Exception as e:
                  logger.error(f"应用方差阈值时出错: {e}", exc_info=True)
-                 # 可以选择继续使用原始特征或抛出错误
+                 logger.warning("方差阈值选择失败，将使用之前的特征。")
         else:
              logger.warning("特征方差过低或样本不足，跳过方差阈值选择。")
 
-    # --- 2. (可选) PCA 降维 ---
-    # 使用内部标志 _use_pca_internal
-    if _use_pca_internal:
-        if features_original.shape[1] > 1 and features_original.shape[0] > features_original.shape[1]:
-            # PCA 前最好先标准化数据
+    # --- 5. (可选) PCA 降维 ---
+    # 优先使用 PCA
+    if use_pca:
+        if features_processed.shape[1] > 1 and features_processed.shape[0] > features_processed.shape[1]:
+            logger.info(f"启用 PCA 降维，n_components={n_components}")
+            # PCA 前最好先标准化数据 (临时 scaler)
             scaler_pca = StandardScaler()
-            features_scaled_pca = scaler_pca.fit_transform(features_original)
+            features_scaled_pca = scaler_pca.fit_transform(features_processed)
             pca = PCA(n_components=n_components)
-            features_processed = pca.fit_transform(features_scaled_pca) # PCA 在标准化数据上进行
-            logger.info(f"PCA降维完成，保留 {pca.n_components_} 个主成分，解释方差比: {sum(pca.explained_variance_ratio_):.4f}")
-            num_features = pca.n_components_
-            current_feature_columns = [f"pca_{i}" for i in range(num_features)] # PCA后列名丢失意义
-        else:
-            logger.warning(f"特征维度 ({features_original.shape[1]}) 或样本数不足，跳过PCA降维。")
-            features_processed = features_original # 未处理
-            num_features = features_processed.shape[1]
-        features_final_before_windowing = features_processed # PCA后的特征直接用于窗口化
+            try:
+                features_processed = pca.fit_transform(features_scaled_pca) # PCA 在标准化数据上进行
+                num_features = pca.n_components_
+                logger.info(f"PCA降维完成，保留 {num_features} 个主成分，解释方差比: {sum(pca.explained_variance_ratio_):.4f}")
+                current_feature_columns = [f"pca_{i}" for i in range(num_features)] # PCA后列名丢失意义
+                if num_features == 0:
+                     logger.error("PCA 降维后特征维度为零。请检查 n_components 或数据。")
+                     raise ValueError("PCA 降维后特征维度为零。")
+            except Exception as e:
+                 logger.error(f"应用 PCA 时出错: {e}", exc_info=True)
+                 logger.warning("PCA 降维失败，将使用之前的特征。")
+                 use_pca = False # 禁用 PCA 标志，可能继续进行特征选择
 
-    # --- 3. (可选) 基于模型的特征选择 ---
-    # 使用内部标志 _use_feature_selection_internal
-    elif _use_feature_selection_internal:
-        if features_original.shape[1] <= 1:
-             logger.warning(f"特征维度 ({features_original.shape[1]}) 过低，跳过基于模型的特征选择。")
-             features_final_before_windowing = features_original # 未处理
-             num_features = features_final_before_windowing.shape[1]
         else:
-            # 特征选择前需要缩放特征 (使用临时 scaler)
-            # 注意：这里在整个数据集上拟合 scaler 会有轻微的数据泄漏，
-            # 但对于特征选择来说通常可接受，且简化流程。
-            # 更严格的方法是仅在训练集上拟合 scaler，然后用它转换整个数据集进行选择。
+            logger.warning(f"特征维度 ({features_processed.shape[1]}) 或样本数 ({features_processed.shape[0]}) 不足，跳过PCA降维。")
+            use_pca = False # 禁用 PCA 标志
+
+    # --- 6. (可选) 基于模型的特征选择 ---
+    # 仅在 PCA 未启用时执行
+    if use_feature_selection and not use_pca:
+        if features_processed.shape[1] <= 1:
+             logger.warning(f"特征维度 ({features_processed.shape[1]}) 过低，跳过基于模型的特征选择。")
+        else:
+            logger.info(f"启用基于模型 '{feature_selector_model}' 的特征选择。")
+            # 特征选择前需要缩放特征 (使用临时 scaler)，在整个数据集上拟合
             scaler_fs = MinMaxScaler() # 使用 MinMax 对特征重要性模型通常更友好
-            features_scaled_fs = scaler_fs.fit_transform(features_original)
+            features_scaled_fs = scaler_fs.fit_transform(features_processed)
 
             # 选择模型
             if feature_selector_model.lower() == 'rf':
@@ -224,93 +220,54 @@ def prepare_data_for_lstm(
                 selector_model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
 
             # 使用 SelectFromModel
-            if max_features_fs is not None and max_features_fs > 0:
-                 # 根据数量选择
-                 selector = SelectFromModel(selector_model, max_features=min(max_features_fs, features_original.shape[1]), threshold=-np.inf, prefit=False)
-                 logger.info(f"使用 {feature_selector_model} 选择最重要的 {min(max_features_fs, features_original.shape[1])} 个特征。")
-            else:
-                 # 根据阈值选择
-                 selector = SelectFromModel(selector_model, threshold=feature_selection_threshold, prefit=False)
-                 logger.info(f"使用 {feature_selector_model} 和阈值 '{feature_selection_threshold}' 选择特征。")
-
             try:
                 # 在缩放后的特征和原始目标上拟合选择器
-                selector.fit(features_scaled_fs, targets_original)
-                features_selected = selector.transform(features_scaled_fs) # 转换的是缩放后的特征
+                selector_model.fit(features_scaled_fs, targets_original)
 
+                if max_features_fs is not None and max_features_fs > 0:
+                     # 根据数量选择
+                     # max_features 不能超过当前特征数量
+                     actual_max_features = min(max_features_fs, features_processed.shape[1])
+                     selector = SelectFromModel(selector_model, max_features=actual_max_features, threshold=-np.inf, prefit=True) # prefit=True 因为已经手动fit了
+                     logger.info(f"使用 {feature_selector_model} 选择最重要的 {actual_max_features} 个特征。")
+                else:
+                     # 根据阈值选择
+                     selector = SelectFromModel(selector_model, threshold=feature_selection_threshold, prefit=True) # prefit=True
+                     logger.info(f"使用 {feature_selector_model} 和阈值 '{feature_selection_threshold}' 选择特征。")
+
+                # 获取选中的特征索引
                 selected_indices = selector.get_support(indices=True)
-                current_feature_columns = [current_feature_columns[i] for i in selected_indices] # 更新选中的列名
-                num_features = features_selected.shape[1]
-                logger.info(f"基于模型选择后维度: {num_features}") # <-- 特征选择成功会打印这个
 
-                if num_features == 0:
+                if len(selected_indices) == 0:
                     logger.error("基于模型选择后没有剩余特征。请检查模型、阈值或数据。")
-                    raise ValueError("没有剩余特征。")
+                    raise ValueError("基于模型选择后没有剩余特征。")
 
-                # 特征选择后，我们应该使用 *原始尺度* 的选中特征进行后续的窗口化和最终缩放
-                # 所以，我们用 selected_indices 从 features_original 中提取对应的列
-                features_final_before_windowing = features_original[:, selected_indices]
+                # 从 *处理前* 的特征矩阵中提取选中的列 (保持原始尺度)
+                # features_processed 在此步骤之前已经经过了 NaN 填充和可选的方差过滤
+                features_processed = features_processed[:, selected_indices]
+                current_feature_columns = [current_feature_columns[i] for i in selected_indices] # 更新选中的列名
+                num_features = features_processed.shape[1]
+                logger.info(f"基于模型选择后维度: {num_features}")
 
             except Exception as e:
                  logger.error(f"应用基于模型的特征选择时出错: {e}", exc_info=True)
-                 # 出错时，可以选择继续使用之前的特征或抛出错误
-                 logger.warning("特征选择失败，将使用选择前的特征进行后续处理。")
-                 features_final_before_windowing = features_original # 使用选择前的特征
-                 num_features = features_final_before_windowing.shape[1]
+                 logger.warning("特征选择失败，将使用之前的特征进行后续处理。")
+                 # 如果特征选择失败，features_processed 保持为方差过滤后的结果 (或原始结果)
+                 # current_feature_columns 也保持为方差过滤后的列名 (或原始列名)
 
-    # --- 4. 未启用 PCA 或特征选择 ---
-    else:
-        logger.info("未启用 PCA 或基于模型的特征选择，使用所有初始特征。") # <-- 添加日志
-        features_final_before_windowing = features_original # 使用经过方差过滤（如果启用）的特征
-        num_features = features_final_before_windowing.shape[1]
 
-    logger.info(f"最终用于窗口化的特征维度: {num_features}")
-    logger.info(f"最终用于窗口化的特征列名: {current_feature_columns}") # 打印最终使用的列名
+    # 确定最终特征数量
+    num_features = features_processed.shape[1]
+    if num_features == 0:
+         logger.error("经过所有预处理步骤后，特征维度为零。无法继续。")
+         raise ValueError("特征维度为零。")
 
-    # --- 5. 构建时间序列窗口 ---
-    # ... (这部分代码保持不变) ...
-    X, y = [], []
-    if len(features_final_before_windowing) <= window_size:
-        logger.error(f"处理后数据长度 {len(features_final_before_windowing)} 不足以构建窗口 (window_size={window_size})。")
-        raise ValueError("数据长度不足。")
+    logger.info(f"最终用于缩放和窗口化的特征维度: {num_features}")
+    logger.info(f"最终用于缩放和窗口化的特征列名 (前10个): {current_feature_columns[:10]}...")
 
-    for i in range(len(features_final_before_windowing) - window_size):
-        X.append(features_final_before_windowing[i:(i + window_size)]) # 使用处理后的特征
-        y.append(targets_original[i + window_size]) # 预测窗口后的一个点
 
-    X = np.array(X)
-    y = np.array(y)
-
-    if X.shape[0] == 0 or y.shape[0] == 0:
-        logger.error("窗口化后数据量为零，请检查数据长度和窗口大小。")
-        raise ValueError("窗口化后数据量为零。")
-
-    logger.info(f"窗口化完成，X 形状: {X.shape}, y 形状: {y.shape}")
-
-    # --- 6. 分割数据集 (按时间顺序) ---
-    n_samples_windowed = X.shape[0]
-    if train_split + val_split > 1.0:
-         logger.error("训练集和验证集比例之和必须小于等于1。")
-         raise ValueError("分割比例错误。")
-
-    n_train = int(n_samples_windowed * train_split)
-    n_val = int(n_samples_windowed * val_split)
-    n_test = n_samples_windowed - n_train - n_val
-
-    if n_train == 0:
-        logger.error("训练集样本数为零，请检查 train_split 和窗口化后的数据长度。")
-        raise ValueError("训练集样本数为零。")
-    if n_val == 0 and val_split > 0: logger.warning("验证集样本数为零。")
-    if n_test == 0 and (1.0 - train_split - val_split) > 1e-9 : logger.warning("测试集样本数为零。")
-
-    X_train, y_train = X[:n_train], y[:n_train]
-    X_val, y_val = X[n_train : n_train + n_val], y[n_train : n_train + n_val]
-    X_test, y_test = X[n_train + n_val:], y[n_train + n_val:]
-
-    logger.info(f"数据分割完成 (按时间顺序)，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条")
-
-    # --- 7. 最终缩放 (在分割后的训练集上拟合) ---
-    # 特征缩放
+    # --- 7. 对处理后的特征和原始目标变量进行最终缩放 ---
+    # 特征缩放 (在整个处理后的特征集上拟合和转换)
     if scaler_type.lower() == 'minmax':
         feature_scaler = MinMaxScaler()
     elif scaler_type.lower() == 'standard':
@@ -319,26 +276,16 @@ def prepare_data_for_lstm(
         logger.warning(f"不支持的特征缩放器类型: {scaler_type}，使用默认MinMaxScaler。")
         feature_scaler = MinMaxScaler()
 
-    # 确保 num_features 反映了最终特征数量
-    # num_features 已经在 PCA 或特征选择步骤后被正确设置
-    if num_features > 0 and X_train.shape[0] > 0:
-         # 为了 fit scaler，需要将训练集时间步的特征展平
-         X_train_reshaped_for_scaler = X_train.reshape(-1, num_features)
-         feature_scaler.fit(X_train_reshaped_for_scaler) # 只在训练集上fit
-
-         # 对所有数据集应用缩放，并恢复到原始形状
-         X_train_scaled = feature_scaler.transform(X_train_reshaped_for_scaler).reshape(X_train.shape)
-         X_val_scaled = feature_scaler.transform(X_val.reshape(-1, num_features)).reshape(X_val.shape) if X_val.shape[0] > 0 else X_val
-         X_test_scaled = feature_scaler.transform(X_test.reshape(-1, num_features)).reshape(X_test.shape) if X_test.shape[0] > 0 else X_test
+    # 确保 features_processed 不是空的
+    if features_processed.shape[0] > 0 and features_processed.shape[1] > 0:
+         features_scaled = feature_scaler.fit_transform(features_processed)
          logger.info(f"最终特征缩放完成 (使用 {scaler_type} scaler)。")
-    elif X_train.shape[0] == 0:
-         logger.warning("训练集为空，跳过最终特征缩放。")
-         X_train_scaled, X_val_scaled, X_test_scaled = X_train, X_val, X_test
-    else: # num_features == 0
-         logger.warning("没有特征需要缩放 (特征维度为零)。")
-         X_train_scaled, X_val_scaled, X_test_scaled = X_train, X_val, X_test
+    else:
+         logger.warning("处理后的特征数据为空，跳过最终特征缩放。")
+         features_scaled = features_processed # 保持原样 (空数组)
 
-    # 目标变量缩放
+
+    # 目标变量缩放 (在整个原始目标集上拟合和转换)
     if target_scaler_type.lower() == 'minmax':
         target_scaler = MinMaxScaler()
     elif target_scaler_type.lower() == 'standard':
@@ -347,21 +294,69 @@ def prepare_data_for_lstm(
         logger.warning(f"不支持的目标变量缩放器类型: {target_scaler_type}，使用默认MinMaxScaler。")
         target_scaler = MinMaxScaler()
 
-    if y_train.shape[0] > 0:
-        # 目标变量 y_train 是一个一维数组，需要 reshape 成二维才能 fit scaler
-        y_train_scaled = target_scaler.fit_transform(y_train.reshape(-1, 1)).flatten() # 只在训练集目标变量上fit
-        y_val_scaled = target_scaler.transform(y_val.reshape(-1, 1)).flatten() if y_val.shape[0] > 0 else y_val
-        y_test_scaled = target_scaler.transform(y_test.reshape(-1, 1)).flatten() if y_test.shape[0] > 0 else y_test
+    # 确保 targets_original 不是空的
+    if targets_original.shape[0] > 0:
+        # 目标变量 targets_original 是一个一维数组，需要 reshape 成二维才能 fit scaler
+        targets_scaled = target_scaler.fit_transform(targets_original.reshape(-1, 1)).flatten()
         logger.info(f"目标变量缩放完成 (使用 {target_scaler_type} scaler)。")
     else:
-        logger.warning("训练集目标变量为空，跳过目标变量缩放。")
-        y_train_scaled, y_val_scaled, y_test_scaled = y_train, y_val, y_test
+        logger.warning("原始目标变量数据为空，跳过目标变量缩放。")
+        targets_scaled = targets_original # 保持原样 (空数组)
 
 
-    logger.info(f"数据准备完成 (已缩放)，训练集X: {X_train_scaled.shape}，y: {y_train_scaled.shape}，验证集X: {X_val_scaled.shape}，y: {y_val_scaled.shape}，测试集X: {X_test_scaled.shape}，y: {y_test_scaled.shape}")
+    # --- 8. 构建时间序列窗口 (在缩放后的数据上) ---
+    # 确保缩放后的数据长度足够构建至少一个窗口
+    if len(features_scaled) < window_size + 1: # 需要 window_size 个输入 + 1 个输出
+        logger.error(f"缩放后数据长度 {len(features_scaled)} 不足以构建窗口 (window_size={window_size})。至少需要 {window_size + 1} 条数据。")
+        # 返回空的数组和 scaler (scaler 已经 fit 了，可以返回)
+        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), feature_scaler, target_scaler
 
-    # 返回最终处理好的数据和在训练集上拟合的 scaler
-    return X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled, X_test_scaled, y_test_scaled, feature_scaler, target_scaler
+
+    X_windowed_all, y_windowed_all = [], []
+    # 构建所有可能的窗口
+    for i in range(len(features_scaled) - window_size):
+        X_windowed_all.append(features_scaled[i:(i + window_size)]) # 使用缩放后的特征
+        y_windowed_all.append(targets_scaled[i + window_size]) # 预测窗口后的一个点 (使用缩放后的目标)
+
+    X_windowed_all = np.array(X_windowed_all)
+    y_windowed_all = np.array(y_windowed_all)
+
+    if X_windowed_all.shape[0] == 0 or y_windowed_all.shape[0] == 0:
+        logger.error("窗口化后数据量为零，请检查数据长度和窗口大小。")
+        # 返回空的数组和 scaler
+        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), feature_scaler, target_scaler
+
+    logger.info(f"窗口化完成，X_windowed_all 形状: {X_windowed_all.shape}, y_windowed_all 形状: {y_windowed_all.shape}")
+
+    # --- 9. 分割数据集 (按时间顺序) ---
+    n_samples_windowed = X_windowed_all.shape[0]
+    if train_split + val_split > 1.0:
+         logger.error("训练集和验证集比例之和必须小于等于1。")
+         raise ValueError("分割比例错误。")
+
+    n_train = int(n_samples_windowed * train_split)
+    n_val = int(n_samples_windowed * val_split)
+    n_test = n_samples_windowed - n_train - n_val
+
+    # 确保各数据集至少有一个样本 (如果比例允许)
+    if n_train == 0:
+        logger.error("训练集样本数为零，请检查 train_split 和窗口化后的数据长度。")
+        # 返回空的数组和 scaler
+        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), feature_scaler, target_scaler
+
+    # 验证集和测试集可以为空，但给出警告
+    if n_val == 0 and val_split > 1e-9: logger.warning("验证集样本数为零。")
+    if n_test == 0 and (1.0 - train_split - val_split) > 1e-9 : logger.warning("测试集样本数为零。")
+
+
+    X_train, y_train = X_windowed_all[:n_train], y_windowed_all[:n_train]
+    X_val, y_val = X_windowed_all[n_train : n_train + n_val], y_windowed_all[n_train : n_train + n_val]
+    X_test, y_test = X_windowed_all[n_train + n_val:], y_windowed_all[n_train + n_val:]
+
+    logger.info(f"数据分割完成 (按时间顺序)，训练集: {X_train.shape[0]} 条，验证集: {X_val.shape[0]} 条，测试集: {X_test.shape[0]} 条")
+
+    # 返回最终处理好的数据和在整个数据集上拟合的 scaler
+    return X_train, y_train, X_val, y_val, X_test, y_test, feature_scaler, target_scaler
 
 @log_execution_time
 @handle_exceptions
@@ -370,7 +365,7 @@ def train_lstm_model(
     X_test: np.ndarray, y_test: np.ndarray, model: Sequential,
     target_scaler: Union[MinMaxScaler, StandardScaler], # 传入目标变量缩放器
     training_config: Dict[str, Any] = None, checkpoint_path: str = "models/checkpoints/best_model.keras",
-    plot_training_history: bool = False # 保留绘图选项
+    plot_training_history: bool = False # 是否绘制训练历史图
 ) -> Dict:
     """
     训练LSTM模型。
@@ -399,17 +394,16 @@ def train_lstm_model(
     if training_config:
         config.update(training_config)
 
-    logger.info(f"开始训练模型，X_train: {X_train.shape}, y_train: {y_train.shape}")
+    logger.info(f"开始训练模型，训练集样本数: {X_train.shape[0]}, 验证集样本数: {X_val.shape[0]}, 测试集样本数: {X_test.shape[0]}")
+    logger.info(f"训练配置: {config}")
+
 
     # 检查目标变量缩放后的范围 (仅作提醒，实际缩放已在prepare_data_for_lstm完成)
-    # 如果 target_scaler 是 MinMaxScaler 并且其 feature_range 是 (0, 1)，则 y_scaled 应该在 [0, 1]
-    # 对于 StandardScaler，它将数据转换为均值为 0，标准差为 1，范围不固定
     if isinstance(target_scaler, MinMaxScaler):
         logger.info(f"目标变量 MinMaxScaler range: {target_scaler.feature_range}")
     # else: StandardScaler 的范围没有特定保证
 
-    # --- 移除不恰当的分类样本权重计算 ---
-    # Regression task, typically no class weights needed.
+    # 回归任务，通常不需要类别权重
     sample_weight = None
 
     checkpoint_dir = os.path.dirname(checkpoint_path)
@@ -419,32 +413,26 @@ def train_lstm_model(
 
     callbacks = [
         # monitor Metric应与model.compile中的metrics或loss一致
-        EarlyStopping(monitor=config['monitor_metric'], patience=config['early_stopping_patience'], restore_best_weights=True, verbose=config['verbose']),
-        ReduceLROnPlateau(monitor=config['monitor_metric'], factor=config['reduce_lr_factor'], patience=config['reduce_lr_patience'], min_lr=1e-6, verbose=config['verbose']),
         # mode 应根据 monitor_metric 是 loss (min) 还是 metric (max) 来设置
+        EarlyStopping(monitor=config['monitor_metric'], patience=config['early_stopping_patience'], restore_best_weights=True, verbose=config['verbose'], mode='min' if 'loss' in config['monitor_metric'].lower() else 'max'),
+        ReduceLROnPlateau(monitor=config['monitor_metric'], factor=config['reduce_lr_factor'], patience=config['reduce_lr_patience'], min_lr=1e-6, verbose=config['verbose'], mode='min' if 'loss' in config['monitor_metric'].lower() else 'max'),
         ModelCheckpoint(filepath=checkpoint_path, monitor=config['monitor_metric'], save_best_only=True, save_weights_only=False, mode='min' if 'loss' in config['monitor_metric'].lower() else 'max', verbose=config['verbose'])
     ]
 
-    # 检查验证集是否存在
+    # 检查验证集是否存在，如果不存在则移除依赖验证集的 callback
     validation_data = (X_val, y_val) if X_val.shape[0] > 0 else None
     if validation_data is None:
-        logger.warning("验证集为空，将不使用 EarlyStopping 和 ReduceLROnPlateau 的 val_* 监控。请考虑调整分割比例。")
-        # 如果没有验证集，需要修改回调函数的 monitor 参数
-        # Note: Modifying callbacks in place might affect subsequent runs if the same list is reused
-        # A safer way might be to create a new list of callbacks
-        # Or, ensure validation_data is always available by adjusting split ratios
-        # For now, modify in place as a quick fix
-        for cb in callbacks:
-            if isinstance(cb, (EarlyStopping, ReduceLROnPlateau)):
-                if cb.monitor.startswith('val_'):
-                     cb.monitor = cb.monitor.replace('val_', '') # 例如 'val_loss' -> 'loss'
-                     logger.warning(f"EarlyStopping/ReduceLROnPlateau 监控指标已改为 '{cb.monitor}' (无验证集)")
-        # ModelCheckpoint 也可能需要调整 mode 和 monitor
-        if isinstance(callbacks[-1], ModelCheckpoint): # 假设ModelCheckpoint是最后一个
-             if callbacks[-1].monitor.startswith('val_'):
-                  callbacks[-1].monitor = callbacks[-1].monitor.replace('val_', '')
-                  callbacks[-1].mode = 'min' if 'loss' in callbacks[-1].monitor.lower() else 'max' # 重新确定 mode
-                  logger.warning(f"ModelCheckpoint 监控指标已改为 '{callbacks[-1].monitor}' (无验证集)")
+        logger.warning("验证集为空，将不使用依赖验证集的 EarlyStopping 和 ReduceLROnPlateau。")
+        # 过滤掉 monitor 以 'val_' 开头的 callback
+        callbacks = [cb for cb in callbacks if not cb.monitor.startswith('val_')]
+        # 如果 ModelCheckpoint 监控的是 val_loss/val_metric，也需要调整
+        if callbacks and isinstance(callbacks[-1], ModelCheckpoint) and callbacks[-1].monitor.startswith('val_'):
+             logger.warning("ModelCheckpoint 监控指标为 val_*，但验证集为空，将移除 ModelCheckpoint。")
+             callbacks = callbacks[:-1] # 移除最后一个 ModelCheckpoint
+
+        # 如果移除了所有 callback，则打印警告
+        if not callbacks:
+             logger.warning("没有可用的训练回调函数。")
 
 
     history = model.fit(
@@ -457,39 +445,49 @@ def train_lstm_model(
         verbose=config['verbose']
     )
 
+    # 在测试集上评估 (使用缩放后的目标值)
     if X_test.shape[0] > 0:
-        # 在测试集上评估 (使用缩放后的目标值)
-        test_loss, test_mae_scaled = model.evaluate(X_test, y_test, verbose=0)
-
-        # 将 MAE 转换回原始范围
-        # 这是一个估算，假设缩放是线性的 (MinMaxScaler, StandardScaler)
-        # MAE_original = MAE_scaled * (original_max - original_min) for MinMaxScaler(0,1)
-        # MAE_original = MAE_scaled * original_std_dev for StandardScaler
-        # 使用 target_scaler 的 inverse_transform 来估算原始范围的 MAE
         try:
-            # 估算方法：计算缩放器将 0 和 scaled_mae 转换回原始尺度的差值
-            # 需要确保 target_scaler 已经被 fit
-            if hasattr(target_scaler, 'scale_') or hasattr(target_scaler, 'min_'):
-                 # 创建一个包含 0 和 scaled_mae 的二维数组用于逆缩放
-                 dummy_values = np.array([[0.0], [test_mae_scaled]])
-                 original_values = target_scaler.inverse_transform(dummy_values)
-                 mae_original_approx = abs(original_values[1][0] - original_values[0][0])
-            else:
-                 # scaler 可能没有 fit (例如训练集为空)，或者不是支持的类型
-                 mae_original_approx = np.nan # 或者设置为 test_mae_scaled，表示无法逆缩放
-                 logger.warning("目标变量缩放器未 fit 或类型不支持，无法估算原始范围 MAE。")
+            test_results = model.evaluate(X_test, y_test, verbose=0)
+            # evaluate 返回的是一个列表，第一个是 loss，后面是 metrics
+            test_loss = test_results[0]
+            # 找到 MAE 的索引 (假设 'mae' 在 metrics 列表中)
+            mae_index = model.metrics_names.index('mae') if 'mae' in model.metrics_names else None
+            test_mae_scaled = test_results[mae_index] if mae_index is not None else np.nan
 
+            # 将 MAE 转换回原始范围
+            mae_original_approx = np.nan # 默认 NaN
+            try:
+                # 估算方法：计算缩放器将 0 和 scaled_mae 转换回原始尺度的差值
+                # 需要确保 target_scaler 已经被 fit 并且 test_mae_scaled 不是 NaN
+                if test_mae_scaled is not np.nan and hasattr(target_scaler, 'inverse_transform'):
+                     # 创建一个包含 0 和 scaled_mae 的二维数组用于逆缩放
+                     # 注意：这里假设 MAE 是非负的，且缩放器是线性的
+                     dummy_values = np.array([[0.0], [test_mae_scaled]])
+                     original_values = target_scaler.inverse_transform(dummy_values)
+                     mae_original_approx = abs(original_values[1][0] - original_values[0][0])
+                else:
+                     logger.warning("目标变量缩放器未 fit 或类型不支持，或 scaled MAE 为 NaN，无法估算原始范围 MAE。")
+
+            except Exception as e:
+                logger.error(f"估算原始范围 MAE 时出错: {e}", exc_info=True)
+                mae_original_approx = np.nan # 发生错误时设置为 NaN
+
+            logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE (缩放后): {test_mae_scaled:.4f}, MAE (原始范围估算): {mae_original_approx:.4f}")
         except Exception as e:
-            logger.error(f"估算原始范围 MAE 时出错: {e}", exc_info=True)
-            mae_original_approx = np.nan # 发生错误时设置为 NaN
+             logger.error(f"评估测试集时出错: {e}", exc_info=True)
+             logger.warning("测试集评估失败。")
 
-        logger.info(f"LSTM模型在测试集上的损失: {test_loss:.4f}, MAE (缩放后): {test_mae_scaled:.4f}, MAE (原始范围估算): {mae_original_approx:.4f}")
     else:
         logger.warning("测试集为空，无法评估LSTM模型。")
 
     logger.info("模型训练完成。")
-    logger.info(f"训练历史: loss={history.history['loss'][-1]:.4f}, val_loss={history.history['val_loss'][-1] if 'val_loss' in history.history else 'N/A':.4f}")
-
+    # 打印最终的训练和验证损失/指标
+    final_loss = history.history['loss'][-1] if 'loss' in history.history else 'N/A'
+    final_val_loss = history.history['val_loss'][-1] if 'val_loss' in history.history else 'N/A'
+    final_mae = history.history['mae'][-1] if 'mae' in history.history else 'N/A'
+    final_val_mae = history.history['val_mae'][-1] if 'val_mae' in history.history else 'N/A'
+    logger.info(f"训练历史: 最终损失={final_loss}, 最终验证损失={final_val_loss}, 最终MAE={final_mae}, 最终验证MAE={final_val_mae}")
 
 
     # 可选：绘制训练历史图
@@ -519,7 +517,8 @@ def train_lstm_model(
              else:
                  logger.warning("训练历史中没有MAE指标，跳过绘制MAE图。请检查model.compile的metrics参数。")
 
-
+             # 为防止文件名冲突，可以考虑加上时间戳或股票代码 (如果可用)
+             # 例如: plt.savefig(f'training_history_{stock_code}_{int(time.time())}.png')
              plt.savefig('training_history.png')
              plt.close('all') # 关闭所有图，避免内存泄露
              logger.info("训练历史图已保存至 training_history.png")
@@ -537,14 +536,24 @@ def build_lstm_model(
     model_type: str = 'lstm',
     summary: bool = True,
     # 新增参数以应对目标变量类型变化 (如果需要支持分类)
-    # output_units: int = 1,
-    # output_activation: Optional[str] = None, # None for regression, 'sigmoid' or 'softmax' for classification
-    # loss: str = 'mse', # 'mse' for regression, 'binary_crossentropy' or 'categorical_crossentropy' for classification
-    # metrics: List[str] = ['mae'] # 'mae' for regression, ['accuracy', 'precision', 'recall', 'f1'] for classification
+    # output_units: int = 1, # 回归默认1
+    # output_activation: Optional[str] = None, # 回归默认 None
+    # loss: str = 'mse', # 回归默认 'mse'
+    # metrics: List[str] = ['mae'] # 回归默认 ['mae']
 ) -> Sequential:
     """
     构建深度学习模型，支持LSTM、Bidirectional LSTM和GRU，允许自定义配置。
     默认配置为回归任务。如需分类，需要修改这里的参数或在调用时覆盖。
+
+    Args:
+        window_size (int): 输入时间步长。
+        num_features (int): 输入特征维度。
+        model_config (Dict): 模型配置字典，可以覆盖默认层、优化器、损失函数等。
+        model_type (str): 模型类型 ('lstm', 'bilstm', 'gru')。
+        summary (bool): 是否打印模型摘要。
+
+    Returns:
+        Sequential: 已编译的Keras模型。
     """
     # 默认配置 (回归任务)
     default_config = {
@@ -554,22 +563,39 @@ def build_lstm_model(
         ],
         'dense_layers': [{'units': 16, 'dropout': 0.2, 'l2_reg': 0.01}],
         'optimizer': 'adam',
-        'learning_rate': 0.001,
+        'learning_rate': 0.001, # 默认学习率
         'loss': 'mse',
-        'metrics': ['mae']
+        'metrics': ['mae'],
+        'output_units': 1, # 回归任务输出单元数
+        'output_activation': None # 回归任务输出层无激活函数
     }
     config = default_config.copy() # 使用copy，避免修改default_config
     if model_config:
-        config.update(model_config)
+        # 深度更新字典，特别是嵌套的 layers 和 dense_layers
+        for key, value in model_config.items():
+            if isinstance(value, dict) and key in config and isinstance(config[key], dict):
+                config[key].update(value)
+            elif isinstance(value, list) and key in config and isinstance(config[key], list):
+                 # 对于列表，直接替换
+                 config[key] = value
+            else:
+                config[key] = value
 
     # 构建模型
     model = Sequential()
-    if model_type.lower() == 'lstm':
+    model_type_lower = model_type.lower()
+
+    if model_type_lower == 'lstm':
         layer_class = LSTM
-    elif model_type.lower() == 'bilstm':
+    elif model_type_lower == 'bilstm':
         # Bidirectional Wrapper handles input_shape in the first layer
-        layer_class = lambda units, return_sequences=False, **kwargs: Bidirectional(LSTM(units, return_sequences=return_sequences, **kwargs))
-    elif model_type.lower() == 'gru':
+        # 注意：Bidirectional Wrapper 需要一个 RNN 层作为参数
+        def bilstm_layer(units, return_sequences=False, **kwargs):
+             # 从 kwargs 中移除 activation, kernel_regularizer, recurrent_regularizer 等，这些应该传给内部的 LSTM
+             lstm_kwargs = {k: v for k, v in kwargs.items() if k not in ['activation']} # activation 应该在 LSTM 层内部
+             return Bidirectional(LSTM(units, return_sequences=return_sequences, **lstm_kwargs))
+        layer_class = bilstm_layer
+    elif model_type_lower == 'gru':
         layer_class = GRU
     else:
         raise ValueError(f"不支持的模型类型: {model_type}")
@@ -587,8 +613,9 @@ def build_lstm_model(
         }
         if i == 0:
             # 只有第一个循环层需要指定 input_shape
-            if model_type.lower() == 'bilstm':
+            if model_type_lower == 'bilstm':
                  # 对于 Bidirectional，input_shape 传递给其内部的 LSTM 层
+                 # layer_class (bilstm_layer) 会处理这个参数
                  layer_args['input_shape'] = (window_size, num_features)
                  model.add(layer_class(**layer_args))
             else:
@@ -596,11 +623,19 @@ def build_lstm_model(
                  model.add(layer_class(**layer_args))
         else:
              # 非第一个循环层不需要 input_shape 参数
-             model.add(layer_class(units=layer_conf['units'],
-                                   return_sequences=layer_conf.get('return_sequences', False),
-                                   kernel_regularizer=regularizer,
-                                   recurrent_regularizer=regularizer,
-                                   activation=layer_conf.get('activation', 'tanh')))
+             # 对于 Bidirectional，units 和 return_sequences 传递给 wrapper，其他参数传递给内部 LSTM
+             if model_type_lower == 'bilstm':
+                  model.add(layer_class(units=layer_conf['units'],
+                                        return_sequences=layer_conf.get('return_sequences', False),
+                                        kernel_regularizer=regularizer, # 这些传给内部 LSTM
+                                        recurrent_regularizer=regularizer,
+                                        activation=layer_conf.get('activation', 'tanh')))
+             else:
+                  model.add(layer_class(units=layer_conf['units'],
+                                        return_sequences=layer_conf.get('return_sequences', False),
+                                        kernel_regularizer=regularizer,
+                                        recurrent_regularizer=regularizer,
+                                        activation=layer_conf.get('activation', 'tanh')))
 
 
         if layer_conf.get('dropout', 0.0) > 0:
@@ -616,15 +651,15 @@ def build_lstm_model(
             # 全连接层后的 Dropout
             model.add(Dropout(dense_conf['dropout']))
 
-    # 输出层 (默认回归任务)
-    # output_units = config.get('output_units', 1) # 可通过config控制输出单元数
-    # output_activation = config.get('output_activation', None) # 可通过config控制输出激活函数
-    model.add(Dense(units=1, activation=None)) # 默认回归输出层，无激活函数
+    # 输出层
+    output_units = config.get('output_units', 1)
+    output_activation = config.get('output_activation', None)
+    model.add(Dense(units=output_units, activation=output_activation)) # 默认回归输出层，无激活函数
 
     # 选择优化器
     optimizer_name = config.get('optimizer', 'adam').lower() # 转换为小写以便比较
-    lr = config.get('learning_rate', 0.001)
-    # 优化器可以接收各种参数，这里只处理学习率
+    lr = config.get('learning_rate', 0.001) # 从 config 中获取学习率
+    # 优化器可以接收各种参数，这里只处理学习率和可能的 momentum
     if optimizer_name == 'adam':
         optimizer = Adam(learning_rate=lr)
     elif optimizer_name == 'rmsprop':
@@ -657,7 +692,7 @@ def build_lstm_model(
     logger.info(f"模型构建完成 ({model_type.upper()})，输入形状: ({window_size}, {num_features})") # 修正日志形状显示
     return model
 
-# analyze_target_distribution 函数保留原样，但在调用时应在 prepare_data_for_lstm *之前* 调用
+# analyze_target_distribution 函数保留原样，但在调用时应在数据缩放前调用
 
 # 保留原有的 analyze_target_distribution 函数
 def analyze_target_distribution(y_train, y_val, y_test):
@@ -676,31 +711,31 @@ def analyze_target_distribution(y_train, y_val, y_test):
             continue
 
         # 根据唯一值数量调整bins，避免bins过多或过少
-        num_unique = len(np.unique(y))
+        # 检查数据类型，确保是数值类型
+        y_numeric = pd.to_numeric(y, errors='coerce').dropna()
+        if len(y_numeric) == 0:
+             plt.title(f'{name} 目标变量分布 (无有效数值)')
+             plt.text(0.5, 0.5, 'No valid data', horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
+             continue
+
+        num_unique = len(np.unique(y_numeric))
         bins_to_use = min(num_unique, 50) if num_unique > 1 else 1 # 如果只有一个值，bins设为1
         if bins_to_use <= 1: # 如果数据只有1个或0个唯一值
-             sns.histplot(y, bins=1, kde=False, alpha=0.7) # 不绘制kde，bins设为1
+             sns.histplot(y_numeric, bins=1, kde=False, alpha=0.7) # 不绘制kde，bins设为1
         else:
-             sns.histplot(y, bins=bins_to_use, kde=True, alpha=0.7) # 绘制kde
+             sns.histplot(y_numeric, bins=bins_to_use, kde=True, alpha=0.7) # 绘制kde
 
         plt.title(f'{name} 目标变量分布')
         plt.xlabel('目标值')
         plt.ylabel('频次')
 
-        # 检查值集中情况 (在原始值上检查更有意义，如果 analyze_target_distribution 在缩放后调用，则需要重新考虑此逻辑)
-        # value_counts = pd.Series(y).value_counts(normalize=True)
-        # if value_counts.max() > 0.8:
-        #     dominant_value = value_counts.idxmax()
-        #     logger.warning(f"{name} 目标变量值集中，值 {dominant_value} 占比 {value_counts.max():.2%}")
+        # 打印描述性统计信息
+        logger.info(f"{name} 目标变量描述：\n%s", pd.Series(y_numeric).describe())
+
 
     plt.tight_layout()
     # 为防止文件名冲突，可以考虑加上股票代码或时间戳
     plt.savefig('target_distribution.png')
     plt.close('all') # 确保关闭所有图窗以释放内存
     logger.info("目标变量分布图已保存至 target_distribution.png")
-
-    # 打印描述性统计信息，检查数据是否为空
-    if len(y_train) > 0: logger.info("训练集目标变量描述：\n%s", pd.Series(y_train).describe())
-    if len(y_val) > 0: logger.info("验证集目标变量描述：\n%s", pd.Series(y_val).describe())
-    if len(y_test) > 0: logger.info("测试集目标变量描述：\n%s", pd.Series(y_test).describe())
 
