@@ -396,10 +396,10 @@ class IndicatorService:
             needed_bars_for_tf = self._calculate_needed_bars_for_tf(
                 target_tf=tf,
                 min_tf=min_time_level,
-                base_needed_bars=base_needed_bars if base_needed_bars is not None else 30000, # 如果 base_needed_bars 为 None，使用默认值 30000
+                base_needed_bars=base_needed_bars if base_needed_bars is not None else 10000, # 如果 base_needed_bars 为 None，使用默认值 10000
                 global_max_lookback=global_max_lookback
             )
-            logger.info(f"[{stock_code}] 时间级别 {tf}: 基础({min_time_level})需{base_needed_bars if base_needed_bars is not None else 30000}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
+            logger.info(f"[{stock_code}] 时间级别 {tf}: 基础({min_time_level})需{base_needed_bars if base_needed_bars is not None else 10000}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
             # 调用 DAO 获取原始数据
             ohlcv_tasks[tf] = self._get_ohlcv_data(stock_code, tf, needed_bars_for_tf) # 使用计算出的数量
 
@@ -412,7 +412,7 @@ class IndicatorService:
         resampled_ohlcv_dfs = {}
         # 设定一个重采样后数据量阈值，如果小于此值则认为数据不可用
         # 例如，要求重采样后数据量至少是所需基础 bar 数量的 80%
-        min_usable_bars = math.ceil((base_needed_bars if base_needed_bars is not None else 30000) * 0.8)
+        min_usable_bars = math.ceil((base_needed_bars if base_needed_bars is not None else 10000) * 0.8)
         for tf, raw_df in raw_ohlcv_dfs.items():
             if raw_df is None or raw_df.empty:
                 logger.warning(f"[{stock_code}] 时间级别 {tf} 没有获取到原始数据，跳过重采样和计算。")

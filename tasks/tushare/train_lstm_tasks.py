@@ -44,7 +44,7 @@ def batch_train_following_strategy_lstm(self, stock_code: str, params_file: str 
 
 
 @celery_app.task(bind=True, name='tasks.tushare.train_lstm_tasks.train_lstm_trend_following_strategy_task')
-def train_lstm_trend_following_strategy_task(self, base_bars_to_request: int = 30000):
+def train_lstm_trend_following_strategy_task(self, base_bars_to_request: int = 8000):
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
