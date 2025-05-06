@@ -134,25 +134,33 @@
     "lstm_target_scaler_type": "minmax",
     "lstm_train_split": 0.7,
     "lstm_val_split": 0.15,
-    "lstm_use_feature_selection": true,
-    "lstm_feature_selector_model": "rf",
-    "lstm_max_features_fs": 50,
-    "lstm_feature_selection_threshold": "median",
-    "lstm_use_pca": false, 
-    "lstm_pca_n_components": 20, 
     "lstm_plot_history": false,
+    "lstm_target_column": "final_signal", 
+    "lstm_apply_variance_threshold": false,
+    "lstm_variance_threshold_value": 0.01, 
+    "lstm_use_feature_selection": true,
+    "lstm_feature_selector_model": "rf", 
+    "lstm_max_features_fs": 20, 
+    "lstm_feature_selection_threshold": "median", 
+    "lstm_use_pca": false, 
+    "lstm_pca_n_components": 0.99, 
+    
 
     "lstm_model_config": {
       "model_type": "lstm",
       "layers": [
-        {"units": 16, "return_sequences": true, "dropout": 0.55, "l2_reg": 0.02},
-        {"units": 8, "return_sequences": false, "dropout": 0.55, "l2_reg": 0.02}
+        {"units": 16, "return_sequences": true, "dropout": 0.55, "l2_reg": 0.02, "activation": "tanh"},
+        {"units": 8, "return_sequences": false, "dropout": 0.55, "l2_reg": 0.02, "activation": "tanh"}
       ],
       "dense_layers": [
-        {"units": 4, "dropout": 0.4, "l2_reg": 0.02}
+        {"units": 4, "dropout": 0.4, "l2_reg": 0.02, "activation": "relu"}
       ],
+      "output_units": 1,
+      "output_activation": null,
+
       "optimizer": "adam",
       "learning_rate": 0.0005,
+      "momentum": 0.0,
       "loss": "mse",
       "metrics": ["mae"]
     },
@@ -163,8 +171,7 @@
       "reduce_lr_patience": 7,
       "reduce_lr_factor": 0.5,
       "monitor_metric": "val_loss",
-      "verbose": 1,
-      "learning_rate": 0.0005
+      "verbose": 1
     }
   },
 

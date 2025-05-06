@@ -1396,7 +1396,9 @@ class TrendFollowingStrategy(BaseStrategy):
 
         try:
             stock = StockInfo.objects.get(stock_code=stock_code)
-            analysis_data = self.analysis_results.iloc[0].to_dict() if self.analysis_results is not None and not self.analysis_results.empty else {}
+            # 修改此处：直接使用 self.analysis_results 字典
+            analysis_data = self.analysis_results if self.analysis_results is not None else {}
+
             intermediate_data = self.intermediate_data.iloc[-1].to_dict() if self.intermediate_data is not None and not self.intermediate_data.empty else {}
             latest_data = data.iloc[-1].to_dict() if data is not None and not data.empty else {}
 
@@ -1408,6 +1410,7 @@ class TrendFollowingStrategy(BaseStrategy):
 
             # --- 准备要保存的数据字典 ---
             defaults_dict = {
+                # 从 intermediate_data 获取规则信号，因为 combined_signal 包含 LSTM 预测
                 'score': convert_nan_to_none(intermediate_data.get('final_signal', None)),
                 'base_score_raw': convert_nan_to_none(intermediate_data.get('base_score_raw', None)),
                 'base_score_volume_adjusted': convert_nan_to_none(intermediate_data.get('base_score_volume_adjusted', None)),
@@ -1426,7 +1429,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 'div_has_bearish_divergence': convert_nan_to_none(intermediate_data.get('div_has_bearish_divergence', None)), # 新增顶背离标志
                 'div_has_bullish_divergence': convert_nan_to_none(intermediate_data.get('div_has_bullish_divergence', None)), # 新增底背离标志
                 'close_price': convert_nan_to_none(latest_data.get(f'close_{self.focus_timeframe}', None)),
-                # 添加分析结果中的关键信息
+                # 添加分析结果中的关键信息 (从 analysis_data 字典获取)
                 'current_trend': analysis_data.get('current_trend', None),
                 'trend_strength': analysis_data.get('trend_strength', None),
                 'bullish_duration': convert_nan_to_none(analysis_data.get('bullish_duration', None)),
