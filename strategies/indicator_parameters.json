@@ -138,15 +138,15 @@
     "lstm_feature_selector_model": "rf",
     "lstm_max_features_fs": 50,
     "lstm_feature_selection_threshold": "median",
-    "lstm_use_pca": false,
-    "lstm_pca_n_components": 0.99,
+    "lstm_use_pca": false, 
+    "lstm_pca_n_components": 20, 
     "lstm_plot_history": false,
 
     "lstm_model_config": {
       "model_type": "lstm",
       "layers": [
-        {"units": 16, "return_sequences": true, "dropout": 0.5, "l2_reg": 0.02},
-        {"units": 8, "return_sequences": false, "dropout": 0.5, "l2_reg": 0.02}
+        {"units": 16, "return_sequences": true, "dropout": 0.55, "l2_reg": 0.02},
+        {"units": 8, "return_sequences": false, "dropout": 0.55, "l2_reg": 0.02}
       ],
       "dense_layers": [
         {"units": 4, "dropout": 0.4, "l2_reg": 0.02}
@@ -158,9 +158,9 @@
     },
     "lstm_training_config": {
       "epochs": 100,
-      "batch_size": 64, 
+      "batch_size": 128,
       "early_stopping_patience": 20,
-      "reduce_lr_patience": 10, 
+      "reduce_lr_patience": 7,
       "reduce_lr_factor": 0.5,
       "monitor_metric": "val_loss",
       "verbose": 1,
