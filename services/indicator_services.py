@@ -249,7 +249,7 @@ class IndicatorService:
                  missing_cols_detail = missing_cols_detail[missing_cols_detail > 0].sort_values(ascending=False).head()
                  if not missing_cols_detail.empty:
                      logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后缺失比例较高的列 (初步填充后): {missing_cols_detail.to_dict()}")
-            logger.info(f"[{df.index.name}] 时间级别 {tf} 重采样完成，数据量: {len(resampled_df)} 条。")
+            # logger.info(f"[{df.index.name}] 时间级别 {tf} 重采样完成，数据量: {len(resampled_df)} 条。")
             return resampled_df
         except Exception as e:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 重采样和清理数据时出错: {e}", exc_info=True)
@@ -447,7 +447,7 @@ class IndicatorService:
             else:
                 resampled_df_renamed = resampled_df.copy()
             resampled_ohlcv_dfs[tf] = resampled_df_renamed
-            logger.info(f"[{stock_code}] 时间级别 {tf} 重采样并清洗完成，数据量: {len(resampled_df_renamed)} 条。")
+            # logger.info(f"[{stock_code}] 时间级别 {tf} 重采样并清洗完成，数据量: {len(resampled_df_renamed)} 条。")
         # 确保最小时间级别的数据可用
         if min_time_level not in resampled_ohlcv_dfs or resampled_ohlcv_dfs[min_time_level] is None or resampled_ohlcv_dfs[min_time_level].empty:
              logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 重采样后的数据不可用。终止数据准备。")

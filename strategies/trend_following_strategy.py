@@ -130,7 +130,7 @@ class TrendFollowingStrategy(BaseStrategy):
 
         self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.keras")
         self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_scaler.save")
-        logger.info(f"设置股票 {stock_code} 的模型路径: {self.model_path}, Scaler路径: {self.scaler_path}")
+        # logger.info(f"设置股票 {stock_code} 的模型路径: {self.model_path}, Scaler路径: {self.scaler_path}")
 
     # 为特定股票训练 LSTM 模型并保存
     def train_lstm_model_for_stock(self, data: pd.DataFrame, stock_code: str, required_columns: List[str]):
