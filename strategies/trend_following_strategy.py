@@ -133,6 +133,7 @@ class TrendFollowingStrategy(BaseStrategy):
         # logger.info(f"设置股票 {stock_code} 的模型路径: {self.model_path}, Scaler路径: {self.scaler_path}")
 
     # 为特定股票训练 LSTM 模型并保存
+    # 为特定股票训练 LSTM 模型并保存
     def train_lstm_model_for_stock(self, data: pd.DataFrame, stock_code: str, required_columns: List[str]):
         """
         为特定股票训练 LSTM 模型并保存模型和 scaler。
@@ -144,6 +145,7 @@ class TrendFollowingStrategy(BaseStrategy):
         # 1. 数据准备
         try:
             # 使用 prepare_data_for_lstm 准备数据，目标变量是规则生成的 final_signal
+            # --- 修改此处：禁用特征选择和 PCA，确保 scaler 拟合所有 required_columns 中的特征 ---
             X_train, y_train, X_val, y_val, X_test, y_test, feature_scaler, target_scaler = prepare_data_for_lstm(
                 data=data,
                 required_columns=required_columns,
@@ -154,26 +156,37 @@ class TrendFollowingStrategy(BaseStrategy):
                 train_split=self.tf_params.get('lstm_train_split', 0.7),
                 val_split=self.tf_params.get('lstm_val_split', 0.15),
                 # 从参数加载特征选择和 PCA 配置
-                use_feature_selection=self.tf_params.get('lstm_use_feature_selection', True),
-                feature_selector_model=self.tf_params.get('lstm_feature_selector_model', 'rf'),
-                max_features_fs=self.tf_params.get('lstm_max_features_fs', 50),
-                feature_selection_threshold=self.tf_params.get('lstm_feature_selection_threshold', 'median'),
-                use_pca=self.tf_params.get('lstm_use_pca', False),
-                n_components=self.tf_params.get('lstm_pca_n_components', 0.99),
+                # use_feature_selection=self.tf_params.get('lstm_use_feature_selection', True), # 原始代码
+                # feature_selector_model=self.tf_params.get('lstm_feature_selector_model', 'rf'), # 原始代码
+                # max_features_fs=self.tf_params.get('lstm_max_features_fs', 50), # 原始代码
+                # feature_selection_threshold=self.tf_params.get('lstm_feature_selection_threshold', 'median'), # 原始代码
+                # use_pca=self.tf_params.get('lstm_use_pca', False), # 原始代码
+                # n_components=self.tf_params.get('lstm_pca_n_components', 0.99), # 原始代码
+                use_feature_selection=False, # <--- 禁用特征选择
+                feature_selector_model=None, # <--- 特征选择模型不再需要
+                max_features_fs=None,        # <--- 最大特征数不再需要
+                feature_selection_threshold=None, # <--- 特征选择阈值不再需要
+                use_pca=False,               # <--- 禁用 PCA
+                n_components=None,           # <--- PCA 组件数不再需要
                 target_scaler_type=self.tf_params.get('lstm_target_scaler_type', 'minmax')
             )
             self.feature_scaler = feature_scaler
             self.target_scaler = target_scaler
 
             # 检查数据是否有效
-            if X_train.shape[0] == 0 or X_train.shape[2] == 0:
+            # 动态获取实际使用的特征数量（现在应该是 required_columns 中存在于 data 的列数）
+            num_features = X_train.shape[2] # 获取实际使用的特征数量
+            logger.info(f"[{stock_code}] LSTM数据集 shape: X_train={X_train.shape}, y_train={y_train.shape}, "
+                        f"X_val={X_val.shape}, y_val={y_val.shape}, "
+                        f"X_test={X_test.shape}, y_test={y_test.shape}")
+            logger.info(f"[{stock_code}] 实际用于训练的特征维度: {num_features}") # 修改日志说明
+
+            if X_train.shape[0] == 0 or num_features == 0: # 使用 num_features 检查特征维度
                  logger.error(f"股票 {stock_code} 数据准备失败，训练集为空或特征维度为零。")
                  self.lstm_model = None
                  self.feature_scaler = None
                  self.target_scaler = None
                  return # 停止训练
-
-            num_features = X_train.shape[2] # 获取实际使用的特征数量
 
         except Exception as e:
             logger.error(f"股票 {stock_code} 数据准备出错: {e}", exc_info=True)
@@ -184,9 +197,10 @@ class TrendFollowingStrategy(BaseStrategy):
 
         # 2. 构建模型
         try:
+            # 使用实际的特征数量构建模型
             model = build_lstm_model(
                 window_size=self.window_size,
-                num_features=num_features,
+                num_features=num_features, # <--- 使用实际的特征数量
                 model_config=self.model_config,
                 # 从参数加载模型类型，如果不存在则使用默认值
                 model_type=self.tf_params.get('lstm_model_type', 'lstm'),
@@ -215,15 +229,24 @@ class TrendFollowingStrategy(BaseStrategy):
             # 4. 保存 Scaler
             try:
                 # 使用 joblib 保存 feature_scaler 和 target_scaler
-                joblib.dump({'feature_scaler': self.feature_scaler, 'target_scaler': self.target_scaler}, self.scaler_path)
-                logger.info(f"股票 {stock_code} Scaler 已保存到 {self.scaler_path}")
+                # 注意：prepare_data_for_lstm 返回的 feature_scaler 是用于特征的
+                # target_scaler 是用于目标变量的
+                # 确保保存和加载时区分开
+                joblib.dump(self.feature_scaler, self.scaler_path) # 保存特征 scaler
+                logger.info(f"股票 {stock_code} 特征 Scaler 已保存到 {self.scaler_path}")
+
+                # 目标 scaler 也需要保存，以便预测时逆缩放
+                target_scaler_path = self.model_path.replace('.keras', '_target_scaler.save')
+                joblib.dump(self.target_scaler, target_scaler_path) # 保存目标 scaler
+                logger.info(f"股票 {stock_code} 目标 Scaler 已保存到 {target_scaler_path}")
+
             except Exception as e:
                 logger.error(f"股票 {stock_code} 保存 Scaler 出错: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"股票 {stock_code} 训练 LSTM 模型出错: {e}", exc_info=True)
             self.lstm_model = None # 训练失败，模型对象置空
-
+            
     def _load_params(self) -> Dict[str, Any]:
         """从 JSON 文件加载参数"""
         if not os.path.exists(self.params_file):
