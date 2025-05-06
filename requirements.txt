@@ -28,5 +28,9 @@ pytz==2025.2
 sqlparse==0.5.3
 tzdata==2025.2
 tzlocal
+daphne
+tushare
+matplotlib
+
 
 

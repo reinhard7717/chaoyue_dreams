@@ -1373,6 +1373,7 @@ class TrendFollowingStrategy(BaseStrategy):
                         "趋势持续时间不足"
 
         now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+        volume_spike_str = f" ({signal_judgment['volume_spike']})" if 'volume_spike' in signal_judgment else ''
         chinese_interpretation = (
             f"【趋势跟踪策略分析 - {stock_code} - {now_str}】\n"
             f"最新组合信号分: {final_score:.2f} (规则信号: {latest_data.get('final_signal', 50.0):.2f}, LSTM预测: {latest_data.get('lstm_signal', 50.0):.2f})\n" # 显示规则和LSTM原始分
@@ -1384,7 +1385,7 @@ class TrendFollowingStrategy(BaseStrategy):
             f"ADX强度: {signal_judgment.get('adx_status', '未知')}\n"
             f"STOCH状态: {signal_judgment.get('stoch_status', '未知')}\n"
             f"BOLL状态: {signal_judgment.get('boll_status', '未知')}\n"
-            f"量能状态: {signal_judgment.get('volume_status', '未知')}{f' ({signal_judgment["volume_spike"]})' if 'volume_spike' in signal_judgment else ''}\n"
+            f"量能状态: {signal_judgment.get('volume_status', '未知')}{volume_spike_str}\n"
             f"背离状态: {signal_judgment.get('divergence_status', '未知')}\n"
             f"操作建议: {operation_advice}\n"
             f"风险提示: {risk_warning if risk_warning else '无明显风险提示。'}\n"

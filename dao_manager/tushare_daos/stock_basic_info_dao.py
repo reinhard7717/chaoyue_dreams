@@ -53,7 +53,7 @@ class StockBasicInfoDao(BaseDAO):
             get_stocks_sync = await sync_to_async(
                 lambda: list(StockInfo.objects.filter(list_status='L').order_by('stock_code')),
                 thread_sensitive=True  # 对于 ORM 操作，通常建议设置为 True
-            )
+            )()
             return_data = await get_stocks_sync()
             if return_data:
                 data_to_cache = []
