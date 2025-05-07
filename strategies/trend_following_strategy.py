@@ -6,8 +6,12 @@ import json
 import os
 import logging
 import joblib
+from sklearn.discriminant_analysis import StandardScaler
 import tensorflow as tf
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 # 导入深度学习工具函数和新的 Sequence 类
 from .utils.deep_learning_utils import prepare_data_for_lstm, build_lstm_model, train_lstm_model, TimeSeriesSequence # 导入 TimeSeriesSequence
 
@@ -1710,21 +1714,17 @@ class TrendFollowingStrategy(BaseStrategy):
         如果文件不存在或加载失败，返回空的 NumPy 数组和 None。
         """
         self.set_model_paths(stock_code) # 确保路径已设置
-
         # 检查文件是否存在
         if not os.path.exists(self.prepared_data_path) or \
            not os.path.exists(self.scaler_path) or \
            not os.path.exists(self.target_scaler_path):
             logger.warning(f"股票 {stock_code} 的准备数据文件或 Scaler 文件不存在，无法加载。")
             return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
-
         logger.info(f"开始加载股票 {stock_code} 的准备数据从 {self.prepared_data_path}...")
-
         features_scaled_train, targets_scaled_train = np.array([]), np.array([])
         features_scaled_val, targets_scaled_val = np.array([]), np.array([])
         features_scaled_test, targets_scaled_test = np.array([]), np.array([])
         feature_scaler, target_scaler = None, None
-
         try:
             # 加载 .npz 文件
             with np.load(self.prepared_data_path) as data:
@@ -1738,23 +1738,16 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.info(f"加载数据 shape: train_features={features_scaled_train.shape}, train_targets={targets_scaled_train.shape}, "
                         f"val_features={features_scaled_val.shape}, val_targets={targets_scaled_val.shape}, "
                         f"test_features={features_scaled_test.shape}, test_targets={targets_scaled_test.shape}")
-
-
             # 加载 Scaler
             feature_scaler = joblib.load(self.scaler_path)
             logger.info(f"股票 {stock_code} 的特征 Scaler 已从 {self.scaler_path} 加载。")
-
             target_scaler = joblib.load(self.target_scaler_path)
             logger.info(f"股票 {stock_code} 的目标 Scaler 已从 {self.target_scaler_path} 加载。")
-
             # 检查加载的数据是否有效 (至少训练集不为空)
             if features_scaled_train.shape[0] == 0 or targets_scaled_train.shape[0] == 0:
                  logger.warning(f"股票 {stock_code} 加载的数据训练集为空，视为加载失败。")
                  return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
-
-
             return features_scaled_train, targets_scaled_train, features_scaled_val, targets_scaled_val, features_scaled_test, targets_scaled_test, feature_scaler, target_scaler
-
         except Exception as e:
             logger.error(f"加载股票 {stock_code} 的准备数据或 Scaler 时出错: {e}", exc_info=True)
             # 加载失败时返回空数据和 None

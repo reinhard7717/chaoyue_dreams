@@ -4,7 +4,6 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 import pandas as pd
 import asyncio
 from chaoyue_dreams.celery import app as celery_app
-from django.core.management.base import CommandError
 from services.indicator_services import IndicatorService
 from strategies.trend_following_strategy import TrendFollowingStrategy
 # 导入 prepare_data_for_lstm 函数，因为新的准备数据任务需要直接调用它
