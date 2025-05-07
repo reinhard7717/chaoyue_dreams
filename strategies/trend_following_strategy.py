@@ -142,56 +142,44 @@ class TrendFollowingStrategy(BaseStrategy):
         # logger.info(f"设置股票 {stock_code} 的模型路径: {self.model_path}, 特征Scaler路径: {self.scaler_path}, 目标Scaler路径: {self.target_scaler_path}")
 
     # 为特定股票训练 LSTM 模型并保存
-    def train_and_save_lstm_model(self, data: pd.DataFrame, stock_code: str):
+    # 修改 train_and_save_lstm_model 方法，使其只负责加载和训练
+    # 不再接收原始 data: pd.DataFrame 参数
+    def train_lstm_model_from_prepared_data(self, stock_code: str):
         """
-        为特定股票训练 LSTM 模型并保存模型和 scaler。
+        为特定股票加载已准备好的数据，构建并训练 LSTM 模型，然后保存模型。
+        这个方法假设数据已经通过 save_prepared_data 任务准备好并保存。
         """
         self.set_model_paths(stock_code) # 设置股票特定的路径
 
-        logger.info(f"开始为股票 {stock_code} 训练 LSTM 模型...")
+        logger.info(f"开始为股票 {stock_code} 训练 LSTM 模型 (从已准备数据加载)...")
 
-        # 1. 数据准备 (获取平坦、缩放后的数据和 Scaler)
+        # --- 尝试加载已准备好的数据 ---
+        features_scaled_train, targets_scaled_train, \
+        features_scaled_val, targets_scaled_val, \
+        features_scaled_test, targets_scaled_test, \
+        feature_scaler, target_scaler = self.load_prepared_data(stock_code)
+
+        # 检查加载的数据是否有效
+        if features_scaled_train.shape[0] == 0 or targets_scaled_train.shape[0] == 0 or feature_scaler is None or target_scaler is None:
+             logger.error(f"股票 {stock_code} 加载已准备好的数据失败或数据无效，无法继续训练。请先运行数据准备任务。")
+             self.lstm_model = None
+             self.feature_scaler = None
+             self.target_scaler = None
+             return # 停止训练
+
+        # 将加载的数据和 scaler 赋值给实例属性
+        self.feature_scaler = feature_scaler
+        self.target_scaler = target_scaler
+
+        # 动态获取实际使用的特征数量 (在缩放后)
+        num_features = features_scaled_train.shape[1]
+        logger.info(f"[{stock_code}] 最终用于训练的平坦数据集 shape: train_features={features_scaled_train.shape}, train_targets={targets_scaled_train.shape}, "
+                    f"val_features={features_scaled_val.shape}, val_targets={targets_scaled_val.shape}, "
+                    f"test_features={features_scaled_test.shape}, test_targets={targets_scaled_test.shape}")
+        logger.info(f"[{stock_code}] 实际用于训练的特征维度: {num_features}")
+
+        # --- 创建 Keras Sequence ---
         try:
-            # 调用修改后的 prepare_data_for_lstm，它返回平坦、缩放后的数据
-            features_scaled_train, targets_scaled_train, \
-            features_scaled_val, targets_scaled_val, \
-            features_scaled_test, targets_scaled_test, \
-            feature_scaler, target_scaler = prepare_data_for_lstm(
-                data=data,
-                required_columns=self.get_required_columns(), # 使用策略定义的所需列
-                target_column='final_signal', # 目标列是规则生成的 final_signal
-                # window_size=self.window_size, # 窗口大小不再传递给 prepare_data_for_lstm
-                scaler_type=self.tf_params.get('lstm_scaler_type', 'minmax'),
-                train_split=self.tf_params.get('lstm_train_split', 0.7),
-                val_split=self.tf_params.get('lstm_val_split', 0.15),
-                # 从参数加载特征选择和 PCA 配置 (尽管当前代码中已禁用)
-                use_feature_selection=self.tf_params.get('lstm_use_feature_selection', False), # 确保这里读取参数
-                feature_selector_model=self.tf_params.get('lstm_feature_selector_model', 'rf'),
-                max_features_fs=self.tf_params.get('lstm_max_features_fs', None), # 默认 None，使用阈值
-                feature_selection_threshold=self.tf_params.get('lstm_feature_selection_threshold', 'median'),
-                use_pca=self.tf_params.get('lstm_use_pca', False), # 确保这里读取参数
-                n_components=self.tf_params.get('lstm_pca_n_components', 0.99),
-                target_scaler_type=self.tf_params.get('lstm_target_scaler_type', 'minmax')
-            )
-            self.feature_scaler = feature_scaler
-            self.target_scaler = target_scaler
-
-            # 检查数据是否有效
-            if features_scaled_train.shape[0] == 0 or targets_scaled_train.shape[0] == 0 or self.feature_scaler is None or self.target_scaler is None:
-                 logger.error(f"股票 {stock_code} 数据准备失败，训练集为空或 Scaler 未成功拟合。")
-                 self.lstm_model = None
-                 self.feature_scaler = None
-                 self.target_scaler = None
-                 return # 停止训练
-
-            # 动态获取实际使用的特征数量 (在缩放后)
-            num_features = features_scaled_train.shape[1]
-            logger.info(f"[{stock_code}] LSTM平坦数据集 shape: train_features={features_scaled_train.shape}, train_targets={targets_scaled_train.shape}, "
-                        f"val_features={features_scaled_val.shape}, val_targets={targets_scaled_val.shape}, "
-                        f"test_features={features_scaled_test.shape}, test_targets={targets_scaled_test.shape}")
-            logger.info(f"[{stock_code}] 实际用于训练的特征维度: {num_features}")
-
-            # --- 创建 Keras Sequence ---
             # 训练集 Sequence
             train_sequence = TimeSeriesSequence(
                 features=features_scaled_train,
@@ -216,22 +204,19 @@ class TrendFollowingStrategy(BaseStrategy):
             # 检查 Sequence 是否有效
             if len(train_sequence) == 0:
                  logger.error(f"股票 {stock_code} 训练集 Sequence 为空。请检查数据量和窗口大小 ({self.window_size})。")
-                 self.lstm_model = None
                  # Scaler 已经 fit 了，可以保留
                  return # 停止训练
 
-
         except Exception as e:
-            logger.error(f"股票 {stock_code} 数据准备或 Sequence 创建出错: {e}", exc_info=True)
-            self.lstm_model = None
-            self.feature_scaler = None
-            self.target_scaler = None
+            logger.error(f"股票 {stock_code} Sequence 创建出错: {e}", exc_info=True)
+            # Scaler 已经 fit 了，可以保留
             return # 停止训练
+
 
         # 2. 构建模型
         try:
             # 使用实际的特征数量构建模型
-            model = build_lstm_model(
+            model = build_lstm_model( # build_lstm_model 函数假设已存在于 deep_learning_utils
                 window_size=self.window_size,
                 num_features=num_features, # <--- 使用实际的特征数量
                 model_config=self.model_config,
@@ -261,23 +246,7 @@ class TrendFollowingStrategy(BaseStrategy):
             )
             logger.info(f"股票 {stock_code} LSTM 模型训练完成，最佳模型已保存到 {self.model_path}")
 
-            # 4. 保存 Scaler
-            try:
-                # 使用 joblib 保存 feature_scaler 和 target_scaler
-                if self.feature_scaler:
-                    joblib.dump(self.feature_scaler, self.scaler_path) # 保存特征 scaler
-                    logger.info(f"股票 {stock_code} 特征 Scaler 已保存到 {self.scaler_path}")
-                else:
-                    logger.warning(f"股票 {stock_code} 特征 Scaler 为 None，未保存。")
-
-                if self.target_scaler:
-                    joblib.dump(self.target_scaler, self.target_scaler_path) # 保存目标 scaler
-                    logger.info(f"股票 {stock_code} 目标 Scaler 已保存到 {self.target_scaler_path}")
-                else:
-                    logger.warning(f"股票 {stock_code} 目标 Scaler 为 None，未保存。")
-
-            except Exception as e:
-                logger.error(f"股票 {stock_code} 保存 Scaler 出错: {e}", exc_info=True)
+            # Scaler 在数据准备阶段已经保存，这里不再重复保存
 
         except Exception as e:
             logger.error(f"股票 {stock_code} 训练 LSTM 模型出错: {e}", exc_info=True)
@@ -1680,6 +1649,116 @@ class TrendFollowingStrategy(BaseStrategy):
         }
         return rule_signal, intermediate_results
 
+    # 方法1: 将机器学习训练所需的最终数据存入文件
+    def save_prepared_data(
+        self,
+        stock_code: str,
+        features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,
+        features_scaled_val: np.ndarray, targets_scaled_val: np.ndarray,
+        features_scaled_test: np.ndarray, targets_scaled_test: np.ndarray,
+        feature_scaler: Optional[Union[MinMaxScaler, StandardScaler]],
+        target_scaler: Optional[Union[MinMaxScaler, StandardScaler]]
+    ):
+        """
+        将准备好的训练、验证、测试数据集和 Scaler 保存到文件。
+        使用 .npz 格式保存 NumPy 数组，使用 joblib 保存 Scaler。
+        """
+        self.set_model_paths(stock_code) # 确保路径已设置
+
+        if not self.prepared_data_path or not self.scaler_path or not self.target_scaler_path:
+             logger.error(f"股票 {stock_code} 的数据保存路径未设置。")
+             return
+
+        logger.info(f"开始保存股票 {stock_code} 的准备数据到 {self.prepared_data_path}...")
+
+        try:
+            # 保存 NumPy 数组到 .npz 文件
+            np.savez_compressed(
+                self.prepared_data_path,
+                features_scaled_train=features_scaled_train,
+                targets_scaled_train=targets_scaled_train,
+                features_scaled_val=features_scaled_val,
+                targets_scaled_val=targets_scaled_val,
+                features_scaled_test=features_scaled_test,
+                targets_scaled_test=targets_scaled_test
+            )
+            logger.info(f"股票 {stock_code} 的训练、验证、测试数据已保存到 {self.prepared_data_path}")
+
+            # 保存 Scaler
+            if feature_scaler:
+                joblib.dump(feature_scaler, self.scaler_path)
+                logger.info(f"股票 {stock_code} 的特征 Scaler 已保存到 {self.scaler_path}")
+            else:
+                logger.warning(f"股票 {stock_code} 的特征 Scaler 为 None，未保存。")
+
+            if target_scaler:
+                joblib.dump(target_scaler, self.target_scaler_path)
+                logger.info(f"股票 {stock_code} 的目标 Scaler 已保存到 {self.target_scaler_path}")
+            else:
+                logger.warning(f"股票 {stock_code} 的目标 Scaler 为 None，未保存。")
+
+        except Exception as e:
+            logger.error(f"保存股票 {stock_code} 的准备数据或 Scaler 时出错: {e}", exc_info=True)
+
+    # 方法2: 读取文件进行训练 (修改为只加载数据)
+    def load_prepared_data(self, stock_code: str) -> Tuple[
+        np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+        Optional[Union[MinMaxScaler, StandardScaler]], Optional[Union[MinMaxScaler, StandardScaler]]
+    ]:
+        """
+        从文件加载准备好的训练、验证、测试数据集和 Scaler。
+        如果文件不存在或加载失败，返回空的 NumPy 数组和 None。
+        """
+        self.set_model_paths(stock_code) # 确保路径已设置
+
+        # 检查文件是否存在
+        if not os.path.exists(self.prepared_data_path) or \
+           not os.path.exists(self.scaler_path) or \
+           not os.path.exists(self.target_scaler_path):
+            logger.warning(f"股票 {stock_code} 的准备数据文件或 Scaler 文件不存在，无法加载。")
+            return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
+
+        logger.info(f"开始加载股票 {stock_code} 的准备数据从 {self.prepared_data_path}...")
+
+        features_scaled_train, targets_scaled_train = np.array([]), np.array([])
+        features_scaled_val, targets_scaled_val = np.array([]), np.array([])
+        features_scaled_test, targets_scaled_test = np.array([]), np.array([])
+        feature_scaler, target_scaler = None, None
+
+        try:
+            # 加载 .npz 文件
+            with np.load(self.prepared_data_path) as data:
+                features_scaled_train = data['features_scaled_train']
+                targets_scaled_train = data['targets_scaled_train']
+                features_scaled_val = data['features_scaled_val']
+                targets_scaled_val = data['targets_scaled_val']
+                features_scaled_test = data['features_scaled_test']
+                targets_scaled_test = data['targets_scaled_test']
+            logger.info(f"股票 {stock_code} 的训练、验证、测试数据已从 {self.prepared_data_path} 加载。")
+            logger.info(f"加载数据 shape: train_features={features_scaled_train.shape}, train_targets={targets_scaled_train.shape}, "
+                        f"val_features={features_scaled_val.shape}, val_targets={targets_scaled_val.shape}, "
+                        f"test_features={features_scaled_test.shape}, test_targets={targets_scaled_test.shape}")
+
+
+            # 加载 Scaler
+            feature_scaler = joblib.load(self.scaler_path)
+            logger.info(f"股票 {stock_code} 的特征 Scaler 已从 {self.scaler_path} 加载。")
+
+            target_scaler = joblib.load(self.target_scaler_path)
+            logger.info(f"股票 {stock_code} 的目标 Scaler 已从 {self.target_scaler_path} 加载。")
+
+            # 检查加载的数据是否有效 (至少训练集不为空)
+            if features_scaled_train.shape[0] == 0 or targets_scaled_train.shape[0] == 0:
+                 logger.warning(f"股票 {stock_code} 加载的数据训练集为空，视为加载失败。")
+                 return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
+
+
+            return features_scaled_train, targets_scaled_train, features_scaled_val, targets_scaled_val, features_scaled_test, targets_scaled_test, feature_scaler, target_scaler
+
+        except Exception as e:
+            logger.error(f"加载股票 {stock_code} 的准备数据或 Scaler 时出错: {e}", exc_info=True)
+            # 加载失败时返回空数据和 None
+            return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
 
 
 
