@@ -132,28 +132,43 @@ class TrendFollowingStrategy(BaseStrategy):
 
     def set_model_paths(self, stock_code: str):
         """
-        为特定股票设置模型、scaler 和准备好的数据的保存/加载路径。
+        为特定股票设置模型、scaler 和准备好的数据的保存/加载路径，增加子目录区分。
+        结构为: base_model_dir/stock_code/prepared_data/... 和 base_model_dir/stock_code/trained_model/...
         """
-        # 每只股票单独一个目录
-        stock_model_dir = os.path.join(self.base_model_dir, stock_code)
-        if not os.path.exists(stock_model_dir):
-            os.makedirs(stock_model_dir)
-            logger.info(f"创建股票模型目录: {stock_model_dir}")
+        # 股票特定的根目录
+        stock_root_dir = os.path.join(self.base_model_dir, stock_code)
+        if not os.path.exists(stock_root_dir):
+            os.makedirs(stock_root_dir)
+            logger.info(f"创建股票根目录: {stock_root_dir}")
 
-        # 模型和 Scaler 的路径
-        self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.keras")
-        self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_feature_scaler.save") # 明确是特征 scaler
-        self.target_scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_target_scaler.save") # 明确是目标 scaler
+        # 数据准备阶段的子目录
+        prepared_data_dir = os.path.join(stock_root_dir, "prepared_data")
+        if not os.path.exists(prepared_data_dir):
+             os.makedirs(prepared_data_dir, exist_ok=True) # 使用 exist_ok=True 避免重复创建错误
+             logger.info(f"创建股票数据准备目录: {prepared_data_dir}")
 
-        # 新增：准备好的数据的路径 (使用 .npy 格式保存 NumPy 数组)
-        self.features_scaled_train_path = os.path.join(stock_model_dir, "lstm_features_scaled_train.npy")
-        self.targets_scaled_train_path = os.path.join(stock_model_dir, "lstm_targets_scaled_train.npy")
-        self.features_scaled_val_path = os.path.join(stock_model_dir, "lstm_features_scaled_val.npy")
-        self.targets_scaled_val_path = os.path.join(stock_model_dir, "lstm_targets_scaled_val.npy")
-        self.features_scaled_test_path = os.path.join(stock_model_dir, "lstm_features_scaled_test.npy")
-        self.targets_scaled_test_path = os.path.join(stock_model_dir, "lstm_targets_scaled_test.npy")
+        # 模型训练阶段的子目录
+        trained_model_dir = os.path.join(stock_root_dir, "trained_model")
+        if not os.path.exists(trained_model_dir):
+             os.makedirs(trained_model_dir, exist_ok=True) # 使用 exist_ok=True 避免重复创建错误
+             logger.info(f"创建股票模型训练目录: {trained_model_dir}")
 
-        logger.debug(f"设置股票 {stock_code} 的数据/模型路径:")
+        # 模型路径 (存放在 trained_model 目录下)
+        self.model_path = os.path.join(trained_model_dir, "trend_following_lstm.keras")
+
+        # Scaler 和数据路径 (存放在 prepared_data 目录下)
+        self.scaler_path = os.path.join(prepared_data_dir, "trend_following_lstm_feature_scaler.save") # 明确是特征 scaler
+        self.target_scaler_path = os.path.join(prepared_data_dir, "trend_following_lstm_target_scaler.save") # 明确是目标 scaler
+
+        # 准备好的数据的路径 (使用 .npy 格式保存 NumPy 数组，存放在 prepared_data 目录下)
+        self.features_scaled_train_path = os.path.join(prepared_data_dir, "lstm_features_scaled_train.npy")
+        self.targets_scaled_train_path = os.path.join(prepared_data_dir, "lstm_targets_scaled_train.npy")
+        self.features_scaled_val_path = os.path.join(prepared_data_dir, "lstm_features_scaled_val.npy")
+        self.targets_scaled_val_path = os.path.join(prepared_data_dir, "lstm_targets_scaled_val.npy")
+        self.features_scaled_test_path = os.path.join(prepared_data_dir, "lstm_features_scaled_test.npy")
+        self.targets_scaled_test_path = os.path.join(prepared_data_dir, "lstm_targets_scaled_test.npy")
+
+        logger.debug(f"设置股票 {stock_code} 的文件路径:")
         logger.debug(f"  模型: {self.model_path}")
         logger.debug(f"  特征Scaler: {self.scaler_path}")
         logger.debug(f"  目标Scaler: {self.target_scaler_path}")
