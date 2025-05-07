@@ -556,7 +556,11 @@ class IndicatorService:
                                                             d_period=ia_params.get('stoch_d', 3),
                                                             smooth_k_period=ia_params.get('stoch_smooth_k', 3)))
             # VOL_MA
-            indicator_tasks.append(_calculate_and_store_async(tf, 'VOL_MA', lambda df: df.ta.sma(close='volume', length=ia_params.get('volume_ma_period', 20)).to_frame(name=f'VOL_MA_{ia_params.get("volume_ma_period", 20)}'), base_ohlcv_df))
+            # 修正：df.ta.sma 返回的是 DataFrame，不需要 to_frame()，直接重命名列
+            vol_ma_period = ia_params.get('volume_ma_period', 20)
+            indicator_tasks.append(_calculate_and_store_async(tf, 'VOL_MA',
+                lambda df: df.ta.sma(close='volume', length=vol_ma_period).rename(columns=lambda col_name: f'VOL_MA_{vol_ma_period}'),
+                base_ohlcv_df))
             # VWAP
             indicator_tasks.append(_calculate_and_store_async(tf, 'VWAP', self.calculate_vwap, base_ohlcv_df))
 
