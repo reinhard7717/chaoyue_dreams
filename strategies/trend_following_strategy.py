@@ -901,150 +901,185 @@ class TrendFollowingStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
+        返回包含原始数据、中间计算结果和最终信号的 DataFrame。
         """
         logger.info(f"开始执行策略: {self.strategy_name} (Focus: {self.focus_timeframe})，股票代码: {stock_code}")
 
         # 1. 计算规则基础信号 (final_signal)
-        # 假设 _calculate_rule_based_signal 方法存在并返回规则信号和中间结果
+        # 假设 _calculate_rule_based_signal 方法存在并返回规则信号 (Series) 和中间结果 (Dict/DataFrame)
+        # 检查 _calculate_rule_based_signal 返回值类型是 Series
         final_signal, intermediate_results = self._calculate_rule_based_signal(data=data, stock_code=stock_code)
 
+        # 在进行后续处理前，先将 final_signal 添加到原始数据中，方便后续引用和作为LSTM目标
+        # 确保 final_signal 是 Series 且索引与 data 一致
+        if not isinstance(final_signal, pd.Series) or final_signal.index.tolist() != data.index.tolist():
+             logger.error(f"[{stock_code}] _calculate_rule_based_signal 方法未返回正确的 final_signal Series 或索引不匹配。")
+             # 抛出错误，停止信号生成
+             raise TypeError("_calculate_rule_based_signal 方法返回的 final_signal 格式错误。")
+
+        # 将 final_signal 添加到 data DataFrame 中
+        # 使用 data.copy() 来添加，避免修改原始传入的 DataFrame（如果需要的话）
+        processed_data = data.copy()
+        processed_data['final_signal'] = final_signal # 将规则信号作为 LSTM 的训练目标
+
         # 2. LSTM模型预测
-        # 初始化 LSTM 信号为中性分
-        lstm_signal = pd.Series(50.0, index=data.index)
+        # 初始化 LSTM 信号为中性分 (加到 processed_data 中)
+        processed_data['lstm_signal'] = pd.Series(50.0, index=processed_data.index)
+
         # 获取 LSTM 需要的特征列 (与 prepare_data_for_lstm 中的 required_columns 一致)
-        required_cols = self.get_required_columns()
+        # 注意：这里的 required_columns 应该是LSTM的输入特征，不包含 final_signal
+        lstm_feature_cols = [col for col in self.get_required_columns() if col != 'final_signal']
 
-        # 设置股票特定的模型路径
-        self.set_model_paths(stock_code)
 
-        # # 检查模型和 scaler 是否存在，如果不存在则训练
-        # if not os.path.exists(self.model_path) or not os.path.exists(self.scaler_path):
-        #     logger.info(f"股票 {stock_code} 的 LSTM 模型或 Scaler 不存在，开始训练...")
-        #     # 训练模型，训练完成后 self.lstm_model, self.feature_scaler, self.target_scaler 会被设置
-        #     # 注意：这里需要将规则生成的 final_signal 添加到 data 中，作为 LSTM 的目标变量
-        #     data_with_target = data.copy()
-        #     data_with_target['final_signal'] = final_signal # 将规则信号作为 LSTM 的训练目标
-        #     self.train_and_save_lstm_model(data_with_target, stock_code, required_cols)
-        # else:
-        #     # 如果模型和 scaler 存在，则加载
-        #     self.load_lstm_model(stock_code)
+        # 设置股票特定的模型路径 (如果在 __init__ 中未设置)
+        # self.set_model_paths(stock_code) # 通常在 __init__ 或其他地方设置一次
 
-        # 如果模型和 scaler 成功加载或训练，则进行预测
+        # --- 检查模型和 scaler 是否存在，如果不存在则跳过预测（训练在单独任务中完成） ---
+        # 假设模型和 scaler 路径已在 set_model_paths 中设置
+        # 并且 train_lstm_model_from_prepared_data 会设置 self.lstm_model 等属性
+        # 尝试加载已存在的模型和 scaler
+        self.load_lstm_model(stock_code) # 尝试加载模型和 scaler
+
+        # 如果模型和 scaler 成功加载或训练 (由外部任务完成加载/训练并设置了self属性)，则进行预测
         if self.lstm_model is not None and self.feature_scaler is not None and self.target_scaler is not None:
             try:
+                logger.info(f"[{stock_code}] LSTM模型已加载，准备进行预测...")
                 # 准备用于预测的数据
-                # 使用 get_required_columns 获取特征列，并确保这些列在 data 中存在
-                # 填充 NaN 值，与 prepare_data_for_lstm 中的处理一致
-                # 只选择实际存在的列进行预测
-                features_for_prediction = data.loc[:, [col for col in required_cols if col in data.columns]].copy()
-                features_for_prediction = features_for_prediction.ffill().bfill()
+                # 只选择实际存在的特征列进行预测
+                features_for_prediction_df = processed_data.loc[:, [col for col in lstm_feature_cols if col in processed_data.columns]].copy()
+                # 处理 NaN 值 (与 prepare_data_for_lstm 中的处理一致)
+                features_for_prediction_df = features_for_prediction_df.ffill().bfill()
 
-                if features_for_prediction.isnull().any().any():
-                    logger.warning(f"股票 {stock_code} 用于 LSTM 预测的数据中仍有 NaN 值，可能影响预测结果。将尝试填充为0。")
-                    features_for_prediction.fillna(0, inplace=True)
+                if features_for_prediction_df.isnull().any().any():
+                    logger.warning(f"[{stock_code}] 用于 LSTM 预测的数据中仍有 NaN 值，可能影响预测结果。将尝试填充为0。")
+                    features_for_prediction_df.fillna(0, inplace=True)
 
-
-                if not features_for_prediction.empty and len(features_for_prediction) >= self.window_size:
+                # 检查数据长度是否足够构建窗口
+                if not features_for_prediction_df.empty and len(features_for_prediction_df) >= self.window_size:
                     # 应用特征缩放 (使用加载或训练好的 feature_scaler)
-                    features_scaled = self.feature_scaler.transform(features_for_prediction.values)
+                    # feature_scaler.transform 需要 numpy 数组
+                    features_scaled = self.feature_scaler.transform(features_for_prediction_df.values)
 
-                    # 构建预测所需的窗口数据
+                    # 构建预测所需的窗口数据 (只取最后一个窗口进行最新预测)
                     X_predict = []
                     # 从倒数 window_size 个数据点开始构建最后一个窗口
                     if len(features_scaled) >= self.window_size:
-                         X_predict.append(features_scaled[-self.window_size:])
+                         X_predict.append(features_scaled[-self.window_size:, :])
                          X_predict = np.array(X_predict)
 
                          if X_predict.shape[0] > 0:
+                             logger.info(f"[{stock_code}] 构建 LSTM 预测窗口 shape: {X_predict.shape}")
                              # 进行预测
                              # predict 返回的是缩放后的结果
+                             # LSTM预测结果的形状通常是 (n_samples_to_predict, output_dim)
+                             # 对于单个时间步预测，n_samples_to_predict = 1, output_dim = 1
                              lstm_pred_scaled = self.lstm_model.predict(X_predict, verbose=0)
 
                              # 逆缩放预测结果 (使用加载或训练好的 target_scaler)
-                             # lstm_pred_scaled 是二维数组 (n_samples, 1)
+                             # target_scaler.inverse_transform 需要二维数组
+                             if lstm_pred_scaled.ndim == 1:
+                                 lstm_pred_scaled = lstm_pred_scaled.reshape(-1, 1)
+
                              lstm_pred_original_scale = self.target_scaler.inverse_transform(lstm_pred_scaled)
 
                              # 将预测结果映射到信号 Series 的最后一个位置
-                             # 注意：LSTM 预测的是窗口 *之后* 的一个点
-                             # 如果我们预测的是当前时间点的信号，那么需要将预测结果对应到 data 的最后一个索引
-                             # 如果预测的是未来一个时间点的信号，则需要不同的处理
-                             # 假设这里预测的是当前时间点的信号
-                             if not lstm_pred_original_scale.flatten().tolist():
-                                 logger.warning(f"股票 {stock_code} LSTM 预测结果为空。")
-                             else:
-                                 # 将预测结果（原始尺度）转换为 0-100 的信号分
-                                 # 假设原始尺度的目标变量 (final_signal) 范围大致就是 0-100 分
-                                 # 那么逆缩放后的值就是预测的分数
-                                 lstm_signal_score = lstm_pred_original_scale.flatten()[-1] # 取最后一个预测值
-                                 # 将预测分数限制在 0-100 范围内
-                                 lstm_signal.iloc[-1] = np.clip(lstm_signal_score, 0, 100)
-                                 logger.info(f"股票 {stock_code} LSTM 模型预测完成，最新预测信号: {lstm_signal.iloc[-1]:.2f}")
+                             # lstm_pred_original_scale 是一个 shape (1, 1) 的 numpy 数组
+                             lstm_signal_score = lstm_pred_original_scale[0][0] # 取出预测值
+                             # 将预测分数限制在 0-100 范围内
+                             processed_data.loc[processed_data.index[-1], 'lstm_signal'] = np.clip(lstm_signal_score, 0, 100)
+                             logger.info(f"股票 {stock_code} LSTM 模型预测完成，最新预测信号: {processed_data.loc[processed_data.index[-1], 'lstm_signal']:.2f}")
                          else:
-                             logger.warning(f"股票 {stock_code} 数据不足以构建 LSTM 预测窗口。")
+                             logger.warning(f"股票 {stock_code} 数据不足以构建 LSTM 预测窗口 (X_predict 为空)。")
                     else:
-                         logger.warning(f"股票 {stock_code} 数据长度 {len(features_for_prediction)} 小于窗口大小 {self.window_size}，无法进行 LSTM 预测。")
+                         logger.warning(f"股票 {stock_code} 数据长度 {len(features_scaled)} 小于窗口大小 {self.window_size}，无法进行 LSTM 预测。")
                 else:
-                    logger.warning(f"股票 {stock_code} 用于 LSTM 预测的数据为空或长度不足。")
+                    logger.warning(f"股票 {stock_code} 用于 LSTM 预测的数据为空或长度不足 ({len(features_for_prediction_df)} 条)。")
+
 
             except Exception as e:
                 logger.error(f"股票 {stock_code} LSTM 模型预测出错: {e}", exc_info=True)
                 # 预测出错时，lstm_signal 保持默认的 50.0
+                # 或者可以考虑设置为 NaN，取决于策略如何处理 NaN 信号
+                # processed_data.loc[processed_data.index[-1], 'lstm_signal'] = np.nan
+
 
         else:
-            logger.warning(f"股票 {stock_code} 的 LSTM 模型或 Scaler 未成功加载/训练，跳过 LSTM 预测。")
+            logger.warning(f"股票 {stock_code} 的 LSTM 模型或 Scaler 未成功加载，跳过 LSTM 预测。")
 
         # 3. 结合规则信号和LSTM信号
-        # 确保 combined_signal 的长度与原始数据一致
-        combined_signal = pd.Series(50.0, index=data.index) # 初始化为中性分
+        # 确保 combined_signal 的长度与数据一致
+        processed_data['combined_signal'] = pd.Series(50.0, index=processed_data.index) # 初始化为中性分
+
         # 只有当 final_signal 和 lstm_signal 都有值时才进行组合
-        # 注意：lstm_signal 目前只在最后一个点有预测值，其他点是 50.0
-        # 如果需要对历史数据也进行 LSTM 预测，需要修改上面的预测逻辑
-        # 假设我们只关心最新的组合信号
-        if not final_signal.empty and not lstm_signal.empty:
-             # 组合最新的信号点
-             latest_final_signal = final_signal.iloc[-1] if not final_signal.isnull().all() else 50.0
-             latest_lstm_signal = lstm_signal.iloc[-1] if not lstm_signal.isnull().all() else 50.0
-             latest_combined_signal = 0.7 * latest_final_signal + 0.3 * latest_lstm_signal
-             combined_signal.iloc[-1] = np.clip(latest_combined_signal, 0, 100).round(2)
-             # 对于历史数据，combined_signal 可以等于 final_signal，或者也进行历史 LSTM 预测
-             # 为了简化，这里只组合最新的点，历史点使用规则信号
-             combined_signal.iloc[:-1] = final_signal.iloc[:-1] # 历史数据使用规则信号
+        # 注意：lstm_signal 目前只在最后一个点有预测值 (如果成功预测)
+        # 组合最新的信号点
+        # 确保索引存在且不是 NaN
+        if not processed_data.empty:
+            last_idx = processed_data.index[-1]
+            latest_final_signal = processed_data.loc[last_idx, 'final_signal'] if pd.notna(processed_data.loc[last_idx, 'final_signal']) else 50.0
+            latest_lstm_signal = processed_data.loc[last_idx, 'lstm_signal'] if pd.notna(processed_data.loc[last_idx, 'lstm_signal']) else 50.0
+
+            # 组合权重可以从参数获取
+            rule_weight = self.tf_params.get('signal_combination_weights', {}).get('rule_weight', 0.7)
+            lstm_weight = self.tf_params.get('signal_combination_weights', {}).get('lstm_weight', 0.3)
+            # 确保权重总和为 1
+            total_weight = rule_weight + lstm_weight
+            if total_weight > 0:
+                 rule_weight /= total_weight
+                 lstm_weight /= total_weight
+            else: # 避免除零，使用默认权重
+                 logger.warning(f"[{stock_code}] 信号组合权重之和为零，使用默认权重 0.7/0.3。")
+                 rule_weight = 0.7
+                 lstm_weight = 0.3
+
+
+            latest_combined_signal = rule_weight * latest_final_signal + lstm_weight * latest_lstm_signal
+            processed_data.loc[last_idx, 'combined_signal'] = np.clip(latest_combined_signal, 0, 100).round(2)
+
+            # 对于历史数据，combined_signal 可以等于 final_signal，或者也进行历史 LSTM 预测
+            # 为了简化且符合当前LSTM预测只针对最新的逻辑，历史点的组合信号可以等于规则信号
+            # 也可以在训练LSTM时包含更多历史预测逻辑，但当前代码只预测最新一个点
+            # 这里将历史 combined_signal 设置为历史 final_signal
+            if len(processed_data) > 1:
+                 processed_data.loc[processed_data.index[:-1], 'combined_signal'] = processed_data.loc[processed_data.index[:-1], 'final_signal']
+
         else:
-             # 如果规则信号或 LSTM 信号为空，则组合信号也为空或中性
-             logger.warning(f"股票 {stock_code} 规则信号或 LSTM 信号为空，组合信号将不完整或为中性。")
-             combined_signal = final_signal.copy() # 如果规则信号存在，使用规则信号
+             logger.warning(f"[{stock_code}] processed_data 为空，无法计算组合信号。")
 
 
         # --- 存储中间数据 ---
+        # 将规则计算的中间数据添加到 processed_data 中
+        # intermediate_results 应该是一个 Dict，包含 DataFrame 或 Series
+        # 例如: intermediate_results = {'base_scores_df': df1, 'trend_analysis_df': df2, ...}
         try:
-            # 从 intermediate_results 获取规则计算的中间数据
-            base_scores_df = intermediate_results.get('base_scores_df', pd.DataFrame(index=data.index))
-            trend_analysis_df = intermediate_results.get('trend_analysis_df', pd.DataFrame(index=data.index))
-            divergence_signals = intermediate_results.get('divergence_signals', pd.DataFrame(index=data.index))
+            for key, val in intermediate_results.items():
+                if isinstance(val, pd.DataFrame):
+                    # 合并 DataFrame，按列名去重
+                    # 使用 join 或 merge 可以更精确控制，这里使用 concat 并处理重复列
+                    # 先删除 processed_data 中可能与中间结果重复的列，或者给中间结果列加前缀
+                    # 更好的做法是在 _calculate_rule_based_signal 确保返回的列名不冲突，或者在这里明确处理
+                    # 假设列名不冲突，直接合并
+                    processed_data = pd.concat([processed_data, val.reindex(processed_data.index)], axis=1)
+                elif isinstance(val, pd.Series):
+                    # 如果是 Series，直接添加为新列
+                    processed_data[key] = val.reindex(processed_data.index)
+                # else: 忽略其他类型
 
-            # 将规则信号、LSTM信号和组合信号添加到中间数据中
-            self.intermediate_data = pd.concat([
-                base_scores_df,
-                trend_analysis_df,
-                divergence_signals.add_prefix('div_'), # 给背离信号列加前缀，避免冲突
-                pd.DataFrame({
-                    'final_signal': final_signal,
-                    'lstm_signal': lstm_signal, # 这里的 lstm_signal 只有最后一个点有预测值
-                    'combined_signal': combined_signal
-                }, index=data.index)
-            ], axis=1)
+            # 将最终生成的信号列 (final_signal, lstm_signal, combined_signal) 确保也在 intermediate_data 中
+            # 实际上这些信号已经在 processed_data 中生成了
+            # 现在我们将这个完整的 processed_data 存储到 self.intermediate_data
+            self.intermediate_data = processed_data.copy() # 存储完整的 DataFrame
+
         except Exception as e:
-            logger.warning(f"存储中间数据时出错: {e}，将仅存储最终信号数据。")
-            self.intermediate_data = pd.DataFrame({
-                'final_signal': final_signal,
-                'lstm_signal': lstm_signal,
-                'combined_signal': combined_signal
-            }, index=data.index)
+            logger.warning(f"[{stock_code}] 存储中间数据时出错: {e}，可能导致 intermediate_data 不完整。", exc_info=True)
+            # 即使出错，也尝试存储当前已有的 processed_data
+            self.intermediate_data = processed_data.copy()
 
 
-        logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新组合信号: {combined_signal.iloc[-1] if not combined_signal.empty else 'N/A'}")
+        logger.info(f"{self.strategy_name}: 信号生成完毕，股票代码: {stock_code}，最新组合信号: {self.intermediate_data['combined_signal'].iloc[-1] if not self.intermediate_data.empty else 'N/A'}")
 
         # 调用 analyze_signals 方法进行分析，传入股票代码
+        # analyze_signals 方法应该使用 self.intermediate_data 进行分析
         self.analyze_signals(stock_code)
 
         # 方法最终返回包含所有信号和中间结果的 DataFrame
