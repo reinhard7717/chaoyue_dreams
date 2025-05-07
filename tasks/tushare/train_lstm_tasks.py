@@ -227,7 +227,7 @@ def train_lstm_trend_following_strategy_task(self, base_bars_to_request: int = 8
             logger.info(f"创建 {stock_code} 的数据准备和模型训练任务链...")
 
             # 定义数据准备任务签名
-            prepare_task = prepare_lstm_data_task.s(
+            prepare_task = batch_prepare_lstm_data.s(
                 stock_code=stock_code,
                 params_file="strategies/indicator_parameters.json", # 可以从参数获取
                 model_dir="models", # 可以从参数获取

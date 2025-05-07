@@ -898,7 +898,7 @@ class TrendFollowingStrategy(BaseStrategy):
         logger.debug(f"趋势确认过滤后信号: {confirmed_signal.iloc[-1] if not confirmed_signal.empty else 'N/A'}")
         return confirmed_signal
 
-    def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.Series:
+    def generate_signals(self, data: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
         生成趋势跟踪信号，整合基础分、趋势分析、量能、背离等信息，并结合LSTM模型预测。
         """
@@ -1047,7 +1047,8 @@ class TrendFollowingStrategy(BaseStrategy):
         # 调用 analyze_signals 方法进行分析，传入股票代码
         self.analyze_signals(stock_code)
 
-        return combined_signal
+        # 方法最终返回包含所有信号和中间结果的 DataFrame
+        return self.intermediate_data
     
     def get_intermediate_data(self) -> Optional[pd.DataFrame]:
         """返回中间计算结果"""
