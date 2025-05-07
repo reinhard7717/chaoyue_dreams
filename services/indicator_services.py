@@ -544,7 +544,10 @@ class IndicatorService:
 
             # 计算成交量确认指标 (仅在指定的时间级别计算)
             if vc_params.get('enabled', False) and tf == vc_params.get('tf'):
-                indicator_tasks.append(_calculate_and_store_async(tf, 'AMT_MA', self.calculate_amount_ma, base_ohlcv_df, period=vc_params.get('amount_ma_period', 10)))
+                amt_ma_period = vc_params.get('amount_ma_period', 10)
+                indicator_tasks.append(_calculate_and_store_async(tf, 'AMT_MA',
+                    lambda df: self.calculate_amount_ma(df, period=amt_ma_period), # 调用修改后的辅助函数
+                    base_ohlcv_df))
                 indicator_tasks.append(_calculate_and_store_async(tf, 'CMF', self.calculate_cmf, base_ohlcv_df, period=vc_params.get('cmf_period', 20)))
             # OBV 均线在 OBV 计算后处理
             indicator_tasks.append(_calculate_and_store_async(tf, 'OBV', self.calculate_obv, base_ohlcv_df))
@@ -556,11 +559,9 @@ class IndicatorService:
                                                             d_period=ia_params.get('stoch_d', 3),
                                                             smooth_k_period=ia_params.get('stoch_smooth_k', 3)))
             # VOL_MA
-            # 修正：df.ta.sma 返回的是 DataFrame，不需要 to_frame()，直接重命名列
             vol_ma_period = ia_params.get('volume_ma_period', 20)
             indicator_tasks.append(_calculate_and_store_async(tf, 'VOL_MA',
-                lambda df: df.ta.sma(close='volume', length=vol_ma_period).rename(columns=lambda col_name: f'VOL_MA_{vol_ma_period}'),
-                base_ohlcv_df))
+                lambda df: self.calculate_vol_ma(df, period=vol_ma_period), base_ohlcv_df))
             # VWAP
             indicator_tasks.append(_calculate_and_store_async(tf, 'VWAP', self.calculate_vwap, base_ohlcv_df))
 
@@ -727,7 +728,6 @@ class IndicatorService:
         else: # 日、周、月等时间级别不进行此分钟级别的周期点过滤
             return df
 
-
     # --- 检查缺失项目并记录 ---
     def _log_dataframe_missing(self, df: pd.DataFrame, stock_code: str):
         """
@@ -776,7 +776,6 @@ class IndicatorService:
         all_nan_rows = df.isna().all(axis=1).sum()
         if all_nan_rows > 0:
             logger.warning(f"[{stock_code}] 注意：合并填充后 DataFrame 仍存在 {all_nan_rows} 行全部为 NaN 的数据！这些行可能无法用于训练/预测。")
-
 
     def calculate_atr(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
         """
@@ -1050,15 +1049,15 @@ class IndicatorService:
             logger.error(f"计算 EMA(period={period}) 失败: {e}", exc_info=True)
             return None
         
-    def calculate_amount_ma(self, ohlc: pd.DataFrame, period: int, tf: str = "") -> Optional[pd.DataFrame]:
+    def calculate_amount_ma(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
         """
-        计算指定周期的成交额 SMA，返回列名为 AMT_MA_周期_时间框，满足策略列名需求。
+        计算指定周期的成交额 SMA。
+        处理 pandas-ta 返回 Series 或 DataFrame 的情况，并统一列名。
         Args:
             ohlc (pd.DataFrame): OHLCV 数据，必须包含 'amount' 列。
             period (int): SMA 计算周期。
-            tf (str): 时间框后缀，例如 '15', 用于生成列名。
         Returns:
-            Optional[pd.DataFrame]: 计算结果DataFrame，列名如 'AMT_MA_15_15'。
+            Optional[pd.DataFrame]: 计算结果DataFrame，列名如 'AMT_MA_period'。
                                 计算失败返回 None。
         """
         if ta is None:
@@ -1075,22 +1074,50 @@ class IndicatorService:
             return None
         try:
             # pandas_ta 用 sma 计算成交额均线，输入列名为 'amount'
-            amt_ma_series = ohlc.ta.sma(close='amount', length=period)
-            if amt_ma_series is None or amt_ma_series.empty:
+            result = ohlc.ta.sma(close='amount', length=period)
+            if result is None or result.empty:
                 logger.warning("成交额均线计算结果为空")
                 return None
 
-            # 构建列名，格式为 AMT_MA_周期_时间框
-            col_name = f'AMT_MA_{period}'
-            if tf:
-                col_name = f'AMT_MA_{period}_{tf}'
+            result_df = None
+            if isinstance(result, pd.Series):
+                 # 如果返回的是 Series，转换为 DataFrame，并直接指定列名
+                 result_df = result.to_frame(name=f'AMT_MA_{period}')
+                 logger.debug(f"SMA(amount) returned Series, converted to DataFrame with column name '{f'AMT_MA_{period}'}'.")
+            elif isinstance(result, pd.DataFrame):
+                 # 如果返回的是 DataFrame，找到包含 SMA 结果的列并重命名
+                 # pandas_ta SMA 列名通常是 'SMA_length'
+                 actual_original_col = next((col for col in result.columns if col.startswith('SMA_')), None)
+                 if actual_original_col:
+                      # 重命名找到的列为期望的格式 'AMT_MA_period'
+                      final_col_name = f'AMT_MA_{period}'
+                      result_df = result.rename(columns={actual_original_col: final_col_name})
+                      # 只保留重命名后的列
+                      result_df = result_df[[final_col_name]]
+                      logger.debug(f"SMA(amount) returned DataFrame, renamed column '{actual_original_col}' to '{final_col_name}'.")
+                 elif not result.columns.empty:
+                      # 回退方案：如果列名不匹配预期模式，假设第一列是结果
+                      logger.warning(f"Could not find column starting with 'SMA_' in SMA(amount) result. Renaming first column '{result.columns[0]}' to 'AMT_MA_{period}'. Columns: {result.columns.tolist()}")
+                      final_col_name = f'AMT_MA_{period}'
+                      result_df = result.rename(columns={result.columns[0]: final_col_name})
+                      result_df = result_df[[final_col_name]]
+                 else:
+                      logger.warning("SMA(amount) calculation resulted in a DataFrame with no columns.")
+                      return None
+            else:
+                 logger.warning(f"SMA(amount) returned unexpected type: {type(result)}")
+                 return None
 
-            # 转换为 DataFrame，返回
-            result_df = amt_ma_series.to_frame(name=col_name)
+            if result_df.empty:
+                 logger.warning("SMA(amount) calculation resulted in an empty DataFrame.")
+                 return None
+
+            # 此时 result_df 保证是 DataFrame，且列名是 'AMT_MA_period'
+            # _calculate_and_store_async 会自动在其后添加 _tf 后缀
             return result_df
 
         except Exception as e:
-            logger.error(f"计算成交额均线 AMT_MA(period={period}, tf={tf}) 失败: {e}", exc_info=True)
+            logger.error(f"计算成交额均线 AMT_MA(period={period}) 失败: {e}", exc_info=True)
             return None
 
     def calculate_macd(self, ohlc: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9) -> Optional[pd.DataFrame]:
@@ -1540,7 +1567,77 @@ class IndicatorService:
             logger.error(f"计算 Pivot Points 失败: {e}", exc_info=True)
             return None
 
+    def calculate_vol_ma(self, ohlc: pd.DataFrame, period: int) -> Optional[pd.DataFrame]:
+        """
+        计算指定周期的成交量 SMA (VOL_MA)。
+        处理 pandas-ta 返回 Series 或 DataFrame 的情况，并统一列名。
+        Args:
+            ohlc (pd.DataFrame): OHLCV 数据 (必须包含 'volume' 列)。
+            period (int): SMA 计算周期。
+        Returns:
+            Optional[pd.DataFrame]: 计算结果DataFrame，列名如 'VOL_MA_period'。
+                                计算失败返回 None。
+        """
+        if ta is None:
+            logger.error("pandas-ta 未加载，无法计算成交量均线")
+            return None
+        if ohlc is None or ohlc.empty:
+            logger.error("输入的 OHLCV 数据为空，无法计算成交量均线")
+            return None
+        if 'volume' not in ohlc.columns:
+            logger.error("计算 Volume MA 需要数据包含 'volume' 列")
+            return None
+        if len(ohlc) < period:
+            logger.warning(f"数据长度 {len(ohlc)} 小于所需周期 {period}，成交量均线计算返回 None")
+            return None
+        try:
+            # 调用 pandas-ta 计算 SMA
+            result = ohlc.ta.sma(close='volume', length=period)
 
+            if result is None:
+                logger.warning("pandas-ta sma(volume) 计算结果为 None")
+                return None
+
+            result_df = None
+            if isinstance(result, pd.Series):
+                # 如果返回的是 Series，转换为 DataFrame，并直接指定列名
+                result_df = result.to_frame(name=f'VOL_MA_{period}')
+                logger.debug(f"SMA(volume) returned Series, converted to DataFrame with column name '{f'VOL_MA_{period}'}'.")
+            elif isinstance(result, pd.DataFrame):
+                 # 如果返回的是 DataFrame，找到包含 SMA 结果的列并重命名
+                 # pandas_ta SMA 列名通常是 'SMA_length'
+                 actual_original_col = next((col for col in result.columns if col.startswith('SMA_')), None)
+                 if actual_original_col:
+                      # 重命名找到的列为期望的格式 'VOL_MA_period'
+                      final_col_name = f'VOL_MA_{period}'
+                      result_df = result.rename(columns={actual_original_col: final_col_name})
+                      # 只保留重命名后的列
+                      result_df = result_df[[final_col_name]]
+                      logger.debug(f"SMA(volume) returned DataFrame, renamed column '{actual_original_col}' to '{final_col_name}'.")
+                 elif not result.columns.empty:
+                      # 回退方案：如果列名不匹配预期模式，假设第一列是结果
+                      logger.warning(f"Could not find column starting with 'SMA_' in SMA(volume) result. Renaming first column '{result.columns[0]}' to 'VOL_MA_{period}'. Columns: {result.columns.tolist()}")
+                      final_col_name = f'VOL_MA_{period}'
+                      result_df = result.rename(columns={result.columns[0]: final_col_name})
+                      result_df = result_df[[final_col_name]]
+                 else:
+                      logger.warning("SMA(volume) calculation resulted in a DataFrame with no columns.")
+                      return None
+            else:
+                 logger.warning(f"SMA(volume) returned unexpected type: {type(result)}")
+                 return None
+
+            if result_df.empty:
+                 logger.warning("SMA(volume) calculation resulted in an empty DataFrame.")
+                 return None
+
+            # 此时 result_df 保证是 DataFrame，且列名是 'VOL_MA_period'
+            # _calculate_and_store_async 会自动在其后添加 _tf 后缀
+            return result_df
+
+        except Exception as e:
+            logger.error(f"计算成交量均线 VOL_MA(period={period}) 失败: {e}", exc_info=True)
+            return None
 
 
 
