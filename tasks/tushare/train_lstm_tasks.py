@@ -52,7 +52,7 @@ def batch_prepare_lstm_data(self, stock_code: str, params_file: str = "strategie
         # 调用策略的 generate_signals 方法，它会计算出 final_signal 等列并添加到 DataFrame 中
         # 确保 generate_signals 方法返回修改后的 DataFrame 或者在原地修改 data_df
         # 稳妥起见，假设它返回修改后的 DataFrame
-        data_df = strategy.generate_signals(data_df)
+        data_df = strategy.generate_signals(data_df, stock_code)
         if data_df is None or data_df.empty or 'final_signal' not in data_df.columns:
             logger.error(f"[{stock_code}] 策略生成信号失败或未生成 'final_signal' 列。")
             # 任务失败
