@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 migrations/
 myenv/
+models/
 *.log
 *.log.*
 # C extensions

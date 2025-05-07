@@ -134,13 +134,13 @@
     "lstm_target_scaler_type": "minmax",
     "lstm_train_split": 0.7,
     "lstm_val_split": 0.15,
-    "lstm_plot_history": false,
+    "lstm_plot_history": true,
     "lstm_target_column": "final_signal", 
     "lstm_apply_variance_threshold": false,
     "lstm_variance_threshold_value": 0.01, 
     "lstm_use_feature_selection": true,
     "lstm_feature_selector_model": "rf", 
-    "lstm_max_features_fs": 20, 
+    "lstm_max_features_fs": 30, 
     "lstm_feature_selection_threshold": "median", 
     "lstm_use_pca": false, 
     "lstm_pca_n_components": 0.99, 
@@ -149,11 +149,11 @@
     "lstm_model_config": {
       "model_type": "lstm",
       "layers": [
-        {"units": 16, "return_sequences": true, "dropout": 0.55, "l2_reg": 0.02, "activation": "tanh"},
-        {"units": 8, "return_sequences": false, "dropout": 0.55, "l2_reg": 0.02, "activation": "tanh"}
+        {"units": 64, "return_sequences": true, "dropout": 0.4, "l2_reg": 0.005, "activation": "tanh"},
+        {"units": 32, "return_sequences": false, "dropout": 0.4, "l2_reg": 0.005, "activation": "tanh"}
       ],
       "dense_layers": [
-        {"units": 4, "dropout": 0.4, "l2_reg": 0.02, "activation": "relu"}
+        {"units": 8, "dropout": 0.3, "l2_reg": 0.005, "activation": "relu"}
       ],
       "output_units": 1,
       "output_activation": null,
@@ -168,7 +168,7 @@
       "epochs": 100,
       "batch_size": 128,
       "early_stopping_patience": 20,
-      "reduce_lr_patience": 7,
+      "reduce_lr_patience": 10,
       "reduce_lr_factor": 0.5,
       "monitor_metric": "val_loss",
       "verbose": 1
