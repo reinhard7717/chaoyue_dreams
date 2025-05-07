@@ -8,8 +8,8 @@ import logging
 import joblib
 import tensorflow as tf
 from typing import Dict, Any, List, Optional, Tuple
-# 导入深度学习工具函数
-from .utils.deep_learning_utils import prepare_data_for_lstm, build_lstm_model, train_lstm_model
+# 导入深度学习工具函数和新的 Sequence 类
+from .utils.deep_learning_utils import prepare_data_for_lstm, build_lstm_model, train_lstm_model, TimeSeriesSequence # 导入 TimeSeriesSequence
 
 # 假设 BaseStrategy 和常量在 .base 或 core.constants
 from .base import BaseStrategy
@@ -83,13 +83,17 @@ class TrendFollowingStrategy(BaseStrategy):
         # --- 动态加载深度学习模型 ---
         self.lstm_model = None
         self.feature_scaler = None # 区分特征和目标变量的 scaler
-        self.scaler = None
+        self.target_scaler = None # 新增目标变量 scaler 属性
         # 从参数文件加载窗口大小，如果不存在则使用默认值 60
         self.window_size = self.tf_params.get('lstm_window_size', 60)
+        # 从参数文件加载 batch_size，如果不存在则使用默认值 32
+        self.batch_size = self.tf_params.get('lstm_batch_size', 32)
         # 股票特定的模型和 scaler 路径将在 set_model_paths 中设置
         self.model_path = None
-        self.scaler_path = None
-        self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.keras"
+        self.scaler_path = None # 特征 scaler 路径
+        self.target_scaler_path = None # 目标 scaler 路径
+        self.checkpoint_path = "models/checkpoints/best_trend_following_lstm.keras" # 检查点路径，可以考虑股票特定
+
         # LSTM 模型和训练配置 (从参数文件加载或使用默认值)
         self.model_config = self.tf_params.get('lstm_model_config', {
             'layers': [
@@ -104,7 +108,7 @@ class TrendFollowingStrategy(BaseStrategy):
         })
         self.training_config = self.tf_params.get('lstm_training_config', {
             'epochs': 100,
-            'batch_size': 32,
+            'batch_size': 32, # 这个 batch_size 将传递给 Sequence
             'early_stopping_patience': 20,
             'reduce_lr_patience': 5,
             'reduce_lr_factor': 0.5,
@@ -115,6 +119,10 @@ class TrendFollowingStrategy(BaseStrategy):
         # 确保训练配置中的学习率覆盖模型配置中的学习率
         if 'learning_rate' in self.training_config:
              self.model_config['learning_rate'] = self.training_config['learning_rate']
+        # 确保训练配置中的 batch_size 覆盖实例属性的 batch_size
+        if 'batch_size' in self.training_config:
+             self.batch_size = self.training_config['batch_size']
+
 
         super().__init__(self.params)
 
@@ -129,12 +137,12 @@ class TrendFollowingStrategy(BaseStrategy):
             logger.info(f"创建股票模型目录: {stock_model_dir}")
 
         self.model_path = os.path.join(stock_model_dir, "trend_following_lstm.keras")
-        self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_scaler.save")
-        # logger.info(f"设置股票 {stock_code} 的模型路径: {self.model_path}, Scaler路径: {self.scaler_path}")
+        self.scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_feature_scaler.save") # 明确是特征 scaler
+        self.target_scaler_path = os.path.join(stock_model_dir, "trend_following_lstm_target_scaler.save") # 明确是目标 scaler
+        # logger.info(f"设置股票 {stock_code} 的模型路径: {self.model_path}, 特征Scaler路径: {self.scaler_path}, 目标Scaler路径: {self.target_scaler_path}")
 
     # 为特定股票训练 LSTM 模型并保存
-    # 为特定股票训练 LSTM 模型并保存
-    def train_lstm_model_for_stock(self, data: pd.DataFrame, stock_code: str, required_columns: List[str]):
+    def train_and_save_lstm_model(self, data: pd.DataFrame, stock_code: str):
         """
         为特定股票训练 LSTM 模型并保存模型和 scaler。
         """
@@ -142,54 +150,79 @@ class TrendFollowingStrategy(BaseStrategy):
 
         logger.info(f"开始为股票 {stock_code} 训练 LSTM 模型...")
 
-        # 1. 数据准备
+        # 1. 数据准备 (获取平坦、缩放后的数据和 Scaler)
         try:
-            # 使用 prepare_data_for_lstm 准备数据，目标变量是规则生成的 final_signal
-            # --- 修改此处：禁用特征选择和 PCA，确保 scaler 拟合所有 required_columns 中的特征 ---
-            X_train, y_train, X_val, y_val, X_test, y_test, feature_scaler, target_scaler = prepare_data_for_lstm(
+            # 调用修改后的 prepare_data_for_lstm，它返回平坦、缩放后的数据
+            features_scaled_train, targets_scaled_train, \
+            features_scaled_val, targets_scaled_val, \
+            features_scaled_test, targets_scaled_test, \
+            feature_scaler, target_scaler = prepare_data_for_lstm(
                 data=data,
-                required_columns=required_columns,
+                required_columns=self.get_required_columns(), # 使用策略定义的所需列
                 target_column='final_signal', # 目标列是规则生成的 final_signal
-                window_size=self.window_size,
-                # 从参数加载 scaler 类型，如果不存在则使用默认值
+                # window_size=self.window_size, # 窗口大小不再传递给 prepare_data_for_lstm
                 scaler_type=self.tf_params.get('lstm_scaler_type', 'minmax'),
                 train_split=self.tf_params.get('lstm_train_split', 0.7),
                 val_split=self.tf_params.get('lstm_val_split', 0.15),
-                # 从参数加载特征选择和 PCA 配置
-                # use_feature_selection=self.tf_params.get('lstm_use_feature_selection', True), # 原始代码
-                # feature_selector_model=self.tf_params.get('lstm_feature_selector_model', 'rf'), # 原始代码
-                # max_features_fs=self.tf_params.get('lstm_max_features_fs', 50), # 原始代码
-                # feature_selection_threshold=self.tf_params.get('lstm_feature_selection_threshold', 'median'), # 原始代码
-                # use_pca=self.tf_params.get('lstm_use_pca', False), # 原始代码
-                # n_components=self.tf_params.get('lstm_pca_n_components', 0.99), # 原始代码
-                use_feature_selection=False, # <--- 禁用特征选择
-                feature_selector_model=None, # <--- 特征选择模型不再需要
-                max_features_fs=None,        # <--- 最大特征数不再需要
-                feature_selection_threshold=None, # <--- 特征选择阈值不再需要
-                use_pca=False,               # <--- 禁用 PCA
-                n_components=None,           # <--- PCA 组件数不再需要
+                # 从参数加载特征选择和 PCA 配置 (尽管当前代码中已禁用)
+                use_feature_selection=self.tf_params.get('lstm_use_feature_selection', False), # 确保这里读取参数
+                feature_selector_model=self.tf_params.get('lstm_feature_selector_model', 'rf'),
+                max_features_fs=self.tf_params.get('lstm_max_features_fs', None), # 默认 None，使用阈值
+                feature_selection_threshold=self.tf_params.get('lstm_feature_selection_threshold', 'median'),
+                use_pca=self.tf_params.get('lstm_use_pca', False), # 确保这里读取参数
+                n_components=self.tf_params.get('lstm_pca_n_components', 0.99),
                 target_scaler_type=self.tf_params.get('lstm_target_scaler_type', 'minmax')
             )
             self.feature_scaler = feature_scaler
             self.target_scaler = target_scaler
 
             # 检查数据是否有效
-            # 动态获取实际使用的特征数量（现在应该是 required_columns 中存在于 data 的列数）
-            num_features = X_train.shape[2] # 获取实际使用的特征数量
-            logger.info(f"[{stock_code}] LSTM数据集 shape: X_train={X_train.shape}, y_train={y_train.shape}, "
-                        f"X_val={X_val.shape}, y_val={y_val.shape}, "
-                        f"X_test={X_test.shape}, y_test={y_test.shape}")
-            logger.info(f"[{stock_code}] 实际用于训练的特征维度: {num_features}") # 修改日志说明
-
-            if X_train.shape[0] == 0 or num_features == 0: # 使用 num_features 检查特征维度
-                 logger.error(f"股票 {stock_code} 数据准备失败，训练集为空或特征维度为零。")
+            if features_scaled_train.shape[0] == 0 or targets_scaled_train.shape[0] == 0 or self.feature_scaler is None or self.target_scaler is None:
+                 logger.error(f"股票 {stock_code} 数据准备失败，训练集为空或 Scaler 未成功拟合。")
                  self.lstm_model = None
                  self.feature_scaler = None
                  self.target_scaler = None
                  return # 停止训练
 
+            # 动态获取实际使用的特征数量 (在缩放后)
+            num_features = features_scaled_train.shape[1]
+            logger.info(f"[{stock_code}] LSTM平坦数据集 shape: train_features={features_scaled_train.shape}, train_targets={targets_scaled_train.shape}, "
+                        f"val_features={features_scaled_val.shape}, val_targets={targets_scaled_val.shape}, "
+                        f"test_features={features_scaled_test.shape}, test_targets={targets_scaled_test.shape}")
+            logger.info(f"[{stock_code}] 实际用于训练的特征维度: {num_features}")
+
+            # --- 创建 Keras Sequence ---
+            # 训练集 Sequence
+            train_sequence = TimeSeriesSequence(
+                features=features_scaled_train,
+                targets=targets_scaled_train,
+                window_size=self.window_size,
+                batch_size=self.batch_size,
+                shuffle=True # 训练集通常需要打乱
+            )
+            # 验证集 Sequence (如果存在)
+            val_sequence = None
+            if features_scaled_val.shape[0] > 0 and targets_scaled_val.shape[0] > 0:
+                 val_sequence = TimeSeriesSequence(
+                     features=features_scaled_val,
+                     targets=targets_scaled_val,
+                     window_size=self.window_size,
+                     batch_size=self.batch_size,
+                     shuffle=False # 验证集通常不打乱
+                 )
+            # 测试集可以继续使用 NumPy 数组进行评估，或者也创建 Sequence
+            # 这里为了简单，评估时继续使用 NumPy 数组
+
+            # 检查 Sequence 是否有效
+            if len(train_sequence) == 0:
+                 logger.error(f"股票 {stock_code} 训练集 Sequence 为空。请检查数据量和窗口大小 ({self.window_size})。")
+                 self.lstm_model = None
+                 # Scaler 已经 fit 了，可以保留
+                 return # 停止训练
+
+
         except Exception as e:
-            logger.error(f"股票 {stock_code} 数据准备出错: {e}", exc_info=True)
+            logger.error(f"股票 {stock_code} 数据准备或 Sequence 创建出错: {e}", exc_info=True)
             self.lstm_model = None
             self.feature_scaler = None
             self.target_scaler = None
@@ -202,7 +235,6 @@ class TrendFollowingStrategy(BaseStrategy):
                 window_size=self.window_size,
                 num_features=num_features, # <--- 使用实际的特征数量
                 model_config=self.model_config,
-                # 从参数加载模型类型，如果不存在则使用默认值
                 model_type=self.tf_params.get('lstm_model_type', 'lstm'),
                 summary=True
             )
@@ -210,18 +242,21 @@ class TrendFollowingStrategy(BaseStrategy):
         except Exception as e:
             logger.error(f"股票 {stock_code} 构建 LSTM 模型出错: {e}", exc_info=True)
             self.lstm_model = None
+            # Scaler 已经 fit 了，可以保留
             return # 停止训练
 
-        # 3. 训练模型
+        # 3. 训练模型 (使用 Sequence)
         try:
             # 使用 stock-specific model_path 作为 checkpoint_path
             train_lstm_model(
-                X_train, y_train, X_val, y_val, X_test, y_test,
+                train_sequence=train_sequence, # 传递训练集 Sequence
+                val_sequence=val_sequence,     # 传递验证集 Sequence (可能为 None)
+                X_test=features_scaled_test,   # 传递测试集 NumPy 数组
+                y_test=targets_scaled_test,    # 传递测试集 NumPy 数组
                 model=self.lstm_model,
                 target_scaler=self.target_scaler, # 传入目标变量 scaler
                 training_config=self.training_config,
                 checkpoint_path=self.model_path, # 保存到股票特定的路径
-                # 从参数加载是否绘图，如果不存在则使用默认值 False
                 plot_training_history=self.tf_params.get('lstm_plot_history', False)
             )
             logger.info(f"股票 {stock_code} LSTM 模型训练完成，最佳模型已保存到 {self.model_path}")
@@ -229,16 +264,17 @@ class TrendFollowingStrategy(BaseStrategy):
             # 4. 保存 Scaler
             try:
                 # 使用 joblib 保存 feature_scaler 和 target_scaler
-                # 注意：prepare_data_for_lstm 返回的 feature_scaler 是用于特征的
-                # target_scaler 是用于目标变量的
-                # 确保保存和加载时区分开
-                joblib.dump(self.feature_scaler, self.scaler_path) # 保存特征 scaler
-                logger.info(f"股票 {stock_code} 特征 Scaler 已保存到 {self.scaler_path}")
+                if self.feature_scaler:
+                    joblib.dump(self.feature_scaler, self.scaler_path) # 保存特征 scaler
+                    logger.info(f"股票 {stock_code} 特征 Scaler 已保存到 {self.scaler_path}")
+                else:
+                    logger.warning(f"股票 {stock_code} 特征 Scaler 为 None，未保存。")
 
-                # 目标 scaler 也需要保存，以便预测时逆缩放
-                target_scaler_path = self.model_path.replace('.keras', '_target_scaler.save')
-                joblib.dump(self.target_scaler, target_scaler_path) # 保存目标 scaler
-                logger.info(f"股票 {stock_code} 目标 Scaler 已保存到 {target_scaler_path}")
+                if self.target_scaler:
+                    joblib.dump(self.target_scaler, self.target_scaler_path) # 保存目标 scaler
+                    logger.info(f"股票 {stock_code} 目标 Scaler 已保存到 {self.target_scaler_path}")
+                else:
+                    logger.warning(f"股票 {stock_code} 目标 Scaler 为 None，未保存。")
 
             except Exception as e:
                 logger.error(f"股票 {stock_code} 保存 Scaler 出错: {e}", exc_info=True)
@@ -246,7 +282,9 @@ class TrendFollowingStrategy(BaseStrategy):
         except Exception as e:
             logger.error(f"股票 {stock_code} 训练 LSTM 模型出错: {e}", exc_info=True)
             self.lstm_model = None # 训练失败，模型对象置空
-            
+            # Scaler 已经 fit 了，可以保留
+            # 如果训练失败，可能需要清理部分文件，但这里先不处理
+
     def _load_params(self) -> Dict[str, Any]:
         """从 JSON 文件加载参数"""
         if not os.path.exists(self.params_file):
