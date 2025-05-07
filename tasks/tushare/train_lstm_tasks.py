@@ -149,7 +149,7 @@ def schedule_lstm_data_preparation(self, params_file: str = "strategies/indicato
 
         for stock in all_stocks:
             stock_code = stock.stock_code
-            logger.info(f"分派 {stock_code} 的数据准备任务到 'Prepare_Data' 队列...")
+            logger.info(f"分派 {stock_code} 的数据准备任务到 'Train_LSTM_Prepare_Data' 队列...")
 
             # 定义数据准备任务签名
             prepare_task_signature = batch_prepare_lstm_data.s(
@@ -157,7 +157,7 @@ def schedule_lstm_data_preparation(self, params_file: str = "strategies/indicato
                 params_file=params_file,
                 model_dir=model_dir,
                 base_bars=base_bars_to_request
-            ).set(queue="Prepare_Data") # 将任务分配到 Prepare_Data 队列
+            ).set(queue="Train_LSTM_Prepare_Data") # 将任务分配到 Train_LSTM_Prepare_Data 队列
 
             # 分派单个任务异步执行
             prepare_task_signature.apply_async()
