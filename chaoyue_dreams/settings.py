@@ -43,11 +43,13 @@ REDIS_PORT = '6379'
 if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.156':
     REDIS_HOST_DYNAMIC = '127.0.0.1'
     MYSQL_HOST_DYNAMIC = '127.0.0.1'
-    print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: 127.0.0.1")
+    STRATEGY_DATA_DIR = '/data/chaoyue_dreams/models'
+    print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: 127.0.0.1，STRATEGY_DATA_DIR：{STRATEGY_DATA_DIR}")
 else:
     REDIS_HOST_DYNAMIC = TARGET_SERVER_IP
     MYSQL_HOST_DYNAMIC = TARGET_SERVER_IP
-    print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}")
+    STRATEGY_DATA_DIR = 'models'
+    print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}，STRATEGY_DATA_DIR：{STRATEGY_DATA_DIR}")
 
 # --- 结束: 动态获取本机IP并设置Redis主机 ---
 
@@ -204,7 +206,7 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'), # 使用 os.path.join 拼接字符串路径
 ]
-STRATEGY_DATA_DIR = '/data/chaoyue_dreams/models'
+
 # STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 

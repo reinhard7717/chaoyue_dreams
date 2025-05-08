@@ -226,26 +226,12 @@ def train_lstm_trend_following_strategy_task(self, base_bars_to_request: int = 8
             stock_code = stock.stock_code
             logger.info(f"创建 {stock_code} 的数据准备和模型训练任务链...")
 
-            # 定义数据准备任务签名
-            prepare_task = batch_prepare_lstm_data.s(
-                stock_code=stock_code,
-                params_file="strategies/indicator_parameters.json", # 可以从参数获取
-                model_dir="models", # 可以从参数获取
-                base_bars=base_bars_to_request
-            ).set(queue="Prepare_Data") # 可以指定数据准备队列
-
             # 定义模型训练任务签名
             train_task = batch_train_following_strategy_lstm.s(
                 stock_code=stock_code,
                 params_file="strategies/indicator_parameters.json", # 可以从参数获取
                 model_dir="models" # 可以从参数获取
-            ).set(queue="Train_LSTM") # 可以指定模型训练队列
-
-            # 创建任务链：先准备数据，然后训练
-            task_chain = prepare_task | train_task
-
-            # 分派任务链
-            task_chain.apply_async()
+            ).set(queue="Train_LSTM").apply_async() # 可以指定模型训练队列
 
             total_dispatched_chains += 1
         logger.info(f"任务结束: train_lstm_trend_following_strategy_task (调度器模式) - 共分派 {total_dispatched_chains} 个任务链")

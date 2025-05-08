@@ -1194,35 +1194,35 @@ class TrendFollowingStrategy(BaseStrategy):
         # 确定当前趋势和强度
         latest_signal = final_signal.iloc[-1]
         if latest_signal >= 75: # 更高的强趋势阈值
-            trend_duration_info['current_trend'] = 'bullish'
-            trend_duration_info['trend_strength'] = 'very strong'
+            trend_duration_info['current_trend'] = '看涨↑'
+            trend_duration_info['trend_strength'] = '非常强烈'
         elif latest_signal >= 65: # 强趋势
-            trend_duration_info['current_trend'] = 'bullish'
-            trend_duration_info['trend_strength'] = 'strong'
+            trend_duration_info['current_trend'] = '看涨↑'
+            trend_duration_info['trend_strength'] = '强'
         elif latest_signal >= trend_threshold_upper: # 温和看涨
-            trend_duration_info['current_trend'] = 'bullish'
-            trend_duration_info['trend_strength'] = 'moderate'
+            trend_duration_info['current_trend'] = '看涨↑'
+            trend_duration_info['trend_strength'] = '温和'
         elif latest_signal <= 25: # 很强看跌
-            trend_duration_info['current_trend'] = 'bearish'
-            trend_duration_info['trend_strength'] = 'very strong'
+            trend_duration_info['current_trend'] = '看跌↓'
+            trend_duration_info['trend_strength'] = '非常强烈'
         elif latest_signal <= 35: # 强看跌
-            trend_duration_info['current_trend'] = 'bearish'
-            trend_duration_info['trend_strength'] = 'strong'
+            trend_duration_info['current_trend'] = '看跌↓'
+            trend_duration_info['trend_strength'] = '强'
         elif latest_signal <= trend_threshold_lower: # 温和看跌
-            trend_duration_info['current_trend'] = 'bearish'
-            trend_duration_info['trend_strength'] = 'moderate'
+            trend_duration_info['current_trend'] = '看跌↓'
+            trend_duration_info['trend_strength'] = '温和'
         else: # 中性
-            trend_duration_info['current_trend'] = 'neutral'
-            trend_duration_info['trend_strength'] = 'weak'
+            trend_duration_info['current_trend'] = '中性'
+            trend_duration_info['trend_strength'] = '不明'
 
         # 判断持续时间状态
         current_duration = max(current_bullish_streak, current_bearish_streak)
         if current_duration >= self.trend_duration_threshold_strong:
-             trend_duration_info['duration_status'] = 'long'
+             trend_duration_info['duration_status'] = '长'
         elif current_duration >= self.trend_duration_threshold_moderate:
-             trend_duration_info['duration_status'] = 'moderate'
+             trend_duration_info['duration_status'] = '中'
         else:
-             trend_duration_info['duration_status'] = 'short'
+             trend_duration_info['duration_status'] = '短'
         return trend_duration_info
 
     # 修改 analyze_signals 方法，主要分析 combined_signal
