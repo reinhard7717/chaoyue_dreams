@@ -159,7 +159,7 @@
       "output_activation": null,
 
       "optimizer": "adam",
-      "learning_rate": 0.0005,
+      "learning_rate": 0.0001,
       "momentum": 0.0,
       "loss": "mse",
       "metrics": ["mae"]
@@ -167,7 +167,7 @@
     "lstm_training_config": {
       "epochs": 100,
       "batch_size": 128,
-      "early_stopping_patience": 20,
+      "early_stopping_patience": 30,
       "reduce_lr_patience": 10,
       "reduce_lr_factor": 0.5,
       "monitor_metric": "val_loss",

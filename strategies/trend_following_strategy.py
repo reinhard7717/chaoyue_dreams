@@ -499,7 +499,6 @@ class TrendFollowingStrategy(BaseStrategy):
             weights[self.focus_timeframe] = focus_weight
             logger.info(f"未提供 timeframe_weights，使用 focus_weight ({focus_weight}) 计算权重: {weights}")
 
-
         scores['total_weighted_score'] = 0.0
         for tf in timeframes:
             if weights.get(tf, 0) == 0: # 如果权重为0，跳过该时间框架的计算
@@ -519,7 +518,6 @@ class TrendFollowingStrategy(BaseStrategy):
                     tf_score_sum += score.fillna(50.0)
                     scores[f'macd_score_{tf}'] = score
                     indicator_count_in_tf += 1
-
 
             if 'rsi' in all_score_indicators:
                 rsi_col = f'RSI_{bs_params["rsi_period"]}_{tf}'
@@ -551,7 +549,6 @@ class TrendFollowingStrategy(BaseStrategy):
                          indicator_count_in_tf += 1
                 else:
                     logger.warning(f"[{self.strategy_name}] 时间框架 {tf} 缺少 KDJ 列: {k_col}, {d_col}, 或 {j_col}")
-
 
             if 'boll' in all_score_indicators:
                  upper_col, mid_col, lower_col = f'BB_UPPER_{tf}', f'BB_MIDDLE_{tf}', f'BB_LOWER_{tf}'
@@ -1621,26 +1618,21 @@ class TrendFollowingStrategy(BaseStrategy):
         if data is None or data.empty:
             logger.warning("输入数据为空，无法生成信号。")
             return pd.Series(dtype=float), {}
-
         # --- 检查必需列 ---
         required_cols = self.get_required_columns()
         missing_cols = [col for col in required_cols if col not in data.columns]
         if missing_cols:
             logger.error(f"[{self.strategy_name}] 输入数据缺少必需列: {missing_cols}。策略无法运行。")
             return pd.Series(50.0, index=data.index), {}
-
         # 检查数据完整性（是否有过多 NaN）
         nan_check_cols = [f'close_{self.focus_timeframe}', f'ADX_{self.params["base_scoring"]["dmi_period"]}_{self.focus_timeframe}']
         if data[nan_check_cols].isnull().all().any():
             logger.error(f"[{self.strategy_name}] 关键输入数据 ({nan_check_cols}) 全为 NaN。策略无法运行。")
             return pd.Series(50.0, index=data.index), {}
-
         # --- 动态调整参数 ---
         self._adjust_volatility_parameters(data)
-
         # --- 计算趋势导向的基础评分 ---
         base_scores_df = self._calculate_trend_focused_score(data)
-
         # --- 应用量能调整 ---
         vc_params = self.params.get('volume_confirmation', {})
         vc_params_adjusted = vc_params.copy()
