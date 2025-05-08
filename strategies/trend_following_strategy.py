@@ -1717,66 +1717,45 @@ class TrendFollowingStrategy(BaseStrategy):
 
     # 方法1: 将机器学习训练所需的最终数据存入文件
     def save_prepared_data(self, stock_code: str,
-                           features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,
-                           features_scaled_val: np.ndarray, targets_scaled_val: np.ndarray,
-                           features_scaled_test: np.ndarray, targets_scaled_test: np.ndarray,
-                           feature_scaler: Union[MinMaxScaler, StandardScaler], target_scaler: Union[MinMaxScaler, StandardScaler]):
+                        features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,
+                        features_scaled_val: np.ndarray, targets_scaled_val: np.ndarray,
+                        features_scaled_test: np.ndarray, targets_scaled_test: np.ndarray,
+                        feature_scaler: Union[MinMaxScaler, StandardScaler], target_scaler: Union[MinMaxScaler, StandardScaler]):
         """
         保存准备好的 LSTM 训练数据 (NumPy 数组) 和 Scaler (joblib) 到股票特定目录。
+        所有数据整体保存为一个 .npz 文件，压缩存储。
         """
-        # 确保路径已设置 (尽管 batch_prepare_lstm_data 在调用前已设置，这里再次调用增加方法的独立性)
         self.set_model_paths(stock_code)
 
-        # --- 移除对不存在属性 prepared_data_path 的检查 ---
-        # if not self.prepared_data_path or not self.scaler_path or not self.target_scaler_path:
-        #     logger.error(f"[{stock_code}] 模型或 Scaler 的保存路径未设置。请先调用 set_model_paths。")
-        #     # 这里的原始逻辑会导致 AttributeError，移除它
-        #     raise RuntimeError("保存路径未正确设置。") # 可以抛出更具体的错误
+        # 统一的 npz 路径
+        all_data_npz_path = os.path.join(
+            os.path.dirname(self.features_scaled_train_path), "all_prepared_data.npz"
+        )
 
-        # 检查关键路径是否被 set_model_paths 设置为非 None/非空字符串 (理论上 set_model_paths 应该设置)
-        if not self.features_scaled_train_path or not self.targets_scaled_train_path or \
-           not self.scaler_path or not self.target_scaler_path:
-             logger.error(f"[{stock_code}] 保存准备好的数据或 Scaler 的部分或全部路径未在 set_model_paths 中设置。")
-             raise RuntimeError("保存路径未正确初始化。")
-
+        if not self.scaler_path or not self.target_scaler_path:
+            logger.error(f"[{stock_code}] 保存准备好的数据或 Scaler 的部分或全部路径未在 set_model_paths 中设置。")
+            raise RuntimeError("保存路径未正确初始化。")
 
         try:
-            # 保存 NumPy 数组数据
-            np.save(self.features_scaled_train_path, features_scaled_train)
-            np.save(self.targets_scaled_train_path, targets_scaled_train)
-            logger.debug(f"[{stock_code}] 训练集数据已保存。")
-
-            # 保存验证集和测试集数据 (如果非空)
-            if features_scaled_val.shape[0] > 0:
-                np.save(self.features_scaled_val_path, features_scaled_val)
-                np.save(self.targets_scaled_val_path, targets_scaled_val)
-                logger.debug(f"[{stock_code}] 验证集数据已保存。")
-            elif os.path.exists(self.features_scaled_val_path): # 如果文件存在但现在数据为空，删除旧文件
-                 os.remove(self.features_scaled_val_path)
-                 if os.path.exists(self.targets_scaled_val_path): os.remove(self.targets_scaled_val_path)
-                 logger.debug(f"[{stock_code}] 验证集数据为空，已删除旧文件。")
-
-
-            if features_scaled_test.shape[0] > 0:
-                np.save(self.features_scaled_test_path, features_scaled_test)
-                np.save(self.targets_scaled_test_path, targets_scaled_test)
-                logger.debug(f"[{stock_code}] 测试集数据已保存。")
-            elif os.path.exists(self.features_scaled_test_path): # 如果文件存在但现在数据为空，删除旧文件
-                 os.remove(self.features_scaled_test_path)
-                 if os.path.exists(self.targets_scaled_test_path): os.remove(self.targets_scaled_test_path)
-                 logger.debug(f"[{stock_code}] 测试集数据为空，已删除旧文件。")
+            # 保存所有 NumPy 数组为一个 .npz 文件（压缩）
+            np.savez_compressed(
+                all_data_npz_path,
+                features_scaled_train=features_scaled_train,
+                targets_scaled_train=targets_scaled_train,
+                features_scaled_val=features_scaled_val,
+                targets_scaled_val=targets_scaled_val,
+                features_scaled_test=features_scaled_test,
+                targets_scaled_test=targets_scaled_test
+            )
+            logger.debug(f"[{stock_code}] 所有数据已整体保存为 {all_data_npz_path}。")
 
             # 保存 Scaler
             joblib.dump(feature_scaler, self.scaler_path)
             joblib.dump(target_scaler, self.target_scaler_path)
             logger.debug(f"[{stock_code}] Scaler 已保存。")
 
-
-            # logger.info moved to batch_prepare_lstm_data after the call
-
         except Exception as e:
             logger.error(f"[{stock_code}] 保存准备好的数据或 Scaler 时出错: {e}", exc_info=True)
-            # 重新抛出异常，以便任务可以捕获并标记为失败
             raise e
 
     # 方法2: 读取文件进行训练 (修改为只加载数据)
@@ -1785,50 +1764,45 @@ class TrendFollowingStrategy(BaseStrategy):
         从文件加载特定股票准备好的 LSTM 训练数据 (NumPy 数组) 和 Scaler (joblib)。
         返回加载的数据数组和 Scaler 对象。如果文件不存在或加载失败，返回空数组和 None Scaler。
         """
-        self.set_model_paths(stock_code) # 确保路径已设置
+        self.set_model_paths(stock_code)
 
-        # 检查必需的文件是否存在 (训练数据和 Scaler)
-        required_files_exist = all([os.path.exists(self.features_scaled_train_path),
-                                    os.path.exists(self.targets_scaled_train_path),
-                                    os.path.exists(self.scaler_path),
-                                    os.path.exists(self.target_scaler_path)])
+        all_data_npz_path = os.path.join(
+            os.path.dirname(self.features_scaled_train_path), "all_prepared_data.npz"
+        )
+
+        # 检查必需的文件是否存在
+        required_files_exist = all([
+            os.path.exists(all_data_npz_path),
+            os.path.exists(self.scaler_path),
+            os.path.exists(self.target_scaler_path)
+        ])
 
         if not required_files_exist:
             logger.warning(f"股票 {stock_code} 缺失必需的准备数据/Scaler 文件，无法加载。")
-            # 返回空数组和 None Scaler
             return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
 
-        # 检查可选的文件是否存在 (验证集和测试集)
-        val_files_exist = os.path.exists(self.features_scaled_val_path) and os.path.exists(self.targets_scaled_val_path)
-        test_files_exist = os.path.exists(self.features_scaled_test_path) and os.path.exists(self.targets_scaled_test_path)
-
-
         try:
-            # 加载必需的 NumPy 数组
-            features_scaled_train = np.load(self.features_scaled_train_path)
-            targets_scaled_train = np.load(self.targets_scaled_train_path)
-
-            # 加载可选的 NumPy 数组
-            features_scaled_val = np.load(self.features_scaled_val_path) if val_files_exist else np.array([])
-            targets_scaled_val = np.load(self.targets_scaled_val_path) if val_files_exist else np.array([])
-            features_scaled_test = np.load(self.features_scaled_test_path) if test_files_exist else np.array([])
-            targets_scaled_test = np.load(self.targets_scaled_test_path) if test_files_exist else np.array([])
-
+            # 加载所有数据
+            data = np.load(all_data_npz_path)
+            features_scaled_train = data['features_scaled_train']
+            targets_scaled_train = data['targets_scaled_train']
+            features_scaled_val = data['features_scaled_val']
+            targets_scaled_val = data['targets_scaled_val']
+            features_scaled_test = data['features_scaled_test']
+            targets_scaled_test = data['targets_scaled_test']
 
             # 加载 Scaler
             feature_scaler = joblib.load(self.scaler_path)
             target_scaler = joblib.load(self.target_scaler_path)
 
             logger.info(f"股票 {stock_code} 准备好的数据和 Scaler 已成功加载。")
-            # 确保返回的 NumPy 数组是 float 类型，避免潜在的类型问题
             return features_scaled_train.astype(np.float32), targets_scaled_train.astype(np.float32), \
-                   features_scaled_val.astype(np.float32), targets_scaled_val.astype(np.float32), \
-                   features_scaled_test.astype(np.float32), targets_scaled_test.astype(np.float32), \
-                   feature_scaler, target_scaler
+                features_scaled_val.astype(np.float32), targets_scaled_val.astype(np.float32), \
+                features_scaled_test.astype(np.float32), targets_scaled_test.astype(np.float32), \
+                feature_scaler, target_scaler
 
         except Exception as e:
             logger.error(f"股票 {stock_code} 加载准备好的数据或 Scaler 时出错: {e}", exc_info=True)
-            # 返回空数组和 None Scaler
             return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None
 
 
