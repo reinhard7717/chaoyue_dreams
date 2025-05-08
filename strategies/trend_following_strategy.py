@@ -5,6 +5,7 @@ import numpy as np
 import json
 import os
 import logging
+from django.conf import settings
 import joblib
 from sklearn.discriminant_analysis import StandardScaler
 import tensorflow as tf
@@ -43,7 +44,7 @@ class TrendFollowingStrategy(BaseStrategy):
     strategy_name = "TrendFollowingStrategy"
     focus_timeframe = '30' # 默认主要关注的时间框架
 
-    def __init__(self, params_file: str = "strategies/indicator_parameters.json", base_model_dir="models"):
+    def __init__(self, params_file: str = "strategies/indicator_parameters.json", base_model_dir=settings.STRATEGY_DATA_DIR):
         """初始化策略，加载参数"""
         self.params_file = params_file
         self.params = self._load_params()

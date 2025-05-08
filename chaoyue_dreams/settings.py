@@ -204,6 +204,7 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'), # 使用 os.path.join 拼接字符串路径
 ]
+STRATEGY_DATA_DIR = '/data/chaoyue_dreams/models'
 # STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 
