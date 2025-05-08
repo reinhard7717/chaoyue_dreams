@@ -884,13 +884,13 @@ def build_lstm_model(
         l2_reg = layer_config.get('l2_reg', 0.0)
         activation = layer_config.get('activation', 'tanh') # 循环层默认激活函数
 
-        # 第一个循环层需要指定 input_shape
-        input_shape = (window_size, num_features) if i == 0 else None
+        # 只有第一个循环层需要指定 batch_input_shape
+        batch_input_shape_param = (None, window_size, num_features) if i == 0 else None
 
         if model_type.lower() == 'lstm':
             model.add(LSTM(units=units,
                            return_sequences=return_sequences,
-                           input_shape=input_shape,
+                           batch_input_shape=batch_input_shape_param, # <--- 使用 batch_input_shape
                            dropout=dropout,
                            recurrent_dropout=layer_config.get('recurrent_dropout', 0.0), # 可选的循环层 dropout
                            kernel_regularizer=l2(l2_reg),
@@ -915,11 +915,11 @@ def build_lstm_model(
                                recurrent_activation=layer_config.get('recurrent_activation', 'sigmoid'),
                                unroll=layer_config.get('unroll', False)
                                )
-             model.add(Bidirectional(lstm_layer, input_shape=input_shape))
+             model.add(Bidirectional(lstm_layer, batch_input_shape=batch_input_shape_param))
         elif model_type.lower() == 'gru':
             model.add(GRU(units=units,
                           return_sequences=return_sequences,
-                          input_shape=input_shape,
+                          batch_input_shape=batch_input_shape_param,
                           dropout=dropout,
                           recurrent_dropout=layer_config.get('recurrent_dropout', 0.0),
                           kernel_regularizer=l2(l2_reg),
@@ -934,7 +934,7 @@ def build_lstm_model(
             logger.warning(f"不支持的模型类型: {model_type}，使用默认 LSTM。")
             model.add(LSTM(units=units,
                            return_sequences=return_sequences,
-                           input_shape=input_shape,
+                           batch_input_shape=batch_input_shape_param,
                            dropout=dropout,
                            recurrent_dropout=layer_config.get('recurrent_dropout', 0.0),
                            kernel_regularizer=l2(l2_reg),

@@ -251,7 +251,6 @@ class TrendFollowingStrategy(BaseStrategy):
             # Scaler 已经 fit 了，可以保留
             return # 停止训练
 
-
         # 2. 构建模型
         try:
             # 使用实际的特征数量构建模型
