@@ -130,15 +130,16 @@ class TimeSeriesSequence(Sequence):
         y_batch = []
 
         for i in batch_indices:
-            # i 是窗口的起始索引 (在 self.indices 中)
-            # 实际数据中的索引是 i 到 i + window_size - 1 (特征) 和 i + window_size (目标)
+            # i 是窗口的起始索引 (在 self.indices 中，对应平坦数据中的索引)
+            # 特征窗口是 [i, i + window_size - 1]
+            # 目标是平坦数据中索引为 i + window_size 的点
             start_index = i
-            end_index = i + self.window_size
-            target_index = i + self.window_size
+            end_index = i + self.window_size # 特征窗口的结束索引 (不包含)
+            target_index = i + self.window_size # 目标的索引
 
-            # 确保索引有效
-            if end_index > self.num_samples or target_index >= self.num_samples:
-                 logger.warning(f"生成批次 {index} 时索引越界。start_index={start_index}, end_index={end_index}, target_index={target_index}, num_samples={self.num_samples}")
+            # 确保索引有效 (target_index 不能超出 self.targets 的范围)
+            if target_index >= self.num_samples: # target_index 最大可以是 num_samples - 1
+                 logger.warning(f"生成批次 {index} 时目标索引越界。start_index={start_index}, end_index={end_index}, target_index={target_index}, num_samples={self.num_samples}")
                  continue # 跳过此无效索引
 
             X_batch.append(self.features[start_index:end_index, :])
@@ -147,9 +148,18 @@ class TimeSeriesSequence(Sequence):
         # 将列表转换为 NumPy 数组
         # 检查 X_batch 是否为空，避免 np.array([]) 导致形状问题
         if not X_batch:
-             return np.array([]), np.array([])
+             # 如果 X_batch 为空，意味着这个批次没有有效数据，返回空数组
+             # Keras 的 fit/evaluate 应该能处理这种情况，或者抛出更明确的错误
+             # 但为了稳健，我们返回形状正确的空数组（如果可能）或就是空数组
+             # LSTM 输入期望 (batch, timesteps, features)
+             # LSTM 输出期望 (batch, units) 或 (batch, 1) for regression
+             # 这里 num_features 可以从 self.features.shape[1] 获取，如果 self.features 非空
+             num_features_dim = self.features.shape[1] if self.features.ndim == 2 and self.features.shape[1] > 0 else 0
+             return np.empty((0, self.window_size, num_features_dim)), np.empty((0,))
+
 
         return np.array(X_batch), np.array(y_batch)
+
 
     def on_epoch_end(self):
         """Optional: shuffle indices after each epoch."""
@@ -602,7 +612,6 @@ def train_lstm_model(
 ) -> Dict:
     """
     训练LSTM模型，使用 Keras Sequence 进行内存高效的数据加载。
-
     Args:
         train_sequence (TimeSeriesSequence): 训练集数据生成器。
         val_sequence (Optional[TimeSeriesSequence]): 验证集数据生成器 (可能为 None)。
@@ -612,7 +621,6 @@ def train_lstm_model(
         training_config (Dict): 训练配置，如epochs, batch_size等。
         checkpoint_path (str): 模型检查点保存路径。
         plot_training_history (bool): 是否绘制训练历史图。
-
     Returns:
         Dict: 训练历史。
     """
@@ -659,27 +667,37 @@ def train_lstm_model(
     if validation_data is None and monitor_metric.startswith('val_'):
         logger.warning(f"验证集 Sequence 为空，将监控指标 '{monitor_metric}' 切换到训练集 '{monitor_metric[4:]}'。")
         monitor_metric = monitor_metric[4:] # 例如 'val_loss' -> 'loss'
-        # 如果切换后的指标仍然是 'val_something' (不可能)，或者切换后的指标不在模型metrics中，可能会有问题
         # 确保切换后的指标在 model.metrics_names 或 loss 中
+        # Keras 3 中 model.loss 是一个函数或字符串，model.metrics_names 包含损失和指标的名称
         valid_monitor = False
-        if monitor_metric == model.loss: valid_monitor = True
-        if monitor_metric in model.metrics_names: valid_monitor = True
+        # 检查 monitor_metric 是否是模型已知的损失函数名称或指标名称
+        # model.loss 可以是字符串 (如 'mse') 或 tf.keras.losses.Loss 实例
+        # model.metrics_names 是一个列表，例如 ['loss', 'mae']
+        if hasattr(model, 'loss'): # 确保 model 对象有 loss 属性
+            model_loss_name = model.loss if isinstance(model.loss, str) else (model.loss.name if hasattr(model.loss, 'name') else None)
+            if model_loss_name and monitor_metric == model_loss_name:
+                valid_monitor = True
+        if not valid_monitor and hasattr(model, 'metrics_names') and model.metrics_names is not None and monitor_metric in model.metrics_names:
+            valid_monitor = True
+
         if not valid_monitor:
             logger.warning(f"切换后的监控指标 '{monitor_metric}' 不在模型损失或指标列表中，EarlyStopping和ReduceLROnPlateau可能不会按预期工作。")
-            # 尝试使用loss作为后备
-            monitor_metric = model.loss
-            logger.warning(f"后备监控指标设置为模型的损失函数: '{monitor_metric}'。")
+            # 尝试使用loss作为后备 (通常 model.metrics_names[0] 是 loss)
+            if hasattr(model, 'metrics_names') and model.metrics_names and len(model.metrics_names) > 0:
+                monitor_metric = model.metrics_names[0] # 通常是 'loss'
+                logger.warning(f"后备监控指标设置为模型的第一个度量: '{monitor_metric}'。")
+            else: # 如果连 metrics_names 都没有，这是个更严重的问题
+                logger.error("无法确定有效的监控指标，回调函数可能无法正常工作。")
+                # 保持 monitor_metric 为切换后的值，让 Keras 处理
 
-
-    callbacks.append(EarlyStopping(monitor=monitor_metric, patience=config['early_stopping_patience'], restore_best_weights=True, verbose=config['verbose'], mode='min' if 'loss' in monitor_metric.lower() else 'max'))
-    callbacks.append(ReduceLROnPlateau(monitor=monitor_metric, factor=config['reduce_lr_factor'], patience=config['reduce_lr_patience'], min_lr=1e-6, verbose=config['verbose'], mode='min' if 'loss' in monitor_metric.lower() else 'max'))
+    callbacks.append(EarlyStopping(monitor=monitor_metric, patience=config['early_stopping_patience'], restore_best_weights=True, verbose=config['verbose'], mode='min' if 'loss' in monitor_metric.lower() or 'mse' in monitor_metric.lower() or 'mae' in monitor_metric.lower() else 'max'))
+    callbacks.append(ReduceLROnPlateau(monitor=monitor_metric, factor=config['reduce_lr_factor'], patience=config['reduce_lr_patience'], min_lr=1e-6, verbose=config['verbose'], mode='min' if 'loss' in monitor_metric.lower() or 'mse' in monitor_metric.lower() or 'mae' in monitor_metric.lower() else 'max'))
     # ModelCheckpoint 也可以选择监控训练集指标
-    callbacks.append(ModelCheckpoint(filepath=checkpoint_path, monitor=monitor_metric, save_best_only=True, save_weights_only=False, mode='min' if 'loss' in monitor_metric.lower() else 'max', verbose=config['verbose']))
+    callbacks.append(ModelCheckpoint(filepath=checkpoint_path, monitor=monitor_metric, save_best_only=True, save_weights_only=False, mode='min' if 'loss' in monitor_metric.lower() or 'mse' in monitor_metric.lower() or 'mae' in monitor_metric.lower() else 'max', verbose=config['verbose']))
 
     # 如果移除了所有依赖验证集的 callback，则打印警告 (之前的逻辑已经覆盖了大部分情况)
-    if validation_data is None and any(cb.monitor.startswith('val_') for cb in callbacks):
+    if validation_data is None and any(hasattr(cb, 'monitor') and cb.monitor.startswith('val_') for cb in callbacks): # 检查 cb 是否有 monitor 属性
          logger.warning("在移除依赖验证集的 callback 逻辑后，仍有 callback 监控 'val_*' 指标。请检查 monitor_metric 配置。")
-
 
     history = model.fit(
         train_sequence, # 使用训练集 Sequence
@@ -695,12 +713,43 @@ def train_lstm_model(
         # use_multiprocessing=True # 根据实际情况调整
     )
 
+    # 为测试集评估创建 TimeSeriesSequence 
     # 在测试集上评估 (使用缩放后的目标值)
     if X_test.shape[0] > 0 and y_test.shape[0] > 0:
         try:
-            # 可以继续使用 NumPy 数组评估，或者创建一个测试集 Sequence
-            # 如果测试集不大，NumPy 数组评估更简单
-            test_results = model.evaluate(X_test, y_test, verbose=0)
+            window_size_for_test = train_sequence.window_size # 从训练序列获取窗口大小
+            # 测试评估的批大小可以与训练时不同，通常可以设大一些以加速，或与训练一致
+            batch_size_for_test = config.get('batch_size', train_sequence.batch_size)
+
+            # 确保测试数据足够形成至少一个窗口
+            # TimeSeriesSequence 内部会检查 features.shape[0] < window_size + 1
+            # 我们在这里也做一个初步判断
+            if X_test.shape[0] >= window_size_for_test + 1:
+                test_sequence_for_evaluation = TimeSeriesSequence(
+                    features=X_test,
+                    targets=y_test,
+                    window_size=window_size_for_test,
+                    batch_size=batch_size_for_test,
+                    shuffle=False # 评估时不需要打乱
+                )
+
+                if len(test_sequence_for_evaluation) > 0:
+                    logger.info(f"使用 TimeSeriesSequence 评估测试集，批次数: {len(test_sequence_for_evaluation)}。")
+                    test_results = model.evaluate(test_sequence_for_evaluation, verbose=0)
+                else:
+                    logger.warning("创建的测试集 Sequence 为空 (len=0)，无法通过 Sequence 评估。可能是数据量不足以形成有效窗口。")
+                    # 根据模型编译的度量数量，填充 NaN 结果
+                    num_output_metrics = 1 # 至少有 loss
+                    if hasattr(model, 'metrics_names') and model.metrics_names is not None:
+                        num_output_metrics = len(model.metrics_names)
+                    test_results = [np.nan] * num_output_metrics
+            else:
+                logger.warning(f"测试集数据量 ({X_test.shape[0]}) 不足以根据窗口大小 ({window_size_for_test}) 创建 Sequence 进行评估。")
+                num_output_metrics = 1 # 至少有 loss
+                if hasattr(model, 'metrics_names') and model.metrics_names is not None:
+                    num_output_metrics = len(model.metrics_names)
+                test_results = [np.nan] * num_output_metrics
+
             # evaluate 返回的是一个列表，第一个是 loss，后面是 metrics
             test_loss = test_results[0]
             # 找到 MAE 的索引 (假设 'mae' 在 metrics 列表中)
@@ -708,11 +757,16 @@ def train_lstm_model(
             try:
                 # model.metrics_names 是一个列表，包含 loss 和 metrics 的名称
                 # 例如: ['loss', 'mae']
-                if 'mae' in model.metrics_names:
-                    mae_index = model.metrics_names.index('mae')
-                    test_mae_scaled = test_results[mae_index]
+                if hasattr(model, 'metrics_names') and model.metrics_names is not None and 'mae' in model.metrics_names:
+                    mae_index = model.metrics_names.index('mae') # 获取 'mae' 的实际索引
+                    if len(test_results) > mae_index : # 确保 test_results 长度足够
+                        test_mae_scaled = test_results[mae_index]
+                    else:
+                        logger.warning(f"test_results 长度 ({len(test_results)}) 不足以获取索引为 {mae_index} 的 MAE。")
                 else:
-                     logger.warning("模型编译的 metrics 中没有 'mae'。")
+                     logger.warning("模型编译的 metrics 中没有 'mae'，或者 model.metrics_names 不可用。")
+            except ValueError: # 'mae' not in model.metrics_names
+                 logger.warning("模型编译的 metrics 中没有 'mae' (ValueError on index)。")
             except Exception as e:
                  logger.warning(f"获取测试集 scaled MAE 时出错: {e}", exc_info=True)
 
@@ -722,18 +776,19 @@ def train_lstm_model(
             # 只有当 target_scaler 存在且已 fit 且 scaled MAE 有效时才进行逆缩放估算
             # 检查 target_scaler 是否已 fit 的方法：查看其 n_features_in_ 属性或 feature_range 属性 (MinMaxScaler)
             is_scaler_fitted = target_scaler is not None and (
-                hasattr(target_scaler, 'n_features_in_') or # StandardScaler
-                (isinstance(target_scaler, MinMaxScaler) and hasattr(target_scaler, 'feature_range')) # MinMaxScaler
+                (hasattr(target_scaler, 'n_features_in_') and target_scaler.n_features_in_ is not None) or # StandardScaler, MinMaxScaler (Keras 3)
+                (isinstance(target_scaler, MinMaxScaler) and hasattr(target_scaler, 'data_min_') and target_scaler.data_min_ is not None) # Scikit-learn MinMaxScaler
             )
 
             if is_scaler_fitted and not np.isnan(test_mae_scaled):
                  try:
                      # 估算方法：计算缩放器将 0 和 scaled_mae 转换回原始尺度的差值
-                     # 创建一个包含 0 和 scaled_mae 的二维数组用于逆缩放
                      # 注意：这里假设 MAE 是非负的，且缩放器是线性的
-                     dummy_values = np.array([[0.0], [test_mae_scaled]])
-                     original_values = target_scaler.inverse_transform(dummy_values)
-                     mae_original_approx = abs(original_values[1][0] - original_values[0][0])
+                     # 创建一个包含 0 和 scaled_mae 的二维数组用于逆缩放
+                     # 确保 dummy_values 的形状是 (n_samples, n_features=1)
+                     dummy_values_for_inverse = np.array([[0.0], [test_mae_scaled]])
+                     original_values = target_scaler.inverse_transform(dummy_values_for_inverse)
+                     mae_original_approx = abs(original_values[1, 0] - original_values[0, 0]) # abs(val_at_mae - val_at_0)
                  except Exception as e:
                      logger.error(f"估算原始范围 MAE 时出错: {e}", exc_info=True)
                      mae_original_approx = np.nan # 发生错误时设置为 NaN
@@ -754,61 +809,57 @@ def train_lstm_model(
 
     logger.info("模型训练完成。")
     # 打印最终的训练和验证损失/指标 (从 history 中获取最后的值)
-    final_loss = history.history['loss'][-1] if 'loss' in history.history else 'N/A'
+    final_loss = history.history['loss'][-1] if 'loss' in history.history and history.history['loss'] else 'N/A'
     # 检查 val_loss 是否存在，只有存在时才打印
-    final_val_loss = history.history['val_loss'][-1] if 'val_loss' in history.history else 'N/A (验证集为空)' if validation_data is None else 'N/A (历史记录缺失)'
+    final_val_loss = history.history['val_loss'][-1] if 'val_loss' in history.history and history.history['val_loss'] else ('N/A (验证集为空或历史记录缺失)' if validation_data is None else 'N/A (历史记录缺失)')
     # 检查 mae 是否存在
-    final_mae = history.history['mae'][-1] if 'mae' in history.history else 'N/A (指标缺失)'
+    final_mae = history.history['mae'][-1] if 'mae' in history.history and history.history['mae'] else 'N/A (指标缺失)'
      # 检查 val_mae 是否存在
-    final_val_mae = history.history['val_mae'][-1] if 'val_mae' in history.history else 'N/A (验证集为空)' if validation_data is None else 'N/A (历史记录缺失)'
+    final_val_mae = history.history['val_mae'][-1] if 'val_mae' in history.history and history.history['val_mae'] else ('N/A (验证集为空或历史记录缺失)' if validation_data is None else 'N/A (历史记录缺失)')
 
     logger.info(f"训练历史: 最终损失={final_loss}, 最终验证损失={final_val_loss}, 最终MAE={final_mae}, 最终验证MAE={final_val_mae}")
-
 
     # 可选：绘制训练历史图
     if plot_training_history:
          try:
              plt.figure(figsize=(12, 6))
-             plt.plot(history.history['loss'], label='训练集损失')
+             if 'loss' in history.history and history.history['loss']:
+                 plt.plot(history.history['loss'], label='训练集损失')
              # 检查是否存在验证集损失
-             if 'val_loss' in history.history:
+             if 'val_loss' in history.history and history.history['val_loss']:
                  plt.plot(history.history['val_loss'], label='验证集损失')
              plt.title('模型损失')
              plt.xlabel('周期')
              plt.ylabel('损失')
              plt.legend()
              plt.grid(True)
+             # 可以考虑保存图像而不是显示
+             # plt.savefig(os.path.join(os.path.dirname(checkpoint_path), "loss_history.png"))
+             # plt.close()
 
              # 检查 metrics 中是否有 mae
-             if 'mae' in history.history:
+             if 'mae' in history.history and history.history['mae']:
                 plt.figure(figsize=(12, 6))
                 plt.plot(history.history['mae'], label='训练集MAE')
                 # 检查是否存在验证集MAE
-                if 'val_mae' in history.history:
+                if 'val_mae' in history.history and history.history['val_mae']:
                     plt.plot(history.history['val_mae'], label='验证集MAE')
                 plt.title('模型平均绝对误差 (MAE)')
                 plt.xlabel('周期')
                 plt.ylabel('MAE')
                 plt.legend()
                 plt.grid(True)
+                # plt.savefig(os.path.join(os.path.dirname(checkpoint_path), "mae_history.png"))
+                # plt.close()
              else:
                  logger.warning("训练历史中没有MAE指标，跳过绘制MAE图。请检查model.compile的metrics参数。")
+             # 如果在非GUI环境，可能需要 plt.show(block=False) 或直接保存文件
+             # plt.show() # 在服务器环境或无GUI环境运行时，这可能会导致问题或无效果
 
-             # 为防止文件名冲突，可以考虑加上时间戳或股票代码 (如果可用)
-             # 例如: plt.savefig(f'training_history_{stock_code}_{int(time.time())}.png')
-             # 确保保存目录存在
-             plot_dir = 'training_plots' # 可以改为配置项
-             if not os.path.exists(plot_dir):
-                 os.makedirs(plot_dir)
-                 logger.info(f"创建绘图目录: {plot_dir}")
-             plot_path = os.path.join(plot_dir, 'training_history.png') # 可以使文件名更具描述性
-             plt.savefig(plot_path)
-             plt.close('all') # 关闭所有图窗以释放内存
-             logger.info(f"训练历史图已保存至 {plot_path}")
          except Exception as e:
-             logger.error(f"绘制训练历史图出错: {e}", exc_info=True)
+             logger.error(f"绘制训练历史图时出错: {e}", exc_info=True)
 
-    return history.history
+    return history.history # 返回原始 history.history 字典
 
 @log_execution_time
 @handle_exceptions

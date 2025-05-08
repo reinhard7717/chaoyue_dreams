@@ -4,7 +4,7 @@ WORKDIR /workspace
 
 # 安装MySQL开发依赖和pkg-config
 RUN apt-get update && \
-    apt-get install -y default-libmysqlclient-dev build-essential pkg-config && \
+    apt-get install -y default-libmysqlclient-dev build-essential pkg-config tmux && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /workspace/
