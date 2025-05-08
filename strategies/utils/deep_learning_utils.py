@@ -887,64 +887,38 @@ def build_lstm_model(
         # 只有第一个循环层需要指定 batch_input_shape
         batch_input_shape_param = (None, window_size, num_features) if i == 0 else None
 
+        # 构建层参数字典
+        layer_args = {
+            'units': units,
+            'return_sequences': return_sequences,
+            'dropout': dropout,
+            'recurrent_dropout': layer_config.get('recurrent_dropout', 0.0), # 可选的循环层 dropout
+            'kernel_regularizer': l2(l2_reg),
+            'recurrent_regularizer': l2(layer_config.get('recurrent_l2_reg', 0.0)), # 可选的循环层 L2 正则化
+            'bias_regularizer': l2(layer_config.get('bias_l2_reg', 0.0)), # 可选的偏置 L2 正则化
+            'activity_regularizer': l2(layer_config.get('activity_l2_reg', 0.0)), # 可选的激活 L2 正则化
+            'activation': activation,
+            'recurrent_activation': layer_config.get('recurrent_activation', 'sigmoid'), # 循环激活函数
+            'unroll': layer_config.get('unroll', False) # 是否展开网络
+        }
+
+        # *** 修改点：只为第一个循环层指定 batch_input_shape ***
+        if i == 0:
+            layer_args['batch_input_shape'] = (None, window_size, num_features)
+
         if model_type.lower() == 'lstm':
-            model.add(LSTM(units=units,
-                           return_sequences=return_sequences,
-                           batch_input_shape=batch_input_shape_param, # <--- 使用 batch_input_shape
-                           dropout=dropout,
-                           recurrent_dropout=layer_config.get('recurrent_dropout', 0.0), # 可选的循环层 dropout
-                           kernel_regularizer=l2(l2_reg),
-                           recurrent_regularizer=l2(layer_config.get('recurrent_l2_reg', 0.0)), # 可选的循环层 L2 正则化
-                           bias_regularizer=l2(layer_config.get('bias_l2_reg', 0.0)), # 可选的偏置 L2 正则化
-                           activity_regularizer=l2(layer_config.get('activity_l2_reg', 0.0)), # 可选的激活 L2 正则化
-                           activation=activation,
-                           recurrent_activation=layer_config.get('recurrent_activation', 'sigmoid'), # 循环激活函数
-                           unroll=layer_config.get('unroll', False) # 是否展开网络
-                           ))
+            model.add(LSTM(**layer_args)) # 使用字典解包传递参数
         elif model_type.lower() == 'bilstm':
-             # Bidirectional 需要一个循环层作为参数
-             lstm_layer = LSTM(units=units,
-                               return_sequences=return_sequences,
-                               dropout=dropout,
-                               recurrent_dropout=layer_config.get('recurrent_dropout', 0.0),
-                               kernel_regularizer=l2(l2_reg),
-                               recurrent_regularizer=l2(layer_config.get('recurrent_l2_reg', 0.0)),
-                               bias_regularizer=l2(layer_config.get('bias_l2_reg', 0.0)),
-                               activity_regularizer=l2(layer_config.get('activity_l2_reg', 0.0)),
-                               activation=activation,
-                               recurrent_activation=layer_config.get('recurrent_activation', 'sigmoid'),
-                               unroll=layer_config.get('unroll', False)
-                               )
-             model.add(Bidirectional(lstm_layer, batch_input_shape=batch_input_shape_param))
+             # Bidirectional 层本身也接受 batch_input_shape 参数，并传递给内部层
+             bidi_layer_args = {}
+             if i == 0:
+                 bidi_layer_args['batch_input_shape'] = (None, window_size, num_features)
+             model.add(Bidirectional(LSTM(**layer_args), **bidi_layer_args)) # 将 batch_input_shape 传递给 Bidirectional
         elif model_type.lower() == 'gru':
-            model.add(GRU(units=units,
-                          return_sequences=return_sequences,
-                          batch_input_shape=batch_input_shape_param,
-                          dropout=dropout,
-                          recurrent_dropout=layer_config.get('recurrent_dropout', 0.0),
-                          kernel_regularizer=l2(l2_reg),
-                          recurrent_regularizer=l2(layer_config.get('recurrent_l2_reg', 0.0)),
-                          bias_regularizer=l2(layer_config.get('bias_l2_reg', 0.0)),
-                          activity_regularizer=l2(layer_config.get('activity_l2_reg', 0.0)),
-                          activation=activation,
-                          recurrent_activation=layer_config.get('recurrent_activation', 'sigmoid'),
-                          unroll=layer_config.get('unroll', False)
-                          ))
+            model.add(GRU(**layer_args)) # 使用字典解包传递参数
         else:
             logger.warning(f"不支持的模型类型: {model_type}，使用默认 LSTM。")
-            model.add(LSTM(units=units,
-                           return_sequences=return_sequences,
-                           batch_input_shape=batch_input_shape_param,
-                           dropout=dropout,
-                           recurrent_dropout=layer_config.get('recurrent_dropout', 0.0),
-                           kernel_regularizer=l2(l2_reg),
-                           recurrent_regularizer=l2(layer_config.get('recurrent_l2_reg', 0.0)),
-                           bias_regularizer=l2(layer_config.get('bias_l2_reg', 0.0)),
-                           activity_regularizer=l2(layer_config.get('activity_l2_reg', 0.0)),
-                           activation=activation,
-                           recurrent_activation=layer_config.get('recurrent_activation', 'sigmoid'),
-                           unroll=layer_config.get('unroll', False)
-                           ))
+            model.add(LSTM(**layer_args)) # 使用字典解包传递参数
 
 
     # 添加全连接层
