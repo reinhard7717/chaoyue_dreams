@@ -890,7 +890,6 @@ class BaseDAO(Generic[T]):
             logger.error(f"删除实体 {self.model_name} (ID: {id_value}) 错误: {str(e)}", exc_info=True)
             return False
 
-
     # ==================== 数据解析工具方法 ====================
 
     def _parse_datetime(self, value: Any, default_format: Optional[str] = None) -> Optional[datetime]:
@@ -1060,4 +1059,32 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"获取模型 {model_class.__name__} 字段时出错: {e}")
             return []
+
+    # ==================== 日期方法 ====================
+
+    # 获取本周一和本周五的日期
+    def get_this_monday_and_friday():
+        """获取本周一和本周五的日期"""
+        today = datetime.date.today()
+        this_monday = today - datetime.timedelta(days=today.weekday())
+        this_friday = this_monday + datetime.timedelta(days=4)
+        return this_monday, this_friday
+
+    # 获取上周一和上周五的日期
+    def get_last_monday_and_friday():
+        """获取上周一和上周五的日期"""
+        today = datetime.date.today()
+        this_monday = today - datetime.timedelta(days=today.weekday())
+        last_monday = this_monday - datetime.timedelta(days=7)
+        last_friday = last_monday + datetime.timedelta(days=4)
+        return last_monday, last_friday
+
+
+
+
+
+
+
+
+
 

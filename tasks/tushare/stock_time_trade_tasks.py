@@ -27,6 +27,23 @@ def is_trading_time():
         return True
     return False
 
+# 获取本周一和本周五的日期
+def get_this_monday_and_friday():
+    """获取本周一和本周五的日期"""
+    today = datetime.date.today()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    this_friday = this_monday + datetime.timedelta(days=4)
+    return this_monday, this_friday
+
+# 获取上周一和上周五的日期
+def get_last_monday_and_friday():
+    """获取上周一和上周五的日期"""
+    today = datetime.date.today()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    last_monday = this_monday - datetime.timedelta(days=7)
+    last_friday = last_monday + datetime.timedelta(days=4)
+    return last_monday, last_friday
+
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
@@ -67,6 +84,59 @@ async def _get_all_relevant_stock_codes_for_processing():
 # ===================================================
 #                      当日任务
 # ===================================================
+#  ================ 整体任务 ================
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.run_daily_data_ingestion_task')
+def run_daily_data_ingestion_task(self, trade_time_str=None):
+    """
+    整体任务：按顺序执行当日收盘后的数据采集任务。
+    包括：分钟数据、日线数据（含筹码）、当日基本信息。
+    这个任务由 Celery Beat 调度，通常在收盘后执行。
+    """
+    logger.info("整体任务启动: run_daily_data_ingestion_task - 开始执行当日数据采集流程")
+
+    try:
+        # 步骤 1: 执行分钟数据采集调度任务
+        # 这个任务会获取所有股票并分批派发 save_stocks_minute_data_today_batch
+        logger.info("开始执行: 分钟数据采集调度任务...")
+        # 使用 .delay() 或 .apply_async() 异步触发子任务
+        # .delay() 是 .apply_async() 的简化版
+        minute_task_result = save_stocks_minute_data_today_task.delay(trade_time_str=trade_time_str)
+        logger.info(f"已分派分钟数据采集调度任务。任务ID: {minute_task_result.id}")
+
+        # 注意：这里使用 .delay() 意味着整体任务会立即返回，而子任务会在后台异步执行。
+        # 如果你需要严格等待前一个任务完成后再开始下一个，你需要使用 Celery 的 Chain 或 Group/Chord，
+        # 或者在当前任务中调用子任务的 .get() 方法（但这会阻塞当前 worker，不推荐用于长时间任务）。
+        # 对于数据采集，通常分派出去即可，让 worker 自己处理并发和顺序（如果子任务内部有依赖）。
+        # 当前设计是整体任务负责“分派”子任务，子任务各自执行。
+
+        # 步骤 2: 执行日线数据（含筹码）采集任务
+        # 这个任务会采集日线数据，并且内部包含了筹码数据的采集
+        logger.info("开始执行: 日线数据（含筹码）采集任务...")
+        daily_data_task_result = save_day_data_today_task.delay()
+        logger.info(f"已分派日线数据（含筹码）采集任务。任务ID: {daily_data_task_result.id}")
+
+        # 步骤 3: 执行当日基本信息采集任务
+        logger.info("开始执行: 当日基本信息采集任务...")
+        daily_basic_task_result = save_stocks_daily_basic_data_today_task.delay()
+        logger.info(f"已分派当日基本信息采集任务。任务ID: {daily_basic_task_result.id}")
+
+        logger.info("整体任务结束: run_daily_data_ingestion_task - 所有当日数据采集任务已分派。")
+
+        # 返回一些信息，方便查看任务状态
+        return {
+            "status": "success",
+            "message": "所有当日数据采集任务已分派",
+            "dispatched_tasks": {
+                "minute_data_scheduler": minute_task_result.id,
+                "daily_data_and_chips": daily_data_task_result.id,
+                "daily_basic_info": daily_basic_task_result.id,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"整体任务 run_daily_data_ingestion_task 执行失败: {e}", exc_info=True)
+        # 记录异常并返回错误状态
+        return {"status": "error", "message": f"整体任务执行失败: {e}"}
 
 #  ================ 分钟数据任务（当日收盘后） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch')
@@ -206,6 +276,260 @@ def save_cyq_data_today_task(self):
     except Exception as e:
         logger.error(f"执行 save_cyq_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
+# ===================================================
+#                      本周任务
+# ===================================================
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.run_this_week_data_ingestion_task', queue='SaveData_TimeTrade')
+def run_this_week_data_ingestion_task(self):
+    """
+    整体任务：按顺序执行本周的数据采集任务。
+    包括：分钟数据、日线数据、每日基本信息、每日筹码数据。
+    这个任务由 Celery Beat 调度，通常在周末或周初执行。
+    """
+    logger.info("整体任务启动: run_this_week_data_ingestion_task - 开始执行本周数据采集流程")
+    try:
+        # 步骤 1: 执行本周分钟数据采集调度任务
+        # 这个任务会获取所有股票并分派 save_minute_data_this_week_batch 给每个股票和时间级别
+        logger.info("开始执行: 本周分钟数据采集调度任务...")
+        minute_weekly_task_result = save_stocks_minute_data_this_week_task.delay()
+        logger.info(f"已分派本周分钟数据采集调度任务。任务ID: {minute_weekly_task_result.id}")
+        # 步骤 2: 执行本周日线数据采集任务
+        # 这个任务会采集本周的日线数据
+        logger.info("开始执行: 本周日线数据采集任务...")
+        daily_weekly_task_result = save_day_data_this_week_batch.delay()
+        logger.info(f"已分派本周日线数据采集任务。任务ID: {daily_weekly_task_result.id}")
+        # 步骤 3: 执行本周每日基本信息采集任务
+        # 这个任务会循环采集本周每一天的基本信息
+        logger.info("开始执行: 本周每日基本信息采集任务...")
+        daily_basic_weekly_task_result = save_stocks_daily_basic_data_this_week_task.delay()
+        logger.info(f"已分派本周每日基本信息采集任务。任务ID: {daily_basic_weekly_task_result.id}")
+        # 步骤 4: 执行本周每日筹码数据采集调度任务
+        # 这个任务会循环分派本周每一天的筹码数据采集任务
+        logger.info("开始执行: 本周每日筹码数据采集调度任务...")
+        cyq_weekly_task_result = save_cyq_data_this_week_task.delay()
+        logger.info(f"已分派本周每日筹码数据采集调度任务。任务ID: {cyq_weekly_task_result.id}")
+
+        logger.info("整体任务结束: run_this_week_data_ingestion_task - 所有本周数据采集任务已分派。")
+
+        # 返回一些信息，方便查看任务状态
+        return {
+            "status": "success",
+            "message": "所有本周数据采集任务已分派",
+            "dispatched_tasks": {
+                "minute_data_weekly_scheduler": minute_weekly_task_result.id,
+                "daily_data_weekly": daily_weekly_task_result.id,
+                "daily_basic_info_weekly": daily_basic_weekly_task_result.id,
+                "cyq_data_weekly_scheduler": cyq_weekly_task_result.id,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"整体任务 run_this_week_data_ingestion_task 执行失败: {e}", exc_info=True)
+        # 记录异常并返回错误状态
+        return {"status": "error", "message": f"整体任务执行失败: {e}"}
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.run_daily_data_ingestion_task')
+def run_daily_data_ingestion_task(self, trade_time_str=None):
+    """
+    整体任务：按顺序执行当日收盘后的数据采集任务。
+    包括：分钟数据、日线数据（含筹码）、当日基本信息。
+    这个任务由 Celery Beat 调度，通常在收盘后执行。
+    """
+    logger.info("整体任务启动: run_daily_data_ingestion_task - 开始执行当日数据采集流程")
+
+    try:
+        # 步骤 1: 执行分钟数据采集调度任务
+        # 这个任务会获取所有股票并分批派发 save_stocks_minute_data_today_batch
+        logger.info("开始执行: 分钟数据采集调度任务...")
+        # 使用 .delay() 或 .apply_async() 异步触发子任务
+        # .delay() 是 .apply_async() 的简化版
+        minute_task_result = save_stocks_minute_data_today_task.delay(trade_time_str=trade_time_str)
+        logger.info(f"已分派分钟数据采集调度任务。任务ID: {minute_task_result.id}")
+
+        # 注意：这里使用 .delay() 意味着整体任务会立即返回，而子任务会在后台异步执行。
+        # 如果你需要严格等待前一个任务完成后再开始下一个，你需要使用 Celery 的 Chain 或 Group/Chord，
+        # 或者在当前任务中调用子任务的 .get() 方法（但这会阻塞当前 worker，不推荐用于长时间任务）。
+        # 对于数据采集，通常分派出去即可，让 worker 自己处理并发和顺序（如果子任务内部有依赖）。
+        # 当前设计是整体任务负责“分派”子任务，子任务各自执行。
+
+        # 步骤 2: 执行日线数据（含筹码）采集任务
+        # 这个任务会采集日线数据，并且内部包含了筹码数据的采集
+        logger.info("开始执行: 日线数据（含筹码）采集任务...")
+        daily_data_task_result = save_day_data_today_task.delay()
+        logger.info(f"已分派日线数据（含筹码）采集任务。任务ID: {daily_data_task_result.id}")
+
+        # 步骤 3: 执行当日基本信息采集任务
+        logger.info("开始执行: 当日基本信息采集任务...")
+        daily_basic_task_result = save_stocks_daily_basic_data_today_task.delay()
+        logger.info(f"已分派当日基本信息采集任务。任务ID: {daily_basic_task_result.id}")
+
+        logger.info("整体任务结束: run_daily_data_ingestion_task - 所有当日数据采集任务已分派。")
+
+        # 返回一些信息，方便查看任务状态
+        return {
+            "status": "success",
+            "message": "所有当日数据采集任务已分派",
+            "dispatched_tasks": {
+                "minute_data_scheduler": minute_task_result.id,
+                "daily_data_and_chips": daily_data_task_result.id,
+                "daily_basic_info": daily_basic_task_result.id,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"整体任务 run_daily_data_ingestion_task 执行失败: {e}", exc_info=True)
+        # 记录异常并返回错误状态
+        return {"status": "error", "message": f"整体任务执行失败: {e}"}
+
+#  ================ 分钟数据任务 ================
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_minute_data_this_week_batch')
+def save_minute_data_this_week_batch(self, stock_code: str, time_level: str):
+    """
+    分钟数据任务（本周）
+    从Tushare批量获取数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    if not stock_code:
+        logger.info("收到空的股票代码列表，任务结束")
+        return {"processed": 0, "success": 0, "errors": 0}
+    logger.info(f"开始处理股票{stock_code}的 历史({time_level}分钟)数据任务...")
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    this_monday, this_friday = get_this_monday_and_friday()
+    this_monday_str = this_monday.strftime('%Y%m%d') + " 00:00:00"
+    this_friday_str = this_friday.strftime('%Y%m%d') + " 16:00:00"
+    try:
+        result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_code_and_time_level(stock_code=stock_code, time_level=time_level, start_date=this_monday_str, end_date=this_friday_str))
+        logger.info(f"保存股票 {stock_code} 的{time_level}分钟级交易数据完成. 结果: {result}")
+    except Exception as e:
+        logger.error(f"save_minute_data_this_week_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+# --- 修改后的调度器任务 ---
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_this_week_task')
+def save_stocks_minute_data_this_week_task(self): # 限量：单次最大8000行数据
+    """
+    调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 将代码分成批次。
+    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info(f"任务启动: save_stocks_minute_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务.")
+    try:
+        total_dispatched_batches = 0
+        stock_basic_dao = StockBasicInfoDao()
+        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        all_stock_codes = [stock.stock_code for stock in all_stocks][::-1]
+        if not all_stocks:
+            logger.warning("未找到任何股票代码，跳过任务")
+            return {"status": "skipped", "message": "未找到任何股票代码"}
+        total_codes_count = len(all_stocks)  # 用于统计总代码数量
+        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
+        for stock_code in all_stock_codes:
+            logger.info(f"创建自选股任务 ({stock_code})...")
+            # 使用新的批量任务，并指定队列
+            for time_level in ["5", "15", "30", "60"]:
+                save_minute_data_this_week_batch.s(stock_code=stock_code, time_level=time_level).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+            total_dispatched_batches += 1
+        logger.info(f"已为 {total_codes_count} 个股票分派了 {total_dispatched_batches} 个批次任务。")
+        logger.info(f"任务结束: save_stocks_minute_data_this_week_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
+        return {"status": "success", "dispatched_batches": total_dispatched_batches}
+    except Exception as e:
+        logger.error(f"执行 save_stocks_minute_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
+#  ================ 日线数据任务 ================
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_this_week_batch')
+def save_day_data_this_week_batch(self):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    this_monday, this_friday = get_this_monday_and_friday()
+    logger.info(f"开始处理包含 {this_monday} - {this_friday} 历史(日线)数据任务...")
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        return_info = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(start_date=this_monday, end_date=this_friday))
+        print(f"完成 {this_monday} - {this_friday} 的日线数据保存，{return_info}。")
+        time.sleep(5)
+    except Exception as e:
+        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+#  ================ 每日基本信息数据任务 ================
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_this_week_task', queue='SaveData_TimeTrade')
+def save_stocks_daily_basic_data_this_week_task(self):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    """
+    logger.info(f"开始处理今日股票重要的基本面指标...")
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    this_monday, this_friday = get_this_monday_and_friday()
+    for i in range(5):
+        day = this_monday + datetime.timedelta(days=i)
+        try:
+            print(f"开始保存 {day} 今日股票重要的基本面指标...")
+            result = asyncio.run(stock_time_trade_dao.save_today_stock_basic_info(trade_date=day))
+            print(f"保存 {day} 今日股票重要的基本面指标 完成。result: {result}")
+        except Exception as e:
+            logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+# ============== 每日筹码分布任务 ==============
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveData_TimeTrade')
+def save_cyq_chips_this_week_batch(self, trade_date: datetime.date):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        result = asyncio.run(stock_time_trade_dao.save_today_cyq_chips(trade_date=trade_date))
+        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+    except Exception as e:
+        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_perf_this_week_batch', queue='SaveData_TimeTrade')
+def save_cyq_perf_this_week_batch(self, trade_date: datetime.date):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf(trade_date=trade_date))
+        print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
+    except Exception as e:
+        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_this_week_task')
+def save_cyq_data_this_week_task(self):
+    """
+    调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 将代码分成批次。
+    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info(f"任务启动: save_cyq_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
+    try:
+        this_monday, this_friday = get_this_monday_and_friday()
+        for i in range(5):
+            day = this_monday + datetime.timedelta(days=i)
+            save_cyq_chips_this_week_batch.s(trade_date=day).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+            save_cyq_perf_this_week_batch.s(trade_date=day).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+        logger.info(f"任务结束: save_cyq_data_this_week_task (调度器模式)")
+    except Exception as e:
+        logger.error(f"执行 save_cyq_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
 
 # ===================================================
 #                      历史任务

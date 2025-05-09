@@ -45,6 +45,12 @@ logger = logging.getLogger("strategy_deep_learning_utils")
 def log_execution_time(func: Callable) -> Callable:
     """
     记录函数执行时间的装饰器。
+
+    Args:
+        func (Callable): 被装饰的函数。
+
+    Returns:
+        Callable: 装饰后的函数。
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -59,6 +65,12 @@ def log_execution_time(func: Callable) -> Callable:
 def handle_exceptions(func: Callable) -> Callable:
     """
     处理函数执行过程中产生的异常的装饰器。
+
+    Args:
+        func (Callable): 被装饰的函数。
+
+    Returns:
+        Callable: 装饰后的函数。
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -70,11 +82,12 @@ def handle_exceptions(func: Callable) -> Callable:
     return wrapper
 
 # --- PyTorch 相关组件 ---
-
 class TimeSeriesDataset(Dataset):
     """
     用于时间序列数据的 PyTorch Dataset。
-    用于加载经过预处理和缩放的 NumPy 数组，并在 __getitem__ 中进行窗口化并转换为 PyTorch Tensor。
+    此类用于加载经过预处理和缩放的 NumPy 数组，并在 `__getitem__` 方法中
+    根据窗口大小（`window_size`）动态构建输入序列 (X) 和对应的目标值 (y)，
+    并将它们转换为 PyTorch Tensor。
     """
     def __init__(self, features: np.ndarray, targets: np.ndarray, window_size: int):
         """
@@ -82,61 +95,67 @@ class TimeSeriesDataset(Dataset):
 
         Args:
             features (np.ndarray): 经过缩放的平坦特征数据 (形状: num_samples, num_features)。
-            targets (np.ndarray): 经过缩放的平坦目标数据 (形状: num_samples,).
-                                 这里的 target[i] 对应 features[i] 时刻的 final_signal。
-            window_size (int): 每个输入窗口的时间步长。
+                                   这些是模型训练的输入特征。
+            targets (np.ndarray): 经过缩放的平坦目标数据 (形状: num_samples,)。
+                                  `targets[i]` 对应 `features[i]` 时刻的目标值。
+            window_size (int): 每个输入窗口的时间步长。模型将使用 `window_size` 长度的
+                               特征序列来预测该序列最后一个时间步的目标值。
         """
         if features.shape[0] != targets.shape[0]:
-            raise ValueError("特征和目标的样本数量必须相同。")
+            raise ValueError("特征 (features) 和目标 (targets) 的样本数量必须相同。")
 
-        # 窗口需要 window_size 个点。预测目标是窗口最后一个点 (t+window_size-1) 的信号。
-        # 需要 features[t : t + window_size] 来预测 targets[t + window_size - 1].
-        # 最后一个可用的窗口起始索引是 num_samples - window_size.
         self.num_samples = features.shape[0]
-        if self.num_samples < window_size: # 至少需要 window_size 条数据才能构成第一个窗口的输入和对应目标
+        self.window_size = window_size
+        self.num_original_features = features.shape[1] if features.ndim == 2 and features.shape[0] > 0 else 0
+
+        # 预测目标是窗口最后一个点 (t+window_size-1) 的信号。
+        # 需要 features[t : t + window_size] 来预测 targets[t + window_size - 1].
+        # 至少需要 window_size 条数据才能构成第一个窗口的输入和对应目标。
+        if self.num_samples < window_size:
             logger.warning(
-                f"提供的特征数据长度 ({self.num_samples}) 不足以根据窗口大小 ({window_size}) 构建任何样本。 "
-                f"至少需要 {window_size} 条数据。TimeSeriesDataset 将为空。"
+                f"提供的特征数据长度 ({self.num_samples}) 不足以根据窗口大小 ({self.window_size}) 构建任何样本。 "
+                f"至少需要 {self.window_size} 条数据。TimeSeriesDataset 将为空。"
             )
-            self.features = np.array([])
-            self.targets = np.array([])
+            # 保持 features 为二维数组，即使是空的
+            self.features = np.empty((0, self.num_original_features), dtype=features.dtype)
+            self.targets = np.array([], dtype=targets.dtype)
             self.num_windows = 0
         else:
             self.features = features
             self.targets = targets
             # 可生成的窗口数量 = 总样本数 - 窗口大小 + 1
-            self.num_windows = self.num_samples - window_size + 1 # 例如：数据 [0,1,2,3,4], window_size=3. 窗口起始索引 0, 1, 2. Num windows = 5 - 3 + 1 = 3.
-        self.window_size = window_size
-
-        logger.info(
-            f"TimeSeriesDataset 初始化: "
-            f"原始样本数={self.num_samples}, 窗口大小={self.window_size}, "
-            f"可生成窗口数={self.num_windows}"
-        )
-
+            # 例如：数据 [0,1,2,3,4], window_size=3. 窗口起始索引 0, 1, 2. Num windows = 5 - 3 + 1 = 3.
+            self.num_windows = self.num_samples - window_size + 1
+        logger.info(f"TimeSeriesDataset 初始化: 原始样本数={self.num_samples}, 窗口大小={self.window_size}, "
+                    f"特征维度={self.num_original_features}, 可生成窗口数={self.num_windows}")
 
     def __len__(self) -> int:
-        """返回数据集中可生成的窗口数量（即总样本数）。"""
+        """
+        返回数据集中可生成的窗口数量。
+        这是 DataLoader 用来确定数据集大小的。
+
+        Returns:
+            int: 可生成的窗口数量。
+        """
         return self.num_windows
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         获取指定索引的窗口数据和目标值。
-        目标是：使用时间步 [idx, idx+1, ..., idx+window_size-1] 的特征，
-                 来预测/拟合时间步 idx+window_size-1 的 target。
+        目标是：使用时间步 `[idx, idx+1, ..., idx+window_size-1]` 的特征，
+                 来预测/拟合时间步 `idx+window_size-1` 的 `target`。
 
         Args:
             idx (int): 窗口的起始索引（在可生成窗口列表中的索引，不是原始数据索引）。
+                       范围是 `0` 到 `self.num_windows - 1`。
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: 一个包含输入特征窗口 (X) 和目标值 (y) 的元组。
-                                               X 形状: (window_size, num_features)
-                                               y 形状: (1,)
+            Tuple[torch.Tensor, torch.Tensor]:
+                - X_tensor (torch.Tensor): 输入特征窗口，形状 `(window_size, num_features)`。
+                - y_tensor (torch.Tensor): 对应的目标值，形状 `(1,)`。
         """
-        if self.num_windows == 0:
-            # 返回空的 tensor，保持形状一致性，但 batch size 为 0
-            num_features_dim = self.features.shape[1] if self.features.ndim == 2 and self.features.shape[0] > 0 else 0
-            return torch.empty((self.window_size, num_features_dim), dtype=torch.float32), torch.empty((1,), dtype=torch.float32)
+        if not (0 <= idx < self.num_windows):
+            raise IndexError(f"索引 {idx} 超出范围 (0 至 {self.num_windows - 1})。")
 
         # 窗口的起始索引在原始平坦数据中是 idx
         window_start_flat_idx = idx
@@ -148,7 +167,7 @@ class TimeSeriesDataset(Dataset):
         target_flat_idx = window_end_flat_idx - 1
 
         # 从平坦特征中提取窗口
-        # X_window 包含从 window_start_flat_idx 到 window_end_flat_idx-1 的特征
+        # X_window_np 包含从 window_start_flat_idx 到 window_end_flat_idx-1 的特征
         X_window_np = self.features[window_start_flat_idx:window_end_flat_idx, :]
 
         # 从平坦目标中提取对应于窗口最后一个时间步的目标值
@@ -163,114 +182,179 @@ class TimeSeriesDataset(Dataset):
 class PositionalEncoding(nn.Module):
     """
     标准正弦位置编码层。
+    为序列中的每个位置添加一个独特的编码，以帮助模型理解元素的顺序。
+    Transformer 模型本身不包含任何关于序列顺序的信息，位置编码弥补了这一点。
     """
     def __init__(self, d_model: int, max_len: int = 5000):
+        """
+        初始化位置编码层。
+
+        Args:
+            d_model (int): 模型的特征维度（嵌入维度）。
+            max_len (int): 预先计算编码的最大序列长度。
+                           应大于或等于模型可能遇到的任何序列的长度。
+        """
         super().__init__()
         # 创建一个足够大的PE矩阵，max_len是序列最大长度
         pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) # (max_len, 1)
+        # div_term 计算频率项，用于正弦和余弦函数
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1) # 形状变为 (max_len, 1, d_model)
-        self.register_buffer('pe', pe) # 将PE矩阵注册为buffer，不会被视为模型参数
+        pe[:, 0::2] = torch.sin(position * div_term) # 偶数索引应用 sin
+        pe[:, 1::2] = torch.cos(position * div_term) # 奇数索引应用 cos (如果d_model是奇数，最后一个会被截断)
+        if d_model % 2 != 0: # 处理 d_model 为奇数的情况，确保 pe[:, d_model-1] 被填充
+            pe[:, d_model-1] = torch.cos(position * div_term[:-1] if div_term.shape[0] > pe[:, 1::2].shape[1] else position * div_term)
+
+
+        # pe 形状 (max_len, d_model)
+        # Transformer通常期望 (seq_len, batch_size, d_model) 或 (batch_size, seq_len, d_model)
+        # 这里注册的 pe 是 (max_len, d_model)，在使用时会根据输入调整
+        # self.register_buffer 将 pe 注册为模型的持久状态，但不是模型参数（即不会被优化器更新）
+        self.register_buffer('pe', pe) # pe 形状 (max_len, d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
+        将位置编码添加到输入序列中。
+
         Args:
-            x (torch.Tensor): 输入序列，形状 (seq_len, batch_size, d_model)
+            x (torch.Tensor): 输入序列。
+                              期望形状 `(batch_size, seq_len, d_model)`。
+
         Returns:
-            torch.Tensor: 加上位置编码后的输出，形状 (seq_len, batch_size, d_model)
+            torch.Tensor: 加上位置编码后的输出，形状与输入 `x` 相同。
         """
-        # 将输入形状从 (batch_size, seq_len, num_features) 转换为 (seq_len, batch_size, d_model)
-        # 假设输入 x 已经通过线性层调整到 d_model 维度
-        x = x.transpose(0, 1) # (seq_len, batch_size, d_model)
-        x = x + self.pe[:x.size(0), :] # 只取与当前序列长度相同的PE部分
-        return x.transpose(0, 1) # 变回 (batch_size, seq_len, d_model)
+        # x 形状: (batch_size, seq_len, d_model)
+        # self.pe 形状: (max_len, d_model)
+        # 我们需要 self.pe 的一部分，形状为 (seq_len, d_model)，然后扩展到 (1, seq_len, d_model) 以便广播
+        # 或者直接取 self.pe[:x.size(1), :] 并加到 x 上 (PyTorch支持广播)
+        # x.size(1) 是序列长度 (seq_len)
+        # self.pe[:x.size(1), :] 的形状是 (seq_len, d_model)
+        # x + self.pe[:x.size(1), :].unsqueeze(0) -> if pe is (1, seq_len, d_model)
+        # x + self.pe[:x.size(1), :] -> if pe is (seq_len, d_model) and broadcasting works
+        # PyTorch 的广播机制允许 (B, S, D) + (S, D) -> (B, S, D)
+        x = x + self.pe[:x.size(1), :]
+        return x
 
 class TransformerModel(nn.Module):
     """
-    TransformerEncoder 用于时间序列回归预测的模型。
+    基于 Transformer Encoder 的时间序列回归预测模型。
+    该模型使用 Transformer Encoder 来捕捉时间序列数据中的依赖关系，
+    并通过一个回归头输出最终的预测值。
     """
     def __init__(self, num_features: int, d_model: int, nhead: int, dim_feedforward: int, nlayers: int,
                  dropout: float = 0.5, activation: str = 'relu', window_size: int = 60):
         """
+        初始化 Transformer 模型。
+
         Args:
-            num_features (int): 输入特征的维度。
-            d_model (int): Transformer模型的特征维度 (必须是 nhead 的整数倍)。
-            nhead (int): 多头注意力机制的头数。
-            dim_feedforward (int): Transformer内部前馈网络的维度。
-            nlayers (int): TransformerEncoder层的数量。
-            dropout (float): Dropout率。
-            activation (str): Transformer内部前馈网络的激活函数 ('relu' 或 'gelu')。
-            window_size (int): 输入序列长度（窗口大小），用于位置编码。
+            num_features (int): 输入特征的原始维度。
+            d_model (int): Transformer 模型的内部特征维度 (也称为嵌入维度)。
+                           此值必须是 `nhead` 的整数倍。
+            nhead (int): 多头注意力机制中的头数。
+            dim_feedforward (int): Transformer Encoder 层内部前馈网络 (FFN) 的隐藏层维度。
+            nlayers (int): Transformer Encoder 中 Encoder 层的数量。
+            dropout (float): 应用于模型中多个位置的 Dropout 比率。
+            activation (str): Transformer Encoder 层内部 FFN 使用的激活函数 ('relu' 或 'gelu')。
+            window_size (int): 输入序列的长度（窗口大小），主要用于位置编码的最大长度。
         """
         super().__init__()
         self.model_type = 'Transformer'
         self.d_model = d_model
-        self.window_size = window_size
+        self.window_size = window_size # 主要给 PositionalEncoding 的 max_len 参考
 
-        # 输入层：将 num_features 映射到 d_model 维度
+        # 1. 输入嵌入层 (Input Embedding)
+        # 将原始的 num_features 维输入映射到 d_model 维，这是 Transformer 的工作维度。
         self.embedding = nn.Linear(num_features, d_model)
-        # 位置编码
-        self.pos_encoder = PositionalEncoding(d_model, max_len=window_size) # 使用 window_size 作为 max_len
 
-        # Transformer Encoder 层
-        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, activation)
+        # 2. 位置编码 (Positional Encoding)
+        # 为嵌入后的序列添加位置信息。
+        self.pos_encoder = PositionalEncoding(d_model, max_len=window_size) # max_len 可以设为预期的最大窗口大小
+
+        # 3. Transformer Encoder 层
+        # batch_first=True 表示输入和输出的张量形状为 (batch_size, seq_len, feature_dim)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation=activation,
+            batch_first=True  # 重要：设置批次维度在前
+        )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, nlayers)
 
-        # 输出层：TransformerEncoder 输出形状是 (batch_size, seq_len, d_model)
-        # 我们需要一个固定大小的输出，可以通过池化或只取最后一个时间步的输出来实现
-        # 这里使用平均池化，也可以尝试其他池化方式
-        self.pooling = nn.AdaptiveAvgPool1d(1) # 池化到长度 1
+        # 4. 输出处理与回归头 (Output Processing & Regression Head)
+        # TransformerEncoder 的输出形状是 (batch_size, seq_len, d_model)。
+        # 对于序列到单值的回归任务，我们需要将序列信息汇总。
+        # 常用方法：
+        #   a) 取序列最后一个时间步的输出: output[:, -1, :]
+        #   b) 对序列所有时间步的输出进行平均池化或最大池化。
+        # 这里使用平均池化，作用于序列长度维度。
+        # AdaptiveAvgPool1d(1) 会将 (N, C, L_in) -> (N, C, 1)，然后 squeeze 掉最后一维。
+        # C 在这里是 d_model, L_in 是 window_size。
+        self.pooling = nn.AdaptiveAvgPool1d(1)
 
-        # 回归头：一个或多个全连接层
-        # 池化后的形状是 (batch_size, d_model, 1)，squeeze后是 (batch_size, d_model)
+        # 回归头：一个或多个全连接层，将池化后的 d_model 维特征映射到单个预测值。
+        # 池化后形状 (batch_size, d_model, 1)，squeeze(2) 后是 (batch_size, d_model)
         self.regressor = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
-            nn.ReLU(), # 或其他激活函数
+            nn.ReLU(), # 或其他激活函数如 GELU
             nn.Dropout(dropout),
-            nn.Linear(d_model // 2, 1) # 输出一个标量预测值 (例如信号得分)
+            nn.Linear(d_model // 2, 1) # 输出一个标量预测值
         )
 
-        self.init_weights() # 初始化权重
+        self.init_weights() # 初始化模型权重
 
     def init_weights(self):
         """
         初始化模型权重。
+        一个好的权重初始化策略有助于模型训练。
         """
-        # 对线性层使用 Xavier 初始化
-        initrange = 0.1
+        initrange = 0.1 # 初始化范围
+        # 对嵌入层和回归头的线性层权重进行均匀分布初始化
         self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.regressor[-1].bias.data.zero_()
-        self.regressor[-1].weight.data.uniform_(-initrange, initrange)
-        # Transformer Encoder 内部权重由其模块自身初始化
+        if self.embedding.bias is not None:
+            self.embedding.bias.data.zero_()
+
+        # 初始化回归器中的线性层
+        for layer in self.regressor:
+            if isinstance(layer, nn.Linear):
+                layer.weight.data.uniform_(-initrange, initrange)
+                if layer.bias is not None:
+                    layer.bias.data.zero_()
+        # TransformerEncoder 内部的权重由其模块自身进行默认初始化，通常是合理的。
 
     def forward(self, src: torch.Tensor) -> torch.Tensor:
         """
-        前向传播。
+        模型的前向传播过程。
 
         Args:
-            src (torch.Tensor): 输入序列，形状 (batch_size, window_size, num_features)。
+            src (torch.Tensor): 输入序列，形状 `(batch_size, window_size, num_features)`。
 
         Returns:
-            torch.Tensor: 输出预测值，形状 (batch_size, 1)。
+            torch.Tensor: 模型的输出预测值，形状 `(batch_size, 1)`。
         """
-        # 输入形状: (batch_size, window_size, num_features)
-        # 经过 embedding: (batch_size, window_size, d_model)
-        src = self.embedding(src)
-        # 加上位置编码: (batch_size, window_size, d_model)
-        src = self.pos_encoder(src) # 位置编码已经处理了输入形状转换
+        # 1. 输入嵌入: (batch_size, window_size, num_features) -> (batch_size, window_size, d_model)
+        src_embedded = self.embedding(src) * np.sqrt(self.d_model) # 乘以 sqrt(d_model) 是一种常见的缩放技巧
 
-        # 经过 Transformer Encoder: (batch_size, window_size, d_model)
-        output = self.transformer_encoder(src)
+        # 2. 添加位置编码: (batch_size, window_size, d_model)
+        src_pos_encoded = self.pos_encoder(src_embedded)
 
-        # 池化: (batch_size, d_model, window_size) -> (batch_size, d_model, 1)
-        # TransformerEncoder 输出是 (batch_size, seq_len, d_model)
-        # PyTorch AdaptiveAvgPool1d 期望输入 (N, C, L)，所以需要转置
-        pooled_output = self.pooling(output.transpose(1, 2)).squeeze(2) # shape (batch_size, d_model)
+        # 3. 通过 Transformer Encoder:
+        # 由于 TransformerEncoderLayer 初始化时 batch_first=True,
+        # 输入形状应为 (batch_size, window_size, d_model)
+        # 输出形状同样为 (batch_size, window_size, d_model)
+        transformer_output = self.transformer_encoder(src_pos_encoded)
 
-        # 经过回归头: (batch_size, 1)
+        # 4. 池化操作:
+        # AdaptiveAvgPool1d 期望输入 (N, C, L_in), 即 (batch_size, d_model, window_size)
+        # 当前 transformer_output 是 (batch_size, window_size, d_model)
+        # 需要转置: .transpose(1, 2)
+        # (batch_size, window_size, d_model) -> (batch_size, d_model, window_size)
+        pooled_output = self.pooling(transformer_output.transpose(1, 2))
+        # (batch_size, d_model, 1) -> (batch_size, d_model)
+        pooled_output = pooled_output.squeeze(2)
+
+        # 5. 通过回归头: (batch_size, d_model) -> (batch_size, 1)
         prediction = self.regressor(pooled_output)
 
         return prediction
@@ -308,7 +392,7 @@ def prepare_data_for_transformer(
     为 Transformer 模型准备平坦化、经过缩放的时间序列数据 (NumPy 数组)。
     此函数负责数据清洗、特征工程（方差过滤、PCA、基于模型的选择）、数据分割和缩放。
     数据分割严格按时间顺序，确保无未来数据泄露。
-    窗口化操作由后续的 TimeSeriesDataset 处理。
+    窗口化操作由后续的 TimeSeriesDataset 类处理。
 
     Args:
         data (pd.DataFrame): 包含所有特征和目标列的原始DataFrame。
@@ -319,7 +403,7 @@ def prepare_data_for_transformer(
         val_split (float): 验证集在总数据中的比例。测试集为剩余部分。
         apply_variance_threshold (bool): 是否应用方差阈值进行特征选择。
         variance_threshold_value (float): 方差阈值的具体值。
-        use_pca (bool): 是否应用PCA进行降维。如果为 True，则忽略基于模型的特征选择。
+        use_pca (bool): 是否应用PCA进行降维。如果为 True，则通常会跳过后续基于模型的特征选择。
         pca_n_components (Union[int, float]): PCA保留的主成分数量或解释方差的比例。
         pca_solver (str): PCA求解器类型，如 'auto', 'full', 'arpack', 'randomized'。
         use_feature_selection (bool): 是否启用基于模型的特征选择 (在PCA之后，如果PCA未启用)。
@@ -327,68 +411,81 @@ def prepare_data_for_transformer(
         fs_model_n_estimators (int): 特征选择模型 (如RandomForest) 的 `n_estimators` 参数。
         fs_model_max_depth (Optional[int]): 特征选择模型 (如RandomForest) 的 `max_depth` 参数。
         fs_max_features (Optional[int]): 基于模型选择时，要保留的最大特征数量。若为 None，则使用阈值选择。
-        fs_selection_threshold (Union[str, float]): 特征重要性阈值 (如 'median', 'mean', 或一个浮点数).
+        fs_selection_threshold (Union[str, float]): 特征重要性阈值 (如 'median', 'mean', 或一个浮点数)。
                                                     仅在 `fs_max_features` 为 None 时生效。
         target_scaler_type (str): 目标变量缩放器类型 ('minmax' 或 'standard')。
 
     Returns:
         Tuple:
-            - features_scaled_train (np.ndarray): 缩放后的训练集特征 (NumPy)。
-            - targets_scaled_train (np.ndarray): 缩放后的训练集目标 (NumPy)。
-            - features_scaled_val (np.ndarray): 缩放后的验证集特征 (NumPy)。
-            - targets_scaled_val (np.ndarray): 缩放后的验证集目标 (NumPy)。
-            - features_scaled_test (np.ndarray): 缩放后的测试集特征 (NumPy)。
-            - targets_scaled_test (np.ndarray): 缩放后的测试集目标 (NumPy)。
+            - features_scaled_train (np.ndarray): 缩放后的训练集特征 (NumPy 数组)。
+            - targets_scaled_train (np.ndarray): 缩放后的训练集目标 (NumPy 数组)。
+            - features_scaled_val (np.ndarray): 缩放后的验证集特征 (NumPy 数组)。
+            - targets_scaled_val (np.ndarray): 缩放后的验证集目标 (NumPy 数组)。
+            - features_scaled_test (np.ndarray): 缩放后的测试集特征 (NumPy 数组)。
+            - targets_scaled_test (np.ndarray): 缩放后的测试集目标 (NumPy 数组)。
             - feature_scaler (Union[MinMaxScaler, StandardScaler, None]): 拟合好的特征缩放器。
             - target_scaler (Union[MinMaxScaler, StandardScaler, None]): 拟合好的目标缩放器。
             - final_selected_feature_names (List[str]): 最终被选入模型的特征名列表。
+                                                        如果应用了PCA，这些名称将是 'pca_comp_0', 'pca_comp_1', ...
     """
     logger.info("开始为 Transformer 模型准备平坦化输入数据...")
+    # 记录除大型数据对象外的所有参数
     log_params = {k: v for k, v in locals().items() if k not in ['data', 'required_columns']}
     logger.info(f"数据准备参数: {log_params}")
 
-    # --- 0. 复制数据 ---
+    # --- 0. 复制数据，避免修改原始 DataFrame ---
     data_processed = data.copy()
 
-    # --- 1. 检查目标列 ---
+    # --- 1. 检查目标列是否存在 ---
     if target_column not in data_processed.columns:
         logger.error(f"目标列 '{target_column}' 不存在于输入数据中。可用列: {data_processed.columns.tolist()}")
-        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
+        # 返回空数组和 None 对象，保持返回类型一致性
+        empty_np_array = np.array([], dtype=np.float32)
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
 
     # --- 2. 初始特征列选择 ---
+    # 从 required_columns 中筛选出实际存在于数据中且不是目标列的列名
     initial_feature_names = [col for col in required_columns if col in data_processed.columns and col != target_column]
     if not initial_feature_names:
-         logger.error("根据 required_columns 筛选后，没有可用的特征列。")
-         return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
-    logger.info(f"初始筛选后，特征列数量: {len(initial_feature_names)}。部分列名: {initial_feature_names[:10]}...")
+         logger.error("根据 `required_columns` 筛选后，没有可用的特征列。请检查 `required_columns` 的内容和数据列名。")
+         empty_np_array = np.array([], dtype=np.float32)
+         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+    logger.info(f"初始筛选后，特征列数量: {len(initial_feature_names)}。部分列名 (最多10个): {initial_feature_names[:10]}...")
 
     # --- 3. 处理 NaN 值 ---
+    # 分离特征和目标
     features_df = data_processed[initial_feature_names]
     targets_series = data_processed[target_column]
 
+    # 使用前向填充 (ffill) 和后向填充 (bfill) 处理特征中的 NaN
     features_filled_df = features_df.ffill().bfill()
+    # 检查是否仍有 NaN (例如，如果整列都是 NaN)
     nan_cols_features = features_filled_df.isnull().sum()
     nan_cols_features = nan_cols_features[nan_cols_features > 0]
     if not nan_cols_features.empty:
-        logger.warning(f"特征数据在ffill().bfill()后，以下列仍包含NaN (将被填充为0): {nan_cols_features.index.tolist()}")
-        features_filled_df.fillna(0, inplace=True)
+        logger.warning(f"特征数据在 ffill().bfill() 后，以下列仍包含 NaN (将被填充为0): {nan_cols_features.index.tolist()}")
+        features_filled_df.fillna(0, inplace=True) # 对剩余 NaN 用 0 填充
 
+    # 同样处理目标列中的 NaN
     targets_filled_series = targets_series.ffill().bfill()
     if targets_filled_series.isnull().any():
-        logger.warning(f"目标列 '{target_column}' 在ffill().bfill()后仍包含NaN (将被填充为0)。请检查目标数据质量。")
+        logger.warning(f"目标列 '{target_column}' 在 ffill().bfill() 后仍包含 NaN (将被填充为0)。请检查目标数据质量。")
         targets_filled_series.fillna(0, inplace=True)
 
+    # 转换为 NumPy 数组进行后续处理
     current_features_np = features_filled_df.values
-    current_feature_names = initial_feature_names[:]
+    current_feature_names = initial_feature_names[:] # 创建副本
     targets_np = targets_filled_series.values
 
-    logger.info(f"NaN值处理完成。特征矩阵形状: {current_features_np.shape}, 目标数组形状: {targets_np.shape}")
+    logger.info(f"NaN 值处理完成。特征矩阵形状: {current_features_np.shape}, 目标数组形状: {targets_np.shape}")
 
     # --- 4. (可选) 方差阈值过滤 ---
+    # 移除方差过低的特征，这些特征可能对模型贡献不大
     if apply_variance_threshold:
-        if current_features_np.shape[0] > 1 and current_features_np.shape[1] > 0:
+        if current_features_np.shape[0] > 1 and current_features_np.shape[1] > 0: # 至少需要2个样本才能计算方差
             variances = np.var(current_features_np, axis=0)
-            if np.any(variances > 1e-9):
+            # 仅在存在显著方差时应用，避免对全零或常数特征应用时出错
+            if np.any(variances > 1e-9): # 1e-9 是一个小的阈值，避免浮点数精度问题
                 try:
                     selector_var = VarianceThreshold(threshold=variance_threshold_value)
                     features_after_var = selector_var.fit_transform(current_features_np)
@@ -406,99 +503,122 @@ def prepare_data_for_transformer(
                         logger.info("方差阈值过滤未移除任何特征。")
                 except Exception as e_var:
                      logger.error(f"应用方差阈值时出错: {e_var}", exc_info=True)
-                     logger.warning("方差阈值选择失败，将使用之前的特征。")
+                     logger.warning("方差阈值选择失败，将使用之前的特征集。")
             else:
-                 logger.warning("所有特征方差接近零，跳过方差阈值选择。")
+                 logger.warning("所有特征方差接近零或为零，跳过方差阈值选择。")
         else:
-             logger.warning("特征数据不足 (样本或特征数为0/1)，跳过方差阈值选择。")
+             logger.warning("特征数据不足 (样本数 <= 1 或特征数为 0)，跳过方差阈值选择。")
 
+    # 如果经过处理后没有特征了，则无法继续
     if current_features_np.shape[1] == 0:
-         logger.error("经过初始处理和方差过滤后，特征数量为零。无法继续。")
-         return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
+         logger.error("经过初始处理和方差过滤后，特征数量为零。无法继续进行数据准备。")
+         empty_np_array = np.array([], dtype=np.float32)
+         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
 
     # --- 5. 按时间顺序分割数据集 ---
+    # 确保数据分割的正确性对于时间序列至关重要，以防数据泄露
     n_samples_total = current_features_np.shape[0]
     if n_samples_total == 0:
         logger.error("数据为空，无法进行分割。")
-        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
+        empty_np_array = np.array([], dtype=np.float32)
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
 
+    # 校验分割比例
     if not (0 < train_split < 1 and 0 <= val_split < 1 and train_split + val_split <= 1):
-        logger.error(f"无效的数据集分割比例: train_split={train_split}, val_split={val_split}。比例应在(0,1)或[0,1)范围内，且总和<=1。")
-        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
+        logger.error(f"无效的数据集分割比例: train_split={train_split}, val_split={val_split}。"
+                     f"比例应在 (0,1) (训练集) 或 [0,1) (验证集) 范围内，且总和 <= 1。")
+        empty_np_array = np.array([], dtype=np.float32)
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
 
     n_train = int(n_samples_total * train_split)
     n_val = int(n_samples_total * val_split)
     # n_test = n_samples_total - n_train - n_val # 测试集是剩余部分
 
     if n_train == 0:
-        logger.error(f"计算得到的训练集样本数为零 (总样本数: {n_samples_total}, 训练比例: {train_split})。请增加数据量或调整比例。")
-        return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
+        logger.error(f"计算得到的训练集样本数为零 (总样本数: {n_samples_total}, 训练比例: {train_split})。"
+                     f"请增加数据量或调整训练集比例。")
+        empty_np_array = np.array([], dtype=np.float32)
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
 
+    # 分割特征
     features_train_raw = current_features_np[:n_train]
     features_val_raw = current_features_np[n_train : n_train + n_val]
     features_test_raw = current_features_np[n_train + n_val:]
+    # 分割目标
     targets_train_raw = targets_np[:n_train]
     targets_val_raw = targets_np[n_train : n_train + n_val]
     targets_test_raw = targets_np[n_train + n_val:]
 
     logger.info(f"数据按时间顺序分割完成: "
-                f"训练集 {features_train_raw.shape[0]}条, "
-                f"验证集 {features_val_raw.shape[0]}条, "
-                f"测试集 {features_test_raw.shape[0]}条。")
+                f"训练集 {features_train_raw.shape[0]}条 (特征形状: {features_train_raw.shape}), "
+                f"验证集 {features_val_raw.shape[0]}条 (特征形状: {features_val_raw.shape}), "
+                f"测试集 {features_test_raw.shape[0]}条 (特征形状: {features_test_raw.shape})。")
 
+    # 初始化用于后续特征工程的变量
     features_eng_train = features_train_raw
     features_eng_val = features_val_raw
     features_eng_test = features_test_raw
-    feature_names_after_eng = current_feature_names[:]
+    feature_names_after_eng = current_feature_names[:] # 创建副本
 
     # --- 6. (可选) PCA 降维 ---
+    # PCA 应在数据分割后，且仅在训练集上拟合，然后应用到验证集和测试集
     pca_applied = False
+    pca_model = None # 用于可能需要保存或后续使用的PCA模型
     if use_pca:
-        if features_eng_train.shape[1] <= 1:
-            logger.warning(f"训练集特征维度 ({features_eng_train.shape[1]}) 过低，跳过PCA。")
-        elif features_eng_train.shape[0] < features_eng_train.shape[1] and isinstance(pca_n_components, float):
-             logger.warning(f"训练集样本数 ({features_eng_train.shape[0]}) 小于特征数 ({features_eng_train.shape[1]})，PCA解释方差比例可能不可靠。建议使用固定数量的主成分或增加样本。")
+        if features_eng_train.shape[1] <= 1: # PCA 对单特征无意义
+            logger.warning(f"训练集特征维度 ({features_eng_train.shape[1]}) 过低 (<=1)，跳过PCA。")
+        elif features_eng_train.shape[0] < features_eng_train.shape[1] and isinstance(pca_n_components, float) and pca_n_components >= 1.0:
+             logger.warning(f"训练集样本数 ({features_eng_train.shape[0]}) 小于特征数 ({features_eng_train.shape[1]})，"
+                            f"PCA解释方差比例 ({pca_n_components}) 可能不可靠或导致保留过多成分。"
+                            f"建议使用固定数量的主成分或增加样本。")
         else:
             logger.info(f"启用 PCA 降维 (n_components={pca_n_components}, solver='{pca_solver}')。在训练集上拟合...")
+            # PCA 对数据尺度敏感，通常在 PCA 前进行标准化
             scaler_for_pca = StandardScaler()
             try:
                 features_train_scaled_for_pca = scaler_for_pca.fit_transform(features_eng_train)
 
-                pca = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=42)
-                pca.fit(features_train_scaled_for_pca)
-                num_components_retained = pca.n_components_
-                explained_variance_ratio = sum(pca.explained_variance_ratio_)
-                logger.info(f"PCA 拟合完成。保留主成分数: {num_components_retained}, 累计解释方差比: {explained_variance_ratio:.4f}")
+                pca_model = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=42)
+                pca_model.fit(features_train_scaled_for_pca)
+                num_components_retained = pca_model.n_components_
+                explained_variance_ratio = sum(pca_model.explained_variance_ratio_)
+                logger.info(f"PCA 拟合完成。保留主成分数: {num_components_retained}, "
+                            f"累计解释方差比: {explained_variance_ratio:.4f}")
 
                 if num_components_retained == 0:
                     logger.error("PCA 降维后特征维度为零。PCA失败，将使用原始特征。")
                 else:
-                    features_eng_train = pca.transform(features_train_scaled_for_pca)
-                    if features_eng_val.shape[0] > 0:
-                        features_eng_val = pca.transform(scaler_for_pca.transform(features_eng_val))
-                    if features_eng_test.shape[0] > 0:
-                        features_eng_test = pca.transform(scaler_for_pca.transform(features_eng_test))
+                    # 应用 PCA 转换
+                    features_eng_train = pca_model.transform(features_train_scaled_for_pca)
+                    if features_eng_val.shape[0] > 0: # 确保验证集非空
+                        features_eng_val = pca_model.transform(scaler_for_pca.transform(features_eng_val))
+                    if features_eng_test.shape[0] > 0: # 确保测试集非空
+                        features_eng_test = pca_model.transform(scaler_for_pca.transform(features_eng_test))
 
+                    # 更新特征名 (PCA后的特征是原始特征的线性组合，不再具有原名)
                     feature_names_after_eng = [f"pca_comp_{i}" for i in range(num_components_retained)]
                     logger.info(f"PCA 转换完成。处理后特征维度: {num_components_retained}")
                     logger.debug(f"PCA转换后特征名 (部分): {feature_names_after_eng[:10]}...")
                     pca_applied = True
             except Exception as e_pca:
                 logger.error(f"应用 PCA 时出错: {e_pca}", exc_info=True)
-                logger.warning("PCA 降维失败，将使用之前的特征。")
+                logger.warning("PCA 降维失败，将使用之前的特征集。")
+                pca_model = None # 重置
 
-    # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用时) ---
-    if use_feature_selection and not pca_applied:
-        if features_eng_train.shape[1] <= 1:
-            logger.warning(f"训练集特征维度 ({features_eng_train.shape[1]}) 过低，跳过基于模型的特征选择。")
-        elif features_eng_train.shape[0] <= 1:
-             logger.warning(f"训练集样本数 ({features_eng_train.shape[0]}) 过低，无法进行基于模型的特征选择。")
+    # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用或PCA后仍希望进一步选择时) ---
+    # 通常 PCA 和基于模型的特征选择是互斥的，或按特定顺序进行。这里假设 PCA 优先。
+    feature_selector_model = None # 用于可能保存或后续使用的选择器模型
+    if use_feature_selection and not pca_applied: # 如果PCA已应用，通常跳过此步骤
+        if features_eng_train.shape[1] <= 1: # 对单特征或无特征无意义
+            logger.warning(f"训练集特征维度 ({features_eng_train.shape[1]}) 过低 (<=1)，跳过基于模型的特征选择。")
+        elif features_eng_train.shape[0] <= 1: # 样本过少无法训练选择器
+             logger.warning(f"训练集样本数 ({features_eng_train.shape[0]}) 过低 (<=1)，无法进行基于模型的特征选择。")
         else:
             logger.info(f"启用基于模型 '{feature_selector_model_type}' 的特征选择。在训练集上拟合...")
             logger.info(f"特征选择模型参数: n_estimators={fs_model_n_estimators}, max_depth={fs_model_max_depth}, "
-                        f"选择方式: max_features={fs_max_features} 或 threshold='{fs_selection_threshold}'")
+                        f"选择方式: max_features={fs_max_features if fs_max_features is not None else 'N/A'} 或 threshold='{fs_selection_threshold if fs_max_features is None else 'N/A'}'")
 
-            selector_model_instance = None
+            selector_model_instance = None # 实际用于 SelectFromModel 的模型实例
             model_type_lower = feature_selector_model_type.lower()
 
             if model_type_lower == 'rf':
@@ -506,65 +626,66 @@ def prepare_data_for_transformer(
                     n_estimators=fs_model_n_estimators,
                     max_depth=fs_model_max_depth,
                     random_state=42,
-                    n_jobs=-1
+                    n_jobs=-1 # 使用所有可用核心
                 )
             elif model_type_lower == 'xgb':
                 if not XGB_AVAILABLE:
                     logger.warning("XGBoost 未安装，无法使用 XGBoost 进行特征选择。将回退到 RandomForest。")
                     selector_model_instance = RandomForestRegressor(
-                        n_estimators=fs_model_n_estimators,
-                        max_depth=fs_model_max_depth,
-                        random_state=42,
-                        n_jobs=-1
+                        n_estimators=fs_model_n_estimators, max_depth=fs_model_max_depth,
+                        random_state=42, n_jobs=-1
                     )
                 else:
                     selector_model_instance = xgb.XGBRegressor(
-                        objective='reg:squarederror',
+                        objective='reg:squarederror', # 回归任务常用目标
                         n_estimators=fs_model_n_estimators,
                         max_depth=fs_model_max_depth,
                         random_state=42,
                         n_jobs=-1,
+                        # verbosity=0 # XGBoost 1.6+ use verbosity, older versions might use silent
                     )
             else:
-                logger.warning(f"不支持的特征选择模型: {feature_selector_model_type}。将使用 RandomForest。")
+                logger.warning(f"不支持的特征选择模型类型: {feature_selector_model_type}。将使用 RandomForest。")
                 selector_model_instance = RandomForestRegressor(
-                    n_estimators=fs_model_n_estimators,
-                    max_depth=fs_model_max_depth,
-                    random_state=42,
-                    n_jobs=-1
+                    n_estimators=fs_model_n_estimators, max_depth=fs_model_max_depth,
+                    random_state=42, n_jobs=-1
                 )
 
             try:
+                # SelectFromModel 用于根据特征重要性选择特征
                 if fs_max_features is not None and fs_max_features > 0:
+                    # 确保选择的特征数不超过可用特征数
                     actual_max_fs = min(fs_max_features, features_eng_train.shape[1])
-                    selector_fs = SelectFromModel(
+                    feature_selector_model = SelectFromModel(
                         selector_model_instance,
                         max_features=actual_max_fs,
-                        threshold=-np.inf
+                        threshold=-np.inf # 当 max_features 生效时，threshold 应设为-inf
                     )
                     logger.info(f"特征选择方式: 最多选择 {actual_max_fs} 个特征。")
                 else:
-                    selector_fs = SelectFromModel(
+                    feature_selector_model = SelectFromModel(
                         selector_model_instance,
-                        threshold=fs_selection_threshold
+                        threshold=fs_selection_threshold # 例如 'median', '0.1*mean', 或一个浮点数
                     )
                     logger.info(f"特征选择方式: 使用阈值 '{fs_selection_threshold}'。")
 
-                selector_fs.fit(features_eng_train, targets_train_raw)
-
-                selected_indices_fs = selector_fs.get_support(indices=True)
+                # 在训练数据上拟合选择器模型
+                feature_selector_model.fit(features_eng_train, targets_train_raw)
+                selected_indices_fs = feature_selector_model.get_support(indices=True)
                 num_selected_fs = len(selected_indices_fs)
 
                 if num_selected_fs == 0:
-                    logger.error("基于模型选择后没有剩余特征。特征选择失败，将使用之前的特征。")
+                    logger.error("基于模型选择后没有剩余特征。特征选择失败，将使用之前的特征集。")
                 elif num_selected_fs < features_eng_train.shape[1]:
                     num_removed_fs = features_eng_train.shape[1] - num_selected_fs
-                    features_eng_train = selector_fs.transform(features_eng_train)
+                    # 应用转换
+                    features_eng_train = feature_selector_model.transform(features_eng_train)
                     if features_eng_val.shape[0] > 0:
-                        features_eng_val = selector_fs.transform(features_eng_val)
+                        features_eng_val = feature_selector_model.transform(features_eng_val)
                     if features_eng_test.shape[0] > 0:
-                        features_eng_test = selector_fs.transform(features_eng_test)
+                        features_eng_test = feature_selector_model.transform(features_eng_test)
 
+                    # 更新特征名列表
                     feature_names_after_eng = [feature_names_after_eng[i] for i in selected_indices_fs]
                     logger.info(f"基于模型选择完成，移除了 {num_removed_fs} 个特征。剩余特征数: {num_selected_fs}")
                     logger.debug(f"模型选择后特征名 (部分): {feature_names_after_eng[:10]}...")
@@ -573,68 +694,79 @@ def prepare_data_for_transformer(
 
             except Exception as e_fs:
                 logger.error(f"应用基于模型的特征选择时出错: {e_fs}", exc_info=True)
-                logger.warning("特征选择失败，将使用之前的特征。")
+                logger.warning("特征选择失败，将使用之前的特征集。")
+                feature_selector_model = None # 重置
     elif pca_applied:
         logger.info("PCA已应用，跳过基于模型的特征选择。")
-    else:
+    else: # neither use_feature_selection nor pca_applied
         logger.info("未启用基于模型的特征选择。")
 
+    # 最终用于缩放的特征集
     final_features_train = features_eng_train
     final_features_val = features_eng_val
     final_features_test = features_eng_test
-    final_selected_feature_names = feature_names_after_eng[:]
+    final_selected_feature_names = feature_names_after_eng[:] # 创建副本
 
     if final_features_train.shape[1] == 0:
          logger.error("经过所有特征工程步骤后，训练集特征维度为零。无法继续。")
-         return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), None, None, []
+         empty_np_array = np.array([], dtype=np.float32)
+         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
     logger.info(f"所有特征工程处理完成。最终用于缩放的特征维度: {final_features_train.shape[1]}")
+    logger.debug(f"最终选定特征名 (部分): {final_selected_feature_names[:10]}...")
 
-    # --- 8. 特征缩放 (在处理后的训练集特征上拟合) ---
+
+    # --- 8. 特征缩放 (Feature Scaling) ---
+    # 缩放器应在处理后的训练集特征上拟合，然后应用到所有数据集
     feature_scaler: Union[MinMaxScaler, StandardScaler, None] = None
     if scaler_type.lower() == 'minmax':
         feature_scaler = MinMaxScaler()
     elif scaler_type.lower() == 'standard':
         feature_scaler = StandardScaler()
     else:
-        logger.warning(f"不支持的特征缩放器类型: {scaler_type}。将使用 MinMaxScaler。")
+        logger.warning(f"不支持的特征缩放器类型: '{scaler_type}'。将默认使用 MinMaxScaler。")
         feature_scaler = MinMaxScaler()
 
-    features_scaled_train = np.array([])
-    features_scaled_val = np.array([])
-    features_scaled_test = np.array([])
+    features_scaled_train = np.array([], dtype=np.float32)
+    features_scaled_val = np.array([], dtype=np.float32)
+    features_scaled_test = np.array([], dtype=np.float32)
 
+    # 仅当训练集有数据且有特征时才进行拟合和转换
     if final_features_train.shape[0] > 0 and final_features_train.shape[1] > 0:
         feature_scaler.fit(final_features_train)
         features_scaled_train = feature_scaler.transform(final_features_train)
-        if final_features_val.shape[0] > 0:
+        if final_features_val.shape[0] > 0: # 确保验证集非空
             features_scaled_val = feature_scaler.transform(final_features_val)
-        if final_features_test.shape[0] > 0:
+        if final_features_test.shape[0] > 0: # 确保测试集非空
             features_scaled_test = feature_scaler.transform(final_features_test)
         logger.info(f"特征缩放完成 (使用 {scaler_type} scaler)。")
     else:
         logger.warning("处理后的训练集特征为空或无特征维度，跳过特征缩放。特征缩放器未拟合。")
-        feature_scaler = None
-        features_scaled_train = final_features_train
-        features_scaled_val = final_features_val
-        features_scaled_test = final_features_test
+        feature_scaler = None # 明确设为 None
+        # 保持数组为空或原始状态（如果它们已经是空的）
+        features_scaled_train = final_features_train.astype(np.float32) if final_features_train.size > 0 else features_scaled_train
+        features_scaled_val = final_features_val.astype(np.float32) if final_features_val.size > 0 else features_scaled_val
+        features_scaled_test = final_features_test.astype(np.float32) if final_features_test.size > 0 else features_scaled_test
 
-    # --- 9. 目标变量缩放 (在原始训练集目标上拟合) ---
+
+    # --- 9. 目标变量缩放 (Target Scaling) ---
+    # 目标变量缩放器在原始训练集目标上拟合
     target_scaler: Union[MinMaxScaler, StandardScaler, None] = None
     if target_scaler_type.lower() == 'minmax':
         target_scaler = MinMaxScaler()
     elif target_scaler_type.lower() == 'standard':
         target_scaler = StandardScaler()
     else:
-        logger.warning(f"不支持的目标变量缩放器类型: {target_scaler_type}。将使用 MinMaxScaler。")
+        logger.warning(f"不支持的目标变量缩放器类型: '{target_scaler_type}'。将默认使用 MinMaxScaler。")
         target_scaler = MinMaxScaler()
 
-    targets_scaled_train = np.array([])
-    targets_scaled_val = np.array([])
-    targets_scaled_test = np.array([])
+    targets_scaled_train = np.array([], dtype=np.float32)
+    targets_scaled_val = np.array([], dtype=np.float32)
+    targets_scaled_test = np.array([], dtype=np.float32)
 
     if targets_train_raw.shape[0] > 0:
+        # reshape(-1, 1) 是因为 scaler 期望二维输入
         target_scaler.fit(targets_train_raw.reshape(-1, 1))
-        targets_scaled_train = target_scaler.transform(targets_train_raw.reshape(-1, 1)).flatten()
+        targets_scaled_train = target_scaler.transform(targets_train_raw.reshape(-1, 1)).flatten() # flatten() 转回一维
         if targets_val_raw.shape[0] > 0:
             targets_scaled_val = target_scaler.transform(targets_val_raw.reshape(-1, 1)).flatten()
         if targets_test_raw.shape[0] > 0:
@@ -642,11 +774,14 @@ def prepare_data_for_transformer(
         logger.info(f"目标变量缩放完成 (使用 {target_scaler_type} scaler)。")
     else:
         logger.warning("训练集目标数据为空，跳过目标变量缩放。目标缩放器未拟合。")
-        target_scaler = None
-        targets_scaled_train = targets_train_raw
+        target_scaler = None # 明确设为 None
+        targets_scaled_train = targets_train_raw.astype(np.float32) if targets_train_raw.size > 0 else targets_scaled_train
+
 
     logger.info("Transformer 数据准备流程结束。")
-    # 返回 NumPy 数组和 scaler 对象
+    # 返回 NumPy 数组 (确保 float32 类型以匹配 PyTorch 默认) 和 scaler 对象
+    # 注意：如果 PCA 或特征选择器被使用，它们也应该被返回，以便在预测新数据时能够复现相同的转换。
+    # 当前函数签名未包含这些，调用者需要自行管理这些转换器。
     return (
         features_scaled_train.astype(np.float32), targets_scaled_train.astype(np.float32),
         features_scaled_val.astype(np.float32), targets_scaled_val.astype(np.float32),
@@ -662,36 +797,40 @@ def build_transformer_model(
     num_features: int,
     model_config: Dict[str, Any],
     summary: bool = True,
-    window_size: int = 60 # 需要窗口大小来初始化位置编码
+    window_size: int = 60
 ) -> TransformerModel:
     """
-    构建 TransformerEncoder 模型。
+    构建并初始化一个 TransformerEncoder 模型。
 
     Args:
-        num_features (int): 输入特征的维度。
-        model_config (Dict[str, Any]): 包含模型配置参数的字典。
-            - 'd_model': Transformer模型的特征维度。
-            - 'nhead': 多头注意力机制的头数。
-            - 'dim_feedforward': 前馈网络的维度。
-            - 'nlayers': TransformerEncoder层的数量。
-            - 'dropout': Dropout率。
-            - 'activation': 激活函数 ('relu' 或 'gelu')。
-            - 'learning_rate': 优化器学习率 (这里不用于构建模型，但可供参考)。
-            - 'weight_decay': 优化器权重衰减 (L2 正则化)。
-        summary (bool): 是否打印模型结构 (简略)。
-        window_size (int): 输入序列长度（窗口大小），用于位置编码。
+        num_features (int): 输入特征的维度 (经过特征工程后，送入模型的特征数量)。
+        model_config (Dict[str, Any]): 包含模型超参数的字典。
+            - 'd_model' (int): Transformer模型的内部特征维度。
+            - 'nhead' (int): 多头注意力机制的头数。
+            - 'dim_feedforward' (int): 前馈网络的隐藏层维度。
+            - 'nlayers' (int): TransformerEncoder层的数量。
+            - 'dropout' (float): Dropout比率。
+            - 'activation' (str): 激活函数 ('relu' 或 'gelu')。
+            - (其他参数如 'learning_rate', 'weight_decay' 主要用于训练配置，此处不直接使用)
+        summary (bool): 是否打印模型结构摘要。
+        window_size (int): 输入序列的长度（窗口大小），用于位置编码的 `max_len`。
 
     Returns:
-        TransformerModel: 构建好的 PyTorch Transformer 模型。
+        TransformerModel: 构建好的 PyTorch Transformer 模型实例。
+
+    Raises:
+        ValueError: 如果 `num_features` 或 `window_size` 小于等于0，
+                    或者 `d_model` 不是 `nhead` 的整数倍。
     """
     logger.info("开始构建 Transformer 模型...")
     logger.info(f"模型配置: num_features={num_features}, window_size={window_size}, config={model_config}")
 
     if num_features <= 0:
-        raise ValueError(f"特征数量必须大于0，当前为: {num_features}")
+        raise ValueError(f"输入特征数量 (num_features) 必须大于0，当前为: {num_features}")
     if window_size <= 0:
-        raise ValueError(f"窗口大小必须大于0，当前为: {window_size}")
+        raise ValueError(f"窗口大小 (window_size) 必须大于0，当前为: {window_size}")
 
+    # 从配置字典中获取模型参数，提供默认值
     d_model = model_config.get('d_model', 128)
     nhead = model_config.get('nhead', 8)
     dim_feedforward = model_config.get('dim_feedforward', 512)
@@ -699,10 +838,9 @@ def build_transformer_model(
     dropout = model_config.get('dropout', 0.2)
     activation = model_config.get('activation', 'relu')
 
-    # 检查 d_model 必须是 nhead 的整数倍
+    # Transformer 的一个重要约束：d_model 必须是 nhead 的整数倍
     if d_model % nhead != 0:
         raise ValueError(f"模型的特征维度 d_model ({d_model}) 必须是注意力头数 nhead ({nhead}) 的整数倍。")
-
 
     model = TransformerModel(
         num_features=num_features,
@@ -712,15 +850,14 @@ def build_transformer_model(
         nlayers=nlayers,
         dropout=dropout,
         activation=activation,
-        window_size=window_size # 传递窗口大小
+        window_size=window_size # 传递窗口大小给模型，主要用于 PositionalEncoding
     )
 
-    # 可以选择打印模型结构，但对于复杂的 PyTorch 模型，summary() 方法不像 Keras 那么标准化和详细
-    # 可以手动打印层信息
     if summary:
         logger.info("Transformer 模型结构:")
-        logger.info(model) # 直接打印模型对象会显示模块结构
-        # logger.info(f"总参数数量: {sum(p.numel() for p in model.parameters())}") # 统计参数数量
+        logger.info(str(model)) # 打印模型对象会显示其模块结构
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"模型可训练参数总量: {total_params:,}")
 
     logger.info("Transformer 模型构建完成。")
     return model
@@ -732,358 +869,384 @@ def train_transformer_model(
     model: TransformerModel,
     train_loader: DataLoader,
     val_loader: Optional[DataLoader],
-    target_scaler: Union[MinMaxScaler, StandardScaler], # 用于反标准化以评估真实MAE
+    target_scaler: Union[MinMaxScaler, StandardScaler],
     training_config: Dict[str, Any],
     checkpoint_dir: str,
     stock_code: Optional[str] = "STOCK",
     plot_training_history: bool = False
 ) -> Tuple[TransformerModel, pd.DataFrame]:
     """
-    训练 Transformer 模型。
+    训练 Transformer 模型，并支持早停、学习率调度、TensorBoard记录和模型检查点。
 
     Args:
-        model (TransformerModel): 已构建好的 PyTorch Transformer 模型。
+        model (TransformerModel): 已构建的 PyTorch Transformer 模型。
         train_loader (DataLoader): 训练数据加载器。
         val_loader (Optional[DataLoader]): 验证数据加载器 (可选)。
-        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的缩放器，以便在评估时计算反标准化的MAE。
-        training_config (Dict[str, Any]): 包含训练参数的字典。
-            - 'epochs': 训练轮数。
-            - 'learning_rate': 学习率。
-            - 'weight_decay': 权重衰减 (L2 正则化)。
-            - 'optimizer': 优化器名称 (如 'adam', 'adamw', 'rmsprop', 'sgd')。
-            - 'loss': 损失函数名称 (如 'mse', 'mae', 'huber')。
-            - 'early_stopping_patience': 早停的耐心轮数。
-            - 'reduce_lr_patience': 降低学习率的耐心轮数。
-            - 'reduce_lr_factor': 学习率降低因子。
-            - 'monitor_metric': 早停和降低学习率监控的指标 (如 'val_loss', 'val_mae')。
-            - 'tensorboard_log_dir': TensorBoard 日志的基础目录 (可选)。
-            - 'verbose': 训练过程的打印详细程度 (0: 无输出, 1: 每轮输出, 2: 每批输出)。
-            - 'clip_grad_norm': 梯度裁剪的范数最大值 (可选)。
-        checkpoint_dir (str): 用于保存最佳模型检查点和TensorBoard日志的目录。
-        stock_code (Optional[str]): 股票代码，用于 TensorBoard 日志命名和模型文件名。
-        plot_training_history (bool): 是否绘制训练历史曲线。
+        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的已拟合缩放器，
+                                                             以便在评估时计算反标准化后的真实评估指标 (如 MAE)。
+        training_config (Dict[str, Any]): 包含训练超参数的字典。
+            - 'epochs' (int): 最大训练轮数。
+            - 'learning_rate' (float): 初始学习率。
+            - 'weight_decay' (float): 权重衰减 (L2 正则化系数)。
+            - 'optimizer' (str): 优化器名称 (如 'adam', 'adamw', 'rmsprop', 'sgd')。
+            - 'loss' (str): 损失函数名称 (如 'mse', 'mae', 'huber')。
+            - 'huber_delta' (float, optional): HuberLoss 的 delta 参数，默认为 1.0。
+            - 'early_stopping_patience' (int): 早停的耐心轮数 (连续多少轮验证指标未改善则停止)。
+            - 'reduce_lr_patience' (int): 降低学习率的耐心轮数。
+            - 'reduce_lr_factor' (float): 学习率降低因子。
+            - 'monitor_metric' (str): 早停和学习率调度监控的指标 (如 'val_loss', 'val_mae')。
+            - 'tensorboard_log_dir' (str, optional): TensorBoard 日志的基础目录。
+            - 'verbose' (int): 训练过程的打印详细程度 (0: 无输出, 1: 每轮输出, 2: 每批输出 - 不推荐)。
+            - 'clip_grad_norm' (float, optional): 梯度裁剪的范数最大值 (若为 None 则不裁剪)。
+        checkpoint_dir (str): 用于保存最佳模型检查点和 TensorBoard 日志的目录。
+        stock_code (Optional[str]): 股票代码或标识符，用于 TensorBoard 日志命名和模型文件名。
+        plot_training_history (bool): 是否在训练结束后绘制并保存训练历史曲线图。
 
     Returns:
         Tuple[TransformerModel, pd.DataFrame]:
-            - model (TransformerModel): 训练完成（或加载的最佳）模型。
-            - history_df (pd.DataFrame): 包含训练历史的DataFrame。
+            - model (TransformerModel): 训练完成（或从最佳检查点加载）的模型。
+            - history_df (pd.DataFrame): 包含每轮训练和验证指标的 DataFrame。
     """
-    logger.info("开始训练 Transformer 模型...")
+    logger.info(f"开始训练 Transformer 模型 (股票/标识: {stock_code})...")
     logger.info(f"训练配置: {training_config}")
 
-    # --- 设备设置 ---
+    # --- 1. 设备设置 (GPU 或 CPU) ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"使用设备: {device}")
-    model.to(device)
+    model.to(device) # 将模型移动到指定设备
 
-    # --- 优化器设置 ---
+    # --- 2. 优化器设置 ---
     optimizer_name = training_config.get('optimizer', 'adam').lower()
     learning_rate = training_config.get('learning_rate', 0.001)
-    weight_decay = training_config.get('weight_decay', 0.0) # PyTorch AdamW 内置 weight_decay
-    momentum = training_config.get('momentum', 0.0) # 用于 SGD, RMSprop
+    weight_decay = training_config.get('weight_decay', 0.0)
+    momentum = training_config.get('momentum', 0.0) # 主要用于 SGD, RMSprop
 
     optimizer: optim.Optimizer
     if optimizer_name == 'adam':
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay) # weight_decay is L2
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     elif optimizer_name == 'adamw':
-         # AdamW 有一个不同的 weight decay 实现
-         # 如果 model_config 也定义了 weight_decay，优先使用 training_config 的
-         effective_weight_decay = training_config.get('weight_decay', model.regressor[0].weight.decay) # Example: Check regressor layer for decay
-         optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=effective_weight_decay)
+        # AdamW 实现了与 L2 正则化解耦的权重衰减，通常效果更好
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     elif optimizer_name == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
     elif optimizer_name == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
     else:
-        logger.warning(f"未知的优化器名称: {optimizer_name}。将使用 Adam (lr={learning_rate}, weight_decay={weight_decay})。")
+        logger.warning(f"未知的优化器名称: '{optimizer_name}'。将默认使用 Adam (lr={learning_rate}, weight_decay={weight_decay})。")
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    logger.info(f"优化器: {optimizer_name}, 学习率: {learning_rate}, 权重衰减: {weight_decay}")
 
-    # --- 损失函数设置 ---
+    # --- 3. 损失函数设置 ---
     loss_name = training_config.get('loss', 'mse').lower()
-    criterion: nn.Module # PyTorch 损失函数是 nn.Module
+    criterion: nn.Module
     if loss_name == 'mse':
         criterion = nn.MSELoss()
     elif loss_name == 'mae':
-        criterion = nn.L1Loss() # L1Loss 就是 MAE
+        criterion = nn.L1Loss() # L1Loss 即 Mean Absolute Error
     elif loss_name == 'huber':
-         # HuberLoss 结合 MSE 和 MAE，对异常值不敏感
-         # delta 参数需要根据目标值范围调整，例如，如果目标范围 0-100，delta 可以设为 10
-         huber_delta = training_config.get('huber_delta', 1.0) # Default delta is 1.0
-         # 如果目标变量范围差异大，可能需要根据 target_scaler 的信息调整 delta
-         # 或者在训练前对目标进行标准化，再使用一个固定的 delta
-         # 考虑到我们已经缩放了目标变量到 0-1 或其他范围，delta=1.0 通常是合理的起点
-         criterion = nn.HuberLoss(delta=huber_delta)
-         logger.info(f"使用 HuberLoss (delta={huber_delta:.2f})")
+        huber_delta = training_config.get('huber_delta', 1.0)
+        criterion = nn.HuberLoss(delta=huber_delta)
+        logger.info(f"使用 HuberLoss (delta={huber_delta:.2f})")
     else:
-        logger.warning(f"未知的损失函数名称: {loss_name}。将使用 MSELoss。")
+        logger.warning(f"未知的损失函数名称: '{loss_name}'。将默认使用 MSELoss。")
         criterion = nn.MSELoss()
+    logger.info(f"损失函数: {loss_name}")
 
-    # --- 评估指标设置 ---
-    # 除了 loss，我们通常还需要 MAE 作为评估指标
-    # PyTorch 没有内置的 metric 列表，需要手动计算
-    # 这里我们只关注 MAE
-    mae_metric = nn.L1Loss() # 用于计算反标准化前的 MAE
-    true_mae_metric = nn.L1Loss() # 用于计算反标准化后的真实 MAE
+    # --- 4. 评估指标 ---
+    # MAE (L1Loss) 通常作为回归任务的一个重要评估指标
+    mae_eval_metric = nn.L1Loss() # 用于计算缩放后数据的 MAE
 
-    # --- 回调函数/训练过程控制 ---
+    # --- 5. 训练过程控制参数 ---
     epochs = training_config.get('epochs', 100)
     early_stopping_patience = training_config.get('early_stopping_patience', 30)
     reduce_lr_patience = training_config.get('reduce_lr_patience', 10)
     reduce_lr_factor = training_config.get('reduce_lr_factor', 0.5)
-    # monitor_metric: 'val_loss' 或 'val_mae'
-    monitor_metric = training_config.get('monitor_metric', 'val_loss')
+    monitor_metric = training_config.get('monitor_metric', 'val_loss').lower() # 监控指标，如 'val_loss' 或 'val_mae'
     verbose_level = training_config.get('verbose', 1)
-    clip_grad_norm_value = training_config.get('clip_grad_norm', None) # 梯度裁剪
+    clip_grad_norm_value = training_config.get('clip_grad_norm', None)
 
-    # 学习率调度器 (监控验证集指标)
+    # --- 6. 学习率调度器 (ReduceLROnPlateau) ---
     scheduler = None
-    if val_loader is not None and len(val_loader) > 0:
-         # PyTorch ReduceLROnPlateau 根据监控指标调整学习率
-         # mode='min' for loss/mae, 'max' for accuracy/R2
-         scheduler_mode = 'min' if 'loss' in monitor_metric.lower() or 'mae' in monitor_metric.lower() else 'max'
+    scheduler_mode = 'min' # 默认监控损失或MAE，越小越好
+    if 'acc' in monitor_metric or 'r2' in monitor_metric: # 如果监控准确率等，越大越好
+        scheduler_mode = 'max'
+
+    if val_loader is not None and len(val_loader) > 0 and reduce_lr_patience > 0:
          scheduler = ReduceLROnPlateau(
              optimizer,
              mode=scheduler_mode,
              factor=reduce_lr_factor,
              patience=reduce_lr_patience,
-             verbose=True, # PyTorch scheduler has its own verbose
-             min_lr=1e-7
+             verbose=True, # ReduceLROnPlateau 自带打印信息
+             min_lr=1e-7 # 学习率下限
          )
-         logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', factor={reduce_lr_factor}, patience={reduce_lr_patience}")
-    elif reduce_lr_patience > 0:
-         logger.warning("验证集为空或未提供，ReduceLROnPlateau 将被禁用。")
-         scheduler = None
+         logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', "
+                     f"factor={reduce_lr_factor}, patience={reduce_lr_patience}")
+    elif reduce_lr_patience > 0 : # 即使配置了patience，若无验证集也无法使用
+         logger.warning("验证集 (val_loader) 为空或未提供，ReduceLROnPlateau 将被禁用，即使 patience > 0。")
 
-    # 早停逻辑
-    best_val_metric = float('inf') if 'loss' in monitor_metric.lower() or 'mae' in monitor_metric.lower() else float('-inf')
+    # --- 7. 早停逻辑初始化 ---
+    best_monitored_value = float('inf') if scheduler_mode == 'min' else float('-inf')
     epochs_no_improve = 0
-    early_stop = False
+    early_stop_triggered = False
 
-    # 模型检查点路径
+    # --- 8. 模型检查点路径 ---
     os.makedirs(checkpoint_dir, exist_ok=True)
-    best_model_filepath = os.path.join(checkpoint_dir, f"best_model_{stock_code}.pth") # PyTorch typically saves .pth
+    # PyTorch 通常保存 .pth 或 .pt 文件
+    best_model_filepath = os.path.join(checkpoint_dir, f"best_transformer_model_{stock_code}.pth")
 
-    # TensorBoard 设置
+    # --- 9. TensorBoard 设置 ---
     writer = None
     tensorboard_log_dir_base = training_config.get('tensorboard_log_dir', None)
     if tensorboard_log_dir_base:
-        current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        run_log_dir = os.path.join(tensorboard_log_dir_base, f"{stock_code}_{current_time}_Transformer") # 区分Transformer
+        current_time_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        # 为每次运行创建独立的日志子目录
+        run_log_dir = os.path.join(tensorboard_log_dir_base, f"transformer_{stock_code}_{current_time_str}")
         os.makedirs(run_log_dir, exist_ok=True)
         writer = SummaryWriter(log_dir=run_log_dir)
-        logger.info(f"启用 TensorBoard: 日志保存到 '{run_log_dir}'")
+        logger.info(f"启用 TensorBoard: 日志将保存到 '{run_log_dir}'")
 
-
-    # 训练历史记录
+    # --- 10. 训练历史记录 ---
     history = {
-        'loss': [], 'mae': [],
-        'val_loss': [], 'val_mae': [],
-        'lr': []
+        'epoch': [], 'loss': [], 'mae': [], 'lr': [],
+        'val_loss': [], 'val_mae': [], 'val_true_mae': [] # val_true_mae 是反标准化后的真实MAE
     }
 
-
-    # --- 训练循环 ---
-    logger.info(f"使用 {len(train_loader)} 个训练批次和 {len(val_loader) if val_loader else 0} 个验证批次进行训练。")
+    # --- 11. 训练循环 ---
+    logger.info(f"开始训练，共 {epochs} 轮。每轮训练批次数: {len(train_loader)}, "
+                f"验证批次数: {len(val_loader) if val_loader else 0}。")
 
     if len(train_loader) == 0:
-        logger.error("训练 DataLoader 为空，无法进行模型训练。")
+        logger.error("训练 DataLoader 为空，无法进行模型训练。请检查数据准备和 DataLoader 配置。")
         if writer: writer.close()
-        return model, pd.DataFrame(history)
-
+        return model, pd.DataFrame(history) # 返回未训练的模型和空历史
 
     for epoch in range(epochs):
-        start_time = time.time()
-        model.train() # 设置模型为训练模式
-        total_loss = 0
-        total_mae = 0
-        num_batches = 0
-
+        epoch_start_time = time.time()
+        model.train() # 设置模型为训练模式 (启用 Dropout, BatchNorm 等)
+        
+        # 初始化每轮的累积损失和指标
+        epoch_train_loss = 0
+        epoch_train_mae = 0
+        
         # 训练阶段
         for batch_idx, (inputs, targets) in enumerate(train_loader):
-            inputs, targets = inputs.to(device), targets.to(device) # 移动数据到设备
+            inputs, targets = inputs.to(device), targets.to(device) # 数据移至设备
 
-            optimizer.zero_grad() # 梯度清零
+            optimizer.zero_grad()  # 清除上一批的梯度
             outputs = model(inputs) # 前向传播
             loss = criterion(outputs, targets) # 计算损失
 
-            loss.backward() # 反向传播
+            loss.backward() # 反向传播，计算梯度
 
-            # 梯度裁剪 (可选)
-            if clip_grad_norm_value is not None:
+            # (可选) 梯度裁剪，防止梯度爆炸
+            if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
                  torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
 
-            optimizer.step() # 更新权重
+            optimizer.step() # 更新模型权重
 
-            total_loss += loss.item()
-            total_mae += mae_metric(outputs, targets).item() # 计算 MAE
-            num_batches += 1
+            epoch_train_loss += loss.item() * inputs.size(0) # 乘以批大小，得到总损失
+            with torch.no_grad(): # MAE计算不影响梯度
+                epoch_train_mae += mae_eval_metric(outputs, targets).item() * inputs.size(0)
 
-            if verbose_level == 2:
-                 logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}: Loss={loss.item():.4f}, MAE={mae_metric(outputs, targets).item():.4f}")
+            # 详细日志 (通常不每批打印，除非调试)
+            if verbose_level == 2: # verbose_level=2 表示每批打印 (可能过于频繁)
+                 logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
+                             f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
+        
+        # 计算平均训练损失和MAE
+        avg_train_loss = epoch_train_loss / len(train_loader.dataset)
+        avg_train_mae = epoch_train_mae / len(train_loader.dataset)
+        current_lr = optimizer.param_groups[0]['lr'] # 获取当前学习率
 
-
-        avg_train_loss = total_loss / num_batches
-        avg_train_mae = total_mae / num_batches
-        current_lr = optimizer.param_groups[0]['lr']
-
+        history['epoch'].append(epoch + 1)
         history['loss'].append(avg_train_loss)
         history['mae'].append(avg_train_mae)
         history['lr'].append(current_lr)
 
+        # 初始化验证集指标
+        avg_val_loss = np.nan
+        avg_val_mae = np.nan
+        avg_val_true_mae = np.nan # 反标准化后的真实 MAE
 
         # 验证阶段 (如果提供了验证集)
-        avg_val_loss = float('inf') # 默认设置为无穷大
-        avg_val_mae = float('inf')
-        avg_val_true_mae = float('inf') # 反标准化后的 MAE
-
         if val_loader is not None and len(val_loader) > 0:
-            model.eval() # 设置模型为评估模式
-            total_val_loss = 0
-            total_val_mae = 0
-            total_val_true_mae = 0
-            num_val_batches = 0
+            model.eval() # 设置模型为评估模式 (禁用 Dropout, BatchNorm 等)
+            epoch_val_loss = 0
+            epoch_val_mae = 0
+            epoch_val_true_mae = 0
 
             with torch.no_grad(): # 在验证阶段不计算梯度
                 for val_inputs, val_targets in val_loader:
                     val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
 
                     val_outputs = model(val_inputs)
-                    val_loss = criterion(val_outputs, val_targets)
-                    val_mae = mae_metric(val_outputs, val_targets)
+                    val_loss_batch = criterion(val_outputs, val_targets)
+                    val_mae_batch = mae_eval_metric(val_outputs, val_targets)
 
-                    total_val_loss += val_loss.item()
-                    total_val_mae += val_mae.item()
+                    epoch_val_loss += val_loss_batch.item() * val_inputs.size(0)
+                    epoch_val_mae += val_mae_batch.item() * val_inputs.size(0)
 
                     # 计算反标准化后的真实 MAE
-                    # 将 tensor 转移回 CPU 并转换为 numpy
-                    val_outputs_np = val_outputs.cpu().numpy()
-                    val_targets_np = val_targets.cpu().numpy()
-                    # 反标准化
-                    val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
-                    val_targets_original = target_scaler.inverse_transform(val_targets_np)
-                    # 计算真实 MAE
-                    true_mae_batch = np.mean(np.abs(val_outputs_original - val_targets_original))
-                    total_val_true_mae += true_mae_batch
+                    if target_scaler: # 确保 target_scaler 存在
+                        val_outputs_np = val_outputs.cpu().numpy()
+                        val_targets_np = val_targets.cpu().numpy()
+                        try:
+                            val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
+                            val_targets_original = target_scaler.inverse_transform(val_targets_np)
+                            true_mae_batch_val = np.mean(np.abs(val_outputs_original - val_targets_original))
+                            epoch_val_true_mae += true_mae_batch_val * val_inputs.size(0)
+                        except Exception as e_inv_transform:
+                            logger.warning(f"Epoch {epoch+1}: 反标准化验证集预测/目标时出错: {e_inv_transform}。真实MAE可能不准确。")
+                            # 可以选择累加 NaN 或 0，或跳过这个批次的真实MAE计算
+                    else: # 如果没有 target_scaler，无法计算真实 MAE
+                        epoch_val_true_mae = np.nan # 保持为 NaN
 
-                    num_val_batches += 1
+            avg_val_loss = epoch_val_loss / len(val_loader.dataset)
+            avg_val_mae = epoch_val_mae / len(val_loader.dataset)
+            if not np.isnan(epoch_val_true_mae): # 仅当成功计算时更新
+                 avg_val_true_mae = epoch_val_true_mae / len(val_loader.dataset)
 
-            avg_val_loss = total_val_loss / num_val_batches
-            avg_val_mae = total_val_mae / num_val_batches
-            avg_val_true_mae = total_val_true_mae / num_val_batches
 
             history['val_loss'].append(avg_val_loss)
             history['val_mae'].append(avg_val_mae)
+            history['val_true_mae'].append(avg_val_true_mae)
 
-            # 学习率调度器 step (基于验证集指标)
+
+            # --- 学习率调度器 step (基于验证集指标) ---
             # 确定监控的验证集指标的值
-            monitored_val_value = avg_val_loss if monitor_metric.lower() == 'val_loss' else avg_val_mae # Assuming 'val_mae' is the other option
-            scheduler.step(monitored_val_value)
+            monitored_value_for_scheduler = avg_val_loss if monitor_metric == 'val_loss' else avg_val_mae
+            if scheduler:
+                scheduler.step(monitored_value_for_scheduler)
 
-            # 早停判断
-            if (scheduler_mode == 'min' and monitored_val_value < best_val_metric) or \
-               (scheduler_mode == 'max' and monitored_val_value > best_val_metric):
-                best_val_metric = monitored_val_value
-                epochs_no_improve = 0
-                # 保存最佳模型权重
-                torch.save(model.state_dict(), best_model_filepath) # 只保存模型状态字典
-                logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 提升 ({best_val_metric:.4f})。保存最佳模型权重。")
-            else:
-                epochs_no_improve += 1
-                logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 未提升。未提升轮数: {epochs_no_improve}")
-                if epochs_no_improve >= early_stopping_patience:
-                    logger.info(f"验证集 {monitor_metric} 连续 {early_stopping_patience} 轮未提升，触发早停。")
-                    early_stop = True
+            # --- 早停判断 ---
+            if early_stopping_patience > 0:
+                current_best_monitored_value = monitored_value_for_scheduler # 使用与调度器相同的指标
+                
+                improved = False
+                if scheduler_mode == 'min' and current_best_monitored_value < best_monitored_value:
+                    improved = True
+                elif scheduler_mode == 'max' and current_best_monitored_value > best_monitored_value:
+                    improved = True
 
-        end_time = time.time()
-        epoch_duration = end_time - start_time
+                if improved:
+                    best_monitored_value = current_best_monitored_value
+                    epochs_no_improve = 0
+                    # 保存最佳模型权重
+                    torch.save(model.state_dict(), best_model_filepath) # 只保存模型状态字典
+                    logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 提升 ({best_monitored_value:.4f})。保存最佳模型到 '{best_model_filepath}'")
+                else:
+                    epochs_no_improve += 1
+                    logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 未提升。已连续 {epochs_no_improve} 轮未提升。")
+                    if epochs_no_improve >= early_stopping_patience:
+                        logger.info(f"验证集 {monitor_metric} 连续 {early_stopping_patience} 轮未提升，触发早停。")
+                        early_stop_triggered = True
+        else: # 如果没有验证集，则无法进行早停或学习率调度，记录NaN
+            history['val_loss'].append(np.nan)
+            history['val_mae'].append(np.nan)
+            history['val_true_mae'].append(np.nan)
+            logger.info(f"Epoch {epoch+1}: 无验证集，跳过验证、早停和学习率调度。")
 
+
+        epoch_duration = time.time() - epoch_start_time
+        # 每轮日志输出
         if verbose_level >= 1:
-             log_message = f"Epoch {epoch+1}/{epochs} - {epoch_duration:.2f}s - loss: {avg_train_loss:.4f} - mae: {avg_train_mae:.4f}"
+             log_message = (f"Epoch {epoch+1}/{epochs} - {epoch_duration:.2f}s - "
+                            f"loss: {avg_train_loss:.4f} - mae: {avg_train_mae:.4f} - lr: {current_lr:.2e}")
              if val_loader is not None and len(val_loader) > 0:
-                 log_message += f" - val_loss: {avg_val_loss:.4f} - val_mae: {avg_val_mae:.4f} - val_true_mae: {avg_val_true_mae:.2f}"
-             log_message += f" - lr: {current_lr:.6f}"
+                 log_message += (f" - val_loss: {avg_val_loss:.4f} - val_mae: {avg_val_mae:.4f}"
+                                 f" - val_true_mae: {avg_val_true_mae:.4f}")
              logger.info(log_message)
 
-
-        # TensorBoard 记录
+        # --- TensorBoard 记录 ---
         if writer:
-            writer.add_scalar('Loss/train', avg_train_loss, epoch)
-            writer.add_scalar('MAE/train', avg_train_mae, epoch)
+            writer.add_scalar('Loss/train', avg_train_loss, epoch + 1)
+            writer.add_scalar('MAE/train (scaled)', avg_train_mae, epoch + 1)
             if val_loader is not None and len(val_loader) > 0:
-                writer.add_scalar('Loss/val', avg_val_loss, epoch)
-                writer.add_scalar('MAE/val', avg_val_mae, epoch)
-                writer.add_scalar('True MAE/val', avg_val_true_mae, epoch)
-            writer.add_scalar('Learning Rate', current_lr, epoch)
+                if not np.isnan(avg_val_loss): writer.add_scalar('Loss/val', avg_val_loss, epoch + 1)
+                if not np.isnan(avg_val_mae): writer.add_scalar('MAE/val (scaled)', avg_val_mae, epoch + 1)
+                if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE/val (true)', avg_val_true_mae, epoch + 1)
+            writer.add_scalar('Learning Rate', current_lr, epoch + 1)
+            writer.flush() # 确保写入磁盘
 
-        if early_stop:
-            break
+        if early_stop_triggered:
+            break # 跳出训练循环
 
     # --- 训练结束 ---
-    logger.info("模型训练完成。")
+    logger.info("模型训练过程结束。")
 
-    # 加载在训练过程中保存的最佳模型权重
-    if os.path.exists(best_model_filepath):
+    # 加载在训练过程中保存的最佳模型权重 (如果早停或正常结束且有保存)
+    if os.path.exists(best_model_filepath) and (early_stop_triggered or (val_loader is not None and len(val_loader) > 0)):
         try:
-            logger.info(f"从 '{best_model_filepath}' 加载训练过程中的最佳模型权重...")
-            model.load_state_dict(torch.load(best_model_filepath))
+            logger.info(f"训练结束，从 '{best_model_filepath}' 加载训练过程中的最佳模型权重...")
+            model.load_state_dict(torch.load(best_model_filepath, map_location=device)) # map_location 确保设备一致性
             logger.info("最佳模型权重加载成功。")
         except Exception as e_load:
-            logger.error(f"加载最佳模型权重 '{best_model_filepath}' 失败: {e_load}。将使用训练结束时的模型权重。", exc_info=True)
-    else:
-        logger.warning(f"未找到已保存的最佳模型权重文件: '{best_model_filepath}'。将使用训练结束时的模型权重。")
+            logger.error(f"加载最佳模型权重 '{best_model_filepath}' 失败: {e_load}。"
+                         f"将使用训练结束时的模型权重。", exc_info=True)
+    elif val_loader is None or len(val_loader) == 0 :
+        logger.info("由于没有验证集，模型未进行基于验证指标的保存，将使用训练结束时的模型权重。")
+    else: # 文件不存在但应该存在的情况
+        logger.warning(f"未找到预期的最佳模型权重文件: '{best_model_filepath}'。"
+                       f"将使用训练结束时的模型权重。这可能发生在训练初期或所有轮次验证指标都未改善的情况。")
 
     # 将训练历史转换为 DataFrame
     history_df = pd.DataFrame(history)
-    logger.debug(f"训练历史记录:\n{history_df.tail()}")
+    if not history_df.empty:
+        logger.debug(f"最终训练历史记录 (后5条):\n{history_df.tail()}")
+    else:
+        logger.warning("训练历史记录为空。")
 
-    # 可选：在测试集上进行最终评估 (这里只计算，不影响早停和模型保存)
-    # test_metrics = evaluate_transformer_model(model, test_loader, criterion, mae_metric, target_scaler, device)
-    # logger.info(f"测试集评估: Loss={test_metrics['loss']:.4f}, MAE={test_metrics['mae']:.4f}, True MAE={test_metrics['true_mae']:.2f}")
 
     # --- (可选) 绘制训练历史 ---
-    if plot_training_history and history_df is not None and not history_df.empty:
+    if plot_training_history and not history_df.empty:
         try:
-            plt.figure(figsize=(12, 8))
+            fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True) # 两行一列，共享X轴
 
             # 绘制损失曲线
-            plt.subplot(2, 1, 1)
-            if 'loss' in history_df.columns:
-                plt.plot(history_df.index, history_df['loss'], label='训练损失 (Loss)')
+            axes[0].plot(history_df['epoch'], history_df['loss'], label='训练损失 (Train Loss)', marker='o', linestyle='-')
             if 'val_loss' in history_df.columns and not history_df['val_loss'].isnull().all():
-                plt.plot(history_df.index, history_df['val_loss'], label='验证损失 (Validation Loss)')
-            plt.title(f'{stock_code} 模型训练损失')
-            plt.xlabel('Epoch')
-            plt.ylabel('损失 (Loss)')
-            plt.legend()
-            plt.grid(True)
+                axes[0].plot(history_df['epoch'], history_df['val_loss'], label='验证损失 (Validation Loss)', marker='x', linestyle='--')
+            axes[0].set_title(f'{stock_code} - 模型训练损失曲线 (Model Training Loss)')
+            axes[0].set_ylabel('损失 (Loss)')
+            axes[0].legend()
+            axes[0].grid(True)
 
             # 绘制评估指标曲线 (例如 MAE)
-            plt.subplot(2, 1, 2)
-            if 'mae' in history_df.columns:
-                plt.plot(history_df.index, history_df['mae'], label='训练 MAE')
+            axes[1].plot(history_df['epoch'], history_df['mae'], label='训练 MAE (scaled)', marker='o', linestyle='-')
             if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
-                plt.plot(history_df.index, history_df['val_mae'], label='验证 MAE')
-            # 可以选择绘制反标准化后的 MAE
-            # if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
-            #     plt.plot(history_df.index, history_df['val_true_mae'], label='验证 True MAE (Original Scale)', linestyle='--')
-            plt.title(f'{stock_code} 模型训练评估指标 (MAE)')
-            plt.xlabel('Epoch')
-            plt.ylabel('MAE')
-            plt.legend()
-            plt.grid(True)
+                axes[1].plot(history_df['epoch'], history_df['val_mae'], label='验证 MAE (scaled)', marker='x', linestyle='--')
+            if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
+                # 为 True MAE 使用第二个 Y 轴，如果其量级与 scaled MAE差异较大
+                ax2_mae = axes[1].twinx()
+                ax2_mae.plot(history_df['epoch'], history_df['val_true_mae'], label='验证 MAE (真实值)', marker='s', linestyle=':', color='green')
+                ax2_mae.set_ylabel('真实 MAE (True MAE)')
+                # 合并图例
+                lines, labels = axes[1].get_legend_handles_labels()
+                lines2, labels2 = ax2_mae.get_legend_handles_labels()
+                axes[1].legend(lines + lines2, labels + labels2, loc='best')
+            else:
+                 axes[1].legend(loc='best')
 
-            plt.tight_layout()
-            plot_save_path = os.path.join(checkpoint_dir, f"training_history_{stock_code}.png")
+            axes[1].set_title(f'{stock_code} - 模型训练评估指标 (MAE)')
+            axes[1].set_xlabel('轮次 (Epoch)')
+            axes[1].set_ylabel('MAE (缩放后)')
+            axes[1].grid(True)
+
+
+            plt.tight_layout() # 调整子图布局
+            plot_save_path = os.path.join(checkpoint_dir, f"training_history_transformer_{stock_code}.png")
             plt.savefig(plot_save_path)
             logger.info(f"训练历史曲线图已保存到: {plot_save_path}")
-            plt.close()
+            plt.close(fig) # 关闭图像，释放内存
         except Exception as e_plot:
             logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
 
-    if writer: writer.close() # 关闭 TensorBoard writer
+    if writer:
+        writer.close() # 关闭 TensorBoard writer
+
     return model, history_df
 
-# 新增函数：在 Transformer 模型上进行预测
 @log_execution_time
 @handle_exceptions
 def predict_with_transformer_model(
@@ -1093,118 +1256,135 @@ def predict_with_transformer_model(
     target_scaler: Union[MinMaxScaler, StandardScaler],
     selected_feature_names: List[str],
     window_size: int,
-    device: torch.device
+    device: Optional[torch.device] = None
 ) -> float:
     """
-    使用训练好的 Transformer 模型对最新数据进行预测。
+    使用训练好的 Transformer 模型对最新数据进行单步预测。
+
+    重要提示:
+    传入的 `data` DataFrame 应该包含模型训练时最终使用的特征列 (由 `selected_feature_names` 指定)。
+    如果训练时应用了 PCA 或复杂的特征选择，`data` 应该已经经过了这些转换，
+    `selected_feature_names` 应该是这些转换后特征的名称 (例如 'pca_comp_0', ...)。
+    此函数仅负责对这些选定特征进行缩放、窗口化和模型预测。
 
     Args:
         model (TransformerModel): 已加载权重的 PyTorch Transformer 模型。
-        data (pd.DataFrame): 包含所有原始特征列的最新数据 DataFrame。
-        feature_scaler (Union[MinMaxScaler, StandardScaler]): 拟合好的特征缩放器。
-        target_scaler (Union[MinMaxScaler, StandardScaler]): 拟合好的目标缩放器。
-        selected_feature_names (List[str]): 最终用于模型训练的特征名列表。
+        data (pd.DataFrame): 包含模型所需特征列的最新数据 DataFrame。
+                             应至少包含 `window_size` 行数据。
+        feature_scaler (Union[MinMaxScaler, StandardScaler]): 用于特征的已拟合缩放器。
+        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标的已拟合缩放器，用于反转预测结果。
+        selected_feature_names (List[str]): 模型训练时最终使用的特征名列表。
         window_size (int): 模型期望的输入窗口大小。
-        device (torch.device): 预测设备 (CPU 或 GPU)。
+        device (Optional[torch.device]): 预测设备 (CPU 或 GPU)。如果为 None，则自动检测。
 
     Returns:
-        float: 预测的信号值 (原始尺度)。如果无法预测，返回 50.0。
+        float: 预测的信号值 (原始尺度)。如果无法预测，则返回一个中性值 (例如 50.0)。
     """
     logger.info("开始使用 Transformer 模型进行预测...")
 
-    if data is None or data.empty or len(data) < window_size:
-        logger.warning(f"输入数据为空或长度 ({len(data)}) 小于窗口大小 ({window_size})，无法进行预测。")
-        return 50.0 # 返回中性预测
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"自动选择预测设备: {device}")
 
-    # --- 准备预测数据 ---
-    # 1. 选择用于预测的特征列 (必须与训练时使用的特征一致)
-    features_for_prediction_df = data.loc[:, [col for col in selected_feature_names if col in data.columns]].copy()
-
-    # 检查选中的特征列是否都存在于当前数据中
-    missing_selected_features = [col for col in selected_feature_names if col not in features_for_prediction_df.columns]
-    if missing_selected_features:
-         logger.error(f"用于 Transformer 预测的选中特征列在当前数据中缺失: {missing_selected_features}。无法进行预测。")
-         return 50.0
-
-    # 2. 处理 NaN 值 (与数据准备时一致)
-    features_for_prediction_df = features_for_prediction_df.ffill().bfill()
-    if features_for_prediction_df.isnull().any().any():
-        logger.warning("用于 Transformer 预测的数据中仍有 NaN 值，将尝试填充为0。")
-        features_for_prediction_df.fillna(0, inplace=True)
-
-    # 3. 应用特征缩放 (使用训练时拟合好的 scaler)
-    # 确保 feature_scaler 已加载
+    # --- 0. 输入数据校验 ---
+    if data is None or data.empty:
+        logger.warning("输入数据 (data) 为空，无法进行预测。返回默认值 50.0。")
+        return 50.0
+    if len(data) < window_size:
+        logger.warning(f"输入数据长度 ({len(data)}) 小于窗口大小 ({window_size})，无法构建预测窗口。返回默认值 50.0。")
+        return 50.0
     if feature_scaler is None:
-        logger.error("特征 Scaler 未加载，无法进行预测。")
+        logger.error("特征缩放器 (feature_scaler) 未提供，无法进行预测。返回默认值 50.0。")
+        return 50.0
+    if target_scaler is None:
+        logger.error("目标缩放器 (target_scaler) 未提供，无法反转预测结果。返回默认值 50.0。")
+        return 50.0
+    if not selected_feature_names:
+        logger.error("选定特征列表 (selected_feature_names) 为空。无法进行预测。返回默认值 50.0。")
         return 50.0
 
+    # --- 1. 准备预测数据 ---
+    # 1.1. 选择用于预测的特征列 (必须与训练时使用的特征一致)
+    try:
+        # 确保只选择存在的列，并按 selected_feature_names 的顺序排列
+        features_for_prediction_df = data[selected_feature_names].copy()
+    except KeyError as e:
+        missing_cols = set(selected_feature_names) - set(data.columns)
+        logger.error(f"部分选定特征列在输入数据中缺失: {missing_cols}。原始错误: {e}。无法进行预测。返回默认值 50.0。")
+        return 50.0
+
+    # 1.2. 处理 NaN 值 (与数据准备时一致，例如 ffill().bfill().fillna(0) )
+    # 假设预测时拿到的数据已经是相对干净的，或者上游已处理。这里做一个基本保障。
+    if features_for_prediction_df.isnull().any().any():
+        logger.warning("用于 Transformer 预测的数据中检测到 NaN 值，将尝试使用 ffill().bfill().fillna(0) 进行填充。")
+        features_for_prediction_df = features_for_prediction_df.ffill().bfill().fillna(0)
+        if features_for_prediction_df.isnull().any().any(): # 再次检查
+             logger.error("填充后，预测数据中仍存在无法处理的 NaN 值。无法进行预测。返回默认值 50.0。")
+             return 50.0
+
+    # 1.3. 应用特征缩放 (使用训练时拟合好的 scaler)
     try:
         features_scaled_np = feature_scaler.transform(features_for_prediction_df.values)
-    except Exception as e:
-        logger.error(f"应用特征 Scaler 时出错: {e}", exc_info=True)
+    except Exception as e_scale:
+        logger.error(f"应用特征缩放器 (feature_scaler) 时出错: {e_scale}。无法进行预测。返回默认值 50.0。", exc_info=True)
         return 50.0
 
-
-    # 4. 构建预测所需的窗口数据 (只取最后一个窗口进行最新预测)
-    # PyTorch Transformer 期望输入形状 (batch_size, sequence_length, features_dim)
-    # 我们需要最后一个窗口的数据，形状 (window_size, num_features)
-    # 然后为了喂给模型，需要加一个 batch dimension，形状 (1, window_size, num_features)
-    if features_scaled_np.shape[0] < window_size:
-        logger.warning(f"缩放后的数据长度 ({features_scaled_np.shape[0]}) 小于窗口大小 ({window_size})，无法构建预测窗口。")
+    # 1.4. 构建预测所需的窗口数据 (只取最后一个窗口进行最新预测)
+    # PyTorch Transformer 期望输入形状 (batch_size, sequence_length, num_features)
+    # 我们需要最后 window_size 行数据构成一个序列。
+    if features_scaled_np.shape[0] < window_size: # 再次确认，虽然前面已检查原始数据长度
+        logger.warning(f"缩放后的数据长度 ({features_scaled_np.shape[0]}) 小于窗口大小 ({window_size})，无法构建预测窗口。返回默认值 50.0。")
         return 50.0
 
-    # 取最后 window_size 个时间步的数据
-    X_predict_np = features_scaled_np[-window_size:, :] # Shape: (window_size, num_features)
+    # 取最后 window_size 个时间步的数据，形状 (window_size, num_features)
+    X_predict_window_np = features_scaled_np[-window_size:, :]
 
-    # 转换为 PyTorch Tensor 并添加 batch dimension
-    X_predict_tensor = torch.tensor(X_predict_np, dtype=torch.float32).unsqueeze(0) # Shape: (1, window_size, num_features)
+    # 转换为 PyTorch Tensor 并添加 batch dimension (1, window_size, num_features)
+    X_predict_tensor = torch.tensor(X_predict_window_np, dtype=torch.float32).unsqueeze(0)
 
-    # 移动到设备
-    X_predict_tensor = X_predict_tensor.to(device)
-    model.to(device) # 确保模型也在同一设备
+    # --- 2. 进行预测 ---
+    model.to(device) # 确保模型在指定设备
+    X_predict_tensor = X_predict_tensor.to(device) # 数据也移至相同设备
 
-    # --- 进行预测 ---
-    model.eval() # 设置模型为评估模式 (禁用 dropout 等)
-    with torch.no_grad(): # 在预测阶段不计算梯度
+    model.eval() # 设置模型为评估模式 (禁用 dropout, batchnorm更新 等)
+    with torch.no_grad(): # 在预测阶段不计算梯度，节省内存和计算
         try:
-            lstm_pred_scaled_tensor = model(X_predict_tensor) # Shape: (1, 1)
-        except Exception as e:
-            logger.error(f"Transformer 模型前向传播出错: {e}", exc_info=True)
+            # 模型输出形状通常是 (batch_size, 1)，这里 batch_size 是 1
+            predicted_scaled_tensor = model(X_predict_tensor)
+        except Exception as e_predict:
+            logger.error(f"Transformer 模型前向传播 (预测) 出错: {e_predict}。返回默认值 50.0。", exc_info=True)
             return 50.0
-    # --- 逆缩放预测结果 ---
-    # 将预测结果 tensor 转移回 CPU 并转换为 numpy
-    lstm_pred_scaled_np = lstm_pred_scaled_tensor.cpu().numpy() # Shape: (1, 1)
 
-    # 确保 target_scaler 已加载
-    if target_scaler is None:
-        logger.error("目标 Scaler 未加载，无法逆缩放预测结果。")
-        # 可以选择返回缩放后的预测值，或者一个默认值
-        return 50.0
+    # --- 3. 逆缩放预测结果 ---
+    # 将预测结果 tensor 转移回 CPU 并转换为 numpy
+    predicted_scaled_np = predicted_scaled_tensor.cpu().numpy() # Shape: (1, 1)
 
     try:
         # target_scaler.inverse_transform 期望二维数组
-        lstm_pred_original_scale_np = target_scaler.inverse_transform(lstm_pred_scaled_np) # Shape: (1, 1)
-        lstm_signal_score = lstm_pred_original_scale_np[0][0] # 提取最终预测值
-    except Exception as e:
-        logger.error(f"应用目标 Scaler 逆缩放时出错: {e}", exc_info=True)
+        predicted_original_scale_np = target_scaler.inverse_transform(predicted_scaled_np) # Shape: (1, 1)
+        predicted_signal_score = predicted_original_scale_np[0, 0] # 提取单个预测值
+    except Exception as e_inv_scale:
+        logger.error(f"应用目标缩放器 (target_scaler) 逆缩放时出错: {e_inv_scale}。返回默认值 50.0。", exc_info=True)
         return 50.0
 
+    # --- 4. 后处理预测值 ---
+    # 将预测分数限制在合理范围内 (例如 0-100) 并四舍五入
+    # 这个范围取决于具体业务场景中 final_signal 的定义
+    final_predicted_signal = np.clip(predicted_signal_score, 0, 100)
+    final_predicted_signal = round(float(final_predicted_signal), 2) # 四舍五入到两位小数
 
-    # 将预测分数限制在 0-100 范围内并四舍五入
-    final_predicted_signal = np.clip(lstm_signal_score, 0, 100).round(2)
+    logger.info(f"Transformer 模型预测完成。预测信号 (原始尺度, 0-100范围, 保留2位小数): {final_predicted_signal:.2f}")
+    return final_predicted_signal
 
-    logger.debug(f"Transformer 模型预测完成，预测信号 (原始尺度): {final_predicted_signal:.2f}")
-    return float(final_predicted_signal) # 返回 float 类型
 
-# 新增函数：在测试集上评估模型
 @log_execution_time
+@handle_exceptions # 确保 evaluate 函数也有异常处理
 def evaluate_transformer_model(
     model: TransformerModel,
     test_loader: DataLoader,
     criterion: nn.Module,
-    mae_metric: nn.Module,
-    target_scaler: Union[MinMaxScaler, StandardScaler],
-    device: torch.device
+    target_scaler: Union[MinMaxScaler, StandardScaler], # mae_metric 可以直接用 L1Loss，这里主要需要 target_scaler
+    device: Optional[torch.device] = None
 ) -> Dict[str, float]:
     """
     在测试集上评估 Transformer 模型性能。
@@ -1212,52 +1392,91 @@ def evaluate_transformer_model(
     Args:
         model (TransformerModel): 已加载权重的 PyTorch Transformer 模型。
         test_loader (DataLoader): 测试数据加载器。
-        criterion (nn.Module): 损失函数实例 (例如 MSELoss)。
-        mae_metric (nn.Module): MAE 度量实例 (例如 L1Loss)。
-        target_scaler (Union[MinMaxScaler, StandardScaler]): 目标变量缩放器。
-        device (torch.device): 评估设备。
+        criterion (nn.Module): 损失函数实例 (例如 MSELoss, L1Loss)。
+        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的已拟合缩放器，
+                                                             用于计算反标准化后的真实 MAE。
+        device (Optional[torch.device]): 评估设备 (CPU 或 GPU)。如果为 None，则自动检测。
 
     Returns:
-        Dict[str, float]: 包含 Loss, MAE, True MAE (反标准化后) 的字典。
+        Dict[str, float]: 包含评估指标的字典:
+            - 'loss': 测试集上的平均损失值 (例如 MSE)。
+            - 'mae_scaled': 测试集上缩放后数据的平均绝对误差 (MAE)。
+            - 'mae_true': 测试集上反标准化 (真实尺度) 数据的平均绝对误差 (MAE)。
     """
     logger.info("开始在测试集上评估 Transformer 模型...")
 
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"自动选择评估设备: {device}")
+
     if len(test_loader) == 0:
-        logger.warning("测试 DataLoader 为空，无法进行评估。")
-        return {'loss': float('nan'), 'mae': float('nan'), 'true_mae': float('nan')}
+        logger.warning("测试 DataLoader 为空，无法进行评估。返回 NaN 指标。")
+        return {'loss': np.nan, 'mae_scaled': np.nan, 'mae_true': np.nan}
+    if target_scaler is None:
+        logger.warning("目标缩放器 (target_scaler) 未提供，无法计算真实 MAE。'mae_true' 将为 NaN。")
 
-    model.eval() # 设置模型为评估模式
-    total_test_loss = 0
-    total_test_mae = 0
-    total_test_true_mae = 0
-    num_test_batches = 0
 
-    with torch.no_grad():
-        for inputs, targets in test_loader:
-            inputs, targets = inputs.to(device), targets.to(device)
+    model.to(device) # 确保模型在设备上
+    model.eval()     # 设置模型为评估模式
 
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-            mae = mae_metric(outputs, targets)
+    total_test_loss = 0.0
+    total_test_mae_scaled = 0.0
+    total_test_mae_true = 0.0
+    total_samples = 0
 
-            total_test_loss += loss.item()
-            total_test_mae += mae.item()
+    # MAE 评估指标
+    mae_eval_metric = nn.L1Loss(reduction='sum') # 先求和，最后除以总样本数
 
-            # 计算反标准化后的真实 MAE
-            outputs_np = outputs.cpu().numpy()
-            targets_np = targets.cpu().numpy()
-            outputs_original = target_scaler.inverse_transform(outputs_np)
-            targets_original = target_scaler.inverse_transform(targets_np)
-            true_mae_batch = np.mean(np.abs(outputs_original - targets_original))
-            total_test_true_mae += true_mae_batch
+    with torch.no_grad(): # 在评估阶段不计算梯度
+        for inputs, targets_scaled in test_loader:
+            inputs, targets_scaled = inputs.to(device), targets_scaled.to(device)
+            batch_size = inputs.size(0)
 
-            num_test_batches += 1
+            outputs_scaled = model(inputs) # 模型输出的是缩放后的值
 
-    avg_test_loss = total_test_loss / num_test_batches
-    avg_test_mae = total_test_mae / num_test_batches
-    avg_test_true_mae = total_test_true_mae / num_test_batches
+            # 1. 计算损失 (基于缩放后的值)
+            loss_batch = criterion(outputs_scaled, targets_scaled)
+            total_test_loss += loss_batch.item() * batch_size # 累加批次总损失
 
-    logger.info(f"测试集评估完成: Loss={avg_test_loss:.4f}, MAE={avg_test_mae:.4f}, True MAE={avg_test_true_mae:.2f}")
+            # 2. 计算缩放后的 MAE
+            mae_scaled_batch = mae_eval_metric(outputs_scaled, targets_scaled) # L1Loss(reduction='sum')
+            total_test_mae_scaled += mae_scaled_batch.item()
 
-    return {'loss': avg_test_loss, 'mae': avg_test_mae, 'true_mae': avg_test_true_mae}
+            # 3. 计算反标准化后的真实 MAE
+            if target_scaler:
+                try:
+                    outputs_np_scaled = outputs_scaled.cpu().numpy()
+                    targets_np_scaled = targets_scaled.cpu().numpy()
+
+                    outputs_original = target_scaler.inverse_transform(outputs_np_scaled)
+                    targets_original = target_scaler.inverse_transform(targets_np_scaled)
+
+                    # 计算这个批次的真实 MAE (逐元素绝对差后求和)
+                    mae_true_batch = np.sum(np.abs(outputs_original - targets_original))
+                    total_test_mae_true += mae_true_batch
+                except Exception as e_inv_transform_eval:
+                    logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
+                    # 如果一个批次失败，可以考虑如何处理，例如该批次的 mae_true 贡献为0或NaN
+            
+            total_samples += batch_size
+
+    if total_samples == 0: # 避免除以零
+        logger.warning("测试集中总样本数为零，无法计算平均指标。返回 NaN。")
+        return {'loss': np.nan, 'mae_scaled': np.nan, 'mae_true': np.nan}
+
+    avg_test_loss = total_test_loss / total_samples
+    avg_test_mae_scaled = total_test_mae_scaled / total_samples
+    avg_test_mae_true = total_test_mae_true / total_samples if target_scaler else np.nan
+
+
+    logger.info(f"测试集评估完成: "
+                f"平均损失 (Loss) = {avg_test_loss:.4f}, "
+                f"平均MAE (缩放后, Scaled MAE) = {avg_test_mae_scaled:.4f}, "
+                f"平均MAE (真实值, True MAE) = {avg_test_mae_true:.4f if not np.isnan(avg_test_mae_true) else 'N/A'}")
+
+    return {
+        'loss': avg_test_loss,
+        'mae_scaled': avg_test_mae_scaled,
+        'mae_true': avg_test_mae_true
+    }
 

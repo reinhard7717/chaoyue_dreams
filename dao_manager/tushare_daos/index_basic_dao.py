@@ -192,13 +192,13 @@ class IndexBasicDAO(BaseDAO):
                 return index_data_dict
         return None
 
-    async def get_indexs_by_publisher(self, publisher: str) -> Optional['IndexInfo']:
+    async def get_indexs_by_publisher(self, publisher: str="中证指数有限公司") -> Optional['IndexInfo']:
         """
         获得指数信息
         Args
         """
         # 从数据库获取
-        index_infos = await sync_to_async(lambda: IndexInfo.objects.filter(publisher=publisher).all())()
+        index_infos = await sync_to_async(lambda: IndexInfo.objects.filter(publisher=publisher, exp_date=None).all())()
         if index_infos:
             return index_infos
         else:
@@ -329,26 +329,41 @@ class IndexBasicDAO(BaseDAO):
         数据历史：从2004年1月开始提供
         数据权限：用户需要至少400积分才可以调取，具体请参阅积分获取办法
         """
-        result = {}
         # 获取当前日期
         today = datetime.datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
-        df = self.ts_pro.index_dailybasic(**{
-            "trade_date": today_str, "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-            "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
-        ])
+        indexs = self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        all_index_codes = [index.index_code for index in indexs]
         index_dailybasic_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                index_info = await self.get_index_by_code(row.ts_code)
-                # print(f"index_info: {index_info}, type {type(index_info)}")  # 添加日志输出以检查 index_info 的内容和类型
-                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
-                index_dailybasic_dicts.append(index_dailybasic_dict)
+        # 切片每50个一组，合成逗号分隔字符串
+        batch_size = 50
+        for i in range(0, len(all_index_codes), batch_size):
+            index_batch = all_index_codes[i:i+batch_size]
+            index_codes_str = ",".join(index_batch)
+            offset = 0
+            limit = 8000
+            while True:
+                if offset >= 100000:
+                    logger.warning(f"offset已达10万，停止拉取。{index_codes_str} 指数日线行情, freq=Day")
+                    break
+                df = self.ts_pro.index_dailybasic(**{
+                    "trade_date": today_str, "ts_code": index_codes_str, "start_date": "", "end_date": "", "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+                    "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+                ])
+                if not df.empty:
+                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                    for row in df.itertuples():
+                        index_info = await self.get_index_by_code(row.ts_code)
+                        # print(f"index_info: {index_info}, type {type(index_info)}")  # 添加日志输出以检查 index_info 的内容和类型
+                        index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
+                        index_dailybasic_dicts.append(index_dailybasic_dict)
+                if len(df) < limit:
+                    break
+                offset += limit
         if index_dailybasic_dicts:
             # 保存到数据库
             result =  await self._save_all_to_db_native_upsert(
@@ -366,21 +381,28 @@ class IndexBasicDAO(BaseDAO):
         数据历史：从2004年1月开始提供
         数据权限：用户需要至少400积分才可以调取，具体请参阅积分获取办法
         """
-        result = {}
-        # 拉取数据
-        df = self.ts_pro.index_dailybasic(**{
-            "trade_date": "", "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-            "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
-        ])
+        # 获取当前日期
+        today = datetime.datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
         index_dailybasic_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                index_info = await self.get_index_by_code(row.ts_code)
-                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
-                index_dailybasic_dicts.append(index_dailybasic_dict)
+        indexs = self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        for index in indexs:
+            # 拉取数据
+            df = self.ts_pro.index_dailybasic(**{
+                "trade_date": index.index_code, "ts_code": "", "start_date": "20200101", "end_date": today_str, "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+                "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+            ])
+            
+            if not df.empty:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in df.itertuples():
+                    index_info = await self.get_index_by_code(row.ts_code)
+                    index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
+                    index_dailybasic_dicts.append(index_dailybasic_dict)
         if index_dailybasic_dicts:
             # 保存到数据库
             result =  await self._save_all_to_db_native_upsert(
