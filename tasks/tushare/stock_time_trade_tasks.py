@@ -280,7 +280,7 @@ def save_cyq_data_today_task(self):
 # ===================================================
 #                      本周任务
 # ===================================================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.run_this_week_data_ingestion_task', queue='SaveData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.run_this_week_data_ingestion_task', queue='celery')
 def run_this_week_data_ingestion_task(self):
     """
     整体任务：按顺序执行本周的数据采集任务。
