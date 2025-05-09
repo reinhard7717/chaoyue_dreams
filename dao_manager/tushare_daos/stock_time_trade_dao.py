@@ -1265,7 +1265,7 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
-            logger.info(f"完成每日筹码及胜率：{start_date_str} - {end_date_str}, 结果：{result}")
+            # logger.info(f"完成每日筹码及胜率：{start_date_str} - {end_date_str}, 结果：{result}")
         return result
 
     async def get_cyq_perf_history(self, stock_code: str) -> None:
@@ -1374,7 +1374,7 @@ class StockTimeTradeDAO(BaseDAO):
                 if len(df) < limit:
                     break
                 offset += limit
-                time.sleep(1)
+                time.sleep(3)
             if data_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockCyqChips,
