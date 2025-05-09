@@ -1,5 +1,6 @@
 # dao_manager\tushare_daos\stock_time_trade_dao.py
 import logging
+import time
 from typing import List
 import numpy as np
 import pandas as pd
@@ -1372,6 +1373,7 @@ class StockTimeTradeDAO(BaseDAO):
                 if len(df) < limit:
                     break
                 offset += limit
+                time.sleep(1)
             if data_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockCyqChips,
