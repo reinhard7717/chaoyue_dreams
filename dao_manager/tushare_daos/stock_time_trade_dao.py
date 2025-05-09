@@ -1372,7 +1372,7 @@ class StockTimeTradeDAO(BaseDAO):
                         if stock:
                             data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
                             data_dicts.append(data_dict)
-                time.sleep(3)
+                time.sleep(2.5)
                 if len(df) < limit:
                     break
                 offset += limit
