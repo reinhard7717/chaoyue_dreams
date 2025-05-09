@@ -436,7 +436,7 @@ class StockTimeTradeDAO(BaseDAO):
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
 
-    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str]) -> None:
+    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
         """
         保存股票的历史分钟级交易数据
         接口：stk_mins
@@ -452,7 +452,7 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
                 df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "2020-01-01 00:00:00", "end_date": "", 
+                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                     "limit": limit, "offset": offset
                 }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 if df.empty:
@@ -562,16 +562,11 @@ class StockTimeTradeDAO(BaseDAO):
         """
         result_df = pd.DataFrame()
         stock_codes_str = ",".join(stock_codes)
-        for time_level in time_level:
-            df = self.ts_pro.stk_mins(**{
-                "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
+        result_df = self.ts_pro.stk_mins(**{
+                "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": "", "offset": ""
             }, fields=[
                 "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
-            ])
-            if not df.empty:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                result_df = pd.concat([result_df, df])
+            ])           
         if not result_df.empty:
             data_dicts = []
             for row in result_df.itertuples():
