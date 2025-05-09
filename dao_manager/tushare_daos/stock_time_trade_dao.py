@@ -1289,7 +1289,7 @@ class StockTimeTradeDAO(BaseDAO):
         offset = 0
         limit = 2000
         all_stocks = self.stock_basic_dao.get_stock_list()
-        for stock in all_stocks
+        for stock in all_stocks:
             data_dicts = []
             while True:
                 if offset >= 100000:
