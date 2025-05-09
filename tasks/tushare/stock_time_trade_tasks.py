@@ -443,7 +443,7 @@ def save_cyq_chips_this_week_batch(self, start_date: datetime.date, end_date: da
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_perf_this_week_batch', queue='SaveData_TimeTrade')
-def save_cyq_perf_this_week_batch(self, trade_date: datetime.date):
+def save_cyq_perf_this_week_batch(self, start_date: datetime.date, end_date: datetime.date):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:
@@ -452,7 +452,7 @@ def save_cyq_perf_this_week_batch(self, trade_date: datetime.date):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf(trade_date=trade_date))
+        result = asyncio.run(stock_time_trade_dao.save_cyq_perf_history(start_date=start_date, end_date=end_date))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -469,9 +469,7 @@ def save_cyq_data_this_week_task(self):
     logger.info(f"任务启动: save_cyq_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
     try:
         this_monday, this_friday = get_this_monday_and_friday()
-        for i in range(5):
-            day = this_monday + datetime.timedelta(days=i)
-            save_cyq_chips_this_week_batch.s(trade_date=day).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+        save_cyq_chips_this_week_batch.s(start_date=this_monday, end_date=this_friday).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
         save_cyq_perf_this_week_batch.s(start_date=this_monday, end_date=this_friday).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
         logger.info(f"任务结束: save_cyq_data_this_week_task (调度器模式)")
     except Exception as e:
