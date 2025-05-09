@@ -1220,9 +1220,7 @@ class StockTimeTradeDAO(BaseDAO):
             for row in result_df.itertuples():
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
-                    row['stock'] = stock  # 先转换好
                     data_dict = self.data_format_process_trade.set_cyq_perf_data(stock=stock, df_data=row)
-                    await self.stock_cache_set.stock_basic_info(row.ts_code, data_dict)
                     data_dicts.append(data_dict)
         if data_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
