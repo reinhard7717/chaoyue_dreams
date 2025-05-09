@@ -481,7 +481,7 @@ class StockTimeTradeDAO(BaseDAO):
                     data_list=data_dicts,
                     unique_fields=['stock', 'trade_time']
                 )
-                logger.info(f"保存股票 {stock_codes_str} 的 {time_level}分钟级交易数据 offset={offset} 完成. 结果: {result}")
+                logger.info(f"保存 {len(stock_codes)}个股票 的 {time_level}分钟级交易数据 offset={offset} 完成. 结果: {result}")
 
                 # # 修剪缓存
                 # for stock_code in stock_codes:
@@ -489,7 +489,7 @@ class StockTimeTradeDAO(BaseDAO):
                 #     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
 
 
-        logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据全部完成.")
+        logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
         return
 
     async def save_minute_time_trade_history_by_stock_code_and_time_level(self, stock_code: str, time_level: str, start_date: str="2020-01-01 00:00:00", end_date: str="") -> None:
