@@ -1223,7 +1223,7 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def save_cyq_perf_history(self, start_date: date=None, end_date: date=None) -> None:
         """
-        保存股票的每日筹码分布数据
+        保存股票的每日筹码及胜率数据
         """
         start_date_str = ""
         end_date_str = ""
@@ -1265,6 +1265,7 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+            logger.info(f"完成每日筹码及胜率：{start_date_str} - {end_date_str}, 结果：{result}")
         return result
 
     async def get_cyq_perf_history(self, stock_code: str) -> None:
