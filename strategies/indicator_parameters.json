@@ -1,6 +1,6 @@
 {
   "strategy_name": "融合策略 v1.0",
-  "description": "融合 MACD/RSI/KDJ/BOLL 多时间框架评分与趋势/背离/K线形态分析的综合策略",
+  "description": "融合 MACD/RSI/KDJ/BOLL 多时间框架评分与趋势/背离/K线形态分析，并集成 Transformer 模型预测的综合策略",
   "trend_following_strategy_name": "趋势跟踪v1.0",
   "trend_reversal_strategy_name": "趋势反转v1.0",
   "t_plus_0_strategy_name": "T+0(VWAP)v1.0",
@@ -41,7 +41,8 @@
       "5": 0.15,
       "15": 0.45,
       "30": 0.25,
-      "60": 0.15
+      "60": 0.15,
+      "D": 0.0
     }
   },
 
@@ -58,7 +59,6 @@
   "divergence_detection": {
     "enabled": true,
     "check_regular_bullish": true,
-    "check_regular_bearish": true,
     "check_hidden_bullish": true,
     "check_hidden_bearish": true,
     "tf": "15",
@@ -79,7 +79,7 @@
 
   "kline_pattern_detection": {
     "enabled": true,
-    "tf": "15"
+    "tf": ["5", "15", "30", "60", "D"]
   },
 
   "trend_analysis": {
@@ -96,6 +96,38 @@
     "use_long_term_filter": false
   },
 
+  "feature_engineering_params": {
+    "apply_on_timeframes": ["5", "15", "30", "60", "D"],
+    "calculate_atr": true,
+    "atr_params": {"period": 14},
+    "calculate_hv": true,
+    "hv_params": {"period": 20},
+    "calculate_kc": true,
+    "kc_params": {"ema_period": 20, "atr_period": 10},
+    "calculate_mom": true,
+    "mom_params": {"period": 10},
+    "calculate_willr": true,
+    "willr_params": {"period": 14},
+    "calculate_vroc": true,
+    "vroc_params": {"period": 10},
+    "calculate_aroc": true,
+    "aroc_params": {"period": 10},
+    "ema_periods": [5, 10, 20, 60],
+    "sma_periods": [5, 10, 20, 60],
+    "ema_periods_for_relation": [5, 20, 60],
+    "sma_periods_for_relation": [5, 20, 60],
+    "indicators_for_difference": [
+        {"base_name": "RSI", "params_key": ["rsi_period"], "default_period": [14]},
+        {"base_name": "MACD", "params_key": ["macd_fast", "macd_slow", "macd_signal"], "default_period": [12, 26, 9]},
+        {"base_name": "K", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
+        {"base_name": "D", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
+        {"base_name": "J", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
+        {"base_name": "ADX", "params_key": ["dmi_period"], "default_period": [14]}
+    ],
+    "difference_periods": [1, 5]
+  },
+
+
   "trend_following_params": {
     "focus_timeframe": "30",
     "trend_confirmation_periods": 3,
@@ -108,70 +140,83 @@
         "D": 0.05
     },
     "trend_indicators": ["dmi", "sar", "macd", "ema_alignment", "obv", "rsi"],
-    "signal_weights": {
-        "base_score": 0.5,
-        "alignment": 0.25,
+    "rule_signal_weights": {
+        "base_score": 0.4,
+        "alignment": 0.2,
         "long_context": 0.1,
-        "momentum": 0.15
+        "momentum": 0.1,
+        "ema_cross": 0.05,
+        "boll_breakout": 0.05,
+        "adx_strength": 0.05,
+        "vwap_deviation": 0.025,
+        "volume_spike": 0.025
     },
     "volume_boost_factor": 1.3,
     "volume_penalty_factor": 0.7,
     "volume_spike_threshold": 2.0,
     "volatility_threshold_high": 10,
     "volatility_threshold_low": 5,
-    "ema_cross_weight": 0.15,
+    "adx_adjustment_factor": 15.0,
     "adx_strong_threshold": 30,
     "adx_moderate_threshold": 20,
-    "trend_duration_threshold_strong": 3,
-    "trend_duration_threshold_moderate": 5,
+    "trend_duration_threshold_strong": 5,
+    "trend_duration_threshold_moderate": 10,
     "stoch_oversold_threshold": 20,
     "stoch_overbought_threshold": 80,
     "vwap_deviation_threshold": 0.01,
-    "boll_breakout_weight": 0.1,
+    "volatility_benchmark": 5.0,
 
-    "lstm_window_size": 60,
-    "lstm_scaler_type": "minmax",
-    "lstm_target_scaler_type": "minmax",
-    "lstm_train_split": 0.7,
-    "lstm_val_split": 0.15,
-    "lstm_plot_history": true,
-    "lstm_target_column": "final_signal", 
-    "lstm_apply_variance_threshold": false,
-    "lstm_variance_threshold_value": 0.01, 
-    "lstm_use_feature_selection": true,
-    "lstm_feature_selector_model": "rf", 
-    "lstm_max_features_fs": 30, 
-    "lstm_feature_selection_threshold": "median", 
-    "lstm_use_pca": false, 
-    "lstm_pca_n_components": 0.99, 
-    
 
-    "lstm_model_config": {
-      "model_type": "lstm",
-      "layers": [
-        {"units": 64, "return_sequences": true, "dropout": 0.4, "l2_reg": 0.005, "activation": "tanh"},
-        {"units": 32, "return_sequences": false, "dropout": 0.4, "l2_reg": 0.005, "activation": "tanh"}
-      ],
-      "dense_layers": [
-        {"units": 8, "dropout": 0.3, "l2_reg": 0.005, "activation": "relu"}
-      ],
-      "output_units": 1,
-      "output_activation": null,
+    "transformer_window_size": 60,
+    "transformer_target_column": "final_rule_signal",
+    "transformer_plot_history": true,
 
-      "optimizer": "adam",
-      "learning_rate": 0.0001,
-      "momentum": 0.0,
-      "loss": "mse",
-      "metrics": ["mae"]
+    "transformer_data_prep_config": {
+        "scaler_type": "standard",
+        "train_split": 0.7,
+        "val_split": 0.15,
+        "apply_variance_threshold": false,
+        "variance_threshold_value": 0.01,
+        "use_pca": false,
+        "pca_n_components": 0.99,
+        "pca_solver": "auto",
+        "use_feature_selection": true,
+        "feature_selector_model_type": "rf",
+        "fs_model_n_estimators": 200,
+        "fs_model_max_depth": 10,
+        "fs_max_features": 80,
+        "fs_selection_threshold": "median",
+        "target_scaler_type": "minmax"
     },
-    "lstm_training_config": {
-      "epochs": 100,
-      "batch_size": 128,
-      "early_stopping_patience": 30,
-      "reduce_lr_patience": 10,
+
+    "transformer_model_config": {
+      "d_model": 128,
+      "nhead": 8,
+      "dim_feedforward": 512,
+      "nlayers": 4,
+      "dropout": 0.1,
+      "activation": "gelu"
+    },
+
+    "transformer_training_config": {
+      "epochs": 200,
+      "batch_size": 64,
+      "learning_rate": 0.0005,
+      "weight_decay": 0.001,
+      "optimizer": "adamw",
+      "loss": "mse",
+      "early_stopping_patience": 40,
+      "reduce_lr_patience": 15,
       "reduce_lr_factor": 0.5,
-      "monitor_metric": "val_loss",
-      "verbose": 1
+      "monitor_metric": "val_mae",
+      "verbose": 1,
+      "tensorboard_log_dir": "logs/tensorboard",
+      "clip_grad_norm": 1.0
+    },
+
+     "signal_combination_weights": {
+        "rule_weight": 0.6,
+        "lstm_weight": 0.4
     }
   },
 

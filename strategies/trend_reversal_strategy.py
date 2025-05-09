@@ -12,7 +12,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
 # 假设 BaseStrategy 和常量在 .base 或 core.constants
 from .base import BaseStrategy
-from . import strategy_utils # 导入公共工具
+from .utils import strategy_utils # 导入公共工具
 
 logger = logging.getLogger("strategy_trend_reversal")
 
