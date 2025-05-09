@@ -348,7 +348,7 @@ def save_minute_data_this_week_batch(self, stock_codes: str):
     this_friday_str = this_friday.strftime('%Y%m%d') + " 16:00:00"
     try:
         result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(stock_codes=stock_codes, start_date_str=this_monday_str, end_date_str=this_friday_str))
-        logger.info(f"保存股票 {stock_codes} 的分钟级交易数据完成. 结果: {result}")
+        # logger.info(f"保存股票 {stock_codes} 的分钟级交易数据完成. 结果: {result}")
     except Exception as e:
         logger.error(f"save_minute_data_this_week_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 

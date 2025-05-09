@@ -587,12 +587,13 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
+            logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据完成. 结果: {result}")
         for stock_code in stock_codes:
             # --- 函数末尾执行最终修剪 ---
             cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
             await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
             # --- 修剪调用结束 ---
-        logger.info(f"保存股票 {stock_codes_str} 的分钟级交易数据完成. 结果: {result}")
+        
         return result
 
     async def save_minute_time_trade_history_all(self) -> None:
@@ -1371,10 +1372,10 @@ class StockTimeTradeDAO(BaseDAO):
                         if stock:
                             data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
                             data_dicts.append(data_dict)
+                time.sleep(3)
                 if len(df) < limit:
                     break
                 offset += limit
-                time.sleep(3)
             if data_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockCyqChips,
