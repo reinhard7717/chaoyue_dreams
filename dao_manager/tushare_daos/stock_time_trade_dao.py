@@ -1288,7 +1288,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 拉取数据
         offset = 0
         limit = 2000
-        all_stocks = self.stock_basic_dao.get_stock_list()
+        all_stocks = await self.stock_basic_dao.get_stock_list()
         for stock in all_stocks:
             data_dicts = []
             while True:
