@@ -1,8 +1,11 @@
 # dao_manager\tushare_daos\industry_dao.py
 import logging
 from asgiref.sync import sync_to_async
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import Any, List, Dict, Optional
+from datetime import date, datetime
+
+import numpy as np
+import pandas as pd
 
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -85,9 +88,9 @@ class IndustryDao(BaseDAO):
         if industry_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
-                model_class=IndustryInfo,
+                model_class=SwIndustry,
                 data_list=industry_dicts,
-                unique_fields=['industry_type', 'industry_code']
+                unique_fields=['index_code', 'src']
             )
         return result
 
@@ -236,7 +239,8 @@ class IndustryDao(BaseDAO):
             }, fields=[ "ts_code", "name", "count", "exchange", "list_date", "type" ])
         industry_dicts = []
         if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 industry_dict = self.data_format_process.set_ths_index_data(df_data=row)
                 industry_dicts.append(industry_dict)
@@ -459,7 +463,7 @@ class IndustryDao(BaseDAO):
             )
         return result
 
-    async def save_dc_index_daily_by_trade_time(self, trade_time_str: str) -> Dict:
+    async def save_dc_index_daily_by_trade_time(self, trade_time: date=None) -> Dict:
         """
         接口：ths_daily
         描述：获取东方财富概念板块指数行情。
@@ -468,10 +472,13 @@ class IndustryDao(BaseDAO):
         Returns:
             Dict: 保存结果
         """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = trade_time.strftime('%Y%m%d')
+        if trade_time is None:
+            # 获取当前日期
+            today = datetime.today()
+            # 转换为YYYYMMDD格式
+            trade_time_str = today.strftime('%Y%m%d')
+        else:
+            trade_time_str = trade_time.strftime('%Y%m%d')
         result = {}
         df = self.ts_pro.dc_index(**{
                 "ts_code": "", "name": "", "trade_date": trade_time_str, "start_date": "", "end_date": "", "limit": "", "offset": ""

@@ -385,31 +385,40 @@ class IndexBasicDAO(BaseDAO):
         today = datetime.datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
-        index_dailybasic_dicts = []
         indexs = self.get_indexs_by_publisher(publisher="中证指数有限公司")
         for index in indexs:
+            index_dailybasic_dicts = []
             # 拉取数据
-            df = self.ts_pro.index_dailybasic(**{
-                "trade_date": index.index_code, "ts_code": "", "start_date": "20200101", "end_date": today_str, "limit": "", "offset": ""
-            }, fields=[
-                "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-                "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
-            ])
-            
-            if not df.empty:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    index_info = await self.get_index_by_code(row.ts_code)
-                    index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
-                    index_dailybasic_dicts.append(index_dailybasic_dict)
-        if index_dailybasic_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDailyBasic,
-                data_list=index_dailybasic_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
+            offset = 0
+            limit = 6000  # tushare pro接口最大limit一般为8000
+            while True:
+                if offset >= 100000:
+                    logger.warning(f"每日筹码及胜率 offset已达10万，停止拉取。")
+                    break
+                # 拉取数据
+                df = self.ts_pro.index_dailybasic(**{
+                    "trade_date": index.index_code, "ts_code": "", "start_date": "20200101", "end_date": today_str, "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+                    "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+                ])
+                if not df.empty:
+                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                    for row in df.itertuples():
+                        index_info = await self.get_index_by_code(row.ts_code)
+                        index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
+                        index_dailybasic_dicts.append(index_dailybasic_dict)
+                if len(df) < limit:
+                    break
+                offset += limit
+            if index_dailybasic_dicts:
+                # 保存到数据库
+                result =  await self._save_all_to_db_native_upsert(
+                    model_class=IndexDailyBasic,
+                    data_list=index_dailybasic_dicts,
+                    unique_fields=['index_code', 'trade_time']
+                )
         return result
 
 

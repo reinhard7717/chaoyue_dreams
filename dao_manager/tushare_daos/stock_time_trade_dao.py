@@ -1061,6 +1061,7 @@ class StockTimeTradeDAO(BaseDAO):
                     data_list=data_dicts,
                     unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
                 )
+                print(f"保存 {trade_date_str} 股票重要的基本面指标 完成。result: {result}")
         else:
             result = []
         return result
@@ -1372,7 +1373,7 @@ class StockTimeTradeDAO(BaseDAO):
                         if stock:
                             data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
                             data_dicts.append(data_dict)
-                time.sleep(2.5)
+                time.sleep(0.5)
                 if len(df) < limit:
                     break
                 offset += limit
