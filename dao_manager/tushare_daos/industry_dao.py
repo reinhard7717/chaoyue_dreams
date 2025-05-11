@@ -378,8 +378,11 @@ class IndustryDao(BaseDAO):
                 "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
             ])
         ths_index_daily_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+        if df.empty:
+            return {}
+        else:
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 index_basic = index_basic_dao.get_index_by_code(row.ts_code)
                 ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
