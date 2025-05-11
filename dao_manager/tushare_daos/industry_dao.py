@@ -247,12 +247,15 @@ class IndustryDao(BaseDAO):
                 industry_dict = self.data_format_process.set_ths_index_data(df_data=row)
                 industry_dicts.append(industry_dict)
         if industry_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
-                model_class=ThsIndex,
-                data_list=industry_dicts,
-                unique_fields=['ts_code']
-            )
+            try:
+                # 保存到数据库
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=ThsIndex,
+                    data_list=industry_dicts,
+                    unique_fields=['ts_code']
+                )
+            except Exception as e:
+                logger.error("同花顺概念和行业指数保存失败。", exc_info=True)
         return result
 
     # ============== 同花顺概念板块成分 ==============
