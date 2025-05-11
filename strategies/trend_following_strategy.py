@@ -5,6 +5,7 @@ import numpy as np
 import json
 import os
 import logging
+from pathlib import Path
 from django.conf import settings
 import joblib # 用于加载/保存 scaler
 from sklearn.discriminant_analysis import StandardScaler
@@ -26,6 +27,15 @@ from .utils.deep_learning_utils import (
     TimeSeriesDataset,
     prepare_data_for_transformer
 )
+
+# 加载和使用命名模板
+NAMING_CONFIG_PATH = Path('indicator_naming.json')
+
+def load_naming_config():
+    with open(NAMING_CONFIG_PATH, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+NAMING_CONFIG = load_naming_config()
 
 logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
 
@@ -284,7 +294,13 @@ class TrendFollowingStrategy(BaseStrategy):
                  logger.warning(f"{log_prefix} 最终 'trend_following_params' 键存在于参数中，但其内容为空。")
         
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
-                
+
+    def format_indicator_name(template, **kwargs):
+        if isinstance(template, list):
+            return [t.format(**kwargs) for t in template]
+        else:
+            return [template.format(**kwargs)]
+
     def _normalize_weights(self, weights: Dict[str, float]):
         """归一化权重字典，使其总和为1。"""
         total_weight = sum(weights.values())
@@ -579,6 +595,9 @@ class TrendFollowingStrategy(BaseStrategy):
         for indi_key in score_indicators_config:
             for tf_str in timeframes:
                 if indi_key == 'macd':
+                    macd_templates = NAMING_CONFIG['macd']
+                    for name in self.format_indicator_name(macd_templates, fast=macd_fast, slow=macd_slow, signal=macd_sig, tf=tf_str):
+                        required.add(name)
                     required.add(f'MACD_{macd_fast}_{macd_slow}_{macd_sig}_{tf_str}')
                     required.add(f'MACDh_{macd_fast}_{macd_slow}_{macd_sig}_{tf_str}')
                     required.add(f'MACDs_{macd_fast}_{macd_slow}_{macd_sig}_{tf_str}')

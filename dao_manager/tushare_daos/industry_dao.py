@@ -381,6 +381,7 @@ class IndustryDao(BaseDAO):
                 "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
             ])
         ths_index_daily_dicts = []
+        nil_ths_index_ids = []
         if df.empty:
             return {}
         else:
@@ -388,8 +389,11 @@ class IndustryDao(BaseDAO):
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
                 ths_index = await self.get_ths_index_by_code(row.ts_code)
-                ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index,df_data=row)
-                ths_index_daily_dicts.append(ths_index_daily_dict)
+                if ths_index:
+                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index,df_data=row)
+                    ths_index_daily_dicts.append(ths_index_daily_dict)
+                else:
+                    nil_ths_index_ids.append(row.ts_code)
         if ths_index_daily_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
@@ -397,6 +401,8 @@ class IndustryDao(BaseDAO):
                 data_list=ths_index_daily_dicts,
                 unique_fields=['ths_index', 'trade_time']
             )
+        if nil_ths_index_ids:
+            logger.info(f"未找到的ths_index：{nil_ths_index_ids}")
         return result
 
     async def save_ths_index_daily_history(self, start_date: date, end_date: date) -> Dict:

@@ -1,0 +1,71 @@
+{
+    "ohlcv": "{col_base}_{tf}",
+    "macd": [
+      "MACD_{fast}_{slow}_{signal}_{tf}",
+      "MACDh_{fast}_{slow}_{signal}_{tf}",
+      "MACDs_{fast}_{slow}_{signal}_{tf}"
+    ],
+    "rsi": "RSI_{period}_{tf}",
+    "kdj": [
+      "K_{k}_{d}_{j}_{tf}",
+      "D_{k}_{d}_{j}_{tf}",
+      "J_{k}_{d}_{j}_{tf}"
+    ],
+    "boll": [
+      "BBL_{period}_{std}_{tf}",
+      "BBM_{period}_{std}_{tf}",
+      "BBU_{period}_{std}_{tf}",
+      "BBW_{period}_{std}_{tf}",
+      "BBP_{period}_{std}_{tf}"
+    ],
+    "cci": "CCI_{period}_{tf}",
+    "mfi": "MFI_{period}_{tf}",
+    "roc": "ROC_{period}_{tf}",
+    "dmi": [
+      "PLUS_DI_{period}_{tf}",
+      "MINUS_DI_{period}_{tf}",
+      "ADX_{period}_{tf}"
+    ],
+    "sar": "SAR_{step}_{max}_{tf}",
+    "ema": "EMA_{period}_{tf}",
+    "sma": "SMA_{period}_{tf}",
+    "amt_ma": "AMT_MA_{period}_{tf}",
+    "cmf": "CMF_{period}_{tf}",
+    "obv": "OBV_{tf}",
+    "adl": "ADL_{tf}",
+    "stoch": [
+      "STOCHk_{k}_{d}_{smooth_k}_{tf}",
+      "STOCHd_{k}_{d}_{smooth_k}_{tf}"
+    ],
+    "vol_ma": "VOL_MA_{period}_{tf}",
+    "vwap": "VWAP_{anchor}_{tf}",
+    "tenkan": "TENKAN_{period}_{tf}",
+    "kijun": "KIJUN_{period}_{tf}",
+    "chikou": "CHIKOU_{period}_{tf}",
+    "senkou_a": "SENKOU_A_{tenkan}_{kijun}_{tf}",
+    "senkou_b": "SENKOU_B_{period}_{tf}",
+    "pivot": [
+      "PP_D",
+      "S{level}_D",
+      "R{level}_D",
+      "F_S{level}_D",
+      "F_R{level}_D"
+    ],
+    "atr": "ATR_{period}_{tf}",
+    "hv": "HV_{period}_{tf}",
+    "kc": [
+      "KCL_{ema_period}_{atr_period}_{tf}",
+      "KCM_{ema_period}_{atr_period}_{tf}",
+      "KCU_{ema_period}_{atr_period}_{tf}"
+    ],
+    "mom": "MOM_{period}_{tf}",
+    "willr": "WILLR_{period}_{tf}",
+    "vroc": "VROC_{period}_{tf}",
+    "aroc": "AROC_{period}_{tf}",
+    "close_ma_ratio": "CLOSE_{ma_type}_RATIO_{period}_{tf}",
+    "close_ma_ndiff": "CLOSE_{ma_type}_NDIFF_{period}_{tf}",
+    "diff": "{prefix}{param_suffix}_DIFF{diff_period}_{tf}",
+    "close_bb_pos": "CLOSE_BB_POS_{period}_{std}_{tf}",
+    "close_kc_pos": "CLOSE_KC_POS_{ema_period}_{atr_period}_{tf}"
+  }
+  
