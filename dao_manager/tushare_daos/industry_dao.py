@@ -251,7 +251,7 @@ class IndustryDao(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndex,
                 data_list=industry_dicts,
-                unique_fields=['index_code']
+                unique_fields=['ts_code']
             )
         return result
 
@@ -297,7 +297,7 @@ class IndustryDao(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexMember,
                 data_list=ths_index_member_dicts,
-                unique_fields=['ts_code', 'con_code']
+                unique_fields=['ths_index', 'stock']
             )
         return result
 
@@ -348,7 +348,7 @@ class IndustryDao(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexDaily,
                 data_list=ths_index_daily_dicts,
-                unique_fields=['index', 'trade_time']
+                unique_fields=['ths_index', 'trade_time']
             )
         return result
 
@@ -384,7 +384,7 @@ class IndustryDao(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexDaily,
                 data_list=ths_index_daily_dicts,
-                unique_fields=['index', 'trade_time']
+                unique_fields=['ths_index', 'trade_time']
             )
         return result
 
@@ -434,7 +434,7 @@ class IndustryDao(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexDaily,
                 data_list=ths_index_daily_dicts,
-                unique_fields=['index', 'trade_time']
+                unique_fields=['ths_index', 'trade_time']
             )
         return result
 
