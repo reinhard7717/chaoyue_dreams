@@ -19,10 +19,6 @@ from strategies.utils.deep_learning_utils import prepare_data_for_transformer
 
 logger = logging.getLogger("tasks")
 
-def load_params_config():
-    with open(settings.INDICATOR_PARAMETERS_CONFIG_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
 # 任务：准备 Transformer 训练数据并保存
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_prepare_transformer_data')
 def batch_prepare_transformer_data(self, stock_code: str, params_file: str = None, model_dir: str = None, base_bars: int = 10000):
@@ -166,7 +162,7 @@ def schedule_transformer_data_preparation(self, params_file: str = None, base_da
     """
     logger.info(f"任务启动: schedule_transformer_data_preparation (调度器模式) - 获取股票列表并分派数据准备任务")
     if params_file is None:
-        params_file = load_params_config()
+        params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
     if base_data_dir is None:
         base_data_dir = settings.STRATEGY_DATA_DIR
     total_dispatched_tasks = 0

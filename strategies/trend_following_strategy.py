@@ -66,7 +66,7 @@ class TrendFollowingStrategy:
                                  默认为 Django settings 中的 STRATEGY_DATA_DIR。
         """
         if params_file is None:
-            params_file = load_params_config()
+            params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
         if base_data_dir is None:
             base_data_dir = settings.STRATEGY_DATA_DIR
         self.params_file = params_file
