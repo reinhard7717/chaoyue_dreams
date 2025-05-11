@@ -638,31 +638,27 @@ class IndustryFormatProcess(BaseDAO):
 
     # 同花顺概念和行业指数
     def set_ths_index_data(self, df_data: Any) -> Dict:
-        # 先尝试解析 count 字段
         raw_count = getattr(df_data, "count", None)
-        logger.info(f"set_ths_index_data: raw_count = {raw_count} (type: {type(raw_count)})")
-
         parsed_count = self._parse_number(raw_count)
-        logger.info(f"set_ths_index_data: parsed_count = {parsed_count} (type: {type(parsed_count)})")
-
-        # 修改这里：如果解析后的 count 是 None，则使用 0 作为默认值
         final_count_for_dict = parsed_count if parsed_count is not None else 0
-        logger.info(f"set_ths_index_data: final_count_for_dict = {final_count_for_dict} (type: {type(final_count_for_dict)})")
+        try:
+            final_count_for_dict = int(final_count_for_dict)
+        except Exception:
+            final_count_for_dict = 0
 
         data_dict = {
             "ts_code": getattr(df_data, "ts_code", None),
             "name": getattr(df_data, "name", None),
-            "count": final_count_for_dict, # 使用处理后的值
+            "count": final_count_for_dict,
             "exchange": getattr(df_data, "exchange", None),
             "list_date": self._parse_datetime(getattr(df_data, "list_date", None)),
             "type": getattr(df_data, "type", None),
         }
-        logger.info(f"set_ths_index_data: data_dict['count'] = {data_dict['count']} (type: {type(data_dict['count'])})")
-        # 先safe_value，再兜底
         result = {k: safe_value(v) for k, v in data_dict.items()}
         if result.get("count") is None:
             result["count"] = 0
         return result
+
 
     # 同花顺概念板块成分
     def set_ths_index_member_data(self, ths_index: 'ThsIndex', stock: 'StockInfo', df_data: Any) -> Dict:
