@@ -1,5 +1,7 @@
 # dao_manager\tushare_daos\industry_dao.py
 import logging
+from time import sleep
+import time
 from asgiref.sync import sync_to_async
 from typing import Any, List, Dict, Optional
 from datetime import date, datetime
@@ -289,6 +291,7 @@ class IndustryDao(BaseDAO):
                     stock = await self.stock_cache_get.stock_data_by_code(row.con_code)
                     ths_index_member_dict = self.data_format_process.set_ths_index_member_data(ths_index=ths_index, stock=stock, df_data=row)
                     ths_index_member_dicts.append(ths_index_member_dict)
+            time.sleep(0.5)
         if ths_index_member_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
@@ -349,7 +352,7 @@ class IndustryDao(BaseDAO):
             )
         return result
 
-    async def save_ths_index_daily_history(self, trade_time: Any) -> Dict:
+    async def save_ths_index_daily_by_trade_date(self, trade_date: date) -> Dict:
         """
         接口：ths_daily
         描述：获取同花顺板块指数行情。注：数据版权归属同花顺，如做商业用途，请主动联系同花顺，如需帮助请联系微信：waditu_a
@@ -358,11 +361,13 @@ class IndustryDao(BaseDAO):
         Returns:
             Dict: 保存结果
         """
+        # 转换为YYYYMMDD格式
+        trade_date_str = trade_date.strftime('%Y%m%d')
         result = {}
         index_basic_dao = IndexBasicDAO()
         # 拉取数据
         df = self.ts_pro.ths_daily(**{
-                "ts_code": "", "trade_date": trade_time, "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
                 "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
                 "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
@@ -374,6 +379,56 @@ class IndustryDao(BaseDAO):
                 index_basic = index_basic_dao.get_index_by_code(row.ts_code)
                 ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
                 ths_index_daily_dicts.append(ths_index_daily_dict)
+        if ths_index_daily_dicts:
+            # 保存到数据库
+            result = await self._save_all_to_db_native_upsert(
+                model_class=ThsIndexDaily,
+                data_list=ths_index_daily_dicts,
+                unique_fields=['index', 'trade_time']
+            )
+        return result
+
+    async def save_ths_index_daily_history(self, start_date: date, end_date: date) -> Dict:
+        """
+        接口：ths_daily
+        描述：获取同花顺板块指数行情。注：数据版权归属同花顺，如做商业用途，请主动联系同花顺，如需帮助请联系微信：waditu_a
+        限量：单次最大3000行数据（5000积分），可根据指数代码、日期参数循环提取。
+        Args:
+        Returns:
+            Dict: 保存结果
+        """
+        start_date_str = start_date.strftime.strftime('%Y%m%d')
+        end_date_str = end_date.strftime.strftime('%Y%m%d')
+        result = {}
+        index_basic_dao = IndexBasicDAO()
+        # 拉取数据
+        offset = 0
+        limit = 3000
+        # 拉取数据
+        ths_index_daily_dicts = []
+        while True:
+            if offset >= 100000:
+                logger.warning(f"每日筹码分布 offset已达10万，停止拉取。")
+                break
+            df = self.ts_pro.ths_daily(**{
+                    "ts_code": "", "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
+                }, fields=[
+                    "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
+                    "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
+                ])
+            if df.empty:
+                break
+            else:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in df.itertuples():
+                    index_basic = index_basic_dao.get_index_by_code(row.ts_code)
+                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
+                    ths_index_daily_dicts.append(ths_index_daily_dict)
+            time.sleep(0.5)
+            if len(df) < limit:
+                break
+            offset += limit
         if ths_index_daily_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
