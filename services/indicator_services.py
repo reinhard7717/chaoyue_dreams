@@ -991,9 +991,10 @@ class IndicatorService:
             return None
 
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        logger.info(f"Type of df: {type(df)}")
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
         try:
-            dmi_df = df.ta.dmi(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
+            dmi_df = df.ta.dm(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
             if dmi_df is None or dmi_df.empty: return None
             # pandas_ta 列名: DMP_period (DI+), DMN_period (DI-), ADX_period
             rename_map = {}
