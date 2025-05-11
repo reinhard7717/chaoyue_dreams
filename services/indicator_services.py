@@ -249,7 +249,7 @@ class IndicatorService:
             return None
 
     # --- 核心数据准备函数 ---
-    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[pd.DataFrame]:
+    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
         """
         根据策略 JSON 配置文件准备包含重采样基础数据和所有计算指标的 DataFrame。
         """
@@ -416,12 +416,10 @@ class IndicatorService:
                 if isinstance(p, int) and p > 0:
                     _add_indicator_config(f'{ma_type}_{p}', ma_func, 'feature_engineering_params', {'period': p}, fe_timeframes, param_override_key=f'{ma_type.lower()}_params')
 
-
         # OBV 是基础的，通常都需要 (确保只添加一次)
         # 检查是否已有 OBV 配置，避免重复
         if not any(conf['name'] == 'OBV' for conf in indicator_configs):
             _add_indicator_config('OBV', self.calculate_obv, 'base_scoring', {}, all_time_levels_needed)
-
 
         # --- 确定最小时间级别 ---
         min_time_level = None
@@ -534,7 +532,6 @@ class IndicatorService:
                 missing_cols_str = ", ".join(list(required_cols_for_func - set(df_for_ta.columns)))
                 logger.debug(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} 时，df_for_ta 缺少必要列 ({missing_cols_str})。可用: {df_for_ta.columns.tolist()}")
                 return None
-
             try:
                 func_params_to_pass = config_item['params'].copy() # 使用为该指标准备好的参数
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
@@ -549,13 +546,11 @@ class IndicatorService:
                         indicator_result_df = indicator_result_df.to_frame()
                     else:
                         return None # 无法处理的返回类型
-
                 result_renamed_df = indicator_result_df.rename(columns=lambda x: f"{x}_{tf_calc}")
                 return (tf_calc, result_renamed_df)
             except Exception as e_calc:
                 logger.error(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}", exc_info=True)
                 return None
-
         for config_item_loop in indicator_configs:
             for tf_conf in config_item_loop['timeframes']:
                 if tf_conf in resampled_ohlcv_dfs:
@@ -565,7 +560,6 @@ class IndicatorService:
                     )
                 else:
                     logger.warning(f"[{stock_code}] 时间框架 {tf_conf} 在 resampled_ohlcv_dfs 中未找到，无法为指标 {config_item_loop['name']} 创建计算任务。")
-
         calculated_results_tuples = await asyncio.gather(*indicator_calculation_tasks, return_exceptions=True)
         calculated_indicators_by_tf = defaultdict(list)
         for res_tuple_item in calculated_results_tuples:
@@ -575,7 +569,6 @@ class IndicatorService:
                     calculated_indicators_by_tf[tf_res].append(indi_df_res)
             elif isinstance(res_tuple_item, Exception):
                 logger.error(f"[{stock_code}] 一个指标计算任务失败: {res_tuple_item}", exc_info=True)
-
         # --- 后处理 OBV_MA ---
         obv_ma_period_json = vc_params.get('obv_ma_period', ia_params.get('obv_ma_period', 10)) # 尝试从多个地方获取
         if vc_params.get('enabled', False) or ia_params.get('calculate_obv_ma', True): # 如果启用或需要计算
@@ -589,7 +582,6 @@ class IndicatorService:
                         logger.debug(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period_json} 计算完成。")
                     except Exception as e_obvma:
                         logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period_json} 出错: {e_obvma}", exc_info=True)
-
         # 6. 合并所有 DataFrame
         merged_indicators_by_tf = {}
         for tf_merge_indi, df_list_merge_indi in calculated_indicators_by_tf.items():
@@ -612,16 +604,12 @@ class IndicatorService:
                     logger.warning(f"[{stock_code}] TF {tf_merge_indi}: 基础重采样数据丢失，无法合并指标。")
             elif tf_merge_indi in resampled_ohlcv_dfs:
                 merged_indicators_by_tf[tf_merge_indi] = resampled_ohlcv_dfs[tf_merge_indi]
-
-
         if not merged_indicators_by_tf or min_time_level not in merged_indicators_by_tf:
             logger.error(f"[{stock_code}] 没有可合并的数据，或最小时间级别 {min_time_level} 的数据丢失。")
             return None
-
         final_merged_df = merged_indicators_by_tf[min_time_level].copy()
         # 对 all_time_levels_needed 进行排序，确保合并顺序一致性，例如按时间级别从小到大
         sorted_time_levels_for_merge = sorted(list(all_time_levels_needed), key=lambda x: self._get_timeframe_in_minutes(x) or float('inf'))
-
         for tf_final_merge in sorted_time_levels_for_merge:
             if tf_final_merge == min_time_level:
                 continue
@@ -635,8 +623,6 @@ class IndicatorService:
                 final_merged_df = pd.merge(final_merged_df, df_to_merge_final, left_index=True, right_index=True, how='left', suffixes=('_base', f'_other'))
             else:
                 logger.warning(f"[{stock_code}] 时间框架 {tf_final_merge} 的合并数据在 merged_indicators_by_tf 中未找到。")
-
-
         # --- 7. 计算衍生特征 ---
         logger.info(f"[{stock_code}] 开始计算衍生特征...")
         try:
@@ -651,7 +637,6 @@ class IndicatorService:
                         if ma_col_tf_deriv in final_merged_df.columns:
                             final_merged_df[f'CLOSE_{ma_type_deriv}_RATIO_{p_deriv}_{tf_str_deriv}'] = final_merged_df[close_col_tf_deriv] / final_merged_df[ma_col_tf_deriv]
                             final_merged_df[f'CLOSE_{ma_type_deriv}_NDIFF_{p_deriv}_{tf_str_deriv}'] = (final_merged_df[close_col_tf_deriv] - final_merged_df[ma_col_tf_deriv]) / final_merged_df[ma_col_tf_deriv]
-
             # 指标的变化率/差分 (RSI, MACDh, MFI, CMF, ADX 等)
             indicators_to_diff = fe_params.get('indicators_for_difference', [
                 {'base_name': 'RSI', 'params_key': 'rsi_period', 'default_period': 14},
@@ -661,12 +646,10 @@ class IndicatorService:
                 {'base_name': 'ADX', 'params_key': 'dmi_period', 'default_period': 14},
             ])
             diff_periods = fe_params.get('difference_periods', [1, 2]) # 计算1阶和2阶差分
-
             for indi_diff_conf in indicators_to_diff:
                 base_name = indi_diff_conf['base_name']
                 param_keys = indi_diff_conf['params_key']
                 default_p_values = indi_diff_conf['default_period']
-
                 for tf_str_diff in all_time_levels_needed:
                     # 构建指标列名
                     param_values_for_col = []
@@ -688,7 +671,6 @@ class IndicatorService:
                         for diff_p in diff_periods:
                             final_merged_df[f'{base_name}_DIFF{diff_p}_{param_str_for_col}_{tf_str_diff}'] = final_merged_df[indi_col_name_diff].diff(diff_p)
                             # final_merged_df[f'{base_name}_PCTCHG{diff_p}_{param_str_for_col}_{tf_str_diff}'] = final_merged_df[indi_col_name_diff].pct_change(diff_p) # 百分比变化可能导致inf
-
             # 价格在布林带/肯特纳通道中的位置
             # 布林带
             boll_period_deriv = bs_params.get('boll_period', default_boll_p['period'])
@@ -721,29 +703,24 @@ class IndicatorService:
             logger.info(f"[{stock_code}] 衍生特征计算完成。")
         except Exception as e_deriv:
             logger.error(f"[{stock_code}] 计算衍生特征时出错: {e_deriv}", exc_info=True)
-
-
         # 8. 最终填充
         nan_before_final_fill = final_merged_df.isnull().sum().sum()
         final_merged_df.ffill(inplace=True)
         final_merged_df.bfill(inplace=True)
         nan_after_final_fill = final_merged_df.isnull().sum().sum()
         logger.info(f"[{stock_code}] 最终填充完成。填充前 NaN 总数: {nan_before_final_fill}, 填充后 NaN 总数: {nan_after_final_fill}")
-
         if nan_after_final_fill > 0:
             nan_cols_summary = final_merged_df.isnull().sum()
             nan_cols_summary = nan_cols_summary[nan_cols_summary > 0].sort_values(ascending=False)
             logger.warning(f"[{stock_code}] 最终填充后仍存在 NaN 的列 (前10条): {nan_cols_summary.head(10).to_dict()}")
             # 对于完全是NaN的列，可以考虑填充0或移除，但需谨慎
             # final_merged_df.fillna(0, inplace=True) # 强制填充所有剩余NaN为0
-
         if final_merged_df.empty:
             logger.error(f"[{stock_code}] 最终合并和填充后的 DataFrame 为空。")
             return None
-
         logger.info(f"[{stock_code}] 策略数据准备完成，最终 DataFrame 形状: {final_merged_df.shape}, 列数: {len(final_merged_df.columns)}")
         logger.debug(f"[{stock_code}] 最终 DataFrame 列名 (部分): {final_merged_df.columns.tolist()[:30]}...") # 打印更多列名
-        return final_merged_df
+        return final_merged_df, indicator_configs
 
     # --- 周期对齐函数 ---
     # 这个函数在引入重采样后，不再用于主要的时间序列标准化，
@@ -991,7 +968,6 @@ class IndicatorService:
             return None
 
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
-        logger.info(f"Type of df: {type(df)}")
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
         try:
             dmi_df = df.ta.dm(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)

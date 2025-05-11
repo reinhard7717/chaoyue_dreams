@@ -55,7 +55,6 @@ class BaseStrategy(ABC):
     def run(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None, **kwargs) -> pd.DataFrame: # 修改返回类型为 DataFrame
         """
         执行策略并生成包含所有信号和中间结果的DataFrame。
-
         :param data: 同 generate_signals 的 data 参数。
         :param stock_code: 股票代码。
         :param indicator_configs: 指标配置列表。
@@ -82,18 +81,14 @@ class BaseStrategy(ABC):
                 # 注意：子策略的 generate_signals 内部仍需处理可能的列缺失。
         else:
             logger.debug(f"策略 '{self.strategy_name}' (股票: {stock_code}) 未声明任何必需列 (get_required_columns 返回空列表)。")
-
-
         # 调用具体策略的 generate_signals，传递所有相关参数
         # 现在期望 generate_signals 返回一个包含所有数据的 DataFrame
         processed_data_with_signals = self.generate_signals(data, stock_code=stock_code, indicator_configs=indicator_configs, **kwargs)
-
         if not isinstance(processed_data_with_signals, pd.DataFrame):
             logger.error(f"策略 '{self.strategy_name}' (股票: {stock_code}) 的 generate_signals 方法未按预期返回 Pandas DataFrame，而是返回了 {type(processed_data_with_signals)}。")
             # 可以选择是返回空 DataFrame 还是尝试转换，或抛出异常
             # 为了安全，返回空 DataFrame
             return pd.DataFrame()
-            
         return processed_data_with_signals
 
     @abstractmethod
