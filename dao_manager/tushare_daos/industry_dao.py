@@ -283,7 +283,7 @@ class IndustryDao(BaseDAO):
         """
         result = {}
         ths_index_member_dicts = []
-        ths_index_list = self.get_ths_index_list()  # 获取所有的ThsIndex model实例列表
+        ths_index_list = await self.get_ths_index_list()  # 获取所有的ThsIndex model实例列表
         logger.info(f"共获取同花顺概念板块 {len(ths_index_list)} 条数据")
         # 拉取数据
         for ths_index in ths_index_list:
