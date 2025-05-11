@@ -574,7 +574,7 @@ class IndicatorService:
                 if indi_df_res is not None and not indi_df_res.empty:
                     calculated_indicators_by_tf[tf_res].append(indi_df_res)
             elif isinstance(res_tuple_item, Exception):
-                logger.error(f"[{stock_code}] 一个指标计算任务失败: {res_tuple_item}", exc_info=False)
+                logger.error(f"[{stock_code}] 一个指标计算任务失败: {res_tuple_item}", exc_info=True)
 
         # --- 后处理 OBV_MA ---
         obv_ma_period_json = vc_params.get('obv_ma_period', ia_params.get('obv_ma_period', 10)) # 尝试从多个地方获取
@@ -588,7 +588,7 @@ class IndicatorService:
                         calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df_res)
                         logger.debug(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period_json} 计算完成。")
                     except Exception as e_obvma:
-                        logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period_json} 出错: {e_obvma}", exc_info=False)
+                        logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period_json} 出错: {e_obvma}", exc_info=True)
 
         # 6. 合并所有 DataFrame
         merged_indicators_by_tf = {}
@@ -866,7 +866,7 @@ class IndicatorService:
                 return None
             return pd.DataFrame({f'ATR_{period}': atr_series})
         except Exception as e:
-            logger.error(f"计算 ATR (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 ATR (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close') -> Optional[pd.DataFrame]:
@@ -926,7 +926,7 @@ class IndicatorService:
 
             return result_df if has_any_col else None
         except Exception as e:
-            logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=False)
+            logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_historical_volatility(self, df: pd.DataFrame, period: int = 20, window_type: Optional[str] = None, close_col='close', annual_factor: int = 252) -> Optional[pd.DataFrame]:
@@ -938,7 +938,7 @@ class IndicatorService:
             hv = log_returns.rolling(window=period, min_periods=max(1, int(period * 0.5))).std() * np.sqrt(annual_factor)
             return pd.DataFrame({f'HV_{period}': hv})
         except Exception as e:
-            logger.error(f"计算历史波动率 (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算历史波动率 (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_keltner_channels(self, df: pd.DataFrame, ema_period: int = 20, atr_period: int = 10, atr_multiplier: float = 2.0, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -964,7 +964,7 @@ class IndicatorService:
             })
             return result_df
         except Exception as e:
-            logger.error(f"计算肯特纳通道 (EMA周期 {ema_period}, ATR周期 {atr_period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算肯特纳通道 (EMA周期 {ema_period}, ATR周期 {atr_period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_cci(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -974,7 +974,7 @@ class IndicatorService:
             if cci_series is None or cci_series.empty: return None
             return pd.DataFrame({f'CCI_{period}': cci_series})
         except Exception as e:
-            logger.error(f"计算 CCI (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 CCI (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_cmf(self, df: pd.DataFrame, period: int = 20, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
@@ -987,7 +987,7 @@ class IndicatorService:
                 return None
             return pd.DataFrame({f'CMF_{period}': cmf_series})
         except Exception as e:
-            logger.error(f"计算 CMF (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 CMF (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1002,7 +1002,7 @@ class IndicatorService:
             if f'ADX_{period}' in dmi_df.columns: rename_map[f'ADX_{period}'] = f'ADX_{period}' # ADX 通常不变
             return dmi_df.rename(columns=rename_map)
         except Exception as e:
-            logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_ichimoku(self, df: pd.DataFrame, tenkan_period: int = 9, kijun_period: int = 26, senkou_period: int = 52, chikou_period: Optional[int] = None, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1073,7 +1073,7 @@ class IndicatorService:
 
             return result_df if not result_df.empty else None
         except Exception as e:
-            logger.error(f"计算 Ichimoku (t={tenkan_period}, k={kijun_period}, s={senkou_period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 Ichimoku (t={tenkan_period}, k={kijun_period}, s={senkou_period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_kdj(self, df: pd.DataFrame, period: int = 9, signal_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1093,7 +1093,7 @@ class IndicatorService:
             kdj_df[f'J_{period}_{signal_period}_{smooth_k_period}'] = 3 * k_series - 2 * d_series
             return kdj_df
         except Exception as e:
-            logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
@@ -1103,7 +1103,7 @@ class IndicatorService:
             if ema_series is None or ema_series.empty: return None
             return pd.DataFrame({f'EMA_{period}': ema_series})
         except Exception as e:
-            logger.error(f"计算 EMA (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 EMA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_sma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
@@ -1113,7 +1113,7 @@ class IndicatorService:
             if sma_series is None or sma_series.empty: return None
             return pd.DataFrame({f'SMA_{period}': sma_series})
         except Exception as e:
-            logger.error(f"计算 SMA (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 SMA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_amount_ma(self, df: pd.DataFrame, period: int = 20, amount_col='amount') -> Optional[pd.DataFrame]:
@@ -1122,7 +1122,7 @@ class IndicatorService:
             amt_ma_series = df[amount_col].rolling(window=period, min_periods=max(1, int(period*0.5))).mean()
             return pd.DataFrame({f'AMT_MA_{period}': amt_ma_series})
         except Exception as e:
-            logger.error(f"计算 AMT_MA (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 AMT_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_macd(self, df: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9, close_col='close') -> Optional[pd.DataFrame]:
@@ -1133,7 +1133,7 @@ class IndicatorService:
             # 列名: MACD_fast_slow_signal, MACDh_fast_slow_signal, MACDs_fast_slow_signal
             return macd_df
         except Exception as e:
-            logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_mfi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
@@ -1143,7 +1143,7 @@ class IndicatorService:
             if mfi_series is None or mfi_series.empty: return None
             return pd.DataFrame({f'MFI_{period}': mfi_series})
         except Exception as e:
-            logger.error(f"计算 MFI (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 MFI (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_mom(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
@@ -1154,7 +1154,7 @@ class IndicatorService:
             if mom_series is None or mom_series.empty: return None
             return pd.DataFrame({f'MOM_{period}': mom_series})
         except Exception as e:
-            logger.error(f"计算 MOM (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 MOM (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_obv(self, df: pd.DataFrame, close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
@@ -1164,7 +1164,7 @@ class IndicatorService:
             if obv_series is None or obv_series.empty: return None
             return pd.DataFrame({'OBV': obv_series})
         except Exception as e:
-            logger.error(f"计算 OBV 出错: {e}", exc_info=False)
+            logger.error(f"计算 OBV 出错: {e}", exc_info=True)
             return None
 
     async def calculate_roc(self, df: pd.DataFrame, period: int = 12, close_col='close') -> Optional[pd.DataFrame]:
@@ -1174,7 +1174,7 @@ class IndicatorService:
             if roc_series is None or roc_series.empty: return None
             return pd.DataFrame({f'ROC_{period}': roc_series})
         except Exception as e:
-            logger.error(f"计算 ROC (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_amount_roc(self, df: pd.DataFrame, period: int, amount_col='amount') -> Optional[pd.DataFrame]:
@@ -1187,7 +1187,7 @@ class IndicatorService:
             df_results.replace([np.inf, -np.inf], np.nan, inplace=True) # 处理除以0的情况
             return df_results
         except Exception as e:
-            logger.error(f"计算 Amount ROC (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 Amount ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_volume_roc(self, df: pd.DataFrame, period: int, volume_col='volume') -> Optional[pd.DataFrame]:
@@ -1200,7 +1200,7 @@ class IndicatorService:
             df_results.replace([np.inf, -np.inf], np.nan, inplace=True)
             return df_results
         except Exception as e:
-            logger.error(f"计算 Volume ROC (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 Volume ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_rsi(self, df: pd.DataFrame, period: int = 14, close_col='close') -> Optional[pd.DataFrame]:
@@ -1210,7 +1210,7 @@ class IndicatorService:
             if rsi_series is None or rsi_series.empty: return None
             return pd.DataFrame({f'RSI_{period}': rsi_series})
         except Exception as e:
-            logger.error(f"计算 RSI (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 RSI (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_sar(self, df: pd.DataFrame, af_step: float = 0.02, max_af: float = 0.2, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
@@ -1234,7 +1234,7 @@ class IndicatorService:
                 logger.warning(f"计算 SAR 未找到 PSARl 或 PSARs 列。返回列: {psar_df.columns.tolist()}")
                 return None
         except Exception as e:
-            logger.error(f"计算 SAR (af={af_step}, max_af={max_af}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 SAR (af={af_step}, max_af={max_af}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_stoch(self, df: pd.DataFrame, k_period: int = 14, d_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1245,7 +1245,7 @@ class IndicatorService:
             # 列名: STOCHk_k_d_smooth, STOCHd_k_d_smooth
             return stoch_df
         except Exception as e:
-            logger.error(f"计算 STOCH (k={k_period},d={d_period},s={smooth_k_period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 STOCH (k={k_period},d={d_period},s={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_adl(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
@@ -1257,7 +1257,7 @@ class IndicatorService:
             if adl_series is None or adl_series.empty: return None
             return pd.DataFrame({'ADL': adl_series})
         except Exception as e:
-            logger.error(f"计算 ADL 出错: {e}", exc_info=False)
+            logger.error(f"计算 ADL 出错: {e}", exc_info=True)
             return None
 
     async def calculate_pivot_points(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1293,7 +1293,7 @@ class IndicatorService:
 
             return results.iloc[1:] # 第一行会是NaN
         except Exception as e:
-            logger.error(f"计算 Pivot Points 出错: {e}", exc_info=False)
+            logger.error(f"计算 Pivot Points 出错: {e}", exc_info=True)
             return None
 
     async def calculate_vol_ma(self, df: pd.DataFrame, period: int = 20, volume_col='volume') -> Optional[pd.DataFrame]:
@@ -1302,7 +1302,7 @@ class IndicatorService:
             vol_ma_series = df[volume_col].rolling(window=period, min_periods=max(1, int(period*0.5))).mean()
             return pd.DataFrame({f'VOL_MA_{period}': vol_ma_series})
         except Exception as e:
-            logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_vwap(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close', volume_col='volume', anchor: Optional[str] = None) -> Optional[pd.DataFrame]:
@@ -1315,7 +1315,7 @@ class IndicatorService:
             col_name = 'VWAP' if anchor is None else f'VWAP_{anchor}'
             return pd.DataFrame({col_name: vwap_series})
         except Exception as e:
-            logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_willr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1327,7 +1327,7 @@ class IndicatorService:
             if willr_series is None or willr_series.empty: return None
             return pd.DataFrame({f'WILLR_{period}': willr_series})
         except Exception as e:
-            logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=False)
+            logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
 

@@ -435,13 +435,13 @@ class Command(BaseCommand):
                  saved_count += 1
             except Exception as e:
                  if 'strategy_name' in str(e).lower() and "Unknown field" in str(e):
-                     logger.error(f"[{stock_info.stock_code} - {strategy_name}] 保存数据时出错: 'StockScoreAnalysis' 模型似乎缺少 'strategy_name' 字段。请添加该字段并执行迁移。错误: {e}", exc_info=False)
+                     logger.error(f"[{stock_info.stock_code} - {strategy_name}] 保存数据时出错: 'StockScoreAnalysis' 模型似乎缺少 'strategy_name' 字段。请添加该字段并执行迁移。错误: {e}", exc_info=True)
                      raise CommandError(f"Database model 'StockScoreAnalysis' is missing the required 'strategy_name' field. Please add it via migration.") from e
                  elif 'constraint' in str(e).lower() and 'unique' in str(e).lower():
-                      logger.warning(f"[{stock_info.stock_code} - {strategy_name}] 保存时间戳 {analysis_data['timestamp']} 时可能遇到唯一约束冲突 (可能由并发写入引起): {e}", exc_info=False)
+                      logger.warning(f"[{stock_info.stock_code} - {strategy_name}] 保存时间戳 {analysis_data['timestamp']} 时可能遇到唯一约束冲突 (可能由并发写入引起): {e}", exc_info=True)
                       error_count += 1 # 计为错误
                  else:
-                     logger.error(f"[{stock_info.stock_code} - {strategy_name}] 保存时间戳 {analysis_data['timestamp']} 的分析数据时出错: {e}", exc_info=False)
+                     logger.error(f"[{stock_info.stock_code} - {strategy_name}] 保存时间戳 {analysis_data['timestamp']} 的分析数据时出错: {e}", exc_info=True)
                      error_count += 1
 
 

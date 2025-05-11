@@ -28,7 +28,7 @@ def send_update_to_user_sync(user_id: int, sub_type: str, payload: dict):
         logger.debug(f"成功发送消息到组 {group_name} (sub_type: {sub_type})")
     except Exception as e:
         # 在实际发送处也记录错误可能更有用
-        logger.error(f"发送消息到组 {group_name} 失败: {e}", exc_info=False)
+        logger.error(f"发送消息到组 {group_name} 失败: {e}", exc_info=True)
 
 
 def broadcast_public_message_sync(sub_type: str, payload: dict):
@@ -51,7 +51,7 @@ def broadcast_public_message_sync(sub_type: str, payload: dict):
         async_to_sync(channel_layer.group_send)(group_name, message_data)
         logger.debug(f"成功广播消息到组 {group_name} (sub_type: {sub_type})")
     except Exception as e:
-        logger.error(f"广播消息到组 {group_name} 失败: {e}", exc_info=False)
+        logger.error(f"广播消息到组 {group_name} 失败: {e}", exc_info=True)
 
 # 如果需要在异步代码中使用，可以定义异步版本
 # async def send_update_to_user_async(user_id: int, sub_type: str, payload: dict):

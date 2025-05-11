@@ -113,7 +113,7 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
                 times.extend(morning_times)
                 times.extend(afternoon_times)
              except Exception as e:
-                  logger.error(f"生成 {day} 的 {freq} 分钟K线标准时间点出错: {e}", exc_info=False)
+                  logger.error(f"生成 {day} 的 {freq} 分钟K线标准时间点出错: {e}", exc_info=True)
                   continue # 跳过当前日期
 
     else:
@@ -263,7 +263,7 @@ class IndicatorDAO(BaseDAO):
                          # 仅记录错误类型和少量信息，避免日志过长
                          # 尝试打印导致错误的字典键，如果 item_dict 是字典
                          sample_keys = list(item_dict.keys()) if isinstance(item_dict, dict) else 'N/A'
-                         logger.error(f"转换缓存字典为 Model 实例时出错 ({type(e_conv).__name__}) for {stock_code} {time_level_str}. Sample Dict Keys: {sample_keys}", exc_info=False)
+                         logger.error(f"转换缓存字典为 Model 实例时出错 ({type(e_conv).__name__}) for {stock_code} {time_level_str}. Sample Dict Keys: {sample_keys}", exc_info=True)
 
                  if conversion_errors > 0:
                      logger.warning(f"从缓存转换 {stock_code} {time_level_str} 数据时遇到 {conversion_errors} 个错误。")
@@ -466,7 +466,7 @@ class IndicatorDAO(BaseDAO):
                          # 如果转换失败，记录警告并使用默认的 NaN/0
                          # 记录警告时，仅打印值和类型，避免日志过长
                          value_str = str(value)[:100] # 截断值字符串
-                         logger.warning(f"转换字段 '{field_name}' 值 '{value_str}' (类型: {type(value).__name__}) 失败 for {stock_code} {time_level_val}: {e}", exc_info=False)
+                         logger.warning(f"转换字段 '{field_name}' 值 '{value_str}' (类型: {type(value).__name__}) 失败 for {stock_code} {time_level_val}: {e}", exc_info=True)
                          # 根据字段名设置默认值
                          if 'vol' in field_name: # 成交量默认 0
                              row_data[field_name] = 0
@@ -591,7 +591,7 @@ class IndicatorDAO(BaseDAO):
             # 避免科学计数法字符串问题，先尝试转为字符串再创建 Decimal
             return Decimal(str(value))
         except (InvalidOperation, ValueError, TypeError) as e:
-            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 Decimal: {e}", exc_info=False)
+            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 Decimal: {e}", exc_info=True)
             return None
 
     def _safe_int(self, value: Any) -> Optional[int]:
@@ -613,7 +613,7 @@ class IndicatorDAO(BaseDAO):
                  logger.warning(f"无法将非数字/字符串类型 '{type(value).__name__}' 的值 '{value}' 转换为 int。")
                  return None
         except (ValueError, TypeError) as e:
-            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 int: {e}", exc_info=False)
+            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 int: {e}", exc_info=True)
             return None
 
     def _safe_float(self, value: Any) -> Optional[float]:
@@ -631,7 +631,7 @@ class IndicatorDAO(BaseDAO):
                  logger.warning(f"无法将非数字/字符串类型 '{type(value).__name__}' 的值 '{value}' 转换为 float。")
                  return None
         except (ValueError, TypeError) as e:
-            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 float: {e}", exc_info=False)
+            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 float: {e}", exc_info=True)
             return None
 
     def _safe_datetime(self, value: Any) -> Optional[datetime.datetime]:
@@ -677,7 +677,7 @@ class IndicatorDAO(BaseDAO):
         except Exception as e: # 捕获更广泛的异常
             # 记录警告时，仅打印值和类型，避免日志过长
             value_str = str(value)[:100] # 截断值字符串
-            logger.warning(f"无法将值 '{value_str}' (类型: {type(value).__name__}) 安全转换为时区感知 datetime 对象: {e}", exc_info=False)
+            logger.warning(f"无法将值 '{value_str}' (类型: {type(value).__name__}) 安全转换为时区感知 datetime 对象: {e}", exc_info=True)
             return None
 
 
