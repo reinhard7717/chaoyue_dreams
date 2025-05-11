@@ -638,10 +638,13 @@ class IndustryFormatProcess(BaseDAO):
 
     # 同花顺概念和行业指数
     def set_ths_index_data(self, df_data: Any) -> Dict:
+        # 先尝试解析 count 字段
+        parsed_count = self._parse_number(getattr(df_data, "count", None))
+
         data_dict = {
             "ts_code": getattr(df_data, "ts_code", None),
             "name": getattr(df_data, "name", None),
-            "count": self._parse_number(getattr(df_data, "count", None)),
+            "count": parsed_count if parsed_count is not None else 0,
             "exchange": getattr(df_data, "exchange", None),
             "list_date": self._parse_datetime(getattr(df_data, "list_date", None)),
             "type": getattr(df_data, "type", None),

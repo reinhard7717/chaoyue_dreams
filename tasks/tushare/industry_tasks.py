@@ -31,7 +31,7 @@ def get_last_monday_and_friday():
     last_friday = last_monday + datetime.timedelta(days=4)
     return last_monday, last_friday
 
-# 任务：准备 Transformer 训练数据并保存
+# 任务：同花顺板块 & 指数行情
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_history_task', queue='SaveData_TimeTrade')
 def save_ths_index_history_task(self):
     industry_dao = IndustryDao()
