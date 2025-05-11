@@ -293,12 +293,12 @@ class IndustryDao(BaseDAO):
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in df.itertuples():
-                    ths_index = await self.get_ths_index_by_code(row.ts_code)
                     stock = await self.stock_cache_get.stock_data_by_code(row.con_code)
                     if stock:
+                        ths_index = await self.get_ths_index_by_code(row.ts_code)
                         ths_index_member_dict = self.data_format_process.set_ths_index_member_data(ths_index=ths_index, stock=stock, df_data=row)
                         ths_index_member_dicts.append(ths_index_member_dict)
-                logger.info(f"获取同花顺概念板块成分： {len(ths_index_member_dicts)}")
+                # logger.info(f"获取同花顺概念板块成分： {len(ths_index_member_dicts)}")
             # time.sleep(0.5)
         if ths_index_member_dicts:
             # 保存到数据库
@@ -387,8 +387,8 @@ class IndustryDao(BaseDAO):
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
-                index_basic = index_basic_dao.get_index_by_code(row.ts_code)
-                ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
+                ths_index = await self.get_ths_index_by_code(row.ts_code)
+                ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index,df_data=row)
                 ths_index_daily_dicts.append(ths_index_daily_dict)
         if ths_index_daily_dicts:
             # 保存到数据库
