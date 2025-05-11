@@ -68,7 +68,7 @@ def batch_prepare_transformer_data(self, stock_code: str, params_file: str = Non
 
     try:
         logger.info(f"{task_id_str} [{stock_code}]：调用策略 run 方法生成信号及中间数据...")
-        data_with_all_signals = strategy.run(data=data_df, stock_code=stock_code, indicator_configs=indicator_configs)
+        data_with_all_signals = strategy.generate_signals(data=data_df, stock_code=stock_code, indicator_configs=indicator_configs)
         
         if data_with_all_signals is None or data_with_all_signals.empty:
             logger.error(f"{task_id_str} [{stock_code}]：策略 run 方法返回空或None DataFrame。")
