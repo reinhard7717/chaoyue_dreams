@@ -219,7 +219,7 @@ class TrendFollowingStrategy(BaseStrategy):
              self.transformer_batch_size = self.transformer_training_config['batch_size']
         if 'learning_rate' in self.transformer_training_config: # 同步到 model_config 供参考
             self.transformer_model_config['learning_rate'] = self.transformer_training_config['learning_rate']
-        if 'weight_decay' in self.transformer_training_config: # 同步到 model_config 供参考
+        if 'weight_decay' in self.transformer_training_config: # 同步到 model_config供参考
             self.transformer_model_config['weight_decay'] = self.transformer_training_config['weight_decay']
 
         self.transformer_data_prep_config: Dict[str, Any] = self.tf_params.get('transformer_data_prep_config', {
@@ -255,7 +255,7 @@ class TrendFollowingStrategy(BaseStrategy):
         # TrendFollowingStrategy._validate_params 方法内部应首先调用 super()._validate_params()。
         logger.debug(f"{log_prefix} 即将调用 self._validate_params()...")
         try:
-            self._validate_params()
+            self._validate_params() # <-- 将此调用移到这里
             logger.debug(f"{log_prefix} self._validate_params() 调用完成。")
         except Exception as e_validate:
             # 如果 _validate_params 内部抛出未捕获的异常，这里可以记录并决定是否让 __init__ 失败
@@ -284,7 +284,7 @@ class TrendFollowingStrategy(BaseStrategy):
                  logger.warning(f"{log_prefix} 最终 'trend_following_params' 键存在于参数中，但其内容为空。")
         
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
-        
+                
     def _normalize_weights(self, weights: Dict[str, float]):
         """归一化权重字典，使其总和为1。"""
         total_weight = sum(weights.values())
