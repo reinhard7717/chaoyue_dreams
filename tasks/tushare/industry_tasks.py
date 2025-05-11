@@ -32,7 +32,7 @@ def get_last_monday_and_friday():
     return last_monday, last_friday
 
 # 任务：准备 Transformer 训练数据并保存
-@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_history_task', queue='SaveData_TimeTrade')
 def save_ths_index_history_task(self):
     industry_dao = IndustryDao()
     logger.info(f"开始获取同花顺板块指数...")
@@ -50,7 +50,7 @@ def save_ths_index_history_task(self):
         result_daily = asyncio.run(industry_dao.save_ths_index_daily_by_trade_date(trade_date=day))
         logger.info(f"保存 {day} 同花顺板块指数行情， 结果：{result_daily}")
 
-@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_this_week_task')
+@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_this_week_task', queue='SaveData_TimeTrade')
 def save_ths_index_this_week_task(self):
     industry_dao = IndustryDao()
     logger.info(f"开始获取同花顺板块指数...")
