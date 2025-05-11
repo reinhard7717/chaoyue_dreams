@@ -244,7 +244,7 @@ class IndustryDao(BaseDAO):
             df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
             df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
             for row in df.itertuples():
-                if row.count == 0:
+                if row.count is None:
                     logger.info(f"count为0: {row}")
                 industry_dict = self.data_format_process.set_ths_index_data(df_data=row)
                 industry_dicts.append(industry_dict)
