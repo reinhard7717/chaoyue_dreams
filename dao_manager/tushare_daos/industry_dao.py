@@ -11,7 +11,7 @@ import pandas as pd
 
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from stock_models.industry import DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex, DcMember
+from stock_models.industry import DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
 from utils.cache_get import StockInfoCacheGet
 from utils.data_format_process import IndustryFormatProcess
 
