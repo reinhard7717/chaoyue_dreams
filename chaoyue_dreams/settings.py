@@ -207,7 +207,10 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'), # 使用 os.path.join 拼接字符串路径
 ]
 
-# STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# 配置 indicator_naming.json 的路径
+INDICATOR_NAMING_CONFIG_PATH = BASE_DIR / 'config' / 'indicator_naming.json'
 
 
 # 默认主键字段类型

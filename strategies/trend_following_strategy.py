@@ -28,11 +28,9 @@ from .utils.deep_learning_utils import (
     prepare_data_for_transformer
 )
 
-# 加载和使用命名模板
-NAMING_CONFIG_PATH = Path('indicator_naming.json')
-
+# 读取指标规范命名json
 def load_naming_config():
-    with open(NAMING_CONFIG_PATH, 'r', encoding='utf-8') as f:
+    with open(settings.INDICATOR_NAMING_CONFIG_PATH, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 NAMING_CONFIG = load_naming_config()
