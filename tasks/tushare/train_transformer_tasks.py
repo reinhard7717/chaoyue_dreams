@@ -25,7 +25,7 @@ def load_params_config():
 
 # 任务：准备 Transformer 训练数据并保存
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_prepare_transformer_data')
-def batch_prepare_transformer_data(self, stock_code: str, params_file: str = "strategies/indicator_parameters.json", model_dir="models", base_bars: int = 10000):
+def batch_prepare_transformer_data(self, stock_code: str, params_file: str = None, model_dir: str = None, base_bars: int = 10000):
     task_id_str = f"任务 {self.request.id if self.request else 'UnknownID'}"
     logger.info(f"{task_id_str}：开始为 {stock_code} 执行 Transformer 数据准备...")
     
@@ -180,7 +180,7 @@ def schedule_transformer_data_preparation(self, params_file: str = None, base_da
 
         for stock in all_stocks:
             stock_code = stock.stock_code
-            logger.info(f"分派 {stock_code} 的 Transformer 数据准备任务到 'Train_Transformer_Prepare_Data' 队列...")
+            logger.info(f"分派 {stock_code} 的 Transformer 数据准备任务到 'Train_Transformer_Prepare_Data' 队列，params_file:{params_file}...")
 
             prepare_task_signature = batch_prepare_transformer_data.s(
                 stock_code=stock_code,
