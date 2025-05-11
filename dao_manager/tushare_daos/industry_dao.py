@@ -270,6 +270,36 @@ class IndustryDao(BaseDAO):
         ths_index_members = await sync_to_async(lambda: ThsIndexMember.objects.filter(ts_code=ts_code).all())()
         return ths_index_members
 
+    # 获取某只股票所属的所有同花顺板块/行业/概念
+    async def get_stock_ths_indices(self, stock_code: str) -> list:
+        """
+        获取某只股票所属的所有同花顺板块/行业/概念
+        """
+        return await sync_to_async(list)(
+            ThsIndexMember.objects.filter(stock__stock_code=stock_code, is_new='1').select_related('ths_index')
+        )
+
+    # 获取某个板块/行业/概念在指定日期的行情特征
+    async def get_ths_index_daily_feature(self, ts_code: str, trade_date: str) -> dict:
+        """
+        获取某个板块/行业/概念在指定日期的行情特征
+        """
+        obj = await sync_to_async(ThsIndexDaily.objects.filter(
+            ths_index__ts_code=ts_code, trade_time=trade_date
+        ).first)()
+        if obj:
+            return {
+                "close": obj.close,
+                "pct_change": obj.pct_change,
+                "turnover_rate": obj.turnover_rate,
+                "total_mv": obj.total_mv,
+                "float_mv": obj.float_mv,
+                "pe_ttm": obj.pe_ttm,
+                "pb_mrq": obj.pb_mrq,
+                # ...可扩展
+            }
+        return {}
+
     async def save_ths_index_member(self) -> Dict:
         """
         接口：ths_member
@@ -381,7 +411,6 @@ class IndustryDao(BaseDAO):
                 "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
             ])
         ths_index_daily_dicts = []
-        nil_ths_index_ids = []
         if df.empty:
             return {}
         else:
@@ -392,8 +421,6 @@ class IndustryDao(BaseDAO):
                 if ths_index:
                     ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index,df_data=row)
                     ths_index_daily_dicts.append(ths_index_daily_dict)
-                else:
-                    nil_ths_index_ids.append(row.ts_code)
         if ths_index_daily_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
@@ -401,8 +428,6 @@ class IndustryDao(BaseDAO):
                 data_list=ths_index_daily_dicts,
                 unique_fields=['ths_index', 'trade_time']
             )
-        if nil_ths_index_ids:
-            logger.info(f"未找到的ths_index：{nil_ths_index_ids}")
         return result
 
     async def save_ths_index_daily_history(self, start_date: date, end_date: date) -> Dict:

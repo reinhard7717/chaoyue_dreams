@@ -1,0 +1,255 @@
+{
+  "ohlcv_naming_convention": {
+    "description": "原始OHLCV数据及其重采样后的基础列命名 (在添加时间级别后缀前)",
+    "output_columns": [
+      {"name_pattern": "open", "description": "开盘价"},
+      {"name_pattern": "high", "description": "最高价"},
+      {"name_pattern": "low", "description": "最低价"},
+      {"name_pattern": "close", "description": "收盘价"},
+      {"name_pattern": "volume", "description": "成交量"},
+      {"name_pattern": "amount", "description": "成交额"}
+    ]
+  },
+  "indicator_naming_conventions": {
+    "ATR": {
+      "description": "Average True Range (平均真实波幅)",
+      "output_columns": [
+        {"name_pattern": "ATR_{period}", "description": "平均真实波幅值"}
+      ]
+    },
+    "BOLL": {
+       "description": "Bollinger Bands (布林带) 及其相关指标",
+       "output_columns": [
+         {"name_pattern": "BBL_{period}_{std_dev:.1f}", "description": "布林带下轨"},
+         {"name_pattern": "BBM_{period}_{std_dev:.1f}", "description": "布林带中轨 (简单移动平均)"},
+         {"name_pattern": "BBU_{period}_{std_dev:.1f}", "description": "布林带上轨"},
+         {"name_pattern": "BBW_{period}_{std_dev:.1f}", "description": "布林带宽度 ((上轨 - 下轨) / 中轨)"},
+         {"name_pattern": "BBP_{period}_{std_dev:.1f}", "description": "布林带 %B ((收盘价 - 下轨) / (上轨 - 下轨))"}
+       ]
+    },
+    "CCI": {
+       "description": "Commodity Channel Index (商品通道指数)",
+       "output_columns": [{"name_pattern": "CCI_{period}", "description": "商品通道指数值"}]
+    },
+    "CMF": {
+       "description": "Chaikin Money Flow (乔金资金流向指数)",
+       "output_columns": [{"name_pattern": "CMF_{period}", "description": "乔金资金流向指数值"}]
+    },
+    "DMI": {
+       "description": "Directional Movement Index (趋向指标) - PDI (+DI), NDI (-DI), ADX",
+       "output_columns": [
+         {"name_pattern": "PDI_{period}", "description": "正向指标 (+DI)"},
+         {"name_pattern": "NDI_{period}", "description": "负向指标 (-DI)"},
+         {"name_pattern": "ADX_{period}", "description": "平均趋向指数 (ADX)"}
+       ]
+    },
+    "ICHIMOKU": {
+       "description": "Ichimoku Cloud (一目均衡表)",
+       "output_columns": [
+         {"name_pattern": "TENKAN_{tenkan_period}", "description": "转换线 (Tenkan Sen)"},
+         {"name_pattern": "KIJUN_{kijun_period}", "description": "基准线 (Kijun Sen)"},
+         {"name_pattern": "CHIKOU_{kijun_period}", "description": "迟行线 (Chikou Span), 收盘价后移 {kijun_period} 周期"},
+         {"name_pattern": "SENKOU_A_{tenkan_period}_{kijun_period}", "description": "先行线 A (Senkou Span A), (转换线+基准线)/2"},
+         {"name_pattern": "SENKOU_B_{senkou_period}", "description": "先行线 B (Senkou Span B), {senkou_period} 周期最高最低价均值"}
+       ]
+    },
+    "KDJ": {
+       "description": "Stochastic Oscillator (KDJ 随机指标) - K, D, J",
+       "output_columns": [
+         {"name_pattern": "K_{period}_{signal_period}_{smooth_k_period}", "description": "随机指标 K 值"},
+         {"name_pattern": "D_{period}_{signal_period}_{smooth_k_period}", "description": "随机指标 D 值"},
+         {"name_pattern": "J_{period}_{signal_period}_{smooth_k_period}", "description": "随机指标 J 值 (3*K - 2*D)"}
+       ]
+    },
+    "STOCH": {
+       "description": "Stochastic Oscillator (%K and %D 随机指标)",
+       "output_columns": [
+          {"name_pattern": "STOCHk_{k_period}_{d_period}_{smooth_k_period}", "description": "随机指标 %K 线 (pandas_ta原生名称)"},
+          {"name_pattern": "STOCHd_{k_period}_{d_period}_{smooth_k_period}", "description": "随机指标 %D 线 (pandas_ta原生名称)"}
+       ]
+    },
+    "EMA": {
+       "description": "Exponential Moving Average (指数移动平均)",
+       "output_columns": [{"name_pattern": "EMA_{period}", "description": "指数移动平均线值"}]
+    },
+     "SMA": {
+       "description": "Simple Moving Average (简单移动平均)",
+       "output_columns": [{"name_pattern": "SMA_{period}", "description": "简单移动平均线值"}]
+    },
+    "AMT_MA": {
+       "description": "Amount Moving Average (成交额移动平均)",
+       "output_columns": [{"name_pattern": "AMT_MA_{period}", "description": "成交额移动平均线值"}]
+    },
+    "MACD": {
+       "description": "Moving Average Convergence Divergence (指数平滑异同移动平均)",
+       "output_columns": [
+         {"name_pattern": "MACD_{period_fast}_{period_slow}_{signal_period}", "description": "MACD 线 (快线EMA - 慢线EMA)"},
+         {"name_pattern": "MACDh_{period_fast}_{period_slow}_{signal_period}", "description": "MACD 柱状图 (MACD线 - 信号线)"},
+         {"name_pattern": "MACDs_{period_fast}_{period_slow}_{signal_period}", "description": "MACD 信号线 (MACD线的信号线EMA)"}
+       ]
+    },
+     "MFI": {
+       "description": "Money Flow Index (资金流向指数)",
+       "output_columns": [{"name_pattern": "MFI_{period}", "description": "资金流向指数值"}]
+    },
+    "MOM": {
+       "description": "Momentum (动量指标)",
+       "output_columns": [{"name_pattern": "MOM_{period}", "description": "动量指标值 (当前收盘价 / N周期前收盘价 - 1 或 当前收盘价 - N周期前收盘价)"}]
+    },
+     "OBV": {
+       "description": "On-Balance Volume (平衡交易量)",
+       "output_columns": [{"name_pattern": "OBV", "description": "平衡交易量累计值"}]
+    },
+     "ROC": {
+       "description": "Rate of Change (价格变化率)",
+       "output_columns": [{"name_pattern": "ROC_{period}", "description": "价格变化率值"}]
+    },
+    "AROC": {
+       "description": "Rate of Change (Amount 成交额变化率)",
+       "output_columns": [{"name_pattern": "AROC_{period}", "description": "成交额变化率值"}]
+    },
+    "VROC": {
+       "description": "Rate of Change (Volume 成交量变化率)",
+       "output_columns": [{"name_pattern": "VROC_{period}", "description": "成交量变化率值"}]
+    },
+    "RSI": {
+       "description": "Relative Strength Index (相对强弱指数)",
+       "output_columns": [{"name_pattern": "RSI_{period}", "description": "相对强弱指数值"}]
+    },
+     "SAR": {
+       "description": "Parabolic SAR (抛物线停损转向指标)",
+       "output_columns": [{"name_pattern": "SAR_{af_step}_{max_af}", "description": "抛物线停损转向点位"}]
+    },
+    "ADL": {
+       "description": "Accumulation/Distribution Line (累积/派发线)",
+       "output_columns": [{"name_pattern": "ADL", "description": "累积/派发线累计值"}]
+    },
+     "PIVOT_POINTS": {
+       "description": "Classic and Fibonacci Pivot Points (经典和斐波那契枢轴点)",
+       "output_columns": [
+         {"name_pattern": "PP", "description": "经典枢轴点"},
+         {"name_pattern": "S1", "description": "经典支撑位 1"},
+         {"name_pattern": "S2", "description": "经典支撑位 2"},
+         {"name_pattern": "S3", "description": "经典支撑位 3"},
+         {"name_pattern": "S4", "description": "经典支撑位 4"},
+         {"name_pattern": "R1", "description": "经典阻力位 1"},
+         {"name_pattern": "R2", "description": "经典阻力位 2"},
+         {"name_pattern": "R3", "description": "经典阻力位 3"},
+         {"name_pattern": "R4", "description": "经典阻力位 4"},
+         {"name_pattern": "F_R1", "description": "斐波那契阻力位 1"},
+         {"name_pattern": "F_R2", "description": "斐波那契阻力位 2"},
+         {"name_pattern": "F_R3", "description": "斐波那契阻力位 3"},
+         {"name_pattern": "F_S1", "description": "斐波那契支撑位 1"},
+         {"name_pattern": "F_S2", "description": "斐波那契支撑位 2"},
+         {"name_pattern": "F_S3", "description": "斐波那契支撑位 3"}
+       ]
+    },
+    "VOL_MA": {
+       "description": "Volume Moving Average (成交量移动平均)",
+       "output_columns": [{"name_pattern": "VOL_MA_{period}", "description": "成交量移动平均线值"}]
+    },
+     "VWAP": {
+       "description": "Volume Weighted Average Price (成交量加权平均价)",
+       "output_columns": [
+           {"name_pattern": "VWAP", "description": "成交量加权平均价 (无锚点)"},
+           {"name_pattern": "VWAP_{anchor}", "description": "成交量加权平均价 (按锚点 {anchor} 重置)"}
+       ]
+    },
+     "WILLR": {
+       "description": "Williams %R (威廉姆斯 %R)",
+       "output_columns": [{"name_pattern": "WILLR_{period}", "description": "威廉姆斯 %R 指标值"}]
+    },
+    "HV": {
+      "description": "Historical Volatility (年化历史波动率)",
+      "output_columns": [
+        {"name_pattern": "HV_{period}", "description": "历史波动率值"}
+      ]
+    },
+    "KC": {
+      "description": "Keltner Channels (肯特纳通道)",
+      "output_columns": [
+        {"name_pattern": "KCL_{ema_period}_{atr_period}", "description": "肯特纳通道下轨"},
+        {"name_pattern": "KCM_{ema_period}_{atr_period}", "description": "肯特纳通道中轨 (EMA)"},
+        {"name_pattern": "KCU_{ema_period}_{atr_period}", "description": "肯特纳通道上轨"}
+      ]
+    },
+    "SCORE": {
+      "description": "基础指标评分 (由 strategy_utils 计算，非 IndicatorService 直接输出，但策略需要)",
+       "output_columns": [
+         {"name_pattern": "SCORE_MACD_{period_fast}_{period_slow}_{signal_period}", "description": "MACD 评分"},
+         {"name_pattern": "SCORE_RSI_{period}", "description": "RSI 评分"},
+         {"name_pattern": "SCORE_KDJ_{period}_{signal_period}_{smooth_k_period}", "description": "KDJ 评分"},
+         {"name_pattern": "SCORE_BOLL_{period}_{std_dev:.1f}", "description": "BOLL 评分"},
+         {"name_pattern": "SCORE_CCI_{period}", "description": "CCI 评分"},
+         {"name_pattern": "SCORE_MFI_{period}", "description": "MFI 评分"},
+         {"name_pattern": "SCORE_ROC_{period}", "description": "ROC 评分"},
+         {"name_pattern": "SCORE_PDI_{period}", "description": "+DI 评分 (来自 DMI)"},
+         {"name_pattern": "SCORE_NDI_{period}", "description": "-DI 评分 (来自 DMI)"},
+         {"name_pattern": "SCORE_ADX_{period}", "description": "ADX 评分 (来自 DMI)"},
+         {"name_pattern": "SCORE_SAR_{af_step}_{max_af}", "description": "SAR 评分"}
+       ]
+    }
+  },
+  "derivative_feature_naming_conventions": {
+     "CLOSE_MA_RATIO": {
+        "description": "收盘价与移动平均线比率",
+        "output_column_pattern": "CLOSE_{ma_type}_RATIO_{period}",
+        "calculation_logic_desc": "收盘价 / MA_{period} 的值"
+     },
+     "CLOSE_MA_NDIFF": {
+        "description": "收盘价与移动平均线归一化差值",
+        "output_column_pattern": "CLOSE_{ma_type}_NDIFF_{period}",
+        "calculation_logic_desc": "(收盘价 - MA_{period}) / MA_{period} 的值"
+     },
+     "INDICATOR_DIFF": {
+         "description": "指标的 N 周期差分",
+         "output_column_pattern": "{original_indicator_name_with_params}_DIFF{diff_period}",
+         "calculation_logic_desc": "基础指标值 (带参数) 的 diff({diff_period}) 结果。例如 RSI_14_DIFF1"
+     },
+      "CLOSE_BB_POS": {
+         "description": "收盘价在布林带中的位置 (%B)",
+         "output_column_pattern": "CLOSE_BB_POS_{period}_{std_dev:.1f}",
+         "calculation_logic_desc": "(收盘价 - BBL) / (BBU - BBL) 的值。注意：indicator_services.py 中实际使用的列名可能只包含 period，如 CLOSE_BB_POS_{boll_period_deriv}"
+     },
+      "CLOSE_KC_POS": {
+         "description": "收盘价在肯特纳通道中的位置",
+         "output_column_pattern": "CLOSE_KC_POS_{ema_period}_{atr_period}",
+         "calculation_logic_desc": "(收盘价 - KCL) / (KCU - KCL) 的值"
+     },
+     "OBV_MA": {
+        "description": "OBV 的移动平均线",
+        "output_column_pattern": "OBV_MA_{period}",
+        "calculation_logic_desc": "OBV 的 {period} 周期移动平均"
+     }
+  },
+  "global_suffix_convention": {
+     "timeframe_suffix_pattern": "_{timeframe}",
+     "description": "所有由IndicatorService生成的列名 (OHLCV, 基础指标, 衍生特征) 在合并到最终DataFrame时，都会根据其计算使用的时间级别添加后缀。例如，5分钟收盘价列名为 'close_5'，日线RSI_14列名为 'RSI_14_D'。"
+  },
+  "strategy_internal_columns": {
+      "description": "在策略内部计算和添加的列 (非 IndicatorService 输出)",
+      "output_columns": [
+          {"name_pattern": "final_rule_signal", "description": "最终规则信号"},
+          {"name_pattern": "transformer_signal", "description": "Transformer 模型预测信号"},
+          {"name_pattern": "combined_signal", "description": "规则信号与Transformer信号的组合"},
+          {"name_pattern": "ema_score_{period}", "description": "基础得分的指数移动平均"},
+          {"name_pattern": "alignment_signal", "description": "EMA排列信号 (-3到3)"},
+          {"name_pattern": "ema_cross_signal", "description": "EMA交叉信号 (-1, 0, 1)"},
+          {"name_pattern": "ema_strength", "description": "短期EMA与长期EMA差值"},
+          {"name_pattern": "score_momentum", "description": "基础得分的动量 (差分)"},
+          {"name_pattern": "score_momentum_acceleration", "description": "基础得分动量的加速 (二阶差分)"},
+          {"name_pattern": "score_volatility", "description": "基础得分的波动率"},
+          {"name_pattern": "volatility_signal", "description": "波动率信号 (-1, 0, 1)"},
+          {"name_pattern": "long_term_context", "description": "得分相对于长期EMA的背景 (-1, 0, 1)"},
+          {"name_pattern": "adx_strength_signal", "description": "ADX 趋势强度信号 (结合方向)"},
+          {"name_pattern": "stoch_signal", "description": "STOCH 超买超卖或交叉信号 (-1, 0, 1, -0.5, 0.5)"},
+          {"name_pattern": "vwap_deviation_signal", "description": "VWAP 偏离信号 (-1, 0, 1)"},
+          {"name_pattern": "vwap_deviation_percent", "description": "VWAP 偏离百分比"},
+          {"name_pattern": "boll_breakout_signal", "description": "BOLL 突破信号 (-1, 0, 1)"},
+          {"name_pattern": "HAS_BEARISH_DIVERGENCE", "description": "是否检测到看跌背离 (布尔值)"},
+          {"name_pattern": "HAS_BULLISH_DIVERGENCE", "description": "是否检测到看涨背离 (布尔值)"},
+          {"name_pattern": "VOL_SPIKE_SIGNAL_{timeframe}", "description": "成交量异动信号 (-1, 0, 1) - 注意这个列名会带时间后缀"},
+          {"name_pattern": "ADJUSTED_SCORE", "description": "成交量调整后的基础评分 - 注意这个列名是临时的，最终被 final_rule_signal 包含"}
+      ]
+  }
+}

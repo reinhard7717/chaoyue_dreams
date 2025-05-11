@@ -211,7 +211,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # 配置 indicator_naming.json 的路径
 INDICATOR_NAMING_CONFIG_PATH = BASE_DIR / 'config' / 'indicator_naming.json'
-
+INDICATOR_PARAMETERS_CONFIG_PATH = BASE_DIR / 'config' / 'indicator_parameters.json'
 
 # 默认主键字段类型
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

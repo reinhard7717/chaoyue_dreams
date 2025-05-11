@@ -1,6 +1,9 @@
 # tasks/tushare/train_transformer_tasks.py (文件名建议修改以反映内容)
+import json
 import os
 import logging
+
+from django.conf import settings
 # 假设 StockBasicInfoDao 存在且可用
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 import pandas as pd
@@ -15,6 +18,10 @@ from strategies.trend_following_strategy import TrendFollowingStrategy
 from strategies.utils.deep_learning_utils import prepare_data_for_transformer
 
 logger = logging.getLogger("tasks")
+
+def load_params_config():
+    with open(settings.INDICATOR_PARAMETERS_CONFIG_PATH, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 # 任务：准备 Transformer 训练数据并保存
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_prepare_transformer_data')
@@ -147,7 +154,7 @@ def batch_prepare_transformer_data(self, stock_code: str, params_file: str = "st
 
 # 调度器任务：仅调度数据准备任务 
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_transformer_data_preparation')
-def schedule_transformer_data_preparation(self, params_file: str = "strategies/indicator_parameters.json", model_dir="models", base_bars_to_request: int = 10000):
+def schedule_transformer_data_preparation(self, params_file: str = None, base_data_dir: str = None, base_bars_to_request: int = 10000):
     """
     调度器任务：
     1. 获取股票代码列表。
@@ -158,6 +165,10 @@ def schedule_transformer_data_preparation(self, params_file: str = "strategies/i
     :param base_bars_to_request: 请求的基础 K 线数据量 (用于数据准备任务)
     """
     logger.info(f"任务启动: schedule_transformer_data_preparation (调度器模式) - 获取股票列表并分派数据准备任务")
+    if params_file is None:
+        params_file = load_params_config()
+    if base_data_dir is None:
+        base_data_dir = settings.STRATEGY_DATA_DIR
     total_dispatched_tasks = 0
     try:
         stock_basic_dao = StockBasicInfoDao()
@@ -174,7 +185,7 @@ def schedule_transformer_data_preparation(self, params_file: str = "strategies/i
             prepare_task_signature = batch_prepare_transformer_data.s(
                 stock_code=stock_code,
                 params_file=params_file,
-                model_dir=model_dir,
+                model_dir=base_data_dir,
                 base_bars=base_bars_to_request
             ).set(queue="Train_Transformer_Prepare_Data")
 
