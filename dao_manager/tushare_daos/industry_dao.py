@@ -204,13 +204,10 @@ class IndustryDao(BaseDAO):
         Returns:
             List[ThsIndex]: 同花顺概念和行业指数基本信息列表
         """
-        return_data = []
         # 从数据库获取
-        industry_list = await sync_to_async(lambda: ThsIndex.objects.all())()
-        if industry_list:
-            for industry in industry_list:
-                return_data.append(industry)
-        return return_data
+        # 用 sync_to_async 包装整个 list(ThsIndex.objects.all())
+        industry_list = await sync_to_async(lambda: list(ThsIndex.objects.all()))()
+        return industry_list
 
     async def get_ths_index_by_code(self, index_code: str) -> Optional['ThsIndex']:
         """
