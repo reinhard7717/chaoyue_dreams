@@ -39,8 +39,8 @@ class TrendFollowingStrategy(BaseStrategy):
     - 适应A股 T+1 交易制度，增强假信号过滤，动态调整参数。
     - 集成 Transformer 模型进行信号预测增强。
     """
-    # strategy_name 将从参数文件中加载，这里提供一个默认值以防万一
-    strategy_name = "TrendFollowingStrategy"
+    # 类属性，作为最终的备用默认值，如果JSON和实例都未能提供名称
+    strategy_name_class_default = "TrendFollowingStrategy_ClassDefault" # 改个名字以区分
     default_focus_timeframe = '30' # 默认主要关注的时间框架
 
     def __init__(self, params_file: str = "strategies/indicator_parameters.json", base_data_dir: str = settings.STRATEGY_DATA_DIR):
@@ -53,102 +53,127 @@ class TrendFollowingStrategy(BaseStrategy):
             base_data_dir (str): 存储策略相关数据（如模型、scalers）的基础目录。
                                  默认为 Django settings 中的 STRATEGY_DATA_DIR。
         """
-        # 初始化用于存储从文件加载的参数的字典
-        loaded_params: Dict[str, Any] = {}
-        # 初始化参数文件的解析后路径，默认为传入的路径
-        resolved_params_file_path = params_file
-        # 标记参数文件是否成功加载并解析
-        file_load_success = False
-        # 用于日志记录的临时策略名，在 self.strategy_name 被正确设置前使用
-        temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name}-init]"
+        # --- 阶段 0: 初始化局部变量 ---
+        loaded_params: Dict[str, Any] = {} # 用于存储从文件加载的参数
+        resolved_params_file_path = params_file # 初始化解析后的路径为传入的路径
+        file_load_success = False # 标记参数文件是否成功加载并解析
+        
+        # 使用类名作为临时的日志前缀，直到实例的 strategy_name 被最终确定
+        temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]"
 
-        # --- 步骤 1: 解析参数文件路径 ---
-        # 检查传入的 params_file 是否是绝对路径
-        if not os.path.isabs(params_file):
-            # 如果是相对路径，优先尝试基于 Django settings.BASE_DIR 构建
+        # --- 阶段 1: 解析参数文件的绝对路径 ---
+        logger.debug(f"{temp_log_prefix} 接收到参数文件路径: '{params_file}'")
+        if not os.path.isabs(params_file): # 如果不是绝对路径
+            logger.debug(f"{temp_log_prefix} 参数文件路径是相对路径，开始解析...")
+            # 优先尝试基于 Django settings.BASE_DIR 构建
             if hasattr(settings, 'BASE_DIR') and settings.BASE_DIR:
                 path_based_on_base_dir = os.path.join(settings.BASE_DIR, params_file)
                 if os.path.exists(path_based_on_base_dir) and os.path.isfile(path_based_on_base_dir):
                     resolved_params_file_path = path_based_on_base_dir
-                    logger.debug(f"{temp_log_prefix} 参数文件 '{params_file}' 解析为基于 BASE_DIR 的路径: '{resolved_params_file_path}'")
+                    logger.debug(f"{temp_log_prefix} 参数文件解析为基于 BASE_DIR 的路径: '{resolved_params_file_path}'")
                 else:
+                    logger.debug(f"{temp_log_prefix} 未在 BASE_DIR ('{settings.BASE_DIR}') 下找到 '{params_file}'。尝试基于 CWD...")
                     # 如果基于 BASE_DIR 找不到，尝试基于当前工作目录 (CWD)
                     path_based_on_cwd = os.path.abspath(params_file) # os.path.abspath 会结合 CWD
                     if os.path.exists(path_based_on_cwd) and os.path.isfile(path_based_on_cwd):
                         resolved_params_file_path = path_based_on_cwd
-                        logger.warning(f"{temp_log_prefix} 参数文件 '{params_file}' 在项目根目录 (BASE_DIR) 未找到，但在当前工作目录 '{os.getcwd()}' 找到: '{resolved_params_file_path}'. 建议使用相对于项目根的路径。")
+                        logger.warning(f"{temp_log_prefix} 参数文件在项目根目录 (BASE_DIR) 未找到，但在当前工作目录 '{os.getcwd()}' 找到: '{resolved_params_file_path}'. 建议使用相对于项目根的路径以提高健壮性。")
                     else:
-                        # 如果都找不到，resolved_params_file_path 将保持为原始的 params_file
-                        logger.warning(f"{temp_log_prefix} 相对参数文件 '{params_file}' 在 BASE_DIR 和 CWD 中均未找到。将尝试使用原始路径 '{params_file}'。")
-            else:
-                # 如果没有 BASE_DIR，只能尝试基于 CWD
+                        logger.warning(f"{temp_log_prefix} 相对参数文件 '{params_file}' 在 BASE_DIR 和 CWD (解析为 '{path_based_on_cwd}') 中均未找到。将尝试使用原始路径 '{params_file}' (当前解析为 '{resolved_params_file_path}')。")
+            else: # 如果没有 settings.BASE_DIR
+                logger.warning(f"{temp_log_prefix} Django settings.BASE_DIR 未定义。尝试基于 CWD 解析相对路径 '{params_file}'...")
                 path_based_on_cwd = os.path.abspath(params_file)
                 if os.path.exists(path_based_on_cwd) and os.path.isfile(path_based_on_cwd):
                     resolved_params_file_path = path_based_on_cwd
-                    logger.warning(f"{temp_log_prefix} Django settings.BASE_DIR 未定义。相对参数文件 '{params_file}' 在当前工作目录 '{os.getcwd()}' 找到: '{resolved_params_file_path}'. 强烈建议定义 settings.BASE_DIR。")
+                    logger.warning(f"{temp_log_prefix} Django settings.BASE_DIR 未定义。相对参数文件在当前工作目录 '{os.getcwd()}' 找到: '{resolved_params_file_path}'. 强烈建议定义 settings.BASE_DIR。")
                 else:
-                    logger.warning(f"{temp_log_prefix} Django settings.BASE_DIR 未定义，且相对参数文件 '{params_file}' 在 CWD (解析为 '{path_based_on_cwd}') 也未找到。将尝试使用原始路径 '{params_file}'。")
-        else:
-            logger.debug(f"{temp_log_prefix} 参数文件路径 '{params_file}' 是绝对路径。")
+                    logger.warning(f"{temp_log_prefix} Django settings.BASE_DIR 未定义，且相对参数文件在 CWD (解析为 '{path_based_on_cwd}') 也未找到。将尝试使用原始路径 '{params_file}' (当前解析为 '{resolved_params_file_path}')。")
+        else: # 如果是绝对路径
+            logger.debug(f"{temp_log_prefix} 参数文件路径 '{params_file}' 是绝对路径，直接使用。")
+            resolved_params_file_path = params_file # 确保 resolved_params_file_path 被赋值
 
-        # --- 步骤 2: 加载参数文件 ---
-        # 检查解析后的路径是否存在且为文件
+        # --- 阶段 2: 从解析后的路径加载参数文件 ---
+        logger.info(f"{temp_log_prefix} 尝试从最终路径 '{resolved_params_file_path}' 加载参数...")
         if os.path.exists(resolved_params_file_path) and os.path.isfile(resolved_params_file_path):
             try:
                 with open(resolved_params_file_path, 'r', encoding='utf-8') as f:
                     loaded_params = json.load(f)
-                # 检查加载后的字典是否为空，空的JSON文件也会导致 loaded_params 为空字典
+                # 确保加载的是一个非空字典
                 if loaded_params and isinstance(loaded_params, dict):
                     file_load_success = True
-                    logger.info(f"{temp_log_prefix} 策略参数已成功从 '{resolved_params_file_path}' 解析。顶层键: {list(loaded_params.keys())}")
+                    logger.info(f"{temp_log_prefix} 策略参数已成功从 '{resolved_params_file_path}' 解析。顶层键数量: {len(loaded_params)}. 顶层键 (部分): {list(loaded_params.keys())[:5]}")
                 else:
-                    logger.error(f"{temp_log_prefix} CRITICAL: 参数文件 '{resolved_params_file_path}' 内容为空或不是有效的JSON对象。")
-                    loaded_params = {} # 确保是空字典
+                    logger.error(f"{temp_log_prefix} CRITICAL: 参数文件 '{resolved_params_file_path}' 内容为空或不是有效的JSON对象 (解析后类型: {type(loaded_params)}).")
+                    loaded_params = {} # 确保是空字典，以便后续逻辑安全处理
             except FileNotFoundError: # 理论上 os.path.exists 已检查，但作为双重保险
                 logger.error(f"{temp_log_prefix} CRITICAL: 文件 '{resolved_params_file_path}' 在尝试打开时未找到 (尽管之前检查存在)。")
             except PermissionError:
                 logger.error(f"{temp_log_prefix} CRITICAL: 没有权限读取参数文件 '{resolved_params_file_path}'。")
             except json.JSONDecodeError as e_json:
                 logger.error(f"{temp_log_prefix} CRITICAL: 解析参数文件 '{resolved_params_file_path}' 时发生JSON解码错误: {e_json}")
-            except Exception as e_load: # 其他可能的IO错误等
+            except Exception as e_load: # 捕获其他可能的IO错误等
                 logger.error(f"{temp_log_prefix} CRITICAL: 加载参数文件 '{resolved_params_file_path}' 时发生未知错误: {e_load}", exc_info=True)
         else:
-            logger.error(f"{temp_log_prefix} CRITICAL: 参数文件 '{resolved_params_file_path}' (来自输入: '{params_file}') 不存在或不是文件。无法加载参数。")
+            logger.error(f"{temp_log_prefix} CRITICAL: 最终确认参数文件 '{resolved_params_file_path}' (原始输入: '{params_file}') 不存在或不是文件。无法加载参数。")
 
-        # 如果文件加载失败，loaded_params 将保持为空字典 {}
+        # 如果文件加载失败或内容无效，确保 loaded_params 是空字典
         if not file_load_success:
-            logger.warning(f"{temp_log_prefix} 由于参数加载失败或文件内容无效，策略将使用空参数初始化，可能导致行为异常或错误。")
+            logger.warning(f"{temp_log_prefix} 由于参数加载失败或文件内容无效，策略将使用空参数初始化。")
             loaded_params = {} # 再次确保是空字典
 
-        # --- 步骤 3: 调用父类的 __init__ 方法 ---
-        # 将加载的参数字典 (如果成功加载) 或空字典 (如果加载失败) 传递给 BaseStrategy
-        # BaseStrategy 的 __init__ 会将这个字典赋值给 self.params，并调用 _validate_params
+        # --- 阶段 3: 调用父类 (BaseStrategy) 的 __init__ 方法 ---
+        # 将加载的参数字典 (如果成功加载) 或空字典 (如果加载失败) 传递给 BaseStrategy。
+        # BaseStrategy 的 __init__ 应该将这个字典赋值给 self.params。
+        logger.debug(f"{temp_log_prefix} 调用 super().__init__() 之前，loaded_params 是否为空: {not bool(loaded_params)}. loaded_params 顶层键 (部分): {list(loaded_params.keys())[:5] if loaded_params else 'None'}")
         super().__init__(params=loaded_params)
-
-        # --- 步骤 4: 初始化 TrendFollowingStrategy 特有的属性 ---
-        # 此时，self.params 已经被 BaseStrategy 设置 (其值为 loaded_params)
-
-        # 从 self.params 中获取真实的策略名，如果参数文件中定义了的话
-        # 如果 loaded_params 为空 (即 self.params 为空)，则会使用类属性 TrendFollowingStrategy.strategy_name
-        self.strategy_name = self.params.get('trend_following_strategy_name', TrendFollowingStrategy.strategy_name)
+        # BaseStrategy 的 __init__ 执行完毕后，self.params 应该已经被设置。
+        logger.debug(f"{temp_log_prefix} 调用 super().__init__() 之后，检查 self.params...")
         
-        # 更新日志前缀，使用最终确定的策略名
+        # --- 阶段 4: 设置 TrendFollowingStrategy 实例的最终 strategy_name ---
+        # 检查 self.params 是否被 BaseStrategy 正确赋值
+        if self.params is None: # BaseStrategy 应该确保 self.params 不是 None，而是至少为一个空字典
+            logger.error(f"{temp_log_prefix} CRITICAL AFTER SUPER: self.params 意外地为 None！BaseStrategy 可能未能正确设置 self.params。强制设为空字典。")
+            self.params = {} # 强制设为空字典以避免后续 AttributeError
+        elif not self.params: # self.params 是空字典 {}
+            logger.warning(f"{temp_log_prefix} AFTER SUPER: self.params 是一个空字典。这通常意味着参数文件加载失败或内容无效。")
+        else: # self.params 是一个非空字典
+            logger.info(f"{temp_log_prefix} AFTER SUPER: self.params 已被设置 (非空)。self.params 是否与 loaded_params 是同一个对象: {self.params is loaded_params}. self.params 顶层键 (部分): {list(self.params.keys())[:5]}")
+
+        # 优先从 self.params (即加载的参数) 中获取 'trend_following_strategy_name'
+        # 如果获取不到 (例如 self.params 为空，或键不存在)，则使用类定义的 strategy_name_class_default 作为最终备用
+        if self.params and 'trend_following_strategy_name' in self.params:
+            # 从参数文件中获取策略名称
+            self.strategy_name = self.params['trend_following_strategy_name']
+            logger.info(f"[{self.strategy_name}-init-阶段4] 实例策略名从参数文件成功设置为: '{self.strategy_name}'")
+        else:
+            # 如果 self.params 为空，或者不包含 'trend_following_strategy_name'
+            original_name_before_fallback = self.strategy_name # 记录一下 fallback 前的 self.strategy_name (可能是 BaseStrategy 的默认名)
+            self.strategy_name = TrendFollowingStrategy.strategy_name_class_default # 使用本类定义的默认名
+            if not self.params:
+                logger.warning(f"[{self.strategy_name}-init-阶段4] 由于 self.params 为空，实例策略名 '{original_name_before_fallback}' 回退到类默认值: '{self.strategy_name}'")
+            else: # self.params 非空，但缺少特定键
+                logger.warning(f"[{self.strategy_name}-init-阶段4] 'trend_following_strategy_name' 未在参数中找到，实例策略名 '{original_name_before_fallback}' 回退到类默认值: '{self.strategy_name}'")
+        
+        # 更新日志前缀，使用最终确定的策略名，用于后续的日志记录
         log_prefix = f"[{self.strategy_name}]"
 
+        # --- 阶段 5: 初始化 TrendFollowingStrategy 特有的其他属性 ---
         # 设置存储模型等数据的基础目录
         self.base_data_dir = base_data_dir
+        logger.debug(f"{log_prefix} base_data_dir 设置为: '{self.base_data_dir}'")
 
         # 获取特定于趋势跟踪策略的参数块 'trend_following_params'
         # 如果 self.params 为空，或者 'trend_following_params' 键不存在，self.tf_params 将是空字典
         self.tf_params: Dict[str, Any] = self.params.get('trend_following_params', {})
 
-        # 对参数加载状态进行明确的日志记录和检查
-        if not self.params: # 检查 self.params 是否在 super().__init__ 后仍然为空
-            logger.error(f"{log_prefix} CRITICAL INIT: 策略参数 (self.params) 在父类初始化后仍为空！这意味着参数文件 '{resolved_params_file_path}' 未能成功加载或内容无效。")
-        elif not self.tf_params: # 如果 self.params 非空，但 tf_params 为空
-            logger.error(f"{log_prefix} CRITICAL INIT: 'trend_following_params' 块在已加载的参数中缺失或为空！策略将使用大量默认值，可能无法按预期工作。请检查参数文件 '{resolved_params_file_path}'。")
+        # 对参数加载状态进行最终检查，并记录关键信息
+        if not self.params: # 再次检查 self.params，以防万一
+            logger.error(f"{log_prefix} CRITICAL INIT (最终属性设置前): 策略参数 (self.params) 仍为空！后续属性将完全依赖代码默认值。")
+        elif not self.tf_params: # 如果 self.params 非空，但 tf_params 为空 (意味着 'trend_following_params' 块缺失或为空)
+            logger.error(f"{log_prefix} CRITICAL INIT (最终属性设置前): 'trend_following_params' 块在已加载的参数中缺失或为空！后续特定参数将依赖代码默认值。")
         
-        # --- 根据 self.tf_params (或默认值) 初始化策略的具体参数 ---
+        # 根据 self.tf_params (如果成功加载) 或代码中的默认值，初始化策略的具体参数
+        # 例如: self.focus_timeframe, self.transformer_window_size 等
         self.focus_timeframe: str = str(self.tf_params.get('focus_timeframe', self.default_focus_timeframe))
         self.timeframe_weights: Optional[Dict[str, float]] = self.tf_params.get('timeframe_weights', None)
         self.trend_indicators: List[str] = self.tf_params.get('trend_indicators', ['dmi', 'sar', 'macd', 'ema_alignment', 'obv', 'rsi'])
@@ -158,117 +183,108 @@ class TrendFollowingStrategy(BaseStrategy):
             'volume_spike': 0.05
         })
 
-        # 量能确认相关参数 (注意：这些参数可能也受全局 'volume_confirmation' 块影响，这里优先 tf_params)
-        vc_global_params = self.params.get('volume_confirmation', {}) # 获取全局配置作为备选
+        vc_global_params = self.params.get('volume_confirmation', {})
         self.volume_boost_factor: float = self.tf_params.get('volume_boost_factor', vc_global_params.get('boost_factor', 1.2))
         self.volume_penalty_factor: float = self.tf_params.get('volume_penalty_factor', vc_global_params.get('penalty_factor', 0.8))
-        self.volume_spike_threshold: float = self.tf_params.get('volume_spike_threshold', 2.0) # JSON 中有此参数
+        self.volume_spike_threshold: float = self.tf_params.get('volume_spike_threshold', 2.0)
 
-        # 波动率阈值
-        self.volatility_threshold_high: float = self.tf_params.get('volatility_threshold_high', 10.0) # JSON 中是 10
-        self.volatility_threshold_low: float = self.tf_params.get('volatility_threshold_low', 5.0)   # JSON 中是 5
-        self.volatility_adjust_factor: float = 1.0 # 用于动态调整的因子
+        self.volatility_threshold_high: float = self.tf_params.get('volatility_threshold_high', 10.0)
+        self.volatility_threshold_low: float = self.tf_params.get('volatility_threshold_low', 5.0)
+        self.volatility_adjust_factor: float = 1.0
 
-        # 其他趋势判断辅助参数
-        self.adx_strong_threshold: int = self.tf_params.get('adx_strong_threshold', 30)       # JSON 中是 30
-        self.adx_moderate_threshold: int = self.tf_params.get('adx_moderate_threshold', 20) # JSON 中是 20
-        self.trend_duration_threshold_strong: int = self.tf_params.get('trend_duration_threshold_strong', 5) # JSON 中是 5
-        self.trend_duration_threshold_moderate: int = self.tf_params.get('trend_duration_threshold_moderate', 10) # JSON 中是 10
-        self.stoch_oversold_threshold: int = self.tf_params.get('stoch_oversold_threshold', 20) # JSON 中是 20
-        self.stoch_overbought_threshold: int = self.tf_params.get('stoch_overbought_threshold', 80) # JSON 中是 80
-        self.vwap_deviation_threshold: float = self.tf_params.get('vwap_deviation_threshold', 0.01) # JSON 中是 0.01
-        self.trend_confirmation_periods: int = self.tf_params.get('trend_confirmation_periods', 3) # JSON 中是 3
+        self.adx_strong_threshold: int = self.tf_params.get('adx_strong_threshold', 30)
+        self.adx_moderate_threshold: int = self.tf_params.get('adx_moderate_threshold', 20)
+        self.trend_duration_threshold_strong: int = self.tf_params.get('trend_duration_threshold_strong', 5) 
+        self.trend_duration_threshold_moderate: int = self.tf_params.get('trend_duration_threshold_moderate', 10)
+        self.stoch_oversold_threshold: int = self.tf_params.get('stoch_oversold_threshold', 20)
+        self.stoch_overbought_threshold: int = self.tf_params.get('stoch_overbought_threshold', 80)
+        self.vwap_deviation_threshold: float = self.tf_params.get('vwap_deviation_threshold', 0.01)
+        self.trend_confirmation_periods: int = self.tf_params.get('trend_confirmation_periods', 3)
 
-        # --- Transformer 模型相关配置 ---
-        self.transformer_window_size: int = self.tf_params.get('transformer_window_size', 60) # JSON 中是 60
-        self.transformer_batch_size: int = self.tf_params.get('transformer_batch_size', 128) # 初始值，会被 training_config 覆盖
-        self.transformer_target_column: str = self.tf_params.get('transformer_target_column', 'final_rule_signal') # JSON 中是 'final_rule_signal'
+        self.transformer_window_size: int = self.tf_params.get('transformer_window_size', 60)
+        self.transformer_batch_size: int = self.tf_params.get('transformer_batch_size', 128) # 会被 training_config 中的覆盖
+        self.transformer_target_column: str = self.tf_params.get('transformer_target_column', 'final_rule_signal')
 
-        # Transformer 模型结构配置
         self.transformer_model_config: Dict[str, Any] = self.tf_params.get('transformer_model_config', {
-            'd_model': 128, 'nhead': 8, 'dim_feedforward': 512, 'nlayers': 4, 'dropout': 0.2, 'activation': 'relu', # 代码默认值
-        }) # JSON 中有 'd_model': 128, 'nhead': 8, 'dim_feedforward': 512, 'nlayers': 4, 'dropout': 0.1, 'activation': 'gelu'
-
-        # Transformer 训练过程配置
+            'd_model': 128, 'nhead': 8, 'dim_feedforward': 512, 'nlayers': 4, 'dropout': 0.2, 'activation': 'relu',
+        })
         self.transformer_training_config: Dict[str, Any] = self.tf_params.get('transformer_training_config', {
-            'epochs': 100, 'batch_size': 128, 'learning_rate': 0.0001, 'weight_decay': 0.004, # 代码默认值
+            'epochs': 100, 'batch_size': 128, 'learning_rate': 0.0001, 'weight_decay': 0.004,
             'optimizer': 'adamw', 'loss': 'mse', 'early_stopping_patience': 30, 'reduce_lr_patience': 10,
             'reduce_lr_factor': 0.5, 'monitor_metric': 'val_loss', 'verbose': 1,
             'tensorboard_log_dir': None, 'clip_grad_norm': 1.0
-        }) # JSON 中有详细配置
-
-        # 确保训练配置中的 batch_size 覆盖实例属性的 transformer_batch_size
+        })
+        # 确保训练配置中的参数优先并同步
         if 'batch_size' in self.transformer_training_config:
              self.transformer_batch_size = self.transformer_training_config['batch_size']
-        # 确保训练配置中的学习率和权重衰减也记录到模型配置中（虽然build_model不直接用，但可用于记录）
-        if 'learning_rate' in self.transformer_training_config:
+        if 'learning_rate' in self.transformer_training_config: # 同步到 model_config 供参考
             self.transformer_model_config['learning_rate'] = self.transformer_training_config['learning_rate']
-        if 'weight_decay' in self.transformer_training_config:
+        if 'weight_decay' in self.transformer_training_config: # 同步到 model_config 供参考
             self.transformer_model_config['weight_decay'] = self.transformer_training_config['weight_decay']
 
-        # Transformer 数据准备参数
         self.transformer_data_prep_config: Dict[str, Any] = self.tf_params.get('transformer_data_prep_config', {
-            'scaler_type': 'standard', 'train_split': 0.7, 'val_split': 0.15, # 代码默认值
+            'scaler_type': 'standard', 'train_split': 0.7, 'val_split': 0.15,
             'apply_variance_threshold': False, 'variance_threshold_value': 0.01,
             'use_pca': False, 'pca_n_components': 0.99, 'pca_solver': 'auto',
             'use_feature_selection': True, 'feature_selector_model_type': 'rf',
             'fs_model_n_estimators': 100, 'fs_model_max_depth': None, 'fs_max_features': 50,
             'fs_selection_threshold': 'median', 'target_scaler_type': 'minmax'
-        }) # JSON 中有详细配置
+        })
 
-        # --- 初始化模型和scaler相关属性 ---
+        # 初始化模型、scaler、设备和路径相关的属性
         self.transformer_model: Optional[nn.Module] = None
         self.feature_scaler: Optional[Union[MinMaxScaler, StandardScaler]] = None
         self.target_scaler: Optional[Union[MinMaxScaler, StandardScaler]] = None
         self.selected_feature_names_for_transformer: List[str] = []
-
-        # PyTorch 设备
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"{log_prefix} PyTorch 使用设备: {self.device}")
-
-        # 模型和scaler的路径将在 set_model_paths 中针对每个股票设置
         self.model_path: Optional[str] = None
         self.feature_scaler_path: Optional[str] = None
         self.target_scaler_path: Optional[str] = None
         self.selected_features_path: Optional[str] = None
-        self.all_prepared_data_npz_path: Optional[str] = None # 存储准备好的数据的NPZ文件路径
-
-        # 存储中间数据和分析结果的DataFrame (可选)
+        self.all_prepared_data_npz_path: Optional[str] = None
         self.intermediate_data: Optional[pd.DataFrame] = None
-        self.analysis_results: Optional[Dict[str, Any]] = None # 初始化分析结果属性
+        self.analysis_results: Optional[Dict[str, Any]] = None # 用于存储分析结果
 
         # 检查 pandas_ta 是否成功加载
         if ta is None:
              logger.error(f"{log_prefix} pandas_ta 未成功加载，策略部分功能可能不可用。")
 
-        # _validate_params 方法已在 super().__init__ 中被 BaseStrategy 调用。
-        # TrendFollowingStrategy 的 _validate_params 会调用 super()._validate_params()
-        # 然后执行特定于 TrendFollowingStrategy 的验证。
-        # 如果需要确保在所有这些属性都设置后再验证一次，可以取消下面这行的注释，
-        # 但要注意避免无限递归（如果 _validate_params 内部又调用了 __init__ 或类似操作）。
-        # self._validate_params() # 通常不需要再次调用，除非 BaseStrategy 的调用时机不合适
+        # --- 阶段 6: 执行参数验证 ---
+        # 在所有属性（包括从 self.params 和 self.tf_params 派生的属性）都设置完毕后，
+        # 显式调用验证方法。
+        # TrendFollowingStrategy._validate_params 方法内部应首先调用 super()._validate_params()。
+        logger.debug(f"{log_prefix} 即将调用 self._validate_params()...")
+        try:
+            self._validate_params()
+            logger.debug(f"{log_prefix} self._validate_params() 调用完成。")
+        except Exception as e_validate:
+            # 如果 _validate_params 内部抛出未捕获的异常，这里可以记录并决定是否让 __init__ 失败
+            logger.error(f"{log_prefix} CRITICAL: 在执行 _validate_params 时发生错误: {e_validate}", exc_info=True)
+            # 可以选择在这里重新抛出异常，使策略实例化失败
+            # raise e_validate
 
-        # --- 初始化完成日志 ---
-        logger.info(f"策略 '{self.strategy_name}' 初始化完成。")
-        logger.info(f"{log_prefix} 主要关注时间框架: {self.focus_timeframe}.")
-        logger.info(f"{log_prefix} 参数来源: '{resolved_params_file_path if file_load_success else '无或加载失败'}'.")
-        logger.info(f"{log_prefix} self.params 是否为空: {not bool(self.params)} (True表示空).")
-        logger.info(f"{log_prefix} self.tf_params 是否为空: {not bool(self.tf_params)} (True表示空).")
+        # --- 阶段 7: 初始化完成最终日志 ---
+        logger.info(f"策略 '{self.strategy_name}' 初始化流程完成。")
+        logger.info(f"{log_prefix} 最终确定的主要关注时间框架: {self.focus_timeframe}.")
+        logger.info(f"{log_prefix} 参数最终来源: '{resolved_params_file_path if file_load_success else '无或加载失败'}'.")
+        logger.info(f"{log_prefix} self.params 最终是否为空: {not bool(self.params)} (True表示空).")
+        logger.info(f"{log_prefix} self.tf_params 最终是否为空: {not bool(self.tf_params)} (True表示空).")
         # 打印一些关键参数的最终值，以确认它们是否从文件正确加载或使用了预期默认值
-        logger.info(f"{log_prefix} 使用的 transformer_window_size: {self.transformer_window_size}")
-        logger.info(f"{log_prefix} 使用的 transformer_target_column: '{self.transformer_target_column}'")
-        logger.info(f"{log_prefix} 使用的 rule_signal_weights (部分): base_score={self.rule_signal_weights.get('base_score')}")
+        logger.info(f"{log_prefix} 最终使用的 transformer_window_size: {self.transformer_window_size}")
+        logger.info(f"{log_prefix} 最终使用的 transformer_target_column: '{self.transformer_target_column}'")
+        logger.info(f"{log_prefix} 最终使用的 rule_signal_weights (部分): base_score={self.rule_signal_weights.get('base_score') if isinstance(self.rule_signal_weights, dict) else 'N/A'}")
         
         if self.params: # 如果参数非空，打印一些顶层键用于调试
-            logger.debug(f"{log_prefix} 已加载参数的顶层键: {list(self.params.keys())}")
+            logger.debug(f"{log_prefix} 最终已加载参数的顶层键: {list(self.params.keys())}")
             if self.tf_params: # 如果 tf_params 非空，打印一些其内部的键值
-                 logger.debug(f"{log_prefix} trend_following_params 内容 (部分): "
+                 logger.debug(f"{log_prefix} 最终 trend_following_params 内容 (部分): "
                               f"focus_timeframe='{self.tf_params.get('focus_timeframe')}', "
                               f"transformer_model_config.d_model='{self.tf_params.get('transformer_model_config', {}).get('d_model')}'")
             elif 'trend_following_params' in self.params: # tf_params 为空但键存在，说明内容是空的
-                 logger.warning(f"{log_prefix} 'trend_following_params' 键存在于参数中，但其内容为空。")
-
-
+                 logger.warning(f"{log_prefix} 最终 'trend_following_params' 键存在于参数中，但其内容为空。")
+        
+        logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
+        
     def _normalize_weights(self, weights: Dict[str, float]):
         """归一化权重字典，使其总和为1。"""
         total_weight = sum(weights.values())

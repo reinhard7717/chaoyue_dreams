@@ -19,21 +19,25 @@ logger = logging.getLogger("tasks")
 # 任务：准备 Transformer 训练数据并保存
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_prepare_transformer_data')
 def batch_prepare_transformer_data(self, stock_code: str, params_file: str = "strategies/indicator_parameters.json", model_dir="models", base_bars: int = 10000):
-    task_id_str = f"任务 {self.request.id if self.request else 'UnknownID'}" # 获取任务ID用于日志
+    task_id_str = f"任务 {self.request.id if self.request else 'UnknownID'}"
     logger.info(f"{task_id_str}：开始为 {stock_code} 执行 Transformer 数据准备...")
     
     indicator_service = IndicatorService()
     logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowingStrategy...")
     strategy = TrendFollowingStrategy(params_file=params_file, base_data_dir=model_dir)
-    # TrendFollowingStrategy 的 __init__ 内部会打印参数加载相关的日志
     logger.info(f"{task_id_str} [{stock_code}]：TrendFollowingStrategy 实例化完毕，策略名: '{strategy.strategy_name}'。")
 
-    # 检查策略参数是否有效加载 (一个简单的检查)
-    if not strategy.params or not strategy.tf_params:
-        logger.error(f"{task_id_str} [{stock_code}]：策略参数 (strategy.params 或 strategy.tf_params) 为空，无法继续。这通常表示参数文件加载失败或关键部分缺失。")
-        # 根据情况决定是否 raise 异常或返回错误状态
-        # raise ValueError("策略参数加载失败或不完整，无法执行数据准备。")
-        return {"status": "error", "message": "策略参数加载失败或不完整"}
+    # --- 关键检查点 ---
+    if not strategy.params: # 检查 self.params 是否为空
+        logger.error(f"{task_id_str} [{stock_code}]：CRITICAL TASK HALT: strategy.params 为空。参数文件可能未加载或无效。任务无法继续。")
+        return {"status": "error", "message": "策略参数 strategy.params 为空，任务终止。"}
+    
+    if 'trend_following_params' not in strategy.params or not strategy.tf_params: # 检查 tf_params
+        logger.error(f"{task_id_str} [{stock_code}]：CRITICAL TASK HALT: 'trend_following_params' 在 strategy.params 中缺失或 strategy.tf_params 为空。任务无法继续。")
+        return {"status": "error", "message": "'trend_following_params' 缺失或为空，任务终止。"}
+    
+    logger.info(f"{task_id_str} [{stock_code}]：策略参数检查通过 (params 和 tf_params 非空)。")
+    logger.info(f"{task_id_str} [{stock_code}]：确认使用的 transformer_window_size: {strategy.transformer_window_size}") # 打印一个关键参数
 
     try:
         logger.info(f"{task_id_str} [{stock_code}]：开始获取原始数据及基础指标...")
