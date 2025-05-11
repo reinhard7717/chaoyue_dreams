@@ -40,7 +40,7 @@ class TrendFollowingStrategy(BaseStrategy):
     - 集成 Transformer 模型进行信号预测增强。
     """
     # strategy_name 将从参数文件中加载，这里提供一个默认值以防万一
-    strategy_name = "TrendFollowingStrategy_DefaultName"
+    strategy_name = "TrendFollowingStrategy"
     default_focus_timeframe = '30' # 默认主要关注的时间框架
 
     def __init__(self, params_file: str = "strategies/indicator_parameters.json", base_data_dir: str = settings.STRATEGY_DATA_DIR):
