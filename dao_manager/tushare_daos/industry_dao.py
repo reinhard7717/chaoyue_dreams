@@ -284,18 +284,23 @@ class IndustryDao(BaseDAO):
         result = {}
         ths_index_member_dicts = []
         ths_index_list = self.get_ths_index_list()  # 获取所有的ThsIndex model实例列表
+        logger.info(f"共获取同花顺概念板块 {len(ths_index_list)} 条数据")
         # 拉取数据
         for ths_index in ths_index_list:
             df = self.ts_pro.ths_member(**{
                     "ts_code": ths_index.ts_code, "con_code": "", "offset": "", "limit": ""
                 }, fields=[ "ts_code", "con_code", "con_name", "weight", "in_date", "out_date", "is_new" ])
-            if df is not None:
-                df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+            if df.empty:
+                break
+            else:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in df.itertuples():
                     ths_index = await self.get_ths_index_by_code(row.ts_code)
                     stock = await self.stock_cache_get.stock_data_by_code(row.con_code)
                     ths_index_member_dict = self.data_format_process.set_ths_index_member_data(ths_index=ths_index, stock=stock, df_data=row)
                     ths_index_member_dicts.append(ths_index_member_dict)
+                logger.info(f"获取同花顺概念板块成分： {len(ths_index_member_dicts)}")
             time.sleep(0.5)
         if ths_index_member_dicts:
             # 保存到数据库
