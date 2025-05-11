@@ -658,7 +658,11 @@ class IndustryFormatProcess(BaseDAO):
             "type": getattr(df_data, "type", None),
         }
         logger.info(f"set_ths_index_data: data_dict['count'] = {data_dict['count']} (type: {type(data_dict['count'])})")
-        return {k: safe_value(v) for k, v in data_dict.items()}
+        # 先safe_value，再兜底
+        result = {k: safe_value(v) for k, v in data_dict.items()}
+        if result.get("count") is None:
+            result["count"] = 0
+        return result
 
     # 同花顺概念板块成分
     def set_ths_index_member_data(self, ths_index: 'ThsIndex', stock: 'StockInfo', df_data: Any) -> Dict:
