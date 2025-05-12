@@ -509,7 +509,7 @@ class IndicatorService:
 
         async def _calculate_single_indicator_async(tf_calc: str, base_df_with_suffix: pd.DataFrame, config_item: Dict) -> Optional[Tuple[str, pd.DataFrame]]:
             if base_df_with_suffix is None or base_df_with_suffix.empty:
-                logger.debug(f"[{stock_code}] TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}")
+                print(f"[{stock_code}] TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}")
                 return None
 
             df_for_ta = base_df_with_suffix.copy()
@@ -534,6 +534,7 @@ class IndicatorService:
                 return None
             try:
                 func_params_to_pass = config_item['params'].copy() # 使用为该指标准备好的参数
+                print(f"{stock_code}] TF {tf_calc}: --- df_for_ta.shape: {df_for_ta.shape}, df_for_ta.head(): {df_for_ta.head()}, df_for_ta.isnull().sum()：{df_for_ta.isnull().sum()}")
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
 
                 if indicator_result_df is None or indicator_result_df.empty:
