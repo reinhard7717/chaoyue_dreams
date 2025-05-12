@@ -740,1669 +740,1669 @@ def _safe_fillna_series(series_list: List[pd.Series], fill_values: List[Any]) ->
 
     return filled_series
 
-def calculate_macd_score(macd_series: pd.Series, macd_d: pd.Series, macd_h: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """MACD 评分 (0-100)。"""
-    # 确保索引一致并填充NaN
-    # MACD线和DEA线中性值可以是0或前值，MACDh中性值是0
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    macd_s, macd_d_s, macd_h_s = _safe_fillna_series(
-        [macd_series, macd_d, macd_h],
-        [0.0, 0.0, 0.0] # 假设0是合理的填充值
-    )
-    # 如果填充后仍有NaN（例如整个序列都是NaN），则返回全50分
-    # MODIFIED: 检查填充后的 Series 是否全为 NaN
-    if macd_s.isnull().all() or macd_d_s.isnull().all() or macd_h_s.isnull().all():
-        return pd.Series(50.0, index=macd_series.index).clip(0,100)
+    def calculate_macd_score(macd_series: pd.Series, macd_d: pd.Series, macd_h: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """MACD 评分 (0-100)。"""
+        # 确保索引一致并填充NaN
+        # MACD线和DEA线中性值可以是0或前值，MACDh中性值是0
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        macd_s, macd_d_s, macd_h_s = _safe_fillna_series(
+            [macd_series, macd_d, macd_h],
+            [0.0, 0.0, 0.0] # 假设0是合理的填充值
+        )
+        # 如果填充后仍有NaN（例如整个序列都是NaN），则返回全50分
+        # MODIFIED: 检查填充后的 Series 是否全为 NaN
+        if macd_s.isnull().all() or macd_d_s.isnull().all() or macd_h_s.isnull().all():
+            return pd.Series(50.0, index=macd_series.index).clip(0,100)
 
-    score = pd.Series(50.0, index=macd_s.index)
+        score = pd.Series(50.0, index=macd_s.index)
 
-    buy_cross = (macd_s.shift(1) < macd_d_s.shift(1)) & (macd_s >= macd_d_s)
-    sell_cross = (macd_s.shift(1) > macd_d_s.shift(1)) & (macd_s <= macd_d_s)
+        buy_cross = (macd_s.shift(1) < macd_d_s.shift(1)) & (macd_s >= macd_d_s)
+        sell_cross = (macd_s.shift(1) > macd_d_s.shift(1)) & (macd_s <= macd_d_s)
 
-    buy_cross_above_zero = buy_cross & (macd_s > 0)
-    buy_cross_below_zero = buy_cross & (macd_s <= 0)
-    sell_cross_above_zero = sell_cross & (macd_s >= 0)
-    sell_cross_below_zero = sell_cross & (macd_s < 0)
+        buy_cross_above_zero = buy_cross & (macd_s > 0)
+        buy_cross_below_zero = buy_cross & (macd_s <= 0)
+        sell_cross_above_zero = sell_cross & (macd_s >= 0)
+        sell_cross_below_zero = sell_cross & (macd_s < 0)
 
-    score.loc[buy_cross_above_zero] = 80.0
-    score.loc[buy_cross_below_zero] = np.maximum(score.loc[buy_cross_below_zero], 70.0) # Use np.maximum to avoid overwriting 80 with 70
-    score.loc[sell_cross_below_zero] = 20.0
-    score.loc[sell_cross_above_zero] = np.minimum(score.loc[sell_cross_above_zero], 30.0) # Use np.minimum
+        score.loc[buy_cross_above_zero] = 80.0
+        score.loc[buy_cross_below_zero] = np.maximum(score.loc[buy_cross_below_zero], 70.0) # Use np.maximum to avoid overwriting 80 with 70
+        score.loc[sell_cross_below_zero] = 20.0
+        score.loc[sell_cross_above_zero] = np.minimum(score.loc[sell_cross_above_zero], 30.0) # Use np.minimum
 
-    bullish_momentum = (macd_h_s > macd_h_s.shift(1)) & (macd_h_s > 0)
-    bearish_momentum = (macd_h_s < macd_h_s.shift(1)) & (macd_h_s < 0)
+        bullish_momentum = (macd_h_s > macd_h_s.shift(1)) & (macd_h_s > 0)
+        bearish_momentum = (macd_h_s < macd_h_s.shift(1)) & (macd_h_s < 0)
 
-    # Conditions for non-cross scenarios
-    not_cross_cond = ~buy_cross & ~sell_cross
+        # Conditions for non-cross scenarios
+        not_cross_cond = ~buy_cross & ~sell_cross
 
-    score.loc[bullish_momentum & not_cross_cond] = np.maximum(score.loc[bullish_momentum & not_cross_cond], 60.0)
-    score.loc[bearish_momentum & not_cross_cond] = np.minimum(score.loc[bearish_momentum & not_cross_cond], 40.0)
+        score.loc[bullish_momentum & not_cross_cond] = np.maximum(score.loc[bullish_momentum & not_cross_cond], 60.0)
+        score.loc[bearish_momentum & not_cross_cond] = np.minimum(score.loc[bearish_momentum & not_cross_cond], 40.0)
 
-    above_zero_no_mom_increase = (macd_h_s > 0) & (~bullish_momentum) & not_cross_cond
-    below_zero_no_mom_decrease = (macd_h_s < 0) & (~bearish_momentum) & not_cross_cond
+        above_zero_no_mom_increase = (macd_h_s > 0) & (~bullish_momentum) & not_cross_cond
+        below_zero_no_mom_decrease = (macd_h_s < 0) & (~bearish_momentum) & not_cross_cond
 
-    score.loc[above_zero_no_mom_increase] = np.maximum(score.loc[above_zero_no_mom_increase], 55.0)
-    score.loc[below_zero_no_mom_decrease] = np.minimum(score.loc[below_zero_no_mom_decrease], 45.0)
+        score.loc[above_zero_no_mom_increase] = np.maximum(score.loc[above_zero_no_mom_increase], 55.0)
+        score.loc[below_zero_no_mom_decrease] = np.minimum(score.loc[below_zero_no_mom_decrease], 45.0)
 
-    return score.clip(0, 100)
+        return score.clip(0, 100)
 
-def calculate_rsi_score(rsi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """RSI 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    rsi_s, = _safe_fillna_series([rsi], [50.0]) # RSI 中性50
-    if rsi_s.isnull().all():
-        return pd.Series(50.0, index=rsi.index).clip(0,100)
+    def calculate_rsi_score(rsi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """RSI 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        rsi_s, = _safe_fillna_series([rsi], [50.0]) # RSI 中性50
+        if rsi_s.isnull().all():
+            return pd.Series(50.0, index=rsi.index).clip(0,100)
 
-    score = pd.Series(50.0, index=rsi_s.index)
-    # MODIFIED: 从 params 字典获取参数
-    os = params.get('oversold', 30) # 注意这里使用了评分函数内部的参数名 'oversold'，不是 bs_params 中的 'rsi_oversold'
-    ob = params.get('overbought', 70)
-    ext_os = params.get('extreme_oversold', 20)
-    ext_ob = params.get('extreme_overbought', 80)
-    # period 参数在评分逻辑中可能不会直接用到数值，主要用于标识是哪个周期的 RSI
+        score = pd.Series(50.0, index=rsi_s.index)
+        # MODIFIED: 从 params 字典获取参数
+        os = params.get('oversold', 30) # 注意这里使用了评分函数内部的参数名 'oversold'，不是 bs_params 中的 'rsi_oversold'
+        ob = params.get('overbought', 70)
+        ext_os = params.get('extreme_oversold', 20)
+        ext_ob = params.get('extreme_overbought', 80)
+        # period 参数在评分逻辑中可能不会直接用到数值，主要用于标识是哪个周期的 RSI
 
-    score.loc[rsi_s < ext_os] = 95.0
-    score.loc[rsi_s > ext_ob] = 5.0
+        score.loc[rsi_s < ext_os] = 95.0
+        score.loc[rsi_s > ext_ob] = 5.0
 
-    score.loc[(rsi_s >= ext_os) & (rsi_s < os)] = np.maximum(score.loc[(rsi_s >= ext_os) & (rsi_s < os)], 85.0)
-    score.loc[(rsi_s <= ext_ob) & (rsi_s > ob)] = np.minimum(score.loc[(rsi_s <= ext_ob) & (rsi_s > ob)], 15.0)
+        score.loc[(rsi_s >= ext_os) & (rsi_s < os)] = np.maximum(score.loc[(rsi_s >= ext_os) & (rsi_s < os)], 85.0)
+        score.loc[(rsi_s <= ext_ob) & (rsi_s > ob)] = np.minimum(score.loc[(rsi_s <= ext_ob) & (rsi_s > ob)], 15.0)
 
-    buy_signal = (rsi_s.shift(1) < os) & (rsi_s >= os)
-    sell_signal = (rsi_s.shift(1) > ob) & (rsi_s <= ob)
-    score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0) # Ensure not overwriting higher scores
-    score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0) # Ensure not overwriting lower scores
+        buy_signal = (rsi_s.shift(1) < os) & (rsi_s >= os)
+        sell_signal = (rsi_s.shift(1) > ob) & (rsi_s <= ob)
+        score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0) # Ensure not overwriting higher scores
+        score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0) # Ensure not overwriting lower scores
 
-    not_signal_cond = ~buy_signal & ~sell_signal
-    neutral_zone_cond = (rsi_s >= os) & (rsi_s <= ob) & not_signal_cond
+        not_signal_cond = ~buy_signal & ~sell_signal
+        neutral_zone_cond = (rsi_s >= os) & (rsi_s <= ob) & not_signal_cond
 
-    bullish_trend = neutral_zone_cond & (rsi_s > rsi_s.shift(1))
-    bearish_trend = neutral_zone_cond & (rsi_s < rsi_s.shift(1))
+        bullish_trend = neutral_zone_cond & (rsi_s > rsi_s.shift(1))
+        bearish_trend = neutral_zone_cond & (rsi_s < rsi_s.shift(1))
 
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
 
-    return score.clip(0, 100)
+        return score.clip(0, 100)
 
-def calculate_kdj_score(k: pd.Series, d: pd.Series, j: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """KDJ 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    k_s, d_s, j_s = _safe_fillna_series([k, d, j], [50.0, 50.0, 50.0]) # KDJ 中性50
-    if k_s.isnull().all(): # Check one, assume others similar after _safe_fillna_series
-        return pd.Series(50.0, index=k.index).clip(0,100)
+    def calculate_kdj_score(k: pd.Series, d: pd.Series, j: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """KDJ 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        k_s, d_s, j_s = _safe_fillna_series([k, d, j], [50.0, 50.0, 50.0]) # KDJ 中性50
+        if k_s.isnull().all(): # Check one, assume others similar after _safe_fillna_series
+            return pd.Series(50.0, index=k.index).clip(0,100)
 
-    score = pd.Series(50.0, index=k_s.index)
-    # MODIFIED: 从 params 字典获取参数
-    os = params.get('oversold', 20)
-    ob = params.get('overbought', 80)
-    ext_os = params.get('extreme_oversold', 10)
-    ext_ob = params.get('extreme_overbought', 90)
-    # period, signal_period, smooth_k_period 参数在评分逻辑中可能不会直接用到数值，主要用于标识是哪个周期的 KDJ
+        score = pd.Series(50.0, index=k_s.index)
+        # MODIFIED: 从 params 字典获取参数
+        os = params.get('oversold', 20)
+        ob = params.get('overbought', 80)
+        ext_os = params.get('extreme_oversold', 10)
+        ext_ob = params.get('extreme_overbought', 90)
+        # period, signal_period, smooth_k_period 参数在评分逻辑中可能不会直接用到数值，主要用于标识是哪个周期的 KDJ
 
-    score.loc[j_s < ext_os] = 95.0
-    score.loc[j_s > ext_ob] = 5.0
+        score.loc[j_s < ext_os] = 95.0
+        score.loc[j_s > ext_ob] = 5.0
 
-    # Apply to k or d, ensuring not to overwrite extreme j scores
-    score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))] = np.maximum(score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))], 85.0)
-    score.loc[((k_s <= ext_ob) & (k_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))] = np.minimum(score.loc[((k_s <= ext_ob) & (d_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))], 15.0)
+        # Apply to k or d, ensuring not to overwrite extreme j scores
+        score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))] = np.maximum(score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))], 85.0)
+        score.loc[((k_s <= ext_ob) & (k_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))] = np.minimum(score.loc[((k_s <= ext_ob) & (d_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))], 15.0)
 
 
-    buy_cross = (k_s.shift(1) < d_s.shift(1)) & (k_s >= d_s)
-    sell_cross = (k_s.shift(1) > d_s.shift(1)) & (k_s <= d_s)
+        buy_cross = (k_s.shift(1) < d_s.shift(1)) & (k_s >= d_s)
+        sell_cross = (k_s.shift(1) > d_s.shift(1)) & (k_s <= d_s)
 
-    buy_cross_os = buy_cross & (j_s < os)
-    buy_cross_ob = buy_cross & (j_s > ob) # Potentially risky cross
-    sell_cross_os = sell_cross & (j_s < os) # Potentially risky cross
-    sell_cross_ob = sell_cross & (j_s > ob)
+        buy_cross_os = buy_cross & (j_s < os)
+        buy_cross_ob = buy_cross & (j_s > ob) # Potentially risky cross
+        sell_cross_os = sell_cross & (j_s < os) # Potentially risky cross
+        sell_cross_ob = sell_cross & (j_s > ob)
 
-    score.loc[buy_cross_os] = np.maximum(score.loc[buy_cross_os], 80.0)
-    score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)] = np.maximum(score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)], 75.0)
-    score.loc[buy_cross_ob] = np.maximum(score.loc[buy_cross_ob], 60.0) # Still a cross, but in OB
+        score.loc[buy_cross_os] = np.maximum(score.loc[buy_cross_os], 80.0)
+        score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)] = np.maximum(score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)], 75.0)
+        score.loc[buy_cross_ob] = np.maximum(score.loc[buy_cross_ob], 60.0) # Still a cross, but in OB
 
-    score.loc[sell_cross_ob] = np.minimum(score.loc[sell_cross_ob], 20.0)
-    score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)] = np.minimum(score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)], 25.0)
-    score.loc[sell_cross_os] = np.minimum(score.loc[sell_cross_os], 40.0) # Cross in OS
+        score.loc[sell_cross_ob] = np.minimum(score.loc[sell_cross_ob], 20.0)
+        score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)] = np.minimum(score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)], 25.0)
+        score.loc[sell_cross_os] = np.minimum(score.loc[sell_cross_os], 40.0) # Cross in OS
 
-    not_cross_cond = ~buy_cross & ~sell_cross
-    bullish_j_in_os = (j_s < os) & (j_s > j_s.shift(1)) & not_cross_cond
-    bearish_j_in_ob = (j_s > ob) & (j_s < j_s.shift(1)) & not_cross_cond
-    score.loc[bullish_j_in_os] = np.maximum(score.loc[bullish_j_in_os], 70.0)
-    score.loc[bearish_j_in_ob] = np.minimum(score.loc[bearish_j_in_ob], 30.0)
+        not_cross_cond = ~buy_cross & ~sell_cross
+        bullish_j_in_os = (j_s < os) & (j_s > j_s.shift(1)) & not_cross_cond
+        bearish_j_in_ob = (j_s > ob) & (j_s < j_s.shift(1)) & not_cross_cond
+        score.loc[bullish_j_in_os] = np.maximum(score.loc[bullish_j_in_os], 70.0)
+        score.loc[bearish_j_in_ob] = np.minimum(score.loc[bearish_j_in_ob], 30.0)
 
-    neutral_j_zone = (j_s >= os) & (j_s <= ob) & not_cross_cond
-    bullish_j_trend_neutral = neutral_j_zone & (j_s > j_s.shift(1))
-    bearish_j_trend_neutral = neutral_j_zone & (j_s < j_s.shift(1))
-    score.loc[bullish_j_trend_neutral] = np.maximum(score.loc[bullish_j_trend_neutral], 55.0)
-    score.loc[bearish_j_trend_neutral] = np.minimum(score.loc[bearish_j_trend_neutral], 45.0)
+        neutral_j_zone = (j_s >= os) & (j_s <= ob) & not_cross_cond
+        bullish_j_trend_neutral = neutral_j_zone & (j_s > j_s.shift(1))
+        bearish_j_trend_neutral = neutral_j_zone & (j_s < j_s.shift(1))
+        score.loc[bullish_j_trend_neutral] = np.maximum(score.loc[bullish_j_trend_neutral], 55.0)
+        score.loc[bearish_j_trend_neutral] = np.minimum(score.loc[bearish_j_trend_neutral], 45.0)
 
-    return score.clip(0, 100)
+        return score.clip(0, 100)
 
-def calculate_boll_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """BOLL 评分 (0-100)。"""
-    # For BOLL, if bands are NaN, filling with close or mid might be tricky.
-    # MODIFIED: 使用 _safe_fillna_series 填充，并提供后备填充逻辑
-    close_s, upper_s, mid_s, lower_s = _safe_fillna_series(
-        [close, upper, mid, lower],
-        [
+    def calculate_boll_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """BOLL 评分 (0-100)。"""
+        # For BOLL, if bands are NaN, filling with close or mid might be tricky.
+        # MODIFIED: 使用 _safe_fillna_series 填充，并提供后备填充逻辑
+        close_s, upper_s, mid_s, lower_s = _safe_fillna_series(
+            [close, upper, mid, lower],
+            [
+                None, # close 优先 ffill/bfill
+                lambda s: s.mean() + 2 * s.std() if s.std() > 0 else s.mean() + 0.01 * s.mean(), # upper 填充后，如果全 NaN 估算
+                lambda s: s.mean(), # mid 填充后，如果全 NaN 估算
+                lambda s: s.mean() - 2 * s.std() if s.std() > 0 else s.mean() - 0.01 * s.mean()  # lower 填充后，如果全 NaN 估算
+            ]
+        )
+
+        # Re-check for all NaNs after filling attempts
+        if close_s.isnull().all() or upper_s.isnull().all() or mid_s.isnull().all() or lower_s.isnull().all():
+            logger.warning("BOLL 评分：一个或多个关键序列在填充后仍全为NaN。")
+            # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
+            return pd.Series(50.0, index=close.index).clip(0,100)
+
+
+        score = pd.Series(50.0, index=close_s.index)
+
+        score.loc[close_s <= lower_s] = 90.0
+        buy_support = (close_s.shift(1) < lower_s.shift(1)) & (close_s >= lower_s)
+        score.loc[buy_support] = np.maximum(score.loc[buy_support], 80.0)
+
+        score.loc[close_s >= upper_s] = 10.0
+        sell_pressure = (close_s.shift(1) > upper_s.shift(1)) & (close_s <= upper_s)
+        score.loc[sell_pressure] = np.minimum(score.loc[sell_pressure], 20.0)
+
+        buy_mid_cross = (close_s.shift(1) < mid_s.shift(1)) & (close_s >= mid_s)
+        sell_mid_cross = (close_s.shift(1) > mid_s.shift(1)) & (close_s <= mid_s)
+        score.loc[buy_mid_cross] = np.maximum(score.loc[buy_mid_cross], 65.0)
+        score.loc[sell_mid_cross] = np.minimum(score.loc[sell_mid_cross], 35.0)
+
+        not_extreme_cond = (close_s > lower_s) & (close_s < upper_s)
+        not_mid_cross_cond = ~buy_mid_cross & ~sell_mid_cross
+
+        is_above_mid = not_extreme_cond & not_mid_cross_cond & (close_s > mid_s)
+        is_below_mid = not_extreme_cond & not_mid_cross_cond & (close_s < mid_s)
+        score.loc[is_above_mid] = np.maximum(score.loc[is_above_mid], 55.0)
+        score.loc[is_below_mid] = np.minimum(score.loc[is_below_mid], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """CCI 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        cci_s, = _safe_fillna_series([cci], [0.0]) # CCI 中性0
+        if cci_s.isnull().all():
+            return pd.Series(50.0, index=cci.index).clip(0,100)
+
+        score = pd.Series(50.0, index=cci_s.index)
+        # MODIFIED: 从 params 字典获取参数
+        threshold = params.get('threshold', 100) # 注意这里使用了评分函数内部的参数名
+        ext_threshold = params.get('extreme_threshold', 200)
+        # period 参数在评分逻辑中可能不会直接用到数值
+
+        score.loc[cci_s < -ext_threshold] = 95.0
+        score.loc[cci_s > ext_threshold] = 5.0
+
+        score.loc[(cci_s >= -ext_threshold) & (cci_s < -threshold)] = np.maximum(score.loc[(cci_s >= -ext_threshold) & (cci_s < -threshold)], 85.0)
+        score.loc[(cci_s <= ext_threshold) & (cci_s > threshold)] = np.minimum(score.loc[(cci_s <= ext_threshold) & (cci_s > threshold)], 15.0)
+
+        buy_signal = (cci_s.shift(1) < -threshold) & (cci_s >= -threshold)
+        sell_signal = (cci_s.shift(1) > threshold) & (cci_s <= threshold)
+        score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0)
+        score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0)
+
+        not_signal_cond = ~buy_signal & ~sell_signal
+        neutral_zone_cond = (cci_s >= -threshold) & (cci_s <= threshold) & not_signal_cond
+
+        bullish_trend = neutral_zone_cond & (cci_s > cci_s.shift(1))
+        bearish_trend = neutral_zone_cond & (cci_s < cci_s.shift(1))
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """MFI 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        mfi_s, = _safe_fillna_series([mfi], [50.0]) # MFI 中性50
+        if mfi_s.isnull().all():
+            return pd.Series(50.0, index=mfi.index).clip(0,100)
+
+        score = pd.Series(50.0, index=mfi_s.index)
+        # MODIFIED: 从 params 字典获取参数
+        os = params.get('oversold', 20) # 注意这里使用了评分函数内部的参数名
+        ob = params.get('overbought', 80)
+        ext_os = params.get('extreme_oversold', 10)
+        ext_ob = params.get('extreme_overbought', 90)
+        # period 参数在评分逻辑中可能不会直接用到数值
+
+        score.loc[mfi_s < ext_os] = 95.0
+        score.loc[mfi_s > ext_ob] = 5.0
+
+        score.loc[(mfi_s >= ext_os) & (mfi_s < os)] = np.maximum(score.loc[(mfi_s >= ext_os) & (mfi_s < os)], 85.0)
+        score.loc[(mfi_s <= ext_ob) & (mfi_s > ob)] = np.minimum(score.loc[(mfi_s <= ext_ob) & (mfi_s > ob)], 15.0)
+
+        buy_signal = (mfi_s.shift(1) < os) & (mfi_s >= os)
+        sell_signal = (mfi_s.shift(1) > ob) & (mfi_s <= ob)
+        score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0)
+        score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0)
+
+        not_signal_cond = ~buy_signal & ~sell_signal
+        neutral_zone_cond = (mfi_s >= os) & (mfi_s <= ob) & not_signal_cond
+
+        bullish_trend = neutral_zone_cond & (mfi_s > mfi_s.shift(1))
+        bearish_trend = neutral_zone_cond & (mfi_s < mfi_s.shift(1))
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_roc_score(roc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """ROC 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        roc_s, = _safe_fillna_series([roc], [0.0]) # ROC 中性0
+        if roc_s.isnull().all():
+            return pd.Series(50.0, index=roc.index).clip(0,100)
+
+        score = pd.Series(50.0, index=roc_s.index)
+        buy_cross = (roc_s.shift(1) < 0) & (roc_s >= 0)
+        sell_cross = (roc_s.shift(1) > 0) & (roc_s <= 0)
+        score.loc[buy_cross] = 70.0
+        score.loc[sell_cross] = 30.0
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        bullish_trend = (roc_s > 0) & (roc_s > roc_s.shift(1)) & not_cross_cond
+        bearish_trend = (roc_s < 0) & (roc_s < roc_s.shift(1)) & not_cross_cond
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 60.0)
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 40.0)
+
+        bullish_waning = (roc_s > 0) & (roc_s < roc_s.shift(1)) & ~sell_cross # Allow sell_cross to take precedence
+        bearish_waning = (roc_s < 0) & (roc_s > roc_s.shift(1)) & ~buy_cross  # Allow buy_cross to take precedence
+        score.loc[bullish_waning] = np.minimum(score.loc[bullish_waning], 55.0)
+        score.loc[bearish_waning] = np.maximum(score.loc[bearish_waning], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_dmi_score(pdi: pd.Series, ndi: pd.Series, adx: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """DMI 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        pdi_s, ndi_s, adx_s = _safe_fillna_series([pdi, ndi, adx], [0.0, 0.0, 0.0]) # DMI/ADX 中性0
+        if pdi_s.isnull().all():
+            return pd.Series(50.0, index=pdi.index).clip(0,100)
+
+        score = pd.Series(50.0, index=pdi_s.index)
+        # MODIFIED: 从 params 字典获取参数
+        adx_th = params.get('adx_threshold', 25) # 注意这里使用了评分函数内部的参数名
+        adx_strong_th = params.get('adx_strong_threshold', 40)
+        # period 参数在评分逻辑中可能不会直接用到数值
+
+        buy_cross = (pdi_s.shift(1) < ndi_s.shift(1)) & (pdi_s >= ndi_s)
+        sell_cross = (ndi_s.shift(1) < pdi_s.shift(1)) & (ndi_s >= pdi_s)
+
+        # Base scores for crosses
+        score.loc[buy_cross] = 70.0
+        score.loc[sell_cross] = 30.0
+
+        adx_rising = adx_s > adx_s.shift(1)
+
+        # ADX confirmed crosses (higher priority)
+        score.loc[buy_cross & (adx_s > adx_th)] = np.maximum(score.loc[buy_cross & (adx_s > adx_th)], 75.0)
+        score.loc[buy_cross & (adx_s > adx_strong_th) & adx_rising] = np.maximum(score.loc[buy_cross & (adx_s > adx_strong_th) & adx_rising], 85.0)
+
+        score.loc[sell_cross & (adx_s > adx_th)] = np.minimum(score.loc[sell_cross & (adx_s > adx_th)], 25.0)
+        score.loc[sell_cross & (adx_s > adx_strong_th) & adx_rising] = np.minimum(score.loc[sell_cross & (adx_s > adx_strong_th) & adx_rising], 15.0)
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        is_bullish_trend = (pdi_s > ndi_s) & not_cross_cond
+        is_bearish_trend = (ndi_s > pdi_s) & not_cross_cond
+
+        score.loc[is_bullish_trend & (adx_s > adx_strong_th)] = np.maximum(score.loc[is_bullish_trend & (adx_s > adx_strong_th)], 65.0)
+        score.loc[is_bullish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)] = np.maximum(score.loc[is_bullish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)], 60.0)
+        score.loc[is_bullish_trend & (adx_s <= adx_th)] = np.maximum(score.loc[is_bullish_trend & (adx_s <= adx_th)], 55.0)
+
+        score.loc[is_bearish_trend & (adx_s > adx_strong_th)] = np.minimum(score.loc[is_bearish_trend & (adx_s > adx_strong_th)], 35.0)
+        score.loc[is_bearish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)] = np.minimum(score.loc[is_bearish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)], 40.0)
+        score.loc[is_bearish_trend & (adx_s <= adx_th)] = np.minimum(score.loc[is_bearish_trend & (adx_s <= adx_th)], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """SAR 评分 (0-100)。"""
+        # SAR can be tricky to fill if NaN. Filling with close means neutral.
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        close_s, sar_s = _safe_fillna_series([close, sar], [None, None]) # Let ffill/bfill handle first
+        # If sar_s is still NaN after ffill/bfill, fill with close_s
+        sar_s = sar_s.fillna(close_s)
+        # If close_s is all NaN, then sar_s might also be.
+        if close_s.isnull().all() or sar_s.isnull().all():
+            return pd.Series(50.0, index=close.index).clip(0,100)
+
+        score = pd.Series(50.0, index=close_s.index)
+
+        buy_signal = (sar_s.shift(1) > close_s.shift(1)) & (sar_s <= close_s)
+        sell_signal = (sar_s.shift(1) < close_s.shift(1)) & (sar_s >= close_s)
+        score.loc[buy_signal] = 75.0
+        score.loc[sell_signal] = 25.0
+
+        not_signal_cond = ~buy_signal & ~sell_signal
+        score.loc[(close_s > sar_s) & not_signal_cond] = np.maximum(score.loc[(close_s > sar_s) & not_signal_cond], 60.0)
+        score.loc[(close_s < sar_s) & not_signal_cond] = np.minimum(score.loc[(close_s < sar_s) & not_signal_cond], 40.0)
+
+        return score.clip(0, 100)
+
+    def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """随机指标 (STOCH) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        k_s, d_s = _safe_fillna_series([k, d], [50.0, 50.0]) # STOCH 中性50
+        if k_s.isnull().all():
+            return pd.Series(50.0, index=k.index).clip(0,100)
+
+        score = pd.Series(50.0, index=k_s.index)
+        # MODIFIED: 从 params 字典获取参数
+        os = params.get('stoch_oversold', 20) # 注意这里使用了评分函数内部的参数名
+        ob = params.get('stoch_overbought', 80)
+        ext_os = params.get('stoch_extreme_oversold', 10)
+        ext_ob = params.get('stoch_extreme_overbought', 90)
+        # k_period, d_period, smooth_k_period 参数在评分逻辑中可能不会直接用到数值
+
+        score.loc[(k_s < ext_os) | (d_s < ext_os)] = 95.0
+        score.loc[(k_s > ext_ob) | (d_s > ext_ob)] = 5.0
+
+        score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))] = \
+            np.maximum(score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))], 85.0)
+        score.loc[((k_s <= ext_ob) & (k_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))] = \
+            np.minimum(score.loc[((k_s <= ext_ob) & (d_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))], 15.0)
+
+        buy_cross = (k_s.shift(1) < d_s.shift(1)) & (k_s >= d_s)
+        sell_cross = (k_s.shift(1) > d_s.shift(1)) & (k_s <= d_s)
+
+        buy_cross_os = buy_cross & (d_s < os)
+        buy_cross_ob = buy_cross & (d_s > ob)
+        sell_cross_os = sell_cross & (d_s < os)
+        sell_cross_ob = sell_cross & (d_s > ob)
+
+        score.loc[buy_cross_os] = np.maximum(score.loc[buy_cross_os], 80.0)
+        score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)] = np.maximum(score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)], 75.0)
+        score.loc[buy_cross_ob] = np.maximum(score.loc[buy_cross_ob], 60.0)
+
+        score.loc[sell_cross_ob] = np.minimum(score.loc[sell_cross_ob], 20.0)
+        score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)] = np.minimum(score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)], 25.0)
+        score.loc[sell_cross_os] = np.minimum(score.loc[sell_cross_os], 40.0)
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        neutral_stoch_zone = (k_s >= os) & (k_s <= ob) & (d_s >= os) & (d_s <= ob) & not_cross_cond
+
+        bullish_trend_neutral = neutral_stoch_zone & (k_s > k_s.shift(1)) & (d_s > d_s.shift(1))
+        bearish_trend_neutral = neutral_stoch_zone & (k_s < k_s.shift(1)) & (d_s < d_s.shift(1))
+        score.loc[bullish_trend_neutral] = np.maximum(score.loc[bullish_trend_neutral], 55.0)
+        score.loc[bearish_trend_neutral] = np.minimum(score.loc[bearish_trend_neutral], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """移动平均线 (MA) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        close_s, ma_s = _safe_fillna_series(
+            [close, ma],
+            [None, lambda s: s.rolling(20, min_periods=1).mean()] # ma 填充后，如果全 NaN 使用 close 的滚动平均
+        )
+        if close_s.isnull().all() or ma_s.isnull().all(): # If close is all NaN, MA likely too or irrelevant, or MA fill failed
+            # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
+            return pd.Series(50.0, index=close.index).clip(0,100)
+
+        score = pd.Series(50.0, index=close_s.index)
+        buy_cross = (close_s.shift(1) < ma_s.shift(1)) & (close_s >= ma_s)
+        sell_cross = (close_s.shift(1) > ma_s.shift(1)) & (close_s <= ma_s)
+        score.loc[buy_cross] = 70.0
+        score.loc[sell_cross] = 30.0
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        score.loc[(close_s > ma_s) & not_cross_cond] = np.maximum(score.loc[(close_s > ma_s) & not_cross_cond], 60.0)
+        score.loc[(close_s < ma_s) & not_cross_cond] = np.minimum(score.loc[(close_s < ma_s) & not_cross_cond], 40.0)
+
+        return score.clip(0, 100)
+
+    def calculate_atr_score(atr: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """ATR 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        atr_s, = _safe_fillna_series([atr], [lambda s: s.mean()]) # atr 填充后，如果全 NaN 使用平均值
+        if atr_s.isnull().all() or atr_s.mean() == 0: # 如果平均值也为 NaN 或为 0
+            # MODIFIED: 确保返回 Series 的索引是原始 atr 的索引
+            return pd.Series(50.0, index=atr.index).clip(0,100)
+
+
+        score = pd.Series(50.0, index=atr_s.index)
+        # Ensure window size is not larger than series length
+        rolling_window = min(len(atr_s), 20)
+        min_periods_rolling = max(1, int(rolling_window * 0.5)) if rolling_window > 0 else 1
+
+        atr_mean = atr_s.rolling(window=rolling_window, min_periods=min_periods_rolling).mean().fillna(atr_s.mean())
+        atr_std = atr_s.rolling(window=rolling_window, min_periods=min_periods_rolling).std().fillna(atr_s.std()).fillna(0) # fill std NaN with 0
+
+        high_volatility = atr_s > (atr_mean + 0.5 * atr_std)
+        low_volatility = atr_s < (atr_mean - 0.5 * atr_std)
+
+        # ATR score is less directional, more about volatility regime
+        score.loc[high_volatility] = np.maximum(score.loc[high_volatility], 60.0) # Higher score for high vol
+        score.loc[low_volatility] = np.minimum(score.loc[low_volatility], 40.0)   # Lower score for low vol
+
+        return score.clip(0, 100)
+
+    def calculate_adl_score(adl: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """ADL (Accumulation/Distribution Line) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        adl_s, = _safe_fillna_series([adl], [0.0]) # ADL 中性0
+        if adl_s.isnull().all():
+            return pd.Series(50.0, index=adl.index).clip(0,100)
+
+        score = pd.Series(50.0, index=adl_s.index)
+        bullish_trend = adl_s > adl_s.shift(1)
+        bearish_trend = adl_s < adl_s.shift(1)
+
+        score.loc[bullish_trend] = 60.0
+        score.loc[bearish_trend] = 40.0
+        # Neutral for adl_s == adl_s.shift(1) is already 50.0
+
+        return score.clip(0, 100)
+
+    def calculate_vwap_score(close: pd.Series, vwap: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """VWAP (Volume Weighted Average Price) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        close_s, vwap_s = _safe_fillna_series([close, vwap], [None, lambda s: s.mean() if s.mean() is not np.nan else close.mean()]) # vwap 填充后，如果全 NaN 使用均值，再不行用 close 均值
+        if close_s.isnull().all() or vwap_s.isnull().all():
+            # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
+            return pd.Series(50.0, index=close.index).clip(0,100)
+
+        score = pd.Series(50.0, index=close_s.index)
+        score.loc[close_s > vwap_s] = 60.0
+        score.loc[close_s < vwap_s] = 40.0
+        # score.loc[close_s == vwap_s] is already 50.0
+
+        return score.clip(0, 100)
+
+    def calculate_ichimoku_score(close: pd.Series, tenkan: pd.Series, kijun: pd.Series, senkou_a: pd.Series, senkou_b: pd.Series, chikou: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """Ichimoku (一目均衡表) 评分 (0-100)。Simplified NaN handling."""
+        # Ichimoku lines have inherent NaNs due to shifts. ffill/bfill is a simplification.
+        # A more rigorous approach would respect these NaNs or use a sufficiently long data period.
+        # Filling with close_s is a pragmatic choice if exact Ichimoku NaN propagation isn't critical.
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        series_list = [close, tenkan, kijun, senkou_a, senkou_b, chikou]
+        fill_values = [
             None, # close 优先 ffill/bfill
-            lambda s: s.mean() + 2 * s.std() if s.std() > 0 else s.mean() + 0.01 * s.mean(), # upper 填充后，如果全 NaN 估算
-            lambda s: s.mean(), # mid 填充后，如果全 NaN 估算
-            lambda s: s.mean() - 2 * s.std() if s.std() > 0 else s.mean() - 0.01 * s.mean()  # lower 填充后，如果全 NaN 估算
-        ]
-    )
-
-    # Re-check for all NaNs after filling attempts
-    if close_s.isnull().all() or upper_s.isnull().all() or mid_s.isnull().all() or lower_s.isnull().all():
-         logger.warning("BOLL 评分：一个或多个关键序列在填充后仍全为NaN。")
-         # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
-         return pd.Series(50.0, index=close.index).clip(0,100)
-
-
-    score = pd.Series(50.0, index=close_s.index)
-
-    score.loc[close_s <= lower_s] = 90.0
-    buy_support = (close_s.shift(1) < lower_s.shift(1)) & (close_s >= lower_s)
-    score.loc[buy_support] = np.maximum(score.loc[buy_support], 80.0)
-
-    score.loc[close_s >= upper_s] = 10.0
-    sell_pressure = (close_s.shift(1) > upper_s.shift(1)) & (close_s <= upper_s)
-    score.loc[sell_pressure] = np.minimum(score.loc[sell_pressure], 20.0)
-
-    buy_mid_cross = (close_s.shift(1) < mid_s.shift(1)) & (close_s >= mid_s)
-    sell_mid_cross = (close_s.shift(1) > mid_s.shift(1)) & (close_s <= mid_s)
-    score.loc[buy_mid_cross] = np.maximum(score.loc[buy_mid_cross], 65.0)
-    score.loc[sell_mid_cross] = np.minimum(score.loc[sell_mid_cross], 35.0)
-
-    not_extreme_cond = (close_s > lower_s) & (close_s < upper_s)
-    not_mid_cross_cond = ~buy_mid_cross & ~sell_mid_cross
-
-    is_above_mid = not_extreme_cond & not_mid_cross_cond & (close_s > mid_s)
-    is_below_mid = not_extreme_cond & not_mid_cross_cond & (close_s < mid_s)
-    score.loc[is_above_mid] = np.maximum(score.loc[is_above_mid], 55.0)
-    score.loc[is_below_mid] = np.minimum(score.loc[is_below_mid], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """CCI 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    cci_s, = _safe_fillna_series([cci], [0.0]) # CCI 中性0
-    if cci_s.isnull().all():
-        return pd.Series(50.0, index=cci.index).clip(0,100)
-
-    score = pd.Series(50.0, index=cci_s.index)
-    # MODIFIED: 从 params 字典获取参数
-    threshold = params.get('threshold', 100) # 注意这里使用了评分函数内部的参数名
-    ext_threshold = params.get('extreme_threshold', 200)
-    # period 参数在评分逻辑中可能不会直接用到数值
-
-    score.loc[cci_s < -ext_threshold] = 95.0
-    score.loc[cci_s > ext_threshold] = 5.0
-
-    score.loc[(cci_s >= -ext_threshold) & (cci_s < -threshold)] = np.maximum(score.loc[(cci_s >= -ext_threshold) & (cci_s < -threshold)], 85.0)
-    score.loc[(cci_s <= ext_threshold) & (cci_s > threshold)] = np.minimum(score.loc[(cci_s <= ext_threshold) & (cci_s > threshold)], 15.0)
-
-    buy_signal = (cci_s.shift(1) < -threshold) & (cci_s >= -threshold)
-    sell_signal = (cci_s.shift(1) > threshold) & (cci_s <= threshold)
-    score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0)
-    score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0)
-
-    not_signal_cond = ~buy_signal & ~sell_signal
-    neutral_zone_cond = (cci_s >= -threshold) & (cci_s <= threshold) & not_signal_cond
-
-    bullish_trend = neutral_zone_cond & (cci_s > cci_s.shift(1))
-    bearish_trend = neutral_zone_cond & (cci_s < cci_s.shift(1))
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """MFI 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    mfi_s, = _safe_fillna_series([mfi], [50.0]) # MFI 中性50
-    if mfi_s.isnull().all():
-        return pd.Series(50.0, index=mfi.index).clip(0,100)
-
-    score = pd.Series(50.0, index=mfi_s.index)
-    # MODIFIED: 从 params 字典获取参数
-    os = params.get('oversold', 20) # 注意这里使用了评分函数内部的参数名
-    ob = params.get('overbought', 80)
-    ext_os = params.get('extreme_oversold', 10)
-    ext_ob = params.get('extreme_overbought', 90)
-    # period 参数在评分逻辑中可能不会直接用到数值
-
-    score.loc[mfi_s < ext_os] = 95.0
-    score.loc[mfi_s > ext_ob] = 5.0
-
-    score.loc[(mfi_s >= ext_os) & (mfi_s < os)] = np.maximum(score.loc[(mfi_s >= ext_os) & (mfi_s < os)], 85.0)
-    score.loc[(mfi_s <= ext_ob) & (mfi_s > ob)] = np.minimum(score.loc[(mfi_s <= ext_ob) & (mfi_s > ob)], 15.0)
-
-    buy_signal = (mfi_s.shift(1) < os) & (mfi_s >= os)
-    sell_signal = (mfi_s.shift(1) > ob) & (mfi_s <= ob)
-    score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0)
-    score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0)
-
-    not_signal_cond = ~buy_signal & ~sell_signal
-    neutral_zone_cond = (mfi_s >= os) & (mfi_s <= ob) & not_signal_cond
-
-    bullish_trend = neutral_zone_cond & (mfi_s > mfi_s.shift(1))
-    bearish_trend = neutral_zone_cond & (mfi_s < mfi_s.shift(1))
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_roc_score(roc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """ROC 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    roc_s, = _safe_fillna_series([roc], [0.0]) # ROC 中性0
-    if roc_s.isnull().all():
-        return pd.Series(50.0, index=roc.index).clip(0,100)
-
-    score = pd.Series(50.0, index=roc_s.index)
-    buy_cross = (roc_s.shift(1) < 0) & (roc_s >= 0)
-    sell_cross = (roc_s.shift(1) > 0) & (roc_s <= 0)
-    score.loc[buy_cross] = 70.0
-    score.loc[sell_cross] = 30.0
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    bullish_trend = (roc_s > 0) & (roc_s > roc_s.shift(1)) & not_cross_cond
-    bearish_trend = (roc_s < 0) & (roc_s < roc_s.shift(1)) & not_cross_cond
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 60.0)
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 40.0)
-
-    bullish_waning = (roc_s > 0) & (roc_s < roc_s.shift(1)) & ~sell_cross # Allow sell_cross to take precedence
-    bearish_waning = (roc_s < 0) & (roc_s > roc_s.shift(1)) & ~buy_cross  # Allow buy_cross to take precedence
-    score.loc[bullish_waning] = np.minimum(score.loc[bullish_waning], 55.0)
-    score.loc[bearish_waning] = np.maximum(score.loc[bearish_waning], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_dmi_score(pdi: pd.Series, ndi: pd.Series, adx: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """DMI 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    pdi_s, ndi_s, adx_s = _safe_fillna_series([pdi, ndi, adx], [0.0, 0.0, 0.0]) # DMI/ADX 中性0
-    if pdi_s.isnull().all():
-        return pd.Series(50.0, index=pdi.index).clip(0,100)
-
-    score = pd.Series(50.0, index=pdi_s.index)
-    # MODIFIED: 从 params 字典获取参数
-    adx_th = params.get('adx_threshold', 25) # 注意这里使用了评分函数内部的参数名
-    adx_strong_th = params.get('adx_strong_threshold', 40)
-    # period 参数在评分逻辑中可能不会直接用到数值
-
-    buy_cross = (pdi_s.shift(1) < ndi_s.shift(1)) & (pdi_s >= ndi_s)
-    sell_cross = (ndi_s.shift(1) < pdi_s.shift(1)) & (ndi_s >= pdi_s)
-
-    # Base scores for crosses
-    score.loc[buy_cross] = 70.0
-    score.loc[sell_cross] = 30.0
-
-    adx_rising = adx_s > adx_s.shift(1)
-
-    # ADX confirmed crosses (higher priority)
-    score.loc[buy_cross & (adx_s > adx_th)] = np.maximum(score.loc[buy_cross & (adx_s > adx_th)], 75.0)
-    score.loc[buy_cross & (adx_s > adx_strong_th) & adx_rising] = np.maximum(score.loc[buy_cross & (adx_s > adx_strong_th) & adx_rising], 85.0)
-
-    score.loc[sell_cross & (adx_s > adx_th)] = np.minimum(score.loc[sell_cross & (adx_s > adx_th)], 25.0)
-    score.loc[sell_cross & (adx_s > adx_strong_th) & adx_rising] = np.minimum(score.loc[sell_cross & (adx_s > adx_strong_th) & adx_rising], 15.0)
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    is_bullish_trend = (pdi_s > ndi_s) & not_cross_cond
-    is_bearish_trend = (ndi_s > pdi_s) & not_cross_cond
-
-    score.loc[is_bullish_trend & (adx_s > adx_strong_th)] = np.maximum(score.loc[is_bullish_trend & (adx_s > adx_strong_th)], 65.0)
-    score.loc[is_bullish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)] = np.maximum(score.loc[is_bullish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)], 60.0)
-    score.loc[is_bullish_trend & (adx_s <= adx_th)] = np.maximum(score.loc[is_bullish_trend & (adx_s <= adx_th)], 55.0)
-
-    score.loc[is_bearish_trend & (adx_s > adx_strong_th)] = np.minimum(score.loc[is_bearish_trend & (adx_s > adx_strong_th)], 35.0)
-    score.loc[is_bearish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)] = np.minimum(score.loc[is_bearish_trend & (adx_s > adx_th) & (adx_s <= adx_strong_th)], 40.0)
-    score.loc[is_bearish_trend & (adx_s <= adx_th)] = np.minimum(score.loc[is_bearish_trend & (adx_s <= adx_th)], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """SAR 评分 (0-100)。"""
-    # SAR can be tricky to fill if NaN. Filling with close means neutral.
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    close_s, sar_s = _safe_fillna_series([close, sar], [None, None]) # Let ffill/bfill handle first
-    # If sar_s is still NaN after ffill/bfill, fill with close_s
-    sar_s = sar_s.fillna(close_s)
-    # If close_s is all NaN, then sar_s might also be.
-    if close_s.isnull().all() or sar_s.isnull().all():
-        return pd.Series(50.0, index=close.index).clip(0,100)
-
-    score = pd.Series(50.0, index=close_s.index)
-
-    buy_signal = (sar_s.shift(1) > close_s.shift(1)) & (sar_s <= close_s)
-    sell_signal = (sar_s.shift(1) < close_s.shift(1)) & (sar_s >= close_s)
-    score.loc[buy_signal] = 75.0
-    score.loc[sell_signal] = 25.0
-
-    not_signal_cond = ~buy_signal & ~sell_signal
-    score.loc[(close_s > sar_s) & not_signal_cond] = np.maximum(score.loc[(close_s > sar_s) & not_signal_cond], 60.0)
-    score.loc[(close_s < sar_s) & not_signal_cond] = np.minimum(score.loc[(close_s < sar_s) & not_signal_cond], 40.0)
-
-    return score.clip(0, 100)
-
-def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """随机指标 (STOCH) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    k_s, d_s = _safe_fillna_series([k, d], [50.0, 50.0]) # STOCH 中性50
-    if k_s.isnull().all():
-        return pd.Series(50.0, index=k.index).clip(0,100)
-
-    score = pd.Series(50.0, index=k_s.index)
-    # MODIFIED: 从 params 字典获取参数
-    os = params.get('stoch_oversold', 20) # 注意这里使用了评分函数内部的参数名
-    ob = params.get('stoch_overbought', 80)
-    ext_os = params.get('stoch_extreme_oversold', 10)
-    ext_ob = params.get('stoch_extreme_overbought', 90)
-    # k_period, d_period, smooth_k_period 参数在评分逻辑中可能不会直接用到数值
-
-    score.loc[(k_s < ext_os) | (d_s < ext_os)] = 95.0
-    score.loc[(k_s > ext_ob) | (d_s > ext_ob)] = 5.0
-
-    score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))] = \
-        np.maximum(score.loc[((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))], 85.0)
-    score.loc[((k_s <= ext_ob) & (k_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))] = \
-        np.minimum(score.loc[((k_s <= ext_ob) & (d_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))], 15.0)
-
-    buy_cross = (k_s.shift(1) < d_s.shift(1)) & (k_s >= d_s)
-    sell_cross = (k_s.shift(1) > d_s.shift(1)) & (k_s <= d_s)
-
-    buy_cross_os = buy_cross & (d_s < os)
-    buy_cross_ob = buy_cross & (d_s > ob)
-    sell_cross_os = sell_cross & (d_s < os)
-    sell_cross_ob = sell_cross & (d_s > ob)
-
-    score.loc[buy_cross_os] = np.maximum(score.loc[buy_cross_os], 80.0)
-    score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)] = np.maximum(score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)], 75.0)
-    score.loc[buy_cross_ob] = np.maximum(score.loc[buy_cross_ob], 60.0)
-
-    score.loc[sell_cross_ob] = np.minimum(score.loc[sell_cross_ob], 20.0)
-    score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)] = np.minimum(score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)], 25.0)
-    score.loc[sell_cross_os] = np.minimum(score.loc[sell_cross_os], 40.0)
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    neutral_stoch_zone = (k_s >= os) & (k_s <= ob) & (d_s >= os) & (d_s <= ob) & not_cross_cond
-
-    bullish_trend_neutral = neutral_stoch_zone & (k_s > k_s.shift(1)) & (d_s > d_s.shift(1))
-    bearish_trend_neutral = neutral_stoch_zone & (k_s < k_s.shift(1)) & (d_s < d_s.shift(1))
-    score.loc[bullish_trend_neutral] = np.maximum(score.loc[bullish_trend_neutral], 55.0)
-    score.loc[bearish_trend_neutral] = np.minimum(score.loc[bearish_trend_neutral], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """移动平均线 (MA) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    close_s, ma_s = _safe_fillna_series(
-        [close, ma],
-        [None, lambda s: s.rolling(20, min_periods=1).mean()] # ma 填充后，如果全 NaN 使用 close 的滚动平均
-    )
-    if close_s.isnull().all() or ma_s.isnull().all(): # If close is all NaN, MA likely too or irrelevant, or MA fill failed
-        # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
-        return pd.Series(50.0, index=close.index).clip(0,100)
-
-    score = pd.Series(50.0, index=close_s.index)
-    buy_cross = (close_s.shift(1) < ma_s.shift(1)) & (close_s >= ma_s)
-    sell_cross = (close_s.shift(1) > ma_s.shift(1)) & (close_s <= ma_s)
-    score.loc[buy_cross] = 70.0
-    score.loc[sell_cross] = 30.0
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    score.loc[(close_s > ma_s) & not_cross_cond] = np.maximum(score.loc[(close_s > ma_s) & not_cross_cond], 60.0)
-    score.loc[(close_s < ma_s) & not_cross_cond] = np.minimum(score.loc[(close_s < ma_s) & not_cross_cond], 40.0)
-
-    return score.clip(0, 100)
-
-def calculate_atr_score(atr: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """ATR 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    atr_s, = _safe_fillna_series([atr], [lambda s: s.mean()]) # atr 填充后，如果全 NaN 使用平均值
-    if atr_s.isnull().all() or atr_s.mean() == 0: # 如果平均值也为 NaN 或为 0
-        # MODIFIED: 确保返回 Series 的索引是原始 atr 的索引
-        return pd.Series(50.0, index=atr.index).clip(0,100)
-
-
-    score = pd.Series(50.0, index=atr_s.index)
-    # Ensure window size is not larger than series length
-    rolling_window = min(len(atr_s), 20)
-    min_periods_rolling = max(1, int(rolling_window * 0.5)) if rolling_window > 0 else 1
-
-    atr_mean = atr_s.rolling(window=rolling_window, min_periods=min_periods_rolling).mean().fillna(atr_s.mean())
-    atr_std = atr_s.rolling(window=rolling_window, min_periods=min_periods_rolling).std().fillna(atr_s.std()).fillna(0) # fill std NaN with 0
-
-    high_volatility = atr_s > (atr_mean + 0.5 * atr_std)
-    low_volatility = atr_s < (atr_mean - 0.5 * atr_std)
-
-    # ATR score is less directional, more about volatility regime
-    score.loc[high_volatility] = np.maximum(score.loc[high_volatility], 60.0) # Higher score for high vol
-    score.loc[low_volatility] = np.minimum(score.loc[low_volatility], 40.0)   # Lower score for low vol
-
-    return score.clip(0, 100)
-
-def calculate_adl_score(adl: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """ADL (Accumulation/Distribution Line) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    adl_s, = _safe_fillna_series([adl], [0.0]) # ADL 中性0
-    if adl_s.isnull().all():
-        return pd.Series(50.0, index=adl.index).clip(0,100)
-
-    score = pd.Series(50.0, index=adl_s.index)
-    bullish_trend = adl_s > adl_s.shift(1)
-    bearish_trend = adl_s < adl_s.shift(1)
-
-    score.loc[bullish_trend] = 60.0
-    score.loc[bearish_trend] = 40.0
-    # Neutral for adl_s == adl_s.shift(1) is already 50.0
-
-    return score.clip(0, 100)
-
-def calculate_vwap_score(close: pd.Series, vwap: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """VWAP (Volume Weighted Average Price) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    close_s, vwap_s = _safe_fillna_series([close, vwap], [None, lambda s: s.mean() if s.mean() is not np.nan else close.mean()]) # vwap 填充后，如果全 NaN 使用均值，再不行用 close 均值
-    if close_s.isnull().all() or vwap_s.isnull().all():
-        # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
-        return pd.Series(50.0, index=close.index).clip(0,100)
-
-    score = pd.Series(50.0, index=close_s.index)
-    score.loc[close_s > vwap_s] = 60.0
-    score.loc[close_s < vwap_s] = 40.0
-    # score.loc[close_s == vwap_s] is already 50.0
-
-    return score.clip(0, 100)
-
-def calculate_ichimoku_score(close: pd.Series, tenkan: pd.Series, kijun: pd.Series, senkou_a: pd.Series, senkou_b: pd.Series, chikou: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """Ichimoku (一目均衡表) 评分 (0-100)。Simplified NaN handling."""
-    # Ichimoku lines have inherent NaNs due to shifts. ffill/bfill is a simplification.
-    # A more rigorous approach would respect these NaNs or use a sufficiently long data period.
-    # Filling with close_s is a pragmatic choice if exact Ichimoku NaN propagation isn't critical.
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    series_list = [close, tenkan, kijun, senkou_a, senkou_b, chikou]
-    fill_values = [
-        None, # close 优先 ffill/bfill
-        lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # tenkan 填充后，如果全 NaN 使用均值
-        lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # kijun 填充后，如果全 NaN 使用均值
-        lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # senkou_a 填充后，如果全 NaN 使用均值
-        lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # senkou_b 填充后，如果全 NaN 使用均值
-        lambda s: s.mean() if s.mean() is not np.nan else close.mean() # chikou 填充后，如果全 NaN 使用均值
-        ]
-    c, tk, kj, sa, sb, cs = _safe_fillna_series(series_list, fill_values)
-
-    # Check if any series is still all NaN after filling attempts
-    if c.isnull().all() or tk.isnull().all() or kj.isnull().all() or sa.isnull().all() or sb.isnull().all() or cs.isnull().all():
-        logger.warning("Ichimoku: One or more lines are all NaN after filling.")
-        # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
-        return pd.Series(50.0, index=close.index).clip(0,100)
-
-    score = pd.Series(50.0, index=c.index)
-
-    # Weights (can be adjusted)
-    w_price_kijun, w_tk_kj_cross, w_price_cloud, w_cloud_twist, w_chikou_price = 0.2, 0.2, 0.3, 0.1, 0.2
-
-    # 1. Price vs Kijun
-    pk_up = (c.shift(1) < kj.shift(1)) & (c >= kj); score.loc[pk_up] = np.maximum(score.loc[pk_up], 50 + 50*w_price_kijun + 10) # Cross bonus
-    pk_dn = (c.shift(1) > kj.shift(1)) & (c <= kj); score.loc[pk_dn] = np.minimum(score.loc[pk_dn], 50 - 50*w_price_kijun - 10)
-    score.loc[(c > kj) & ~pk_up] = np.maximum(score.loc[(c > kj) & ~pk_up], 50 + 25*w_price_kijun)
-    score.loc[(c < kj) & ~pk_dn] = np.minimum(score.loc[(c < kj) & ~pk_dn], 50 - 25*w_price_kijun)
-
-    # 2. Tenkan/Kijun Cross
-    tk_kj_up = (tk.shift(1) < kj.shift(1)) & (tk >= kj); score.loc[tk_kj_up] = np.maximum(score.loc[tk_kj_up], 50 + 50*w_tk_kj_cross)
-    tk_kj_dn = (tk.shift(1) > kj.shift(1)) & (tk <= kj); score.loc[tk_kj_dn] = np.minimum(score.loc[tk_kj_dn], 50 - 50*w_tk_kj_cross)
-
-    # 3. Price vs Cloud (Kumo)
-    cloud_top = np.maximum(sa, sb)
-    cloud_bottom = np.minimum(sa, sb)
-    price_above_cloud = c > cloud_top; score.loc[price_above_cloud] = np.maximum(score.loc[price_above_cloud], 50 + 50*w_price_cloud)
-    price_below_cloud = c < cloud_bottom; score.loc[price_below_cloud] = np.minimum(score.loc[price_below_cloud], 50 - 50*w_price_cloud)
-    # In cloud:
-    price_in_cloud = (c >= cloud_bottom) & (c <= cloud_top)
-    score.loc[price_in_cloud & (c > c.shift(1))] = np.maximum(score.loc[price_in_cloud & (c > c.shift(1))], 55.0) # Rising in cloud
-    score.loc[price_in_cloud & (c < c.shift(1))] = np.minimum(score.loc[price_in_cloud & (c < c.shift(1))], 45.0) # Falling in cloud
-
-    # 4. Cloud Twist (Senkou A vs Senkou B) - Future signal
-    cloud_twist_up = (sa.shift(1) < sb.shift(1)) & (sa >= sb); score.loc[cloud_twist_up] = np.maximum(score.loc[cloud_twist_up], 50 + 25*w_cloud_twist) # Milder effect
-    cloud_twist_dn = (sa.shift(1) > sb.shift(1)) & (sa <= sb); score.loc[cloud_twist_dn] = np.minimum(score.loc[cloud_twist_dn], 50 - 25*w_cloud_twist)
-
-    # 5. Chikou Span vs Price (Chikou is price shifted back 26 periods)
-    # We need price 26 periods ago. If data is too short, this will be NaN.
-    price_26_ago = c.shift(26) # This is the price that Chikou (cs) is compared against
-    chikou_valid = price_26_ago.notna()
-
-    cs_above_price = cs > price_26_ago; score.loc[cs_above_price & chikou_valid] = np.maximum(score.loc[cs_above_price & chikou_valid], 50 + 50*w_chikou_price)
-    cs_below_price = cs < price_26_ago; score.loc[cs_below_price & chikou_valid] = np.minimum(score.loc[cs_below_price & chikou_valid], 50 - 50*w_chikou_price)
-
-    return score.clip(0, 100)
-
-def calculate_mom_score(mom: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """MOM (Momentum) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    mom_s, = _safe_fillna_series([mom], [0.0]) # MOM 中性0
-    if mom_s.isnull().all():
-        return pd.Series(50.0, index=mom.index).clip(0,100)
-
-    score = pd.Series(50.0, index=mom_s.index)
-    buy_cross = (mom_s.shift(1) < 0) & (mom_s >= 0)
-    sell_cross = (mom_s.shift(1) > 0) & (mom_s <= 0)
-    score.loc[buy_cross] = 65.0
-    score.loc[sell_cross] = 35.0
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    bullish_trend = (mom_s > 0) & (mom_s > mom_s.shift(1)) & not_cross_cond
-    bearish_trend = (mom_s < 0) & (mom_s < mom_s.shift(1)) & not_cross_cond
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0) # Original was 55
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0) # Original was 45
-
-    return score.clip(0, 100)
-
-def calculate_willr_score(willr: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """WILLR (%R) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    willr_s, = _safe_fillna_series([willr], [-50.0]) # %R 中性-50
-    if willr_s.isnull().all():
-        return pd.Series(50.0, index=willr.index).clip(0,100)
-
-    score = pd.Series(50.0, index=willr_s.index)
-    ob_th, os_th = -20, -80
-    ext_ob_th, ext_os_th = -10, -90
-
-    score.loc[willr_s < ext_os_th] = 95.0
-    score.loc[willr_s > ext_ob_th] = 5.0
-
-    score.loc[(willr_s >= ext_os_th) & (willr_s < os_th)] = np.maximum(score.loc[(willr_s >= ext_os_th) & (willr_s < os_th)], 85.0)
-    score.loc[(willr_s <= ext_ob_th) & (willr_s > ob_th)] = np.minimum(score.loc[(willr_s <= ext_ob_th) & (willr_s > ob_th)], 15.0)
-
-    buy_signal = (willr_s.shift(1) < os_th) & (willr_s >= os_th)
-    sell_signal = (willr_s.shift(1) > ob_th) & (willr_s <= ob_th)
-    score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0)
-    score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0)
-
-    not_signal_cond = ~buy_signal & ~sell_signal
-    neutral_zone_cond = (willr_s >= os_th) & (willr_s <= ob_th) & not_signal_cond
-
-    # WILLR is inverted: lower values are more oversold (bullish), higher are overbought (bearish)
-    # So, if WILLR is rising in neutral zone, it's moving towards overbought (bearish)
-    # If WILLR is falling in neutral zone, it's moving towards oversold (bullish)
-    trend_to_ob = neutral_zone_cond & (willr_s > willr_s.shift(1)) # Moving towards -20 (bearish)
-    trend_to_os = neutral_zone_cond & (willr_s < willr_s.shift(1)) # Moving towards -80 (bullish)
-    score.loc[trend_to_ob] = np.minimum(score.loc[trend_to_ob], 45.0)
-    score.loc[trend_to_os] = np.maximum(score.loc[trend_to_os], 55.0)
-
-    return score.clip(0, 100)
-
-def calculate_cmf_score(cmf: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """CMF (Chaikin Money Flow) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    cmf_s, = _safe_fillna_series([cmf], [0.0]) # CMF 中性0
-    if cmf_s.isnull().all():
-        return pd.Series(50.0, index=cmf.index).clip(0,100)
-
-    score = pd.Series(50.0, index=cmf_s.index)
-
-    # Base score on position relative to zero
-    score.loc[cmf_s > 0] = 60.0
-    score.loc[cmf_s < 0] = 40.0
-
-    # Modify based on trend, ensuring not to override stronger signals if they existed
-    bullish_trend = cmf_s > cmf_s.shift(1)
-    bearish_trend = cmf_s < cmf_s.shift(1)
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0) # If CMF > 0 and rising, score remains 60. If CMF < 0 but rising, score becomes 55.
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0) # If CMF < 0 and falling, score remains 40. If CMF > 0 but falling, score becomes 45.
-
-    return score.clip(0, 100)
-
-def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period: int = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
-    """OBV (On Balance Volume) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充 OBV
-    obv_s, = _safe_fillna_series([obv], [None]) # ffill/bfill first
-    if obv_s.isnull().all():
-        return pd.Series(50.0, index=obv.index).clip(0,100)
-    # 如果填充后仍有 NaN，用均值填充
-    obv_s = obv_s.fillna(obv_s.mean())
-    if obv_s.isnull().all():
-        return pd.Series(50.0, index=obv.index).clip(0,100)
-
-    score = pd.Series(50.0, index=obv_s.index)
-
-    # 如果提供了 OBV_MA series，进行交叉判断
-    if obv_ma is not None and not obv_ma.isnull().all():
-         # MODIFIED: 填充 OBV_MA，确保索引一致
-         obv_ma_s, = _safe_fillna_series([obv_ma], [lambda s: s.mean()])
-         if not obv_ma_s.isnull().all():
-              buy_cross = (obv_s.shift(1) < obv_ma_s.shift(1)) & (obv_s >= obv_ma_s)
-              sell_cross = (obv_s.shift(1) > obv_ma_s.shift(1)) & (obv_s <= obv_ma_s)
-              score.loc[buy_cross] = np.maximum(score.loc[buy_cross], 70.0)
-              score.loc[sell_cross] = np.minimum(score.loc[sell_cross], 30.0)
-
-              # 在未交叉时，根据 OBV 相对于 MA 的位置调整分数
-              not_cross_cond = ~buy_cross & ~sell_cross
-              score.loc[(obv_s > obv_ma_s) & not_cross_cond] = np.maximum(score.loc[(obv_s > obv_ma_s) & not_cross_cond], 60.0)
-              score.loc[(obv_s < obv_ma_s) & not_cross_cond] = np.minimum(score.loc[(obv_s < obv_ma_s) & not_cross_cond], 40.0)
-
-         else:
-             logger.warning("OBV 评分：OBV_MA 序列在填充后仍全为NaN，跳过 OBV_MA 相关评分逻辑。")
-
-
-    # 如果没有提供 OBV_MA 或 OBV_MA 无效，或者在没有交叉时，使用 OBV 本身的趋势
-    # 检查当前 score 中还是 50 的位置，应用 OBV 趋势评分
-    neutral_score_mask = (score == 50.0)
-    bullish_trend_no_cross = (obv_s > obv_s.shift(1)) & neutral_score_mask
-    bearish_trend_no_cross = (obv_s < obv_s.shift(1)) & neutral_score_mask
-
-    score.loc[bullish_trend_no_cross] = np.maximum(score.loc[bullish_trend_no_cross], 55.0)
-    score.loc[bearish_trend_no_cross] = np.minimum(score.loc[bearish_trend_no_cross], 45.0)
-
-
-    return score.clip(0, 100)
-
-def calculate_kc_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """KC (Keltner Channel) 评分 (0-100)。"""
-    # Similar to BOLL, NaN handling for bands is key.
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    close_s, upper_s, mid_s, lower_s = _safe_fillna_series(
-        [close, upper, mid, lower],
-        [
-            None, # close 优先 ffill/bfill
-             lambda s: s.mean() + 1.5 * (s.rolling(20, min_periods=1).max() - s.rolling(20, min_periods=1).min()).mean() if s.mean() is not np.nan else close.mean() + 1.5 * (close.rolling(20, min_periods=1).max() - close.rolling(20, min_periods=1).min()).mean(), # upper fallback
-             lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # mid fallback
-             lambda s: s.mean() - 1.5 * (s.rolling(20, min_periods=1).max() - s.rolling(20, min_periods=1).min()).mean() if s.mean() is not np.nan else close.mean() - 1.5 * (close.rolling(20, min_periods=1).max() - close.rolling(20, min_periods=1).min()).mean() # lower fallback
-        ]
-    )
-    # Re-check for all NaNs after filling attempts
-    if close_s.isnull().all() or upper_s.isnull().all() or mid_s.isnull().all() or lower_s.isnull().all():
-         logger.warning("KC 评分：一个或多个关键序列在填充后仍全为NaN。")
-         # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
-         return pd.Series(50.0, index=close.index).clip(0,100)
-
-
-    score = pd.Series(50.0, index=close_s.index)
-
-    score.loc[close_s <= lower_s] = 90.0
-    buy_support = (close_s.shift(1) < lower_s.shift(1)) & (close_s >= lower_s)
-    score.loc[buy_support] = np.maximum(score.loc[buy_support], 80.0)
-
-    score.loc[close_s >= upper_s] = 10.0
-    sell_pressure = (close_s.shift(1) > upper_s.shift(1)) & (close_s <= upper_s)
-    score.loc[sell_pressure] = np.minimum(score.loc[sell_pressure], 20.0)
-
-    buy_mid_cross = (close_s.shift(1) < mid_s.shift(1)) & (close_s >= mid_s)
-    sell_mid_cross = (close_s.shift(1) > mid_s.shift(1)) & (close_s <= mid_s)
-    score.loc[buy_mid_cross] = np.maximum(score.loc[buy_mid_cross], 65.0)
-    score.loc[sell_mid_cross] = np.minimum(score.loc[sell_mid_cross], 35.0)
-
-    not_extreme_cond = (close_s > lower_s) & (close_s < upper_s)
-    not_mid_cross_cond = ~buy_mid_cross & ~sell_mid_cross
-
-    is_above_mid = not_extreme_cond & not_mid_cross_cond & (close_s > mid_s)
-    is_below_mid = not_extreme_cond & not_mid_cross_cond & (close_s < mid_s)
-    score.loc[is_above_mid] = np.maximum(score.loc[is_above_mid], 55.0)
-    score.loc[is_below_mid] = np.minimum(score.loc[is_below_mid], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_hv_score(hv: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """HV (Historical Volatility) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    hv_s, = _safe_fillna_series([hv], [lambda s: s.mean()]) # hv 填充后，如果全 NaN 使用均值
-    if hv_s.isnull().all() or hv_s.mean() == 0:
-        # MODIFIED: 确保返回 Series 的索引是原始 hv 的索引
-        return pd.Series(50.0, index=hv.index).clip(0,100)
-
-    score = pd.Series(50.0, index=hv_s.index)
-    rolling_window = min(len(hv_s), 20)
-    min_periods_rolling = max(1, int(rolling_window * 0.5)) if rolling_window > 0 else 1
-
-    hv_mean = hv_s.rolling(window=rolling_window, min_periods=min_periods_rolling).mean().fillna(hv_s.mean())
-    hv_std = hv_s.rolling(window=rolling_window, min_periods=min_periods_rolling).std().fillna(hv_s.std()).fillna(0)
-
-    high_volatility = hv_s > (hv_mean + 0.5 * hv_std)
-    low_volatility = hv_s < (hv_mean - 0.5 * hv_std)
-
-    score.loc[high_volatility] = np.maximum(score.loc[high_volatility], 60.0)
-    score.loc[low_volatility] = np.minimum(score.loc[low_volatility], 40.0)
-
-    return score.clip(0, 100)
-
-def calculate_vroc_score(vroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """VROC (Volume Rate of Change) 评分 (0-100)。"""
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    vroc_s, = _safe_fillna_series([vroc], [0.0]) # VROC 中性0
-    if vroc_s.isnull().all():
-        return pd.Series(50.0, index=vroc.index).clip(0,100)
-
-    score = pd.Series(50.0, index=vroc_s.index)
-    buy_cross = (vroc_s.shift(1) < 0) & (vroc_s >= 0)
-    sell_cross = (vroc_s.shift(1) > 0) & (vroc_s <= 0)
-    score.loc[buy_cross] = 55.0 # Volume supporting, slightly positive
-    score.loc[sell_cross] = 45.0 # Volume waning, slightly negative
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    bullish_trend = (vroc_s > 0) & (vroc_s > vroc_s.shift(1)) & not_cross_cond
-    bearish_trend = (vroc_s < 0) & (vroc_s < vroc_s.shift(1)) & not_cross_cond
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 52.0) # Mildly positive
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 48.0) # Mildly negative
-
-    return score.clip(0, 100)
-
-def calculate_aroc_score(aroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
-    """AROC (Absolute Rate of Change) 评分 (0-100)。"""
-    # AROC is likely an alias for ROC, using same logic as calculate_roc_score
-    # If AROC has a specific different interpretation (e.g. Aroon Oscillator), the logic would change.
-    # Assuming it's similar to Price ROC:
-    # MODIFIED: 使用 _safe_fillna_series 填充
-    aroc_s, = _safe_fillna_series([aroc], [0.0]) # AROC 中性0
-    if aroc_s.isnull().all():
-        return pd.Series(50.0, index=aroc.index).clip(0,100)
-
-    score = pd.Series(50.0, index=aroc_s.index)
-    buy_cross = (aroc_s.shift(1) < 0) & (aroc_s >= 0)
-    sell_cross = (aroc_s.shift(1) > 0) & (aroc_s <= 0)
-    score.loc[buy_cross] = 65.0 # Stronger signal than VROC as it's price based
-    score.loc[sell_cross] = 35.0
-
-    not_cross_cond = ~buy_cross & ~sell_cross
-    bullish_trend = (aroc_s > 0) & (aroc_s > aroc_s.shift(1)) & not_cross_cond
-    bearish_trend = (aroc_s < 0) & (aroc_s < aroc_s.shift(1)) & not_cross_cond
-    score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
-    score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
-
-    return score.clip(0, 100)
-
-def calculate_pivot_score(close: pd.Series, pivot_levels: Dict[str, pd.Series],
-                          tf: str, # 增加时间框架参数，用于构建标准列名
-                          params: Optional[Dict] = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名，且 pivot_levels 期望的是 Dict[str, pd.Series]
-    """
-    Pivot Points 评分 (0-100)。
-    评分逻辑基于收盘价相对于 Pivot Point (PP) 和各支撑/阻力水平的位置。
-    价格在 PP 上方偏多，下方偏空。突破阻力看涨，跌破支撑看跌。
-
-    优化：
-    - 改进列名查找和级别解析的健壮性。
-    - 优化NaN处理，避免不当填充。
-    - 结构化评分逻辑。
-
-    Args:
-        close (pd.Series): 收盘价序列。
-        pivot_levels (Dict[str, pd.Series]): 包含 Pivot 水平的 Series 字典。
-                                         键是内部 key 如 'PP', 'R1', 'F_S1'，值是对应的 Series。
-        tf (str): 当前使用的时间框架，用于日志等。
-        params (Dict, optional): 评分函数可能需要的额外参数。目前未使用。
-
-    Returns:
-        pd.Series: 计算出的 Pivot Points 评分序列 (0-100)。
-    """
-    # 初始化评分序列，默认中性分 50.0
-    score = pd.Series(50.0, index=close.index)
-
-    # 确保索引一致，并填充 close 的 NaN 值
-    close_filled = close.ffill().bfill()
-    if close_filled.isnull().all():
-        logger.warning("Pivot Points 评分：收盘价序列在填充后仍全为 NaN。")
-        # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
-        return score.clip(0, 100) # 返回默认中性分
-
-    # 从 pivot_levels 字典中提取需要的 Series
-    pp_series = pivot_levels.get('PP')
-    r_series = {k: v for k, v in pivot_levels.items() if k.startswith('R') and k != 'R'} # R1, R2, R3, R4
-    s_series = {k: v for k, v in pivot_levels.items() if k.startswith('S') and k != 'S'} # S1, S2, S3, S4
-    fr_series = {k: v for k, v in pivot_levels.items() if k.startswith('F_R')} # F_R1, F_R2, F_R3
-    fs_series = {k: v for k, v in pivot_levels.items() if k.startswith('F_S')} # F_S1, F_S2, F_S3
-
-
-    # 1. 价格与 Pivot Point (PP) 的相对位置
-    if pp_series is not None and pp_series.notna().any():
-        # 对齐 PP series 的索引到 close
-        pp_series_aligned = pp_series.reindex(close.index)
-        valid_pp_mask = pp_series_aligned.notna()
-        score.loc[valid_pp_mask & (close_filled > pp_series_aligned)] = np.maximum(score.loc[valid_pp_mask & (close_filled > pp_series_aligned)], 55.0) # MODIFIED: 确保不覆盖更高分
-        score.loc[valid_pp_mask & (close_filled < pp_series_aligned)] = np.minimum(score.loc[valid_pp_mask & (close_filled < pp_series_aligned)], 45.0) # MODIFIED: 确保不覆盖更低分
-        # 精确在PP上的情况已经默认为50
-
-    # 2. 价格突破/跌破支撑与阻力水平
-    # 定义标准和斐波那契支撑/阻力级别及其基础分数和级别权重
-    # 使用字典来存储 Series，键是内部 key (R1, S1, F_R1, etc.)
-    level_data = {
-        'R': {'series': r_series, 'base_score_breakout': 70, 'base_score_breakdown': None, 'level_multiplier': 5, 'is_resistance': True},
-        'S': {'series': s_series, 'base_score_breakout': None, 'base_score_breakdown': 30, 'level_multiplier': 5, 'is_resistance': False},
-        'F_R': {'series': fr_series, 'base_score_breakout': 75, 'base_score_breakdown': None, 'level_multiplier': 5, 'is_resistance': True}, # 斐波那契阻力突破可能更强
-        'F_S': {'series': fs_series, 'base_score_breakout': None, 'base_score_breakdown': 25, 'level_multiplier': 5, 'is_resistance': False}, # 斐波那契支撑跌破可能更弱
-    }
-
-    for type_key, config in level_data.items():
-        # 遍历该类型的所有级别 Series
-        for level_key, level_series in config['series'].items():
-            # 从 level_key 中解析级别数字 (e.g., 'R1' -> 1, 'F_S3' -> 3)
-            try:
-                 # 移除前缀，剩下的数字就是级别
-                 level_num_str = level_key.replace(config['prefix'], '')
-                 level_num = int(level_num_str)
-            except (ValueError, TypeError):
-                 logger.warning(f"Pivot Points 评分：无法从内部 key '{level_key}' 解析级别数字。跳过该级别。")
-                 continue
-
-            if level_series is not None and level_series.notna().any():
-                # 对齐 level series 的索引到 close
-                level_series_aligned = level_series.reindex(close.index)
-                valid_level_mask = level_series_aligned.notna() # 只在 pivot level 非 NaN 的地方操作
-
-                # 获取前一时刻的价格和支撑/阻力位 (需要先确保索引一致)
-                close_prev = close_filled.shift(1)
-                level_prev = level_series_aligned.shift(1)
-
-                if config['is_resistance']: # 处理阻力位
-                    # 价格向上突破阻力
-                    breakout_cond_full = (close_prev < level_prev) & (close_filled >= level_series_aligned)
-                    breakout_cond = breakout_cond_full & valid_level_mask # 应用掩码
-
-                    if breakout_cond.any():
-                        breakout_score_value = config['base_score_breakout'] + level_num * config['level_multiplier']
-                        score.loc[breakout_cond] = np.maximum(score.loc[breakout_cond], breakout_score_value)
-
-                    # 价格在阻力位下方（未突破时，作为阻力区的参考）
-                    # 越接近高级别阻力，分数越低（更看跌）
-                    below_resistance_cond = (close_filled < level_series_aligned) & (~breakout_cond_full) & valid_level_mask
-                    if below_resistance_cond.any():
-                        penalty = level_num * 2.5 # 示例惩罚值，越高级别惩罚越多
-                        score.loc[below_resistance_cond] = np.minimum(score.loc[below_resistance_cond], 50 - penalty)
-
-                else: # 处理支撑位
-                    # 价格向下跌破支撑
-                    breakdown_cond_full = (close_prev > level_prev) & (close_filled <= level_series_aligned)
-                    breakdown_cond = breakdown_cond_full & valid_level_mask # 应用掩码
-
-                    if breakdown_cond.any():
-                        breakdown_score_value = config['base_score_breakdown'] - level_num * config['level_multiplier']
-                        score.loc[breakdown_cond] = np.minimum(score.loc[breakdown_cond], breakdown_score_value)
-
-                    # 价格在支撑位上方（未跌破时，作为支撑区的参考）
-                    # 越接近高级别支撑，分数越高（更看涨）
-                    above_support_cond = (close_filled > level_series_aligned) & (~breakdown_cond_full) & valid_level_mask
-                    if above_support_cond.any():
-                        bonus = level_num * 2.5 # 示例奖励值，越高级别奖励越多
-                        score.loc[above_support_cond] = np.maximum(score.loc[above_support_cond], 50 + bonus)
-
-
-    return score.clip(0, 100)
-
-def build_expected_col_name(indicator_key: str, internal_key: str, params: List[Any], tf_suffix: str) -> Optional[str]:
-    """
-    根据指标 key, 内部 key, 参数列表和时间框架后缀构建期望的列名。
-    """
-    if not tf_suffix:
-         logger.error(f"构建列名失败: 时间框架后缀为空。 indicator_key={indicator_key}, internal_key={internal_key}")
-         return None
-
-    def format_param(p):
-        if isinstance(p, float):
-            # 尝试格式化为 .1f 或 .2f，取决于参数类型和指标
-            if indicator_key == 'boll': return f"{p:.1f}" # BOLL std_dev 常见格式
-            if indicator_key == 'sar':
-                 # SAR af_step 和 max_af 可能有不同格式，根据约定文件
-                 # Convention文件里是 SAR_0.02_0.2_{timeframe}
-                 # 所以 af_step 是 .2f, max_af 是 .1f
-                 if len(params) == 2:
-                      if p == params[0]: return f"{p:.2f}" # af_step
-                      if p == params[1]: return f"{p:.1f}" # max_af
-                 # Fallback if cannot determine based on position
-                 return f"{p:.2f}" # 默认 .2f
-            # 其他浮点参数如果存在，需要根据实际命名规范调整
-            return str(p) # 默认转换为字符串
-        return str(p)
-
-    # MODIFIED: 修正参数部分的构建逻辑，确保只包含实际参数
-    # MACD_12_26_9, RSI_14, K_7_3_3, BOLL_20_2.0 等，参数在指标名后用下划线分隔
-    param_str_parts = [format_param(p) for p in params]
-    param_part = '_'.join(param_str_parts) if param_str_parts else ""
-    param_suffix = f"_{param_part}" if param_part else ""
-
-
-    if indicator_key == 'macd' and len(params) == 3:
-        prefix_map = {'macd_series': 'MACD', 'macd_d': 'MACDs', 'macd_h': 'MACDh'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-            return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'rsi' and len(params) == 1:
-        if internal_key == 'rsi':
-            return f"RSI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'kdj' and len(params) == 3:
-        prefix_map = {'k': 'K', 'd': 'D', 'j': 'J'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'boll' and len(params) == 2:
-        prefix_map = {'upper': 'BBU', 'mid': 'BBM', 'lower': 'BBL', 'close': 'close'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             if internal_key == 'close':
-                 return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'cci' and len(params) == 1:
-        if internal_key == 'cci':
-             return f"CCI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'mfi' and len(params) == 1:
-        if internal_key == 'mfi':
-             return f"MFI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'roc' and len(params) == 1:
-        if internal_key == 'roc':
-             return f"ROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'dmi' and len(params) == 1:
-        prefix_map = {'pdi': 'PDI', 'ndi': 'NDI', 'adx': 'ADX'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'sar' and len(params) == 2:
-        prefix_map = {'sar': 'SAR', 'close': 'close'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             if internal_key == 'close':
-                  return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
-             # SAR 参数格式化特殊处理，af_step(.2f)_max_af(.1f)
-             param_str_sar = f"{format_param(params[0])}_{format_param(params[1])}"
-             return f"{prefix}_{param_str_sar}_{tf_suffix}" # MODIFIED: 修正 SAR 参数部分的构建
-
-    elif indicator_key == 'stoch' and len(params) == 3:
-        prefix_map = {'k': 'STOCHk', 'd': 'STOCHd'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key in ['ema', 'sma'] and len(params) == 1:
-        prefix_map = {'ma': indicator_key.upper(), 'close': 'close'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-            if internal_key == 'close':
-                 return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
-            return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'atr' and len(params) == 1:
-        if internal_key == 'atr':
-             return f"ATR{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'adl' and not params: # ADL 没有参数在列名中
-        if internal_key == 'adl':
-             return f"ADL_{tf_suffix}"
-
-    elif indicator_key == 'vwap' and not params: # VWAP 通常没有参数在列名中 (除非有anchor)
-         prefix_map = {'vwap': 'VWAP', 'close': 'close'}
-         prefix = prefix_map.get(internal_key)
-         if prefix:
-             return f"{prefix}_{tf_suffix}" # VWAP/close 列名模式: NAME_timeframe
-
-    elif indicator_key == 'ichimoku' and len(params) == 3:
-         prefix_map = {
-             'close': 'close', 'tenkan': 'TENKAN', 'kijun': 'KIJUN',
-             'senkou_a': 'SENKOU_A', 'senkou_b': 'SENKOU_B', 'chikou': 'CHIKOU'
-         }
-         prefix = prefix_map.get(internal_key)
-         if prefix:
-             if internal_key == 'close':
-                  return f"{prefix}_{tf_suffix}"
-
-             p_tenkan, p_kijun, p_senkou_b = params # params 列表包含 Ichimoku 的主要参数
-             # Ichimoku 列名模式复杂，根据 internal_key 和对应参数构建
-             if internal_key == 'tenkan': return f"TENKAN_{p_tenkan}_{tf_suffix}"
-             if internal_key == 'kijun': return f"KIJUN_{p_kijun}_{tf_suffix}"
-             if internal_key == 'chikou': return f"CHIKOU_{p_kijun}_{tf_suffix}" # Chikou 参数是 Kijun 的
-             if internal_key == 'senkou_a': return f"SENKOU_A_{p_tenkan}_{p_kijun}_{tf_suffix}" # Senkou A 参数是 Tenkan 和 Kijun 的
-             if internal_key == 'senkou_b': return f"SENKOU_B_{p_senkou_b}_{tf_suffix}" # Senkou B 参数是自己的
-
-    elif indicator_key == 'mom' and len(params) == 1:
-        if internal_key == 'mom':
-             return f"MOM{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'willr' and len(params) == 1:
-        if internal_key == 'willr':
-             return f"WILLR{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'cmf' and len(params) == 1:
-        if internal_key == 'cmf':
-             return f"CMF{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'obv':
-        if internal_key == 'obv':
-             return f"OBV_{tf_suffix}"
-        # OBV_MA 需要单独构建，参数是 OBV_MA 的周期
-        if internal_key == 'obv_ma' and len(params) == 1: # params 此时应该是 OBV_MA 的周期列表 [obv_ma_period]
-             p_obv_ma = params[0]
-             return f"OBV_MA_{p_obv_ma}_{tf_suffix}"
-
-
-    elif indicator_key == 'kc' and len(params) == 2:
-        prefix_map = {'upper': 'KCU', 'mid': 'KCM', 'lower': 'KCL', 'close': 'close'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             if internal_key == 'close':
-                 return f"{prefix}_{tf_suffix}"
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'hv' and len(params) == 1:
-        if internal_key == 'hv':
-             return f"HV{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'vroc' and len(params) == 1:
-        if internal_key == 'vroc':
-             return f"VROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'aroc' and len(params) == 1:
-        if internal_key == 'aroc':
-             return f"AROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'pivot' and tf_suffix.upper() == 'D' and internal_key == 'close':
-         return f"close_{tf_suffix}"
-    # Pivot levels 不需要通过 build_expected_col_name 单独构建，它们是列表，在查找时统一处理
-
-    logger.warning(f"无法为指标 '{indicator_key}' 构建列名，内部 key: '{internal_key}', 参数: {params}, 后缀: '{tf_suffix}'")
-    return None
-
-def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:
-    """
-    尝试从包含时间框架后缀的列名中解析指标参数。
-    """
-    if not col_name.endswith(f"_{tf_suffix}"):
-         return None # 后缀不匹配
-
-    base_name_with_params = col_name[:-len(f"_{tf_suffix}")] # 移除后缀
-    parts = base_name_with_params.split('_')
-
-    try:
-        if indicator_key == 'macd' and parts[0] in ['MACD', 'MACDh', 'MACDs']:
-            # MACD_fast_slow_signal
-            if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
-        elif indicator_key == 'rsi' and parts[0] == 'RSI':
-            # RSI_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'kdj' and parts[0] in ['K', 'D', 'J']:
-            # K_period_signal_period_smooth_k_period
-             if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
-        elif indicator_key == 'boll' and parts[0] in ['BBL', 'BBM', 'BBU']:
-            # BB{L/M/U}_period_std_dev
-             if len(parts) >= 3: return [int(parts[1]), float(parts[2])] # std_dev 是浮点数
-        elif indicator_key == 'cci' and parts[0] == 'CCI':
-            # CCI_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'mfi' and parts[0] == 'MFI':
-            # MFI_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'roc' and parts[0] == 'ROC':
-            # ROC_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'dmi' and parts[0] in ['PDI', 'NDI', 'ADX']:
-            # DMI_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'sar' and parts[0] == 'SAR':
-             # SAR_af_step_max_af (浮点数)
-             if len(parts) >= 3: return [float(parts[1]), float(parts[2])]
-        elif indicator_key == 'stoch' and parts[0] in ['STOCHk', 'STOCHd']:
-            # STOCHk_k_period_d_period_smooth_k_period
-             if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
-        elif indicator_key in ['ema', 'sma'] and parts[0] in ['EMA', 'SMA']:
-            # MA_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'atr' and parts[0] == 'ATR':
-             # ATR_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'adl' and parts[0] == 'ADL':
-            # ADL_{timeframe}, 无参数
-            if len(parts) == 1: return []
-        elif indicator_key == 'vwap' and parts[0] == 'VWAP':
-             # VWAP_{timeframe} 或 VWAP_{anchor}_{timeframe}
-             # 根据日志，VWAP 列名是 VWAP_5 等，没有anchor参数
-             if len(parts) == 1: return [] # 假设列名中不包含参数
-        elif indicator_key == 'ichimoku' and parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_A', 'SENKOU_B']:
-            # Ichimoku 参数解析复杂，尝试从主要列名解析
-            # TENKAN_period, KIJUN_period, CHIKOU_period, SENKOU_A_tenkan_kijun, SENKOU_B_period
-            if parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_B'] and len(parts) >= 2:
-                 return [int(parts[1])] # 尝试解析单个周期 (Tenkan, Kijun, Chikou, Senkou B)
-            elif parts[0] == 'SENKOU_A' and len(parts) >= 3:
-                 return [int(parts[1]), int(parts[2])] # 尝试解析两个周期 (Senkou A)
-            return None # 参数格式不匹配
-        elif indicator_key == 'mom' and parts[0] == 'MOM':
-            # MOM_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'willr' and parts[0] == 'WILLR':
-            # WILLR_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'cmf' and parts[0] == 'CMF':
-            # CMF_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'obv' and parts[0] == 'OBV':
-             # OBV_{timeframe}, 无参数
-            if len(parts) == 1: return []
-        elif indicator_key == 'obv' and parts[0] == 'OBV_MA':
-             # OBV_MA_period_{timeframe}
-             if len(parts) >= 2: return [int(parts[1])] # OBV_MA 列名中的周期
-        elif indicator_key == 'kc' and parts[0] in ['KCL', 'KCM', 'KCU']:
-             # KC_ema_period_atr_period
-             if len(parts) >= 3: return [int(parts[1]), int(parts[2])]
-        elif indicator_key == 'hv' and parts[0] == 'HV':
-            # HV_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'vroc' and parts[0] == 'VROC':
-            # VROC_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'aroc' and parts[0] == 'AROC':
-            # AROC_period
-             if len(parts) >= 2: return [int(parts[1])]
-        # Pivot 列名不包含参数，只有基础名和后缀，在主函数中特殊处理
-
-        return None # 未知列名模式或解析失败
-    except (ValueError, IndexError):
-        logger.debug(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}).", exc_info=True)
-        return None # 参数转换失败或索引越界
-
-def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicator_configs: List[Dict] ) -> pd.DataFrame:
-    """
-    根据配置计算所有指定指标的评分 (0-100)。
-
-    此函数遍历 base_scoring 参数中指定的需要评分的指标和时间框架，
-    从输入的 DataFrame 中查找对应的指标数据列，并调用相应的评分计算函数。
-    指标列名根据 indicator_naming_conventions.json 文件中的命名规范构建，
-    并能根据实际DataFrame中存在的列名（包含实际计算参数）进行匹配。
-
-    :param data: 包含所有原始数据和指标的 DataFrame。列名应包含时间级别后缀和计算参数，
-                 例如 'close_15', 'MACD_12_26_9_30'。
-    :param bs_params: base_scoring 参数字典，包含 'score_indicators' (需要评分的指标列表)
-                      和 'timeframes' (需要计算评分的时间框架列表)，以及各指标的评分参数。
-                      注意：这里的指标参数是策略配置中定义的，键名可能与评分函数参数名不同。
-    :param indicator_configs: 由 indicator_services.prepare_strategy_dataframe 生成的，
-                              包含每个指标计算函数、参数、时间框架的列表。用于辅助查找列名。
-    :return: 返回一个 DataFrame，包含所有时间框架和指标的评分列。
-             列名格式: SCORE_{指标名}_{时间级别}。
-             如果某个指标或时间框架的数据缺失或计算失败，对应的评分列将填充默认中性分 50.0。
-    """
-    # 初始化用于存储所有评分结果的 DataFrame
-    scoring_results = pd.DataFrame(index=data.index)
-    # 如果输入 DataFrame 是空的，也直接返回空结果
-    if data.empty:
-         logger.warning("输入 DataFrame 为空，无法计算指标评分。")
-         return scoring_results
-    # 获取需要评分的指标列表和时间框架列表
-    score_indicators_keys = bs_params.get('score_indicators', [])
-    score_timeframes = bs_params.get('timeframes', [])
-    if not score_indicators_keys or not score_timeframes:
-        logger.warning("未配置需要评分的指标或时间框架 (base_scoring.score_indicators 或 base_scoring.timeframes)。")
-        return scoring_results
-
-    logger.info(f"开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
-    # 加载 indicator_naming_conventions.json 文件中的命名规范
-    # naming_conventions_path = getattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH', None)
-    # naming_conventions = {}
-    # indicator_naming = {}
-    # derivative_naming = {}
-    # if naming_conventions_path:
-    #     try:
-    #         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
-    #             naming_conventions = json.load(f)
-    #         indicator_naming = naming_conventions.get('indicator_naming_conventions', {})
-    #         derivative_naming = naming_conventions.get('derivative_feature_naming_conventions', {})
-    #         logger.info(f"成功加载指标命名规范配置文件: {naming_conventions_path}")
-    #     except FileNotFoundError:
-    #         logger.error(f"指标命名规范配置文件未找到: {naming_conventions_path}，将使用默认命名逻辑。")
-    #     except json.JSONDecodeError:
-    #          logger.error(f"指标命名规范配置文件格式错误: {naming_conventions_path}，请检查JSON格式。将使用默认命名逻辑。")
-    #     except Exception as e:
-    #         logger.error(f"加载指标命名规范配置文件失败: {naming_conventions_path}: {e}，将使用默认命名逻辑。")
-    # else:
-    #      logger.warning("未配置 INDICATOR_PARAMETERS_CONFIG_PATH 路径，将使用默认命名逻辑。")
-    # 从 indicator_configs 中提取可能的列名信息 (优先使用此映射)
-    config_column_mapping_by_tf: Dict[str, Dict[str, List[str]]] = {} # {timeframe: {indicator_name: [col1, col2, ...]}}
-    for config in indicator_configs:
-        indicator_name = config.get('name', '').lower()
-        timeframe = str(config.get('timeframe', '')) # 确保是字符串
-        output_columns = config.get('output_columns', [])
-        if isinstance(output_columns, str):
-             output_columns = [output_columns]
-        if indicator_name and timeframe and output_columns:
-            if timeframe not in config_column_mapping_by_tf:
-                config_column_mapping_by_tf[timeframe] = {}
-            config_column_mapping_by_tf[timeframe][indicator_name] = output_columns
-            # logger.debug(f"从配置中提取指标 {indicator_name} 在时间框架 {timeframe} 的列名: {output_columns}") # 调试信息
-    # --- 集中配置指标的评分函数、所需内部键和列名前缀及参数映射 ---
-    # 调整 indicator_scoring_info 结构，明确参数传递风格和映射
-    indicator_scoring_info: Dict[str, Dict[str, Any]] = {
-        'macd': { # File 2 signature: macd_series, macd_d, macd_h
-            'func': calculate_macd_score, 'param_passing_style': 'none', # Based on File 2 signature
+            lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # tenkan 填充后，如果全 NaN 使用均值
+            lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # kijun 填充后，如果全 NaN 使用均值
+            lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # senkou_a 填充后，如果全 NaN 使用均值
+            lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # senkou_b 填充后，如果全 NaN 使用均值
+            lambda s: s.mean() if s.mean() is not np.nan else close.mean() # chikou 填充后，如果全 NaN 使用均值
+            ]
+        c, tk, kj, sa, sb, cs = _safe_fillna_series(series_list, fill_values)
+
+        # Check if any series is still all NaN after filling attempts
+        if c.isnull().all() or tk.isnull().all() or kj.isnull().all() or sa.isnull().all() or sb.isnull().all() or cs.isnull().all():
+            logger.warning("Ichimoku: One or more lines are all NaN after filling.")
+            # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
+            return pd.Series(50.0, index=close.index).clip(0,100)
+
+        score = pd.Series(50.0, index=c.index)
+
+        # Weights (can be adjusted)
+        w_price_kijun, w_tk_kj_cross, w_price_cloud, w_cloud_twist, w_chikou_price = 0.2, 0.2, 0.3, 0.1, 0.2
+
+        # 1. Price vs Kijun
+        pk_up = (c.shift(1) < kj.shift(1)) & (c >= kj); score.loc[pk_up] = np.maximum(score.loc[pk_up], 50 + 50*w_price_kijun + 10) # Cross bonus
+        pk_dn = (c.shift(1) > kj.shift(1)) & (c <= kj); score.loc[pk_dn] = np.minimum(score.loc[pk_dn], 50 - 50*w_price_kijun - 10)
+        score.loc[(c > kj) & ~pk_up] = np.maximum(score.loc[(c > kj) & ~pk_up], 50 + 25*w_price_kijun)
+        score.loc[(c < kj) & ~pk_dn] = np.minimum(score.loc[(c < kj) & ~pk_dn], 50 - 25*w_price_kijun)
+
+        # 2. Tenkan/Kijun Cross
+        tk_kj_up = (tk.shift(1) < kj.shift(1)) & (tk >= kj); score.loc[tk_kj_up] = np.maximum(score.loc[tk_kj_up], 50 + 50*w_tk_kj_cross)
+        tk_kj_dn = (tk.shift(1) > kj.shift(1)) & (tk <= kj); score.loc[tk_kj_dn] = np.minimum(score.loc[tk_kj_dn], 50 - 50*w_tk_kj_cross)
+
+        # 3. Price vs Cloud (Kumo)
+        cloud_top = np.maximum(sa, sb)
+        cloud_bottom = np.minimum(sa, sb)
+        price_above_cloud = c > cloud_top; score.loc[price_above_cloud] = np.maximum(score.loc[price_above_cloud], 50 + 50*w_price_cloud)
+        price_below_cloud = c < cloud_bottom; score.loc[price_below_cloud] = np.minimum(score.loc[price_below_cloud], 50 - 50*w_price_cloud)
+        # In cloud:
+        price_in_cloud = (c >= cloud_bottom) & (c <= cloud_top)
+        score.loc[price_in_cloud & (c > c.shift(1))] = np.maximum(score.loc[price_in_cloud & (c > c.shift(1))], 55.0) # Rising in cloud
+        score.loc[price_in_cloud & (c < c.shift(1))] = np.minimum(score.loc[price_in_cloud & (c < c.shift(1))], 45.0) # Falling in cloud
+
+        # 4. Cloud Twist (Senkou A vs Senkou B) - Future signal
+        cloud_twist_up = (sa.shift(1) < sb.shift(1)) & (sa >= sb); score.loc[cloud_twist_up] = np.maximum(score.loc[cloud_twist_up], 50 + 25*w_cloud_twist) # Milder effect
+        cloud_twist_dn = (sa.shift(1) > sb.shift(1)) & (sa <= sb); score.loc[cloud_twist_dn] = np.minimum(score.loc[cloud_twist_dn], 50 - 25*w_cloud_twist)
+
+        # 5. Chikou Span vs Price (Chikou is price shifted back 26 periods)
+        # We need price 26 periods ago. If data is too short, this will be NaN.
+        price_26_ago = c.shift(26) # This is the price that Chikou (cs) is compared against
+        chikou_valid = price_26_ago.notna()
+
+        cs_above_price = cs > price_26_ago; score.loc[cs_above_price & chikou_valid] = np.maximum(score.loc[cs_above_price & chikou_valid], 50 + 50*w_chikou_price)
+        cs_below_price = cs < price_26_ago; score.loc[cs_below_price & chikou_valid] = np.minimum(score.loc[cs_below_price & chikou_valid], 50 - 50*w_chikou_price)
+
+        return score.clip(0, 100)
+
+    def calculate_mom_score(mom: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """MOM (Momentum) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        mom_s, = _safe_fillna_series([mom], [0.0]) # MOM 中性0
+        if mom_s.isnull().all():
+            return pd.Series(50.0, index=mom.index).clip(0,100)
+
+        score = pd.Series(50.0, index=mom_s.index)
+        buy_cross = (mom_s.shift(1) < 0) & (mom_s >= 0)
+        sell_cross = (mom_s.shift(1) > 0) & (mom_s <= 0)
+        score.loc[buy_cross] = 65.0
+        score.loc[sell_cross] = 35.0
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        bullish_trend = (mom_s > 0) & (mom_s > mom_s.shift(1)) & not_cross_cond
+        bearish_trend = (mom_s < 0) & (mom_s < mom_s.shift(1)) & not_cross_cond
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0) # Original was 55
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0) # Original was 45
+
+        return score.clip(0, 100)
+
+    def calculate_willr_score(willr: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """WILLR (%R) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        willr_s, = _safe_fillna_series([willr], [-50.0]) # %R 中性-50
+        if willr_s.isnull().all():
+            return pd.Series(50.0, index=willr.index).clip(0,100)
+
+        score = pd.Series(50.0, index=willr_s.index)
+        ob_th, os_th = -20, -80
+        ext_ob_th, ext_os_th = -10, -90
+
+        score.loc[willr_s < ext_os_th] = 95.0
+        score.loc[willr_s > ext_ob_th] = 5.0
+
+        score.loc[(willr_s >= ext_os_th) & (willr_s < os_th)] = np.maximum(score.loc[(willr_s >= ext_os_th) & (willr_s < os_th)], 85.0)
+        score.loc[(willr_s <= ext_ob_th) & (willr_s > ob_th)] = np.minimum(score.loc[(willr_s <= ext_ob_th) & (willr_s > ob_th)], 15.0)
+
+        buy_signal = (willr_s.shift(1) < os_th) & (willr_s >= os_th)
+        sell_signal = (willr_s.shift(1) > ob_th) & (willr_s <= ob_th)
+        score.loc[buy_signal] = np.maximum(score.loc[buy_signal], 75.0)
+        score.loc[sell_signal] = np.minimum(score.loc[sell_signal], 25.0)
+
+        not_signal_cond = ~buy_signal & ~sell_signal
+        neutral_zone_cond = (willr_s >= os_th) & (willr_s <= ob_th) & not_signal_cond
+
+        # WILLR is inverted: lower values are more oversold (bullish), higher are overbought (bearish)
+        # So, if WILLR is rising in neutral zone, it's moving towards overbought (bearish)
+        # If WILLR is falling in neutral zone, it's moving towards oversold (bullish)
+        trend_to_ob = neutral_zone_cond & (willr_s > willr_s.shift(1)) # Moving towards -20 (bearish)
+        trend_to_os = neutral_zone_cond & (willr_s < willr_s.shift(1)) # Moving towards -80 (bullish)
+        score.loc[trend_to_ob] = np.minimum(score.loc[trend_to_ob], 45.0)
+        score.loc[trend_to_os] = np.maximum(score.loc[trend_to_os], 55.0)
+
+        return score.clip(0, 100)
+
+    def calculate_cmf_score(cmf: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """CMF (Chaikin Money Flow) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        cmf_s, = _safe_fillna_series([cmf], [0.0]) # CMF 中性0
+        if cmf_s.isnull().all():
+            return pd.Series(50.0, index=cmf.index).clip(0,100)
+
+        score = pd.Series(50.0, index=cmf_s.index)
+
+        # Base score on position relative to zero
+        score.loc[cmf_s > 0] = 60.0
+        score.loc[cmf_s < 0] = 40.0
+
+        # Modify based on trend, ensuring not to override stronger signals if they existed
+        bullish_trend = cmf_s > cmf_s.shift(1)
+        bearish_trend = cmf_s < cmf_s.shift(1)
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0) # If CMF > 0 and rising, score remains 60. If CMF < 0 but rising, score becomes 55.
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0) # If CMF < 0 and falling, score remains 40. If CMF > 0 but falling, score becomes 45.
+
+        return score.clip(0, 100)
+
+    def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period: int = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+        """OBV (On Balance Volume) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充 OBV
+        obv_s, = _safe_fillna_series([obv], [None]) # ffill/bfill first
+        if obv_s.isnull().all():
+            return pd.Series(50.0, index=obv.index).clip(0,100)
+        # 如果填充后仍有 NaN，用均值填充
+        obv_s = obv_s.fillna(obv_s.mean())
+        if obv_s.isnull().all():
+            return pd.Series(50.0, index=obv.index).clip(0,100)
+
+        score = pd.Series(50.0, index=obv_s.index)
+
+        # 如果提供了 OBV_MA series，进行交叉判断
+        if obv_ma is not None and not obv_ma.isnull().all():
+            # MODIFIED: 填充 OBV_MA，确保索引一致
+            obv_ma_s, = _safe_fillna_series([obv_ma], [lambda s: s.mean()])
+            if not obv_ma_s.isnull().all():
+                buy_cross = (obv_s.shift(1) < obv_ma_s.shift(1)) & (obv_s >= obv_ma_s)
+                sell_cross = (obv_s.shift(1) > obv_ma_s.shift(1)) & (obv_s <= obv_ma_s)
+                score.loc[buy_cross] = np.maximum(score.loc[buy_cross], 70.0)
+                score.loc[sell_cross] = np.minimum(score.loc[sell_cross], 30.0)
+
+                # 在未交叉时，根据 OBV 相对于 MA 的位置调整分数
+                not_cross_cond = ~buy_cross & ~sell_cross
+                score.loc[(obv_s > obv_ma_s) & not_cross_cond] = np.maximum(score.loc[(obv_s > obv_ma_s) & not_cross_cond], 60.0)
+                score.loc[(obv_s < obv_ma_s) & not_cross_cond] = np.minimum(score.loc[(obv_s < obv_ma_s) & not_cross_cond], 40.0)
+
+            else:
+                logger.warning("OBV 评分：OBV_MA 序列在填充后仍全为NaN，跳过 OBV_MA 相关评分逻辑。")
+
+
+        # 如果没有提供 OBV_MA 或 OBV_MA 无效，或者在没有交叉时，使用 OBV 本身的趋势
+        # 检查当前 score 中还是 50 的位置，应用 OBV 趋势评分
+        neutral_score_mask = (score == 50.0)
+        bullish_trend_no_cross = (obv_s > obv_s.shift(1)) & neutral_score_mask
+        bearish_trend_no_cross = (obv_s < obv_s.shift(1)) & neutral_score_mask
+
+        score.loc[bullish_trend_no_cross] = np.maximum(score.loc[bullish_trend_no_cross], 55.0)
+        score.loc[bearish_trend_no_cross] = np.minimum(score.loc[bearish_trend_no_cross], 45.0)
+
+
+        return score.clip(0, 100)
+
+    def calculate_kc_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """KC (Keltner Channel) 评分 (0-100)。"""
+        # Similar to BOLL, NaN handling for bands is key.
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        close_s, upper_s, mid_s, lower_s = _safe_fillna_series(
+            [close, upper, mid, lower],
+            [
+                None, # close 优先 ffill/bfill
+                lambda s: s.mean() + 1.5 * (s.rolling(20, min_periods=1).max() - s.rolling(20, min_periods=1).min()).mean() if s.mean() is not np.nan else close.mean() + 1.5 * (close.rolling(20, min_periods=1).max() - close.rolling(20, min_periods=1).min()).mean(), # upper fallback
+                lambda s: s.mean() if s.mean() is not np.nan else close.mean(), # mid fallback
+                lambda s: s.mean() - 1.5 * (s.rolling(20, min_periods=1).max() - s.rolling(20, min_periods=1).min()).mean() if s.mean() is not np.nan else close.mean() - 1.5 * (close.rolling(20, min_periods=1).max() - close.rolling(20, min_periods=1).min()).mean() # lower fallback
+            ]
+        )
+        # Re-check for all NaNs after filling attempts
+        if close_s.isnull().all() or upper_s.isnull().all() or mid_s.isnull().all() or lower_s.isnull().all():
+            logger.warning("KC 评分：一个或多个关键序列在填充后仍全为NaN。")
+            # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
+            return pd.Series(50.0, index=close.index).clip(0,100)
+
+
+        score = pd.Series(50.0, index=close_s.index)
+
+        score.loc[close_s <= lower_s] = 90.0
+        buy_support = (close_s.shift(1) < lower_s.shift(1)) & (close_s >= lower_s)
+        score.loc[buy_support] = np.maximum(score.loc[buy_support], 80.0)
+
+        score.loc[close_s >= upper_s] = 10.0
+        sell_pressure = (close_s.shift(1) > upper_s.shift(1)) & (close_s <= upper_s)
+        score.loc[sell_pressure] = np.minimum(score.loc[sell_pressure], 20.0)
+
+        buy_mid_cross = (close_s.shift(1) < mid_s.shift(1)) & (close_s >= mid_s)
+        sell_mid_cross = (close_s.shift(1) > mid_s.shift(1)) & (close_s <= mid_s)
+        score.loc[buy_mid_cross] = np.maximum(score.loc[buy_mid_cross], 65.0)
+        score.loc[sell_mid_cross] = np.minimum(score.loc[sell_mid_cross], 35.0)
+
+        not_extreme_cond = (close_s > lower_s) & (close_s < upper_s)
+        not_mid_cross_cond = ~buy_mid_cross & ~sell_mid_cross
+
+        is_above_mid = not_extreme_cond & not_mid_cross_cond & (close_s > mid_s)
+        is_below_mid = not_extreme_cond & not_mid_cross_cond & (close_s < mid_s)
+        score.loc[is_above_mid] = np.maximum(score.loc[is_above_mid], 55.0)
+        score.loc[is_below_mid] = np.minimum(score.loc[is_below_mid], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_hv_score(hv: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """HV (Historical Volatility) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        hv_s, = _safe_fillna_series([hv], [lambda s: s.mean()]) # hv 填充后，如果全 NaN 使用均值
+        if hv_s.isnull().all() or hv_s.mean() == 0:
+            # MODIFIED: 确保返回 Series 的索引是原始 hv 的索引
+            return pd.Series(50.0, index=hv.index).clip(0,100)
+
+        score = pd.Series(50.0, index=hv_s.index)
+        rolling_window = min(len(hv_s), 20)
+        min_periods_rolling = max(1, int(rolling_window * 0.5)) if rolling_window > 0 else 1
+
+        hv_mean = hv_s.rolling(window=rolling_window, min_periods=min_periods_rolling).mean().fillna(hv_s.mean())
+        hv_std = hv_s.rolling(window=rolling_window, min_periods=min_periods_rolling).std().fillna(hv_s.std()).fillna(0)
+
+        high_volatility = hv_s > (hv_mean + 0.5 * hv_std)
+        low_volatility = hv_s < (hv_mean - 0.5 * hv_std)
+
+        score.loc[high_volatility] = np.maximum(score.loc[high_volatility], 60.0)
+        score.loc[low_volatility] = np.minimum(score.loc[low_volatility], 40.0)
+
+        return score.clip(0, 100)
+
+    def calculate_vroc_score(vroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """VROC (Volume Rate of Change) 评分 (0-100)。"""
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        vroc_s, = _safe_fillna_series([vroc], [0.0]) # VROC 中性0
+        if vroc_s.isnull().all():
+            return pd.Series(50.0, index=vroc.index).clip(0,100)
+
+        score = pd.Series(50.0, index=vroc_s.index)
+        buy_cross = (vroc_s.shift(1) < 0) & (vroc_s >= 0)
+        sell_cross = (vroc_s.shift(1) > 0) & (vroc_s <= 0)
+        score.loc[buy_cross] = 55.0 # Volume supporting, slightly positive
+        score.loc[sell_cross] = 45.0 # Volume waning, slightly negative
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        bullish_trend = (vroc_s > 0) & (vroc_s > vroc_s.shift(1)) & not_cross_cond
+        bearish_trend = (vroc_s < 0) & (vroc_s < vroc_s.shift(1)) & not_cross_cond
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 52.0) # Mildly positive
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 48.0) # Mildly negative
+
+        return score.clip(0, 100)
+
+    def calculate_aroc_score(aroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+        """AROC (Absolute Rate of Change) 评分 (0-100)。"""
+        # AROC is likely an alias for ROC, using same logic as calculate_roc_score
+        # If AROC has a specific different interpretation (e.g. Aroon Oscillator), the logic would change.
+        # Assuming it's similar to Price ROC:
+        # MODIFIED: 使用 _safe_fillna_series 填充
+        aroc_s, = _safe_fillna_series([aroc], [0.0]) # AROC 中性0
+        if aroc_s.isnull().all():
+            return pd.Series(50.0, index=aroc.index).clip(0,100)
+
+        score = pd.Series(50.0, index=aroc_s.index)
+        buy_cross = (aroc_s.shift(1) < 0) & (aroc_s >= 0)
+        sell_cross = (aroc_s.shift(1) > 0) & (aroc_s <= 0)
+        score.loc[buy_cross] = 65.0 # Stronger signal than VROC as it's price based
+        score.loc[sell_cross] = 35.0
+
+        not_cross_cond = ~buy_cross & ~sell_cross
+        bullish_trend = (aroc_s > 0) & (aroc_s > aroc_s.shift(1)) & not_cross_cond
+        bearish_trend = (aroc_s < 0) & (aroc_s < aroc_s.shift(1)) & not_cross_cond
+        score.loc[bullish_trend] = np.maximum(score.loc[bullish_trend], 55.0)
+        score.loc[bearish_trend] = np.minimum(score.loc[bearish_trend], 45.0)
+
+        return score.clip(0, 100)
+
+    def calculate_pivot_score(close: pd.Series, pivot_levels: Dict[str, pd.Series],
+                            tf: str, # 增加时间框架参数，用于构建标准列名
+                            params: Optional[Dict] = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名，且 pivot_levels 期望的是 Dict[str, pd.Series]
+        """
+        Pivot Points 评分 (0-100)。
+        评分逻辑基于收盘价相对于 Pivot Point (PP) 和各支撑/阻力水平的位置。
+        价格在 PP 上方偏多，下方偏空。突破阻力看涨，跌破支撑看跌。
+
+        优化：
+        - 改进列名查找和级别解析的健壮性。
+        - 优化NaN处理，避免不当填充。
+        - 结构化评分逻辑。
+
+        Args:
+            close (pd.Series): 收盘价序列。
+            pivot_levels (Dict[str, pd.Series]): 包含 Pivot 水平的 Series 字典。
+                                            键是内部 key 如 'PP', 'R1', 'F_S1'，值是对应的 Series。
+            tf (str): 当前使用的时间框架，用于日志等。
+            params (Dict, optional): 评分函数可能需要的额外参数。目前未使用。
+
+        Returns:
+            pd.Series: 计算出的 Pivot Points 评分序列 (0-100)。
+        """
+        # 初始化评分序列，默认中性分 50.0
+        score = pd.Series(50.0, index=close.index)
+
+        # 确保索引一致，并填充 close 的 NaN 值
+        close_filled = close.ffill().bfill()
+        if close_filled.isnull().all():
+            logger.warning("Pivot Points 评分：收盘价序列在填充后仍全为 NaN。")
+            # MODIFIED: 确保返回 Series 的索引是原始 close 的索引
+            return score.clip(0, 100) # 返回默认中性分
+
+        # 从 pivot_levels 字典中提取需要的 Series
+        pp_series = pivot_levels.get('PP')
+        r_series = {k: v for k, v in pivot_levels.items() if k.startswith('R') and k != 'R'} # R1, R2, R3, R4
+        s_series = {k: v for k, v in pivot_levels.items() if k.startswith('S') and k != 'S'} # S1, S2, S3, S4
+        fr_series = {k: v for k, v in pivot_levels.items() if k.startswith('F_R')} # F_R1, F_R2, F_R3
+        fs_series = {k: v for k, v in pivot_levels.items() if k.startswith('F_S')} # F_S1, F_S2, F_S3
+
+
+        # 1. 价格与 Pivot Point (PP) 的相对位置
+        if pp_series is not None and pp_series.notna().any():
+            # 对齐 PP series 的索引到 close
+            pp_series_aligned = pp_series.reindex(close.index)
+            valid_pp_mask = pp_series_aligned.notna()
+            score.loc[valid_pp_mask & (close_filled > pp_series_aligned)] = np.maximum(score.loc[valid_pp_mask & (close_filled > pp_series_aligned)], 55.0) # MODIFIED: 确保不覆盖更高分
+            score.loc[valid_pp_mask & (close_filled < pp_series_aligned)] = np.minimum(score.loc[valid_pp_mask & (close_filled < pp_series_aligned)], 45.0) # MODIFIED: 确保不覆盖更低分
+            # 精确在PP上的情况已经默认为50
+
+        # 2. 价格突破/跌破支撑与阻力水平
+        # 定义标准和斐波那契支撑/阻力级别及其基础分数和级别权重
+        # 使用字典来存储 Series，键是内部 key (R1, S1, F_R1, etc.)
+        level_data = {
+            'R': {'series': r_series, 'base_score_breakout': 70, 'base_score_breakdown': None, 'level_multiplier': 5, 'is_resistance': True},
+            'S': {'series': s_series, 'base_score_breakout': None, 'base_score_breakdown': 30, 'level_multiplier': 5, 'is_resistance': False},
+            'F_R': {'series': fr_series, 'base_score_breakout': 75, 'base_score_breakdown': None, 'level_multiplier': 5, 'is_resistance': True}, # 斐波那契阻力突破可能更强
+            'F_S': {'series': fs_series, 'base_score_breakout': None, 'base_score_breakdown': 25, 'level_multiplier': 5, 'is_resistance': False}, # 斐波那契支撑跌破可能更弱
+        }
+
+        for type_key, config in level_data.items():
+            # 遍历该类型的所有级别 Series
+            for level_key, level_series in config['series'].items():
+                # 从 level_key 中解析级别数字 (e.g., 'R1' -> 1, 'F_S3' -> 3)
+                try:
+                    # 移除前缀，剩下的数字就是级别
+                    level_num_str = level_key.replace(config['prefix'], '')
+                    level_num = int(level_num_str)
+                except (ValueError, TypeError):
+                    logger.warning(f"Pivot Points 评分：无法从内部 key '{level_key}' 解析级别数字。跳过该级别。")
+                    continue
+
+                if level_series is not None and level_series.notna().any():
+                    # 对齐 level series 的索引到 close
+                    level_series_aligned = level_series.reindex(close.index)
+                    valid_level_mask = level_series_aligned.notna() # 只在 pivot level 非 NaN 的地方操作
+
+                    # 获取前一时刻的价格和支撑/阻力位 (需要先确保索引一致)
+                    close_prev = close_filled.shift(1)
+                    level_prev = level_series_aligned.shift(1)
+
+                    if config['is_resistance']: # 处理阻力位
+                        # 价格向上突破阻力
+                        breakout_cond_full = (close_prev < level_prev) & (close_filled >= level_series_aligned)
+                        breakout_cond = breakout_cond_full & valid_level_mask # 应用掩码
+
+                        if breakout_cond.any():
+                            breakout_score_value = config['base_score_breakout'] + level_num * config['level_multiplier']
+                            score.loc[breakout_cond] = np.maximum(score.loc[breakout_cond], breakout_score_value)
+
+                        # 价格在阻力位下方（未突破时，作为阻力区的参考）
+                        # 越接近高级别阻力，分数越低（更看跌）
+                        below_resistance_cond = (close_filled < level_series_aligned) & (~breakout_cond_full) & valid_level_mask
+                        if below_resistance_cond.any():
+                            penalty = level_num * 2.5 # 示例惩罚值，越高级别惩罚越多
+                            score.loc[below_resistance_cond] = np.minimum(score.loc[below_resistance_cond], 50 - penalty)
+
+                    else: # 处理支撑位
+                        # 价格向下跌破支撑
+                        breakdown_cond_full = (close_prev > level_prev) & (close_filled <= level_series_aligned)
+                        breakdown_cond = breakdown_cond_full & valid_level_mask # 应用掩码
+
+                        if breakdown_cond.any():
+                            breakdown_score_value = config['base_score_breakdown'] - level_num * config['level_multiplier']
+                            score.loc[breakdown_cond] = np.minimum(score.loc[breakdown_cond], breakdown_score_value)
+
+                        # 价格在支撑位上方（未跌破时，作为支撑区的参考）
+                        # 越接近高级别支撑，分数越高（更看涨）
+                        above_support_cond = (close_filled > level_series_aligned) & (~breakdown_cond_full) & valid_level_mask
+                        if above_support_cond.any():
+                            bonus = level_num * 2.5 # 示例奖励值，越高级别奖励越多
+                            score.loc[above_support_cond] = np.maximum(score.loc[above_support_cond], 50 + bonus)
+
+
+        return score.clip(0, 100)
+
+    def build_expected_col_name(indicator_key: str, internal_key: str, params: List[Any], tf_suffix: str) -> Optional[str]:
+        """
+        根据指标 key, 内部 key, 参数列表和时间框架后缀构建期望的列名。
+        """
+        if not tf_suffix:
+            logger.error(f"构建列名失败: 时间框架后缀为空。 indicator_key={indicator_key}, internal_key={internal_key}")
+            return None
+
+        def format_param(p):
+            if isinstance(p, float):
+                # 尝试格式化为 .1f 或 .2f，取决于参数类型和指标
+                if indicator_key == 'boll': return f"{p:.1f}" # BOLL std_dev 常见格式
+                if indicator_key == 'sar':
+                    # SAR af_step 和 max_af 可能有不同格式，根据约定文件
+                    # Convention文件里是 SAR_0.02_0.2_{timeframe}
+                    # 所以 af_step 是 .2f, max_af 是 .1f
+                    if len(params) == 2:
+                        if p == params[0]: return f"{p:.2f}" # af_step
+                        if p == params[1]: return f"{p:.1f}" # max_af
+                    # Fallback if cannot determine based on position
+                    return f"{p:.2f}" # 默认 .2f
+                # 其他浮点参数如果存在，需要根据实际命名规范调整
+                return str(p) # 默认转换为字符串
+            return str(p)
+
+        # MODIFIED: 修正参数部分的构建逻辑，确保只包含实际参数
+        # MACD_12_26_9, RSI_14, K_7_3_3, BOLL_20_2.0 等，参数在指标名后用下划线分隔
+        param_str_parts = [format_param(p) for p in params]
+        param_part = '_'.join(param_str_parts) if param_str_parts else ""
+        param_suffix = f"_{param_part}" if param_part else ""
+
+
+        if indicator_key == 'macd' and len(params) == 3:
+            prefix_map = {'macd_series': 'MACD', 'macd_d': 'MACDs', 'macd_h': 'MACDh'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'rsi' and len(params) == 1:
+            if internal_key == 'rsi':
+                return f"RSI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'kdj' and len(params) == 3:
+            prefix_map = {'k': 'K', 'd': 'D', 'j': 'J'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'boll' and len(params) == 2:
+            prefix_map = {'upper': 'BBU', 'mid': 'BBM', 'lower': 'BBL', 'close': 'close'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                if internal_key == 'close':
+                    return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'cci' and len(params) == 1:
+            if internal_key == 'cci':
+                return f"CCI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'mfi' and len(params) == 1:
+            if internal_key == 'mfi':
+                return f"MFI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'roc' and len(params) == 1:
+            if internal_key == 'roc':
+                return f"ROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'dmi' and len(params) == 1:
+            prefix_map = {'pdi': 'PDI', 'ndi': 'NDI', 'adx': 'ADX'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'sar' and len(params) == 2:
+            prefix_map = {'sar': 'SAR', 'close': 'close'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                if internal_key == 'close':
+                    return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
+                # SAR 参数格式化特殊处理，af_step(.2f)_max_af(.1f)
+                param_str_sar = f"{format_param(params[0])}_{format_param(params[1])}"
+                return f"{prefix}_{param_str_sar}_{tf_suffix}" # MODIFIED: 修正 SAR 参数部分的构建
+
+        elif indicator_key == 'stoch' and len(params) == 3:
+            prefix_map = {'k': 'STOCHk', 'd': 'STOCHd'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key in ['ema', 'sma'] and len(params) == 1:
+            prefix_map = {'ma': indicator_key.upper(), 'close': 'close'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                if internal_key == 'close':
+                    return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'atr' and len(params) == 1:
+            if internal_key == 'atr':
+                return f"ATR{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'adl' and not params: # ADL 没有参数在列名中
+            if internal_key == 'adl':
+                return f"ADL_{tf_suffix}"
+
+        elif indicator_key == 'vwap' and not params: # VWAP 通常没有参数在列名中 (除非有anchor)
+            prefix_map = {'vwap': 'VWAP', 'close': 'close'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                return f"{prefix}_{tf_suffix}" # VWAP/close 列名模式: NAME_timeframe
+
+        elif indicator_key == 'ichimoku' and len(params) == 3:
+            prefix_map = {
+                'close': 'close', 'tenkan': 'TENKAN', 'kijun': 'KIJUN',
+                'senkou_a': 'SENKOU_A', 'senkou_b': 'SENKOU_B', 'chikou': 'CHIKOU'
+            }
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                if internal_key == 'close':
+                    return f"{prefix}_{tf_suffix}"
+
+                p_tenkan, p_kijun, p_senkou_b = params # params 列表包含 Ichimoku 的主要参数
+                # Ichimoku 列名模式复杂，根据 internal_key 和对应参数构建
+                if internal_key == 'tenkan': return f"TENKAN_{p_tenkan}_{tf_suffix}"
+                if internal_key == 'kijun': return f"KIJUN_{p_kijun}_{tf_suffix}"
+                if internal_key == 'chikou': return f"CHIKOU_{p_kijun}_{tf_suffix}" # Chikou 参数是 Kijun 的
+                if internal_key == 'senkou_a': return f"SENKOU_A_{p_tenkan}_{p_kijun}_{tf_suffix}" # Senkou A 参数是 Tenkan 和 Kijun 的
+                if internal_key == 'senkou_b': return f"SENKOU_B_{p_senkou_b}_{tf_suffix}" # Senkou B 参数是自己的
+
+        elif indicator_key == 'mom' and len(params) == 1:
+            if internal_key == 'mom':
+                return f"MOM{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'willr' and len(params) == 1:
+            if internal_key == 'willr':
+                return f"WILLR{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'cmf' and len(params) == 1:
+            if internal_key == 'cmf':
+                return f"CMF{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'obv':
+            if internal_key == 'obv':
+                return f"OBV_{tf_suffix}"
+            # OBV_MA 需要单独构建，参数是 OBV_MA 的周期
+            if internal_key == 'obv_ma' and len(params) == 1: # params 此时应该是 OBV_MA 的周期列表 [obv_ma_period]
+                p_obv_ma = params[0]
+                return f"OBV_MA_{p_obv_ma}_{tf_suffix}"
+
+
+        elif indicator_key == 'kc' and len(params) == 2:
+            prefix_map = {'upper': 'KCU', 'mid': 'KCM', 'lower': 'KCL', 'close': 'close'}
+            prefix = prefix_map.get(internal_key)
+            if prefix:
+                if internal_key == 'close':
+                    return f"{prefix}_{tf_suffix}"
+                return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'hv' and len(params) == 1:
+            if internal_key == 'hv':
+                return f"HV{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'vroc' and len(params) == 1:
+            if internal_key == 'vroc':
+                return f"VROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'aroc' and len(params) == 1:
+            if internal_key == 'aroc':
+                return f"AROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+
+        elif indicator_key == 'pivot' and tf_suffix.upper() == 'D' and internal_key == 'close':
+            return f"close_{tf_suffix}"
+        # Pivot levels 不需要通过 build_expected_col_name 单独构建，它们是列表，在查找时统一处理
+
+        logger.warning(f"无法为指标 '{indicator_key}' 构建列名，内部 key: '{internal_key}', 参数: {params}, 后缀: '{tf_suffix}'")
+        return None
+
+    def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:
+        """
+        尝试从包含时间框架后缀的列名中解析指标参数。
+        """
+        if not col_name.endswith(f"_{tf_suffix}"):
+            return None # 后缀不匹配
+
+        base_name_with_params = col_name[:-len(f"_{tf_suffix}")] # 移除后缀
+        parts = base_name_with_params.split('_')
+
+        try:
+            if indicator_key == 'macd' and parts[0] in ['MACD', 'MACDh', 'MACDs']:
+                # MACD_fast_slow_signal
+                if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
+            elif indicator_key == 'rsi' and parts[0] == 'RSI':
+                # RSI_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'kdj' and parts[0] in ['K', 'D', 'J']:
+                # K_period_signal_period_smooth_k_period
+                if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
+            elif indicator_key == 'boll' and parts[0] in ['BBL', 'BBM', 'BBU']:
+                # BB{L/M/U}_period_std_dev
+                if len(parts) >= 3: return [int(parts[1]), float(parts[2])] # std_dev 是浮点数
+            elif indicator_key == 'cci' and parts[0] == 'CCI':
+                # CCI_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'mfi' and parts[0] == 'MFI':
+                # MFI_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'roc' and parts[0] == 'ROC':
+                # ROC_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'dmi' and parts[0] in ['PDI', 'NDI', 'ADX']:
+                # DMI_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'sar' and parts[0] == 'SAR':
+                # SAR_af_step_max_af (浮点数)
+                if len(parts) >= 3: return [float(parts[1]), float(parts[2])]
+            elif indicator_key == 'stoch' and parts[0] in ['STOCHk', 'STOCHd']:
+                # STOCHk_k_period_d_period_smooth_k_period
+                if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
+            elif indicator_key in ['ema', 'sma'] and parts[0] in ['EMA', 'SMA']:
+                # MA_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'atr' and parts[0] == 'ATR':
+                # ATR_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'adl' and parts[0] == 'ADL':
+                # ADL_{timeframe}, 无参数
+                if len(parts) == 1: return []
+            elif indicator_key == 'vwap' and parts[0] == 'VWAP':
+                # VWAP_{timeframe} 或 VWAP_{anchor}_{timeframe}
+                # 根据日志，VWAP 列名是 VWAP_5 等，没有anchor参数
+                if len(parts) == 1: return [] # 假设列名中不包含参数
+            elif indicator_key == 'ichimoku' and parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_A', 'SENKOU_B']:
+                # Ichimoku 参数解析复杂，尝试从主要列名解析
+                # TENKAN_period, KIJUN_period, CHIKOU_period, SENKOU_A_tenkan_kijun, SENKOU_B_period
+                if parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_B'] and len(parts) >= 2:
+                    return [int(parts[1])] # 尝试解析单个周期 (Tenkan, Kijun, Chikou, Senkou B)
+                elif parts[0] == 'SENKOU_A' and len(parts) >= 3:
+                    return [int(parts[1]), int(parts[2])] # 尝试解析两个周期 (Senkou A)
+                return None # 参数格式不匹配
+            elif indicator_key == 'mom' and parts[0] == 'MOM':
+                # MOM_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'willr' and parts[0] == 'WILLR':
+                # WILLR_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'cmf' and parts[0] == 'CMF':
+                # CMF_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'obv' and parts[0] == 'OBV':
+                # OBV_{timeframe}, 无参数
+                if len(parts) == 1: return []
+            elif indicator_key == 'obv' and parts[0] == 'OBV_MA':
+                # OBV_MA_period_{timeframe}
+                if len(parts) >= 2: return [int(parts[1])] # OBV_MA 列名中的周期
+            elif indicator_key == 'kc' and parts[0] in ['KCL', 'KCM', 'KCU']:
+                # KC_ema_period_atr_period
+                if len(parts) >= 3: return [int(parts[1]), int(parts[2])]
+            elif indicator_key == 'hv' and parts[0] == 'HV':
+                # HV_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'vroc' and parts[0] == 'VROC':
+                # VROC_period
+                if len(parts) >= 2: return [int(parts[1])]
+            elif indicator_key == 'aroc' and parts[0] == 'AROC':
+                # AROC_period
+                if len(parts) >= 2: return [int(parts[1])]
+            # Pivot 列名不包含参数，只有基础名和后缀，在主函数中特殊处理
+
+            return None # 未知列名模式或解析失败
+        except (ValueError, IndexError):
+            logger.debug(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}).", exc_info=True)
+            return None # 参数转换失败或索引越界
+
+    def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicator_configs: List[Dict] ) -> pd.DataFrame:
+        """
+        根据配置计算所有指定指标的评分 (0-100)。
+
+        此函数遍历 base_scoring 参数中指定的需要评分的指标和时间框架，
+        从输入的 DataFrame 中查找对应的指标数据列，并调用相应的评分计算函数。
+        指标列名根据 indicator_naming_conventions.json 文件中的命名规范构建，
+        并能根据实际DataFrame中存在的列名（包含实际计算参数）进行匹配。
+
+        :param data: 包含所有原始数据和指标的 DataFrame。列名应包含时间级别后缀和计算参数，
+                    例如 'close_15', 'MACD_12_26_9_30'。
+        :param bs_params: base_scoring 参数字典，包含 'score_indicators' (需要评分的指标列表)
+                        和 'timeframes' (需要计算评分的时间框架列表)，以及各指标的评分参数。
+                        注意：这里的指标参数是策略配置中定义的，键名可能与评分函数参数名不同。
+        :param indicator_configs: 由 indicator_services.prepare_strategy_dataframe 生成的，
+                                包含每个指标计算函数、参数、时间框架的列表。用于辅助查找列名。
+        :return: 返回一个 DataFrame，包含所有时间框架和指标的评分列。
+                列名格式: SCORE_{指标名}_{时间级别}。
+                如果某个指标或时间框架的数据缺失或计算失败，对应的评分列将填充默认中性分 50.0。
+        """
+        # 初始化用于存储所有评分结果的 DataFrame
+        scoring_results = pd.DataFrame(index=data.index)
+        # 如果输入 DataFrame 是空的，也直接返回空结果
+        if data.empty:
+            logger.warning("输入 DataFrame 为空，无法计算指标评分。")
+            return scoring_results
+        # 获取需要评分的指标列表和时间框架列表
+        score_indicators_keys = bs_params.get('score_indicators', [])
+        score_timeframes = bs_params.get('timeframes', [])
+        if not score_indicators_keys or not score_timeframes:
+            logger.warning("未配置需要评分的指标或时间框架 (base_scoring.score_indicators 或 base_scoring.timeframes)。")
+            return scoring_results
+
+        logger.info(f"开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
+        # 加载 indicator_naming_conventions.json 文件中的命名规范
+        # naming_conventions_path = getattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH', None)
+        # naming_conventions = {}
+        # indicator_naming = {}
+        # derivative_naming = {}
+        # if naming_conventions_path:
+        #     try:
+        #         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
+        #             naming_conventions = json.load(f)
+        #         indicator_naming = naming_conventions.get('indicator_naming_conventions', {})
+        #         derivative_naming = naming_conventions.get('derivative_feature_naming_conventions', {})
+        #         logger.info(f"成功加载指标命名规范配置文件: {naming_conventions_path}")
+        #     except FileNotFoundError:
+        #         logger.error(f"指标命名规范配置文件未找到: {naming_conventions_path}，将使用默认命名逻辑。")
+        #     except json.JSONDecodeError:
+        #          logger.error(f"指标命名规范配置文件格式错误: {naming_conventions_path}，请检查JSON格式。将使用默认命名逻辑。")
+        #     except Exception as e:
+        #         logger.error(f"加载指标命名规范配置文件失败: {naming_conventions_path}: {e}，将使用默认命名逻辑。")
+        # else:
+        #      logger.warning("未配置 INDICATOR_PARAMETERS_CONFIG_PATH 路径，将使用默认命名逻辑。")
+        # 从 indicator_configs 中提取可能的列名信息 (优先使用此映射)
+        config_column_mapping_by_tf: Dict[str, Dict[str, List[str]]] = {} # {timeframe: {indicator_name: [col1, col2, ...]}}
+        for config in indicator_configs:
+            indicator_name = config.get('name', '').lower()
+            timeframe = str(config.get('timeframe', '')) # 确保是字符串
+            output_columns = config.get('output_columns', [])
+            if isinstance(output_columns, str):
+                output_columns = [output_columns]
+            if indicator_name and timeframe and output_columns:
+                if timeframe not in config_column_mapping_by_tf:
+                    config_column_mapping_by_tf[timeframe] = {}
+                config_column_mapping_by_tf[timeframe][indicator_name] = output_columns
+                # logger.debug(f"从配置中提取指标 {indicator_name} 在时间框架 {timeframe} 的列名: {output_columns}") # 调试信息
+        # --- 集中配置指标的评分函数、所需内部键和列名前缀及参数映射 ---
+        # 调整 indicator_scoring_info 结构，明确参数传递风格和映射
+        indicator_scoring_info: Dict[str, Dict[str, Any]] = {
+            'macd': { # File 2 signature: macd_series, macd_d, macd_h
+                'func': calculate_macd_score, 'param_passing_style': 'none', # Based on File 2 signature
+                'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
+                'defaults': {}, # No defaults for params used in this function
+                'required_keys': ['macd_series', 'macd_d', 'macd_h'], 'prefixes': ['MACD_', 'MACDh_', 'MACDs_']
+            },
+            'rsi': { # File 2 signature: rsi, params
+                'func': calculate_rsi_score, 'param_passing_style': 'dict',
+                'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
+                'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
+                'required_keys': ['rsi'], 'prefixes': ['RSI_']
+            },
+            'kdj': { # File 2 signature: k, d, j, params
+                'func': calculate_kdj_score, 'param_passing_style': 'dict',
+                'bs_param_key_to_score_func_arg': {'kdj_period': 'period', 'kdj_signal_period': 'signal_period', 'kdj_smooth_k_period': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'},
+                'defaults': {'period': 9, 'signal_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
+                'required_keys': ['k', 'd', 'j'], 'prefixes': ['K_', 'D_', 'J_']
+            },
+            'boll': { # File 2 signature: close, upper, mid, lower
+            'func': calculate_boll_score, 'param_passing_style': 'none', # Based on File 2 signature
             'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
             'defaults': {}, # No defaults for params used in this function
-            'required_keys': ['macd_series', 'macd_d', 'macd_h'], 'prefixes': ['MACD_', 'MACDh_', 'MACDs_']
-        },
-        'rsi': { # File 2 signature: rsi, params
-            'func': calculate_rsi_score, 'param_passing_style': 'dict',
-            'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
-            'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
-            'required_keys': ['rsi'], 'prefixes': ['RSI_']
-        },
-        'kdj': { # File 2 signature: k, d, j, params
-            'func': calculate_kdj_score, 'param_passing_style': 'dict',
-            'bs_param_key_to_score_func_arg': {'kdj_period': 'period', 'kdj_signal_period': 'signal_period', 'kdj_smooth_k_period': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'},
-            'defaults': {'period': 9, 'signal_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
-            'required_keys': ['k', 'd', 'j'], 'prefixes': ['K_', 'D_', 'J_']
-        },
-        'boll': { # File 2 signature: close, upper, mid, lower
-           'func': calculate_boll_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
-           'defaults': {}, # No defaults for params used in this function
-           'required_keys': ['close', 'upper', 'mid', 'lower'], 'prefixes': ['BBL_', 'BBM_', 'BBU_']
-        },
-        'cci': { # File 2 signature: cci, params
-           'func': calculate_cci_score, 'param_passing_style': 'dict',
-           'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
-           'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
-           'required_keys': ['cci'], 'prefixes': ['CCI_']
-        },
-        'mfi': { # File 2 signature: mfi, params
-           'func': calculate_mfi_score, 'param_passing_style': 'dict',
-           'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
-           'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
-           'required_keys': ['mfi'], 'prefixes': ['MFI_']
-        },
-        'roc': { # File 2 signature: roc
-           'func': calculate_roc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
-           'defaults': {}, # No defaults for params used in this function
-           'required_keys': ['roc'], 'prefixes': ['ROC_']
-        },
-        'dmi': { # File 2 signature: pdi, ndi, adx, params
-           'func': calculate_dmi_score, 'param_passing_style': 'dict',
-           'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
-           'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
-           'required_keys': ['pdi', 'ndi', 'adx'], 'prefixes': ['PDI_', 'NDI_', 'ADX_']
-        },
-        'sar': { # File 2 signature: close, sar
-           'func': calculate_sar_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
-           'defaults': {}, # No defaults for params used in this function
-           'required_keys': ['close', 'sar'], 'prefixes': ['SAR_']
-        },
-        'stoch': { # File 2 signature: k, d, params
-           'func': calculate_stoch_score, 'param_passing_style': 'dict',
-           'bs_param_key_to_score_func_arg': {'stoch_k_period': 'k_period', 'stoch_d_period': 'd_period', 'stoch_smooth_k_period': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'},
-           'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
-           'required_keys': ['k', 'd'], 'prefixes': ['STOCHk_', 'STOCHd_']
-        },
-        'ema': { # File 2 signature: close, ma, params
-           'func': calculate_ma_score, 'param_passing_style': 'dict',
-           'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
-           'defaults': {'period': 20}, 'required_keys': ['close', 'ma'], 'prefixes': ['EMA_']},
-        'sma': { # File 2 signature: close, ma, params
-           'func': calculate_ma_score, 'param_passing_style': 'dict',
-           'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
-           'defaults': {'period': 20}, 'required_keys': ['close', 'ma'], 'prefixes': ['SMA_']
-        },
-        'atr': { # File 2 signature: atr
-           'func': calculate_atr_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['atr'], 'prefixes': ['ATR_']
-        },
-        'adl': { # File 2 signature: adl
-           'func': calculate_adl_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['adl'], 'prefixes': ['ADL_']
-        },
-        'vwap': { # File 2 signature: close, vwap
-           'func': calculate_vwap_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'vwap'], 'prefixes': ['VWAP_']
-        },
-        'ichimoku': { # File 2 signature: close, tenkan, kijun, senkou_a, senkou_b, chikou
-           'func': calculate_ichimoku_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], 'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_']
-        },
-        'mom': { # File 2 signature: mom
-           'func': calculate_mom_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['mom'], 'prefixes': ['MOM_']
-        },
-        'willr': { # File 2 signature: willr
-           'func': calculate_willr_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['willr'], 'prefixes': ['WILLR_']
-        },
-        'cmf': { # File 2 signature: cmf
-           'func': calculate_cmf_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['cmf'], 'prefixes': ['CMF_']
-        },
-        'obv': { # File 2 signature: obv, obv_ma=None, obv_ma_period=None
-           'func': calculate_obv_score, 'param_passing_style': 'individual', # Can accept obv_ma and obv_ma_period individually
-           'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, # This parameter is passed individually
-           'defaults': {'obv_ma_period': 10},
-           'required_keys': ['obv'], 'prefixes': ['OBV_'] # Required key is 'obv', 'obv_ma' is optional for scoring function
-        },
-        'kc': { # File 2 signature: close, upper, mid, lower
-           'func': calculate_kc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'upper', 'mid', 'lower'], 'prefixes': ['KCL_', 'KCM_', 'KCU_']
-        },
-        'hv': { # File 2 signature: hv
-           'func': calculate_hv_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['hv'], 'prefixes': ['HV_']
-        },
-        'vroc': { # File 2 signature: vroc
-           'func': calculate_vroc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['vroc'], 'prefixes': ['VROC_']
-        },
-        'aroc': { # File 2 signature: aroc
-           'func': calculate_aroc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['aroc'], 'prefixes': ['AROC_']
-        },
-        'pivot': { # File 2 signature: close, pivot_levels, tf, params
-           'func': calculate_pivot_score, 'param_passing_style': 'dict', # Accepts params: Dict
-           'bs_param_key_to_score_func_arg': {}, # No params from bs_params go into the 'params' dict currently defined in File 2
-           'defaults': {}, # No defaults for params dict in File 2 currently
-           'required_keys': ['close', 'pivot_levels'], 'prefixes': [] # Requires close series and a dict/list for pivot_levels
+            'required_keys': ['close', 'upper', 'mid', 'lower'], 'prefixes': ['BBL_', 'BBM_', 'BBU_']
+            },
+            'cci': { # File 2 signature: cci, params
+            'func': calculate_cci_score, 'param_passing_style': 'dict',
+            'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
+            'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
+            'required_keys': ['cci'], 'prefixes': ['CCI_']
+            },
+            'mfi': { # File 2 signature: mfi, params
+            'func': calculate_mfi_score, 'param_passing_style': 'dict',
+            'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
+            'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
+            'required_keys': ['mfi'], 'prefixes': ['MFI_']
+            },
+            'roc': { # File 2 signature: roc
+            'func': calculate_roc_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
+            'defaults': {}, # No defaults for params used in this function
+            'required_keys': ['roc'], 'prefixes': ['ROC_']
+            },
+            'dmi': { # File 2 signature: pdi, ndi, adx, params
+            'func': calculate_dmi_score, 'param_passing_style': 'dict',
+            'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
+            'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
+            'required_keys': ['pdi', 'ndi', 'adx'], 'prefixes': ['PDI_', 'NDI_', 'ADX_']
+            },
+            'sar': { # File 2 signature: close, sar
+            'func': calculate_sar_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
+            'defaults': {}, # No defaults for params used in this function
+            'required_keys': ['close', 'sar'], 'prefixes': ['SAR_']
+            },
+            'stoch': { # File 2 signature: k, d, params
+            'func': calculate_stoch_score, 'param_passing_style': 'dict',
+            'bs_param_key_to_score_func_arg': {'stoch_k_period': 'k_period', 'stoch_d_period': 'd_period', 'stoch_smooth_k_period': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'},
+            'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
+            'required_keys': ['k', 'd'], 'prefixes': ['STOCHk_', 'STOCHd_']
+            },
+            'ema': { # File 2 signature: close, ma, params
+            'func': calculate_ma_score, 'param_passing_style': 'dict',
+            'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
+            'defaults': {'period': 20}, 'required_keys': ['close', 'ma'], 'prefixes': ['EMA_']},
+            'sma': { # File 2 signature: close, ma, params
+            'func': calculate_ma_score, 'param_passing_style': 'dict',
+            'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
+            'defaults': {'period': 20}, 'required_keys': ['close', 'ma'], 'prefixes': ['SMA_']
+            },
+            'atr': { # File 2 signature: atr
+            'func': calculate_atr_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['atr'], 'prefixes': ['ATR_']
+            },
+            'adl': { # File 2 signature: adl
+            'func': calculate_adl_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['adl'], 'prefixes': ['ADL_']
+            },
+            'vwap': { # File 2 signature: close, vwap
+            'func': calculate_vwap_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'vwap'], 'prefixes': ['VWAP_']
+            },
+            'ichimoku': { # File 2 signature: close, tenkan, kijun, senkou_a, senkou_b, chikou
+            'func': calculate_ichimoku_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], 'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_']
+            },
+            'mom': { # File 2 signature: mom
+            'func': calculate_mom_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['mom'], 'prefixes': ['MOM_']
+            },
+            'willr': { # File 2 signature: willr
+            'func': calculate_willr_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['willr'], 'prefixes': ['WILLR_']
+            },
+            'cmf': { # File 2 signature: cmf
+            'func': calculate_cmf_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['cmf'], 'prefixes': ['CMF_']
+            },
+            'obv': { # File 2 signature: obv, obv_ma=None, obv_ma_period=None
+            'func': calculate_obv_score, 'param_passing_style': 'individual', # Can accept obv_ma and obv_ma_period individually
+            'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, # This parameter is passed individually
+            'defaults': {'obv_ma_period': 10},
+            'required_keys': ['obv'], 'prefixes': ['OBV_'] # Required key is 'obv', 'obv_ma' is optional for scoring function
+            },
+            'kc': { # File 2 signature: close, upper, mid, lower
+            'func': calculate_kc_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'upper', 'mid', 'lower'], 'prefixes': ['KCL_', 'KCM_', 'KCU_']
+            },
+            'hv': { # File 2 signature: hv
+            'func': calculate_hv_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['hv'], 'prefixes': ['HV_']
+            },
+            'vroc': { # File 2 signature: vroc
+            'func': calculate_vroc_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['vroc'], 'prefixes': ['VROC_']
+            },
+            'aroc': { # File 2 signature: aroc
+            'func': calculate_aroc_score, 'param_passing_style': 'none', # Based on File 2 signature
+            'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['aroc'], 'prefixes': ['AROC_']
+            },
+            'pivot': { # File 2 signature: close, pivot_levels, tf, params
+            'func': calculate_pivot_score, 'param_passing_style': 'dict', # Accepts params: Dict
+            'bs_param_key_to_score_func_arg': {}, # No params from bs_params go into the 'params' dict currently defined in File 2
+            'defaults': {}, # No defaults for params dict in File 2 currently
+            'required_keys': ['close', 'pivot_levels'], 'prefixes': [] # Requires close series and a dict/list for pivot_levels
+            }
         }
-    }
-    # 遍历需要评分的指标 key 和时间框架
-    for indicator_key in score_indicators_keys:
-        info = indicator_scoring_info.get(indicator_key)
-        if not info:
-             logger.warning(f"指标 '{indicator_key}' 未找到对应的评分函数定义或配置，跳过评分计算。")
-             continue # 跳过当前指标的所有时间框架
-        score_func = info['func']
-        required_score_keys = info['required_keys']
-        column_pattern_prefixes = info['prefixes']
-        # MODIFIED: 获取参数传递风格和映射
-        param_passing_style = info['param_passing_style']
-        bs_param_key_to_score_func_arg = info['bs_param_key_to_score_func_arg']
-        defaults = info['defaults']
-        if score_func is None:
-             logger.warning(f"评分函数 calculate_{indicator_key}_score 未定义，无法计算指标 '{indicator_key}' 的评分。")
-             continue
-        # 遍历需要计算评分的时间框架
-        for tf_score in score_timeframes:
-            indicator_cols_for_score: Dict[str, str | List[str]] = {}  # {内部 key: 实际列名 或 [实际列名列表]}
-            found = False # 标记是否成功找到所有必要的列 (重置每个时间框架)
-            tf_score_str = str(tf_score) # 确保时间框架是字符串，用于后缀匹配
-            # 构建可能的时间框架后缀列表
-            possible_tf_suffixes = [
-                tf_score_str, f"{tf_score_str}m", f"{tf_score_str}min", tf_score_str.upper(),
-                f"{tf_score_str}M", f"{tf_score_str}MIN", f"T{tf_score_str}", f"t{tf_score_str}"
-            ]
-            # 确保日线时间框架 'D' 被正确处理，并移除数字后缀
-            if tf_score_str.upper() == 'D':
-                 possible_tf_suffixes = ['D', 'd']
-            # 移除重复项并保持顺序
-            possible_tf_suffixes = list(dict.fromkeys(possible_tf_suffixes))
-            # --- 查找当前时间框架下的指标列 ---
-            # 优先尝试使用 indicator_configs 提供的列名映射
-            tf_config_mapping = config_column_mapping_by_tf.get(tf_score_str, {})
-            config_cols = tf_config_mapping.get(indicator_key, [])
-            if config_cols:
-                current_indicator_cols_attempt: Dict[str, str | List[str]] = {}
-                config_mapping_successful = False
-                 # 根据指标类型，从 config_cols 中提取对应的列名并检查是否存在
-                 # MODIFIED: 改进 config_column_mapping 处理逻辑，特别是多列指标和特殊列 (close, pivot_levels)
-                all_config_cols_exist = True
-                temp_cols_from_config: Dict[str, str | List[str]] = {} # 暂存映射结果
-                if indicator_key == 'pivot' and tf_score_str.upper() == 'D':
-                    # Pivot 需要 close 列和 pivot_levels 列表
-                    close_col = f"close_{tf_score_str}" if f"close_{tf_score_str}" in data.columns else None
-                    if close_col:
-                        temp_cols_from_config['close'] = close_col
-                        # config_cols 应该是 pivot levels 的列表
-                        if 'pivot_levels' in required_score_keys and isinstance(config_cols, list) and config_cols:
-                            # 检查 config_cols 中的所有列是否存在
-                            if all(col in data.columns for col in config_cols):
-                                    temp_cols_from_config['pivot_levels'] = config_cols
+        # 遍历需要评分的指标 key 和时间框架
+        for indicator_key in score_indicators_keys:
+            info = indicator_scoring_info.get(indicator_key)
+            if not info:
+                logger.warning(f"指标 '{indicator_key}' 未找到对应的评分函数定义或配置，跳过评分计算。")
+                continue # 跳过当前指标的所有时间框架
+            score_func = info['func']
+            required_score_keys = info['required_keys']
+            column_pattern_prefixes = info['prefixes']
+            # MODIFIED: 获取参数传递风格和映射
+            param_passing_style = info['param_passing_style']
+            bs_param_key_to_score_func_arg = info['bs_param_key_to_score_func_arg']
+            defaults = info['defaults']
+            if score_func is None:
+                logger.warning(f"评分函数 calculate_{indicator_key}_score 未定义，无法计算指标 '{indicator_key}' 的评分。")
+                continue
+            # 遍历需要计算评分的时间框架
+            for tf_score in score_timeframes:
+                indicator_cols_for_score: Dict[str, str | List[str]] = {}  # {内部 key: 实际列名 或 [实际列名列表]}
+                found = False # 标记是否成功找到所有必要的列 (重置每个时间框架)
+                tf_score_str = str(tf_score) # 确保时间框架是字符串，用于后缀匹配
+                # 构建可能的时间框架后缀列表
+                possible_tf_suffixes = [
+                    tf_score_str, f"{tf_score_str}m", f"{tf_score_str}min", tf_score_str.upper(),
+                    f"{tf_score_str}M", f"{tf_score_str}MIN", f"T{tf_score_str}", f"t{tf_score_str}"
+                ]
+                # 确保日线时间框架 'D' 被正确处理，并移除数字后缀
+                if tf_score_str.upper() == 'D':
+                    possible_tf_suffixes = ['D', 'd']
+                # 移除重复项并保持顺序
+                possible_tf_suffixes = list(dict.fromkeys(possible_tf_suffixes))
+                # --- 查找当前时间框架下的指标列 ---
+                # 优先尝试使用 indicator_configs 提供的列名映射
+                tf_config_mapping = config_column_mapping_by_tf.get(tf_score_str, {})
+                config_cols = tf_config_mapping.get(indicator_key, [])
+                if config_cols:
+                    current_indicator_cols_attempt: Dict[str, str | List[str]] = {}
+                    config_mapping_successful = False
+                    # 根据指标类型，从 config_cols 中提取对应的列名并检查是否存在
+                    # MODIFIED: 改进 config_column_mapping 处理逻辑，特别是多列指标和特殊列 (close, pivot_levels)
+                    all_config_cols_exist = True
+                    temp_cols_from_config: Dict[str, str | List[str]] = {} # 暂存映射结果
+                    if indicator_key == 'pivot' and tf_score_str.upper() == 'D':
+                        # Pivot 需要 close 列和 pivot_levels 列表
+                        close_col = f"close_{tf_score_str}" if f"close_{tf_score_str}" in data.columns else None
+                        if close_col:
+                            temp_cols_from_config['close'] = close_col
+                            # config_cols 应该是 pivot levels 的列表
+                            if 'pivot_levels' in required_score_keys and isinstance(config_cols, list) and config_cols:
+                                # 检查 config_cols 中的所有列是否存在
+                                if all(col in data.columns for col in config_cols):
+                                        temp_cols_from_config['pivot_levels'] = config_cols
+                                else:
+                                        all_config_cols_exist = False
+                                        logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中部分 pivot_levels 列在 DataFrame 中不存在。") # MODIFIED: 增加日志
                             else:
-                                    all_config_cols_exist = False
-                                    logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中部分 pivot_levels 列在 DataFrame 中不存在。") # MODIFIED: 增加日志
+                                all_config_cols_exist = False
+                                logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中需要 pivot_levels，但 config_cols 格式不正确或为空。") # MODIFIED: 增加日志
                         else:
                             all_config_cols_exist = False
-                            logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中需要 pivot_levels，但 config_cols 格式不正确或为空。") # MODIFIED: 增加日志
-                    else:
-                        all_config_cols_exist = False
-                        logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中需要 close 列，但未找到 {f'close_{tf_score_str}'}。") # MODIFIED: 增加日志
-                elif 'close' in required_score_keys: # 其他需要 close 列的指标
-                    close_col = f"close_{tf_score_str}" if f"close_{tf_score_str}" in data.columns else None
-                    if close_col:
-                        temp_cols_from_config['close'] = close_col
+                            logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中需要 close 列，但未找到 {f'close_{tf_score_str}'}。") # MODIFIED: 增加日志
+                    elif 'close' in required_score_keys: # 其他需要 close 列的指标
+                        close_col = f"close_{tf_score_str}" if f"close_{tf_score_str}" in data.columns else None
+                        if close_col:
+                            temp_cols_from_config['close'] = close_col
+                            # 检查 config_cols 中提供的列是否存在
+                            if all(col in data.columns for col in config_cols):
+                                # 尝试根据 required_score_keys 映射 config_cols 到 internal_key
+                                # 这个映射逻辑依赖于 config_cols 的顺序或命名规范，比较脆弱。
+                                # 最好是在 indicator_configs 中就提供 internal_key -> col_name 的映射
+                                # 暂且假设 config_cols 严格按照 required_score_keys 中除了 'close' 之外的顺序
+                                other_required_keys = [k for k in required_score_keys if k not in ['close', 'pivot_levels']]
+                                if len(config_cols) == len(other_required_keys):
+                                    temp_cols_from_config.update(dict(zip(other_required_keys, config_cols)))
+                                else:
+                                    all_config_cols_exist = False
+                                    logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 数量与 required_score_keys ({other_required_keys}) 不匹配，尝试后缀匹配。") # MODIFIED: 增加日志
+                            else:
+                                all_config_cols_exist = False
+                                logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 在 DataFrame 中不存在。") # MODIFIED: 增加日志
+                        else:
+                            all_config_cols_exist = False
+                            logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的配置映射中需要 close 列，但未找到 {f'close_{tf_score_str}'}。") # MODIFIED: 增加日志
+                    else: # 不需要 close 列的指标
                         # 检查 config_cols 中提供的列是否存在
                         if all(col in data.columns for col in config_cols):
                             # 尝试根据 required_score_keys 映射 config_cols 到 internal_key
-                            # 这个映射逻辑依赖于 config_cols 的顺序或命名规范，比较脆弱。
-                            # 最好是在 indicator_configs 中就提供 internal_key -> col_name 的映射
-                            # 暂且假设 config_cols 严格按照 required_score_keys 中除了 'close' 之外的顺序
-                            other_required_keys = [k for k in required_score_keys if k not in ['close', 'pivot_levels']]
-                            if len(config_cols) == len(other_required_keys):
-                                temp_cols_from_config.update(dict(zip(other_required_keys, config_cols)))
+                            # 暂且假设 config_cols 严格按照 required_score_keys 的顺序
+                            if len(config_cols) == len(required_score_keys):
+                                temp_cols_from_config = dict(zip(required_score_keys, config_cols))
                             else:
                                 all_config_cols_exist = False
-                                logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 数量与 required_score_keys ({other_required_keys}) 不匹配，尝试后缀匹配。") # MODIFIED: 增加日志
+                                logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 数量与 required_score_keys ({required_score_keys}) 不匹配，尝试后缀匹配。") # MODIFIED: 增加日志
                         else:
                             all_config_cols_exist = False
                             logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 在 DataFrame 中不存在。") # MODIFIED: 增加日志
-                    else:
-                        all_config_cols_exist = False
-                        logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的配置映射中需要 close 列，但未找到 {f'close_{tf_score_str}'}。") # MODIFIED: 增加日志
-                else: # 不需要 close 列的指标
-                    # 检查 config_cols 中提供的列是否存在
-                    if all(col in data.columns for col in config_cols):
-                        # 尝试根据 required_score_keys 映射 config_cols 到 internal_key
-                        # 暂且假设 config_cols 严格按照 required_score_keys 的顺序
-                        if len(config_cols) == len(required_score_keys):
-                            temp_cols_from_config = dict(zip(required_score_keys, config_cols))
-                        else:
-                            all_config_cols_exist = False
-                            logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 数量与 required_score_keys ({required_score_keys}) 不匹配，尝试后缀匹配。") # MODIFIED: 增加日志
-                    else:
-                        all_config_cols_exist = False
-                        logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 在 DataFrame 中不存在。") # MODIFIED: 增加日志
-                 # 如果所有必需列都找到了 (通过配置映射)
-                required_keys_from_config_present = all(k in temp_cols_from_config for k in required_score_keys)
-                # 特别处理 Pivot，确保 'pivot_levels' 键存在且对应一个非空列表
-                if indicator_key == 'pivot' and 'pivot_levels' in required_score_keys:
-                    if not (isinstance(temp_cols_from_config.get('pivot_levels'), list) and temp_cols_from_config['pivot_levels']):
-                        required_keys_from_config_present = False
-                if all_config_cols_exist and required_keys_from_config_present:
-                    indicator_cols_for_score = temp_cols_from_config
-                    found = True
-                    # logger.debug(f"通过 config_column_mapping 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列。") # 调试信息
-        # 如果 config_column_mapping 未找到或不完整，尝试使用后缀匹配和参数解析
-        if not found:
-            # logger.debug(f"config_column_mapping 未成功找到，尝试后缀匹配指标 '{indicator_key}' 在时间框架 {tf_score}") # 调试信息
-            for tf_suffix in possible_tf_suffixes:
-                # 特殊处理 Pivot，Pivot 列名不包含参数，且通常只在日线 D 计算
-                if indicator_key == 'pivot':
-                    if tf_suffix.upper() != 'D': continue # Pivot通常只在日线计算
-                    # 查找所有 Pivot level 列 (根据命名规范的基础名)
-                    pivot_cols_base = ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"] # 根据 convention 文件
-                    pivot_cols_with_suffix = [f"{col}_{tf_suffix}" for col in pivot_cols_base]
-                    close_col = f"close_{tf_suffix}"
-                    # 检查 close 列和所有 pivot level 列是否存在
-                    if close_col in data.columns and all(col in data.columns for col in pivot_cols_with_suffix):
-                        # Pivot 评分函数期望 pivot_levels 参数是一个 {internal_key: Series} 字典
-                        pivot_series_dict = {
-                            p_base: data[f"{p_base}_{tf_suffix}"]
-                            for p_base in pivot_cols_base if f"{p_base}_{tf_suffix}" in data.columns
-                        }
-                        # 确保所有预期的 level keys 都有对应的 Series
-                        # 这里需要一个从 Pivot base name 到 internal key 的映射，例如 "PP" -> "PP" (假设), "R1" -> "R1"
-                        # 简化处理，直接使用列名作为 internal key 传入评分函数（如果评分函数能处理）
-                        # 或者构建一个 {internal_key: Series} 字典，internal_key 需要与评分函数期望的键一致
-                        # 根据 File 2 的 calculate_pivot_score(..., pivot_levels: Dict[str, pd.Series], ...)，它期望键是字符串，值是 Series
-                        # 这里直接使用列名前缀 (如 'PP', 'R1') 作为字典的键
-                        pivot_levels_series_dict_for_score: Dict[str, pd.Series] = {}
-                        all_pivot_levels_found_as_series = True
-                        for p_base in pivot_cols_base:
-                            col_name = f"{p_base}_{tf_suffix}"
-                            if col_name in data.columns:
-                                # Use the base name (PP, R1, S1 etc.) as the key for the scoring function
-                                pivot_levels_series_dict_for_score[p_base] = data[col_name]
-                            else:
-                                all_pivot_levels_found_as_series = False
-                                break # 缺少任何一个 Pivot level 列，就认为未找到
-                        if all_pivot_levels_found_as_series and close_col in data.columns:
-                            indicator_cols_for_score = {'close': close_col, 'pivot_levels': pivot_levels_series_dict_for_score}
-                            found = True
-                        # logger.debug(f"通过后缀匹配找到指标 'pivot' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                    break # Pivot处理完成后跳出后缀循环
-                # 对于其他指标，查找符合模式和后缀的列
-                potential_cols = [c for c in data.columns if any(c.startswith(prefix) for prefix in column_pattern_prefixes) and c.endswith(f"_{tf_suffix}")]
-                if not potential_cols:
-                    # logger.debug(f"在时间框架 {tf_score} 使用后缀 {tf_suffix} 未找到符合模式 {column_pattern_prefixes} 的列。") # 调试信息
-                    continue # 尝试下一个后缀
-                # 选择第一个找到的潜在列作为参考，尝试解析其参数
-                reference_col = potential_cols[0]
-                # logger.debug(f"找到参考列: {reference_col}，尝试解析参数...") # 调试信息
-                # 使用 parse_col_params 助手函数解析参数
-                params = parse_col_params(reference_col, indicator_key, tf_suffix)
-                if params is None:
-                    # logger.debug(f"从参考列 {reference_col} 解析参数失败，尝试下一个后缀。") # 调试信息
-                    continue # 参数解析失败，尝试下一个后缀
-                # 如果参数解析成功 (或指标无参数)，构建所有必需列的预期列名并检查是否存在
-                expected_cols: Dict[str, str] = {}
-                all_required_cols_found_with_params = True
-                # 遍历必需的内部 key，构建对应的列名并检查
-                for internal_key in required_score_keys:
-                    # 特殊处理不需要通过 build_expected_col_name 构建的 key (如 Pivot levels)
-                    if indicator_key == 'pivot' and internal_key == 'pivot_levels':
-                        # Pivot levels 已在上方特殊处理
-                        continue
-                    # 特殊处理 OBV_MA，需要使用 OBV_MA 的周期参数，而不是基础指标的参数
-                    if indicator_key == 'obv' and internal_key == 'obv_ma':
-                        # OBV 评分函数签名是 calculate_obv_score(obv, obv_ma=None, obv_ma_period=None)
-                        # OBV_MA Series 是一个可选参数，其列名需要 OBV_MA_period_tf 模式查找
-                        # 即使 obv_ma 在 required_score_keys 里，这里也只尝试查找列名，并不会中断 found=False
-                        # OBV_MA 列名需要 OBV_MA 的周期参数，从 bs_params 中获取
-                        obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
-                        obv_ma_params = [obv_ma_period] # OBV_MA 参数列表只包含其周期
-                        expected_col_name = build_expected_col_name(indicator_key, internal_key, obv_ma_params, tf_suffix)
-                    else:
-                        # 其他指标使用解析出的参数 params
-                        expected_col_name = build_expected_col_name(indicator_key, internal_key, params, tf_suffix)
-                    if expected_col_name and expected_col_name in data.columns:
-                        expected_cols[internal_key] = expected_col_name
-                        # logger.debug(f"找到必需列: {expected_col_name} (内部 key: {internal_key})") # 调试信息
-                    else:
-                        # 如果是 OBV_MA 未找到，它不是评分必需的，不中断查找
-                        if indicator_key == 'obv' and internal_key == 'obv_ma':
-                            logger.debug(f"为指标 '{indicator_key}' 在时间框架 {tf_score} (后缀: {tf_suffix}) 未找到可选列 '{expected_col_name}' (内部 key: {internal_key})。") # MODIFIED: 增加日志
-                        else:
-                            # 其他必需列未找到，当前参数组和后缀不匹配
-                            all_required_cols_found_with_params = False
-                            # logger.debug(f"未找到必需列: {expected_col_name} (内部 key: {internal_key})") # 调试信息
-                            break # 只要有一个必需列未找到，当前参数组和后缀就不匹配
-                    # 如果所有必需列都找到了 (包括非 OBV_MA 的必需列)
-                    if all_required_cols_found_with_params:
-                        # 成功找到了一组具有相同参数和时间框架后缀的指标列
-                        # 再次检查并添加 OBV_MA 列，如果它存在且评分函数需要
-                        if indicator_key == 'obv' and 'obv_ma' in info['required_keys']: # 检查info['required_keys']看是否需要OBV_MA series
-                            obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
-                            obv_ma_params = [obv_ma_period]
-                            expected_obv_ma_col_name = build_expected_col_name(indicator_key, 'obv_ma', obv_ma_params, tf_suffix)
-                            if expected_obv_ma_col_name and expected_obv_ma_col_name in data.columns:
-                                expected_cols['obv_ma'] = expected_obv_ma_col_name
-                            else:
-                                # 如果 OBV_MA 是必需的但没找到，则当前后缀查找失败
-                                # Note: 根据File 2的OBV评分函数签名，obv_ma是Optional，即使没找到，评分函数也能运行
-                                # 这里的逻辑需要与评分函数实际是否*必须*使用obv_ma保持一致。
-                                # 假设如果配置了obv_ma_period且评分函数签名有obv_ma参数，就尝试找obv_ma列并传入
-                                # 如果没找到，就传入 None 给 obv_ma 参数，评分函数内部处理 None
-                                # 所以这里找到 OBV 主列就够了，OBV_MA 找不到不影响 found 状态
-                                logger.debug(f"为指标 '{indicator_key}' 在时间框架 {tf_score} (后缀: {tf_suffix}) 未找到可选的 OBV_MA 列: {expected_obv_ma_col_name}") # MODIFIED: 增加日志
-                        indicator_cols_for_score = expected_cols
+                    # 如果所有必需列都找到了 (通过配置映射)
+                    required_keys_from_config_present = all(k in temp_cols_from_config for k in required_score_keys)
+                    # 特别处理 Pivot，确保 'pivot_levels' 键存在且对应一个非空列表
+                    if indicator_key == 'pivot' and 'pivot_levels' in required_score_keys:
+                        if not (isinstance(temp_cols_from_config.get('pivot_levels'), list) and temp_cols_from_config['pivot_levels']):
+                            required_keys_from_config_present = False
+                    if all_config_cols_exist and required_keys_from_config_present:
+                        indicator_cols_for_score = temp_cols_from_config
                         found = True
-                        # logger.debug(f"通过后缀匹配找到指标 '{indicator_key}' 在时间框架 {tf_score} 的所有必需列，使用后缀 {tf_suffix} 和参数 {params}") # 调试信息
-                        break # 找到匹配项，跳出后缀循环
-                # 在尝试所有后缀后，如果 still not found，打印错误信息
-                if not found:
-                    logger.warning(f"未能为指标 '{indicator_key}' 在时间框架 {tf_score} 找到所有必要的数据列进行评分。")
-                    logger.info(f"尝试查找所需的内部键: {required_score_keys}. 尝试的后缀: {possible_tf_suffixes}.")
-                    # 尝试列出该时间框架下匹配任何前缀的列
+                        # logger.debug(f"通过 config_column_mapping 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列。") # 调试信息
+            # 如果 config_column_mapping 未找到或不完整，尝试使用后缀匹配和参数解析
+            if not found:
+                # logger.debug(f"config_column_mapping 未成功找到，尝试后缀匹配指标 '{indicator_key}' 在时间框架 {tf_score}") # 调试信息
+                for tf_suffix in possible_tf_suffixes:
+                    # 特殊处理 Pivot，Pivot 列名不包含参数，且通常只在日线 D 计算
                     if indicator_key == 'pivot':
-                        # 对于 Pivot，列出所有 Pivot 相关列
-                        pivot_cols_base = ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"]
-                        relevant_cols_for_tf = [f"{col}_{tf_suffix}" for col in pivot_cols_base for tf_suffix in possible_tf_suffixes]
-                        close_col_tf_list = [f"close_{tf_suffix}" for tf_suffix in possible_tf_suffixes]
-                        relevant_cols_for_tf.extend(close_col_tf_list)
-                        relevant_cols_for_tf = list(dict.fromkeys(relevant_cols_for_tf)) # 去重
-                        relevant_cols_for_tf = [c for c in relevant_cols_for_tf if c in data.columns] # 只保留实际存在的列
-                    else:
-                        relevant_cols_for_tf = [c for c in data.columns if any(c.startswith(prefix) for prefix in column_pattern_prefixes) and any(c.endswith(f"_{s}") for s in possible_tf_suffixes)]
-                        logger.info(f"DataFrame 中与该时间框架匹配的 '{indicator_key}' 相关列列表: {relevant_cols_for_tf}.")
-                    # logger.debug(f"DataFrame 所有列列表: {list(data.columns)}.") # 打印所有列名，可能很长
-            # --- 调用评分函数并存储结果 ---
-            if found:
-                try:
-                    # 准备评分函数的参数字典
-                    score_func_args: Dict[str, Any] = {}
-                    # 传入指标数据 Series
-                    for internal_key, actual_col_name in indicator_cols_for_score.items():
-                        # MODIFIED: 特殊处理 pivot_levels，它在 indicator_cols_for_score 中已经是一个 {internal_key: Series} 字典
-                        if indicator_key == 'pivot' and internal_key == 'pivot_levels' and isinstance(actual_col_name, dict):
-                            # 直接将这个字典作为 'pivot_levels' 参数传入
-                            score_func_args['pivot_levels'] = actual_col_name
-                        elif isinstance(actual_col_name, str) and actual_col_name in data.columns:
-                            # 将实际 Series 赋值给评分函数期望的参数名 (internal_key)
-                            score_func_args[internal_key] = data[actual_col_name]
+                        if tf_suffix.upper() != 'D': continue # Pivot通常只在日线计算
+                        # 查找所有 Pivot level 列 (根据命名规范的基础名)
+                        pivot_cols_base = ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"] # 根据 convention 文件
+                        pivot_cols_with_suffix = [f"{col}_{tf_suffix}" for col in pivot_cols_base]
+                        close_col = f"close_{tf_suffix}"
+                        # 检查 close 列和所有 pivot level 列是否存在
+                        if close_col in data.columns and all(col in data.columns for col in pivot_cols_with_suffix):
+                            # Pivot 评分函数期望 pivot_levels 参数是一个 {internal_key: Series} 字典
+                            pivot_series_dict = {
+                                p_base: data[f"{p_base}_{tf_suffix}"]
+                                for p_base in pivot_cols_base if f"{p_base}_{tf_suffix}" in data.columns
+                            }
+                            # 确保所有预期的 level keys 都有对应的 Series
+                            # 这里需要一个从 Pivot base name 到 internal key 的映射，例如 "PP" -> "PP" (假设), "R1" -> "R1"
+                            # 简化处理，直接使用列名作为 internal key 传入评分函数（如果评分函数能处理）
+                            # 或者构建一个 {internal_key: Series} 字典，internal_key 需要与评分函数期望的键一致
+                            # 根据 File 2 的 calculate_pivot_score(..., pivot_levels: Dict[str, pd.Series], ...)，它期望键是字符串，值是 Series
+                            # 这里直接使用列名前缀 (如 'PP', 'R1') 作为字典的键
+                            pivot_levels_series_dict_for_score: Dict[str, pd.Series] = {}
+                            all_pivot_levels_found_as_series = True
+                            for p_base in pivot_cols_base:
+                                col_name = f"{p_base}_{tf_suffix}"
+                                if col_name in data.columns:
+                                    # Use the base name (PP, R1, S1 etc.) as the key for the scoring function
+                                    pivot_levels_series_dict_for_score[p_base] = data[col_name]
+                                else:
+                                    all_pivot_levels_found_as_series = False
+                                    break # 缺少任何一个 Pivot level 列，就认为未找到
+                            if all_pivot_levels_found_as_series and close_col in data.columns:
+                                indicator_cols_for_score = {'close': close_col, 'pivot_levels': pivot_levels_series_dict_for_score}
+                                found = True
+                            # logger.debug(f"通过后缀匹配找到指标 'pivot' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
+                        break # Pivot处理完成后跳出后缀循环
+                    # 对于其他指标，查找符合模式和后缀的列
+                    potential_cols = [c for c in data.columns if any(c.startswith(prefix) for prefix in column_pattern_prefixes) and c.endswith(f"_{tf_suffix}")]
+                    if not potential_cols:
+                        # logger.debug(f"在时间框架 {tf_score} 使用后缀 {tf_suffix} 未找到符合模式 {column_pattern_prefixes} 的列。") # 调试信息
+                        continue # 尝试下一个后缀
+                    # 选择第一个找到的潜在列作为参考，尝试解析其参数
+                    reference_col = potential_cols[0]
+                    # logger.debug(f"找到参考列: {reference_col}，尝试解析参数...") # 调试信息
+                    # 使用 parse_col_params 助手函数解析参数
+                    params = parse_col_params(reference_col, indicator_key, tf_suffix)
+                    if params is None:
+                        # logger.debug(f"从参考列 {reference_col} 解析参数失败，尝试下一个后缀。") # 调试信息
+                        continue # 参数解析失败，尝试下一个后缀
+                    # 如果参数解析成功 (或指标无参数)，构建所有必需列的预期列名并检查是否存在
+                    expected_cols: Dict[str, str] = {}
+                    all_required_cols_found_with_params = True
+                    # 遍历必需的内部 key，构建对应的列名并检查
+                    for internal_key in required_score_keys:
+                        # 特殊处理不需要通过 build_expected_col_name 构建的 key (如 Pivot levels)
+                        if indicator_key == 'pivot' and internal_key == 'pivot_levels':
+                            # Pivot levels 已在上方特殊处理
+                            continue
+                        # 特殊处理 OBV_MA，需要使用 OBV_MA 的周期参数，而不是基础指标的参数
+                        if indicator_key == 'obv' and internal_key == 'obv_ma':
+                            # OBV 评分函数签名是 calculate_obv_score(obv, obv_ma=None, obv_ma_period=None)
+                            # OBV_MA Series 是一个可选参数，其列名需要 OBV_MA_period_tf 模式查找
+                            # 即使 obv_ma 在 required_score_keys 里，这里也只尝试查找列名，并不会中断 found=False
+                            # OBV_MA 列名需要 OBV_MA 的周期参数，从 bs_params 中获取
+                            obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
+                            obv_ma_params = [obv_ma_period] # OBV_MA 参数列表只包含其周期
+                            expected_col_name = build_expected_col_name(indicator_key, internal_key, obv_ma_params, tf_suffix)
                         else:
-                            # 理论上 found=True 应该保证列存在，这里是双重检查
-                            # 对于 Pivot level 列表形式的 actual_col_name，这里不应该处理，应该在上面 special case 处理
-                            # 这里的 else 应该只处理 str 类型的 actual_col_name 不存在的情况
-                            if isinstance(actual_col_name, str):
-                                logger.error(f"内部错误: 期望列 '{actual_col_name}' (内部 key: '{internal_key}') 在 DataFrame 中未找到，despite 'found' is True.")
-                                raise KeyError(f"Missing column {actual_col_name}")
+                            # 其他指标使用解析出的参数 params
+                            expected_col_name = build_expected_col_name(indicator_key, internal_key, params, tf_suffix)
+                        if expected_col_name and expected_col_name in data.columns:
+                            expected_cols[internal_key] = expected_col_name
+                            # logger.debug(f"找到必需列: {expected_col_name} (内部 key: {internal_key})") # 调试信息
+                        else:
+                            # 如果是 OBV_MA 未找到，它不是评分必需的，不中断查找
+                            if indicator_key == 'obv' and internal_key == 'obv_ma':
+                                logger.debug(f"为指标 '{indicator_key}' 在时间框架 {tf_score} (后缀: {tf_suffix}) 未找到可选列 '{expected_col_name}' (内部 key: {internal_key})。") # MODIFIED: 增加日志
                             else:
-                                # 如果 actual_col_name 不是 string 也不是 dict (for pivot_levels)，说明有问题
-                                logger.error(f"内部错误: 期望的实际列名不是字符串或 pivot_levels 字典。internal_key: '{internal_key}', actual_col_name: {actual_col_name}")
-                                raise ValueError(f"Invalid actual_col_name type for internal key {internal_key}")
-                    # 传入评分逻辑参数 (根据 param_passing_style)
-                    if param_passing_style == 'dict':
-                        params_dict = {}
-                        for bs_key, score_arg_name in bs_param_key_to_score_func_arg.items():
-                            # 从 bs_params 获取值，如果不存在则使用 defaults 中的默认值
-                            param_value = bs_params.get(bs_key, defaults.get(score_arg_name, None))
-                            params_dict[score_arg_name] = param_value
-                        score_func_args['params'] = params_dict # 将参数字典赋值给名为 'params' 的键
+                                # 其他必需列未找到，当前参数组和后缀不匹配
+                                all_required_cols_found_with_params = False
+                                # logger.debug(f"未找到必需列: {expected_col_name} (内部 key: {internal_key})") # 调试信息
+                                break # 只要有一个必需列未找到，当前参数组和后缀就不匹配
+                        # 如果所有必需列都找到了 (包括非 OBV_MA 的必需列)
+                        if all_required_cols_found_with_params:
+                            # 成功找到了一组具有相同参数和时间框架后缀的指标列
+                            # 再次检查并添加 OBV_MA 列，如果它存在且评分函数需要
+                            if indicator_key == 'obv' and 'obv_ma' in info['required_keys']: # 检查info['required_keys']看是否需要OBV_MA series
+                                obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
+                                obv_ma_params = [obv_ma_period]
+                                expected_obv_ma_col_name = build_expected_col_name(indicator_key, 'obv_ma', obv_ma_params, tf_suffix)
+                                if expected_obv_ma_col_name and expected_obv_ma_col_name in data.columns:
+                                    expected_cols['obv_ma'] = expected_obv_ma_col_name
+                                else:
+                                    # 如果 OBV_MA 是必需的但没找到，则当前后缀查找失败
+                                    # Note: 根据File 2的OBV评分函数签名，obv_ma是Optional，即使没找到，评分函数也能运行
+                                    # 这里的逻辑需要与评分函数实际是否*必须*使用obv_ma保持一致。
+                                    # 假设如果配置了obv_ma_period且评分函数签名有obv_ma参数，就尝试找obv_ma列并传入
+                                    # 如果没找到，就传入 None 给 obv_ma 参数，评分函数内部处理 None
+                                    # 所以这里找到 OBV 主列就够了，OBV_MA 找不到不影响 found 状态
+                                    logger.debug(f"为指标 '{indicator_key}' 在时间框架 {tf_score} (后缀: {tf_suffix}) 未找到可选的 OBV_MA 列: {expected_obv_ma_col_name}") # MODIFIED: 增加日志
+                            indicator_cols_for_score = expected_cols
+                            found = True
+                            # logger.debug(f"通过后缀匹配找到指标 '{indicator_key}' 在时间框架 {tf_score} 的所有必需列，使用后缀 {tf_suffix} 和参数 {params}") # 调试信息
+                            break # 找到匹配项，跳出后缀循环
+                    # 在尝试所有后缀后，如果 still not found，打印错误信息
+                    if not found:
+                        logger.warning(f"未能为指标 '{indicator_key}' 在时间框架 {tf_score} 找到所有必要的数据列进行评分。")
+                        logger.info(f"尝试查找所需的内部键: {required_score_keys}. 尝试的后缀: {possible_tf_suffixes}.")
+                        # 尝试列出该时间框架下匹配任何前缀的列
+                        if indicator_key == 'pivot':
+                            # 对于 Pivot，列出所有 Pivot 相关列
+                            pivot_cols_base = ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"]
+                            relevant_cols_for_tf = [f"{col}_{tf_suffix}" for col in pivot_cols_base for tf_suffix in possible_tf_suffixes]
+                            close_col_tf_list = [f"close_{tf_suffix}" for tf_suffix in possible_tf_suffixes]
+                            relevant_cols_for_tf.extend(close_col_tf_list)
+                            relevant_cols_for_tf = list(dict.fromkeys(relevant_cols_for_tf)) # 去重
+                            relevant_cols_for_tf = [c for c in relevant_cols_for_tf if c in data.columns] # 只保留实际存在的列
+                        else:
+                            relevant_cols_for_tf = [c for c in data.columns if any(c.startswith(prefix) for prefix in column_pattern_prefixes) and any(c.endswith(f"_{s}") for s in possible_tf_suffixes)]
+                            logger.info(f"DataFrame 中与该时间框架匹配的 '{indicator_key}' 相关列列表: {relevant_cols_for_tf}.")
+                        # logger.debug(f"DataFrame 所有列列表: {list(data.columns)}.") # 打印所有列名，可能很长
+                # --- 调用评分函数并存储结果 ---
+                if found:
+                    try:
+                        # 准备评分函数的参数字典
+                        score_func_args: Dict[str, Any] = {}
+                        # 传入指标数据 Series
+                        for internal_key, actual_col_name in indicator_cols_for_score.items():
+                            # MODIFIED: 特殊处理 pivot_levels，它在 indicator_cols_for_score 中已经是一个 {internal_key: Series} 字典
+                            if indicator_key == 'pivot' and internal_key == 'pivot_levels' and isinstance(actual_col_name, dict):
+                                # 直接将这个字典作为 'pivot_levels' 参数传入
+                                score_func_args['pivot_levels'] = actual_col_name
+                            elif isinstance(actual_col_name, str) and actual_col_name in data.columns:
+                                # 将实际 Series 赋值给评分函数期望的参数名 (internal_key)
+                                score_func_args[internal_key] = data[actual_col_name]
+                            else:
+                                # 理论上 found=True 应该保证列存在，这里是双重检查
+                                # 对于 Pivot level 列表形式的 actual_col_name，这里不应该处理，应该在上面 special case 处理
+                                # 这里的 else 应该只处理 str 类型的 actual_col_name 不存在的情况
+                                if isinstance(actual_col_name, str):
+                                    logger.error(f"内部错误: 期望列 '{actual_col_name}' (内部 key: '{internal_key}') 在 DataFrame 中未找到，despite 'found' is True.")
+                                    raise KeyError(f"Missing column {actual_col_name}")
+                                else:
+                                    # 如果 actual_col_name 不是 string 也不是 dict (for pivot_levels)，说明有问题
+                                    logger.error(f"内部错误: 期望的实际列名不是字符串或 pivot_levels 字典。internal_key: '{internal_key}', actual_col_name: {actual_col_name}")
+                                    raise ValueError(f"Invalid actual_col_name type for internal key {internal_key}")
+                        # 传入评分逻辑参数 (根据 param_passing_style)
+                        if param_passing_style == 'dict':
+                            params_dict = {}
+                            for bs_key, score_arg_name in bs_param_key_to_score_func_arg.items():
+                                # 从 bs_params 获取值，如果不存在则使用 defaults 中的默认值
+                                param_value = bs_params.get(bs_key, defaults.get(score_arg_name, None))
+                                params_dict[score_arg_name] = param_value
+                            score_func_args['params'] = params_dict # 将参数字典赋值给名为 'params' 的键
 
-                    elif param_passing_style == 'individual':
-                        for bs_key, score_arg_name in bs_param_key_to_score_func_arg.items():
-                            # 从 bs_params 获取值，如果不存在则使用 defaults 中的默认值
-                            param_value = bs_params.get(bs_key, defaults.get(score_arg_name, None))
-                            score_func_args[score_arg_name] = param_value # 直接将参数作为关键字参数传入
-                    # 特殊处理 Pivot，需要传入 tf 参数
-                    if indicator_key == 'pivot':
-                        score_func_args['tf'] = tf_score_str
-                    # 调用评分函数
-                    # score_func_args 此时包含所有必需的 Series (以其内部 key 为键) 和评分逻辑参数 (根据 style)
-                    # 评分函数签名是 score_func(Series1, Series2, ..., param1=value1, param2=value2, ...) 或 score_func(Series1, Series2, ..., params=param_dict)
-                    # 我们将 score_func_args 解包传入
-                    scores: pd.Series = score_func(**score_func_args) # MODIFIED: 移除 positional 'data' argument
-                    # 确保评分结果是 Series 且索引与输入 data 相同
-                    if not isinstance(scores, pd.Series) or not scores.index.equals(data.index):
-                        logger.error(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的评分函数返回结果格式不正确。")
-                        scores = pd.Series(50.0, index=data.index) # 返回默认中性分
-                    # 存储评分结果列
+                        elif param_passing_style == 'individual':
+                            for bs_key, score_arg_name in bs_param_key_to_score_func_arg.items():
+                                # 从 bs_params 获取值，如果不存在则使用 defaults 中的默认值
+                                param_value = bs_params.get(bs_key, defaults.get(score_arg_name, None))
+                                score_func_args[score_arg_name] = param_value # 直接将参数作为关键字参数传入
+                        # 特殊处理 Pivot，需要传入 tf 参数
+                        if indicator_key == 'pivot':
+                            score_func_args['tf'] = tf_score_str
+                        # 调用评分函数
+                        # score_func_args 此时包含所有必需的 Series (以其内部 key 为键) 和评分逻辑参数 (根据 style)
+                        # 评分函数签名是 score_func(Series1, Series2, ..., param1=value1, param2=value2, ...) 或 score_func(Series1, Series2, ..., params=param_dict)
+                        # 我们将 score_func_args 解包传入
+                        scores: pd.Series = score_func(**score_func_args) # MODIFIED: 移除 positional 'data' argument
+                        # 确保评分结果是 Series 且索引与输入 data 相同
+                        if not isinstance(scores, pd.Series) or not scores.index.equals(data.index):
+                            logger.error(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的评分函数返回结果格式不正确。")
+                            scores = pd.Series(50.0, index=data.index) # 返回默认中性分
+                        # 存储评分结果列
+                        score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}" # 格式化列名
+                        scoring_results[score_col_name] = scores
+                    except Exception as e:
+                        # 如果评分计算发生错误，记录错误并填充默认中性分
+                        score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}" # 格式化列名
+                        scoring_results[score_col_name] = 50.0 # 发生错误时填充默认中性分
+                        # 打印详细错误信息和传入的参数键名
+                        arg_names = list(score_func_args.keys())
+                        # MODIFIED: 尝试在日志中区分 Series 参数和普通参数，避免日志过长
+                        series_args = {k: type(v) for k, v in score_func_args.items() if isinstance(v, (pd.Series, dict))} # dict for pivot_levels
+                        other_args = {k: v for k, v in score_func_args.items() if not isinstance(v, (pd.Series, dict))}
+                        logger.error(f"计算指标 '{indicator_key}' 在时间框架 {tf_score} 的评分时发生错误。"
+                                    f"传入 Series 参数: {series_args}. 其他参数: {other_args}. "
+                                    f"错误信息: {e}", exc_info=True)
+                else:
+                    # 如果未找到必需的列，为该指标和时间框架添加一个填充默认中性分的列
                     score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}" # 格式化列名
-                    scoring_results[score_col_name] = scores
-                except Exception as e:
-                    # 如果评分计算发生错误，记录错误并填充默认中性分
-                    score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}" # 格式化列名
-                    scoring_results[score_col_name] = 50.0 # 发生错误时填充默认中性分
-                    # 打印详细错误信息和传入的参数键名
-                    arg_names = list(score_func_args.keys())
-                    # MODIFIED: 尝试在日志中区分 Series 参数和普通参数，避免日志过长
-                    series_args = {k: type(v) for k, v in score_func_args.items() if isinstance(v, (pd.Series, dict))} # dict for pivot_levels
-                    other_args = {k: v for k, v in score_func_args.items() if not isinstance(v, (pd.Series, dict))}
-                    logger.error(f"计算指标 '{indicator_key}' 在时间框架 {tf_score} 的评分时发生错误。"
-                                f"传入 Series 参数: {series_args}. 其他参数: {other_args}. "
-                                f"错误信息: {e}", exc_info=True)
-            else:
-                # 如果未找到必需的列，为该指标和时间框架添加一个填充默认中性分的列
-                score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}" # 格式化列名
-                scoring_results[score_col_name] = 50.0 # 列未找到时填充默认中性分
+                    scoring_results[score_col_name] = 50.0 # 列未找到时填充默认中性分
 
-    # 填充最终结果中的 NaN 值为默认中性分 50.0
-    scoring_results = scoring_results.fillna(50.0)
+        # 填充最终结果中的 NaN 值为默认中性分 50.0
+        scoring_results = scoring_results.fillna(50.0)
 
-    logger.info("指标评分计算完成。")
-    return scoring_results
+        logger.info("指标评分计算完成。")
+        return scoring_results
 
 def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, vc_params: Dict ) -> pd.DataFrame:
     """
@@ -2431,17 +2431,17 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
             'cmf_confirmation_threshold': float, CMF确认趋势的阈值 (例如 0.05)。
             'obv_ma_period': int, OBV移动平均线的计算周期 (应与指标服务中的计算一致)。
             'vp_divergence_lookback': int, 量价背离检测的回看窗口期。
-            'vp_divergence_peak_offset': int, 在量价背离中，比较当前极值点与之前第N个极值点。
+            'vp_divergence_peak_offset': int, 在量价背离中，比较当前极值点与之前第N个极值点。(此参数在当前实现中可能不直接使用，但保留)
             'vp_divergence_price_threshold': float, 价格创出新高/新低的最小幅度（相对于前一极值）。
-            'vp_divergence_obv_threshold': float, OBV未能同步创出新高/新低的最小幅度。
+            'vp_divergence_obv_threshold': float, OBV未能同步创出新高/新低的最小幅度（相对于前一极值对应的OBV）。
             'vp_divergence_penalty_factor': float, 量价背离惩罚分数调整的比例。
             'volume_spike_adj_factor': float, 成交量突增时调整分数的比例。
     Returns:
         pd.DataFrame: 返回一个DataFrame，索引与 preliminary_score 一致，包含以下列:
             - 'ADJUSTED_SCORE': 经过量能调整后的最终分数 (0-100)。
-            - 'VOL_CONFIRM_SIGNAL_{TF}': 量能确认信号 (1: 量能支持当前趋势, -1: 量能与当前趋势矛盾, 0: 中性)。
-            - 'VOL_SPIKE_SIGNAL_{TF}': 成交量突增信号 (1: 检测到突增, 0: 正常)。
-            - 'VOL_PRICE_DIV_SIGNAL_{TF}': 量价背离信号 (1: 看涨背离 - 价跌量升势头, -1: 看跌背离 - 价涨量缩势头, 0: 无明显背离)。
+            - 'VOL_CONFIRM_SIGNAL_{TF}': 量能确认信号 (1: 量能支持当前趋势, -1: 量能与当前趋势矛盾, 0: 中性).
+            - 'VOL_SPIKE_SIGNAL_{TF}': 成交量突增信号 (1: 检测到突增, 0: 正常).
+            - 'VOL_PRICE_DIV_SIGNAL_{TF}': 量价背离信号 (1: 看涨背离, -1: 看跌背离, 0: 无明显背离).
     """
     # --- 0. 初始化和参数准备 ---
     result_df = pd.DataFrame(index=preliminary_score.index)
@@ -2478,9 +2478,10 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
 
     # 量价背离相关参数
     vp_div_lookback = vc_params.get('vp_divergence_lookback', 21) # 例如过去一个月（21个交易日）
-    # vp_div_peak_offset = vc_params.get('vp_divergence_peak_offset', 5) # 比较当前极值与向前数第5个交易日附近的极值
-    # vp_price_thresh = vc_params.get('vp_divergence_price_threshold', 0.005) # 价格新高/低至少超过前高/低0.5%
-    # vp_obv_thresh = vc_params.get('vp_divergence_obv_threshold', 0.005)   # OBV未能同步的幅度阈值
+    vp_price_thresh = vc_params.get('vp_divergence_price_threshold', 0.005) # 价格新高/低至少超过前高/低0.5%
+    vp_obv_thresh = vc_params.get('vp_divergence_obv_threshold', 0.005)   # OBV未能同步的幅度阈值（这里定义为相对幅度）
+    vp_div_penalty_factor = vc_params.get('vp_divergence_penalty_factor', 0.25) # 背离惩罚使分数向50移动25%
+
 
     # --- 1. 数据列名构建和有效性检查 ---
     close_col = f'close_{vol_tf}'
@@ -2543,56 +2544,79 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
         is_spike.loc[valid_mean_mask] = (volume.loc[valid_mean_mask] / volume_mean.loc[valid_mean_mask]) > vol_spike_threshold
         result_df[spike_signal_col] = is_spike.astype(int)
 
-    # 3.3. 量价背离信号 (VOL_PRICE_DIV_SIGNAL) - 深化版启发式检测
-    # 我们将寻找价格高低点与OBV高低点之间的不一致性
-    # 注意：这仍然是启发式方法，更精确的背离需要类似`find_divergence_for_indicator`的峰谷匹配。
-    if vp_div_lookback > 1 and not obv.isnull().all(): # 需要至少2个点进行比较
-        # 寻找价格的近期高点和低点索引
-        # 修改点：移除 raw=True，确保 apply 接收 Series 并正确返回原始索引
-        price_high_idx = high.rolling(window=vp_div_lookback, center=False).apply(lambda x: x.idxmax()) # REMOVED: raw=True
-        # 修改点：移除 raw=True，确保 apply 接收 Series 并正确返回原始索引
-        price_low_idx = low.rolling(window=vp_div_lookback, center=False).apply(lambda x: x.idxmin()) # REMOVED: raw=True
+    # 3.3. 量价背离信号 (VOL_PRICE_DIV_SIGNAL) - 深化版检测
+    # 目标：检测价格创出新高/新低时，OBV是否未能同步创出新高/新低
+    # 我们通过回溯窗口，寻找窗口内的最高价/最低价及其对应的OBV值，并与当前价/OBV进行比较。
+    
+    # 初始化背离信号 Series
+    divergence_signals = pd.Series(0, index=result_df.index)
 
-        # 寻找OBV的近期高点和低点索引
-        # 修改点：移除 raw=True，确保 apply 接收 Series 并正确返回原始索引
-        obv_high_idx = obv.rolling(window=vp_div_lookback, center=False).apply(lambda x: x.idxmax()) # REMOVED: raw=True
-        # 修改点：移除 raw=True，确保 apply 接收 Series 并正确返回原始索引
-        obv_low_idx = obv.rolling(window=vp_div_lookback, center=False).apply(lambda x: x.idxmin()) # REMOVED: raw=True
+    if vp_div_lookback > 1 and not obv.isnull().all(): # 需要至少2个点进行比较，且OBV数据有效
 
+        # 遍历每个数据点，从可以形成完整回溯窗口的点开始
+        # iloc 索引用于迭代，loc 索引用于基于日期/时间查找
+        for i in range(vp_div_lookback - 1, len(merged_df)): # 确保至少有 lookback 数量的数据可以回溯
+            current_date_idx = merged_df.index[i] # 当前日期索引
 
-        # 为了比较，我们需要前一个极值点。这里简化为比较当前点与回看期内的整体极值趋势。
-        # 更精确的方法是找到序列中的P1, P2, I1, I2点。
-        # 此处简化：如果价格创近期新高，但OBV未创近期新高（或OBV趋势向下），则为看跌背离。
-        #           如果价格创近期新低，但OBV未创近期新低（或OBV趋势向上），则为看涨背离。
+            # 获取回溯窗口数据 (不包含当前日期)
+            # iloc 索引: [start_loc : end_loc]
+            # start_loc = max(0, i - vp_div_lookback) 错误：这里应该回溯 vp_div_lookback 个交易日，所以是 i - vp_div_lookback + 1
+            # 正确的回溯窗口是 iloc[i - vp_div_lookback + 1 : i+1] 包含了当前点，再取子集 [:-1]
+            # 或者直接取 iloc[max(0, i - vp_div_lookback + 1): i] 不包含当前点 i
+            lookback_slice = merged_df.iloc[max(0, i - vp_div_lookback + 1) : i].copy() # 过去 vp_div_lookback-1 天的数据
 
-        # 条件1: 价格创N期新高
-        is_price_new_high = (high == high.rolling(window=vp_div_lookback).max())
-        # 条件2: 价格创N期新低
-        is_price_new_low = (low == low.rolling(window=vp_div_lookback).min())
+            if lookback_slice.empty:
+                continue # 窗口为空，跳过
 
-        # 条件3: OBV未创N期新高 (或者说，OBV在价格新高时，其值低于OBV的N期内高点)
-        obv_not_new_high = (obv < obv.rolling(window=vp_div_lookback).max())
-        # 条件4: OBV未创N期新低 (或者说，OBV在价格新低时，其值高于OBV的N期内低点)
-        obv_not_new_low = (obv > obv.rolling(window=vp_div_lookback).min())
-        
-        # 另一种OBV趋势判断：比较OBV与其自身的短期均线
-        obv_short_ma_period = max(3, vp_div_lookback // 4) # 短期OBV均线
-        obv_vs_short_ma = obv - obv.rolling(window=obv_short_ma_period, min_periods=1).mean()
+            # 确保回溯窗口内有有效数据
+            if lookback_slice[high_col].isnull().all() or lookback_slice[low_col].isnull().all() or lookback_slice[obv_col_name].isnull().all():
+                 continue # 窗口内关键数据无效，跳过
 
+            # --- 寻找回溯窗口内的价格极值点及其对应的OBV值 ---
+            # 找到窗口内的最高价及其索引 (P1)
+            p1_val = lookback_slice[high_col].max()
+            p1_date_idx = lookback_slice[high_col].idxmax() # 最高价对应的日期索引
 
-        # 看跌背离: 价格新高 & (OBV未新高 或 OBV < OBV短期均线)
-        # 增加一个条件：价格确实比前几天有所上涨，避免横盘高位也被判为新高
-        price_rising_flag = close.diff(1).fillna(0) > 0
-        bearish_divergence = is_price_new_high & price_rising_flag & (obv_not_new_high | (obv_vs_short_ma < 0))
-        result_df.loc[bearish_divergence, div_signal_col] = -1
+            # 找到窗口内的最低价及其索引 (T1)
+            t1_val = lookback_slice[low_col].min()
+            t1_date_idx = lookback_slice[low_col].idxmin() # 最低价对应的日期索引
 
-        # 看涨背离: 价格新低 & (OBV未新低 或 OBV > OBV短期均线)
-        price_falling_flag = close.diff(1).fillna(0) < 0
-        bullish_divergence = is_price_new_low & price_falling_flag & (obv_not_new_low | (obv_vs_short_ma > 0))
-        # 确保不覆盖已经标记的看跌背离
-        result_df.loc[bullish_divergence & (result_df[div_signal_col] == 0), div_signal_col] = 1
-    else:
-        print(f"VP背离检测跳过，因 lookback ({vp_div_lookback}) 不足或OBV数据无效。")
+            # 获取 P1 和 T1 日期对应的 OBV 值 (I1_at_P1, I1_at_T1)
+            i1_obv_at_p1 = lookback_slice.loc[p1_date_idx, obv_col_name] if p1_date_idx in lookback_slice.index else np.nan # 确保索引存在
+            i1_obv_at_t1 = lookback_slice.loc[t1_date_idx, obv_col_name] if t1_date_idx in lookback_slice.index else np.nan # 确保索引存在
+
+            # --- 获取当前日期的价格和OBV值 (P2, I2) ---
+            p2_val_high = high.iloc[i] # 当前最高价
+            p2_val_low = low.iloc[i]   # 当前最低价
+            i2_obv = obv.iloc[i]       # 当前OBV
+
+            # 检查当前数据是否有效
+            if pd.isna(p2_val_high) or pd.isna(p2_val_low) or pd.isna(i2_obv):
+                 continue
+
+            # --- 判断量价背离 ---
+
+            # 看跌背离条件: 价格创出更高的高点 (P2 > P1) 且 OBV 未能创出更高的高点 (I2 <= I1_at_P1)
+            # 同时考虑阈值，避免微小波动引起的误判
+            if p2_val_high > p1_val * (1 + vp_price_thresh): # 价格明显创新高
+                # OBV 未能同步创新高：OBV 当前值低于或等于之前高点对应的OBV值 (考虑OBV阈值)
+                # 使用 OBV 的相对变化，避免 OBV 绝对值大小的影响
+                if not pd.isna(i1_obv_at_p1) and (i2_obv <= i1_obv_at_p1 or (i1_obv_at_p1 != 0 and (i2_obv - i1_obv_at_p1) / abs(i1_obv_at_p1) < -vp_obv_thresh)):
+                    # 进一步检查：P1 和 P2 之间的日期间隔是否合理？ (可选，当前简化不检查)
+                    # 进一步检查：P1 确实是一个“峰”？ (可选，当前简化不检查)
+                    divergence_signals.loc[current_date_idx] = -1 # 标记为看跌背离
+
+            # 看涨背离条件: 价格创出更低的低点 (P2 < T1) 且 OBV 未能创出更低的低点 (I2 >= I1_at_T1)
+            # 同时考虑阈值，避免微小波动引起的误判
+            # 只有当前点没有被标记为看跌背离时才检查看涨背离
+            if divergence_signals.loc[current_date_idx] == 0 and p2_val_low < t1_val * (1 - vp_price_thresh): # 价格明显创新低
+                # OBV 未能同步创新低：OBV 当前值高于或等于之前低点对应的OBV值 (考虑OBV阈值)
+                if not pd.isna(i1_obv_at_t1) and (i2_obv >= i1_obv_at_t1 or (i1_obv_at_t1 != 0 and (i2_obv - i1_obv_at_t1) / abs(i1_obv_at_t1) > vp_obv_thresh)):
+                     # 进一步检查：T1 和 P2 之间的日期间隔是否合理？ (可选，当前简化不检查)
+                     # 进一步检查：T1 确实是一个“谷”？ (可选，当前简化不检查)
+                    divergence_signals.loc[current_date_idx] = 1 # 标记为看涨背离
+
+    result_df[div_signal_col] = divergence_signals.astype(int) # 确保信号为整数类型
 
 
     # --- 4. 应用量能调整到初步分数 (仅当 score_adjustment_enabled 为 True) ---
@@ -2600,8 +2624,8 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
         current_score = result_df['ADJUSTED_SCORE'].copy() # 获取当前待调整的分数副本
         
         # 判断初步分数的趋势方向
-        is_bullish_prelim_score = current_score > 55  # 初步看涨
-        is_bearish_prelim_score = current_score < 45  # 初步看跌
+        is_bullish_prelim_score = current_score > 55  # 初步看涨 (可根据实际策略调整阈值)
+        is_bearish_prelim_score = current_score < 45  # 初步看跌 (可根据实际策略调整阈值)
         is_neutral_prelim_score = (~is_bullish_prelim_score) & (~is_bearish_prelim_score) # 初步中性
 
         # 4.1. 基于量能确认信号调整
@@ -2632,7 +2656,6 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
         result_df['ADJUSTED_SCORE'] = current_score # 更新调整后的分数
 
         # 4.2. 基于量价背离信号调整 (通常是惩罚性或警示性)
-        vp_div_penalty_factor = vc_params.get('vp_divergence_penalty_factor', 0.25) # 背离惩罚使分数向50移动25%
         # a) 初步看涨，但出现看跌量价背离 (div_signal == -1) -> 分数向50回调
         bull_score_with_bear_div = is_bullish_prelim_score & (result_df[div_signal_col] == -1)
         result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] = \
@@ -2673,5 +2696,4 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
 
     logger.info(f"量能调整和分析模块（时间框架 {vol_tf}）处理完成。")
     return result_df
-
 
