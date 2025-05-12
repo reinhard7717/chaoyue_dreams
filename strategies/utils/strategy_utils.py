@@ -786,7 +786,7 @@ def calculate_macd_score(macd_series: pd.Series, macd_d: pd.Series, macd_h: pd.S
 
     return score.clip(0, 100)
 
-def calculate_rsi_score(rsi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+def calculate_rsi_score(rsi: pd.Series, params: Dict) -> pd.Series:
     """RSI 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     rsi_s, = _safe_fillna_series([rsi], [50.0]) # RSI 中性50
@@ -884,9 +884,9 @@ def calculate_boll_score(close: pd.Series, upper: pd.Series, mid: pd.Series, low
         [close, upper, mid, lower],
         [
             None, # close 优先 ffill/bfill
-            lambda s: s.mean() + 2 * s.std() if s.std() > 0 else s.mean() + 0.01 * s.mean(), # upper 填充后，如果全 NaN 估算
-            lambda s: s.mean(), # mid 填充后，如果全 NaN 估算
-            lambda s: s.mean() - 2 * s.std() if s.std() > 0 else s.mean() - 0.01 * s.mean()  # lower 填充后，如果全 NaN 估算
+            lambda s: s.mean() + 2 * s.std() if s is not None and s.std() > 0 else (s.mean() + 0.01 * s.mean() if s is not None else 50.0), # upper 填充后，如果全 NaN 估算
+            lambda s: s.mean() if s is not None else 50.0, # mid 填充后，如果全 NaN 估算
+            lambda s: s.mean() - 2 * s.std() if s is not None and s.std() > 0 else (s.mean() - 0.01 * s.mean() if s is not None else 50.0)  # lower 填充后，如果全 NaN 估算
         ]
     )
 
@@ -922,7 +922,7 @@ def calculate_boll_score(close: pd.Series, upper: pd.Series, mid: pd.Series, low
 
     return score.clip(0, 100)
 
-def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     """CCI 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     cci_s, = _safe_fillna_series([cci], [0.0]) # CCI 中性0
@@ -956,7 +956,7 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 
 
     return score.clip(0, 100)
 
-def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     """MFI 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     mfi_s, = _safe_fillna_series([mfi], [50.0]) # MFI 中性50
@@ -992,7 +992,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 
 
     return score.clip(0, 100)
 
-def calculate_roc_score(roc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_roc_score(roc: pd.Series) -> pd.Series: 
     """ROC 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     roc_s, = _safe_fillna_series([roc], [0.0]) # ROC 中性0
@@ -1061,7 +1061,7 @@ def calculate_dmi_score(pdi: pd.Series, ndi: pd.Series, adx: pd.Series, params: 
 
     return score.clip(0, 100)
 
-def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series: 
     """SAR 评分 (0-100)。"""
     # SAR can be tricky to fill if NaN. Filling with close means neutral.
     # MODIFIED: 使用 _safe_fillna_series 填充
@@ -1085,7 +1085,7 @@ def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series: # MODIFI
 
     return score.clip(0, 100)
 
-def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series: 
     """随机指标 (STOCH) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     k_s, d_s = _safe_fillna_series([k, d], [50.0, 50.0]) # STOCH 中性50
@@ -1134,7 +1134,7 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
 
     return score.clip(0, 100)
 
-def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] = None) -> pd.Series: 
     """移动平均线 (MA) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     close_s, ma_s = _safe_fillna_series(
@@ -1157,7 +1157,7 @@ def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] =
 
     return score.clip(0, 100)
 
-def calculate_atr_score(atr: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_atr_score(atr: pd.Series) -> pd.Series: 
     """ATR 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     atr_s, = _safe_fillna_series([atr], [lambda s: s.mean()]) # atr 填充后，如果全 NaN 使用平均值
@@ -1183,7 +1183,7 @@ def calculate_atr_score(atr: pd.Series) -> pd.Series: # MODIFIED: 移除 data �
 
     return score.clip(0, 100)
 
-def calculate_adl_score(adl: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_adl_score(adl: pd.Series) -> pd.Series: 
     """ADL (Accumulation/Distribution Line) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     adl_s, = _safe_fillna_series([adl], [0.0]) # ADL 中性0
@@ -1200,7 +1200,7 @@ def calculate_adl_score(adl: pd.Series) -> pd.Series: # MODIFIED: 移除 data �
 
     return score.clip(0, 100)
 
-def calculate_vwap_score(close: pd.Series, vwap: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_vwap_score(close: pd.Series, vwap: pd.Series) -> pd.Series: 
     """VWAP (Volume Weighted Average Price) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     close_s, vwap_s = _safe_fillna_series([close, vwap], [None, lambda s: s.mean() if s.mean() is not np.nan else close.mean()]) # vwap 填充后，如果全 NaN 使用均值，再不行用 close 均值
@@ -1215,7 +1215,7 @@ def calculate_vwap_score(close: pd.Series, vwap: pd.Series) -> pd.Series: # MODI
 
     return score.clip(0, 100)
 
-def calculate_ichimoku_score(close: pd.Series, tenkan: pd.Series, kijun: pd.Series, senkou_a: pd.Series, senkou_b: pd.Series, chikou: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_ichimoku_score(close: pd.Series, tenkan: pd.Series, kijun: pd.Series, senkou_a: pd.Series, senkou_b: pd.Series, chikou: pd.Series) -> pd.Series: 
     """Ichimoku (一目均衡表) 评分 (0-100)。Simplified NaN handling."""
     # Ichimoku lines have inherent NaNs due to shifts. ffill/bfill is a simplification.
     # A more rigorous approach would respect these NaNs or use a sufficiently long data period.
@@ -1277,7 +1277,7 @@ def calculate_ichimoku_score(close: pd.Series, tenkan: pd.Series, kijun: pd.Seri
 
     return score.clip(0, 100)
 
-def calculate_mom_score(mom: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_mom_score(mom: pd.Series) -> pd.Series: 
     """MOM (Momentum) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     mom_s, = _safe_fillna_series([mom], [0.0]) # MOM 中性0
@@ -1298,7 +1298,7 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series: # MODIFIED: 移除 data �
 
     return score.clip(0, 100)
 
-def calculate_willr_score(willr: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_willr_score(willr: pd.Series) -> pd.Series: 
     """WILLR (%R) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     willr_s, = _safe_fillna_series([willr], [-50.0]) # %R 中性-50
@@ -1333,7 +1333,7 @@ def calculate_willr_score(willr: pd.Series) -> pd.Series: # MODIFIED: 移除 dat
 
     return score.clip(0, 100)
 
-def calculate_cmf_score(cmf: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_cmf_score(cmf: pd.Series) -> pd.Series: 
     """CMF (Chaikin Money Flow) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     cmf_s, = _safe_fillna_series([cmf], [0.0]) # CMF 中性0
@@ -1354,7 +1354,7 @@ def calculate_cmf_score(cmf: pd.Series) -> pd.Series: # MODIFIED: 移除 data �
 
     return score.clip(0, 100)
 
-def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period: int = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名
+def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period: int = None) -> pd.Series: 
     """OBV (On Balance Volume) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充 OBV
     obv_s, = _safe_fillna_series([obv], [None]) # ffill/bfill first
@@ -1398,7 +1398,7 @@ def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period:
 
     return score.clip(0, 100)
 
-def calculate_kc_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_kc_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower: pd.Series) -> pd.Series: 
     """KC (Keltner Channel) 评分 (0-100)。"""
     # Similar to BOLL, NaN handling for bands is key.
     # MODIFIED: 使用 _safe_fillna_series 填充
@@ -1443,7 +1443,7 @@ def calculate_kc_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower
 
     return score.clip(0, 100)
 
-def calculate_hv_score(hv: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_hv_score(hv: pd.Series) -> pd.Series: 
     """HV (Historical Volatility) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     hv_s, = _safe_fillna_series([hv], [lambda s: s.mean()]) # hv 填充后，如果全 NaN 使用均值
@@ -1466,7 +1466,7 @@ def calculate_hv_score(hv: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 
 
     return score.clip(0, 100)
 
-def calculate_vroc_score(vroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_vroc_score(vroc: pd.Series) -> pd.Series: 
     """VROC (Volume Rate of Change) 评分 (0-100)。"""
     # MODIFIED: 使用 _safe_fillna_series 填充
     vroc_s, = _safe_fillna_series([vroc], [0.0]) # VROC 中性0
@@ -1487,7 +1487,7 @@ def calculate_vroc_score(vroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 
 
     return score.clip(0, 100)
 
-def calculate_aroc_score(aroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 和 params，根据 File 2 签名
+def calculate_aroc_score(aroc: pd.Series) -> pd.Series: 
     """AROC (Absolute Rate of Change) 评分 (0-100)。"""
     # AROC is likely an alias for ROC, using same logic as calculate_roc_score
     # If AROC has a specific different interpretation (e.g. Aroon Oscillator), the logic would change.
@@ -1513,7 +1513,7 @@ def calculate_aroc_score(aroc: pd.Series) -> pd.Series: # MODIFIED: 移除 data 
 
 def calculate_pivot_score(close: pd.Series, pivot_levels: Dict[str, pd.Series],
                           tf: str, # 增加时间框架参数，用于构建标准列名
-                          params: Optional[Dict] = None) -> pd.Series: # MODIFIED: 移除 data，根据 File 2 签名，且 pivot_levels 期望的是 Dict[str, pd.Series]
+                          params: Optional[Dict] = None) -> pd.Series:
     """
     Pivot Points 评分 (0-100)。
     评分逻辑基于收盘价相对于 Pivot Point (PP) 和各支撑/阻力水平的位置。
