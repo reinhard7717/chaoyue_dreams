@@ -9,7 +9,7 @@ from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
 from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar
 from stock_models.industry import DcIndex, DcIndexDaily, DcIndexMember, KplConcept, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily
-from stock_models.market import HmDetail, HmList, LimitCptList, LimitListD, LimitListThs, LimitStep, MarketDailyInfo, ThsDaily
+from stock_models.market import HmDetail, HmList, LimitCptList, LimitListD, LimitListThs, LimitStep, MarketDailyInfo
 from stock_models.stock_basic import StockInfo
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
 from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
