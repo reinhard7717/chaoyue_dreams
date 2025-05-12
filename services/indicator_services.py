@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import math
 from django.utils import timezone
-from typing import Any, Callable, List, Optional, Tuple, Union, Dict
+from typing import Any, Callable, List, Optional, Set, Tuple, Union, Dict
 from django.db import models # 确保导入 models
 import pandas_ta as ta
 
