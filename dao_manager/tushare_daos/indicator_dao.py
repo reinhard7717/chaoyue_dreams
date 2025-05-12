@@ -4,6 +4,7 @@ import datetime
 import logging
 from typing import Any, List, Optional, Set, Union, Dict, Type
 import pandas as pd
+import pandas_ta as ta
 from django.db.models import Max
 from django.db import models # 确保导入 models
 import numpy as np
@@ -11,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
-from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
+from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from stock_models.industry import ThsIndexDaily
 from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
@@ -131,12 +132,14 @@ class IndicatorDAO(BaseDAO):
     指标数据访问对象，负责指标数据的读取和存储
     """
     def __init__(self):
-        # 依赖注入基础DAO和缓存工具
+         # 依赖注入基础DAO和缓存工具
         from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         self.stock_basic_dao = StockBasicInfoDao()
         self.industry_dao = IndustryDao()
+        self.index_basic_dao = IndexBasicDAO()  # 修改行：添加 IndexBasicDAO 的初始化
         self.cache_manager = None # 缓存管理器
         self.cache_get = None # 缓存获取工具
+        self.ta = ta
 
     async def initialize_cache_objects(self):
         """异步初始化缓存相关对象"""
@@ -592,7 +595,6 @@ class IndicatorDAO(BaseDAO):
         """
         if not index_codes:
             return None
-
         try:
             # 使用 filter(index__index_code__in=index_codes) 批量查询
             # 注意 IndexDaily 模型的外键关联 IndexInfo 的 index_code 字段
@@ -601,14 +603,11 @@ class IndicatorDAO(BaseDAO):
                 trade_time__gte=start_date,
                 trade_time__lte=end_date
             ).select_related('index') # 使用 select_related 优化查询
-
             # 将 QuerySet 转换为列表
             data_list = await sync_to_async(list)(data_qs)
-
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到指数 {index_codes} 的日线数据")
                 return None
-
             # 将模型实例列表转换为字典列表
             data = []
             for item in data_list:
@@ -626,17 +625,13 @@ class IndicatorDAO(BaseDAO):
                     'amount': self._safe_float(getattr(item, 'amount', None)),
                     # 添加其他需要的字段
                 })
-
             if not data:
                  logger.warning(f"从 IndexDaily Model 转换的数据列表为空 for {index_codes}")
                  return None
-
             df = pd.DataFrame(data)
-
             if df.empty:
                 logger.warning(f"转换后的 IndexDaily DataFrame 为空 for {index_codes}")
                 return None
-
             # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
             default_tz = timezone.get_default_timezone()
             # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
@@ -645,15 +640,11 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"处理无效 trade_time 后 IndexDaily DataFrame 为空 for {index_codes}")
                  return None
-
             df.index = df['trade_time']
             df.drop(columns=['trade_time'], inplace=True)
-
             # 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
-
             logger.info(f"成功获取并处理指数 {index_codes} 的日线数据，数据量: {len(df)} 条")
-
             return df
 
         except Exception as e:
@@ -669,7 +660,6 @@ class IndicatorDAO(BaseDAO):
         """
         if not ths_codes:
             return None
-
         try:
             # 使用 filter(ths_index__ts_code__in=ths_codes) 批量查询
             # 注意 ThsIndexDaily 模型的外键关联 ThsIndex 的 ts_code 字段
@@ -678,14 +668,11 @@ class IndicatorDAO(BaseDAO):
                 trade_time__gte=start_date,
                 trade_time__lte=end_date
             ).select_related('ths_index') # 使用 select_related 优化查询
-
              # 将 QuerySet 转换为列表
             data_list = await sync_to_async(list)(data_qs)
-
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺指数 {ths_codes} 的日线数据")
                 return None
-
             # 将模型实例列表转换为字典列表
             data = []
             for item in data_list:
@@ -707,17 +694,13 @@ class IndicatorDAO(BaseDAO):
                     'pb_mrq': self._safe_float(getattr(item, 'pb_mrq', None)),
                      # 添加其他需要的字段
                 })
-
             if not data:
                  logger.warning(f"从 ThsIndexDaily Model 转换的数据列表为空 for {ths_codes}")
                  return None
-
             df = pd.DataFrame(data)
-
             if df.empty:
                 logger.warning(f"转换后的 ThsIndexDaily DataFrame 为空 for {ths_codes}")
                 return None
-
             # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
             default_tz = timezone.get_default_timezone()
             # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
