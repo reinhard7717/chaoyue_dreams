@@ -440,7 +440,7 @@ class IndicatorService:
         vol_ana_tf = vc_params.get('tf', bs_timeframes) if vc_params.get('enabled', False) else bs_timeframes
         # 确保如果 ia_params 启用了某个计算，即使 vc_params 未启用，也应计算
         # 合并可能的不同来源的时间框架，并去重
-        target_vol_ana_tfs = list(set(vol_ana_tf + ia_params.get('timeframes', []))) 
+        target_vol_ana_tfs = list(set([vol_ana_tf] + ia_params.get('timeframes', [])))
         all_time_levels_needed.update(target_vol_ana_tfs)
 
 
