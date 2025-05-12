@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
+from dao_manager.tushare_daos.industry_dao import IndustryDao
 from stock_models.time_trade import StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
 from utils.cache_get import  StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
@@ -132,6 +133,7 @@ class IndicatorDAO(BaseDAO):
         # 依赖注入基础DAO和缓存工具
         from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         self.stock_basic_dao = StockBasicInfoDao()
+        self.industry_dao = IndustryDao()
         self.cache_manager = None # 缓存管理器
         self.cache_get = None # 缓存获取工具
 
@@ -150,7 +152,6 @@ class IndicatorDAO(BaseDAO):
             # 如果 StockTimeTradeCacheGet 有需要 await 的初始化方法，在这里调用
             # if hasattr(self.cache_get, 'initialize_async'):
             #     await self.cache_get.initialize_async()
-
 
     async def get_history_time_trades_by_limit(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000) -> Optional[List[StockTimeTrade]]:
         """
@@ -580,6 +581,30 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None
+
+    async def enrich_with_index_features(self, df: pd.DataFrame, stock_code: str):
+        """
+        为K线DataFrame批量补充大盘指数、板块等特征
+        """
+        # 1. 获取股票所属板块
+        ths_indices = await self.industry_dao.get_stock_ths_indices(stock_code)
+        ths_codes = [m.ths_index.ts_code for m in ths_indices]
+        
+        # 2. 获取大盘指数代码（如沪深300、上证等）
+        main_indices = ['000300.SH', '000001.SH']  # 可配置
+
+        # 3. 批量获取板块/指数行情
+        for code in ths_codes + main_indices:
+            # 这里建议批量查表，避免循环N次数据库
+            # 伪代码：index_daily_dict = {date: feature_dict}
+            # 你可以用in_bulk或filter(ts_code__in=ths_codes, trade_time__in=df.index.date)
+            pass
+
+        # 4. 将板块/指数行情特征合并到df
+        # 例如：df['板块1_pct_change'] = ...
+        #      df['沪深300_pct_change'] = ...
+        return df
+
 
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:

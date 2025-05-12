@@ -2,6 +2,8 @@
 import logging
 from time import sleep
 import time
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 from asgiref.sync import sync_to_async
 from typing import Any, List, Dict, Optional
 from datetime import date, datetime
@@ -279,27 +281,6 @@ class IndustryDao(BaseDAO):
             ThsIndexMember.objects.filter(stock__stock_code=stock_code, is_new='1').select_related('ths_index')
         )
 
-    # 获取某个板块/行业/概念在指定日期的行情特征
-    async def get_ths_index_daily_feature(self, ts_code: str, trade_date: str) -> dict:
-        """
-        获取某个板块/行业/概念在指定日期的行情特征
-        """
-        obj = await sync_to_async(ThsIndexDaily.objects.filter(
-            ths_index__ts_code=ts_code, trade_time=trade_date
-        ).first)()
-        if obj:
-            return {
-                "close": obj.close,
-                "pct_change": obj.pct_change,
-                "turnover_rate": obj.turnover_rate,
-                "total_mv": obj.total_mv,
-                "float_mv": obj.float_mv,
-                "pe_ttm": obj.pe_ttm,
-                "pb_mrq": obj.pb_mrq,
-                # ...可扩展
-            }
-        return {}
-
     async def save_ths_index_member(self) -> Dict:
         """
         接口：ths_member
@@ -351,6 +332,41 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         ths_index_daily_basic = await sync_to_async(lambda: ThsIndexDaily.objects.filter(ts_code=ts_code).all())()
         return ths_index_daily_basic
+
+    # 获取某个板块/行业/概念在指定日期的行情特征
+    async def get_ths_index_daily_feature(self, ts_code: str, trade_date: str) -> dict:
+        """
+        获取某个板块/行业/概念在指定日期的行情特征
+        """
+        obj = await sync_to_async(ThsIndexDaily.objects.filter(
+            ths_index__ts_code=ts_code, trade_time=trade_date
+        ).first)()
+        if obj:
+            return {
+                "close": obj.close,
+                "pct_change": obj.pct_change,
+                "turnover_rate": obj.turnover_rate,
+                "total_mv": obj.total_mv,
+                "float_mv": obj.float_mv,
+                "pe_ttm": obj.pe_ttm,
+                "pb_mrq": obj.pb_mrq,
+                # ...可扩展
+            }
+        return {}
+
+    # 一次性获取所有ths_codes的最后limit条数据
+    async def get_latest_n_per_ths_code_async(self, ths_codes, limit: int = 333):
+        qs = ThsIndexDaily.objects.filter(
+            ths_index__ts_code__in=ths_codes
+        ).annotate(
+            row_number=Window(
+                expression=RowNumber(),
+                partition_by=[F('ths_index__ts_code')],
+                order_by=F('trade_time').desc()
+            )
+        ).filter(row_number__lte=limit)
+        objs = await sync_to_async(list)(qs)
+        return objs
 
     async def save_ths_index_daily_today(self) -> Dict:
         """
