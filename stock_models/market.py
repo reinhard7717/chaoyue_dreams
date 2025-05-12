@@ -59,35 +59,6 @@ class HmDetail(models.Model):
         verbose_name_plural = verbose_name
         unique_together = ('trade_date', 'stock', 'hm_name')
 
-# 同花顺板块指数行情
-class ThsDaily(models.Model):
-    ths_index = models.ForeignKey(
-        'ThsIndex',
-        db_column='ts_code',
-        to_field='ts_code',
-        on_delete=models.CASCADE,
-        related_name='ths_daily',
-        verbose_name="指数"
-    )
-    trade_date = models.DateField(verbose_name="交易日")
-    close = models.FloatField(verbose_name="收盘点位")
-    open = models.FloatField(verbose_name="开盘点位")
-    high = models.FloatField(verbose_name="最高点位")
-    low = models.FloatField(verbose_name="最低点位")
-    pre_close = models.FloatField(verbose_name="昨日收盘点", null=True, blank=True)
-    avg_price = models.FloatField(verbose_name="平均价", null=True, blank=True)
-    change = models.FloatField(verbose_name="涨跌点位", null=True, blank=True)
-    pct_change = models.FloatField(verbose_name="涨跌幅")
-    vol = models.FloatField(verbose_name="成交量")
-    turnover_rate = models.FloatField(verbose_name="换手率", null=True, blank=True)
-    total_mv = models.FloatField(verbose_name="总市值", null=True, blank=True)
-    float_mv = models.FloatField(verbose_name="流通市值", null=True, blank=True)
-
-    class Meta:
-        db_table = "ths_daily"
-        verbose_name = "同花顺板块指数行情"
-        verbose_name_plural = verbose_name
-        unique_together = ('ths_index', 'trade_date')
 
 # 涨跌停榜单 - 同花顺
 class LimitListThs(models.Model):

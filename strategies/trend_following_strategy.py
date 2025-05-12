@@ -1282,6 +1282,213 @@ class TrendFollowingStrategy:
         }
         return final_rule_signal, intermediate_results
 
+    def _perform_trend_analysis(self, data: pd.DataFrame, base_score_series: pd.Series) -> pd.DataFrame:
+        """
+        增强趋势分析，加入 ADX, STOCH, VWAP, BOLL 等辅助判断。
+        """
+        analysis_df = pd.DataFrame(index=base_score_series.index)
+        # 参数来自全局配置或 trend_following_params
+        # trend_analysis 参数在全局配置中
+        ta_params_global = self.params.get('trend_analysis', {})
+        # base_scoring 参数在全局配置中
+        bs_params_global = self.params.get('base_scoring', {})
+        # indicator_analysis_params 在全局配置中
+        ia_params_global = self.params.get('indicator_analysis_params', {})
+        
+        focus_tf = self.focus_timeframe # 来自 trend_following_params
+
+        if base_score_series.isnull().all():
+            logger.warning(f"[{self.strategy_name}] 基础分数全为 NaN，无法执行趋势分析。")
+            return analysis_df
+
+        score_series_filled = base_score_series.fillna(50.0)
+
+        # 1. 计算分数 EMA (使用全局 trend_analysis.ema_periods)
+        all_ema_periods = ta_params_global.get('ema_periods', [5, 10, 20, 60])
+        for period in all_ema_periods:
+            try:
+                analysis_df[f'ema_score_{period}'] = ta.ema(score_series_filled, length=period)
+            except Exception as e:
+                logger.error(f"[{self.strategy_name}] 计算 EMA Score {period} 时出错: {e}")
+                analysis_df[f'ema_score_{period}'] = np.nan
+        
+        # 2. 计算 EMA 排列信号 (基于上面计算的 ema_score)
+        ema_periods_align = all_ema_periods[:4] # 取前4个周期用于排列
+        if len(ema_periods_align) == 4 and all(f'ema_score_{p}' in analysis_df.columns for p in ema_periods_align):
+            s_ema, m1_ema, m2_ema, l_ema = (analysis_df[f'ema_score_{p}'] for p in ema_periods_align)
+            # 计算排列信号 (-3 到 3)
+            alignment = pd.Series(0, index=analysis_df.index)
+            alignment += np.sign(s_ema - m1_ema).fillna(0)
+            alignment += np.sign(m1_ema - m2_ema).fillna(0)
+            alignment += np.sign(m2_ema - l_ema).fillna(0)
+            analysis_df['alignment_signal'] = alignment
+        else:
+            logger.warning(f"[{self.strategy_name}] 无法计算 EMA 排列信号，所需 EMA Score 列不足或缺失。")
+            analysis_df['alignment_signal'] = 0.0
+
+        # 3. 计算 EMA 交叉信号 (使用 all_ema_periods 的前两个)
+        if len(all_ema_periods) >= 2:
+            short_ema_col = f'ema_score_{all_ema_periods[0]}'
+            mid_ema_col = f'ema_score_{all_ema_periods[1]}'
+            if short_ema_col in analysis_df.columns and mid_ema_col in analysis_df.columns:
+                short_ema = analysis_df[short_ema_col].fillna(50.0)
+                mid_ema = analysis_df[mid_ema_col].fillna(50.0)
+                golden_cross = (short_ema > mid_ema) & (short_ema.shift(1) <= mid_ema.shift(1))
+                death_cross = (short_ema < mid_ema) & (short_ema.shift(1) >= mid_ema.shift(1))
+                analysis_df['ema_cross_signal'] = 0.0
+                analysis_df.loc[golden_cross, 'ema_cross_signal'] = 1.0
+                analysis_df.loc[death_cross, 'ema_cross_signal'] = -1.0
+            else:
+                analysis_df['ema_cross_signal'] = 0.0
+        else:
+            analysis_df['ema_cross_signal'] = 0.0
+            
+        # 4. 计算 EMA 强度 (短期EMA与长期EMA之差)
+        if len(all_ema_periods) >= 2:
+            short_ema_col = f'ema_score_{all_ema_periods[0]}'
+            # 使用全局 trend_analysis.long_term_ema_period
+            long_term_ema_period_for_strength = ta_params_global.get('long_term_ema_period', all_ema_periods[-1])
+            long_ema_col = f'ema_score_{long_term_ema_period_for_strength}'
+            if short_ema_col in analysis_df.columns and long_ema_col in analysis_df.columns:
+                analysis_df['ema_strength'] = (analysis_df[short_ema_col].fillna(50.0) - analysis_df[long_ema_col].fillna(50.0)).fillna(0.0)
+            else:
+                analysis_df['ema_strength'] = 0.0
+        else:
+            analysis_df['ema_strength'] = 0.0
+
+        # 5. 计算得分动量及动量加速
+        analysis_df['score_momentum'] = score_series_filled.diff().fillna(0.0)
+        analysis_df['score_momentum_acceleration'] = analysis_df['score_momentum'].diff().fillna(0.0)
+
+        # 6. 计算得分波动率 (使用全局 trend_analysis.volatility_window)
+        volatility_window = ta_params_global.get('volatility_window', 10)
+        analysis_df['score_volatility'] = score_series_filled.rolling(window=volatility_window, min_periods=max(1, volatility_window//2)).std().fillna(0.0)
+        # volatility_signal 使用 trend_following_params 中的阈值 (self.volatility_threshold_high/low)
+        analysis_df['volatility_signal'] = 0.0
+        analysis_df.loc[analysis_df['score_volatility'] > self.volatility_threshold_high, 'volatility_signal'] = -1.0 # 高波动可能不利于趋势
+        analysis_df.loc[analysis_df['score_volatility'] < self.volatility_threshold_low, 'volatility_signal'] = 1.0 # 低波动可能酝酿趋势
+
+        # 7. 长期趋势背景 (基于分数与长期EMA，使用全局 trend_analysis.long_term_ema_period)
+        long_term_ema_period_context = ta_params_global.get('long_term_ema_period', all_ema_periods[-1] if all_ema_periods else 60)
+        long_term_ema_col_context = f'ema_score_{long_term_ema_period_context}'
+        if long_term_ema_col_context in analysis_df.columns:
+            long_term_ema_filled = analysis_df[long_term_ema_col_context].fillna(50.0)
+            analysis_df['long_term_context'] = 0.0
+            analysis_df.loc[score_series_filled > long_term_ema_filled, 'long_term_context'] = 1.0
+            analysis_df.loc[score_series_filled < long_term_ema_filled, 'long_term_context'] = -1.0
+        else:
+            logger.warning(f"[{self.strategy_name}] 缺少长期 EMA Score 列 ({long_term_ema_col_context})，无法计算长期趋势背景。")
+            analysis_df['long_term_context'] = 0.0
+
+        # 8. ADX 趋势强度判断 (使用 focus_timeframe 的 DMI 数据)
+        # DMI 周期来自全局 base_scoring.dmi_period
+        dmi_period_bs = bs_params_global.get("dmi_period", 14)
+        pdi_col = f'PLUS_DI_{dmi_period_bs}_{focus_tf}'
+        ndi_col = f'MINUS_DI_{dmi_period_bs}_{focus_tf}'
+        adx_col = f'ADX_{dmi_period_bs}_{focus_tf}'
+
+        if adx_col in data.columns and pdi_col in data.columns and ndi_col in data.columns:
+            adx = data[adx_col].fillna(0.0)
+            pdi = data[pdi_col].fillna(0.0)
+            mdi = data[ndi_col].fillna(0.0)
+            # ADX 阈值来自 trend_following_params (self.adx_strong_threshold / self.adx_moderate_threshold)
+            analysis_df['adx_strength_signal'] = 0.0
+            strong_trend = adx >= self.adx_strong_threshold
+            moderate_trend = (adx >= self.adx_moderate_threshold) & (adx < self.adx_strong_threshold)
+            bullish_dmi = pdi > mdi
+            bearish_dmi = mdi > pdi
+            analysis_df.loc[strong_trend & bullish_dmi, 'adx_strength_signal'] = 1.0
+            analysis_df.loc[strong_trend & bearish_dmi, 'adx_strength_signal'] = -1.0
+            analysis_df.loc[moderate_trend & bullish_dmi, 'adx_strength_signal'] = 0.5
+            analysis_df.loc[moderate_trend & bearish_dmi, 'adx_strength_signal'] = -0.5
+        else:
+            logger.warning(f"[{self.strategy_name}] 缺少 ADX/PDI/NDI 列 ({adx_col}, {pdi_col}, {ndi_col}) for focus_tf='{focus_tf}'，无法计算 ADX 强度信号。")
+            analysis_df['adx_strength_signal'] = 0.0
+
+        # 9. STOCH 超买超卖判断 (使用 focus_timeframe 的 STOCH 数据)
+        # STOCH 参数来自全局 indicator_analysis_params
+        stoch_k_p_ia = ia_params_global.get('stoch_k', 14) # JSON 中是 14
+        stoch_d_p_ia = ia_params_global.get('stoch_d', 3)
+        stoch_smooth_k_p_ia = ia_params_global.get('stoch_smooth_k', 3)
+        k_col = f'STOCHk_{stoch_k_p_ia}_{stoch_d_p_ia}_{stoch_smooth_k_p_ia}_{focus_tf}'
+        d_col = f'STOCHd_{stoch_k_p_ia}_{stoch_d_p_ia}_{stoch_smooth_k_p_ia}_{focus_tf}'
+        # STOCH 超买超卖阈值来自 trend_following_params (self.stoch_oversold_threshold / self.stoch_overbought_threshold)
+        if k_col in data.columns and d_col in data.columns:
+            k_val = data[k_col].fillna(50.0)
+            d_val = data[d_col].fillna(50.0)
+            is_oversold = (k_val < self.stoch_oversold_threshold) & (d_val < self.stoch_oversold_threshold)
+            is_overbought = (k_val > self.stoch_overbought_threshold) & (d_val > self.stoch_overbought_threshold)
+            turning_up = (k_val > d_val) & (k_val.shift(1).fillna(50.0) <= d_val.shift(1).fillna(50.0))
+            turning_down = (k_val < d_val) & (k_val.shift(1).fillna(50.0) >= d_val.shift(1).fillna(50.0))
+            analysis_df['stoch_signal'] = 0.0
+            analysis_df.loc[is_oversold & turning_up, 'stoch_signal'] = 1.0   # 超卖区金叉 - 看涨
+            analysis_df.loc[is_overbought & turning_down, 'stoch_signal'] = -1.0 # 超买区死叉 - 看跌
+            analysis_df.loc[is_oversold & ~(turning_up), 'stoch_signal'] = 0.5 # 仍在超卖区但未金叉 - 潜在看涨
+            analysis_df.loc[is_overbought & ~(turning_down), 'stoch_signal'] = -0.5# 仍在超买区但未死叉 - 潜在看跌
+        else:
+            logger.warning(f"[{self.strategy_name}] 缺少 STOCH K/D 列 ({k_col}, {d_col}) for focus_tf='{focus_tf}'，无法计算 STOCH 信号。")
+            analysis_df['stoch_signal'] = 0.0
+
+        # 10. VWAP 偏离判断 (使用 focus_timeframe 的 VWAP 数据)
+        # VWAP anchor 来自全局 indicator_analysis_params
+        vwap_anchor_ia = ia_params_global.get('vwap_anchor', None)
+        vwap_col_name_ia = 'VWAP' if vwap_anchor_ia is None else f'VWAP_{vwap_anchor_ia}'
+        vwap_col = f"{vwap_col_name_ia}_{focus_tf}"
+        close_col = f'close_{focus_tf}'
+        # VWAP 偏离阈值来自 trend_following_params (self.vwap_deviation_threshold)
+        if vwap_col in data.columns and close_col in data.columns:
+            vwap = data[vwap_col]
+            close_price = data[close_col]
+            vwap_safe = vwap.replace(0, np.nan).fillna(method='ffill').fillna(method='bfill') # 避免除零，并填充NaN
+            deviation = ((close_price - vwap_safe) / vwap_safe).fillna(0.0)
+            analysis_df['vwap_deviation_signal'] = 0.0
+            analysis_df.loc[deviation > self.vwap_deviation_threshold, 'vwap_deviation_signal'] = 1.0
+            analysis_df.loc[deviation < -self.vwap_deviation_threshold, 'vwap_deviation_signal'] = -1.0
+            analysis_df['vwap_deviation_percent'] = deviation * 100
+        else:
+            logger.warning(f"[{self.strategy_name}] 缺少 VWAP 或收盘价列 ({vwap_col}, {close_col}) for focus_tf='{focus_tf}'，无法计算 VWAP 偏离信号。")
+            analysis_df['vwap_deviation_signal'] = 0.0
+            analysis_df['vwap_deviation_percent'] = 0.0
+
+        # 11. BOLL 突破判断 (使用 focus_timeframe 的 BOLL 数据)
+        # BOLL 参数来自全局 base_scoring
+        boll_period_bs = bs_params_global.get("boll_period", 20)
+        boll_std_dev_bs = bs_params_global.get("boll_std_dev", 2.0)
+        std_str_bs = f"{boll_std_dev_bs:.1f}"
+        upper_col = f'BBU_{boll_period_bs}_{std_str_bs}_{focus_tf}'
+        lower_col = f'BBL_{boll_period_bs}_{std_str_bs}_{focus_tf}'
+        # middle_col = f'BBM_{boll_period_bs}_{std_str_bs}_{focus_tf}' # 可选
+        # close_col 已定义
+        if upper_col in data.columns and lower_col in data.columns and close_col in data.columns:
+            upper_band = data[upper_col]
+            lower_band = data[lower_col]
+            close_price = data[close_col]
+            analysis_df['boll_breakout_signal'] = 0.0
+            analysis_df.loc[close_price > upper_band, 'boll_breakout_signal'] = 1.0
+            analysis_df.loc[close_price < lower_band, 'boll_breakout_signal'] = -1.0
+            # 可选：计算 %B
+            # band_width = (upper_band - lower_band).replace(0, np.nan)
+            # analysis_df['boll_percent_b'] = ((close_price - lower_band) / band_width * 100).clip(0,100).fillna(50.0)
+        else:
+            logger.warning(f"[{self.strategy_name}] 缺少 BOLL 上轨/下轨或收盘价列 ({upper_col}, {lower_col}, {close_col}) for focus_tf='{focus_tf}'，无法计算 BOLL 突破信号。")
+            analysis_df['boll_breakout_signal'] = 0.0
+            # analysis_df['boll_percent_b'] = 50.0
+
+        # 12. 计算综合趋势强度 (可选，作为辅助分析)
+        # 这里可以定义一些权重来组合上面计算的各项辅助信号
+        # 例如: w_align_trend = 0.3, w_momentum_trend = 0.2, w_adx_trend = 0.3, w_context_trend = 0.1, w_volatility_trend = 0.1
+        # trend_strength_score = (analysis_df['alignment_signal']/3 * w_align_trend +
+        #                         np.sign(analysis_df['score_momentum']) * w_momentum_trend +
+        #                         analysis_df['adx_strength_signal'] * w_adx_trend +
+        #                         analysis_df['long_term_context'] * w_context_trend +
+        #                         analysis_df['volatility_signal'] * w_volatility_trend) # volatility_signal 本身是 -1,0,1
+        # analysis_df['trend_strength_score'] = trend_strength_score.clip(-1, 1).fillna(0.0) # 归一化到 -1 到 1
+
+        logger.debug(f"[{self.strategy_name}] 趋势分析完成，最新分析信号 (部分): "
+                     f"Alignment: {analysis_df['alignment_signal'].iloc[-1] if not analysis_df.empty else 'N/A'}, "
+                     f"ADX Strength: {analysis_df['adx_strength_signal'].iloc[-1] if not analysis_df.empty else 'N/A'}")
+        return analysis_df
+
     def _adjust_volatility_parameters(self, data: pd.DataFrame):
         """
         根据股票波动率动态调整参数，如波动率阈值。

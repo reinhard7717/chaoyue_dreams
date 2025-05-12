@@ -13,7 +13,8 @@ from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FIB_PERIODS, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
-from stock_models.time_trade import StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
+from stock_models.industry import ThsIndexDaily
+from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
 from utils.cache_get import  StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -582,30 +583,523 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None
 
-    async def enrich_with_index_features(self, df: pd.DataFrame, stock_code: str):
+    # 新增方法：获取指数日线数据并转为 DataFrame
+    async def get_index_daily_df(self, index_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """
-        为K线DataFrame批量补充大盘指数、板块等特征
+        获取指定指数列表在日期范围内（包含起止日）的日线数据，并转换为 DataFrame。
+        返回 DataFrame 包含 'index_code', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_chg', 'vol', 'amount' 等列。
+        DataFrame 的索引是时区感知的 pd.Timestamp。
         """
-        # 1. 获取股票所属板块
-        ths_indices = await self.industry_dao.get_stock_ths_indices(stock_code)
-        ths_codes = [m.ths_index.ts_code for m in ths_indices]
-        
-        # 2. 获取大盘指数代码（如沪深300、上证等）
-        main_indices = ['000300.SH', '000001.SH']  # 可配置
+        if not index_codes:
+            return None
 
-        # 3. 批量获取板块/指数行情
-        for code in ths_codes + main_indices:
-            # 这里建议批量查表，避免循环N次数据库
-            # 伪代码：index_daily_dict = {date: feature_dict}
-            # 你可以用in_bulk或filter(ts_code__in=ths_codes, trade_time__in=df.index.date)
-            pass
+        try:
+            # 使用 filter(index__index_code__in=index_codes) 批量查询
+            # 注意 IndexDaily 模型的外键关联 IndexInfo 的 index_code 字段
+            data_qs = IndexDaily.objects.filter(
+                index__index_code__in=index_codes,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('index') # 使用 select_related 优化查询
 
-        # 4. 将板块/指数行情特征合并到df
-        # 例如：df['板块1_pct_change'] = ...
-        #      df['沪深300_pct_change'] = ...
-        return df
+            # 将 QuerySet 转换为列表
+            data_list = await sync_to_async(list)(data_qs)
+
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到指数 {index_codes} 的日线数据")
+                return None
+
+            # 将模型实例列表转换为字典列表
+            data = []
+            for item in data_list:
+                data.append({
+                    'index_code': getattr(item.index, 'index_code', None), # 获取关联 IndexInfo 的 index_code
+                    'trade_time': getattr(item, 'trade_time', None),
+                    'open': self._safe_float(getattr(item, 'open', None)),
+                    'high': self._safe_float(getattr(item, 'high', None)),
+                    'low': self._safe_float(getattr(item, 'low', None)),
+                    'close': self._safe_float(getattr(item, 'close', None)),
+                    'pre_close': self._safe_float(getattr(item, 'pre_close', None)),
+                    'change': self._safe_float(getattr(item, 'change', None)),
+                    'pct_chg': self._safe_float(getattr(item, 'pct_chg', None)),
+                    'vol': self._safe_float(getattr(item, 'vol', None)), # 指数 vol 是浮点型
+                    'amount': self._safe_float(getattr(item, 'amount', None)),
+                    # 添加其他需要的字段
+                })
+
+            if not data:
+                 logger.warning(f"从 IndexDaily Model 转换的数据列表为空 for {index_codes}")
+                 return None
+
+            df = pd.DataFrame(data)
+
+            if df.empty:
+                logger.warning(f"转换后的 IndexDaily DataFrame 为空 for {index_codes}")
+                return None
+
+            # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
+            default_tz = timezone.get_default_timezone()
+            # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True) # 丢弃无效时间行
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 IndexDaily DataFrame 为空 for {index_codes}")
+                 return None
+
+            df.index = df['trade_time']
+            df.drop(columns=['trade_time'], inplace=True)
+
+            # 按时间升序排序索引
+            df.sort_index(ascending=True, inplace=True)
+
+            logger.info(f"成功获取并处理指数 {index_codes} 的日线数据，数据量: {len(df)} 条")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"获取指数日线数据失败 for {index_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+    # 新增方法：获取同花顺板块日线数据并转为 DataFrame
+    async def get_ths_index_daily_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定同花顺指数列表在日期范围内（包含起止日）的日线数据，并转换为 DataFrame。
+        返回 DataFrame 包含 'ts_code', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_change', 'vol', 'turnover_rate', 'total_mv', 'float_mv', 'pe_ttm', 'pb_mrq' 等列。
+        DataFrame 的索引是时区感知的 pd.Timestamp。
+        """
+        if not ths_codes:
+            return None
+
+        try:
+            # 使用 filter(ths_index__ts_code__in=ths_codes) 批量查询
+            # 注意 ThsIndexDaily 模型的外键关联 ThsIndex 的 ts_code 字段
+            data_qs = ThsIndexDaily.objects.filter(
+                ths_index__ts_code__in=ths_codes,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('ths_index') # 使用 select_related 优化查询
+
+             # 将 QuerySet 转换为列表
+            data_list = await sync_to_async(list)(data_qs)
+
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺指数 {ths_codes} 的日线数据")
+                return None
+
+            # 将模型实例列表转换为字典列表
+            data = []
+            for item in data_list:
+                 data.append({
+                    'ts_code': getattr(item.ths_index, 'ts_code', None), # 获取关联 ThsIndex 的 ts_code
+                    'trade_time': getattr(item, 'trade_time', None),
+                    'open': self._safe_float(getattr(item, 'open', None)),
+                    'high': self._safe_float(getattr(item, 'high', None)),
+                    'low': self._safe_float(getattr(item, 'low', None)),
+                    'close': self._safe_float(getattr(item, 'close', None)),
+                    'pre_close': self._safe_float(getattr(item, 'pre_close', None)),
+                    'change': self._safe_float(getattr(item, 'change', None)),
+                    'pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 注意字段名不同于 IndexDaily
+                    'vol': self._safe_float(getattr(item, 'vol', None)),
+                    'turnover_rate': self._safe_float(getattr(item, 'turnover_rate', None)),
+                    'total_mv': self._safe_float(getattr(item, 'total_mv', None)),
+                    'float_mv': self._safe_float(getattr(item, 'float_mv', None)),
+                    'pe_ttm': self._safe_float(getattr(item, 'pe_ttm', None)),
+                    'pb_mrq': self._safe_float(getattr(item, 'pb_mrq', None)),
+                     # 添加其他需要的字段
+                })
+
+            if not data:
+                 logger.warning(f"从 ThsIndexDaily Model 转换的数据列表为空 for {ths_codes}")
+                 return None
+
+            df = pd.DataFrame(data)
+
+            if df.empty:
+                logger.warning(f"转换后的 ThsIndexDaily DataFrame 为空 for {ths_codes}")
+                return None
+
+            # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
+            default_tz = timezone.get_default_timezone()
+            # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True) # 丢弃无效时间行
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 ThsIndexDaily DataFrame 为空 for {ths_codes}")
+                 return None
+
+            df.index = df['trade_time']
+            df.drop(columns=['trade_time'], inplace=True)
+
+            # 按时间升序排序索引
+            df.sort_index(ascending=True, inplace=True)
+
+            logger.info(f"成功获取并处理同花顺指数 {ths_codes} 的日线数据，数据量: {len(df)} 条")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"获取同花顺指数日线数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+    # 新增方法：获取股票筹码分布汇总数据并转为 DataFrame
+    async def get_stock_cyq_perf_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票在日期范围内（包含起止日）的筹码分布汇总数据，并转换为 DataFrame。
+        返回 DataFrame 包含 'stock_code', 'trade_time', 'his_low', 'his_high', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg', 'winner_rate' 等列。
+        DataFrame 的索引是时区感知的 pd.Timestamp。
+        """
+        try:
+            # 获取股票对象 (假设 get_stock_by_code 返回的是 StockInfo 模型实例)
+            stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+            if not stock:
+                 logger.warning(f"无法找到股票信息: {stock_code}，无法获取筹码数据")
+                 return None
+
+            data_qs = StockCyqPerf.objects.filter(
+                stock=stock, # 直接使用股票模型实例进行过滤
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            )
+
+            # 将 QuerySet 转换为列表
+            data_list = await sync_to_async(list)(data_qs)
+
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的筹码分布汇总数据")
+                return None
+
+            # 将模型实例列表转换为字典列表
+            data = []
+            for item in data_list:
+                 data.append({
+                    'stock_code': getattr(item.stock, 'stock_code', None), # 获取关联 StockInfo 的 stock_code
+                    'trade_time': getattr(item, 'trade_time', None),
+                    'his_low': self._safe_float(getattr(item, 'his_low', None)),
+                    'his_high': self._safe_float(getattr(item, 'his_high', None)),
+                    'cost_5pct': self._safe_float(getattr(item, 'cost_5pct', None)),
+                    'cost_15pct': self._safe_float(getattr(item, 'cost_15pct', None)),
+                    'cost_50pct': self._safe_float(getattr(item, 'cost_50pct', None)),
+                    'cost_85pct': self._safe_float(getattr(item, 'cost_85pct', None)),
+                    'cost_95pct': self._safe_float(getattr(item, 'cost_95pct', None)),
+                    'weight_avg': self._safe_float(getattr(item, 'weight_avg', None)),
+                    'winner_rate': self._safe_float(getattr(item, 'winner_rate', None)),
+                    # 添加其他需要的字段
+                 })
+
+            if not data:
+                 logger.warning(f"从 StockCyqPerf Model 转换的数据列表为空 for {stock_code}")
+                 return None
 
 
+            df = pd.DataFrame(data)
+
+            if df.empty:
+                logger.warning(f"转换后的 StockCyqPerf DataFrame 为空 for {stock_code}")
+                return None
+
+            # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
+            default_tz = timezone.get_default_timezone()
+            # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True) # 丢弃无效时间行
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 StockCyqPerf DataFrame 为空 for {stock_code}")
+                 return None
+
+            df.index = df['trade_time']
+            df.drop(columns=['trade_time'], inplace=True)
+
+            # 按时间升序排序索引
+            df.sort_index(ascending=True, inplace=True)
+
+            logger.info(f"成功获取并处理股票 {stock_code} 的筹码分布汇总数据，数据量: {len(df)} 条")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"获取股票 {stock_code} 筹码分布汇总数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+
+    async def enrich_features(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
+        """
+        为K线DataFrame批量补充指数、板块、筹码等特征。
+        Args:
+            df: 股票 OHLCV DataFrame (索引是时区感知的 pd.Timestamp)
+            stock_code: 股票代码
+        Returns:
+            补充了新特征的 DataFrame
+        """
+        if df.empty:
+            logger.warning(f"输入 DataFrame 为空，跳过特征工程 for {stock_code}")
+            return df
+
+        # 确保 df 的索引是时区感知的
+        if not isinstance(df.index, pd.DatetimeIndex) or df.index.tzinfo is None:
+             logger.error(f"输入 DataFrame 的索引不是时区感知的 DatetimeIndex for {stock_code}")
+             # 尝试转换为默认时区，如果失败则返回原始 df
+             try:
+                  default_tz = timezone.get_default_timezone()
+                  # 如果是 naive，假设它是默认时区的
+                  if df.index.tzinfo is None:
+                      df.index = df.index.tz_localize(default_tz)
+                  else: # 如果是 aware 但不是默认时区
+                      df.index = df.index.tz_convert(default_tz)
+                  logger.warning(f"尝试将输入 DataFrame 的索引转换为默认时区 for {stock_code}")
+             except Exception as e:
+                  logger.error(f"转换输入 DataFrame 索引时区失败 for {stock_code}: {e}", exc_info=True)
+                  return df # 无法处理时间索引，返回原始 df
+
+        # 获取 DataFrame 的日期范围 (转换为 date 对象用于数据库查询)
+        # 使用 .date 属性获取 naive date，因为数据库 DateField 不存储时区信息
+        start_date = df.index.min().date()
+        end_date = df.index.max().date()
+        logger.info(f"对股票 {stock_code} 在日期范围 {start_date} 到 {end_date} 进行特征工程")
+
+        # --- 获取相关数据 ---
+
+        # 1. 获取股票所属同花顺板块代码
+        # related_name="ths_member" 可以通过 stock.ths_member.all() 获取 ThsIndexMember QuerySet
+        # 但是这里需要 ThsIndex 的信息，所以通过 IndustryDao 的方法更方便
+        # await self.industry_dao.get_stock_ths_indices 方法返回的是 ThsIndexMember 实例列表
+        ths_members = await self.industry_dao.get_stock_ths_indices(stock_code)
+        ths_codes = [m.ths_index.ts_code for m in ths_members if m.ths_index] # 确保 m.ths_index 不是 None
+        logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
+
+        # 2. 定义主要市场指数代码 (可配置)
+        main_indices = ['000300.SH', '000001.SH', '000905.SH'] # 沪深300, 上证指数, 中证500
+        logger.info(f"需要获取的主要市场指数代码: {main_indices}")
+
+        # 3. 批量获取板块/指数日线行情
+        # 由于是日线数据，与股票的分钟线可能不对齐，需要处理合并时的 NaNs
+        # 这里获取的日期范围需要比股票数据稍微长一点，以便计算移动平均等指标
+        # 例如，获取比 start_date 早 100 天的数据
+        index_fetch_start_date = start_date - datetime.timedelta(days=100)
+        logger.info(f"获取指数/板块数据的起始日期: {index_fetch_start_date}")
+
+        all_index_codes = list(set(ths_codes + main_indices)) # 合并并去重
+        if not all_index_codes:
+             logger.warning(f"没有需要获取的指数/板块代码 for {stock_code}")
+             index_daily_df = pd.DataFrame() # 创建一个空 DataFrame
+        else:
+            # 并发获取普通指数和同花顺指数数据
+            index_daily_df = await self.get_index_daily_df(main_indices, index_fetch_start_date, end_date)
+            ths_daily_df = await self.get_ths_index_daily_df(ths_codes, index_fetch_start_date, end_date)
+
+            # 合并指数和板块数据，按 index_code/ts_code 区分
+            # 这里需要重塑 DataFrame，使得每个指数/板块成为一个独立的列集
+            # index_daily_df 和 ths_daily_df 都包含 'trade_time' 索引和 'close', 'pct_chg' 等列
+            # 可以遍历每个 code，将其数据提取出来并重命名列，然后与主 df 合并
+
+            all_indices_df = None # 用于存放所有指数/板块数据的 DataFrame
+
+            if index_daily_df is not None and not index_daily_df.empty:
+                 # 为普通指数数据添加前缀并添加到 all_indices_df
+                 for index_code in main_indices:
+                     idx_df = index_daily_df[index_daily_df['index_code'] == index_code].copy()
+                     if not idx_df.empty:
+                         idx_df.drop(columns=['index_code'], inplace=True)
+                         # 重命名列，添加指数代码前缀
+                         idx_df.columns = [f'index_{index_code.replace(".", "_").lower()}_{col}' for col in idx_df.columns]
+                         if all_indices_df is None:
+                             all_indices_df = idx_df
+                         else:
+                             # 使用 merge 或 join 合并，基于索引
+                             all_indices_df = pd.merge(all_indices_df, idx_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{index_code.replace(".", "_").lower()}_dup'))
+                             # 清理可能的重复列后缀
+                             all_indices_df = all_indices_df[[col for col in all_indices_df.columns if not col.endswith('_dup')]]
+
+
+            if ths_daily_df is not None and not ths_daily_df.empty:
+                 # 为同花顺板块数据添加前缀并添加到 all_indices_df
+                 for ths_code in ths_codes:
+                     ths_d_df = ths_daily_df[ths_daily_df['ts_code'] == ths_code].copy()
+                     if not ths_d_df.empty:
+                         ths_d_df.drop(columns=['ts_code'], inplace=True)
+                         # 重命名列，添加板块代码前缀
+                         ths_d_df.columns = [f'ths_{ths_code.replace(".", "_").lower()}_{col}' for col in ths_d_df.columns]
+                         if all_indices_df is None:
+                              all_indices_df = ths_d_df
+                         else:
+                              # 使用 merge 或 join 合并，基于索引
+                             all_indices_df = pd.merge(all_indices_df, ths_d_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
+                             # 清理可能的重复列后缀
+                             all_indices_df = all_indices_df[[col for col in all_indices_df.columns if not col.endswith('_dup')]]
+
+            if all_indices_df is not None:
+                logger.info(f"已获取并合并指数/板块数据，数据量: {len(all_indices_df)} 条，列数: {len(all_indices_df.columns)}")
+            else:
+                logger.warning(f"未获取到任何指数/板块数据 for {stock_code}")
+                all_indices_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # 4. 获取股票筹码分布汇总数据
+        cyq_fetch_start_date = start_date # 筹码数据通常是日线，日期范围与股票数据的日期部分对齐即可
+        cyq_perf_df = await self.get_stock_cyq_perf_df(stock_code, cyq_fetch_start_date, end_date)
+        if cyq_perf_df is not None and not cyq_perf_df.empty:
+             cyq_perf_df.drop(columns=['stock_code'], inplace=True, errors='ignore') # 移除股票代码列
+             # 添加前缀以区分
+             cyq_perf_df.columns = [f'cyq_{col}' for col in cyq_perf_df.columns]
+             logger.info(f"已获取股票 {stock_code} 的筹码分布汇总数据，数据量: {len(cyq_perf_df)} 条，列数: {len(cyq_perf_df.columns)}")
+        else:
+             logger.warning(f"未获取到股票 {stock_code} 的筹码分布汇总数据")
+             cyq_perf_df = pd.DataFrame() # 确保是一个 DataFrame
+
+
+        # --- 合并数据 ---
+
+        # 将获取的外部数据合并到主股票 DataFrame 中
+        # 使用左合并 (left join)，保留所有股票数据的时间点，补充外部数据
+        # 外部数据（指数、筹码）通常是日线，与股票分钟线合并时，同一天的分钟线数据会对应相同的日线数据
+        # 如果股票数据是日线，则日期会完全对齐
+        # 如果股票数据是分钟线，需要考虑如何处理每日的外部数据
+        # 常规做法是：对于同一天的分钟数据，使用该天对应的日线指数/筹码数据。合并时 pandas 会自动处理。
+
+        merged_df = df.copy() # 创建副本进行操作
+
+        if all_indices_df is not None and not all_indices_df.empty:
+            # 合并指数/板块数据
+            merged_df = pd.merge(merged_df, all_indices_df, left_index=True, right_index=True, how='left', suffixes=('', '_index_dup'))
+            merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_index_dup')]] # 清理重复列
+
+        if cyq_perf_df is not None and not cyq_perf_df.empty:
+            # 合并筹码数据
+            merged_df = pd.merge(merged_df, cyq_perf_df, left_index=True, right_index=True, how='left', suffixes=('', '_cyq_dup'))
+            merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_cyq_dup')]] # 清理重复列
+
+        logger.info(f"合并外部数据后，DataFrame 列数: {len(merged_df.columns)}")
+
+        # --- 计算新特征 ---
+
+        # 股票自身技术指标 (使用 pandas_ta)
+        if self.ta:
+            try:
+                 # 示例：计算股票的 SMA (简单移动平均), RSI (相对强弱指数)
+                 # 注意 pandas_ta 直接修改 DataFrame 或返回新的 DataFrame，取决于版本和方法
+                 # 建议使用 append=True 直接添加到原 DataFrame
+                 self.ta.sma(merged_df['close'], length=20, append=True) # 20日SMA
+                 self.ta.rsi(merged_df['close'], length=14, append=True) # 14日RSI
+                 # 可以添加更多技术指标，例如 MACD, Bollinger Bands 等
+                 # self.ta.macd(merged_df['close'], append=True)
+                 # self.ta.bbands(merged_df['close'], append=True)
+
+                 logger.info(f"已计算股票自身技术指标，DataFrame 列数: {len(merged_df.columns)}")
+            except Exception as e:
+                 logger.error(f"计算股票自身技术指标失败 for {stock_code}: {e}", exc_info=True)
+        else:
+             logger.warning("pandas_ta 未加载，跳过股票自身技术指标计算。")
+
+
+        # 指数/板块相关特征
+        # 例如：计算指数/板块的移动平均、波动率
+        if all_indices_df is not None and not all_indices_df.empty and self.ta:
+            try:
+                for code in all_index_codes:
+                    # 获取该指数/板块的收盘价列名
+                    # 注意：这里需要根据是普通指数还是同花顺指数来确定列名后缀
+                    if code in main_indices:
+                        close_col = f'index_{code.replace(".", "_").lower()}_close'
+                        pct_chg_col = f'index_{code.replace(".", "_").lower()}_pct_chg' # 注意 IndexDaily 的涨跌幅是 pct_chg
+                    elif code in ths_codes:
+                        close_col = f'ths_{code.replace(".", "_").lower()}_close'
+                        pct_chg_col = f'ths_{code.replace(".", "_").lower()}_pct_change' # 注意 ThsIndexDaily 的涨跌幅是 pct_change
+                    else:
+                        continue # 不应该发生
+
+                    if close_col in merged_df.columns and pct_chg_col in merged_df.columns:
+                         # 计算指数/板块的移动平均 (例如 20日)
+                         # pandas_ta 需要 OHLCV DataFrame，这里只有 close，直接用 pandas 计算
+                         # merged_df[f'{close_col}_sma_20'] = merged_df[close_col].rolling(window=20).mean() # pandas 计算 SMA
+
+                         # 计算指数/板块的滚动波动率 (例如 20日，使用涨跌幅)
+                         # pandas_ta 可以计算波动率，但通常针对 OHLCV 数据
+                         # 直接使用 pandas 计算滚动标准差 (代表波动率)
+                         merged_df[f'{pct_chg_col}_volatility_20'] = merged_df[pct_chg_col].rolling(window=20).std()
+
+
+                         # 计算股票相对于该指数/板块的超额收益
+                         # 股票的涨跌幅列通常是 'pct_chg' (如果 get_history_ohlcv_df 中包含了)
+                         # 如果原始 df 没有 'pct_chg' 列，可以先计算出来
+                         if 'pct_chg' not in merged_df.columns:
+                             # 确保 pre_close 存在以计算 pct_chg
+                             if 'pre_close' in merged_df.columns and 'close' in merged_df.columns:
+                                 # 小心除以零
+                                 merged_df['pct_chg'] = (merged_df['close'] - merged_df['pre_close']) / merged_df['pre_close'].replace(0, np.nan) * 100
+                             else:
+                                 logger.warning(f"无法计算股票 {stock_code} 的涨跌幅，缺少 'pre_close' 或 'close' 列")
+
+                         if 'pct_chg' in merged_df.columns:
+                             merged_df[f'stock_vs_{code.replace(".", "_").lower()}_excess_return'] = merged_df['pct_chg'] - merged_df[pct_chg_col]
+
+                logger.info(f"已计算指数/板块相关特征，DataFrame 列数: {len(merged_df.columns)}")
+
+            except Exception as e:
+                 logger.error(f"计算指数/板块相关特征失败 for {stock_code}: {e}", exc_info=True)
+
+        # 筹码分布相关特征 (来自 StockCyqPerf)
+        if cyq_perf_df is not None and not cyq_perf_df.empty:
+            try:
+                # 直接使用合并后的列计算衍生特征
+                # 确保 'close' 列存在
+                if 'close' in merged_df.columns:
+                     # 当前价相对于平均成本的百分比偏离
+                     # 小心除以零
+                     merged_df['cyq_close_vs_weight_avg_pct'] = (merged_df['close'] - merged_df['cyq_weight_avg']) / merged_df['cyq_weight_avg'].replace(0, np.nan) * 100
+
+                     # 当前价相对于 50% 成本的百分比偏离 (常被视为主要成本区)
+                     merged_df['cyq_close_vs_cost_50pct_pct'] = (merged_df['close'] - merged_df['cyq_cost_50pct']) / merged_df['cyq_cost_50pct'].replace(0, np.nan) * 100
+
+                     # 筹码集中度/分散度 (例如 95% 成本 - 5% 成本的范围)
+                     merged_df['cyq_cost_range_95_5'] = merged_df['cyq_cost_95pct'] - merged_df['cyq_cost_5pct']
+
+                     # 筹码集中度/分散度的相对值 (例如 95%-5% 范围占当前收盘价的比例)
+                     merged_df['cyq_cost_range_95_5_pct_of_close'] = merged_df['cyq_cost_range_95_5'] / merged_df['close'].replace(0, np.nan) * 100
+
+                     # 胜率的移动平均或变化率 (例如 5日胜率均值，1日胜率变化)
+                     merged_df['cyq_winner_rate_sma_5'] = merged_df['cyq_winner_rate'].rolling(window=5).mean()
+                     merged_df['cyq_winner_rate_delta_1d'] = merged_df['cyq_winner_rate'].diff(periods=1)
+
+
+                     # 添加更多基于筹码数据的特征...
+                     # 例如：当前价是否在某个成本区间内 (布尔特征)
+                     # merged_df['cyq_is_between_5_95'] = (merged_df['close'] >= merged_df['cyq_cost_5pct']) & (merged_df['close'] <= merged_df['cyq_cost_95pct'])
+
+                else:
+                    logger.warning(f"无法计算筹码相关衍生特征，缺少 'close' 列 for {stock_code}")
+
+
+                logger.info(f"已计算筹码分布相关特征，DataFrame 列数: {len(merged_df.columns)}")
+
+            except Exception as e:
+                 logger.error(f"计算筹码分布相关特征失败 for {stock_code}: {e}", exc_info=True)
+
+
+        # --- 处理合并和计算过程中产生的 NaN 值 ---
+        # 外部数据（如指数日线、筹码日线）合并到股票分钟线时，除了每天的第一个分钟数据行，其他分钟数据行的这些列都会是 NaN。
+        # 通常的做法是使用 forward fill (ffill) 将日线数据填充到该天的所有分钟数据行。
+        # 对于计算技术指标产生的 NaN (例如 SMA 前面 N-1 天)，可以保留或用其他方法填充（如填充0或平均值，但对于时间序列不推荐）。
+        # 对于超额收益、筹码偏离等衍生特征，如果计算依赖的原始列有 NaN，则结果也是 NaN，可以保留或 ffill。
+
+        # 对指数/板块和筹码相关列进行前向填充
+        # 找出所有以 'index_', 'ths_', 'cyq_' 开头的列
+        cols_to_ffill = [col for col in merged_df.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_')]
+        if cols_to_ffill:
+            try:
+                merged_df[cols_to_ffill] = merged_df[cols_to_ffill].fillna(method='ffill')
+                logger.info(f"对 {len(cols_to_ffill)} 个外部数据相关列进行了前向填充。")
+            except Exception as e:
+                logger.error(f"对外部数据相关列进行前向填充失败 for {stock_code}: {e}", exc_info=True)
+
+
+        # 对于技术指标产生的 NaN，可以选择保留或处理
+        # 例如，fillna(0) 可能不合适，fillna(method='bfill') 然后再 ffill 也是一种方法
+        # 或者保留 NaN，让模型自己处理
+        # merged_df.fillna(0, inplace=True) # 示例：用0填充所有剩余 NaN (可能不推荐)
+
+
+        logger.info(f"特征工程完成，最终 DataFrame 形状: {merged_df.shape} for {stock_code}")
+
+        return merged_df
+    
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:
         """将输入值安全转换为 Decimal 类型"""
