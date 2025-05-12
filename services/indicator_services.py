@@ -248,7 +248,103 @@ class IndicatorService:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 重采样和清理数据时出错: {e}", exc_info=True)
             return None
 
-    # --- 核心数据准备函数 ---
+    # 辅助函数，用于根据指标名称和参数构建基础指标列名（不含时间级别后缀）
+    def _build_indicator_base_name(self, base_name: str, params: Dict) -> str:
+        """
+        根据指标名称和参数字典构建基础指标列名（不含时间级别后缀）。
+        需要与 calculate_* 函数的输出列名命名规则一致。
+        """
+        if base_name == 'RSI':
+            # 示例: RSI_14
+            return f"RSI_{params.get('period', 14)}"
+        elif base_name == 'MACD':
+             # calculate_macd 可能会返回 MACD, MACDh, MACDs，这里的 base_name 指的是主列
+             # 例如: MACD_12_26_9
+            p_fast = params.get('period_fast', 12)
+            p_slow = params.get('period_slow', 26)
+            p_signal = params.get('signal_period', 9)
+            # 注意：这里返回的是 MACD 主线的基础列名格式，如果需要 MACDh, MACDs 需要单独处理
+            # 或者假设 MACD 计算函数返回的 MACDh 列名是 MACDh_12_26_9
+            # 根据日志和 JSON，MACDh 差分需要的是 MACDh_fast_slow_signal 格式的列名
+            # 这里的 _build_indicator_base_name 是为了找到原始列，需要灵活处理
+            # 如果 base_name 是 MACDh, MACDs，也需要根据 MACD 的参数来构建
+            if base_name in ['MACD', 'MACDh', 'MACDs']:
+                 return f"{base_name}_{p_fast}_{p_slow}_{p_signal}"
+            return f"MACD_{p_fast}_{p_slow}_{p_signal}" # 默认返回 MACD 主线格式
+        elif base_name == 'KDJ':
+            # KDJ 的列名通常是 K, D, J，参数用于计算过程，不直接在列名中
+            # 但根据 JSON 命名，列名带参数 K_9_3_3, D_9_3_3, J_9_3_3
+            p_k = params.get('period', 9)
+            p_d = params.get('signal_period', 3)
+            p_j = params.get('smooth_k_period', 3) # 这里用 smooth_k_period 代替 J 周期命名
+            # 这个辅助函数主要用于查找现有列，所以需要根据实际生成的列名来构建
+            # 例如，如果实际生成的 K 列是 'K_9_3_3'，D 列是 'D_9_3_3'，J 列是 'J_9_3_3'
+            # 那么如果 base_name 是 K，则返回 'K_9_3_3'
+            if base_name in ['K', 'D', 'J']:
+                 return f"{base_name}_{p_k}_{p_d}_{p_j}"
+            return base_name # 如果 base_name 是 KDJ 本身，可能没有基础列名，需调整用途
+        elif base_name == 'BOLL':
+             # BOLL 列名包含 period 和 std_dev
+             # 例如: BBL_20_2.0, BBM_20_2.0, BBU_20_2.0
+             p = params.get('period', 20)
+             std = params.get('std_dev', 2.0)
+             # 这个函数用于查找现有列，根据 JSON 约定，BOLl 相关列如 BBL, BBM, BBU 都有参数
+             # 如果 base_name 是 BBL, BBM, BBU，则返回对应格式
+             if base_name in ['BBL', 'BBM', 'BBU', 'BBW', 'BBP']:
+                  # 注意 std_dev 在 JSON 中是 .1f 格式化
+                  return f"{base_name}_{p}_{std:.1f}"
+             # 如果 base_name 是 BOLL 本身，没有基础列名
+             return base_name # 或者返回 None，取决于如何使用这个函数
+        elif base_name == 'CCI':
+            return f"CCI_{params.get('period', 14)}"
+        elif base_name == 'MFI':
+            return f"MFI_{params.get('period', 14)}"
+        elif base_name == 'ROC':
+             return f"ROC_{params.get('period', 12)}"
+        elif base_name == 'DMI': # DMI 计算返回 PDI, NDI, ADX
+             # 这个函数可能需要查找 ADX, PDI, NDI 列
+             p = params.get('period', 14)
+             if base_name in ['ADX', 'PDI', 'NDI']:
+                  return f"{base_name}_{p}"
+             return base_name # 或者 None
+        elif base_name == 'SAR':
+             af_step = params.get('af_step', 0.02)
+             max_af = params.get('max_af', 0.2)
+             # 注意 pandas_ta SAR 列名是 SAR_afstep_maxaf，例如 SAR_0.02_0.2
+             # JSON 约定也是 SAR_af_step_max_af
+             # 确保这里构建的列名与 calculate_sar 的输出一致
+             return f"SAR_{af_step}_{max_af}"
+        # 添加其他有参数的指标
+        elif base_name in ['EMA', 'SMA', 'AMT_MA', 'VOL_MA', 'MOM', 'WILLR', 'VROC', 'AROC', 'ATR', 'HV']:
+             return f"{base_name}_{params.get('period', 20)}" # 假设这些指标列名格式都是 BASE_PERIOD
+        elif base_name == 'KC': # KC 计算返回 KCL, KCM, KCU
+             # 需要根据实际 calculate_keltner_channels 返回的列名来构建查找名
+             # JSON 约定是 KCL_ema_atr，但日志显示是 KCL_ema_atr_multiplier
+             # 为了匹配日志，这里构建包含乘数的列名
+             ema_p = params.get('ema_period', 20)
+             atr_p = params.get('atr_period', 10)
+             atr_m = params.get('atr_multiplier', 2.0)
+             # 格式化乘数，例如 2.0
+             atr_m_str = f"{atr_m:.1f}"
+             # 如果 base_name 是 KCL, KCM, KCU，则返回对应格式，包含乘数
+             if base_name in ['KCL', 'KCM', 'KCU']:
+                  return f"{base_name}_{ema_p}_{atr_p}_{atr_m_str}"
+             return base_name # 或者 None
+        elif base_name in ['OBV', 'ADL', 'VWAP', 'Ichimoku', 'PivotPoints']:
+             # 这些指标通常没有周期参数直接在列名中，或者命名方式不同
+             # OBV, ADL, Ichimoku (TENKAN, KIJUN etc.), PivotPoints (PP, S1 etc.)
+             # VWAP 可能有锚点，例如 VWAP_D
+             if base_name == 'VWAP' and params.get('anchor'):
+                 return f"VWAP_{params['anchor']}"
+             # 对于 Ichimoku 和 PivotPoints，base_name 本身不是最终列名，需要根据具体子指标来构建
+             # 这里简化处理，如果 base_name 是这些父名称，返回 None 或 base_name，依赖调用方处理具体子列
+             if base_name in ['Ichimoku', 'PivotPoints']:
+                 return None # 或者让调用方自己处理
+             return base_name # OBV, ADL 返回自身作为基础列名
+
+        # 如果是未知指标或没有明确的参数命名规则，返回 None
+        return None
+
     async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
         """
         根据策略 JSON 配置文件准备包含重采样基础数据和所有计算指标的 DataFrame。
@@ -597,9 +693,13 @@ class IndicatorService:
             current_max_period = 0
             # 检查所有可能的周期参数键名
             period_keys = ['period', 'period_fast', 'period_slow', 'signal_period', 'k_period', 'd_period', 'smooth_k_period',
-                           'ema_period', 'atr_period', 'tenkan_period', 'kijun_period', 'senkou_period']
+                           'ema_period', 'atr_period', 'tenkan_period', 'kijun_period', 'senkou_period', 'atr_multiplier'] # 添加 atr_multiplier
             for p_key in period_keys:
                 # 获取参数值，确保是数字且大于当前最大周期
+                # 对于乘数等非周期参数，不用于计算回看期，跳过
+                if p_key == 'atr_multiplier':
+                    continue
+
                 if p_key in config['params'] and isinstance(config['params'][p_key], (int, float)):
                     current_max_period = max(current_max_period, int(config['params'][p_key]))
 
@@ -607,10 +707,15 @@ class IndicatorService:
             # 这里采用一个更保守的估算，DMI/ADX 通常需要比周期长很多的数据
             if config['name'] == 'MACD':
                  p = config['params']
+                 # 修正 MACD 回看期估算，通常只需慢周期长度 + 信号周期平滑长度
                  current_max_period = max(current_max_period, p.get('period_slow',0) + p.get('signal_period',0))
             if config['name'] == 'DMI' and 'period' in config['params']: # DMI/ADX
                 # ADX 计算需要至少 2*period 根数据，外加 EMA 平滑，所以需要更长的回看期
                 current_max_period = max(current_max_period, int(config['params']['period'] * 2.5 + 10)) # 稍微保守一些的估算
+            if config['name'] == 'KC': # Keltner Channels 也依赖 EMA 和 ATR 周期
+                 p = config['params']
+                 current_max_period = max(current_max_period, p.get('ema_period', 0), p.get('atr_period', 0))
+
 
             global_max_lookback = max(global_max_lookback, current_max_period)
 
@@ -726,7 +831,7 @@ class IndicatorService:
             df_for_ta.rename(columns=actual_rename_map_to_std, inplace=True)
 
             # *** 调试点：检查用于指标计算的临时 DataFrame 的列名 ***
-            print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 用于计算的临时 df_for_ta 列名: {df_for_ta.columns.tolist()}") # 调试输出
+            # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 用于计算的临时 df_for_ta 列名: {df_for_ta.columns.tolist()}") # 调试输出
 
             # 动态确定指标函数需要的列 (high, low, close, volume, amount 等)
             # 这是一个简化版本，实际可能需要更复杂的参数签名检查或配置
@@ -735,7 +840,16 @@ class IndicatorService:
                 required_cols_for_func.add('volume')
             if config_item['name'] in ['AMT_MA', 'AROC']:
                 required_cols_for_func.add('amount')
-            # 添加其他需要特定列的指标
+            # Keltner Channels (KC) 需要高、低、收盘价以及 ATR，所以需要 ATR 列
+            if config_item['name'] == 'KC':
+                 # KC 计算函数 calculate_keltner_channels 需要 ATR_period 列
+                 # 这里应该检查的是原始的 ATR 列是否能被计算，而不是计算前的 df_for_ta 里是否有 ATR 列
+                 # 因为 ATR 应该作为独立指标计算，KC 直接使用 ATR 计算结果
+                 # 所以如果 calculate_keltner_channels 依赖 ATR_period 列作为输入，
+                 # 需要确保 ATR 在 KC 之前计算完成并存在于 df_for_ta 中 (已重命名回标准名)
+                 # 但是 calculate_keltner_channels 接收 close, high, low 和参数 ema_period, atr_period, atr_multiplier
+                 # 并在内部计算 ATR。所以这里不需要检查 ATR_period 列。
+                 pass # 无需额外添加 required_cols_for_func for KC
 
             # 检查 df_for_ta 是否包含计算该指标所需的所有列
             if not all(col in df_for_ta.columns for col in required_cols_for_func):
@@ -748,7 +862,7 @@ class IndicatorService:
                 # 获取为该指标准备好的参数副本，传递给计算函数
                 func_params_to_pass = config_item['params'].copy() 
                 # *** 调试点：打印传递给计算函数的参数 ***
-                print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 传递的计算参数: {func_params_to_pass}") # 调试输出
+                # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 传递的计算参数: {func_params_to_pass}") # 调试输出
 
                 # 调用具体的指标计算函数 (这些函数使用标准的列名，如 'close')
                 # calculate_dmi 和 calculate_boll_bands_and_width 就是在这里被调用的
@@ -775,6 +889,12 @@ class IndicatorService:
                     if isinstance(indicator_result_df, pd.Series):
                         # 使用指标名称作为列名，如果 Series 没有 name
                         series_name = indicator_result_df.name if indicator_result_df.name else config_item['name']
+                        # 检查 Series name 是否包含参数，如果只返回基础名称，需要根据 config_item 的 params 加上参数
+                        # 例如， calculate_rsi 可能返回 Series，name 是 RSI_14
+                        # calculate_macd 返回 dataframe，列是 MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
+                        # 为了确保列名带参数，这里可以根据 config_item['name'] 和 config_item['params'] 重新构建列名
+                        # 但是 _build_indicator_base_name 函数是用于查找已存在的列名，不是用于生成 Series 的列名
+                        # 假设计算函数返回的 Series/DataFrame 列名已经包含参数
                         indicator_result_df = indicator_result_df.to_frame(name=series_name) 
                         print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 转换为DataFrame后列名: {indicator_result_df.columns.tolist()}") # 调试输出
                     else:
@@ -794,7 +914,7 @@ class IndicatorService:
                 return (tf_calc, result_renamed_df)
             except Exception as e_calc:
                 # 捕获指标计算过程中的异常并记录错误日志
-                print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} 时出错: {e_calc}") # 调试输出
+                print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}") # 调试输出
                 logger.error(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}", exc_info=True)
                 return None # 计算出错，返回 None
 
@@ -842,15 +962,6 @@ class IndicatorService:
                 pass
 
 
-        # *** 调试点：检查按时间级别分组后的指标 DataFrame 列表 ***
-        print(f"[{stock_code}] Debug: 按时间级别分组后的指标 DataFrame 列表 Keys: {list(calculated_indicators_by_tf.keys())}") # 调试输出
-        for tf, dfs in calculated_indicators_by_tf.items():
-            print(f"  - TF {tf}: 包含 {len(dfs)} 个 DataFrame.") # 调试输出
-            # 可以选择打印每个 DataFrame 的列名摘要
-            # for i, df in enumerate(dfs):
-            #     print(f"    - DF {i} 列名: {df.columns.tolist()[:10]}...") # 调试输出 (可能刷屏)
-
-
         # --- 后处理 OBV_MA ---
         # OBV_MA 需要在 OBV 计算完成后才能计算
         # 从参数中获取 OBV_MA 的周期
@@ -863,16 +974,23 @@ class IndicatorService:
             for tf_obv_ma, df_list_obv_ma in calculated_indicators_by_tf.items():
                 # 在该时间级别的指标列表中查找 OBV 列所在的 DataFrame
                 # 期望的 OBV 列名是 'OBV_{tf_obv_ma}'
-                obv_df_with_suffix = next((df_item for df_item in df_list_obv_ma if f'OBV_{tf_obv_ma}' in df_item.columns), None)
+                obv_col_name = f'OBV_{tf_obv_ma}' # OBV 列名
                 
+                # 查找包含 OBV 列的 DataFrame
+                obv_df_with_suffix = None
+                for df_item in df_list_obv_ma:
+                    if obv_col_name in df_item.columns:
+                        obv_df_with_suffix = df_item
+                        break
+
                 # 如果找到了 OBV 数据
                 if obv_df_with_suffix is not None:
                     try:
                         # 计算 OBV 的移动平均
-                        # 确保 OBV 列名正确
-                        obv_series = obv_df_with_suffix[f'OBV_{tf_obv_ma}'].rolling(window=obv_ma_period_json, min_periods=max(1, int(obv_ma_period_json*0.5))).mean()
+                        obv_series = obv_df_with_suffix[obv_col_name].rolling(window=obv_ma_period_json, min_periods=max(1, int(obv_ma_period_json*0.5))).mean()
                         # 将计算结果转换为 DataFrame 并添加带有周期和时间框架后缀的列名
-                        obv_ma_df_res = pd.DataFrame({f'OBV_MA_{obv_ma_period_json}_{tf_obv_ma}': obv_series})
+                        # 根据 JSON 衍生特征命名约定，OBV_MA 列名是 OBV_MA_{period} (在添加时间级别后缀前)
+                        obv_ma_df_res = pd.DataFrame({f'OBV_MA_{obv_ma_period_json}_{tf_obv_ma}': obv_series}) # 添加时间级别后缀
                         # 将 OBV_MA 的结果添加到该时间级别的指标列表中，以便后续合并
                         calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df_res)
                         logger.debug(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period_json} 计算完成。")
@@ -883,8 +1001,8 @@ class IndicatorService:
                         print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period_json} 出错: {e_obvma}") # 调试输出
                 else:
                     # 如果需要计算 OBV_MA 但没有找到 OBV 数据，记录警告
-                    logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 需要计算 OBV_MA_{obv_ma_period_json} 但没有找到 OBV_{tf_obv_ma} 列。")
-                    print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 需要计算 OBV_MA_{obv_ma_period_json} 但没有找到 OBV_{tf_obv_ma} 列。") # 调试输出
+                    logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 需要计算 OBV_MA_{obv_ma_period_json} 但没有找到 {obv_col_name} 列。")
+                    print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 需要计算 OBV_MA_{obv_ma_period_json} 但没有找到 {obv_col_name} 列。") # 调试输出
 
 
         # 6. 合并所有 DataFrame
@@ -911,7 +1029,11 @@ class IndicatorService:
                         # 使用 pd.merge 按索引合并
                         # suffixes 参数用于处理列名冲突，理论上因为我们已经加了 _tf 后缀，不会有 OHLCV 列与指标列冲突
                         # 但如果不同指标计算函数内部有相同的临时列名且都返回了，suffixes 可以帮助区分
-                        merged_tf_df_res = pd.merge(merged_tf_df_res, indi_df_to_merge, left_index=True, right_index=True, how='left', suffixes=('', f'_dup_{indi_df_to_merge.columns[0].split("_")[-1]}'))
+                        # 这里的 suffixes 只是为了防止极端情况，并且不会影响我们期望的带 _tf 后缀的列名
+                        merged_tf_df_res = pd.merge(merged_tf_df_res, indi_df_to_merge, left_index=True, right_index=True, how='left', suffixes=('', '_indicator')) # 使用更通用的后缀
+
+                        # 检查是否存在带 _indicator 后缀的列，并考虑移除或警告（如果这不是期望的）
+                        # 例如， unexpected_cols = [col for col in merged_tf_df_res.columns if col.endswith('_indicator')]
 
                         # *** 调试点：打印合并后的 DataFrame 列数 (可选，如果列太多可能刷屏) ***
                         # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 合并后的 DataFrame 当前列数: {len(merged_tf_df_res.columns)}") # 调试输出
@@ -957,7 +1079,14 @@ class IndicatorService:
                 # suffixes 参数用于处理可能出现的同名列冲突，虽然我们期望列名已经通过 _tf 后缀区分，
                 # 但如果不同时间级别有相同的基础 OHLCV 列名（如 'open_5', 'open_15'），merge 默认会加后缀
                 # 这里保留 suffixes 是为了显式处理，或者可以依赖于我们已经加好的 _tf 后缀
-                final_merged_df = pd.merge(final_merged_df, df_to_merge_final, left_index=True, right_index=True, how='left', suffixes=('_base', f'_other')) # 示例后缀，实际可能不需要或用更合适的
+                # 使用更明确的后缀避免冲突
+                final_merged_df = pd.merge(final_merged_df, df_to_merge_final, left_index=True, right_index=True, how='left', suffixes=('', f'_{tf_final_merge}_merge'))
+
+                # *** 调试点：打印合并 TF {tf_final_merge} 后，检查是否有意外的列，例如带merge后缀的
+                # unexpected_merge_cols = [col for col in final_merged_df.columns if col.endswith(f'_{tf_final_merge}_merge')]
+                # if unexpected_merge_cols:
+                #      print(f"[{stock_code}] Debug: 合并 TF {tf_final_merge} 后发现意外合并后缀列: {unexpected_merge_cols}") # 调试输出
+
 
                 # *** 调试点：打印合并 TF {tf_final_merge} 后的最终 DataFrame 列数 ***
                 # print(f"[{stock_code}] Debug: 最终合并: 合并 TF {tf_final_merge} 后，总列数: {len(final_merged_df.columns)}") # 调试输出
@@ -967,11 +1096,11 @@ class IndicatorService:
                 print(f"[{stock_code}] Debug: 时间框架 {tf_final_merge} 的合并数据在 merged_indicators_by_tf 中未找到。") # 调试输出
 
 
-        # --- 7. 计算衍生特征 ---
+        # --- 7. 计算基于合并后数据的衍生特征 ---
+        # 修改开始 >>>
         logger.info(f"[{stock_code}] 开始计算衍生特征...")
-        # *** 调试点：在计算衍生特征前打印当前 DataFrame 列，确认基础列和指标列是否存在 ***
         print(f"[{stock_code}] Debug: 计算衍生特征前，DataFrame 形状: {final_merged_df.shape}, 列数: {len(final_merged_df.columns)}") # 调试输出
-        # 打印一部分列名，确认关键指标列是否出现在这里
+        # 打印一部分列名，确认基础列和指标列是否存在
         print(f"[{stock_code}] Debug: 计算衍生特征前，部分列: {final_merged_df.columns.tolist()[:50]}...") # 调试输出
 
         try:
@@ -988,15 +1117,20 @@ class IndicatorService:
                         continue
 
                     for p_deriv in ma_periods_deriv:
-                        # 构造均线列名
+                        # 构造均线列名，这里假设均线列名格式是 MA_Period_Timeframe
                         ma_col_tf_deriv = f'{ma_type_deriv}_{p_deriv}_{tf_str_deriv}'
                         # 如果均线列存在，则计算价格与均线的关系
                         if ma_col_tf_deriv in final_merged_df.columns:
                             # 计算价格与均线的比率
                             final_merged_df[f'CLOSE_{ma_type_deriv}_RATIO_{p_deriv}_{tf_str_deriv}'] = final_merged_df[close_col_tf_deriv] / final_merged_df[ma_col_tf_deriv]
                             # 计算价格与均线的归一化差值 (收盘价 - 均线) / 均线
-                            # 避免除以零，但这里简单处理，依赖最终填充
-                            final_merged_df[f'CLOSE_{ma_type_deriv}_NDIFF_{p_deriv}_{tf_str_deriv}'] = (final_merged_df[close_col_tf_deriv] - final_merged_df[ma_col_tf_deriv]) / final_merged_df[ma_col_tf_deriv]
+                            # 避免除以零，对均线列进行小数值检查再相除
+                            denominator_ndiff = final_merged_df[ma_col_tf_deriv]
+                            final_merged_df[f'CLOSE_{ma_type_deriv}_NDIFF_{p_deriv}_{tf_str_deriv}'] = np.where(
+                                 np.abs(denominator_ndiff) > 1e-9, # 检查均线值是否接近零
+                                 (final_merged_df[close_col_tf_deriv] - denominator_ndiff) / denominator_ndiff,
+                                 0 # 如果均线接近零，归一化差值设为 0
+                            )
                             # 记录计算完成
                             # print(f"[{stock_code}] Debug: TF {tf_str_deriv}: 计算 {ma_type_deriv} ({p_deriv}) 关系特征。") # 调试输出 (可能刷屏)
                         else:
@@ -1005,185 +1139,187 @@ class IndicatorService:
 
 
             # 指标的变化率/差分 (RSI, MACDh, MFI, CMF, ADX 等)
-            indicators_to_diff = fe_params.get('indicators_for_difference', [
-                {'base_name': 'RSI', 'params_key': 'rsi_period', 'default_period': 14},
-                # MACDh 列名较复杂，需要根据实际 calculate_macd 返回的列名构造
-                {'base_name': 'MACDh', 'params_keys': ['period_fast','period_slow','signal_period'], 'default_periods': [12,26,9]}, 
-                {'base_name': 'MFI', 'params_key': 'mfi_period', 'default_period': 14},
-                {'base_name': 'CMF', 'params_key': 'cmf_period', 'default_period': 20},
-                {'base_name': 'ADX', 'params_key': 'dmi_period', 'default_period': 14},
+            # 这里的配置需要与 _add_indicator_config 中注册的指标名称和参数对应
+            indicators_to_diff_config = fe_params.get('indicators_for_difference', [
+                # 注意这里的 'base_name' 应该对应 calculate_* 函数返回的列名，
+                # 而不是 _add_indicator_config 注册时的顶层 name ('MACD' vs 'MACDh')
+                # 需要根据实际 calculate_* 返回的列名来配置
+                # 例如，如果 calculate_rsi 返回 RSI_14，这里 base_name 就是 'RSI'
+                # 如果 calculate_macd 返回 MACDh_12_26_9，这里 base_name 就是 'MACDh'
+                {'base_name': 'RSI', 'param_keys_for_name': ['period'], 'default_params_for_name': [14]}, # 使用 param_keys_for_name 指明用于构建列名的参数键
+                {'base_name': 'MACDh', 'param_keys_for_name': ['period_fast', 'period_slow', 'signal_period'], 'default_params_for_name': [12, 26, 9]}, # MACDh 柱状图
+                {'base_name': 'MACD', 'param_keys_for_name': ['period_fast', 'period_slow', 'signal_period'], 'default_params_for_name': [12, 26, 9]}, # MACD 快慢线
+                {'base_name': 'MACDs', 'param_keys_for_name': ['period_fast', 'period_slow', 'signal_period'], 'default_params_for_name': [12, 26, 9]}, # MACD 信号线
+                {'base_name': 'MFI', 'param_keys_for_name': ['period'], 'default_params_for_name': [14]},
+                {'base_name': 'CCI', 'param_keys_for_name': ['period'], 'default_params_for_name': [14]},
+                {'base_name': 'ADX', 'param_keys_for_name': ['period'], 'default_params_for_name': [14]}, # DMI 计算结果中的 ADX
+                {'base_name': 'PDI', 'param_keys_for_name': ['period'], 'default_params_for_name': [14]}, # DMI 计算结果中的 PDI
+                {'base_name': 'NDI', 'param_keys_for_name': ['period'], 'default_params_for_name': [14]}, # DMI 计算结果中的 NDI
+                {'base_name': 'K', 'param_keys_for_name': ['period', 'signal_period', 'smooth_k_period'], 'default_params_for_name': [9, 3, 3]}, # KDJ 的 K 线
+                {'base_name': 'D', 'param_keys_for_name': ['period', 'signal_period', 'smooth_k_period'], 'default_params_for_name': [9, 3, 3]}, # KDJ 的 D 线
+                {'base_name': 'J', 'param_keys_for_name': ['period', 'signal_period', 'smooth_k_period'], 'default_params_for_name': [9, 3, 3]}, # KDJ 的 J 线
+                {'base_name': 'BOLL_BBW', 'param_keys_for_name': ['period', 'std_dev'], 'default_params_for_name': [20, 2.0]}, # 布林带宽度 BBW
                 # 添加其他需要计算差分的指标配置
             ])
             diff_periods = fe_params.get('difference_periods', [1, 2]) # 计算1阶和2阶差分
 
-            for indi_diff_conf in indicators_to_diff:
-                base_name = indi_diff_conf['base_name']
-                # 兼容单个参数 (params_key) 和多个参数 (params_keys) 的情况
-                param_keys = indi_diff_conf.get('params_key')
-                param_keys_list = indi_diff_conf.get('params_keys')
-                default_p_value = indi_diff_conf.get('default_period')
-                default_p_values_list = indi_diff_conf.get('default_periods')
+            # 遍历需要计算差分的指标配置
+            for indi_diff_conf in indicators_to_diff_config:
+                base_name = indi_diff_conf.get('base_name')
+                param_keys_for_name = indi_diff_conf.get('param_keys_for_name', []) # 获取用于构建列名的参数键列表
+                default_params_for_name = indi_diff_conf.get('default_params_for_name', []) # 获取用于构建列名的默认参数值列表
 
-                for tf_str_diff in all_time_levels_needed:
-                    # 动态构建指标列名 (需要与步骤 5 计算并重命名后的列名一致)
-                    param_str_for_col = ""
-                    if param_keys_list: # 处理多个参数的情况 (如 MACDh)
-                        # 确保 param_keys_list 是一个列表
-                        if not isinstance(param_keys_list, list):
-                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 配置项不是列表，跳过差分计算。配置: {indi_diff_conf}")
-                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 配置项不是列表，跳过差分计算。配置: {indi_diff_conf}")
-                            continue # 跳过当前时间级别和指标的差分计算
+                if not base_name:
+                    logger.warning(f"[{stock_code}] 差分配置项缺少 'base_name'，跳过。配置: {indi_diff_conf}")
+                    print(f"[{stock_code}] Debug: 差分配置项缺少 'base_name'，跳过。配置: {indi_diff_conf}")
+                    continue
 
-                        # 从 base_scoring 或 indicator_analysis_params 获取参数值
-                        for i, pk in enumerate(param_keys_list):
-                            # 确保 pk 是字符串，避免潜在错误
-                            if not isinstance(pk, str):
-                                 logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 列表中包含非字符串项 '{pk}' ({type(pk)})，跳过差分计算。配置: {indi_diff_conf}")
-                                 print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 列表中包含非字符串项 '{pk}' ({type(pk)})，跳过差分计算。配置: {indi_diff_conf}")
-                                 param_values_for_col = [] # 清空已获取的值，确保不构建列名
-                                 break # 跳出内层循环
+                # 尝试从 params 中获取该指标实际使用的参数值
+                # 需要找到注册时对应的那个 config_item 来获取实际 params
+                actual_params = None
+                # 遍历 indicator_configs 列表来找到对应的计算配置
+                # 这个查找过程可能比较耗时，如果 indicator_configs 很大
+                # 更好的做法是在注册 indicator_configs 时，同时构建一个方便查找的字典
+                # 这里简化处理，直接遍历查找，假设 base_name 和 param_keys_for_name/default_params_for_name 可以唯一确定一个计算配置
+                for registered_config in indicator_configs:
+                     # 简单的匹配逻辑：名称一致，且参数结构类似
+                     if registered_config['name'] == base_name or \
+                        (registered_config['name'].startswith(base_name) and base_name in ['MACD', 'MACDh', 'MACDs', 'K', 'D', 'J', 'BOLL', 'BBL', 'BBM', 'BBU', 'BBW', 'BBP', 'PDI', 'NDI', 'ADX', 'KCL', 'KCM', 'KCU']): # 放松匹配一些父子指标
+                          # 检查注册时的 params 是否包含了用于构建列名的所有键
+                          if all(pk in registered_config['params'] for pk in param_keys_for_name):
+                               actual_params = registered_config['params']
+                               break # 找到匹配的配置
 
-                            # 获取参数值，优先从 bs, ia, fe 参数块获取，最后使用 default_p_values_list 中的对应值
-                            # 修正：使用 pk (当前的参数键名字符串) 作为字典的键
-                            # 修改开始 >>>
-                            val = bs_params.get(pk, ia_params.get(pk, fe_params.get(pk, default_p_values_list[i] if default_p_values_list and i < len(default_p_values_list) else None)))
-                            # 修改结束 <<<
-
-                            if val is not None:
-                                param_values_for_col.append(str(val))
-
-                        # 如果成功获取到所有参数值，构建列名
-                        if len(param_values_for_col) == len(param_keys_list):
-                            param_str_for_col = "_".join(param_values_for_col)
-                            # 特别处理 MACDh 的列名格式，需要根据实际 calculate_macd 返回的列名调整
-                            # 假设 calculate_macd 返回 MACD_fast_slow_signal, MACDh_fast_slow_signal, MACDs_fast_slow_signal
-                            # 我们需要 MACDh 列
-                            if base_name == 'MACDh':
-                                 # 假设 MACD 计算函数返回的 MACDh 列名格式是 MACDh_period_fast_period_slow_signal_period
-                                 # 需要根据实际 calculate_macd 函数返回的列名来确定这里的格式
-                                 # 这里的 param_str_for_col 已经是 '12_26_9'
-                                 indi_col_name_base = f"MACDh_{param_str_for_col}"
-                            else:
-                                 # 对于其他多参数指标，假设列名格式是 BASE_PARAM1_PARAM2...
-                                 indi_col_name_base = f"{base_name}_{param_str_for_col}"
-                        else:
-                            # 如果参数值数量不匹配，说明获取参数失败，跳过
-                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 获取参数值失败，跳过差分计算。配置: {indi_diff_conf}")
-                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 获取参数值失败，跳过差分计算。配置: {indi_diff_conf}")
-                            continue # 跳过当前时间级别和指标的差分计算
+                # 如果没有找到匹配的注册配置，使用默认参数构建列名
+                if actual_params is None:
+                     logger.warning(f"[{stock_code}] 未找到指标 {base_name} 的注册计算配置，尝试使用默认参数构建差分源列名。配置: {indi_diff_conf}")
+                     print(f"[{stock_code}] Debug: 未找到指标 {base_name} 的注册计算配置，尝试使用默认参数构建差分源列名。配置: {indi_diff_conf}")
+                     # 根据 default_params_for_name 列表和 param_keys_for_name 列表构建参数字典
+                     actual_params = dict(zip(param_keys_for_name, default_params_for_name))
+                     # 如果 default_params_for_name 为空或长度不匹配，可能构建失败
+                     if len(actual_params) != len(param_keys_for_name):
+                          logger.error(f"[{stock_code}] 无法为指标 {base_name} 构建有效的默认参数字典 ({param_keys_for_name}, {default_params_for_name})，跳过差分计算。")
+                          print(f"[{stock_code}] Debug: 无法为指标 {base_name} 构建有效的默认参数字典，跳过差分计算。")
+                          continue # 跳过当前指标的差分计算
 
 
-                    elif param_keys: # 处理单个参数的情况 (如 RSI, MFI, CMF, ADX)
-                        # *** 错误发生在这里 ***
-                        # 检查 param_keys 是否是字符串，如果不是，说明配置错误，跳过
-                        # 修改开始 >>>
-                        if not isinstance(param_keys, str):
-                            logger.error(f"[{stock_code}] TF {tf_str_diff}: 计算指标 {base_name} 差分时，'params_key' 配置项不是字符串 ({type(param_keys)})，跳过。配置: {indi_diff_conf}")
-                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算指标 {base_name} 差分时，'params_key' 配置项不是字符串 ({type(param_keys)})，跳过。配置: {indi_diff_conf}")
-                            continue # 跳过当前时间级别和指标的差分计算
-                        # 修改结束 <<<
+                # 根据实际参数值构建基础指标列名（不含时间级别后缀）
+                param_str_for_col = "_".join([str(actual_params.get(pk, default_params_for_name[i] if i < len(default_params_for_name) else '')) for i, pk in enumerate(param_keys_for_name)])
 
-                        # 使用 param_keys (字符串) 作为键获取参数值
-                        # 修正：这里的 param_keys 已经是字符串键名，可以直接用
-                        # 修改开始 >>>
-                        val = bs_params.get(param_keys, ia_params.get(param_keys, fe_params.get(param_keys, default_p_value)))
-                        # 修改结束 <<<
+                # 构建不含时间级别的原始列名
+                if param_str_for_col:
+                    indi_col_name_base = f"{base_name}_{param_str_for_col}"
+                else:
+                     # 没有参数的指标，基础列名就是 base_name
+                     indi_col_name_base = base_name
 
-                        if val is not None:
-                            param_str_for_col = str(val)
-                            indi_col_name_base = f"{base_name}_{param_str_for_col}"
-                        else:
-                            # 如果参数值都没找到，且没有默认值，则无法构建列名，跳过
-                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 计算 {base_name} 差分时参数缺失 ({param_keys})，跳过。配置: {indi_diff_conf}")
-                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算 {base_name} 差分时参数缺失 ({param_keys})，跳过。配置: {indi_diff_conf}")
-                            continue # 跳过当前时间级别和指标的差分计算
+                # 遍历所有需要计算差分的时间级别
+                # 默认对所有需要的时间级别计算差分，除非 fe_params 指定了 apply_on_timeframes
+                diff_timeframes = fe_params.get('apply_on_timeframes', list(all_time_levels_needed))
 
-                    else: # 没有参数的指标 (如 OBV, ADL - 注意 ADX 已经在上面处理了，这里可能是 OBV, ADL 本身)
-                        # 检查 base_name 是否是 OBV 或 ADL，这些通常没有参数
-                        if base_name in ['OBV', 'ADL']:
-                            indi_col_name_base = base_name
-                            param_str_for_col = "" # 没有参数字符串
-                        else:
-                            # 如果配置项既没有 params_key 也没有 params_keys，且不是已知无参数指标，记录警告并跳过
-                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 差分配置项缺少参数键 ('params_key' 或 'params_keys')，跳过。配置: {indi_diff_conf}")
-                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 差分配置项缺少参数键 ('params_key' 或 'params_keys')，跳过。配置: {indi_diff_conf}")
-                            continue # 跳过当前时间级别和指标的差分计算
+                for tf_str_diff in diff_timeframes:
+                    # 构造带有时间周期后缀的完整原始指标列名
+                    source_col_name = f"{indi_col_name_base}_{tf_str_diff}"
 
-                    # 构造带有时间周期后缀的完整列名
-                    indi_col_name_diff = f"{indi_col_name_base}_{tf_str_diff}"
-
-
-                    if indi_col_name_diff in final_merged_df.columns:
-                        # 如果指标列存在，则计算其差分
+                    if source_col_name in final_merged_df.columns:
+                        # 如果原始指标列存在，则计算其差分
                         for diff_p in diff_periods:
+                            # 构造差分结果列名，遵循 JSON 衍生特征命名规范
+                            # 格式: {original_indicator_name_with_params}_DIFF{diff_period}_{timeframe}
+                            target_col_name = f"{indi_col_name_base}_DIFF{diff_p}_{tf_str_diff}"
                             # 计算差分 (当前值 - N周期前的值)
-                            final_merged_df[f'{base_name}_DIFF{diff_p}_{param_str_for_col}_{tf_str_diff}'] = final_merged_df[indi_col_name_diff].diff(diff_p)
-                            # 也可以计算百分比变化，但可能导致 inf/-inf/NaN
-                            # final_merged_df[f'{base_name}_PCTCHG{diff_p}_{param_str_for_col}_{tf_str_diff}'] = final_merged_df[indi_col_name_diff].pct_change(diff_p) 
-                        # print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算 {base_name} 差分特征。") # 调试输出 (可能刷屏)
+                            final_merged_df[target_col_name] = final_merged_df[source_col_name].diff(diff_p)
+                            # print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算 {source_col_name} 的 DIFF{diff_p} 特征 -> {target_col_name}。") # 调试输出 (可能刷屏)
                     else:
-                         print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算 {base_name} 差分时，指标列 {indi_col_name_diff} 不存在。") # 调试输出
+                         # 记录原始指标列缺失的警告
+                         print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算指标 {base_name} 差分时，原始指标列 {source_col_name} 不存在。跳过。") # 调试输出
+                         logger.debug(f"[{stock_code}] TF {tf_str_diff}: 计算指标 {base_name} 差分时，原始指标列 {source_col_name} 不存在。跳过。配置: {indi_diff_conf}")
 
 
             # 价格在布林带/肯特纳通道中的位置
             # 布林带位置 (%B 或类似)
-            boll_period_deriv = bs_params.get('boll_period', default_boll_p['period'])
-            boll_std_deriv = bs_params.get('boll_std_dev', default_boll_p['std_dev'])
-            std_str_deriv = f"{boll_std_deriv:.1f}" # 标准差格式化
+            # 获取布林带参数，优先使用 base_scoring 的，其次是 feature_engineering 的，最后是默认值
+            boll_period_deriv = bs_params.get('boll_period', fe_params.get('boll_period', default_boll_p['period']))
+            boll_std_deriv = bs_params.get('boll_std_dev', fe_params.get('boll_std_dev', default_boll_p['std_dev']))
+            std_str_deriv = f"{boll_std_deriv:.1f}" # 标准差格式化为字符串，保留一位小数
+
+            # 遍历所有需要的时间级别
             for tf_str_deriv_ch in all_time_levels_needed:
-                # 构造所需的列名
+                # 构造计算所需的列名
+                # 假设布林带列名格式为 BBL_Period_StdDev_Timeframe, BBU_Period_StdDev_Timeframe, close_Timeframe
                 close_col_ch = f'close_{tf_str_deriv_ch}'
                 lower_b_col = f'BBL_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}'
                 upper_b_col = f'BBU_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}'
-                middle_b_col = f'BBM_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}' # 中轨列名也可能需要
+                # 中轨列名，虽然 %B 计算不需要，但有些地方可能需要
+                middle_b_col = f'BBM_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}' 
                 
                 # 检查所有必要列是否存在
-                if all(c in final_merged_df.columns for c in [close_col_ch, lower_b_col, upper_b_col]): # BBM 不是必须的，但有助于BBW计算
+                if all(c in final_merged_df.columns for c in [close_col_ch, lower_b_col, upper_b_col]):
                     # 计算布林带宽度
                     band_width_b = final_merged_df[upper_b_col] - final_merged_df[lower_b_col]
                     # 计算价格在布林带中的相对位置 (类似于 %B)
-                    # 避免除以零，如果带宽接近零则位置设为 0.5 (中轨位置)
-                    final_merged_df[f'CLOSE_BB_POS_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}'] = np.where(
+                    # 避免除以零，对带宽进行小数值检查再相除
+                    # 根据 JSON 衍生特征命名约定: CLOSE_BB_POS_{period}_{std_dev:.1f}_{timeframe}
+                    bb_pos_col_name = f'CLOSE_BB_POS_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}'
+                    final_merged_df[bb_pos_col_name] = np.where(
                         np.abs(band_width_b) > 1e-9, # 检查带宽是否接近零
                         (final_merged_df[close_col_ch] - final_merged_df[lower_b_col]) / band_width_b, 
                         0.5 # 带宽为零或接近零时，设为中轨位置
                     )
-                    # print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: 计算 BOLL 位置特征。") # 调试输出 (可能刷屏)
+                    # print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: 计算 {bb_pos_col_name} 特征。") # 调试输出 (可能刷屏)
                 else:
-                     print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: 计算 BOLL 位置时，缺少列 {close_col_ch}, {lower_b_col}, {upper_b_col}。") # 调试输出
+                     # 记录缺失列的警告，显示期望的列名
+                     missing_cols = [c for c in [close_col_ch, lower_b_col, upper_b_col] if c not in final_merged_df.columns]
+                     print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: 计算 BOLL 位置时，缺少列 {', '.join(missing_cols)}。跳过。") # 调试输出
+                     logger.debug(f"[{stock_code}] TF {tf_str_deriv_ch}: 计算 BOLL 位置时，缺少列 {', '.join(missing_cols)}。跳过。")
 
 
             # 肯特纳通道位置 (类似处理)
+            # 获取肯特纳通道参数，优先使用 feature_engineering 的，最后是默认值
             kc_ema_p_deriv = fe_params.get('kc_ema_period', default_kc_p['ema_period'])
             kc_atr_p_deriv = fe_params.get('kc_atr_period', default_kc_p['atr_period'])
-            # KC 的列名可能包含 atr_multiplier，需要根据实际 calculate_keltner_channels 实现调整
-            kc_atr_mult_deriv = fe_params.get('kc_atr_multiplier', default_kc_p['atr_multiplier']) # 获取乘数
-            # 假设 KC 列名格式是 KCL_ema周期_atr周期_atr乘数.1f
-            # 如果 calculate_keltner_channels 的列名不包含乘数，则需要修改这里的构造方式
-            kc_atr_mult_str = f"{kc_atr_mult_deriv:.1f}" # 乘数格式化
-            
+            kc_atr_mult_deriv = fe_params.get('kc_atr_multiplier', default_kc_p['atr_multiplier']) # 获取 ATR 乘数
+
+            # 遍历所有需要的时间级别
             for tf_str_deriv_ch_kc in all_time_levels_needed:
-                # 构造所需的列名
+                # 构造计算所需的列名
                 close_col_kc = f'close_{tf_str_deriv_ch_kc}'
-                # 需要根据实际 calculate_keltner_channels 的列名生成规则来构建
-                # 例如，如果列名是 KCL_20_10_2.0_30
-                lower_kc_col = f'KCL_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{kc_atr_mult_str}_{tf_str_deriv_ch_kc}'
-                upper_kc_col = f'KCU_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{kc_atr_mult_str}_{tf_str_deriv_ch_kc}'
                 
-                # 检查所有必要列是否存在
-                if all(c in final_merged_df.columns for c in [close_col_kc, lower_kc_col, upper_kc_col]):
+                # 根据日志和可能的 calculate_keltner_channels 实现，构建包含 ATR 乘数的 KCL/KCU 列名
+                # 如果 calculate_keltner_channels 返回的列名不包含乘数，这里需要调整
+                # 当前根据日志 KCL_20_10_2.0_60 来构建查找名称
+                kc_atr_mult_str = f"{kc_atr_mult_deriv:.1f}" # 乘数格式化，例如 2.0
+                # 构造包含乘数的 KCL/KCU 列名作为查找目标
+                lower_kc_col_lookup = f'KCL_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{kc_atr_mult_str}_{tf_str_deriv_ch_kc}'
+                upper_kc_col_lookup = f'KCU_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{kc_atr_mult_str}_{tf_str_deriv_ch_kc}'
+                # 中轨列名 (KCM) 也可能包含乘数
+                middle_kc_col_lookup = f'KCM_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{kc_atr_mult_str}_{tf_str_deriv_ch_kc}'
+
+                # 检查所有必要列是否存在 (使用包含乘数的查找名称)
+                if all(c in final_merged_df.columns for c in [close_col_kc, lower_kc_col_lookup, upper_kc_col_lookup]):
                     # 计算肯特纳通道宽度
-                    band_width_kc = final_merged_df[upper_kc_col] - final_merged_df[lower_kc_col]
+                    band_width_kc = final_merged_df[upper_kc_col_lookup] - final_merged_df[lower_kc_col_lookup]
                      # 计算价格在肯特纳通道中的相对位置
-                    # 避免除以零，如果带宽接近零则位置设为 0.5 (中轨位置)
-                    final_merged_df[f'CLOSE_KC_POS_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{kc_atr_mult_str}_{tf_str_deriv_ch_kc}'] = np.where(
+                    # 避免除以零，对带宽进行小数值检查再相除
+                    # 根据 JSON 衍生特征命名约定: CLOSE_KC_POS_{ema_period}_{atr_period}_{timeframe}
+                    # 注意 JSON 约定不包含 ATR 乘数在衍生特征列名中
+                    kc_pos_col_name = f'CLOSE_KC_POS_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{tf_str_deriv_ch_kc}' # 衍生特征列名不包含乘数
+
+                    final_merged_df[kc_pos_col_name] = np.where(
                          np.abs(band_width_kc) > 1e-9, # 检查带宽是否接近零
-                        (final_merged_df[close_col_kc] - final_merged_df[lower_kc_col]) / band_width_kc, 
+                        (final_merged_df[close_col_kc] - final_merged_df[lower_kc_col_lookup]) / band_width_kc, 
                         0.5 # 带宽为零或接近零时，设为中轨位置
                     )
-                    # print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 计算 KC 位置特征。") # 调试输出 (可能刷屏)
+                    # print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 计算 {kc_pos_col_name} 特征。") # 调试输出 (可能刷屏)
                 else:
-                    print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 计算 KC 位置时，缺少列 {close_col_kc}, {lower_kc_col}, {upper_kc_col}。") # 调试输出
+                    # 记录缺失列的警告，显示期望查找的列名 (包含乘数)
+                    missing_cols_kc = [c for c in [close_col_kc, lower_kc_col_lookup, upper_kc_col_lookup] if c not in final_merged_df.columns]
+                    print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 计算 KC 位置时，缺少列 {', '.join(missing_cols_kc)}。跳过。") # 调试输出
+                    logger.debug(f"[{stock_code}] TF {tf_str_deriv_ch_kc}: 计算 KC 位置时，缺少列 {', '.join(missing_cols_kc)}。跳过。")
+                    # 添加一条额外的警告，提示 KCL/KCU 列名可能与 JSON 约定不符
+                    if any(c.startswith('KC') for c in missing_cols_kc):
+                         logger.warning(f"[{stock_code}] TF {tf_str_deriv_ch_kc}: 注意：计算 KC 位置时查找的 KCL/KCU 列名格式包含 ATR 乘数 ({lower_kc_col_lookup}, {upper_kc_col_lookup})，这可能与 JSON 基础指标命名约定不符。请检查 calculate_keltner_channels 函数的输出列名。")
+                         print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 注意：计算 KC 位置时查找的 KCL/KCU 列名格式包含 ATR 乘数，这可能与 JSON 基础指标命名约定不符。请检查 calculate_keltner_channels 函数的输出列名。")
 
 
             logger.info(f"[{stock_code}] 衍生特征计算完成。")
@@ -1191,6 +1327,8 @@ class IndicatorService:
         except Exception as e_deriv:
             logger.error(f"[{stock_code}] 计算衍生特征时出错: {e_deriv}", exc_info=True)
             print(f"[{stock_code}] Debug: 计算衍生特征时出错: {e_deriv}") # 调试输出
+
+        # 修改结束 <<<
 
 
         # 8. 最终填充
@@ -1229,30 +1367,40 @@ class IndicatorService:
         # 可以手动检查特定列是否存在，例如检查 'ADX_14_30' 和 'BBU_15_2.2_30'
         # 从 params 中获取用于构造列名的参数
         dmi_period_p = params.get('base_scoring',{}).get('dmi_period', 14)
-        boll_period_p = params.get('base_scoring',{}).get('boll_period', 20)
-        boll_std_dev_p = params.get('base_scoring',{}).get('boll_std_dev', 2.0)
+        boll_period_p = params.get('base_scoring',{}).get('boll_period', 20) # 布林带周期，可能在 base_scoring 或 fe_params
+        boll_std_dev_p = params.get('base_scoring',{}).get('boll_std_dev', 2.0) # 布林带标准差，可能在 base_scoring 或 fe_params
         boll_std_str_p = f"{boll_std_dev_p:.1f}" # 格式化标准差
         focus_tf_p = params.get('trend_following_params',{}).get('focus_timeframe', '30')
 
-        # target_adx_col = f"ADX_{dmi_period_p}_{focus_tf_p}"
-        # target_pdi_col = f"PDI_{dmi_period_p}_{focus_tf_p}"
-        # target_ndi_col = f"NDI_{dmi_period_p}_{focus_tf_p}"
+        # 构建期望的基础指标列名 (带参数，不含时间级别)
+        # 这里的构建逻辑需要和 _build_indicator_base_name 或 calculate_* 返回的列名一致
+        # 例如，如果 calculate_dmi 返回 ADX_14
+        target_adx_col_base = f"ADX_{dmi_period_p}"
+        # 如果 calculate_boll_bands_and_width 返回 BBU_15_2.2
+        target_boll_upper_col_base = f"BBU_{boll_period_p}_{boll_std_str_p}" # 根据 JSON 约定和日志观察构建
+
+        # 添加时间级别后缀后的完整列名
+        target_adx_col_full = f"{target_adx_col_base}_{focus_tf_p}"
+        target_boll_upper_col_full = f"{target_boll_upper_col_base}_{focus_tf_p}" # 根据 JSON 约定和日志观察构建
+
+        print(f"[{stock_code}] Debug: 检查关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
+        print(f"  - ADX 列 '{target_adx_col_full}': {'存在' if target_adx_col_full in final_merged_df.columns else '不存在'}") # 调试输出
+        print(f"  - BOLL 上轨列 '{target_boll_upper_col_full}': {'存在' if target_boll_upper_col_full in final_merged_df.columns else '不存在'}") # 调试输出
         
-        # target_boll_upper_col = f"BBU_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}"
-        # target_boll_lower_col = f"BBL_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}"
-        # target_boll_middle_col = f"BBM_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}" # 中轨列名
-        # target_close_col = f'close_{focus_tf_p}' # 收盘价列名
+        # 检查差分和 KC 位置衍生特征列名是否存在
+        # 差分列名格式: {base_name}_{param_str}_DIFF{diff_period}_{timeframe}
+        # 例如: RSI_14_DIFF1_30
+        target_rsi_diff1_col = f"RSI_14_DIFF1_{focus_tf_p}" # 假设 RSI 周期是 14，计算了 1 阶差分
+        # 例如: MACDh_12_26_9_DIFF1_30
+        target_macd_diff1_col = f"MACDh_12_26_9_DIFF1_{focus_tf_p}" # 假设 MACD 参数是 12_26_9，计算了 1 阶差分
+        # KC 位置列名格式 (根据修改后代码，不包含 ATR 乘数在衍生特征列名中): CLOSE_KC_POS_{ema_period}_{atr_period}_{timeframe}
+        target_kc_pos_col = f"CLOSE_KC_POS_{kc_ema_p_deriv}_{kc_atr_p_deriv}_{focus_tf_p}" # 假设 KC 参数 20_10
 
-        # print(f"[{stock_code}] Debug: 检查 ADX/DMI 关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
-        # print(f"  - '{target_adx_col}': {'存在' if target_adx_col in final_merged_df.columns else '不存在'}") # 调试输出
-        # print(f"  - '{target_pdi_col}': {'存在' if target_pdi_col in final_merged_df.columns else '不存在'}") # 调试输出
-        # print(f"  - '{target_ndi_col}': {'存在' if target_ndi_col in final_merged_df.columns else '不存在'}") # 调试输出
+        print(f"[{stock_code}] Debug: 检查衍生特征关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
+        print(f"  - RSI DIFF1 列 '{target_rsi_diff1_col}': {'存在' if target_rsi_diff1_col in final_merged_df.columns else '不存在'}") # 调试输出
+        print(f"  - MACDh DIFF1 列 '{target_macd_diff1_col}': {'存在' if target_macd_diff1_col in final_merged_df.columns else '不存在'}") # 调试输出
+        print(f"  - KC POS 列 '{target_kc_pos_col}': {'存在' if target_kc_pos_col in final_merged_df.columns else '不存在'}") # 调试输出
 
-        # print(f"[{stock_code}] Debug: 检查 BOLL 关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
-        # print(f"  - '{target_boll_upper_col}': {'存在' if target_boll_upper_col in final_merged_df.columns else '不存在'}") # 调试输出
-        # print(f"  - '{target_boll_lower_col}': {'存在' if target_boll_lower_col in final_merged_df.columns else '不存在'}") # 调试输出
-        # print(f"  - '{target_boll_middle_col}': {'存在' if target_boll_middle_col in final_merged_df.columns else '不存在'}") # 调试输出
-        # print(f"  - '{target_close_col}': {'存在' if target_close_col in final_merged_df.columns else '不存在'}") # 调试输出
 
         logger.debug(f"[{stock_code}] 最终 DataFrame 列名 (部分): {final_merged_df.columns.tolist()[:30]}...") 
         return final_merged_df, indicator_configs
