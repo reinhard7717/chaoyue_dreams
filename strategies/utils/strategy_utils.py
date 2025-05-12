@@ -1589,6 +1589,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
 
     # 加载 indicator_naming_conventions.json 文件中的命名规范
     naming_conventions_path = settings.INDICATOR_PARAMETERS_CONFIG_PATH
+    naming_conventions = {} # 初始化为空字典
     try:
         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
             naming_conventions = json.load(f)
@@ -1596,13 +1597,21 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
         # 获取衍生特征的命名规范，用于查找 CLOSE_MA_RATIO/NDIFF 等列
         derivative_naming = naming_conventions.get('derivative_feature_naming_conventions', {})
         logger.info("成功加载指标命名规范配置文件。")
+    except FileNotFoundError:
+        logger.error(f"指标命名规范配置文件未找到: {naming_conventions_path}，将使用默认命名逻辑。")
+        indicator_naming = {}
+        derivative_naming = {}
+    except json.JSONDecodeError:
+         logger.error(f"指标命名规范配置文件格式错误: {naming_conventions_path}，请检查JSON格式。将使用默认命名逻辑。")
+         indicator_naming = {}
+         derivative_naming = {}
     except Exception as e:
         logger.error(f"加载指标命名规范配置文件失败: {e}，将使用默认命名逻辑。")
         indicator_naming = {}
-        derivative_naming = {} # 如果加载失败，衍生特征命名也置空
+        derivative_naming = {}
 
     # 从 indicator_configs 中提取可能的列名信息
-    # 修改：利用 indicator_configs 获取更精确的列名映射
+    # 利用 indicator_configs 获取更精确的列名映射
     config_column_mapping = {}
     for config in indicator_configs:
         indicator_name = config.get('name', '').lower()
@@ -1618,13 +1627,14 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
         # 查找该 indicator_key 对应的评分函数
         score_func = None
         # 存储计算评分函数可能需要的参数字典 (从 bs_params 获取)
-        score_func_params = {}
+        score_func_params: Dict[str, Any] = {}
         # 存储用于查找列名的参数字典 (可能与评分函数参数不同)
-        col_lookup_params = {}
+        col_lookup_params: Dict[str, Any] = {}
         # 存储该指标评分所需的关键列名在 indicator_cols_for_score 字典中的 key
-        required_score_keys = []
+        required_score_keys: List[str] = []
 
         # 根据 indicator_key 确定评分函数、获取参数和所需的关键列 key
+        # --- 指标配置和参数提取 ---
         if indicator_key == 'macd':
             score_func = calculate_macd_score
             col_lookup_params = {
@@ -1645,10 +1655,12 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
             required_score_keys = ['rsi']
         elif indicator_key == 'kdj':
             score_func = calculate_kdj_score
+            # 注意：KDJ 在 pandas_ta 中通常是 K, D, J，参数是 period, signal_period, smooth_k_period
+            # 这里的 col_lookup_params 应该对应 pandas_ta 计算 KDJ 时的参数
             col_lookup_params = {
-                'period': bs_params.get('kdj_period_k', 9),  # K周期
-                'signal_period': bs_params.get('kdj_period_d', 3),  # D周期
-                'smooth_k_period': bs_params.get('kdj_period_j', 3)  # J周期 (通常是K的平滑)
+                'period': bs_params.get('kdj_period', 9), # KDJ 的主要周期参数
+                'signal_period': bs_params.get('kdj_signal_period', 3), # D 线平滑周期
+                'smooth_k_period': bs_params.get('kdj_smooth_k_period', 3) # K 线平滑周期 (用于计算 J)
             }
             score_func_params = {
                 'kdj_oversold': bs_params.get('kdj_oversold', 20),
@@ -1700,10 +1712,11 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
             required_score_keys = ['close', 'sar']
         elif indicator_key == 'stoch':
             score_func = calculate_stoch_score
+            # 注意：STOCH 在 pandas_ta 中通常是 STOCHk, STOCHd，参数是 k_period, d_period, smooth_k_period
             col_lookup_params = {
                 'k_period': bs_params.get('stoch_k_period', 14),
                 'd_period': bs_params.get('stoch_d_period', 3),
-                'smooth_k_period': bs_params.get('stoch_smooth_k_period', 3)  # STOCH D线通常是K线的平滑
+                'smooth_k_period': bs_params.get('stoch_smooth_k_period', 3) # 用于计算 %D
             }
             score_func_params = {
                 'stoch_oversold': bs_params.get('stoch_oversold', 20),
@@ -1711,31 +1724,29 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
                 'stoch_extreme_oversold': bs_params.get('stoch_extreme_oversold', 10),
                 'stoch_extreme_overbought': bs_params.get('stoch_extreme_overbought', 90)
             }
-            required_score_keys = ['k', 'd']
-        elif indicator_key == 'ema':
-            score_func = calculate_ma_score  # 假设存在一个通用的 MA 评分函数
-            col_lookup_params = {'period': bs_params.get('ema_params', {}).get('period', 20)}
-            score_func_params = {'ma_type': 'ema'}  # 传递 MA 类型给通用评分函数
-            required_score_keys = ['close', 'ma']
-        elif indicator_key == 'sma':
-            score_func = calculate_ma_score  # 假设存在一个通用的 MA 评分函数
-            col_lookup_params = {'period': bs_params.get('sma_params', {}).get('period', 20)}
-            score_func_params = {'ma_type': 'sma'}  # 传递 MA 类型给通用评分函数
+            required_score_keys = ['k', 'd'] # 评分函数需要 K 和 D
+        elif indicator_key in ['ema', 'sma']:
+            score_func = calculate_ma_score
+            # MA 评分通常只需要一个周期的 MA 线和收盘价
+            # 这里的 period 参数需要从 bs_params 中获取对应 MA 类型的周期
+            ma_period_param_key = f"{indicator_key}_period" # 例如 'ema_period'
+            col_lookup_params = {'period': bs_params.get(ma_period_param_key, 20)} # 默认周期 20
+            score_func_params = {'ma_type': indicator_key} # 传递 MA 类型给通用评分函数
             required_score_keys = ['close', 'ma']
         elif indicator_key == 'atr':
-            score_func = calculate_atr_score  # 假设存在 calculate_atr_score 函数
-            col_lookup_params = {'period': bs_params.get('atr_params', {}).get('period', 14)}
+            score_func = calculate_atr_score
+            col_lookup_params = {'period': bs_params.get('atr_period', 14)}
             required_score_keys = ['atr']
         elif indicator_key == 'adl':
-            score_func = calculate_adl_score  # 假设存在 calculate_adl_score 函数
-            col_lookup_params = {}  # ADL 通常没有周期参数
+            score_func = calculate_adl_score
+            col_lookup_params = {} # ADL 通常没有周期参数
             required_score_keys = ['adl']
         elif indicator_key == 'vwap':
-            score_func = calculate_vwap_score  # 假设存在 calculate_vwap_score 函数
-            col_lookup_params = {'anchor': bs_params.get('vwap_anchor', None)}  # VWAP 可能有 anchor 参数
+            score_func = calculate_vwap_score
+            col_lookup_params = {'anchor': bs_params.get('vwap_anchor', None)} # VWAP 可能有 anchor 参数
             required_score_keys = ['close', 'vwap']
         elif indicator_key == 'ichimoku':
-            score_func = calculate_ichimoku_score  # 假设存在 calculate_ichimoku_score 函数
+            score_func = calculate_ichimoku_score
             col_lookup_params = {
                 'tenkan_period': bs_params.get('ichimoku_tenkan', 9),
                 'kijun_period': bs_params.get('ichimoku_kijun', 26),
@@ -1743,45 +1754,46 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
             }
             required_score_keys = ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou']
         elif indicator_key == 'mom':
-            score_func = calculate_mom_score  # 假设存在 calculate_mom_score 函数
-            col_lookup_params = {'period': bs_params.get('mom_params', {}).get('period', 10)}
+            score_func = calculate_mom_score
+            col_lookup_params = {'period': bs_params.get('mom_period', 10)}
             required_score_keys = ['mom']
         elif indicator_key == 'willr':
-            score_func = calculate_willr_score  # 假设存在 calculate_willr_score 函数
-            col_lookup_params = {'period': bs_params.get('willr_params', {}).get('period', 14)}
+            score_func = calculate_willr_score
+            col_lookup_params = {'period': bs_params.get('willr_period', 14)}
             required_score_keys = ['willr']
         elif indicator_key == 'cmf':
-            score_func = calculate_cmf_score  # 假设存在 calculate_cmf_score 函数
+            score_func = calculate_cmf_score
             col_lookup_params = {'period': bs_params.get('cmf_period', 20)}
             required_score_keys = ['cmf']
         elif indicator_key == 'obv':
-            score_func = calculate_obv_score  # 假设存在 calculate_obv_score 函数
-            col_lookup_params = {}  # OBV 通常没有周期参数
+            score_func = calculate_obv_score
+            col_lookup_params = {} # OBV 通常没有周期参数
             required_score_keys = ['obv']
+            # OBV 评分函数内部可能需要 OBV_MA，但这里只检查 OBV 本身是否存在
         elif indicator_key == 'kc':
-            score_func = calculate_kc_score  # 假设存在 calculate_kc_score 函数
+            score_func = calculate_kc_score
             col_lookup_params = {
-                'ema_period': bs_params.get('kc_params', {}).get('ema_period', 20),
-                'atr_period': bs_params.get('kc_params', {}).get('atr_period', 10)
+                'ema_period': bs_params.get('kc_ema_period', 20),
+                'atr_period': bs_params.get('kc_atr_period', 10)
             }
             required_score_keys = ['close', 'upper', 'mid', 'lower']
         elif indicator_key == 'hv':
-            score_func = calculate_hv_score  # 假设存在 calculate_hv_score 函数
-            col_lookup_params = {'period': bs_params.get('hv_params', {}).get('period', 20)}
+            score_func = calculate_hv_score
+            col_lookup_params = {'period': bs_params.get('hv_period', 20)}
             required_score_keys = ['hv']
         elif indicator_key == 'vroc':
-            score_func = calculate_vroc_score  # 假设存在 calculate_vroc_score 函数
-            col_lookup_params = {'period': bs_params.get('vroc_params', {}).get('period', 10)}
+            score_func = calculate_vroc_score
+            col_lookup_params = {'period': bs_params.get('vroc_period', 10)}
             required_score_keys = ['vroc']
         elif indicator_key == 'aroc':
-            score_func = calculate_aroc_score  # 假设存在 calculate_aroc_score 函数
-            col_lookup_params = {'period': bs_params.get('aroc_params', {}).get('period', 10)}
+            score_func = calculate_aroc_score
+            col_lookup_params = {'period': bs_params.get('aroc_period', 10)}
             required_score_keys = ['aroc']
         elif indicator_key == 'pivot':
-            score_func = calculate_pivot_score  # 假设存在 calculate_pivot_score 函数
+            score_func = calculate_pivot_score
             col_lookup_params = {}  # Pivot Points 通常基于日线，且列名固定
             # Pivot 需要 close 和一个包含所有 pivot level 列名的列表
-            required_score_keys = ['close', 'pivot_levels']
+            required_score_keys = ['close', 'pivot_levels'] # 'pivot_levels' 是一个特殊的 key，其值是列名列表
         # 添加其他需要评分的指标...
 
         # 如果指标 key 未找到对应的评分函数，则跳过
@@ -1791,22 +1803,20 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
 
         # 遍历需要计算评分的时间框架
         for tf_score in score_timeframes:
-            indicator_cols_for_score = {}  # {参数名: 列名} 或 {指标线名: 列名}
+            indicator_cols_for_score: Dict[str, Any] = {}  # {参数名: 列名} 或 {指标线名: 列名}
             found = False # 标记是否成功找到所有必要的列
 
-            # 修改：添加更健壮的列名查找逻辑，尝试多种时间框架后缀格式
+            # 构建可能的时间框架后缀列表
             possible_tf_suffixes = [
                 str(tf_score), f"{tf_score}m", f"{tf_score}min", str(tf_score).upper(),
                 f"{tf_score}M", f"{tf_score}MIN", f"T{tf_score}", f"t{tf_score}"
             ]
-            # 确保日线时间框架 'D' 被正确处理
+            # 确保日线时间框架 'D' 被正确处理，并移除数字后缀
             if str(tf_score).upper() == 'D':
                  possible_tf_suffixes.extend(['D', 'd'])
-                 # 移除数字后缀，避免 'D' 被当成数字处理
                  possible_tf_suffixes = [s for s in possible_tf_suffixes if not s.isdigit()]
             # 移除重复项并保持顺序
             possible_tf_suffixes = list(dict.fromkeys(possible_tf_suffixes))
-
 
             # 1. 尝试使用 indicator_configs 提供的列名映射
             config_key = (indicator_key.lower(), str(tf_score))
@@ -1814,103 +1824,172 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
                 config_cols = config_column_mapping[config_key]
                 # print(f"尝试使用 indicator_configs 提供的列名映射: {config_cols} for {indicator_key} at {tf_score}") # 调试信息
 
-                # 根据指标类型，从 config_cols 中提取对应的列名
+                # 根据指标类型，从 config_cols 中提取对应的列名并检查是否存在
+                current_indicator_cols_attempt: Dict[str, Any] = {}
+                config_mapping_successful = False
+
                 if indicator_key == 'macd' and len(config_cols) >= 3:
                      # 假设 config_cols 顺序是 [MACD, MACDh, MACDs]
-                     indicator_cols_for_score = {
+                     temp_cols = {
                          'macd_series': config_cols[0],
                          'macd_h': config_cols[1],
                          'macd_d': config_cols[2]
                      }
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'rsi' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'rsi': config_cols[0]}
+                     temp_cols = {'rsi': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'kdj' and len(config_cols) >= 3:
                      # 假设 config_cols 顺序是 [K, D, J]
-                     indicator_cols_for_score = {'k': config_cols[0], 'd': config_cols[1], 'j': config_cols[2]}
+                     temp_cols = {'k': config_cols[0], 'd': config_cols[1], 'j': config_cols[2]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'boll' and len(config_cols) >= 3:
                      # 假设 config_cols 顺序是 [BBL, BBM, BBU]
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
                      if close_col:
-                         indicator_cols_for_score = {'close': close_col, 'lower': config_cols[0], 'mid': config_cols[1], 'upper': config_cols[2]}
+                         temp_cols = {'close': close_col, 'lower': config_cols[0], 'mid': config_cols[1], 'upper': config_cols[2]}
+                         if all(col in data.columns for col in temp_cols.values()):
+                             current_indicator_cols_attempt = temp_cols
+                             config_mapping_successful = True
                 elif indicator_key == 'cci' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'cci': config_cols[0]}
+                     temp_cols = {'cci': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'mfi' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'mfi': config_cols[0]}
+                     temp_cols = {'mfi': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'roc' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'roc': config_cols[0]}
+                     temp_cols = {'roc': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'dmi' and len(config_cols) >= 3:
                      # 假设 config_cols 顺序是 [PDI, NDI, ADX]
-                     indicator_cols_for_score = {'pdi': config_cols[0], 'ndi': config_cols[1], 'adx': config_cols[2]}
+                     temp_cols = {'pdi': config_cols[0], 'ndi': config_cols[1], 'adx': config_cols[2]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'sar' and len(config_cols) >= 1:
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
                      if close_col:
-                         indicator_cols_for_score = {'close': close_col, 'sar': config_cols[0]}
+                         temp_cols = {'close': close_col, 'sar': config_cols[0]}
+                         if all(col in data.columns for col in temp_cols.values()):
+                             current_indicator_cols_attempt = temp_cols
+                             config_mapping_successful = True
                 elif indicator_key == 'stoch' and len(config_cols) >= 2:
                      # 假设 config_cols 顺序是 [STOCHk, STOCHd]
-                     indicator_cols_for_score = {'k': config_cols[0], 'd': config_cols[1]}
+                     temp_cols = {'k': config_cols[0], 'd': config_cols[1]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key in ['ema', 'sma'] and len(config_cols) >= 1:
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
                      if close_col:
-                         indicator_cols_for_score = {'close': close_col, 'ma': config_cols[0]}
+                         temp_cols = {'close': close_col, 'ma': config_cols[0]}
+                         if all(col in data.columns for col in temp_cols.values()):
+                             current_indicator_cols_attempt = temp_cols
+                             config_mapping_successful = True
                 elif indicator_key == 'atr' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'atr': config_cols[0]}
+                     temp_cols = {'atr': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'adl' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'adl': config_cols[0]}
+                     temp_cols = {'adl': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'vwap' and len(config_cols) >= 1:
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
                      if close_col:
-                         indicator_cols_for_score = {'close': close_col, 'vwap': config_cols[0]}
+                         temp_cols = {'close': close_col, 'vwap': config_cols[0]}
+                         if all(col in data.columns for col in temp_cols.values()):
+                             current_indicator_cols_attempt = temp_cols
+                             config_mapping_successful = True
                 elif indicator_key == 'ichimoku' and len(config_cols) >= 5:
                      # 假设 config_cols 顺序是 [TENKAN, KIJUN, CHIKOU, SENKOU_A, SENKOU_B]
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
                      if close_col:
-                         indicator_cols_for_score = {
+                         temp_cols = {
                              'close': close_col, 'tenkan': config_cols[0], 'kijun': config_cols[1],
                              'chikou': config_cols[2], 'senkou_a': config_cols[3], 'senkou_b': config_cols[4]
                          }
+                         if all(col in data.columns for col in temp_cols.values()):
+                             current_indicator_cols_attempt = temp_cols
+                             config_mapping_successful = True
                 elif indicator_key == 'mom' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'mom': config_cols[0]}
+                     temp_cols = {'mom': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'willr' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'willr': config_cols[0]}
+                     temp_cols = {'willr': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'cmf' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'cmf': config_cols[0]}
+                     temp_cols = {'cmf': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'obv' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'obv': config_cols[0]}
+                     temp_cols = {'obv': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'kc' and len(config_cols) >= 3:
                      # 假设 config_cols 顺序是 [KCL, KCM, KCU]
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
                      if close_col:
-                         indicator_cols_for_score = {'close': close_col, 'lower': config_cols[0], 'mid': config_cols[1], 'upper': config_cols[2]}
+                         temp_cols = {'close': close_col, 'lower': config_cols[0], 'mid': config_cols[1], 'upper': config_cols[2]}
+                         if all(col in data.columns for col in temp_cols.values()):
+                             current_indicator_cols_attempt = temp_cols
+                             config_mapping_successful = True
                 elif indicator_key == 'hv' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'hv': config_cols[0]}
+                     temp_cols = {'hv': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'vroc' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'vroc': config_cols[0]}
+                     temp_cols = {'vroc': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
                 elif indicator_key == 'aroc' and len(config_cols) >= 1:
-                     indicator_cols_for_score = {'aroc': config_cols[0]}
-                elif indicator_key == 'pivot' and len(config_cols) >= 15: # Pivot Points 通常有多个水平
+                     temp_cols = {'aroc': config_cols[0]}
+                     if all(col in data.columns for col in temp_cols.values()):
+                         current_indicator_cols_attempt = temp_cols
+                         config_mapping_successful = True
+                elif indicator_key == 'pivot' and len(config_cols) >= 15 and str(tf_score).upper() == 'D': # Pivot Points 通常只在日线计算
                      close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_") and c.endswith(f"_{tf_score}")), None)
-                     if close_col:
-                         indicator_cols_for_score = {'close': close_col, 'pivot_levels': config_cols} # 传递所有 pivot level 列名列表
+                     if close_col and all(col in data.columns for col in config_cols):
+                         current_indicator_cols_attempt = {'close': close_col, 'pivot_levels': config_cols}
+                         config_mapping_successful = True
 
-                # 检查是否通过 config_column_mapping 找到了所有必要的列
-                if indicator_key == 'pivot':
-                     if 'close' in indicator_cols_for_score and 'pivot_levels' in indicator_cols_for_score and isinstance(indicator_cols_for_score['pivot_levels'], list) and indicator_cols_for_score['pivot_levels'] and indicator_cols_for_score['close'] in data.columns and all(col in data.columns for col in indicator_cols_for_score['pivot_levels']):
-                         found = True
-                         # print(f"通过 config_column_mapping 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列。") # 调试信息
-                elif all(k in indicator_cols_for_score for k in required_score_keys):
-                     # 检查所有找到的列名是否存在于 DataFrame 中
-                     found_cols = [indicator_cols_for_score[k] for k in required_score_keys if k != 'pivot_levels'] # pivot_levels 是列表，单独检查
-                     if all(col in data.columns for col in found_cols):
-                         found = True
-                         # print(f"通过 config_column_mapping 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列。") # 调试信息
+                # 如果通过 config_column_mapping 找到了所有必要的列，则使用这些列并标记找到
+                if config_mapping_successful and all(k in current_indicator_cols_attempt for k in required_score_keys):
+                     indicator_cols_for_score = current_indicator_cols_attempt
+                     found = True
+                     # print(f"通过 config_column_mapping 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列。") # 调试信息
 
 
             # 2. 如果 config_column_mapping 未找到或不完整，尝试使用后缀匹配
             if not found:
                 # print(f"config_column_mapping 未找到或不完整，尝试后缀匹配指标 '{indicator_key}' 在时间框架 {tf_score}") # 调试信息
-                indicator_cols_for_score = {} # 重置，使用后缀匹配的结果
                 for tf_suffix in possible_tf_suffixes:
-                    # 构建预期的列名
+                    current_indicator_cols_attempt: Dict[str, Any] = {} # Use a temporary dict for the current suffix attempt
+                    suffix_match_successful = False # Flag for the current suffix
+
+                    # 构建并检查预期的列名对于当前的 tf_suffix
                     if indicator_key == 'macd' and 'MACD' in indicator_naming:
                         p_fast = col_lookup_params.get('period_fast', 12)
                         p_slow = col_lookup_params.get('period_slow', 26)
@@ -1919,34 +1998,32 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
                         dea_col = f"MACDs_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"  # pandas_ta MACD signal 列名通常是 MACDs
                         hist_col = f"MACDh_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
                         if all(col in data.columns for col in [macd_col, dea_col, hist_col]):
-                            indicator_cols_for_score = {
+                            current_indicator_cols_attempt = {
                                 'macd_series': macd_col,
                                 'macd_d': dea_col,
                                 'macd_h': hist_col
                             }
-                            found = True
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'macd' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'rsi' and 'RSI' in indicator_naming:
                         p_rsi = col_lookup_params.get('period', 14)
                         rsi_col = f"RSI_{p_rsi}_{tf_suffix}"
                         if rsi_col in data.columns:
-                            indicator_cols_for_score = {'rsi': rsi_col}
-                            found = True
+                            current_indicator_cols_attempt = {'rsi': rsi_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'rsi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'kdj' and 'KDJ' in indicator_naming:
                         p_k = col_lookup_params.get('period', 9)
                         p_d = col_lookup_params.get('signal_period', 3)
-                        p_j = col_lookup_params.get('smooth_k_period', 3)
-                        k_col = f"K_{p_k}_{p_d}_{p_j}_{tf_suffix}"
-                        d_col = f"D_{p_k}_{p_d}_{p_j}_{tf_suffix}"
-                        j_col = f"J_{p_k}_{p_d}_{p_j}_{tf_suffix}"
+                        p_smooth_k = col_lookup_params.get('smooth_k_period', 3)
+                        # KDJ 列名通常是 K, D, J 加上参数和后缀
+                        k_col = f"K_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+                        d_col = f"D_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+                        j_col = f"J_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
                         if all(col in data.columns for col in [k_col, d_col, j_col]):
-                            indicator_cols_for_score = {'k': k_col, 'd': d_col, 'j': j_col}
-                            found = True
+                            current_indicator_cols_attempt = {'k': k_col, 'd': d_col, 'j': j_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'kdj' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'boll' and 'BOLL' in indicator_naming:
                         p_boll = col_lookup_params.get('period', 20)
                         std_boll = col_lookup_params.get('std_dev', 2.0)
@@ -1956,107 +2033,96 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
                         lower_col = f"BBL_{p_boll}_{std_str}_{tf_suffix}"
                         close_col = f"close_{tf_suffix}"  # BOLL评分需要收盘价
                         if all(col in data.columns for col in [close_col, upper_col, mid_col, lower_col]):
-                            indicator_cols_for_score = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
-                            found = True
+                            current_indicator_cols_attempt = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'boll' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'cci' and 'CCI' in indicator_naming:
                         p_cci = col_lookup_params.get('period', 14)
                         cci_col = f"CCI_{p_cci}_{tf_suffix}"
                         if cci_col in data.columns:
-                            indicator_cols_for_score = {'cci': cci_col}
-                            found = True
+                            current_indicator_cols_attempt = {'cci': cci_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'cci' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'mfi' and 'MFI' in indicator_naming:
                         p_mfi = col_lookup_params.get('period', 14)
                         mfi_col = f"MFI_{p_mfi}_{tf_suffix}"
                         if mfi_col in data.columns:
-                            indicator_cols_for_score = {'mfi': mfi_col}
-                            found = True
+                            current_indicator_cols_attempt = {'mfi': mfi_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'mfi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'roc' and 'ROC' in indicator_naming:
                         p_roc = col_lookup_params.get('period', 12)
                         roc_col = f"ROC_{p_roc}_{tf_suffix}"
                         if roc_col in data.columns:
-                            indicator_cols_for_score = {'roc': roc_col}
-                            found = True
+                            current_indicator_cols_attempt = {'roc': roc_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'roc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'dmi' and 'DMI' in indicator_naming:
                         p_dmi = col_lookup_params.get('period', 14)
                         pdi_col = f"PDI_{p_dmi}_{tf_suffix}"
                         ndi_col = f"NDI_{p_dmi}_{tf_suffix}"
                         adx_col = f"ADX_{p_dmi}_{tf_suffix}"
                         if all(col in data.columns for col in [pdi_col, ndi_col, adx_col]):
-                            indicator_cols_for_score = {'pdi': pdi_col, 'ndi': ndi_col, 'adx': adx_col}
-                            found = True
+                            current_indicator_cols_attempt = {'pdi': pdi_col, 'ndi': ndi_col, 'adx': adx_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'dmi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'sar' and 'SAR' in indicator_naming:
                         step = col_lookup_params.get('af_step', 0.02)
                         max_af = col_lookup_params.get('max_af', 0.2)
                         sar_col = f"SAR_{step}_{max_af}_{tf_suffix}"
                         close_col = f"close_{tf_suffix}"  # SAR评分需要收盘价
                         if all(col in data.columns for col in [close_col, sar_col]):
-                            indicator_cols_for_score = {'close': close_col, 'sar': sar_col}
-                            found = True
+                            current_indicator_cols_attempt = {'close': close_col, 'sar': sar_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'sar' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'stoch' and 'STOCH' in indicator_naming:
                         p_k = col_lookup_params.get('k_period', 14)
                         p_d = col_lookup_params.get('d_period', 3)
                         p_smooth_k = col_lookup_params.get('smooth_k_period', 3)
+                        # STOCH 列名通常是 STOCHk, STOCHd 加上参数和后缀
                         stochk_col = f"STOCHk_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
                         stochd_col = f"STOCHd_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
                         if all(col in data.columns for col in [stochk_col, stochd_col]):
-                            indicator_cols_for_score = {'k': stochk_col, 'd': stochd_col}
-                            found = True
+                            current_indicator_cols_attempt = {'k': stochk_col, 'd': stochd_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'stoch' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key in ['ema', 'sma'] and ('EMA' in indicator_naming or 'SMA' in indicator_naming):
                         p_ma = col_lookup_params.get('period', 20)
                         ma_col_pattern = f"{indicator_key.upper()}_{p_ma}_{tf_suffix}"
                         close_col = f"close_{tf_suffix}"  # MA评分需要收盘价
                         if all(col in data.columns for col in [close_col, ma_col_pattern]):
-                            indicator_cols_for_score = {'close': close_col, 'ma': ma_col_pattern}  # 通用MA评分函数需要close和ma
-                            found = True
+                            current_indicator_cols_attempt = {'close': close_col, 'ma': ma_col_pattern}  # 通用MA评分函数需要close和ma
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'atr' and 'ATR' in indicator_naming:
                         p_atr = col_lookup_params.get('period', 14)
                         atr_col = f"ATR_{p_atr}_{tf_suffix}"
                         if atr_col in data.columns:
-                            indicator_cols_for_score = {'atr': atr_col}
-                            found = True
+                            current_indicator_cols_attempt = {'atr': atr_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'atr' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'adl' and 'ADL' in indicator_naming:
                         adl_col = f"ADL_{tf_suffix}"  # ADL通常没有周期参数
                         if adl_col in data.columns:
-                            indicator_cols_for_score = {'adl': adl_col}
-                            found = True
+                            current_indicator_cols_attempt = {'adl': adl_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'adl' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'vwap' and 'VWAP' in indicator_naming:
                         anchor = col_lookup_params.get('anchor', None)
                         # VWAP 列名可能带 anchor，也可能不带
                         vwap_col = f"VWAP_{tf_suffix}" if anchor is None else f"VWAP_{anchor}_{tf_suffix}"
                         close_col = f"close_{tf_suffix}"  # VWAP评分需要收盘价
                         if all(col in data.columns for col in [close_col, vwap_col]):
-                            indicator_cols_for_score = {'close': close_col, 'vwap': vwap_col}
-                            found = True
+                            current_indicator_cols_attempt = {'close': close_col, 'vwap': vwap_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'vwap' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                         # 如果带 anchor 的没找到，尝试不带 anchor 的
-                        if not found and anchor is not None:
+                        if not suffix_match_successful and anchor is not None:
                              vwap_col_no_anchor = f"VWAP_{tf_suffix}"
                              if all(col in data.columns for col in [close_col, vwap_col_no_anchor]):
-                                 indicator_cols_for_score = {'close': close_col, 'vwap': vwap_col_no_anchor}
-                                 found = True
+                                 current_indicator_cols_attempt = {'close': close_col, 'vwap': vwap_col_no_anchor}
+                                 suffix_match_successful = True
                                  # print(f"通过后缀匹配找到指标 'vwap' (无锚点) 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                                 break
                     elif indicator_key == 'ichimoku' and 'ICHIMOKU' in indicator_naming:
                         tenkan = col_lookup_params.get('tenkan_period', 9)
                         kijun = col_lookup_params.get('kijun_period', 26)
@@ -2068,44 +2134,39 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
                         chikou_col = f"CHIKOU_{kijun}_{tf_suffix}"  # Chikou 通常与 Kijun 同周期
                         close_col = f"close_{tf_suffix}"  # Ichimoku 评分可能需要收盘价
                         if all(col in data.columns for col in [close_col, tenkan_col, kijun_col, senkou_a_col, senkou_b_col, chikou_col]):
-                            indicator_cols_for_score = {
+                            current_indicator_cols_attempt = {
                                 'close': close_col, 'tenkan': tenkan_col, 'kijun': kijun_col,
                                 'senkou_a': senkou_a_col, 'senkou_b': senkou_b_col, 'chikou': chikou_col
                             }
-                            found = True
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'ichimoku' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'mom' and 'MOM' in indicator_naming:
                         p_mom = col_lookup_params.get('period', 10)
                         mom_col = f"MOM_{p_mom}_{tf_suffix}"
                         if mom_col in data.columns:
-                            indicator_cols_for_score = {'mom': mom_col}
-                            found = True
+                            current_indicator_cols_attempt = {'mom': mom_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'mom' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'willr' and 'WILLR' in indicator_naming:
                         p_willr = col_lookup_params.get('period', 14)
                         willr_col = f"WILLR_{p_willr}_{tf_suffix}"
                         if willr_col in data.columns:
-                            indicator_cols_for_score = {'willr': willr_col}
-                            found = True
+                            current_indicator_cols_attempt = {'willr': willr_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'willr' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'cmf' and 'CMF' in indicator_naming:
                         p_cmf = col_lookup_params.get('period', 20)
                         cmf_col = f"CMF_{p_cmf}_{tf_suffix}"
                         if cmf_col in data.columns:
-                            indicator_cols_for_score = {'cmf': cmf_col}
-                            found = True
+                            current_indicator_cols_attempt = {'cmf': cmf_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'cmf' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'obv' and 'OBV' in indicator_naming:
                         obv_col = f"OBV_{tf_suffix}"  # OBV通常没有周期参数
                         if obv_col in data.columns:
-                            indicator_cols_for_score = {'obv': obv_col}
-                            found = True
+                            current_indicator_cols_attempt = {'obv': obv_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'obv' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'kc' and 'KC' in indicator_naming:
                         ema_p = col_lookup_params.get('ema_period', 20)
                         atr_p = col_lookup_params.get('atr_period', 10)
@@ -2114,81 +2175,58 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
                         lower_col = f"KCL_{ema_p}_{atr_p}_{tf_suffix}"
                         close_col = f"close_{tf_suffix}"  # KC评分需要收盘价
                         if all(col in data.columns for col in [close_col, upper_col, mid_col, lower_col]):
-                            indicator_cols_for_score = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
-                            found = True
+                            current_indicator_cols_attempt = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'kc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'hv' and 'HV' in indicator_naming:
                         p_hv = col_lookup_params.get('period', 20)
                         hv_col = f"HV_{p_hv}_{tf_suffix}"
                         if hv_col in data.columns:
-                            indicator_cols_for_score = {'hv': hv_col}
-                            found = True
+                            current_indicator_cols_attempt = {'hv': hv_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'hv' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'vroc' and 'VROC' in indicator_naming:
                         p_vroc = col_lookup_params.get('period', 10)
                         vroc_col = f"VROC_{p_vroc}_{tf_suffix}"
                         if vroc_col in data.columns:
-                            indicator_cols_for_score = {'vroc': vroc_col}
-                            found = True
+                            current_indicator_cols_attempt = {'vroc': vroc_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'vroc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
                     elif indicator_key == 'aroc' and 'AROC' in indicator_naming:
                         p_aroc = col_lookup_params.get('period', 10)
                         aroc_col = f"AROC_{p_aroc}_{tf_suffix}"
                         if aroc_col in data.columns:
-                            indicator_cols_for_score = {'aroc': aroc_col}
-                            found = True
+                            current_indicator_cols_attempt = {'aroc': aroc_col}
+                            suffix_match_successful = True
                             # print(f"通过后缀匹配找到指标 'aroc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                            break
-                    elif indicator_key == 'pivot' and 'PIVOT_POINTS' in indicator_naming and str(tf_score).upper() == 'D':
+                    elif indicator_key == 'pivot' and 'PIVOT_POINTS' in naming_conventions.get('indicator_naming_conventions', {}) and str(tf_score).upper() == 'D':
                          # Pivot Points 通常只在日线计算
                          pivot_cols_base = [f"PP", f"S1", f"S2", f"S3", f"S4", f"R1", f"R2", f"R3", f"R4", f"F_R1", f"F_R2", f"F_R3", f"F_S1", f"F_S2", f"F_S3"]
                          pivot_cols_with_suffix = [f"{col}_{tf_suffix}" for col in pivot_cols_base]
                          close_col = f"close_{tf_suffix}"
-                         if all(col in data.columns for col in [close_col] + pivot_cols_with_suffix):
-                             indicator_cols_for_score = {'close': close_col, 'pivot_levels': pivot_cols_with_suffix}
-                             found = True
+                         # 检查 close 列和所有 pivot level 列是否存在
+                         if close_col in data.columns and all(col in data.columns for col in pivot_cols_with_suffix):
+                             current_indicator_cols_attempt = {'close': close_col, 'pivot_levels': pivot_cols_with_suffix}
+                             suffix_match_successful = True
                              # print(f"通过后缀匹配找到指标 'pivot' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
-                             break
 
-            # 移除模糊匹配逻辑
-            # if not found:
-            #     print(f"未找到精确匹配的列名，尝试模糊匹配指标 '{indicator_key}' 在时间框架 {tf_score}")
-            #     # ... (原模糊匹配逻辑) ...
-            #     # 检查是否收集到所有必要的列 (模糊匹配的检查逻辑需要根据指标类型细化)
-            #     # ... (原模糊匹配检查逻辑) ...
-            #     pass # 模糊匹配逻辑已移除
+                    # 如果通过当前后缀找到了所有必要的列，则使用这些列并标记找到，然后跳出后缀循环
+                    # 检查 current_indicator_cols_attempt 是否包含了 required_score_keys 中所有的 key
+                    # 对于 'pivot' 指标，需要特殊检查 'pivot_levels' key 对应的值是否是列表且非空
+                    required_keys_present = all(k in current_indicator_cols_attempt for k in required_score_keys)
+                    if indicator_key == 'pivot' and required_keys_present:
+                         if not (isinstance(current_indicator_cols_attempt.get('pivot_levels'), list) and current_indicator_cols_attempt['pivot_levels']):
+                              required_keys_present = False # pivot_levels 必须是列表且非空
 
-            # 修改：检查是否成功找到所有必要的列
-            all_required_cols_found = True
-            if indicator_key == 'pivot':
-                 # Pivot 需要 'close' 和一个非空的 'pivot_levels' 列表，且列表中的所有列都存在
-                 if 'close' not in indicator_cols_for_score or 'pivot_levels' not in indicator_cols_for_score or not isinstance(indicator_cols_for_score['pivot_levels'], list) or not indicator_cols_for_score['pivot_levels']:
-                     all_required_cols_found = False
-                 else:
-                     # 检查 'close' 列是否存在
-                     if indicator_cols_for_score['close'] not in data.columns:
-                         all_required_cols_found = False
-                     # 检查 'pivot_levels' 列表中的所有列是否存在
-                     if not all(col in data.columns for col in indicator_cols_for_score['pivot_levels']):
-                         all_required_cols_found = False
-            elif required_score_keys: # 对于大多数指标，检查 required_score_keys 中的所有 key 是否存在
-                if not all(k in indicator_cols_for_score for k in required_score_keys):
-                    all_required_cols_found = False
-                else:
-                    # 检查所有找到的列名是否存在于 DataFrame 中
-                    found_cols = [indicator_cols_for_score[k] for k in required_score_keys]
-                    if not all(col in data.columns for col in found_cols):
-                         all_required_cols_found = False
-            else:
-                 # 如果 required_score_keys 为空，说明该指标不需要特定列（这种情况较少，可能需要检查 indicator_cols_for_score 是否非空）
-                 if not indicator_cols_for_score:
-                      all_required_cols_found = False
+                    if suffix_match_successful and required_keys_present:
+                        indicator_cols_for_score = current_indicator_cols_attempt
+                        found = True
+                        break # Exit the suffix loop
 
 
-            if not all_required_cols_found:
+            # --- 查找结束，检查是否找到所有必要的列 ---
+            # 修改：在尝试完所有查找方法后，检查 found 标志
+            if not found:
                 # 修改日志信息，更清晰地说明查找失败的原因
                 logger.warning(f"未能为指标 '{indicator_key}' 在时间框架 {tf_score} 找到所有必要的数据列进行评分。尝试的后缀: {possible_tf_suffixes}. DataFrame 列名列表: {list(data.columns)}")
                 # 如果找不到列，则为该指标和时间框架的评分列填充默认值 50.0
