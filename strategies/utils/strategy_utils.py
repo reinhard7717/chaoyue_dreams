@@ -1916,7 +1916,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                       和 'timeframes' (需要计算评分的时间框架列表)，以及各指标的评分参数。
                       注意：这里的指标参数是策略配置中定义的，键名可能与评分函数参数名不同。
     :param indicator_configs: 由 indicator_services.prepare_strategy_dataframe 生成的，
-                              包含每个指标计算函数、参数、时间框架、输出列名的列表。用于查找列名。
+                              包含每个指标计算函数、参数、时间框架的列表。用于辅助查找列名。
     :return: 返回一个 DataFrame，包含所有时间框架和指标的评分列。
              列名格式: SCORE_{指标名}_{时间级别}。
              如果某个指标或时间框架的数据缺失或计算失败，对应的评分列将填充默认中性分 50.0。
@@ -1935,384 +1935,423 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
         return scoring_results
 
     logger.info(f"开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
-
-    # --- 集中配置指标的评分函数、所需内部键、列名前缀映射及参数映射 ---
+    # 加载 indicator_naming_conventions.json 文件中的命名规范
+    # naming_conventions_path = getattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH', None)
+    # naming_conventions = {}
+    # indicator_naming = {}
+    # derivative_naming = {}
+    # if naming_conventions_path:
+    #     try:
+    #         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
+    #             naming_conventions = json.load(f)
+    #         indicator_naming = naming_conventions.get('indicator_naming_conventions', {})
+    #         derivative_naming = naming_conventions.get('derivative_feature_naming_conventions', {})
+    #         logger.info(f"成功加载指标命名规范配置文件: {naming_conventions_path}")
+    #     except FileNotFoundError:
+    #         logger.error(f"指标命名规范配置文件未找到: {naming_conventions_path}，将使用默认命名逻辑。")
+    #     except json.JSONDecodeError:
+    #          logger.error(f"指标命名规范配置文件格式错误: {naming_conventions_path}，请检查JSON格式。将使用默认命名逻辑。")
+    #     except Exception as e:
+    #         logger.error(f"加载指标命名规范配置文件失败: {naming_conventions_path}: {e}，将使用默认命名逻辑。")
+    # else:
+    #      logger.warning("未配置 INDICATOR_PARAMETERS_CONFIG_PATH 路径，将使用默认命名逻辑。")
+    # 从 indicator_configs 中提取可能的列名信息 (优先使用此映射)
+    config_column_mapping_by_tf: Dict[str, Dict[str, List[str]]] = {} # {timeframe: {indicator_name: [col1, col2, ...]}}
+    for config in indicator_configs:
+        indicator_name = config.get('name', '').lower()
+        timeframe = str(config.get('timeframe', '')) # 确保是字符串
+        output_columns = config.get('output_columns', [])
+        if isinstance(output_columns, str):
+             output_columns = [output_columns]
+        if indicator_name and timeframe and output_columns:
+            if timeframe not in config_column_mapping_by_tf:
+                config_column_mapping_by_tf[timeframe] = {}
+            config_column_mapping_by_tf[timeframe][indicator_name] = output_columns
+            # logger.debug(f"从配置中提取指标 {indicator_name} 在时间框架 {timeframe} 的列名: {output_columns}") # 调试信息
+    # --- 集中配置指标的评分函数、所需内部键和列名前缀及参数映射 ---
     # 调整 indicator_scoring_info 结构，明确参数传递风格和映射
     indicator_scoring_info: Dict[str, Dict[str, Any]] = {
         'macd': { # File 2 signature: macd_series, macd_d, macd_h
             'func': calculate_macd_score, 'param_passing_style': 'none', # Based on File 2 signature
             'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
             'defaults': {}, # No defaults for params used in this function
-            'required_keys': ['macd_series', 'macd_d', 'macd_h'],
-            'prefix_map': {'MACD_': 'macd_series', 'MACDs_': 'macd_d', 'MACDh_': 'macd_h'} # MODIFIED: 新增前缀到内部键的映射
+            'required_keys': ['macd_series', 'macd_d', 'macd_h'], 'prefixes': ['MACD_', 'MACDh_', 'MACDs_']
         },
         'rsi': { # File 2 signature: rsi, params
             'func': calculate_rsi_score, 'param_passing_style': 'dict',
             'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
             'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
-            'required_keys': ['rsi'],
-             'prefix_map': {'RSI_': 'rsi'} # MODIFIED: 新增前缀到内部键的映射
+            'required_keys': ['rsi'], 'prefixes': ['RSI_']
         },
         'kdj': { # File 2 signature: k, d, j, params
             'func': calculate_kdj_score, 'param_passing_style': 'dict',
             'bs_param_key_to_score_func_arg': {'kdj_period': 'period', 'kdj_signal_period': 'signal_period', 'kdj_smooth_k_period': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'},
             'defaults': {'period': 9, 'signal_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
-            'required_keys': ['k', 'd', 'j'],
-            'prefix_map': {'K_': 'k', 'D_': 'd', 'J_': 'j'} # MODIFIED: 新增前缀到内部键的映射
+            'required_keys': ['k', 'd', 'j'], 'prefixes': ['K_', 'D_', 'J_']
         },
         'boll': { # File 2 signature: close, upper, mid, lower
            'func': calculate_boll_score, 'param_passing_style': 'none', # Based on File 2 signature
            'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
            'defaults': {}, # No defaults for params used in this function
-           'required_keys': ['close', 'upper', 'mid', 'lower'], # MODIFIED: 包含 'close'
-           'prefix_map': {'BBU_': 'upper', 'BBM_': 'mid', 'BBL_': 'lower'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
+           'required_keys': ['close', 'upper', 'mid', 'lower'], 'prefixes': ['BBL_', 'BBM_', 'BBU_']
         },
         'cci': { # File 2 signature: cci, params
            'func': calculate_cci_score, 'param_passing_style': 'dict',
            'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
            'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
-           'required_keys': ['cci'],
-           'prefix_map': {'CCI_': 'cci'} # MODIFIED: 新增前缀到内部键的映射
+           'required_keys': ['cci'], 'prefixes': ['CCI_']
         },
         'mfi': { # File 2 signature: mfi, params
            'func': calculate_mfi_score, 'param_passing_style': 'dict',
            'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
            'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
-           'required_keys': ['mfi'],
-           'prefix_map': {'MFI_': 'mfi'} # MODIFIED: 新增前缀到内部键的映射
+           'required_keys': ['mfi'], 'prefixes': ['MFI_']
         },
         'roc': { # File 2 signature: roc
            'func': calculate_roc_score, 'param_passing_style': 'none', # Based on File 2 signature
            'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
            'defaults': {}, # No defaults for params used in this function
-           'required_keys': ['roc'],
-           'prefix_map': {'ROC_': 'roc'} # MODIFIED: 新增前缀到内部键的映射
+           'required_keys': ['roc'], 'prefixes': ['ROC_']
         },
         'dmi': { # File 2 signature: pdi, ndi, adx, params
            'func': calculate_dmi_score, 'param_passing_style': 'dict',
            'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
            'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
-           'required_keys': ['pdi', 'ndi', 'adx'],
-           'prefix_map': {'PDI_': 'pdi', 'NDI_': 'ndi', 'ADX_': 'adx'} # MODIFIED: 新增前缀到内部键的映射
+           'required_keys': ['pdi', 'ndi', 'adx'], 'prefixes': ['PDI_', 'NDI_', 'ADX_']
         },
         'sar': { # File 2 signature: close, sar
            'func': calculate_sar_score, 'param_passing_style': 'none', # Based on File 2 signature
            'bs_param_key_to_score_func_arg': {}, # No params from bs_params passed to this function directly
            'defaults': {}, # No defaults for params used in this function
-           'required_keys': ['close', 'sar'], # MODIFIED: 包含 'close'
-           'prefix_map': {'SAR_': 'sar'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
+           'required_keys': ['close', 'sar'], 'prefixes': ['SAR_']
         },
         'stoch': { # File 2 signature: k, d, params
            'func': calculate_stoch_score, 'param_passing_style': 'dict',
            'bs_param_key_to_score_func_arg': {'stoch_k_period': 'k_period', 'stoch_d_period': 'd_period', 'stoch_smooth_k_period': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'},
            'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
-           'required_keys': ['k', 'd'],
-           'prefix_map': {'STOCHk_': 'k', 'STOCHd_': 'd'} # MODIFIED: 新增前缀到内部键的映射
+           'required_keys': ['k', 'd'], 'prefixes': ['STOCHk_', 'STOCHd_']
         },
         'ema': { # File 2 signature: close, ma, params
            'func': calculate_ma_score, 'param_passing_style': 'dict',
            'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
-           'defaults': {'period': 20},
-           'required_keys': ['close', 'ma'], # MODIFIED: 包含 'close'
-           'prefix_map': {'EMA_': 'ma'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
-        },
+           'defaults': {'period': 20}, 'required_keys': ['close', 'ma'], 'prefixes': ['EMA_']},
         'sma': { # File 2 signature: close, ma, params
            'func': calculate_ma_score, 'param_passing_style': 'dict',
            'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
-           'defaults': {'period': 20},
-           'required_keys': ['close', 'ma'], # MODIFIED: 包含 'close'
-           'prefix_map': {'SMA_': 'ma'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
+           'defaults': {'period': 20}, 'required_keys': ['close', 'ma'], 'prefixes': ['SMA_']
         },
         'atr': { # File 2 signature: atr
            'func': calculate_atr_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['atr'],
-           'prefix_map': {'ATR_': 'atr'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['atr'], 'prefixes': ['ATR_']
         },
         'adl': { # File 2 signature: adl
            'func': calculate_adl_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['adl'],
-           'prefix_map': {'ADL_': 'adl'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['adl'], 'prefixes': ['ADL_']
         },
         'vwap': { # File 2 signature: close, vwap
            'func': calculate_vwap_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['close', 'vwap'], # MODIFIED: 包含 'close'
-           'prefix_map': {'VWAP_': 'vwap'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'vwap'], 'prefixes': ['VWAP_']
         },
         'ichimoku': { # File 2 signature: close, tenkan, kijun, senkou_a, senkou_b, chikou
            'func': calculate_ichimoku_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], # MODIFIED: 包含 'close'
-           'prefix_map': {'TENKAN_': 'tenkan', 'KIJUN_': 'kijun', 'SENKOU_A_': 'senkou_a', 'SENKOU_B_': 'senkou_b', 'CHIKOU_': 'chikou'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], 'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_']
         },
         'mom': { # File 2 signature: mom
            'func': calculate_mom_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['mom'],
-           'prefix_map': {'MOM_': 'mom'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['mom'], 'prefixes': ['MOM_']
         },
         'willr': { # File 2 signature: willr
            'func': calculate_willr_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['willr'],
-           'prefix_map': {'WILLR_': 'willr'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['willr'], 'prefixes': ['WILLR_']
         },
         'cmf': { # File 2 signature: cmf
            'func': calculate_cmf_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['cmf'],
-           'prefix_map': {'CMF_': 'cmf'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['cmf'], 'prefixes': ['CMF_']
         },
         'obv': { # File 2 signature: obv, obv_ma=None, obv_ma_period=None
            'func': calculate_obv_score, 'param_passing_style': 'individual', # Can accept obv_ma and obv_ma_period individually
            'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, # This parameter is passed individually
            'defaults': {'obv_ma_period': 10},
-           'required_keys': ['obv'], # MODIFIED: obv_ma 是可选的 Series，不强制列在 required_keys
-           'prefix_map': {'OBV_': 'obv', 'OBV_MA_': 'obv_ma'} # MODIFIED: 新增OBV及其MA的前缀映射
+           'required_keys': ['obv'], 'prefixes': ['OBV_'] # Required key is 'obv', 'obv_ma' is optional for scoring function
         },
         'kc': { # File 2 signature: close, upper, mid, lower
            'func': calculate_kc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['close', 'upper', 'mid', 'lower'], # MODIFIED: 包含 'close'
-           'prefix_map': {'KCU_': 'upper', 'KCM_': 'mid', 'KCL_': 'lower'} # MODIFIED: 新增前缀到内部键的映射 (不包含 close)
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['close', 'upper', 'mid', 'lower'], 'prefixes': ['KCL_', 'KCM_', 'KCU_']
         },
         'hv': { # File 2 signature: hv
            'func': calculate_hv_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['hv'],
-           'prefix_map': {'HV_': 'hv'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['hv'], 'prefixes': ['HV_']
         },
         'vroc': { # File 2 signature: vroc
            'func': calculate_vroc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['vroc'],
-           'prefix_map': {'VROC_': 'vroc'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['vroc'], 'prefixes': ['VROC_']
         },
         'aroc': { # File 2 signature: aroc
            'func': calculate_aroc_score, 'param_passing_style': 'none', # Based on File 2 signature
-           'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-           'required_keys': ['aroc'],
-           'prefix_map': {'AROC_': 'aroc'} # MODIFIED: 新增前缀到内部键的映射
+           'bs_param_key_to_score_func_arg': {}, 'defaults': {}, 'required_keys': ['aroc'], 'prefixes': ['AROC_']
         },
         'pivot': { # File 2 signature: close, pivot_levels, tf, params
            'func': calculate_pivot_score, 'param_passing_style': 'dict', # Accepts params: Dict
            'bs_param_key_to_score_func_arg': {}, # No params from bs_params go into the 'params' dict currently defined in File 2
            'defaults': {}, # No defaults for params dict in File 2 currently
-           'required_keys': ['close', 'pivot_levels'], # MODIFIED: Pivot 需要 close 和一个包含各个 level series 的字典
-           # MODIFIED: Pivot 的 prefix_map 映射基础名到内部键
-           'prefix_map': {"PP": "PP", "S1": "S1", "S2": "S2", "S3": "S3", "S4": "S4", "R1": "R1", "R2": "R2", "R3": "R3", "R4": "R4", "F_R1": "F_R1", "F_R2": "F_R2", "F_R3": "F_R3", "F_S1": "F_S1", "F_S2": "F_S2", "F_S3": "F_S3"}
+           'required_keys': ['close', 'pivot_levels'], 'prefixes': [] # Requires close series and a dict/list for pivot_levels
         }
     }
-
     # 遍历需要评分的指标 key 和时间框架
     for indicator_key in score_indicators_keys:
         info = indicator_scoring_info.get(indicator_key)
         if not info:
              logger.warning(f"指标 '{indicator_key}' 未找到对应的评分函数定义或配置，跳过评分计算。")
              continue # 跳过当前指标的所有时间框架
-
-        score_func = info.get('func') # MODIFIED: 使用 .get 安全获取
-        required_score_keys = info.get('required_keys', []) # MODIFIED: 使用 .get 安全获取，提供默认空列表
-        prefix_map = info.get('prefix_map', {}) # MODIFIED: 使用 .get 安全获取，提供默认空字典
-        param_passing_style = info.get('param_passing_style', 'none') # MODIFIED: 使用 .get 安全获取
-        bs_param_key_to_score_func_arg = info.get('bs_param_key_to_score_func_arg', {}) # MODIFIED: 使用 .get 安全获取
-        defaults = info.get('defaults', {}) # MODIFIED: 使用 .get 安全获取
-
+        score_func = info['func']
+        required_score_keys = info['required_keys']
+        column_pattern_prefixes = info['prefixes']
+        # MODIFIED: 获取参数传递风格和映射
+        param_passing_style = info['param_passing_style']
+        bs_param_key_to_score_func_arg = info['bs_param_key_to_score_func_arg']
+        defaults = info['defaults']
         if score_func is None:
-             logger.warning(f"评分函数 calculate_{indicator_key}_score 未定义或未在 indicator_scoring_info 中配置 func，无法计算指标 '{indicator_key}' 的评分。")
+             logger.warning(f"评分函数 calculate_{indicator_key}_score 未定义，无法计算指标 '{indicator_key}' 的评分。")
              continue
-
         # 遍历需要计算评分的时间框架
         for tf_score in score_timeframes:
-            indicator_cols_for_score: Dict[str, str | Dict[str, pd.Series]] = {}  # {内部 key: 实际列名 或 {Pivot Level 内部键: Series}}
+            indicator_cols_for_score: Dict[str, str | List[str]] = {}  # {内部 key: 实际列名 或 [实际列名列表]}
             found = False # 标记是否成功找到所有必要的列 (重置每个时间框架)
-            tf_score_str = str(tf_score) # 确保时间框架是字符串
-
-            # --- 查找当前时间框架下的指标列，使用 indicator_configs 优先 ---
-            # 过滤 indicator_configs 找到匹配当前指标和时间框架的配置项
-            matching_configs = [
-                cfg for cfg in indicator_configs
-                if cfg.get('name', '').lower() == indicator_key.lower() and str(cfg.get('timeframe', '')) == tf_score_str
+            tf_score_str = str(tf_score) # 确保时间框架是字符串，用于后缀匹配
+            # 构建可能的时间框架后缀列表
+            possible_tf_suffixes = [
+                tf_score_str, f"{tf_score_str}m", f"{tf_score_str}min", tf_score_str.upper(),
+                f"{tf_score_str}M", f"{tf_score_str}MIN", f"T{tf_score_str}", f"t{tf_score_str}"
             ]
-
-            # 尝试使用找到的第一个匹配配置项来查找列
-            if matching_configs:
-                # MODIFIED: 遍历所有匹配的 config，尝试找到一个完整的
-                for config in matching_configs:
-                    output_columns_from_config = config.get('output_columns', [])
-                    if isinstance(output_columns_from_config, str):
-                         output_columns_from_config = [output_columns_from_config] # Ensure it's a list
-
-                    current_mapped_cols: Dict[str, str | Dict[str, pd.Series]] = {}
-                    all_required_present = True # 标记当前 config 是否包含了所有必需列
-
-                    # 处理特殊的必需键: 'close'
-                    if 'close' in required_score_keys:
-                         # 假设 close 列的命名规范是 close_{timeframe}
-                         close_col_name = f"close_{tf_score_str}"
-                         if close_col_name in data.columns:
-                              current_mapped_cols['close'] = close_col_name
-                         else:
-                              logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 需要 close 列，但未找到 '{close_col_name}'。")
-                              all_required_present = False
-
-                    # 处理特殊的必需键: 'pivot_levels' (仅用于 'pivot' 指标)
-                    if indicator_key == 'pivot' and 'pivot_levels' in required_score_keys:
-                         # Pivot 评分函数期望 pivot_levels 是一个 {level_key: Series} 字典
-                         pivot_levels_series_dict_for_score: Dict[str, pd.Series] = {}
-                         pivot_level_keys = list(prefix_map.values()) # 获取所有 Pivot Level 的内部键 (如 PP, R1, S1...)
-                         all_pivot_levels_found_as_series = True
-                         # 遍历 output_columns_from_config，尝试映射到 pivot level keys
-                         for col_name in output_columns_from_config:
-                             # 从列名中提取基础名和时间框架后缀，例如 'PP_D' -> 'PP', 'D'
-                             parts = col_name.rsplit('_', 1)
-                             if len(parts) == 2:
-                                 base_name, suffix = parts
-                                 if suffix == tf_score_str and base_name in pivot_level_keys:
-                                     # 如果是当前时间框架的 Pivot level 列且存在于 DataFrame
-                                     if col_name in data.columns:
-                                          pivot_levels_series_dict_for_score[base_name] = data[col_name]
-                                     else:
-                                          logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 output_columns '{col_name}' 不在 DataFrame 中。")
-                                          all_pivot_levels_found_as_series = False
-                                          break # 只要有一个 output column 不在 data 中，当前 config 就不完整
-                             else:
-                                 # 如果 output_columns 格式不符合预期，则当前 config 无效
-                                  logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 output_columns '{col_name}' 格式不符合 Pivot 预期。")
-                                  all_pivot_levels_found_as_series = False
-                                  break
-
-                         # 检查是否所有预期的 Pivot level 键都在字典中找到了对应的 Series
-                         if all_pivot_levels_found_as_series and len(pivot_levels_series_dict_for_score) == len(pivot_level_keys):
-                              current_mapped_cols['pivot_levels'] = pivot_levels_series_dict_for_score
-                         else:
-                              logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 未能从 output_columns 完整映射到所有 pivot_levels 内部键。")
-                              all_required_present = False # 未找到所有 Pivot levels
-                    elif 'pivot_levels' in required_score_keys:
-                        # 如果不是 pivot 指标但 required_keys 里有 'pivot_levels'，说明配置错误
-                         logger.error(f"指标 '{indicator_key}' 的 required_keys 包含了 'pivot_levels'，但它不是 'pivot' 指标。请检查配置。")
-                         all_required_present = False
-
-
-                    # 处理其他必需键 (使用 prefix_map 进行映射)
-                    if all_required_present: # 如果前面的特殊键检查通过
-                        for internal_key in required_score_keys:
-                            if internal_key in ['close', 'pivot_levels']: continue # 这些已在上面处理
-
-                            # 从 prefix_map 找到 internal_key 对应的列名前缀
-                            # 需要构建一个从 internal_key 到 prefix 的逆映射
-                            reverse_prefix_map = {v: k for k, v in prefix_map.items()}
-                            expected_prefix = reverse_prefix_map.get(internal_key)
-
-                            if expected_prefix is None:
-                                 # 如果 internal_key 没有对应的 prefix 映射，可能是配置错误
-                                 logger.error(f"指标 '{indicator_key}' 的内部键 '{internal_key}' 未在 prefix_map 中找到对应的列名前缀。请检查配置。")
-                                 all_required_present = False
-                                 break
-
-                            # 在 output_columns_from_config 中查找以 expected_prefix 开头且以 tf_score_str 结尾的列
-                            # 注意：output_columns 通常已经包含了完整的列名，包括参数和时间框架
-                            # 更好的做法是直接在 output_columns 中寻找符合 "prefix + * + _tf" 或 "prefix + _tf" 模式的列
-                            # 考虑到 output_columns 就是实际生成的列名，我们可以直接检查 output_columns 列表中的每一项
-                            # 哪一项与 internal_key 对应？这里仍然需要 prefix_map 的逆映射
-                            # 例如 output_columns 有 'MACD_12_26_9_D', 'MACDh_12_26_9_D', 'MACDs_12_26_9_D'
-                            # required_keys 有 'macd_series', 'macd_d', 'macd_h'
-                            # 我们需要知道 'MACD_' 对应 'macd_series', 'MACDh_' 对应 'macd_h', 'MACDs_' 对应 'macd_d'
-                            # 所以，遍历 output_columns，根据其前缀匹配到 internal_key
-                            # 理论上，一个 output_column 应该唯一对应一个 required_key (除非是 special case)
-
-                            found_col_for_key = None
-                            for col_name in output_columns_from_config:
-                                 # 查找哪个 internal_key 对应的 prefix 是这个 col_name 的前缀
-                                 for pfx, int_key in prefix_map.items():
-                                     # 确保 internal_key 是当前循环处理的 internal_key
-                                     if int_key == internal_key and col_name.startswith(pfx):
-                                         # 找到匹配的列名，检查它是否在 data 中
-                                         if col_name in data.columns:
-                                              found_col_for_key = col_name
-                                              break # 找到就跳出内层循环
-                                 if found_col_for_key: break # 找到就跳出 output_columns 循环
-
-                            if found_col_for_key:
-                                 current_mapped_cols[internal_key] = found_col_for_key
+            # 确保日线时间框架 'D' 被正确处理，并移除数字后缀
+            if tf_score_str.upper() == 'D':
+                 possible_tf_suffixes = ['D', 'd']
+            # 移除重复项并保持顺序
+            possible_tf_suffixes = list(dict.fromkeys(possible_tf_suffixes))
+            # --- 查找当前时间框架下的指标列 ---
+            # 优先尝试使用 indicator_configs 提供的列名映射
+            tf_config_mapping = config_column_mapping_by_tf.get(tf_score_str, {})
+            config_cols = tf_config_mapping.get(indicator_key, [])
+            if config_cols:
+                current_indicator_cols_attempt: Dict[str, str | List[str]] = {}
+                config_mapping_successful = False
+                 # 根据指标类型，从 config_cols 中提取对应的列名并检查是否存在
+                 # MODIFIED: 改进 config_column_mapping 处理逻辑，特别是多列指标和特殊列 (close, pivot_levels)
+                all_config_cols_exist = True
+                temp_cols_from_config: Dict[str, str | List[str]] = {} # 暂存映射结果
+                if indicator_key == 'pivot' and tf_score_str.upper() == 'D':
+                    # Pivot 需要 close 列和 pivot_levels 列表
+                    close_col = f"close_{tf_score_str}" if f"close_{tf_score_str}" in data.columns else None
+                    if close_col:
+                        temp_cols_from_config['close'] = close_col
+                        # config_cols 应该是 pivot levels 的列表
+                        if 'pivot_levels' in required_score_keys and isinstance(config_cols, list) and config_cols:
+                            # 检查 config_cols 中的所有列是否存在
+                            if all(col in data.columns for col in config_cols):
+                                    temp_cols_from_config['pivot_levels'] = config_cols
                             else:
-                                 logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} (config) 未找到内部键 '{internal_key}' 对应的列。检查 output_columns ({output_columns_from_config}) 和 prefix_map ({prefix_map})。")
-                                 all_required_present = False
-                                 break # 只要有一个必需列未找到，当前 config 就不完整
-
-                    # 如果当前 config 包含所有必需列并且都存在于 DataFrame 中
-                    if all_required_present:
-                         indicator_cols_for_score = current_mapped_cols
-                         found = True
-                         # logger.debug(f"通过 indicator_configs 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的所有必需列。")
-                         break # 找到一组完整的列，跳出 config 循环
-
-            # 如果通过 indicator_configs 未找到完整的必需列，打印警告并跳过当前指标/时间框架
-            if not found:
-                logger.warning(f"未能为指标 '{indicator_key}' 在时间框架 {tf_score_str} 找到所有必要的数据列进行评分。请检查 indicator_configs 是否包含该指标在该时间框架下的配置，以及相应的输出列是否在 DataFrame 中存在。")
-                logger.debug(f"尝试查找所需的内部键: {required_score_keys}. 期望的前缀映射: {prefix_map}.")
-                # 尝试列出该时间框架下匹配任何前缀的实际存在的列，用于调试
-                relevant_cols_for_tf = []
-                possible_tf_suffixes = [
-                    tf_score_str, f"{tf_score_str}m", f"{tf_score_str}min", tf_score_str.upper(),
-                    f"{tf_score_str}M", f"{tf_score_str}MIN", f"T{tf_score_str}", f"t{tf_score_str}"
-                ]
-                 # 确保日线时间框架 'D' 被正确处理，并移除数字后缀
-                if tf_score_str.upper() == 'D':
-                    possible_tf_suffixes = ['D', 'd']
-                # 移除重复项并保持顺序
-                possible_tf_suffixes = list(dict.fromkeys(possible_tf_suffixes))
-                all_prefixes = list(prefix_map.keys()) # 获取所有已知前缀
+                                    all_config_cols_exist = False
+                                    logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中部分 pivot_levels 列在 DataFrame 中不存在。") # MODIFIED: 增加日志
+                        else:
+                            all_config_cols_exist = False
+                            logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中需要 pivot_levels，但 config_cols 格式不正确或为空。") # MODIFIED: 增加日志
+                    else:
+                        all_config_cols_exist = False
+                        logger.warning(f"指标 'pivot' 在时间框架 {tf_score} 的配置映射中需要 close 列，但未找到 {f'close_{tf_score_str}'}。") # MODIFIED: 增加日志
+                elif 'close' in required_score_keys: # 其他需要 close 列的指标
+                    close_col = f"close_{tf_score_str}" if f"close_{tf_score_str}" in data.columns else None
+                    if close_col:
+                        temp_cols_from_config['close'] = close_col
+                        # 检查 config_cols 中提供的列是否存在
+                        if all(col in data.columns for col in config_cols):
+                            # 尝试根据 required_score_keys 映射 config_cols 到 internal_key
+                            # 这个映射逻辑依赖于 config_cols 的顺序或命名规范，比较脆弱。
+                            # 最好是在 indicator_configs 中就提供 internal_key -> col_name 的映射
+                            # 暂且假设 config_cols 严格按照 required_score_keys 中除了 'close' 之外的顺序
+                            other_required_keys = [k for k in required_score_keys if k not in ['close', 'pivot_levels']]
+                            if len(config_cols) == len(other_required_keys):
+                                temp_cols_from_config.update(dict(zip(other_required_keys, config_cols)))
+                            else:
+                                all_config_cols_exist = False
+                                logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 数量与 required_score_keys ({other_required_keys}) 不匹配，尝试后缀匹配。") # MODIFIED: 增加日志
+                        else:
+                            all_config_cols_exist = False
+                            logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 在 DataFrame 中不存在。") # MODIFIED: 增加日志
+                    else:
+                        all_config_cols_exist = False
+                        logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的配置映射中需要 close 列，但未找到 {f'close_{tf_score_str}'}。") # MODIFIED: 增加日志
+                else: # 不需要 close 列的指标
+                    # 检查 config_cols 中提供的列是否存在
+                    if all(col in data.columns for col in config_cols):
+                        # 尝试根据 required_score_keys 映射 config_cols 到 internal_key
+                        # 暂且假设 config_cols 严格按照 required_score_keys 的顺序
+                        if len(config_cols) == len(required_score_keys):
+                            temp_cols_from_config = dict(zip(required_score_keys, config_cols))
+                        else:
+                            all_config_cols_exist = False
+                            logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 数量与 required_score_keys ({required_score_keys}) 不匹配，尝试后缀匹配。") # MODIFIED: 增加日志
+                    else:
+                        all_config_cols_exist = False
+                        logger.warning(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config_cols ({config_cols}) 在 DataFrame 中不存在。") # MODIFIED: 增加日志
+                 # 如果所有必需列都找到了 (通过配置映射)
+                required_keys_from_config_present = all(k in temp_cols_from_config for k in required_score_keys)
+                # 特别处理 Pivot，确保 'pivot_levels' 键存在且对应一个非空列表
+                if indicator_key == 'pivot' and 'pivot_levels' in required_score_keys:
+                    if not (isinstance(temp_cols_from_config.get('pivot_levels'), list) and temp_cols_from_config['pivot_levels']):
+                        required_keys_from_config_present = False
+                if all_config_cols_exist and required_keys_from_config_present:
+                    indicator_cols_for_score = temp_cols_from_config
+                    found = True
+                    # logger.debug(f"通过 config_column_mapping 找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列。") # 调试信息
+        # 如果 config_column_mapping 未找到或不完整，尝试使用后缀匹配和参数解析
+        if not found:
+            # logger.debug(f"config_column_mapping 未成功找到，尝试后缀匹配指标 '{indicator_key}' 在时间框架 {tf_score}") # 调试信息
+            for tf_suffix in possible_tf_suffixes:
+                # 特殊处理 Pivot，Pivot 列名不包含参数，且通常只在日线 D 计算
                 if indicator_key == 'pivot':
-                    # Pivot 需要 base name 作为前缀
-                    all_prefixes.extend(list(info.get('prefix_map', {}).keys()))
-                all_prefixes = list(dict.fromkeys(all_prefixes)) # 去重
-
-                for col in data.columns:
-                     for pfx in all_prefixes:
-                         for suffix in possible_tf_suffixes:
-                             if col.startswith(pfx) and col.endswith(f"_{suffix}"):
-                                 relevant_cols_for_tf.append(col)
-                                 break # 避免重复添加
-                         if col in relevant_cols_for_tf: break # 如果已添加，跳到下一个列
-
-                 # 特殊处理 close 列
-                for suffix in possible_tf_suffixes:
-                     close_col_name = f"close_{suffix}"
-                     if close_col_name in data.columns and close_col_name not in relevant_cols_for_tf:
-                         relevant_cols_for_tf.append(close_col_name)
-
-
-                logger.info(f"DataFrame 中与该时间框架 ({tf_score_str}) 匹配的 '{indicator_key}' 相关列列表 (基于前缀/后缀): {relevant_cols_for_tf}.")
-
+                    if tf_suffix.upper() != 'D': continue # Pivot通常只在日线计算
+                    # 查找所有 Pivot level 列 (根据命名规范的基础名)
+                    pivot_cols_base = ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"] # 根据 convention 文件
+                    pivot_cols_with_suffix = [f"{col}_{tf_suffix}" for col in pivot_cols_base]
+                    close_col = f"close_{tf_suffix}"
+                    # 检查 close 列和所有 pivot level 列是否存在
+                    if close_col in data.columns and all(col in data.columns for col in pivot_cols_with_suffix):
+                        # Pivot 评分函数期望 pivot_levels 参数是一个 {internal_key: Series} 字典
+                        pivot_series_dict = {
+                            p_base: data[f"{p_base}_{tf_suffix}"]
+                            for p_base in pivot_cols_base if f"{p_base}_{tf_suffix}" in data.columns
+                        }
+                        # 确保所有预期的 level keys 都有对应的 Series
+                        # 这里需要一个从 Pivot base name 到 internal key 的映射，例如 "PP" -> "PP" (假设), "R1" -> "R1"
+                        # 简化处理，直接使用列名作为 internal key 传入评分函数（如果评分函数能处理）
+                        # 或者构建一个 {internal_key: Series} 字典，internal_key 需要与评分函数期望的键一致
+                        # 根据 File 2 的 calculate_pivot_score(..., pivot_levels: Dict[str, pd.Series], ...)，它期望键是字符串，值是 Series
+                        # 这里直接使用列名前缀 (如 'PP', 'R1') 作为字典的键
+                        pivot_levels_series_dict_for_score: Dict[str, pd.Series] = {}
+                        all_pivot_levels_found_as_series = True
+                        for p_base in pivot_cols_base:
+                            col_name = f"{p_base}_{tf_suffix}"
+                            if col_name in data.columns:
+                                # Use the base name (PP, R1, S1 etc.) as the key for the scoring function
+                                pivot_levels_series_dict_for_score[p_base] = data[col_name]
+                            else:
+                                all_pivot_levels_found_as_series = False
+                                break # 缺少任何一个 Pivot level 列，就认为未找到
+                        if all_pivot_levels_found_as_series and close_col in data.columns:
+                            indicator_cols_for_score = {'close': close_col, 'pivot_levels': pivot_levels_series_dict_for_score}
+                            found = True
+                        # logger.debug(f"通过后缀匹配找到指标 'pivot' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}") # 调试信息
+                    break # Pivot处理完成后跳出后缀循环
+                # 对于其他指标，查找符合模式和后缀的列
+                potential_cols = [c for c in data.columns if any(c.startswith(prefix) for prefix in column_pattern_prefixes) and c.endswith(f"_{tf_suffix}")]
+                if not potential_cols:
+                    # logger.debug(f"在时间框架 {tf_score} 使用后缀 {tf_suffix} 未找到符合模式 {column_pattern_prefixes} 的列。") # 调试信息
+                    continue # 尝试下一个后缀
+                # 选择第一个找到的潜在列作为参考，尝试解析其参数
+                reference_col = potential_cols[0]
+                # logger.debug(f"找到参考列: {reference_col}，尝试解析参数...") # 调试信息
+                # 使用 parse_col_params 助手函数解析参数
+                params = parse_col_params(reference_col, indicator_key, tf_suffix)
+                if params is None:
+                    # logger.debug(f"从参考列 {reference_col} 解析参数失败，尝试下一个后缀。") # 调试信息
+                    continue # 参数解析失败，尝试下一个后缀
+                # 如果参数解析成功 (或指标无参数)，构建所有必需列的预期列名并检查是否存在
+                expected_cols: Dict[str, str] = {}
+                all_required_cols_found_with_params = True
+                # 遍历必需的内部 key，构建对应的列名并检查
+                for internal_key in required_score_keys:
+                    # 特殊处理不需要通过 build_expected_col_name 构建的 key (如 Pivot levels)
+                    if indicator_key == 'pivot' and internal_key == 'pivot_levels':
+                        # Pivot levels 已在上方特殊处理
+                        continue
+                    # 特殊处理 OBV_MA，需要使用 OBV_MA 的周期参数，而不是基础指标的参数
+                    if indicator_key == 'obv' and internal_key == 'obv_ma':
+                        # OBV 评分函数签名是 calculate_obv_score(obv, obv_ma=None, obv_ma_period=None)
+                        # OBV_MA Series 是一个可选参数，其列名需要 OBV_MA_period_tf 模式查找
+                        # 即使 obv_ma 在 required_score_keys 里，这里也只尝试查找列名，并不会中断 found=False
+                        # OBV_MA 列名需要 OBV_MA 的周期参数，从 bs_params 中获取
+                        obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
+                        obv_ma_params = [obv_ma_period] # OBV_MA 参数列表只包含其周期
+                        expected_col_name = build_expected_col_name(indicator_key, internal_key, obv_ma_params, tf_suffix)
+                    else:
+                        # 其他指标使用解析出的参数 params
+                        expected_col_name = build_expected_col_name(indicator_key, internal_key, params, tf_suffix)
+                    if expected_col_name and expected_col_name in data.columns:
+                        expected_cols[internal_key] = expected_col_name
+                        # logger.debug(f"找到必需列: {expected_col_name} (内部 key: {internal_key})") # 调试信息
+                    else:
+                        # 如果是 OBV_MA 未找到，它不是评分必需的，不中断查找
+                        if indicator_key == 'obv' and internal_key == 'obv_ma':
+                            logger.debug(f"为指标 '{indicator_key}' 在时间框架 {tf_score} (后缀: {tf_suffix}) 未找到可选列 '{expected_col_name}' (内部 key: {internal_key})。") # MODIFIED: 增加日志
+                        else:
+                            # 其他必需列未找到，当前参数组和后缀不匹配
+                            all_required_cols_found_with_params = False
+                            # logger.debug(f"未找到必需列: {expected_col_name} (内部 key: {internal_key})") # 调试信息
+                            break # 只要有一个必需列未找到，当前参数组和后缀就不匹配
+                    # 如果所有必需列都找到了 (包括非 OBV_MA 的必需列)
+                    if all_required_cols_found_with_params:
+                        # 成功找到了一组具有相同参数和时间框架后缀的指标列
+                        # 再次检查并添加 OBV_MA 列，如果它存在且评分函数需要
+                        if indicator_key == 'obv' and 'obv_ma' in info['required_keys']: # 检查info['required_keys']看是否需要OBV_MA series
+                            obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
+                            obv_ma_params = [obv_ma_period]
+                            expected_obv_ma_col_name = build_expected_col_name(indicator_key, 'obv_ma', obv_ma_params, tf_suffix)
+                            if expected_obv_ma_col_name and expected_obv_ma_col_name in data.columns:
+                                expected_cols['obv_ma'] = expected_obv_ma_col_name
+                            else:
+                                # 如果 OBV_MA 是必需的但没找到，则当前后缀查找失败
+                                # Note: 根据File 2的OBV评分函数签名，obv_ma是Optional，即使没找到，评分函数也能运行
+                                # 这里的逻辑需要与评分函数实际是否*必须*使用obv_ma保持一致。
+                                # 假设如果配置了obv_ma_period且评分函数签名有obv_ma参数，就尝试找obv_ma列并传入
+                                # 如果没找到，就传入 None 给 obv_ma 参数，评分函数内部处理 None
+                                # 所以这里找到 OBV 主列就够了，OBV_MA 找不到不影响 found 状态
+                                logger.debug(f"为指标 '{indicator_key}' 在时间框架 {tf_score} (后缀: {tf_suffix}) 未找到可选的 OBV_MA 列: {expected_obv_ma_col_name}") # MODIFIED: 增加日志
+                        indicator_cols_for_score = expected_cols
+                        found = True
+                        # logger.debug(f"通过后缀匹配找到指标 '{indicator_key}' 在时间框架 {tf_score} 的所有必需列，使用后缀 {tf_suffix} 和参数 {params}") # 调试信息
+                        break # 找到匹配项，跳出后缀循环
+                # 在尝试所有后缀后，如果 still not found，打印错误信息
+                if not found:
+                    logger.warning(f"未能为指标 '{indicator_key}' 在时间框架 {tf_score} 找到所有必要的数据列进行评分。")
+                    logger.info(f"尝试查找所需的内部键: {required_score_keys}. 尝试的后缀: {possible_tf_suffixes}.")
+                    # 尝试列出该时间框架下匹配任何前缀的列
+                    if indicator_key == 'pivot':
+                        # 对于 Pivot，列出所有 Pivot 相关列
+                        pivot_cols_base = ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"]
+                        relevant_cols_for_tf = [f"{col}_{tf_suffix}" for col in pivot_cols_base for tf_suffix in possible_tf_suffixes]
+                        close_col_tf_list = [f"close_{tf_suffix}" for tf_suffix in possible_tf_suffixes]
+                        relevant_cols_for_tf.extend(close_col_tf_list)
+                        relevant_cols_for_tf = list(dict.fromkeys(relevant_cols_for_tf)) # 去重
+                        relevant_cols_for_tf = [c for c in relevant_cols_for_tf if c in data.columns] # 只保留实际存在的列
+                    else:
+                        relevant_cols_for_tf = [c for c in data.columns if any(c.startswith(prefix) for prefix in column_pattern_prefixes) and any(c.endswith(f"_{s}") for s in possible_tf_suffixes)]
+                        logger.info(f"DataFrame 中与该时间框架匹配的 '{indicator_key}' 相关列列表: {relevant_cols_for_tf}.")
+                    # logger.debug(f"DataFrame 所有列列表: {list(data.columns)}.") # 打印所有列名，可能很长
             # --- 调用评分函数并存储结果 ---
             if found:
                 try:
                     # 准备评分函数的参数字典
                     score_func_args: Dict[str, Any] = {}
                     # 传入指标数据 Series
-                    for internal_key, col_info in indicator_cols_for_score.items():
-                        # MODIFIED: 处理 pivot_levels，它是一个 Dict[str, pd.Series]
-                        if indicator_key == 'pivot' and internal_key == 'pivot_levels' and isinstance(col_info, dict):
+                    for internal_key, actual_col_name in indicator_cols_for_score.items():
+                        # MODIFIED: 特殊处理 pivot_levels，它在 indicator_cols_for_score 中已经是一个 {internal_key: Series} 字典
+                        if indicator_key == 'pivot' and internal_key == 'pivot_levels' and isinstance(actual_col_name, dict):
                             # 直接将这个字典作为 'pivot_levels' 参数传入
-                            score_func_args['pivot_levels'] = col_info
-                        elif isinstance(col_info, str) and col_info in data.columns:
+                            score_func_args['pivot_levels'] = actual_col_name
+                        elif isinstance(actual_col_name, str) and actual_col_name in data.columns:
                             # 将实际 Series 赋值给评分函数期望的参数名 (internal_key)
-                            score_func_args[internal_key] = data[col_info]
+                            score_func_args[internal_key] = data[actual_col_name]
                         else:
                             # 理论上 found=True 应该保证列存在，这里是双重检查
                             # 对于 Pivot level 列表形式的 actual_col_name，这里不应该处理，应该在上面 special case 处理
                             # 这里的 else 应该只处理 str 类型的 actual_col_name 不存在的情况
-                            if isinstance(col_info, str):
-                                logger.error(f"内部错误: 期望列 '{col_info}' (内部 key: '{internal_key}') 在 DataFrame 中未找到，尽管 'found' 为 True。")
-                                raise KeyError(f"Missing column {col_info}")
+                            if isinstance(actual_col_name, str):
+                                logger.error(f"内部错误: 期望列 '{actual_col_name}' (内部 key: '{internal_key}') 在 DataFrame 中未找到，despite 'found' is True.")
+                                raise KeyError(f"Missing column {actual_col_name}")
                             else:
-                                # 如果 col_info 不是 string 也不是 dict (for pivot_levels)，说明有问题
-                                logger.error(f"内部错误: 期望的列信息不是字符串或 pivot_levels 字典。internal_key: '{internal_key}', col_info: {col_info}")
-                                raise ValueError(f"Invalid col_info type for internal key {internal_key}")
-
+                                # 如果 actual_col_name 不是 string 也不是 dict (for pivot_levels)，说明有问题
+                                logger.error(f"内部错误: 期望的实际列名不是字符串或 pivot_levels 字典。internal_key: '{internal_key}', actual_col_name: {actual_col_name}")
+                                raise ValueError(f"Invalid actual_col_name type for internal key {internal_key}")
                     # 传入评分逻辑参数 (根据 param_passing_style)
                     if param_passing_style == 'dict':
                         params_dict = {}
@@ -2334,12 +2373,10 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                     # score_func_args 此时包含所有必需的 Series (以其内部 key 为键) 和评分逻辑参数 (根据 style)
                     # 评分函数签名是 score_func(Series1, Series2, ..., param1=value1, param2=value2, ...) 或 score_func(Series1, Series2, ..., params=param_dict)
                     # 我们将 score_func_args 解包传入
-                    # MODIFIED: 移除 positional 'data' argument 已在 File 2 的基础上移除
-                    scores: pd.Series = score_func(**score_func_args)
-
+                    scores: pd.Series = score_func(**score_func_args) # MODIFIED: 移除 positional 'data' argument
                     # 确保评分结果是 Series 且索引与输入 data 相同
                     if not isinstance(scores, pd.Series) or not scores.index.equals(data.index):
-                        logger.error(f"指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分函数返回结果格式不正确。期望 Series 且索引与输入 DataFrame 相同。")
+                        logger.error(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的评分函数返回结果格式不正确。")
                         scores = pd.Series(50.0, index=data.index) # 返回默认中性分
                     # 存储评分结果列
                     score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}" # 格式化列名
@@ -2353,8 +2390,8 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                     # MODIFIED: 尝试在日志中区分 Series 参数和普通参数，避免日志过长
                     series_args = {k: type(v) for k, v in score_func_args.items() if isinstance(v, (pd.Series, dict))} # dict for pivot_levels
                     other_args = {k: v for k, v in score_func_args.items() if not isinstance(v, (pd.Series, dict))}
-                    logger.error(f"计算指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分时发生错误。"
-                                f"传入 Series 参数类型: {series_args}. 其他参数: {other_args}. "
+                    logger.error(f"计算指标 '{indicator_key}' 在时间框架 {tf_score} 的评分时发生错误。"
+                                f"传入 Series 参数: {series_args}. 其他参数: {other_args}. "
                                 f"错误信息: {e}", exc_info=True)
             else:
                 # 如果未找到必需的列，为该指标和时间框架添加一个填充默认中性分的列
