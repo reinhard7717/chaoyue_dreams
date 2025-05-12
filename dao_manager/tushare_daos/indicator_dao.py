@@ -737,20 +737,16 @@ class IndicatorDAO(BaseDAO):
             if not stock:
                  logger.warning(f"无法找到股票信息: {stock_code}，无法获取筹码数据")
                  return None
-
             data_qs = StockCyqPerf.objects.filter(
                 stock=stock, # 直接使用股票模型实例进行过滤
                 trade_time__gte=start_date,
                 trade_time__lte=end_date
             )
-
             # 将 QuerySet 转换为列表
             data_list = await sync_to_async(list)(data_qs)
-
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的筹码分布汇总数据")
                 return None
-
             # 将模型实例列表转换为字典列表
             data = []
             for item in data_list:
@@ -768,18 +764,13 @@ class IndicatorDAO(BaseDAO):
                     'winner_rate': self._safe_float(getattr(item, 'winner_rate', None)),
                     # 添加其他需要的字段
                  })
-
             if not data:
                  logger.warning(f"从 StockCyqPerf Model 转换的数据列表为空 for {stock_code}")
                  return None
-
-
             df = pd.DataFrame(data)
-
             if df.empty:
                 logger.warning(f"转换后的 StockCyqPerf DataFrame 为空 for {stock_code}")
                 return None
-
             # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
             default_tz = timezone.get_default_timezone()
             # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
@@ -788,21 +779,15 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"处理无效 trade_time 后 StockCyqPerf DataFrame 为空 for {stock_code}")
                  return None
-
             df.index = df['trade_time']
             df.drop(columns=['trade_time'], inplace=True)
-
             # 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
-
             logger.info(f"成功获取并处理股票 {stock_code} 的筹码分布汇总数据，数据量: {len(df)} 条")
-
             return df
-
         except Exception as e:
             logger.error(f"获取股票 {stock_code} 筹码分布汇总数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
-
 
     async def enrich_features(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
@@ -838,9 +823,7 @@ class IndicatorDAO(BaseDAO):
         start_date = df.index.min().date()
         end_date = df.index.max().date()
         logger.info(f"对股票 {stock_code} 在日期范围 {start_date} 到 {end_date} 进行特征工程")
-
         # --- 获取相关数据 ---
-
         # 1. 获取股票所属同花顺板块代码
         # related_name="ths_member" 可以通过 stock.ths_member.all() 获取 ThsIndexMember QuerySet
         # 但是这里需要 ThsIndex 的信息，所以通过 IndustryDao 的方法更方便
