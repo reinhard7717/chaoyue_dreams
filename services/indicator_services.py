@@ -412,7 +412,20 @@ class IndicatorService:
                  # 最终传递给 calculate_boll_bands_and_width 的将是 JSON 中的值。
                  # 之前警告中的 BBU_15_2.2_30 表明 JSON 中配置的周期可能是 15, 2.2。
                 print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出
-                _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', default_boll_p, bs_timeframes)
+                boll_calc_params = {
+                     'period': bs_params.get('boll_period', default_boll_p['period']),
+                     'std_dev': bs_params.get('boll_std_dev', default_boll_p['std_dev'])
+                 }
+                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {boll_calc_params} 应用于时间框架: {bs_timeframes}") # 调试输出
+                # 使用获取到的参数注册计算配置
+                _add_indicator_config(
+                    'BOLL',
+                    self.calculate_boll_bands_and_width,
+                    'base_scoring',
+                    boll_calc_params, # 传递已经根据 JSON 配置好的参数字典
+                    bs_timeframes
+                    # param_override_key 不再需要，因为我们手动映射了参数
+                )
             elif indi_key == 'cci': _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', default_cci_p, bs_timeframes)
             elif indi_key == 'mfi': _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', default_mfi_p, bs_timeframes)
             elif indi_key == 'roc': _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', default_roc_p, bs_timeframes)

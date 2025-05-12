@@ -1629,117 +1629,212 @@ def calculate_pivot_score(close: pd.Series, pivot_levels: Dict[str, pd.Series],
 
 def build_expected_col_name(indicator_key: str, internal_key: str, params: List[Any], tf_suffix: str) -> Optional[str]:
     """
-    根据指标 key, 内部 key, 参数列表和时间框架后缀构建期望的列名。
+    根据指标 key (策略内部标识), 内部 key (指标组成部分的标识，如 MACD 的 'macd_series', KDJ 的 'k'),
+    参数列表 (计算该指标使用的参数值列表) 和时间框架后缀构建期望的 DataFrame 列名。
+
+    此函数根据硬编码的指标命名规则来生成列名，这些规则应与 indicator_naming_conventions.json
+    以及 IndicatorService 中实际生成指标列名的逻辑保持一致。
+
+    Args:
+        indicator_key (str): 策略内部用于标识指标的键 (例如 'macd', 'boll')。
+        internal_key (str): 指标组成部分的内部键 (例如 MACD 的 'macd_series', BOLL 的 'upper')。
+        params (List[Any]): 计算该指标时使用的参数值的列表 (例如 MACD 的 [12, 26, 9])。
+        tf_suffix (str): 时间框架后缀 (例如 '30', 'D')。
+
+    Returns:
+        Optional[str]: 构建出的期望列名，如果无法识别指标或参数格式，则返回 None。
     """
+    # 检查时间框架后缀是否有效
     if not tf_suffix:
          logger.error(f"构建列名失败: 时间框架后缀为空。 indicator_key={indicator_key}, internal_key={internal_key}")
          return None
 
+    # 辅助函数：格式化参数为字符串，用于构建列名中的参数部分
     def format_param(p):
         if isinstance(p, float):
-            # 尝试格式化为 .1f 或 .2f，取决于参数类型和指标
-            if indicator_key == 'boll': return f"{p:.1f}" # BOLL std_dev 常见格式
+            # 根据 indicator_key 特殊处理浮点数参数的格式化
+            if indicator_key == 'boll':
+                 # BOLL 的标准差通常格式化为 .1f，例如 2.0 -> "2.0", 2.2 -> "2.2"
+                 return f"{p:.1f}"
             if indicator_key == 'sar':
-                 # SAR af_step 和 max_af 可能有不同格式，根据约定文件
-                 # Convention文件里是 SAR_0.02_0.2_{timeframe}
-                 # 所以 af_step 是 .2f, max_af 是 .1f
+                 # SAR 的 af_step 和 max_af 格式化约定通常不同
+                 # 根据 convention 文件，SAR_af_step_max_af_{timeframe}
+                 # 例如 SAR_0.02_0.2_30
+                 # af_step (params[0]) 格式化为 .2f，max_af (params[1]) 格式化为 .1f
                  if len(params) == 2:
-                      if p == params[0]: return f"{p:.2f}" # af_step
-                      if p == params[1]: return f"{p:.1f}" # max_af
-                 # Fallback if cannot determine based on position
-                 return f"{p:.2f}" # 默认 .2f
-            # 其他浮点参数如果存在，需要根据实际命名规范调整
-            return str(p) # 默认转换为字符串
+                      if p == params[0]: return f"{p:.2f}" # af_step (期望是第一个参数)
+                      if p == params[1]: return f"{p:.1f}" # max_af (期望是第二个参数)
+                 # 如果无法根据位置确定，提供一个默认格式 (例如 .2f)
+                 return f"{p:.2f}" # 默认浮点格式
+            # 其他浮点参数如果存在，根据实际命名规范调整格式，此处默认转为字符串
+            return str(p)
+        # 其他类型的参数直接转换为字符串
         return str(p)
 
-    # MODIFIED: 修正参数部分的构建逻辑，确保只包含实际参数
-    # MACD_12_26_9, RSI_14, K_7_3_3, BOLL_20_2.0 等，参数在指标名后用下划线分隔
+    # 根据参数列表构建参数字符串部分，用下划线连接
     param_str_parts = [format_param(p) for p in params]
     param_part = '_'.join(param_str_parts) if param_str_parts else ""
+    # 如果参数部分非空，则在其前面加上一个下划线作为前缀
     param_suffix = f"_{param_part}" if param_part else ""
 
 
-    if indicator_key == 'macd' and len(params) == 3:
-        prefix_map = {'macd_series': 'MACD', 'macd_d': 'MACDs', 'macd_h': 'MACDh'}
+    # --- 根据 indicator_key 和 internal_key 构建完整的列名 ---
+
+    # MACD 指标
+    if indicator_key == 'macd' and len(params) == 3: # 检查参数数量是否符合 MACD (快周期, 慢周期, 信号周期)
+        prefix_map = {'macd_series': 'MACD', 'macd_d': 'MACDs', 'macd_h': 'MACDh'} # 内部 key 到列名前缀的映射
         prefix = prefix_map.get(internal_key)
         if prefix:
-            return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+            # 构建列名: 前缀 + 参数后缀 + 时间框架后缀
+            # 例如 'MACD_12_26_9_30'
+            return f"{prefix}{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'rsi' and len(params) == 1:
-        if internal_key == 'rsi':
-            return f"RSI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # RSI 指标
+    elif indicator_key == 'rsi' and len(params) == 1: # 检查参数数量是否符合 RSI (周期)
+        if internal_key == 'rsi': # RSI 评分通常只需要 RSI 值本身对应的列
+            # 构建列名: 'RSI' + 参数后缀 + 时间框架后缀
+            # 例如 'RSI_14_30'
+            return f"RSI{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'kdj' and len(params) == 3:
-        prefix_map = {'k': 'K', 'd': 'D', 'j': 'J'}
+    # KDJ 指标 (内部键使用 K, D, J)
+    elif indicator_key == 'kdj' and len(params) == 3: # 检查参数数量 (周期 K, 周期 D, 平滑周期 J)
+        prefix_map = {'k': 'K', 'd': 'D', 'j': 'J'} # 内部 key 到列名前缀的映射
         prefix = prefix_map.get(internal_key)
         if prefix:
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+             # 构建列名: 前缀 + 参数后缀 + 时间框架后缀
+             # 例如 'K_9_3_3_30', 'D_9_3_3_30', 'J_9_3_3_30'
+             return f"{prefix}{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'boll' and len(params) == 2:
-        prefix_map = {'upper': 'BBU', 'mid': 'BBM', 'lower': 'BBL', 'close': 'close'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             if internal_key == 'close':
-                 return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'cci' and len(params) == 1:
-        if internal_key == 'cci':
-             return f"CCI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'mfi' and len(params) == 1:
-        if internal_key == 'mfi':
-             return f"MFI{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'roc' and len(params) == 1:
-        if internal_key == 'roc':
-             return f"ROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'dmi' and len(params) == 1:
-        prefix_map = {'pdi': 'PDI', 'ndi': 'NDI', 'adx': 'ADX'}
-        prefix = prefix_map.get(internal_key)
-        if prefix:
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
-
-    elif indicator_key == 'sar' and len(params) == 2:
-        prefix_map = {'sar': 'SAR', 'close': 'close'}
+    # BOLL 指标
+    elif indicator_key == 'boll' and len(params) == 2: # 检查参数数量 (周期, 标准差)
+        # MODIFIED: 修正 BOLL 的 prefix_map，添加 'close'
+        prefix_map = {'upper': 'BBU', 'mid': 'BBM', 'lower': 'BBL', 'close': 'close'} # 内部 key 到列名前缀的映射，包含 close
         prefix = prefix_map.get(internal_key)
         if prefix:
              if internal_key == 'close':
-                  return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
-             # SAR 参数格式化特殊处理，af_step(.2f)_max_af(.1f)
-             param_str_sar = f"{format_param(params[0])}_{format_param(params[1])}"
-             return f"{prefix}_{param_str_sar}_{tf_suffix}" # MODIFIED: 修正 SAR 参数部分的构建
+                 # close 列名没有参数部分，只有 'close' + 时间框架后缀
+                 # 例如 'close_30'
+                 return f"{prefix}_{tf_suffix}"
+             # BOLL 上轨/中轨/下轨列名: 前缀 + 参数后缀 + 时间框架后缀
+             # 参数后缀由 period 和 std_dev 组成，例如 '_20_2.0' 或 '_15_2.2'
+             return f"{prefix}{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'stoch' and len(params) == 3:
-        prefix_map = {'k': 'STOCHk', 'd': 'STOCHd'}
+    # CCI 指标
+    elif indicator_key == 'cci' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'cci': # CCI 评分通常只需要 CCI 值本身对应的列
+             # 构建列名: 'CCI' + 参数后缀 + 时间框架后缀
+             # 例如 'CCI_14_30'
+             return f"CCI{param_suffix}_{tf_suffix}"
+
+    # MFI 指标
+    elif indicator_key == 'mfi' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'mfi': # MFI 评分通常只需要 MFI 值本身对应的列
+             # 构建列名: 'MFI' + 参数后缀 + 时间框架后缀
+             # 例如 'MFI_14_30'
+             return f"MFI{param_suffix}_{tf_suffix}"
+
+    # ROC 指标 (价格变化率)
+    elif indicator_key == 'roc' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'roc': # ROC 评分通常只需要 ROC 值本身对应的列
+             # 构建列名: 'ROC' + 参数后缀 + 时间框架后缀
+             # 例如 'ROC_12_30'
+             return f"ROC{param_suffix}_{tf_suffix}"
+
+    # DMI 指标 (+DI, -DI, ADX)
+    elif indicator_key == 'dmi' and len(params) == 1: # 检查参数数量 (周期)
+        prefix_map = {'pdi': 'PDI', 'ndi': 'NDI', 'adx': 'ADX'} # 内部 key 到列名前缀的映射
         prefix = prefix_map.get(internal_key)
         if prefix:
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+             # 构建列名: 前缀 + 参数后缀 + 时间框架后缀
+             # 参数后缀由周期组成，例如 '_14'
+             # 例如 'PDI_14_30', 'NDI_14_30', 'ADX_14_30'
+             return f"{prefix}{param_suffix}_{tf_suffix}"
 
-    elif indicator_key in ['ema', 'sma'] and len(params) == 1:
-        prefix_map = {'ma': indicator_key.upper(), 'close': 'close'}
+    # SAR 指标 (Parabolic SAR)
+    elif indicator_key == 'sar' and len(params) == 2: # 检查参数数量 (af_step, max_af)
+        # MODIFIED: 修正 SAR 的 prefix_map，添加 'close'
+        prefix_map = {'sar': 'SAR', 'close': 'close'} # 内部 key 到列名前缀的映射，包含 close
+        prefix = prefix_map.get(internal_key)
+        if prefix:
+             if internal_key == 'close':
+                  # close 列名没有参数部分，只有 'close' + 时间框架后缀
+                  return f"{prefix}_{tf_suffix}"
+             # SAR 列名格式特殊: 'SAR' + '_' + af_step (格式化) + '_' + max_af (格式化) + '_' + 时间框架后缀
+             # 例如 'SAR_0.02_0.2_30'
+             # 注意：这里的参数格式化直接在下面完成，而不是使用通用的 param_suffix
+             if len(params) == 2:
+                 param_str_sar = f"{format_param(params[0])}_{format_param(params[1])}" # SAR 参数的特殊格式化和连接
+                 return f"{prefix}_{param_str_sar}_{tf_suffix}"
+             else:
+                 # 参数数量不匹配，记录警告
+                 logger.warning(f"构建 SAR 列名失败: 参数数量不正确 ({len(params)} != 2). internal_key='{internal_key}', params={params}, suffix='{tf_suffix}'")
+                 return None
+
+    # STOCH 指标 (随机指标 %K 和 %D)
+    elif indicator_key == 'stoch' and len(params) == 3: # 检查参数数量 (K周期, D周期, 平滑K周期)
+        prefix_map = {'k': 'STOCHk', 'd': 'STOCHd'} # 内部 key 到列名前缀的映射 (使用 pandas_ta 的命名约定 STOCHk, STOCHd)
+        prefix = prefix_map.get(internal_key)
+        if prefix:
+             # 构建列名: 前缀 + 参数后缀 + 时间框架后缀
+             # 参数后缀由 K周期, D周期, 平滑K周期组成，例如 '_14_3_3'
+             # 例如 'STOCHk_14_3_3_30', 'STOCHd_14_3_3_30'
+             return f"{prefix}{param_suffix}_{tf_suffix}"
+
+    # EMA / SMA 指标 (通用移动平均，根据 indicator_key 区分)
+    elif indicator_key in ['ema', 'sma'] and len(params) == 1: # 检查参数数量 (周期)
+        # MODIFIED: 修正 EMA/SMA 的 prefix_map，添加 'close'
+        prefix_map = {'ma': indicator_key.upper(), 'close': 'close'} # 内部 key 到列名前缀的映射，包含 close
         prefix = prefix_map.get(internal_key)
         if prefix:
             if internal_key == 'close':
-                 return f"{prefix}_{tf_suffix}" # close 列名没有参数部分
-            return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+                 # close 列名没有参数部分，只有 'close' + 时间框架后缀
+                 return f"{prefix}_{tf_suffix}"
+            # MA 列名: 前缀 + 参数后缀 + 时间框架后缀
+            # 参数后缀由周期组成，例如 '_20'
+            # 例如 'EMA_20_30', 'SMA_60_D'
+            return f"{prefix}{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'atr' and len(params) == 1:
-        if internal_key == 'atr':
-             return f"ATR{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # ATR 指标 (平均真实波幅)
+    elif indicator_key == 'atr' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'atr': # ATR 评分通常只需要 ATR 值本身对应的列
+             # 构建列名: 'ATR' + 参数后缀 + 时间框架后缀
+             # 例如 'ATR_14_30'
+             return f"ATR{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'adl' and not params: # ADL 没有参数在列名中
-        if internal_key == 'adl':
-             return f"ADL_{tf_suffix}"
+    # ADL 指标 (累积/派发线)
+    elif indicator_key == 'adl' and not params: # 检查参数列表是否为空 (ADL 通常没有计算参数在列名中)
+        if internal_key == 'adl': # ADL 评分通常只需要 ADL 值本身对应的列
+             # 构建列名: 'ADL' + '_' + 时间框架后缀
+             # 例如 'ADL_30'
+             return f"ADL_{tf_suffix}" # MODIFIED: 修正 ADL 列名模式为 'ADL_tf'
 
-    elif indicator_key == 'vwap' and not params: # VWAP 通常没有参数在列名中 (除非有anchor)
-         prefix_map = {'vwap': 'VWAP', 'close': 'close'}
-         prefix = prefix_map.get(internal_key)
-         if prefix:
-             return f"{prefix}_{tf_suffix}" # VWAP/close 列名模式: NAME_timeframe
+    # VWAP 指标 (成交量加权平均价)
+    elif indicator_key == 'vwap': # VWAP 可能有也可能没有 anchor 参数
+        # VWAP 列名可能是 'VWAP_{timeframe}' 或 'VWAP_{anchor}_{timeframe}'
+        # 根据 IndicatorService 生成的列名，无 anchor 时是 'VWAP_{timeframe}'
+        # 有 anchor 时是 'VWAP_{anchor}_{timeframe}'
+        prefix_map = {'vwap': 'VWAP', 'close': 'close'} # 内部 key 到列名前缀的映射
+        prefix = prefix_map.get(internal_key)
+        if prefix:
+            if internal_key == 'close':
+                # close 列名没有参数部分
+                 return f"{prefix}_{tf_suffix}"
+            # VWAP 列名需要考虑 anchor 参数 (如果 params 非空)
+            if params:
+                 # 假设 params 列表中第一个参数是 anchor
+                 anchor = params[0]
+                 # 构建列名: 'VWAP' + '_' + anchor (如果存在) + '_' + 时间框架后缀
+                 # 例如 'VWAP_SESSION_D'
+                 return f"VWAP_{anchor}_{tf_suffix}" # MODIFIED: 修正 VWAP 带 anchor 的列名模式
+            else:
+                 # 如果 params 为空，表示没有 anchor 参数
+                 # 构建列名: 'VWAP' + '_' + 时间框架后缀
+                 # 例如 'VWAP_30'
+                 return f"VWAP_{tf_suffix}" # MODIFIED: 修正 VWAP 无 anchor 的列名模式
 
-    elif indicator_key == 'ichimoku' and len(params) == 3:
+
+    # Ichimoku 指标 (一目均衡表)
+    elif indicator_key == 'ichimoku' and len(params) == 3: # 检查参数数量 (tenkan, kijun, senkou_b 周期)
          prefix_map = {
              'close': 'close', 'tenkan': 'TENKAN', 'kijun': 'KIJUN',
              'senkou_a': 'SENKOU_A', 'senkou_b': 'SENKOU_B', 'chikou': 'CHIKOU'
@@ -1747,158 +1842,299 @@ def build_expected_col_name(indicator_key: str, internal_key: str, params: List[
          prefix = prefix_map.get(internal_key)
          if prefix:
              if internal_key == 'close':
+                  # close 列名没有参数部分
                   return f"{prefix}_{tf_suffix}"
 
-             p_tenkan, p_kijun, p_senkou_b = params # params 列表包含 Ichimoku 的主要参数
-             # Ichimoku 列名模式复杂，根据 internal_key 和对应参数构建
-             if internal_key == 'tenkan': return f"TENKAN_{p_tenkan}_{tf_suffix}"
-             if internal_key == 'kijun': return f"KIJUN_{p_kijun}_{tf_suffix}"
-             if internal_key == 'chikou': return f"CHIKOU_{p_kijun}_{tf_suffix}" # Chikou 参数是 Kijun 的
-             if internal_key == 'senkou_a': return f"SENKOU_A_{p_tenkan}_{p_kijun}_{tf_suffix}" # Senkou A 参数是 Tenkan 和 Kijun 的
-             if internal_key == 'senkou_b': return f"SENKOU_B_{p_senkou_b}_{tf_suffix}" # Senkou B 参数是自己的
+             # Ichimoku 各线的列名模式不同，需要根据 internal_key 和对应参数构建
+             # params 列表中应该包含 Tenkan, Kijun, Senkou B 的周期，例如 [9, 26, 52]
+             if len(params) >= 3: # 确保参数数量足够
+                p_tenkan, p_kijun, p_senkou_b = params[:3] # 获取主要参数
 
-    elif indicator_key == 'mom' and len(params) == 1:
-        if internal_key == 'mom':
-             return f"MOM{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+                if internal_key == 'tenkan': # 转换线: TENKAN_tenkan_period_tf
+                    return f"TENKAN_{p_tenkan}_{tf_suffix}"
+                if internal_key == 'kijun': # 基准线: KIJUN_kijun_period_tf
+                    return f"KIJUN_{p_kijun}_{tf_suffix}"
+                if internal_key == 'chikou': # 迟行线: CHIKOU_kijun_period_tf (使用 Kijun 的周期)
+                    return f"CHIKOU_{p_kijun}_{tf_suffix}"
+                if internal_key == 'senkou_a': # 先行线 A: SENKOU_A_tenkan_period_kijun_period_tf
+                    return f"SENKOU_A_{p_tenkan}_{p_kijun}_{tf_suffix}"
+                if internal_key == 'senkou_b': # 先行线 B: SENKOU_B_senkou_b_period_tf (使用自己的周期)
+                    return f"SENKOU_B_{p_senkou_b}_{tf_suffix}"
+             else:
+                 # 参数数量不匹配，记录警告
+                 logger.warning(f"构建 Ichimoku 列名失败: 参数数量不正确 ({len(params)} != 3). internal_key='{internal_key}', params={params}, suffix='{tf_suffix}'")
+                 return None # 参数数量不足以构建 Ichimoku 列名
 
-    elif indicator_key == 'willr' and len(params) == 1:
-        if internal_key == 'willr':
-             return f"WILLR{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # MOM 指标 (动量)
+    elif indicator_key == 'mom' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'mom': # MOM 评分通常只需要 MOM 值本身对应的列
+             # 构建列名: 'MOM' + 参数后缀 + 时间框架后缀
+             # 例如 'MOM_10_30'
+             return f"MOM{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'cmf' and len(params) == 1:
-        if internal_key == 'cmf':
-             return f"CMF{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # WILLR 指标 (Williams %R)
+    elif indicator_key == 'willr' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'willr': # WILLR 评分通常只需要 WILLR 值本身对应的列
+             # 构建列名: 'WILLR' + 参数后缀 + 时间框架后缀
+             # 例如 'WILLR_14_30'
+             return f"WILLR{param_suffix}_{tf_suffix}"
 
+    # CMF 指标 (乔金资金流向指数)
+    elif indicator_key == 'cmf' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'cmf': # CMF 评分通常只需要 CMF 值本身对应的列
+             # 构建列名: 'CMF' + 参数后缀 + 时间框架后缀
+             # 例如 'CMF_20_30'
+             return f"CMF{param_suffix}_{tf_suffix}"
+
+    # OBV 指标 (平衡交易量) 和 OBV_MA (OBV 的移动平均)
     elif indicator_key == 'obv':
-        if internal_key == 'obv':
+        if internal_key == 'obv': # OBV 列名没有参数部分
+             # 构建列名: 'OBV' + '_' + 时间框架后缀
+             # 例如 'OBV_30'
              return f"OBV_{tf_suffix}"
         # OBV_MA 需要单独构建，参数是 OBV_MA 的周期
-        if internal_key == 'obv_ma' and len(params) == 1: # params 此时应该是 OBV_MA 的周期列表 [obv_ma_period]
-             p_obv_ma = params[0]
+        if internal_key == 'obv_ma' and len(params) == 1: # params 此时应该包含 OBV_MA 的周期 [obv_ma_period]
+             p_obv_ma = params[0] # 获取 OBV_MA 的周期
+             # 构建列名: 'OBV_MA' + '_' + 周期 + '_' + 时间框架后缀
+             # 例如 'OBV_MA_10_30'
              return f"OBV_MA_{p_obv_ma}_{tf_suffix}"
 
-
-    elif indicator_key == 'kc' and len(params) == 2:
-        prefix_map = {'upper': 'KCU', 'mid': 'KCM', 'lower': 'KCL', 'close': 'close'}
+    # KC 指标 (肯特纳通道)
+    elif indicator_key == 'kc' and len(params) == 2: # 检查参数数量 (EMA周期, ATR周期)
+        # MODIFIED: 修正 KC 的 prefix_map，添加 'close'
+        prefix_map = {'upper': 'KCU', 'mid': 'KCM', 'lower': 'KCL', 'close': 'close'} # 内部 key 到列名前缀的映射，包含 close
         prefix = prefix_map.get(internal_key)
         if prefix:
              if internal_key == 'close':
+                 # close 列名没有参数部分
                  return f"{prefix}_{tf_suffix}"
-             return f"{prefix}{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+             # KC 上轨/中轨/下轨列名: 前缀 + 参数后缀 + 时间框架后缀
+             # 参数后缀由 EMA周期 和 ATR周期 组成，例如 '_20_10'
+             return f"{prefix}{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'hv' and len(params) == 1:
-        if internal_key == 'hv':
-             return f"HV{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # HV 指标 (历史波动率)
+    elif indicator_key == 'hv' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'hv': # HV 评分通常只需要 HV 值本身对应的列
+             # 构建列名: 'HV' + 参数后缀 + 时间框架后缀
+             # 例如 'HV_20_D'
+             return f"HV{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'vroc' and len(params) == 1:
-        if internal_key == 'vroc':
-             return f"VROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # VROC 指标 (成交量变化率)
+    elif indicator_key == 'vroc' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'vroc': # VROC 评分通常只需要 VROC 值本身对应的列
+             # 构建列名: 'VROC' + 参数后缀 + 时间框架后缀
+             # 例如 'VROC_12_30'
+             return f"VROC{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'aroc' and len(params) == 1:
-        if internal_key == 'aroc':
-             return f"AROC{param_suffix}_{tf_suffix}" # MODIFIED: 使用修正后的 param_suffix
+    # AROC 指标 (成交额变化率)
+    elif indicator_key == 'aroc' and len(params) == 1: # 检查参数数量 (周期)
+        if internal_key == 'aroc': # AROC 评分通常只需要 AROC 值本身对应的列
+             # 构建列名: 'AROC' + 参数后缀 + 时间框架后缀
+             # 例如 'AROC_12_30'
+             return f"AROC{param_suffix}_{tf_suffix}"
 
-    elif indicator_key == 'pivot' and tf_suffix.upper() == 'D' and internal_key == 'close':
+    # Pivot 指标 (枢轴点)
+    # Pivot levels (PP, R1, S1 等) 不通过此函数构建列名，它们在 calculate_all_indicator_scores 中特殊处理
+    # 此函数只负责构建 Pivot 需要的 close 列名 (如果需要的话)
+    elif indicator_key == 'pivot' and internal_key == 'close': # 检查是否是 Pivot 的 close 列
+         # Pivot 的 close 列名没有参数部分，只有 'close' + 时间框架后缀
+         # 例如 'close_D'
          return f"close_{tf_suffix}"
-    # Pivot levels 不需要通过 build_expected_col_name 单独构建，它们是列表，在查找时统一处理
+    # Pivot levels 不需要通过 build_expected_col_name 单独构建，它们是列表，在 calculate_all_indicator_scores 中统一处理
 
-    logger.warning(f"无法为指标 '{indicator_key}' 构建列名，内部 key: '{internal_key}', 参数: {params}, 后缀: '{tf_suffix}'")
+    # 如果 indicator_key 或 internal_key 未知，或者参数数量不匹配，记录警告并返回 None
+    logger.warning(f"无法为指标 '{indicator_key}' 构建列名，内部 key: '{internal_key}', 参数: {params}, 后缀: '{tf_suffix}'。配置或参数不匹配命名规则。")
     return None
 
 def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:
     """
-    尝试从包含时间框架后缀的列名中解析指标参数。
-    """
-    if not col_name.endswith(f"_{tf_suffix}"):
-         return None # 后缀不匹配
+    尝试从包含时间框架后缀的 DataFrame 列名中解析指标参数列表。
 
-    base_name_with_params = col_name[:-len(f"_{tf_suffix}")] # 移除后缀
+    此函数根据硬编码的指标命名规则来解析列名，提取参数。
+    这些规则应与 indicator_naming_conventions.json 文件中定义的命名规范
+    以及 IndicatorService 中实际生成指标列名的逻辑保持一致。
+
+    Args:
+        col_name (str): 完整的 DataFrame 列名 (例如 'BBU_20_2.0_30', 'ADX_14_30')。
+        indicator_key (str): 策略内部用于标识指标的键 (例如 'macd', 'boll')。
+        tf_suffix (str): 期望的时间框架后缀 (例如 '30', 'D')。
+
+    Returns:
+        List[Any] | None: 解析出的参数列表，如果后缀不匹配、列名模式不识别或参数转换失败，则返回 None。
+                          对于没有参数但需要匹配的列名，返回空列表 []。
+    """
+    # 检查列名是否以期望的时间框架后缀结尾
+    if not col_name.endswith(f"_{tf_suffix}"):
+         # 如果后缀不匹配，记录调试信息并返回 None
+         # logger.debug(f"列名 '{col_name}' 后缀与期望 '{tf_suffix}' 不匹配，无法解析参数。")
+         return None
+
+    # 移除时间框架后缀，得到基础名称和参数部分
+    base_name_with_params = col_name[:-len(f"_{tf_suffix}")]
+    # 按下划线分割，通常第一个部分是指标前缀，后面是参数
     parts = base_name_with_params.split('_')
 
     try:
+        # 根据 indicator_key 识别指标类型并尝试解析参数
         if indicator_key == 'macd' and parts[0] in ['MACD', 'MACDh', 'MACDs']:
-            # MACD_fast_slow_signal
-            if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
+            # MACD 列名模式: MACD/MACDh/MACDs_fast_slow_signal
+            if len(parts) >= 4: # 至少包含前缀和3个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1]), int(parts[2]), int(parts[3])]
+
         elif indicator_key == 'rsi' and parts[0] == 'RSI':
-            # RSI_period
-             if len(parts) >= 2: return [int(parts[1])]
+            # RSI 列名模式: RSI_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1])]
+
         elif indicator_key == 'kdj' and parts[0] in ['K', 'D', 'J']:
-            # K_period_signal_period_smooth_k_period
-             if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
+            # KDJ 列名模式: K/D/J_period_signal_period_smooth_k_period
+             if len(parts) >= 4: # 至少包含前缀和3个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1]), int(parts[2]), int(parts[3])]
+
         elif indicator_key == 'boll' and parts[0] in ['BBL', 'BBM', 'BBU']:
-            # BB{L/M/U}_period_std_dev
-             if len(parts) >= 3: return [int(parts[1]), float(parts[2])] # std_dev 是浮点数
+            # BOLL 列名模式: BBL/BBM/BBU_period_std_dev
+             if len(parts) >= 3: # 至少包含前缀和2个参数
+                  # 尝试将周期转换为整数，标准差转换为浮点数
+                  return [int(parts[1]), float(parts[2])] # std_dev 是浮点数
+
         elif indicator_key == 'cci' and parts[0] == 'CCI':
-            # CCI_period
-             if len(parts) >= 2: return [int(parts[1])]
+            # CCI 列名模式: CCI_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1])]
+
         elif indicator_key == 'mfi' and parts[0] == 'MFI':
-            # MFI_period
-             if len(parts) >= 2: return [int(parts[1])]
+            # MFI 列名模式: MFI_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1])]
+
         elif indicator_key == 'roc' and parts[0] == 'ROC':
-            # ROC_period
-             if len(parts) >= 2: return [int(parts[1])]
+            # ROC 列名模式: ROC_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1])]
+
         elif indicator_key == 'dmi' and parts[0] in ['PDI', 'NDI', 'ADX']:
-            # DMI_period
-             if len(parts) >= 2: return [int(parts[1])]
+            # DMI 列名模式: PDI/NDI/ADX_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1])]
+
         elif indicator_key == 'sar' and parts[0] == 'SAR':
-             # SAR_af_step_max_af (浮点数)
-             if len(parts) >= 3: return [float(parts[1]), float(parts[2])]
+             # SAR 列名模式: SAR_af_step_max_af (参数是浮点数)
+             if len(parts) >= 3: # 至少包含前缀和2个参数
+                 # 尝试将参数部分转换为浮点数
+                 return [float(parts[1]), float(parts[2])]
+
         elif indicator_key == 'stoch' and parts[0] in ['STOCHk', 'STOCHd']:
-            # STOCHk_k_period_d_period_smooth_k_period
-             if len(parts) >= 4: return [int(parts[1]), int(parts[2]), int(parts[3])]
+            # STOCH 列名模式: STOCHk/STOCHd_k_period_d_period_smooth_k_period
+             if len(parts) >= 4: # 至少包含前缀和3个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1]), int(parts[2]), int(parts[3])]
+
         elif indicator_key in ['ema', 'sma'] and parts[0] in ['EMA', 'SMA']:
-            # MA_period
-             if len(parts) >= 2: return [int(parts[1])]
+            # MA 列名模式: EMA/SMA_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
         elif indicator_key == 'atr' and parts[0] == 'ATR':
-             # ATR_period
-             if len(parts) >= 2: return [int(parts[1])]
+             # ATR 列名模式: ATR_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
         elif indicator_key == 'adl' and parts[0] == 'ADL':
-            # ADL_{timeframe}, 无参数
-            if len(parts) == 1: return []
+            # ADL 列名模式: ADL_{timeframe}, 无参数
+            if len(parts) == 1: # 只包含前缀
+                 return [] # 返回空列表表示没有参数
+
         elif indicator_key == 'vwap' and parts[0] == 'VWAP':
-             # VWAP_{timeframe} 或 VWAP_{anchor}_{timeframe}
-             # 根据日志，VWAP 列名是 VWAP_5 等，没有anchor参数
-             if len(parts) == 1: return [] # 假设列名中不包含参数
+             # VWAP 列名模式: VWAP_{timeframe} 或 VWAP_{anchor}_{timeframe}
+             # 检查 parts 的长度来区分是否有 anchor 参数
+             if len(parts) == 1: # VWAP_{timeframe} 模式，无参数
+                 return [] # 返回空列表表示没有参数
+             elif len(parts) >= 2: # VWAP_{anchor}_{timeframe} 模式，anchor 作为参数
+                 # 假设第一个参数是 anchor，作为字符串返回
+                 return [parts[1]] # 返回包含 anchor 字符串的列表
+             return None # 格式不匹配
+
         elif indicator_key == 'ichimoku' and parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_A', 'SENKOU_B']:
-            # Ichimoku 参数解析复杂，尝试从主要列名解析
+            # Ichimoku 列名模式复杂，根据前缀和参数数量尝试解析
             # TENKAN_period, KIJUN_period, CHIKOU_period, SENKOU_A_tenkan_kijun, SENKOU_B_period
             if parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_B'] and len(parts) >= 2:
-                 return [int(parts[1])] # 尝试解析单个周期 (Tenkan, Kijun, Chikou, Senkou B)
+                 # 这些线只有一个周期参数
+                 return [int(parts[1])] # 尝试解析单个整数周期
             elif parts[0] == 'SENKOU_A' and len(parts) >= 3:
-                 return [int(parts[1]), int(parts[2])] # 尝试解析两个周期 (Senkou A)
-            return None # 参数格式不匹配
-        elif indicator_key == 'mom' and parts[0] == 'MOM':
-            # MOM_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'willr' and parts[0] == 'WILLR':
-            # WILLR_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'cmf' and parts[0] == 'CMF':
-            # CMF_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'obv' and parts[0] == 'OBV':
-             # OBV_{timeframe}, 无参数
-            if len(parts) == 1: return []
-        elif indicator_key == 'obv' and parts[0] == 'OBV_MA':
-             # OBV_MA_period_{timeframe}
-             if len(parts) >= 2: return [int(parts[1])] # OBV_MA 列名中的周期
-        elif indicator_key == 'kc' and parts[0] in ['KCL', 'KCM', 'KCU']:
-             # KC_ema_period_atr_period
-             if len(parts) >= 3: return [int(parts[1]), int(parts[2])]
-        elif indicator_key == 'hv' and parts[0] == 'HV':
-            # HV_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'vroc' and parts[0] == 'VROC':
-            # VROC_period
-             if len(parts) >= 2: return [int(parts[1])]
-        elif indicator_key == 'aroc' and parts[0] == 'AROC':
-            # AROC_period
-             if len(parts) >= 2: return [int(parts[1])]
-        # Pivot 列名不包含参数，只有基础名和后缀，在主函数中特殊处理
+                 # 先行线 A 有两个周期参数
+                 return [int(parts[1]), int(parts[2])] # 尝试解析两个整数周期
+            return None # 参数格式或数量不匹配
 
-        return None # 未知列名模式或解析失败
-    except (ValueError, IndexError):
-        logger.debug(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}).", exc_info=True)
+        elif indicator_key == 'mom' and parts[0] == 'MOM':
+            # MOM 列名模式: MOM_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
+        elif indicator_key == 'willr' and parts[0] == 'WILLR':
+            # WILLR 列名模式: WILLR_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
+        elif indicator_key == 'cmf' and parts[0] == 'CMF':
+            # CMF 列名模式: CMF_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
+        elif indicator_key == 'obv' and parts[0] == 'OBV':
+             # OBV 列名模式: OBV_{timeframe}, 无参数
+            if len(parts) == 1: # 只包含前缀
+                 return [] # 返回空列表表示没有参数
+        elif indicator_key == 'obv' and parts[0] == 'OBV_MA':
+             # OBV_MA 列名模式: OBV_MA_period_{timeframe}
+             if len(parts) >= 2: # 至少包含前缀 'OBV_MA' 和1个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1])] # 返回包含 OBV_MA 周期整数的列表
+
+        elif indicator_key == 'kc' and parts[0] in ['KCL', 'KCM', 'KCU']:
+             # KC 列名模式: KCL/KCM/KCU_ema_period_atr_period
+             if len(parts) >= 3: # 至少包含前缀和2个参数
+                  # 尝试将参数部分转换为整数
+                  return [int(parts[1]), int(parts[2])]
+
+        elif indicator_key == 'hv' and parts[0] == 'HV':
+            # HV 列名模式: HV_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
+        elif indicator_key == 'vroc' and parts[0] == 'VROC':
+            # VROC 列名模式: VROC_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
+        elif indicator_key == 'aroc' and parts[0] == 'AROC':
+            # AROC 列名模式: AROC_period
+             if len(parts) >= 2: # 至少包含前缀和1个参数
+                 # 尝试将参数部分转换为整数
+                 return [int(parts[1])]
+
+        # Pivot 列名 (PP, R1, S1 等) 不包含参数，只有基础名和后缀，无需通过此函数解析参数
+        # close 列名也无需通过此函数解析参数
+
+        # 如果列名模式不识别，记录调试信息并返回 None
+        logger.debug(f"列名 '{col_name}' 不符合指标 '{indicator_key}' 期望的参数模式，或参数数量/类型不匹配 (suffix: {tf_suffix}).")
+        return None
+    except (ValueError, IndexError) as e:
+        # 如果在参数转换或索引访问时发生错误，记录调试信息并返回 None
+        logger.debug(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}). 错误: {e}", exc_info=True)
         return None # 参数转换失败或索引越界
 
 def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicator_configs: List[Dict] ) -> pd.DataFrame:
@@ -2437,7 +2673,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
 
     logger.info("指标评分计算完成。")
     return scoring_results
-
 
 def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, vc_params: Dict ) -> pd.DataFrame:
     """
