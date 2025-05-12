@@ -2074,6 +2074,215 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
     logger.info("指标评分计算完成。")
     return scoring_results
 
+# MODIFIED: 添加一个助手函数来根据指标类型和参数构建期望的列名
+def build_expected_col_name(indicator_key: str, internal_key: str, params: List[Any], tf_suffix: str) -> str:
+    """
+    根据指标 key, 内部 key, 参数列表和时间框架后缀构建期望的列名。
+    """
+    if indicator_key == 'macd' and len(params) == 3:
+        p_fast, p_slow, p_sig = params
+        if internal_key == 'macd_series': return f"MACD_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
+        if internal_key == 'macd_d': return f"MACDs_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
+        if internal_key == 'macd_h': return f"MACDh_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
+    elif indicator_key == 'rsi' and len(params) == 1:
+        p_rsi = params[0]
+        if internal_key == 'rsi': return f"RSI_{p_rsi}_{tf_suffix}"
+    elif indicator_key == 'kdj' and len(params) == 3:
+        p_k, p_d, p_smooth_k = params
+        if internal_key == 'k': return f"K_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+        if internal_key == 'd': return f"D_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+        if internal_key == 'j': return f"J_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+    elif indicator_key == 'boll' and len(params) == 2:
+        p_boll, std_boll = params
+        std_str = f"{std_boll:.1f}" # 保持小数点格式
+        if internal_key == 'upper': return f"BBU_{p_boll}_{std_str}_{tf_suffix}"
+        if internal_key == 'mid': return f"BBM_{p_boll}_{std_str}_{tf_suffix}"
+        if internal_key == 'lower': return f"BBL_{p_boll}_{std_str}_{tf_suffix}"
+        if internal_key == 'close': return f"close_{tf_suffix}" # BOLL评分也需要close
+    elif indicator_key == 'cci' and len(params) == 1:
+        p_cci = params[0]
+        if internal_key == 'cci': return f"CCI_{p_cci}_{tf_suffix}"
+    elif indicator_key == 'mfi' and len(params) == 1:
+        p_mfi = params[0]
+        if internal_key == 'mfi': return f"MFI_{p_mfi}_{tf_suffix}"
+    elif indicator_key == 'roc' and len(params) == 1:
+        p_roc = params[0]
+        if internal_key == 'roc': return f"ROC_{p_roc}_{tf_suffix}"
+    elif indicator_key == 'dmi' and len(params) == 1:
+        p_dmi = params[0]
+        if internal_key == 'pdi': return f"PDI_{p_dmi}_{tf_suffix}"
+        if internal_key == 'ndi': return f"NDI_{p_dmi}_{tf_suffix}"
+        if internal_key == 'adx': return f"ADX_{p_dmi}_{tf_suffix}"
+    elif indicator_key == 'sar' and len(params) == 2:
+        step, max_af = params
+        step_str = f"{step:.2f}" # 保持小数点格式
+        max_af_str = f"{max_af:.1f}" # 保持小数点格式
+        if internal_key == 'sar': return f"SAR_{step_str}_{max_af_str}_{tf_suffix}"
+        if internal_key == 'close': return f"close_{tf_suffix}" # SAR评分需要close
+    elif indicator_key == 'stoch' and len(params) == 3:
+        p_k, p_d, p_smooth_k = params
+        if internal_key == 'k': return f"STOCHk_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+        if internal_key == 'd': return f"STOCHd_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+    elif indicator_key in ['ema', 'sma'] and len(params) == 1:
+        p_ma = params[0]
+        ma_type_upper = indicator_key.upper()
+        if internal_key == 'ma': return f"{ma_type_upper}_{p_ma}_{tf_suffix}"
+        if internal_key == 'close': return f"close_{tf_suffix}" # MA评分需要close
+    elif indicator_key == 'atr' and len(params) == 1:
+        p_atr = params[0]
+        if internal_key == 'atr': return f"ATR_{p_atr}_{tf_suffix}"
+    elif indicator_key == 'adl' and not params: # ADL 没有参数在列名中
+        if internal_key == 'adl': return f"ADL_{tf_suffix}"
+    elif indicator_key == 'vwap' and not params: # VWAP 通常没有参数在列名中 (除非有anchor)
+         # 根据日志，VWAP列名是 VWAP_5 等，没有anchor参数
+         if internal_key == 'vwap': return f"VWAP_{tf_suffix}"
+         if internal_key == 'close': return f"close_{tf_suffix}" # VWAP评分需要close
+    elif indicator_key == 'ichimoku' and len(params) == 3:
+         p_tenkan, p_kijun, p_senkou_b = params
+         # Ichimoku 列名模式复杂，这里根据 internal_key 返回对应模式
+         if internal_key == 'close': return f"close_{tf_suffix}"
+         if internal_key == 'tenkan': return f"TENKAN_{p_tenkan}_{tf_suffix}"
+         if internal_key == 'kijun': return f"KIJUN_{p_kijun}_{tf_suffix}"
+         # 注意：SENKOU_A 的参数是 TENKAN 和 KIJUN 的，SENKOU_B 是自己的
+         if internal_key == 'senkou_a': return f"SENKOU_A_{p_tenkan}_{p_kijun}_{tf_suffix}" # 使用tenkan和kijun参数
+         if internal_key == 'senkou_b': return f"SENKOU_B_{p_senkou_b}_{tf_suffix}" # 使用senkou_b参数
+         if internal_key == 'chikou': return f"CHIKOU_{p_kijun}_{tf_suffix}" # 使用kijun参数
+    elif indicator_key == 'mom' and len(params) == 1:
+        p_mom = params[0]
+        if internal_key == 'mom': return f"MOM_{p_mom}_{tf_suffix}"
+    elif indicator_key == 'willr' and len(params) == 1:
+        p_willr = params[0]
+        if internal_key == 'willr': return f"WILLR_{p_willr}_{tf_suffix}"
+    elif indicator_key == 'cmf' and len(params) == 1:
+        p_cmf = params[0]
+        if internal_key == 'cmf': return f"CMF_{p_cmf}_{tf_suffix}"
+    elif indicator_key == 'obv' and not params: # OBV 没有参数在列名中 (基础OBV)
+         if internal_key == 'obv': return f"OBV_{tf_suffix}"
+         # 如果OBV评分需要OBV_MA，OBV_MA的列名需要特殊构建 (带OBV_MA周期参数)
+         # 查找 OBV_MA 列的逻辑需要根据 bs_params['obv_ma_period'] 来构建名称
+         if internal_key == 'obv_ma' and len(params) == 1: # OBV_MA带一个周期参数
+              p_obv_ma = params[0]
+              return f"OBV_MA_{p_obv_ma}_{tf_suffix}"
+
+    elif indicator_key == 'kc' and len(params) == 2:
+        p_ema, p_atr = params
+        if internal_key == 'upper': return f"KCU_{p_ema}_{p_atr}_{tf_suffix}"
+        if internal_key == 'mid': return f"KCM_{p_ema}_{p_atr}_{tf_suffix}"
+        if internal_key == 'lower': return f"KCL_{p_ema}_{p_atr}_{tf_suffix}"
+        if internal_key == 'close': return f"close_{tf_suffix}" # KC评分需要close
+    elif indicator_key == 'hv' and len(params) == 1:
+        p_hv = params[0]
+        if internal_key == 'hv': return f"HV_{p_hv}_{tf_suffix}"
+    elif indicator_key == 'vroc' and len(params) == 1:
+        p_vroc = params[0]
+        if internal_key == 'vroc': return f"VROC_{p_vroc}_{tf_suffix}"
+    elif indicator_key == 'aroc' and len(params) == 1:
+        p_aroc = params[0]
+        if internal_key == 'aroc': return f"AROC_{p_aroc}_{tf_suffix}"
+    elif indicator_key == 'pivot' and tf_suffix.upper() == 'D' and internal_key == 'close':
+         return f"close_{tf_suffix}"
+    # Pivot levels 不需要通过 build_expected_col_name 单独构建，它们是列表，在查找时统一处理
+
+    return None # 未知指标或内部 key
+
+# MODIFIED: 添加一个助手函数来解析列名中的参数
+def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:
+    """
+    尝试从包含时间框架后缀的列名中解析指标参数。
+    """
+    if not col_name.endswith(f"_{tf_suffix}"):
+         return None # 后缀不匹配
+
+    base_name_with_params = col_name[:-len(f"_{tf_suffix}")] # 移除后缀
+    parts = base_name_with_params.split('_')
+
+    try:
+        if indicator_key == 'macd' and len(parts) >= 4 and parts[0] in ['MACD', 'MACDh', 'MACDs']:
+            # MACD_period_fast_period_slow_signal_period
+            return [int(parts[1]), int(parts[2]), int(parts[3])]
+        elif indicator_key == 'rsi' and len(parts) >= 2 and parts[0] == 'RSI':
+            # RSI_period
+            return [int(parts[1])]
+        elif indicator_key == 'kdj' and len(parts) >= 4 and parts[0] in ['K', 'D', 'J']:
+            # K_period_signal_period_smooth_k_period
+            return [int(parts[1]), int(parts[2]), int(parts[3])]
+        elif indicator_key == 'boll' and len(parts) >= 3 and parts[0] in ['BBL', 'BBM', 'BBU']:
+            # BOLL_period_std_dev
+            return [int(parts[1]), float(parts[2])] # std_dev 是浮点数
+        elif indicator_key == 'cci' and len(parts) >= 2 and parts[0] == 'CCI':
+            # CCI_period
+            return [int(parts[1])]
+        elif indicator_key == 'mfi' and len(parts) >= 2 and parts[0] == 'MFI':
+            # MFI_period
+            return [int(parts[1])]
+        elif indicator_key == 'roc' and len(parts) >= 2 and parts[0] == 'ROC':
+            # ROC_period
+            return [int(parts[1])]
+        elif indicator_key == 'dmi' and len(parts) >= 2 and parts[0] in ['PDI', 'NDI', 'ADX']:
+            # DMI_period
+            return [int(parts[1])]
+        elif indicator_key == 'sar' and len(parts) >= 3 and parts[0] == 'SAR':
+             # SAR_af_step_max_af (浮点数)
+            return [float(parts[1]), float(parts[2])]
+        elif indicator_key == 'stoch' and len(parts) >= 4 and parts[0] in ['STOCHk', 'STOCHd']:
+            # STOCHk_k_period_d_period_smooth_k_period
+            return [int(parts[1]), int(parts[2]), int(parts[3])]
+        elif indicator_key in ['ema', 'sma'] and len(parts) >= 2 and parts[0] in ['EMA', 'SMA']:
+            # MA_period
+            return [int(parts[1])]
+        elif indicator_key == 'atr' and len(parts) >= 2 and parts[0] == 'ATR':
+             # ATR_period
+            return [int(parts[1])]
+        elif indicator_key == 'adl' and len(parts) == 1 and parts[0] == 'ADL':
+            # ADL_{timeframe}, 无参数
+            return []
+        elif indicator_key == 'vwap' and len(parts) >= 1 and parts[0] == 'VWAP':
+             # VWAP_{timeframe} 或 VWAP_{anchor}_{timeframe}
+             # 根据日志，VWAP 列名是 VWAP_5 等，没有anchor参数
+             return [] # 假设列名中不包含参数，或者不需要解析
+        elif indicator_key == 'ichimoku' and len(parts) >= 2 and parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_A', 'SENKOU_B']:
+            # Ichimoku 参数解析复杂，尝试从主要列名解析
+            # TENKAN_period, KIJUN_period, CHIKOU_period, SENKOU_A_tenkan_kijun, SENKOU_B_period
+            if parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_B'] and len(parts) >= 2:
+                 return [int(parts[1])] # 尝试解析单个周期
+            elif parts[0] == 'SENKOU_A' and len(parts) >= 3:
+                 return [int(parts[1]), int(parts[2])] # 尝试解析两个周期
+            # 如果解析失败，可能需要更复杂的逻辑或依赖于 indicator_configs 提供的列名
+            return None # 参数格式不匹配
+        elif indicator_key == 'mom' and len(parts) >= 2 and parts[0] == 'MOM':
+            # MOM_period
+            return [int(parts[1])]
+        elif indicator_key == 'willr' and len(parts) >= 2 and parts[0] == 'WILLR':
+            # WILLR_period
+            return [int(parts[1])]
+        elif indicator_key == 'cmf' and len(parts) >= 2 and parts[0] == 'CMF':
+            # CMF_period
+            return [int(parts[1])]
+        elif indicator_key == 'obv' and len(parts) == 1 and parts[0] == 'OBV':
+             # OBV_{timeframe}, 无参数
+             return []
+        elif indicator_key == 'obv' and len(parts) >= 2 and parts[0] == 'OBV_MA':
+             # OBV_MA_period_{timeframe}
+             return [int(parts[1])] # OBV_MA 列名中的周期
+        elif indicator_key == 'kc' and len(parts) >= 3 and parts[0] in ['KCL', 'KCM', 'KCU']:
+             # KC_ema_period_atr_period
+            return [int(parts[1]), int(parts[2])]
+        elif indicator_key == 'hv' and len(parts) >= 2 and parts[0] == 'HV':
+            # HV_period
+            return [int(parts[1])]
+        elif indicator_key == 'vroc' and len(parts) >= 2 and parts[0] == 'VROC':
+            # VROC_period
+            return [int(parts[1])]
+        elif indicator_key == 'aroc' and len(parts) >= 2 and parts[0] == 'AROC':
+            # AROC_period
+            return [int(parts[1])]
+        # Pivot 列名不包含参数，只有基础名和后缀，在主函数中特殊处理
+
+        return None # 未知列名模式或解析失败
+    except (ValueError, IndexError):
+        return None # 参数转换失败或索引越界
+
+
 def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, vc_params: Dict ) -> pd.DataFrame:
     """
     使用量能相关指标（成交量、OBV、CMF等）对初步的策略评分 (0-100) 进行调整和确认。
