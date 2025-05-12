@@ -644,7 +644,7 @@ class IndicatorService:
         raw_ohlcv_dfs = dict(zip(all_time_levels_needed, ohlcv_results))
 
         # *** 调试点：检查获取到的原始数据状态 ***
-        print(f"[{stock_code}] Debug: 原始 OHLCV 数据获取结果 (按时间级别):") # 调试输出
+        # print(f"[{stock_code}] Debug: 原始 OHLCV 数据获取结果 (按时间级别):") # 调试输出
         for tf, df in raw_ohlcv_dfs.items():
             print(f"  - TF {tf}: {'None/Empty' if df is None or df.empty else f'Shape {df.shape}, Columns: {df.columns.tolist()}'}") # 调试输出
 
@@ -896,7 +896,7 @@ class IndicatorService:
                     # 从基础OHLCV开始合并
                     merged_tf_df_res = base_df_merge.copy() 
                     # *** 调试点：打印基础合并 DataFrame 的初始列 ***
-                    print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 合并起点 DataFrame 初始列 (来自重采样OHLCV): {merged_tf_df_res.columns.tolist()[:20]}...") # 调试输出
+                    # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 合并起点 DataFrame 初始列 (来自重采样OHLCV): {merged_tf_df_res.columns.tolist()[:20]}...") # 调试输出
 
                     for indi_df_to_merge in df_list_merge_indi:
                         # 检查索引是否一致，如果不同，需要reindex (理论上应该一致)
@@ -906,7 +906,7 @@ class IndicatorService:
                             indi_df_to_merge = indi_df_to_merge.reindex(merged_tf_df_res.index) # 简单reindex，可能引入NaN
 
                         # *** 调试点：打印即将合并的指标 DataFrame 的列 ***
-                        print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 正在合并指标 DataFrame，列: {indi_df_to_merge.columns.tolist()}") # 调试输出
+                        # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 正在合并指标 DataFrame，列: {indi_df_to_merge.columns.tolist()}") # 调试输出
 
                         # 使用 pd.merge 按索引合并
                         # suffixes 参数用于处理列名冲突，理论上因为我们已经加了 _tf 后缀，不会有 OHLCV 列与指标列冲突
@@ -917,7 +917,7 @@ class IndicatorService:
                         # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 合并后的 DataFrame 当前列数: {len(merged_tf_df_res.columns)}") # 调试输出
 
                     merged_indicators_by_tf[tf_merge_indi] = merged_tf_df_res
-                    print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 指标合并完成，最终列数: {len(merged_indicators_by_tf[tf_merge_indi].columns)}") # 调试输出
+                    # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 指标合并完成，最终列数: {len(merged_indicators_by_tf[tf_merge_indi].columns)}") # 调试输出
                 else:
                     logger.warning(f"[{stock_code}] TF {tf_merge_indi}: 基础重采样数据丢失，无法合并指标。")
                     print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 基础重采样数据丢失，无法合并指标。") # 调试输出
@@ -936,7 +936,7 @@ class IndicatorService:
         final_merged_df = merged_indicators_by_tf[min_time_level].copy()
         
         # *** 调试点：打印最终合并起点 (最小时间级别) 的列 ***
-        print(f"[{stock_code}] Debug: 最终合并起点 (最小时间级别 {min_time_level}) 列数: {len(final_merged_df.columns)}. 部分列: {final_merged_df.columns.tolist()[:50]}...") # 调试输出
+        # print(f"[{stock_code}] Debug: 最终合并起点 (最小时间级别 {min_time_level}) 列数: {len(final_merged_df.columns)}. 部分列: {final_merged_df.columns.tolist()[:50]}...") # 调试输出
 
         # 对 all_time_levels_needed 进行排序，确保合并顺序一致性 (从小到大)
         sorted_time_levels_for_merge = sorted(list(all_time_levels_needed), key=lambda x: self._get_timeframe_in_minutes(x) or float('inf'))
@@ -951,7 +951,7 @@ class IndicatorService:
                 df_to_merge_final = merged_indicators_by_tf[tf_final_merge].reindex(final_merged_df.index, method='ffill')
                 
                 # *** 调试点：打印即将合并的其他时间级别的数据列 ***
-                print(f"[{stock_code}] Debug: 最终合并: 正在合并 TF {tf_final_merge} 的数据，Shape: {df_to_merge_final.shape}, 列: {df_to_merge_final.columns.tolist()[:20]}...") # 调试输出
+                # print(f"[{stock_code}] Debug: 最终合并: 正在合并 TF {tf_final_merge} 的数据，Shape: {df_to_merge_final.shape}, 列: {df_to_merge_final.columns.tolist()[:20]}...") # 调试输出
 
                 # 执行合并操作
                 # suffixes 参数用于处理可能出现的同名列冲突，虽然我们期望列名已经通过 _tf 后缀区分，
@@ -960,7 +960,7 @@ class IndicatorService:
                 final_merged_df = pd.merge(final_merged_df, df_to_merge_final, left_index=True, right_index=True, how='left', suffixes=('_base', f'_other')) # 示例后缀，实际可能不需要或用更合适的
 
                 # *** 调试点：打印合并 TF {tf_final_merge} 后的最终 DataFrame 列数 ***
-                print(f"[{stock_code}] Debug: 最终合并: 合并 TF {tf_final_merge} 后，总列数: {len(final_merged_df.columns)}") # 调试输出
+                # print(f"[{stock_code}] Debug: 最终合并: 合并 TF {tf_final_merge} 后，总列数: {len(final_merged_df.columns)}") # 调试输出
 
             else:
                 logger.warning(f"[{stock_code}] 时间框架 {tf_final_merge} 的合并数据在 merged_indicators_by_tf 中未找到。")
@@ -1027,32 +1027,87 @@ class IndicatorService:
                 for tf_str_diff in all_time_levels_needed:
                     # 动态构建指标列名 (需要与步骤 5 计算并重命名后的列名一致)
                     param_str_for_col = ""
-                    if param_keys_list: # 多个参数，如MACD
-                        param_values_for_col = []
+                    if param_keys_list: # 处理多个参数的情况 (如 MACDh)
+                        # 确保 param_keys_list 是一个列表
+                        if not isinstance(param_keys_list, list):
+                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 配置项不是列表，跳过差分计算。配置: {indi_diff_conf}")
+                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 配置项不是列表，跳过差分计算。配置: {indi_diff_conf}")
+                            continue # 跳过当前时间级别和指标的差分计算
+
                         # 从 base_scoring 或 indicator_analysis_params 获取参数值
                         for i, pk in enumerate(param_keys_list):
-                            val = bs_params.get(pk, ia_params.get(pk, fe_params.get(pk, default_p_values_list[i] if default_p_values_list and i < len(default_p_values_list) else None)))
-                            if val is not None: param_values_for_col.append(str(val))
-                        param_str_for_col = "_".join(param_values_for_col)
-                        # 特别处理 MACDh 的列名格式，可能需要根据实际 calculate_macd 返回的列名调整
-                        if base_name == 'MACDh':
-                             # Assuming calculate_macd returns MACDh_fast_slow_signal
-                             indi_col_name_base = f"MACDh_{param_str_for_col}" 
-                        else:
-                             indi_col_name_base = f"{base_name}_{param_str_for_col}"
+                            # 确保 pk 是字符串，避免潜在错误
+                            if not isinstance(pk, str):
+                                 logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 列表中包含非字符串项 '{pk}' ({type(pk)})，跳过差分计算。配置: {indi_diff_conf}")
+                                 print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 的 'params_keys' 列表中包含非字符串项 '{pk}' ({type(pk)})，跳过差分计算。配置: {indi_diff_conf}")
+                                 param_values_for_col = [] # 清空已获取的值，确保不构建列名
+                                 break # 跳出内层循环
 
-                    elif param_keys: # 单个参数
-                         val = bs_params.get(param_keys, ia_params.get(param_keys, fe_params.get(param_keys, default_p_value)))
-                         if val is not None:
-                             param_str_for_col = str(val)
-                             indi_col_name_base = f"{base_name}_{param_str_for_col}"
-                         else:
-                             # 如果参数值都没找到，且没有默认值，则无法构建列名，跳过
-                             print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算 {base_name} 差分时参数缺失 ({param_keys or param_keys_list})，跳过。") # 调试输出
-                             continue
-                    else: # 没有参数的指标，如 OBV, ADL
-                        indi_col_name_base = base_name
-                        param_str_for_col = "" # 没有参数字符串
+                            # 获取参数值，优先从 bs, ia, fe 参数块获取，最后使用 default_p_values_list 中的对应值
+                            # 修正：使用 pk (当前的参数键名字符串) 作为字典的键
+                            # 修改开始 >>>
+                            val = bs_params.get(pk, ia_params.get(pk, fe_params.get(pk, default_p_values_list[i] if default_p_values_list and i < len(default_p_values_list) else None)))
+                            # 修改结束 <<<
+
+                            if val is not None:
+                                param_values_for_col.append(str(val))
+
+                        # 如果成功获取到所有参数值，构建列名
+                        if len(param_values_for_col) == len(param_keys_list):
+                            param_str_for_col = "_".join(param_values_for_col)
+                            # 特别处理 MACDh 的列名格式，需要根据实际 calculate_macd 返回的列名调整
+                            # 假设 calculate_macd 返回 MACD_fast_slow_signal, MACDh_fast_slow_signal, MACDs_fast_slow_signal
+                            # 我们需要 MACDh 列
+                            if base_name == 'MACDh':
+                                 # 假设 MACD 计算函数返回的 MACDh 列名格式是 MACDh_period_fast_period_slow_signal_period
+                                 # 需要根据实际 calculate_macd 函数返回的列名来确定这里的格式
+                                 # 这里的 param_str_for_col 已经是 '12_26_9'
+                                 indi_col_name_base = f"MACDh_{param_str_for_col}"
+                            else:
+                                 # 对于其他多参数指标，假设列名格式是 BASE_PARAM1_PARAM2...
+                                 indi_col_name_base = f"{base_name}_{param_str_for_col}"
+                        else:
+                            # 如果参数值数量不匹配，说明获取参数失败，跳过
+                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 获取参数值失败，跳过差分计算。配置: {indi_diff_conf}")
+                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 获取参数值失败，跳过差分计算。配置: {indi_diff_conf}")
+                            continue # 跳过当前时间级别和指标的差分计算
+
+
+                    elif param_keys: # 处理单个参数的情况 (如 RSI, MFI, CMF, ADX)
+                        # *** 错误发生在这里 ***
+                        # 检查 param_keys 是否是字符串，如果不是，说明配置错误，跳过
+                        # 修改开始 >>>
+                        if not isinstance(param_keys, str):
+                            logger.error(f"[{stock_code}] TF {tf_str_diff}: 计算指标 {base_name} 差分时，'params_key' 配置项不是字符串 ({type(param_keys)})，跳过。配置: {indi_diff_conf}")
+                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算指标 {base_name} 差分时，'params_key' 配置项不是字符串 ({type(param_keys)})，跳过。配置: {indi_diff_conf}")
+                            continue # 跳过当前时间级别和指标的差分计算
+                        # 修改结束 <<<
+
+                        # 使用 param_keys (字符串) 作为键获取参数值
+                        # 修正：这里的 param_keys 已经是字符串键名，可以直接用
+                        # 修改开始 >>>
+                        val = bs_params.get(param_keys, ia_params.get(param_keys, fe_params.get(param_keys, default_p_value)))
+                        # 修改结束 <<<
+
+                        if val is not None:
+                            param_str_for_col = str(val)
+                            indi_col_name_base = f"{base_name}_{param_str_for_col}"
+                        else:
+                            # 如果参数值都没找到，且没有默认值，则无法构建列名，跳过
+                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 计算 {base_name} 差分时参数缺失 ({param_keys})，跳过。配置: {indi_diff_conf}")
+                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算 {base_name} 差分时参数缺失 ({param_keys})，跳过。配置: {indi_diff_conf}")
+                            continue # 跳过当前时间级别和指标的差分计算
+
+                    else: # 没有参数的指标 (如 OBV, ADL - 注意 ADX 已经在上面处理了，这里可能是 OBV, ADL 本身)
+                        # 检查 base_name 是否是 OBV 或 ADL，这些通常没有参数
+                        if base_name in ['OBV', 'ADL']:
+                            indi_col_name_base = base_name
+                            param_str_for_col = "" # 没有参数字符串
+                        else:
+                            # 如果配置项既没有 params_key 也没有 params_keys，且不是已知无参数指标，记录警告并跳过
+                            logger.warning(f"[{stock_code}] TF {tf_str_diff}: 指标 {base_name} 差分配置项缺少参数键 ('params_key' 或 'params_keys')，跳过。配置: {indi_diff_conf}")
+                            print(f"[{stock_code}] Debug: TF {tf_str_diff}: 指标 {base_name} 差分配置项缺少参数键 ('params_key' 或 'params_keys')，跳过。配置: {indi_diff_conf}")
+                            continue # 跳过当前时间级别和指标的差分计算
 
                     # 构造带有时间周期后缀的完整列名
                     indi_col_name_diff = f"{indi_col_name_base}_{tf_str_diff}"
@@ -1179,25 +1234,25 @@ class IndicatorService:
         boll_std_str_p = f"{boll_std_dev_p:.1f}" # 格式化标准差
         focus_tf_p = params.get('trend_following_params',{}).get('focus_timeframe', '30')
 
-        target_adx_col = f"ADX_{dmi_period_p}_{focus_tf_p}"
-        target_pdi_col = f"PDI_{dmi_period_p}_{focus_tf_p}"
-        target_ndi_col = f"NDI_{dmi_period_p}_{focus_tf_p}"
+        # target_adx_col = f"ADX_{dmi_period_p}_{focus_tf_p}"
+        # target_pdi_col = f"PDI_{dmi_period_p}_{focus_tf_p}"
+        # target_ndi_col = f"NDI_{dmi_period_p}_{focus_tf_p}"
         
-        target_boll_upper_col = f"BBU_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}"
-        target_boll_lower_col = f"BBL_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}"
-        target_boll_middle_col = f"BBM_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}" # 中轨列名
-        target_close_col = f'close_{focus_tf_p}' # 收盘价列名
+        # target_boll_upper_col = f"BBU_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}"
+        # target_boll_lower_col = f"BBL_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}"
+        # target_boll_middle_col = f"BBM_{boll_period_p}_{boll_std_str_p}_{focus_tf_p}" # 中轨列名
+        # target_close_col = f'close_{focus_tf_p}' # 收盘价列名
 
-        print(f"[{stock_code}] Debug: 检查 ADX/DMI 关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
-        print(f"  - '{target_adx_col}': {'存在' if target_adx_col in final_merged_df.columns else '不存在'}") # 调试输出
-        print(f"  - '{target_pdi_col}': {'存在' if target_pdi_col in final_merged_df.columns else '不存在'}") # 调试输出
-        print(f"  - '{target_ndi_col}': {'存在' if target_ndi_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"[{stock_code}] Debug: 检查 ADX/DMI 关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
+        # print(f"  - '{target_adx_col}': {'存在' if target_adx_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"  - '{target_pdi_col}': {'存在' if target_pdi_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"  - '{target_ndi_col}': {'存在' if target_ndi_col in final_merged_df.columns else '不存在'}") # 调试输出
 
-        print(f"[{stock_code}] Debug: 检查 BOLL 关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
-        print(f"  - '{target_boll_upper_col}': {'存在' if target_boll_upper_col in final_merged_df.columns else '不存在'}") # 调试输出
-        print(f"  - '{target_boll_lower_col}': {'存在' if target_boll_lower_col in final_merged_df.columns else '不存在'}") # 调试输出
-        print(f"  - '{target_boll_middle_col}': {'存在' if target_boll_middle_col in final_merged_df.columns else '不存在'}") # 调试输出
-        print(f"  - '{target_close_col}': {'存在' if target_close_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"[{stock_code}] Debug: 检查 BOLL 关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出
+        # print(f"  - '{target_boll_upper_col}': {'存在' if target_boll_upper_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"  - '{target_boll_lower_col}': {'存在' if target_boll_lower_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"  - '{target_boll_middle_col}': {'存在' if target_boll_middle_col in final_merged_df.columns else '不存在'}") # 调试输出
+        # print(f"  - '{target_close_col}': {'存在' if target_close_col in final_merged_df.columns else '不存在'}") # 调试输出
 
         logger.debug(f"[{stock_code}] 最终 DataFrame 列名 (部分): {final_merged_df.columns.tolist()[:30]}...") 
         return final_merged_df, indicator_configs
