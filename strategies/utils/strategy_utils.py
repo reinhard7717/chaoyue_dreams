@@ -1588,8 +1588,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
     logger.info(f"开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
 
     # 加载 indicator_naming_conventions.json 文件中的命名规范
-    # 假设文件位于项目根目录下的 config 目录中，实际路径根据项目结构调整
-    naming_conventions_path = settings.INDICATOR_PARAMETERS_CONFIG_PATH
+    naming_conventions_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'indicator_naming_conventions.json')
     try:
         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
             naming_conventions = json.load(f)
@@ -1598,6 +1597,18 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
     except Exception as e:
         logger.error(f"加载指标命名规范配置文件失败: {e}，将使用默认命名逻辑。")
         indicator_naming = {}
+
+    # 从 indicator_configs 中提取可能的列名信息
+    # 修改：利用 indicator_configs 获取更精确的列名映射
+    config_column_mapping = {}
+    for config in indicator_configs:
+        indicator_name = config.get('name', '').lower()
+        timeframe = config.get('timeframe', '')
+        output_columns = config.get('output_columns', [])
+        if indicator_name and timeframe and output_columns:
+            key = (indicator_name, str(timeframe))
+            config_column_mapping[key] = output_columns
+            logger.debug(f"从配置中提取指标 {indicator_name} 在时间框架 {timeframe} 的列名: {output_columns}")
 
     # 遍历需要评分的指标 key 和时间框架
     for indicator_key in score_indicators_keys:
@@ -1770,249 +1781,591 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
 
             try:
                 # 修改：添加更健壮的列名查找逻辑，尝试多种时间框架后缀格式
-                possible_tf_suffixes = [str(tf_score), f"{tf_score}m", f"{tf_score}min", tf_score.upper()]
+                possible_tf_suffixes = [
+                    str(tf_score), f"{tf_score}m", f"{tf_score}min", tf_score.upper(),
+                    f"{tf_score}M", f"{tf_score}MIN", f"T{tf_score}", f"t{tf_score}"
+                ]
                 found = False
-                for tf_suffix in possible_tf_suffixes:
-                    if indicator_key == 'macd' and 'MACD' in indicator_naming:
-                        p_fast = col_lookup_params.get('period_fast', 12)
-                        p_slow = col_lookup_params.get('period_slow', 26)
-                        p_sig = col_lookup_params.get('signal_period', 9)
-                        macd_col = f"MACD_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
-                        dea_col = f"MACDs_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"  # pandas_ta MACD signal 列名通常是 MACDs
-                        hist_col = f"MACDh_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
-                        if all(col in data.columns for col in [macd_col, dea_col, hist_col]):
+                # 首先检查 indicator_configs 中的列名映射
+                config_key = (indicator_key.lower(), str(tf_score))
+                if config_key in config_column_mapping:
+                    config_cols = config_column_mapping[config_key]
+                    logger.debug(f"使用 indicator_configs 提供的列名映射: {config_cols} for {indicator_key} at {tf_score}")
+                    if indicator_key == 'macd':
+                        if len(config_cols) >= 3 and all(col in data.columns for col in config_cols[:3]):
                             indicator_cols_for_score = {
-                                'macd_series': macd_col,  # MACD (diff)
-                                'macd_d': dea_col,        # MACD signal (DEA)
-                                'macd_h': hist_col        # MACD hist
+                                'macd_series': config_cols[0],  # MACD (diff)
+                                'macd_d': config_cols[2],       # MACD signal (DEA)
+                                'macd_h': config_cols[1]        # MACD hist
                             }
                             found = True
-                            logger.debug(f"找到指标 'macd' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'rsi' and 'RSI' in indicator_naming:
-                        p_rsi = col_lookup_params.get('period', 14)
-                        rsi_col = f"RSI_{p_rsi}_{tf_suffix}"
-                        if rsi_col in data.columns:
-                            indicator_cols_for_score = {'rsi': rsi_col}
+                            logger.debug(f"找到指标 'macd' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'rsi':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'rsi': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'rsi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'kdj' and 'KDJ' in indicator_naming:
-                        p_k = col_lookup_params.get('period', 9)
-                        p_d = col_lookup_params.get('signal_period', 3)
-                        p_j = col_lookup_params.get('smooth_k_period', 3)
-                        k_col = f"K_{p_k}_{p_d}_{p_j}_{tf_suffix}"
-                        d_col = f"D_{p_k}_{p_d}_{p_j}_{tf_suffix}"
-                        j_col = f"J_{p_k}_{p_d}_{p_j}_{tf_suffix}"
-                        if all(col in data.columns for col in [k_col, d_col, j_col]):
-                            indicator_cols_for_score = {'k': k_col, 'd': d_col, 'j': j_col}
+                            logger.debug(f"找到指标 'rsi' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'kdj':
+                        if len(config_cols) >= 3 and all(col in data.columns for col in config_cols[:3]):
+                            indicator_cols_for_score = {'k': config_cols[0], 'd': config_cols[1], 'j': config_cols[2]}
                             found = True
-                            logger.debug(f"找到指标 'kdj' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'boll' and 'BOLL' in indicator_naming:
-                        p_boll = col_lookup_params.get('period', 20)
-                        std_boll = col_lookup_params.get('std_dev', 2.0)
-                        std_str = f"{std_boll:.1f}"
-                        upper_col = f"BBU_{p_boll}_{std_str}_{tf_suffix}"
-                        mid_col = f"BBM_{p_boll}_{std_str}_{tf_suffix}"
-                        lower_col = f"BBL_{p_boll}_{std_str}_{tf_suffix}"
-                        close_col = f"close_{tf_suffix}"  # BOLL评分需要收盘价
-                        if all(col in data.columns for col in [close_col, upper_col, mid_col, lower_col]):
-                            indicator_cols_for_score = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
+                            logger.debug(f"找到指标 'kdj' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'boll':
+                        if len(config_cols) >= 3 and all(col in data.columns for col in config_cols[:3]):
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and all(col in data.columns for col in [close_col] + config_cols[:3]):
+                                indicator_cols_for_score = {'close': close_col, 'upper': config_cols[2], 'mid': config_cols[1], 'lower': config_cols[0]}
+                                found = True
+                                logger.debug(f"找到指标 'boll' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'cci':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'cci': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'boll' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'cci' and 'CCI' in indicator_naming:
-                        p_cci = col_lookup_params.get('period', 14)
-                        cci_col = f"CCI_{p_cci}_{tf_suffix}"
-                        if cci_col in data.columns:
-                            indicator_cols_for_score = {'cci': cci_col}
+                            logger.debug(f"找到指标 'cci' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'mfi':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'mfi': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'cci' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'mfi' and 'MFI' in indicator_naming:
-                        p_mfi = col_lookup_params.get('period', 14)
-                        mfi_col = f"MFI_{p_mfi}_{tf_suffix}"
-                        if mfi_col in data.columns:
-                            indicator_cols_for_score = {'mfi': mfi_col}
+                            logger.debug(f"找到指标 'mfi' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'roc':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'roc': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'mfi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'roc' and 'ROC' in indicator_naming:
-                        p_roc = col_lookup_params.get('period', 12)
-                        roc_col = f"ROC_{p_roc}_{tf_suffix}"
-                        if roc_col in data.columns:
-                            indicator_cols_for_score = {'roc': roc_col}
+                            logger.debug(f"找到指标 'roc' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'dmi':
+                        if len(config_cols) >= 3 and all(col in data.columns for col in config_cols[:3]):
+                            indicator_cols_for_score = {'pdi': config_cols[0], 'ndi': config_cols[1], 'adx': config_cols[2]}
                             found = True
-                            logger.debug(f"找到指标 'roc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'dmi' and 'DMI' in indicator_naming:
-                        p_dmi = col_lookup_params.get('period', 14)
-                        pdi_col = f"PDI_{p_dmi}_{tf_suffix}"
-                        ndi_col = f"NDI_{p_dmi}_{tf_suffix}"
-                        adx_col = f"ADX_{p_dmi}_{tf_suffix}"
-                        if all(col in data.columns for col in [pdi_col, ndi_col, adx_col]):
-                            indicator_cols_for_score = {'pdi': pdi_col, 'ndi': ndi_col, 'adx': adx_col}
+                            logger.debug(f"找到指标 'dmi' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'sar':
+                        if config_cols and config_cols[0] in data.columns:
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and config_cols[0] in data.columns:
+                                indicator_cols_for_score = {'close': close_col, 'sar': config_cols[0]}
+                                found = True
+                                logger.debug(f"找到指标 'sar' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'stoch':
+                        if len(config_cols) >= 2 and all(col in data.columns for col in config_cols[:2]):
+                            indicator_cols_for_score = {'k': config_cols[0], 'd': config_cols[1]}
                             found = True
-                            logger.debug(f"找到指标 'dmi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'sar' and 'SAR' in indicator_naming:
-                        step = col_lookup_params.get('af_step', 0.02)
-                        max_af = col_lookup_params.get('max_af', 0.2)
-                        sar_col = f"SAR_{step}_{max_af}_{tf_suffix}"
-                        close_col = f"close_{tf_suffix}"  # SAR评分需要收盘价
-                        if all(col in data.columns for col in [close_col, sar_col]):
-                            indicator_cols_for_score = {'close': close_col, 'sar': sar_col}
+                            logger.debug(f"找到指标 'stoch' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key in ['ema', 'sma']:
+                        if config_cols and config_cols[0] in data.columns:
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and config_cols[0] in data.columns:
+                                indicator_cols_for_score = {'close': close_col, 'ma': config_cols[0]}
+                                found = True
+                                logger.debug(f"找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'atr':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'atr': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'sar' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'stoch' and 'STOCH' in indicator_naming:
-                        p_k = col_lookup_params.get('k_period', 14)
-                        p_d = col_lookup_params.get('d_period', 3)
-                        p_smooth_k = col_lookup_params.get('smooth_k_period', 3)
-                        stochk_col = f"STOCHk_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
-                        stochd_col = f"STOCHd_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
-                        if all(col in data.columns for col in [stochk_col, stochd_col]):
-                            indicator_cols_for_score = {'k': stochk_col, 'd': stochd_col}
+                            logger.debug(f"找到指标 'atr' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'adl':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'adl': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'stoch' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'ema' and 'EMA' in indicator_naming:
-                        p_ema = col_lookup_params.get('period', 20)
-                        ema_col = f"EMA_{p_ema}_{tf_suffix}"
-                        close_col = f"close_{tf_suffix}"  # MA评分需要收盘价
-                        if all(col in data.columns for col in [close_col, ema_col]):
-                            indicator_cols_for_score = {'close': close_col, 'ma': ema_col}  # 通用MA评分函数需要close和ma
+                            logger.debug(f"找到指标 'adl' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'vwap':
+                        if config_cols and config_cols[0] in data.columns:
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and config_cols[0] in data.columns:
+                                indicator_cols_for_score = {'close': close_col, 'vwap': config_cols[0]}
+                                found = True
+                                logger.debug(f"找到指标 'vwap' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'ichimoku':
+                        if len(config_cols) >= 5 and all(col in data.columns for col in config_cols[:5]):
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and all(col in data.columns for col in config_cols[:5]):
+                                indicator_cols_for_score = {
+                                    'close': close_col, 'tenkan': config_cols[0], 'kijun': config_cols[1],
+                                    'senkou_a': config_cols[3], 'senkou_b': config_cols[4], 'chikou': config_cols[2]
+                                }
+                                found = True
+                                logger.debug(f"找到指标 'ichimoku' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'mom':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'mom': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'ema' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'sma' and 'SMA' in indicator_naming:
-                        p_sma = col_lookup_params.get('period', 20)
-                        sma_col = f"SMA_{p_sma}_{tf_suffix}"
-                        close_col = f"close_{tf_suffix}"  # MA评分需要收盘价
-                        if all(col in data.columns for col in [close_col, sma_col]):
-                            indicator_cols_for_score = {'close': close_col, 'ma': sma_col}  # 通用MA评分函数需要close和ma
+                            logger.debug(f"找到指标 'mom' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'willr':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'willr': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'sma' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'atr' and 'ATR' in indicator_naming:
-                        p_atr = col_lookup_params.get('period', 14)
-                        atr_col = f"ATR_{p_atr}_{tf_suffix}"
-                        if atr_col in data.columns:
-                            indicator_cols_for_score = {'atr': atr_col}
+                            logger.debug(f"找到指标 'willr' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'cmf':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'cmf': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'atr' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'adl' and 'ADL' in indicator_naming:
-                        adl_col = f"ADL_{tf_suffix}"  # ADL通常没有周期参数
-                        if adl_col in data.columns:
-                            indicator_cols_for_score = {'adl': adl_col}
+                            logger.debug(f"找到指标 'cmf' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'obv':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'obv': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'adl' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'vwap' and 'VWAP' in indicator_naming:
-                        anchor = col_lookup_params.get('anchor', None)
-                        vwap_col = f"VWAP_{tf_suffix}" if anchor is None else f"VWAP_{anchor}_{tf_suffix}"
-                        close_col = f"close_{tf_suffix}"  # VWAP评分需要收盘价
-                        if all(col in data.columns for col in [close_col, vwap_col]):
-                            indicator_cols_for_score = {'close': close_col, 'vwap': vwap_col}
+                            logger.debug(f"找到指标 'obv' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'kc':
+                        if len(config_cols) >= 3 and all(col in data.columns for col in config_cols[:3]):
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and all(col in data.columns for col in config_cols[:3]):
+                                indicator_cols_for_score = {'close': close_col, 'upper': config_cols[2], 'mid': config_cols[1], 'lower': config_cols[0]}
+                                found = True
+                                logger.debug(f"找到指标 'kc' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'hv':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'hv': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'vwap' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'ichimoku' and 'ICHIMOKU' in indicator_naming:
-                        tenkan = col_lookup_params.get('tenkan_period', 9)
-                        kijun = col_lookup_params.get('kijun_period', 26)
-                        senkou_b_period = col_lookup_params.get('senkou_period', 52)
-                        tenkan_col = f"TENKAN_{tenkan}_{tf_suffix}"
-                        kijun_col = f"KIJUN_{kijun}_{tf_suffix}"
-                        senkou_a_col = f"SENKOU_A_{tenkan}_{kijun}_{tf_suffix}"
-                        senkou_b_col = f"SENKOU_B_{senkou_b_period}_{tf_suffix}"
-                        chikou_col = f"CHIKOU_{kijun}_{tf_suffix}"  # Chikou 通常与 Kijun 同周期
-                        close_col = f"close_{tf_suffix}"  # Ichimoku 评分可能需要收盘价
-                        if all(col in data.columns for col in [close_col, tenkan_col, kijun_col, senkou_a_col, senkou_b_col, chikou_col]):
-                            indicator_cols_for_score = {
-                                'close': close_col, 'tenkan': tenkan_col, 'kijun': kijun_col,
-                                'senkou_a': senkou_a_col, 'senkou_b': senkou_b_col, 'chikou': chikou_col
-                            }
+                            logger.debug(f"找到指标 'hv' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'vroc':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'vroc': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'ichimoku' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'mom' and 'MOM' in indicator_naming:
-                        p_mom = col_lookup_params.get('period', 10)
-                        mom_col = f"MOM_{p_mom}_{tf_suffix}"
-                        if mom_col in data.columns:
-                            indicator_cols_for_score = {'mom': mom_col}
+                            logger.debug(f"找到指标 'vroc' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'aroc':
+                        if config_cols and config_cols[0] in data.columns:
+                            indicator_cols_for_score = {'aroc': config_cols[0]}
                             found = True
-                            logger.debug(f"找到指标 'mom' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'willr' and 'WILLR' in indicator_naming:
-                        p_willr = col_lookup_params.get('period', 14)
-                        willr_col = f"WILLR_{p_willr}_{tf_suffix}"
-                        if willr_col in data.columns:
-                            indicator_cols_for_score = {'willr': willr_col}
+                            logger.debug(f"找到指标 'aroc' 在时间框架 {tf_score} 的列，使用配置映射")
+                    elif indicator_key == 'pivot':
+                        if len(config_cols) >= 15 and all(col in data.columns for col in config_cols[:15]):
+                            close_col = f"close_{tf_score}" if f"close_{tf_score}" in data.columns else next((c for c in data.columns if c.startswith("close_")), None)
+                            if close_col and all(col in data.columns for col in config_cols[:15]):
+                                indicator_cols_for_score = {'close': close_col, 'pivot_levels': config_cols[:15]}
+                                found = True
+                                logger.debug(f"找到指标 'pivot' 在时间框架 {tf_score} 的列，使用配置映射")
+
+                # 如果配置映射未找到匹配项，则回退到原来的后缀尝试逻辑
+                if not found:
+                    for tf_suffix in possible_tf_suffixes:
+                        if indicator_key == 'macd' and 'MACD' in indicator_naming:
+                            p_fast = col_lookup_params.get('period_fast', 12)
+                            p_slow = col_lookup_params.get('period_slow', 26)
+                            p_sig = col_lookup_params.get('signal_period', 9)
+                            macd_col = f"MACD_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
+                            dea_col = f"MACDs_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"  # pandas_ta MACD signal 列名通常是 MACDs
+                            hist_col = f"MACDh_{p_fast}_{p_slow}_{p_sig}_{tf_suffix}"
+                            if all(col in data.columns for col in [macd_col, dea_col, hist_col]):
+                                indicator_cols_for_score = {
+                                    'macd_series': macd_col,  # MACD (diff)
+                                    'macd_d': dea_col,        # MACD signal (DEA)
+                                    'macd_h': hist_col        # MACD hist
+                                }
+                                found = True
+                                logger.debug(f"找到指标 'macd' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'rsi' and 'RSI' in indicator_naming:
+                            p_rsi = col_lookup_params.get('period', 14)
+                            rsi_col = f"RSI_{p_rsi}_{tf_suffix}"
+                            if rsi_col in data.columns:
+                                indicator_cols_for_score = {'rsi': rsi_col}
+                                found = True
+                                logger.debug(f"找到指标 'rsi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'kdj' and 'KDJ' in indicator_naming:
+                            p_k = col_lookup_params.get('period', 9)
+                            p_d = col_lookup_params.get('signal_period', 3)
+                            p_j = col_lookup_params.get('smooth_k_period', 3)
+                            k_col = f"K_{p_k}_{p_d}_{p_j}_{tf_suffix}"
+                            d_col = f"D_{p_k}_{p_d}_{p_j}_{tf_suffix}"
+                            j_col = f"J_{p_k}_{p_d}_{p_j}_{tf_suffix}"
+                            if all(col in data.columns for col in [k_col, d_col, j_col]):
+                                indicator_cols_for_score = {'k': k_col, 'd': d_col, 'j': j_col}
+                                found = True
+                                logger.debug(f"找到指标 'kdj' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'boll' and 'BOLL' in indicator_naming:
+                            p_boll = col_lookup_params.get('period', 20)
+                            std_boll = col_lookup_params.get('std_dev', 2.0)
+                            std_str = f"{std_boll:.1f}"
+                            upper_col = f"BBU_{p_boll}_{std_str}_{tf_suffix}"
+                            mid_col = f"BBM_{p_boll}_{std_str}_{tf_suffix}"
+                            lower_col = f"BBL_{p_boll}_{std_str}_{tf_suffix}"
+                            close_col = f"close_{tf_suffix}"  # BOLL评分需要收盘价
+                            if all(col in data.columns for col in [close_col, upper_col, mid_col, lower_col]):
+                                indicator_cols_for_score = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
+                                found = True
+                                logger.debug(f"找到指标 'boll' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'cci' and 'CCI' in indicator_naming:
+                            p_cci = col_lookup_params.get('period', 14)
+                            cci_col = f"CCI_{p_cci}_{tf_suffix}"
+                            if cci_col in data.columns:
+                                indicator_cols_for_score = {'cci': cci_col}
+                                found = True
+                                logger.debug(f"找到指标 'cci' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'mfi' and 'MFI' in indicator_naming:
+                            p_mfi = col_lookup_params.get('period', 14)
+                            mfi_col = f"MFI_{p_mfi}_{tf_suffix}"
+                            if mfi_col in data.columns:
+                                indicator_cols_for_score = {'mfi': mfi_col}
+                                found = True
+                                logger.debug(f"找到指标 'mfi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'roc' and 'ROC' in indicator_naming:
+                            p_roc = col_lookup_params.get('period', 12)
+                            roc_col = f"ROC_{p_roc}_{tf_suffix}"
+                            if roc_col in data.columns:
+                                indicator_cols_for_score = {'roc': roc_col}
+                                found = True
+                                logger.debug(f"找到指标 'roc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'dmi' and 'DMI' in indicator_naming:
+                            p_dmi = col_lookup_params.get('period', 14)
+                            pdi_col = f"PDI_{p_dmi}_{tf_suffix}"
+                            ndi_col = f"NDI_{p_dmi}_{tf_suffix}"
+                            adx_col = f"ADX_{p_dmi}_{tf_suffix}"
+                            if all(col in data.columns for col in [pdi_col, ndi_col, adx_col]):
+                                indicator_cols_for_score = {'pdi': pdi_col, 'ndi': ndi_col, 'adx': adx_col}
+                                found = True
+                                logger.debug(f"找到指标 'dmi' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'sar' and 'SAR' in indicator_naming:
+                            step = col_lookup_params.get('af_step', 0.02)
+                            max_af = col_lookup_params.get('max_af', 0.2)
+                            sar_col = f"SAR_{step}_{max_af}_{tf_suffix}"
+                            close_col = f"close_{tf_suffix}"  # SAR评分需要收盘价
+                            if all(col in data.columns for col in [close_col, sar_col]):
+                                indicator_cols_for_score = {'close': close_col, 'sar': sar_col}
+                                found = True
+                                logger.debug(f"找到指标 'sar' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'stoch' and 'STOCH' in indicator_naming:
+                            p_k = col_lookup_params.get('k_period', 14)
+                            p_d = col_lookup_params.get('d_period', 3)
+                            p_smooth_k = col_lookup_params.get('smooth_k_period', 3)
+                            stochk_col = f"STOCHk_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+                            stochd_col = f"STOCHd_{p_k}_{p_d}_{p_smooth_k}_{tf_suffix}"
+                            if all(col in data.columns for col in [stochk_col, stochd_col]):
+                                indicator_cols_for_score = {'k': stochk_col, 'd': stochd_col}
+                                found = True
+                                logger.debug(f"找到指标 'stoch' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'ema' and 'EMA' in indicator_naming:
+                            p_ema = col_lookup_params.get('period', 20)
+                            ema_col = f"EMA_{p_ema}_{tf_suffix}"
+                            close_col = f"close_{tf_suffix}"  # MA评分需要收盘价
+                            if all(col in data.columns for col in [close_col, ema_col]):
+                                indicator_cols_for_score = {'close': close_col, 'ma': ema_col}  # 通用MA评分函数需要close和ma
+                                found = True
+                                logger.debug(f"找到指标 'ema' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'sma' and 'SMA' in indicator_naming:
+                            p_sma = col_lookup_params.get('period', 20)
+                            sma_col = f"SMA_{p_sma}_{tf_suffix}"
+                            close_col = f"close_{tf_suffix}"  # MA评分需要收盘价
+                            if all(col in data.columns for col in [close_col, sma_col]):
+                                indicator_cols_for_score = {'close': close_col, 'ma': sma_col}  # 通用MA评分函数需要close和ma
+                                found = True
+                                logger.debug(f"找到指标 'sma' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'atr' and 'ATR' in indicator_naming:
+                            p_atr = col_lookup_params.get('period', 14)
+                            atr_col = f"ATR_{p_atr}_{tf_suffix}"
+                            if atr_col in data.columns:
+                                indicator_cols_for_score = {'atr': atr_col}
+                                found = True
+                                logger.debug(f"找到指标 'atr' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'adl' and 'ADL' in indicator_naming:
+                            adl_col = f"ADL_{tf_suffix}"  # ADL通常没有周期参数
+                            if adl_col in data.columns:
+                                indicator_cols_for_score = {'adl': adl_col}
+                                found = True
+                                logger.debug(f"找到指标 'adl' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'vwap' and 'VWAP' in indicator_naming:
+                            anchor = col_lookup_params.get('anchor', None)
+                            vwap_col = f"VWAP_{tf_suffix}" if anchor is None else f"VWAP_{anchor}_{tf_suffix}"
+                            close_col = f"close_{tf_suffix}"  # VWAP评分需要收盘价
+                            if all(col in data.columns for col in [close_col, vwap_col]):
+                                indicator_cols_for_score = {'close': close_col, 'vwap': vwap_col}
+                                found = True
+                                logger.debug(f"找到指标 'vwap' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'ichimoku' and 'ICHIMOKU' in indicator_naming:
+                            tenkan = col_lookup_params.get('tenkan_period', 9)
+                            kijun = col_lookup_params.get('kijun_period', 26)
+                            senkou_b_period = col_lookup_params.get('senkou_period', 52)
+                            tenkan_col = f"TENKAN_{tenkan}_{tf_suffix}"
+                            kijun_col = f"KIJUN_{kijun}_{tf_suffix}"
+                            senkou_a_col = f"SENKOU_A_{tenkan}_{kijun}_{tf_suffix}"
+                            senkou_b_col = f"SENKOU_B_{senkou_b_period}_{tf_suffix}"
+                            chikou_col = f"CHIKOU_{kijun}_{tf_suffix}"  # Chikou 通常与 Kijun 同周期
+                            close_col = f"close_{tf_suffix}"  # Ichimoku 评分可能需要收盘价
+                            if all(col in data.columns for col in [close_col, tenkan_col, kijun_col, senkou_a_col, senkou_b_col, chikou_col]):
+                                indicator_cols_for_score = {
+                                    'close': close_col, 'tenkan': tenkan_col, 'kijun': kijun_col,
+                                    'senkou_a': senkou_a_col, 'senkou_b': senkou_b_col, 'chikou': chikou_col
+                                }
+                                found = True
+                                logger.debug(f"找到指标 'ichimoku' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'mom' and 'MOM' in indicator_naming:
+                            p_mom = col_lookup_params.get('period', 10)
+                            mom_col = f"MOM_{p_mom}_{tf_suffix}"
+                            if mom_col in data.columns:
+                                indicator_cols_for_score = {'mom': mom_col}
+                                found = True
+                                logger.debug(f"找到指标 'mom' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'willr' and 'WILLR' in indicator_naming:
+                            p_willr = col_lookup_params.get('period', 14)
+                            willr_col = f"WILLR_{p_willr}_{tf_suffix}"
+                            if willr_col in data.columns:
+                                indicator_cols_for_score = {'willr': willr_col}
+                                found = True
+                                logger.debug(f"找到指标 'willr' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'cmf' and 'CMF' in indicator_naming:
+                            p_cmf = col_lookup_params.get('period', 20)
+                            cmf_col = f"CMF_{p_cmf}_{tf_suffix}"
+                            if cmf_col in data.columns:
+                                indicator_cols_for_score = {'cmf': cmf_col}
+                                found = True
+                                logger.debug(f"找到指标 'cmf' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'obv' and 'OBV' in indicator_naming:
+                            obv_col = f"OBV_{tf_suffix}"  # OBV通常没有周期参数
+                            if obv_col in data.columns:
+                                indicator_cols_for_score = {'obv': obv_col}
+                                found = True
+                                logger.debug(f"找到指标 'obv' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'kc' and 'KC' in indicator_naming:
+                            ema_p = col_lookup_params.get('ema_period', 20)
+                            atr_p = col_lookup_params.get('atr_period', 10)
+                            upper_col = f"KCU_{ema_p}_{atr_p}_{tf_suffix}"
+                            mid_col = f"KCM_{ema_p}_{atr_p}_{tf_suffix}"
+                            lower_col = f"KCL_{ema_p}_{atr_p}_{tf_suffix}"
+                            close_col = f"close_{tf_suffix}"  # KC评分需要收盘价
+                            if all(col in data.columns for col in [close_col, upper_col, mid_col, lower_col]):
+                                indicator_cols_for_score = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
+                                found = True
+                                logger.debug(f"找到指标 'kc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'hv' and 'HV' in indicator_naming:
+                            p_hv = col_lookup_params.get('period', 20)
+                            hv_col = f"HV_{p_hv}_{tf_suffix}"
+                            if hv_col in data.columns:
+                                indicator_cols_for_score = {'hv': hv_col}
+                                found = True
+                                logger.debug(f"找到指标 'hv' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'vroc' and 'VROC' in indicator_naming:
+                            p_vroc = col_lookup_params.get('period', 10)
+                            vroc_col = f"VROC_{p_vroc}_{tf_suffix}"
+                            if vroc_col in data.columns:
+                                indicator_cols_for_score = {'vroc': vroc_col}
+                                found = True
+                                logger.debug(f"找到指标 'vroc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'aroc' and 'AROC' in indicator_naming:
+                            p_aroc = col_lookup_params.get('period', 10)
+                            aroc_col = f"AROC_{p_aroc}_{tf_suffix}"
+                            if aroc_col in data.columns:
+                                indicator_cols_for_score = {'aroc': aroc_col}
+                                found = True
+                                logger.debug(f"找到指标 'aroc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+                        elif indicator_key == 'pivot' and 'PIVOT_POINTS' in indicator_naming and tf_score == 'D':
+                            pivot_cols = [f"PP_{tf_suffix}"] + [f"S{i}_{tf_suffix}" for i in range(1, 5)] + [f"R{i}_{tf_suffix}" for i in range(1, 5)] + \
+                                         [f"F_S{i}_{tf_suffix}" for i in range(1, 4)] + [f"F_R{i}_{tf_suffix}" for i in range(1, 4)]
+                            close_col = f"close_{tf_suffix}"  # Pivot评分需要收盘价
+                            if all(col in data.columns for col in [close_col] + pivot_cols):
+                                indicator_cols_for_score = {'close': close_col, 'pivot_levels': pivot_cols}  # 传递收盘价和所有Pivot水平列名
+                                found = True
+                                logger.debug(f"找到指标 'pivot' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
+                                break
+
+                # 修改：如果仍未找到匹配列，尝试模糊匹配列名（不依赖具体后缀）
+                if not found:
+                    logger.debug(f"未找到精确匹配的列名，尝试模糊匹配指标 '{indicator_key}' 在时间框架 {tf_score}")
+                    for col in data.columns:
+                        col_lower = col.lower()
+                        if indicator_key == 'macd' and 'macd_' in col_lower and str(col_lookup_params.get('period_fast', 12)) in col and str(col_lookup_params.get('period_slow', 26)) in col:
+                            if 'macds' in col_lower:
+                                indicator_cols_for_score['macd_d'] = col
+                            elif 'macdh' in col_lower:
+                                indicator_cols_for_score['macd_h'] = col
+                            else:
+                                indicator_cols_for_score['macd_series'] = col
+                        elif indicator_key == 'rsi' and 'rsi_' in col_lower and str(col_lookup_params.get('period', 14)) in col:
+                            indicator_cols_for_score['rsi'] = col
+                        elif indicator_key == 'kdj' and 'k_' in col_lower and str(col_lookup_params.get('period', 9)) in col:
+                            if 'k_' in col_lower:
+                                indicator_cols_for_score['k'] = col
+                            elif 'd_' in col_lower:
+                                indicator_cols_for_score['d'] = col
+                            elif 'j_' in col_lower:
+                                indicator_cols_for_score['j'] = col
+                        elif indicator_key == 'boll' and 'bb' in col_lower and str(col_lookup_params.get('period', 20)) in col:
+                            if 'bbu' in col_lower:
+                                indicator_cols_for_score['upper'] = col
+                            elif 'bbm' in col_lower:
+                                indicator_cols_for_score['mid'] = col
+                            elif 'bbl' in col_lower:
+                                indicator_cols_for_score['lower'] = col
+                        elif indicator_key == 'cci' and 'cci_' in col_lower and str(col_lookup_params.get('period', 14)) in col:
+                            indicator_cols_for_score['cci'] = col
+                        elif indicator_key == 'mfi' and 'mfi_' in col_lower and str(col_lookup_params.get('period', 14)) in col:
+                            indicator_cols_for_score['mfi'] = col
+                        elif indicator_key == 'roc' and 'roc_' in col_lower and str(col_lookup_params.get('period', 12)) in col:
+                            indicator_cols_for_score['roc'] = col
+                        elif indicator_key == 'dmi' and str(col_lookup_params.get('period', 14)) in col:
+                            if 'pdi' in col_lower:
+                                indicator_cols_for_score['pdi'] = col
+                            elif 'ndi' in col_lower:
+                                indicator_cols_for_score['ndi'] = col
+                            elif 'adx' in col_lower:
+                                indicator_cols_for_score['adx'] = col
+                        elif indicator_key == 'sar' and 'sar_' in col_lower:
+                            indicator_cols_for_score['sar'] = col
+                        elif indicator_key == 'stoch' and 'stoch' in col_lower and str(col_lookup_params.get('k_period', 14)) in col:
+                            if 'stochk' in col_lower:
+                                indicator_cols_for_score['k'] = col
+                            elif 'stochd' in col_lower:
+                                indicator_cols_for_score['d'] = col
+                        elif indicator_key == 'ema' and 'ema_' in col_lower and str(col_lookup_params.get('period', 20)) in col:
+                            indicator_cols_for_score['ma'] = col
+                        elif indicator_key == 'sma' and 'sma_' in col_lower and str(col_lookup_params.get('period', 20)) in col:
+                            indicator_cols_for_score['ma'] = col
+                        elif indicator_key == 'atr' and 'atr_' in col_lower and str(col_lookup_params.get('period', 14)) in col:
+                            indicator_cols_for_score['atr'] = col
+                        elif indicator_key == 'adl' and 'adl' in col_lower:
+                            indicator_cols_for_score['adl'] = col
+                        elif indicator_key == 'vwap' and 'vwap' in col_lower:
+                            indicator_cols_for_score['vwap'] = col
+                        elif indicator_key == 'ichimoku' and 'senkou' in col_lower or 'tenkan' in col_lower or 'kijun' in col_lower:
+                            if 'tenkan' in col_lower:
+                                indicator_cols_for_score['tenkan'] = col
+                            elif 'kijun' in col_lower:
+                                indicator_cols_for_score['kijun'] = col
+                            elif 'senkou_a' in col_lower:
+                                indicator_cols_for_score['senkou_a'] = col
+                            elif 'senkou_b' in col_lower:
+                                indicator_cols_for_score['senkou_b'] = col
+                            elif 'chikou' in col_lower:
+                                indicator_cols_for_score['chikou'] = col
+                        elif indicator_key == 'mom' and 'mom_' in col_lower and str(col_lookup_params.get('period', 10)) in col:
+                            indicator_cols_for_score['mom'] = col
+                        elif indicator_key == 'willr' and 'willr_' in col_lower and str(col_lookup_params.get('period', 14)) in col:
+                            indicator_cols_for_score['willr'] = col
+                        elif indicator_key == 'cmf' and 'cmf_' in col_lower and str(col_lookup_params.get('period', 20)) in col:
+                            indicator_cols_for_score['cmf'] = col
+                        elif indicator_key == 'obv' and 'obv' in col_lower:
+                            indicator_cols_for_score['obv'] = col
+                        elif indicator_key == 'kc' and 'kc' in col_lower:
+                            if 'kcu' in col_lower:
+                                indicator_cols_for_score['upper'] = col
+                            elif 'kcm' in col_lower:
+                                indicator_cols_for_score['mid'] = col
+                            elif 'kcl' in col_lower:
+                                indicator_cols_for_score['lower'] = col
+                        elif indicator_key == 'hv' and 'hv_' in col_lower and str(col_lookup_params.get('period', 20)) in col:
+                            indicator_cols_for_score['hv'] = col
+                        elif indicator_key == 'vroc' and 'vroc_' in col_lower and str(col_lookup_params.get('period', 10)) in col:
+                            indicator_cols_for_score['vroc'] = col
+                        elif indicator_key == 'aroc' and 'aroc_' in col_lower and str(col_lookup_params.get('period', 10)) in col:
+                            indicator_cols_for_score['aroc'] = col
+                        elif indicator_key == 'pivot' and 'pp_' in col_lower or 's1_' in col_lower or 'r1_' in col_lower:
+                            if 'pivot_levels' not in indicator_cols_for_score:
+                                indicator_cols_for_score['pivot_levels'] = []
+                            indicator_cols_for_score['pivot_levels'].append(col)
+
+                    # 检查是否收集到所有必要的列
+                    if indicator_key == 'macd' and all(k in indicator_cols_for_score for k in ['macd_series', 'macd_d', 'macd_h']):
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'macd' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'rsi' and 'rsi' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'rsi' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'kdj' and all(k in indicator_cols_for_score for k in ['k', 'd', 'j']):
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'kdj' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'boll' and all(k in indicator_cols_for_score for k in ['upper', 'mid', 'lower']):
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'willr' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'cmf' and 'CMF' in indicator_naming:
-                        p_cmf = col_lookup_params.get('period', 20)
-                        cmf_col = f"CMF_{p_cmf}_{tf_suffix}"
-                        if cmf_col in data.columns:
-                            indicator_cols_for_score = {'cmf': cmf_col}
+                            logger.debug(f"通过模糊匹配找到指标 'boll' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'cci' and 'cci' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'cci' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'mfi' and 'mfi' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'mfi' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'roc' and 'roc' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'roc' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'dmi' and all(k in indicator_cols_for_score for k in ['pdi', 'ndi', 'adx']):
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'dmi' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'sar' and 'sar' in indicator_cols_for_score:
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'cmf' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'obv' and 'OBV' in indicator_naming:
-                        obv_col = f"OBV_{tf_suffix}"  # OBV通常没有周期参数
-                        if obv_col in data.columns:
-                            indicator_cols_for_score = {'obv': obv_col}
+                            logger.debug(f"通过模糊匹配找到指标 'sar' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'stoch' and all(k in indicator_cols_for_score for k in ['k', 'd']):
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'stoch' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key in ['ema', 'sma'] and 'ma' in indicator_cols_for_score:
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'obv' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'kc' and 'KC' in indicator_naming:
-                        ema_p = col_lookup_params.get('ema_period', 20)
-                        atr_p = col_lookup_params.get('atr_period', 10)
-                        upper_col = f"KCU_{ema_p}_{atr_p}_{tf_suffix}"
-                        mid_col = f"KCM_{ema_p}_{atr_p}_{tf_suffix}"
-                        lower_col = f"KCL_{ema_p}_{atr_p}_{tf_suffix}"
-                        close_col = f"close_{tf_suffix}"  # KC评分需要收盘价
-                        if all(col in data.columns for col in [close_col, upper_col, mid_col, lower_col]):
-                            indicator_cols_for_score = {'close': close_col, 'upper': upper_col, 'mid': mid_col, 'lower': lower_col}
+                            logger.debug(f"通过模糊匹配找到指标 '{indicator_key}' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'atr' and 'atr' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'atr' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'adl' and 'adl' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'adl' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'vwap' and 'vwap' in indicator_cols_for_score:
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'kc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'hv' and 'HV' in indicator_naming:
-                        p_hv = col_lookup_params.get('period', 20)
-                        hv_col = f"HV_{p_hv}_{tf_suffix}"
-                        if hv_col in data.columns:
-                            indicator_cols_for_score = {'hv': hv_col}
+                            logger.debug(f"通过模糊匹配找到指标 'vwap' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'ichimoku' and all(k in indicator_cols_for_score for k in ['tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou']):
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'hv' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'vroc' and 'VROC' in indicator_naming:
-                        p_vroc = col_lookup_params.get('period', 10)
-                        vroc_col = f"VROC_{p_vroc}_{tf_suffix}"
-                        if vroc_col in data.columns:
-                            indicator_cols_for_score = {'vroc': vroc_col}
+                            logger.debug(f"通过模糊匹配找到指标 'ichimoku' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'mom' and 'mom' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'mom' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'willr' and 'willr' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'willr' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'cmf' and 'cmf' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'cmf' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'obv' and 'obv' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'obv' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'kc' and all(k in indicator_cols_for_score for k in ['upper', 'mid', 'lower']):
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'vroc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'aroc' and 'AROC' in indicator_naming:
-                        p_aroc = col_lookup_params.get('period', 10)
-                        aroc_col = f"AROC_{p_aroc}_{tf_suffix}"
-                        if aroc_col in data.columns:
-                            indicator_cols_for_score = {'aroc': aroc_col}
+                            logger.debug(f"通过模糊匹配找到指标 'kc' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'hv' and 'hv' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'hv' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'vroc' and 'vroc' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'vroc' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'aroc' and 'aroc' in indicator_cols_for_score:
+                        found = True
+                        logger.debug(f"通过模糊匹配找到指标 'aroc' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
+                    elif indicator_key == 'pivot' and 'pivot_levels' in indicator_cols_for_score and len(indicator_cols_for_score['pivot_levels']) >= 15:
+                        close_col = next((c for c in data.columns if c.startswith("close_")), None)
+                        if close_col:
+                            indicator_cols_for_score['close'] = close_col
                             found = True
-                            logger.debug(f"找到指标 'aroc' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
-                    elif indicator_key == 'pivot' and 'PIVOT_POINTS' in indicator_naming and tf_score == 'D':
-                        pivot_cols = [f"PP_{tf_suffix}"] + [f"S{i}_{tf_suffix}" for i in range(1, 5)] + [f"R{i}_{tf_suffix}" for i in range(1, 5)] + \
-                                     [f"F_S{i}_{tf_suffix}" for i in range(1, 4)] + [f"F_R{i}_{tf_suffix}" for i in range(1, 4)]
-                        close_col = f"close_{tf_suffix}"  # Pivot评分需要收盘价
-                        if all(col in data.columns for col in [close_col] + pivot_cols):
-                            indicator_cols_for_score = {'close': close_col, 'pivot_levels': pivot_cols}  # 传递收盘价和所有Pivot水平列名
-                            found = True
-                            logger.debug(f"找到指标 'pivot' 在时间框架 {tf_score} 的列，使用后缀 {tf_suffix}")
-                            break
+                            logger.debug(f"通过模糊匹配找到指标 'pivot' 在时间框架 {tf_score} 的列: {indicator_cols_for_score}")
 
                 # 如果未能找到该指标在该时间框架下的任何列，则跳过评分计算
                 if not found:
