@@ -1588,7 +1588,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
     logger.info(f"开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
 
     # 加载 indicator_naming_conventions.json 文件中的命名规范
-    naming_conventions_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'indicator_naming_conventions.json')
+    naming_conventions_path = settings.INDICATOR_PARAMETERS_CONFIG_PATH
     try:
         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
             naming_conventions = json.load(f)
