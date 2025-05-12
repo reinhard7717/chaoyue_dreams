@@ -1589,7 +1589,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame,
 
     # 加载 indicator_naming_conventions.json 文件中的命名规范
     # 假设文件位于项目根目录下的 config 目录中，实际路径根据项目结构调整
-    naming_conventions_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'indicator_naming_conventions.json')
+    naming_conventions_path = settings.INDICATOR_PARAMETERS_CONFIG_PATH
     try:
         with open(naming_conventions_path, 'r', encoding='utf-8') as f:
             naming_conventions = json.load(f)
