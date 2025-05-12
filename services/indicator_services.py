@@ -534,7 +534,7 @@ class IndicatorService:
                 return None
             try:
                 func_params_to_pass = config_item['params'].copy() # 使用为该指标准备好的参数
-                print(f"{stock_code}] TF {tf_calc}: --- df_for_ta.shape: {df_for_ta.shape}, df_for_ta.head(): {df_for_ta.head()}, df_for_ta.isnull().sum()：{df_for_ta.isnull().sum()}")
+                # print(f"{stock_code}] TF {tf_calc}: --- df_for_ta.shape: {df_for_ta.shape}, df_for_ta.head(): {df_for_ta.head()}, df_for_ta.isnull().sum()：{df_for_ta.isnull().sum()}")
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
 
                 if indicator_result_df is None or indicator_result_df.empty:
@@ -971,17 +971,73 @@ class IndicatorService:
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
         try:
+            # MODIFIED: 添加日志，打印 pandas_ta.dm 的输入 DataFrame 信息
+            print(f"calculate_dmi input shape: {df.shape}, head: {df.head()}, isnull().sum(): {df.isnull().sum()}") # 如果需要，可以再次打印输入信息
+
             dmi_df = df.ta.dm(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
+
+            # MODIFIED: 添加日志，打印 pandas_ta.dm 的输出 DataFrame 信息
+            if dmi_df is not None:
+                print(f"calculate_dmi (period {period}) pandas_ta output columns: {dmi_df.columns.tolist()}") # MODIFIED: 打印 pandas_ta 输出的列名
+                print(f"calculate_dmi (period {period}) pandas_ta output isnull().sum(): {dmi_df.isnull().sum()}") # MODIFIED: 打印 pandas_ta 输出的 NaN 统计
+            else:
+                 logger.warning(f"calculate_dmi (period {period}) pandas_ta.dm 返回 None 或空。") # MODIFIED: 增加返回 None/空的日志
+
             if dmi_df is None or dmi_df.empty: return None
             # pandas_ta 列名: DMP_period (DI+), DMN_period (DI-), ADX_period
             rename_map = {}
             if f'DMP_{period}' in dmi_df.columns: rename_map[f'DMP_{period}'] = f'PDI_{period}' # Positive DI
             if f'DMN_{period}' in dmi_df.columns: rename_map[f'DMN_{period}'] = f'NDI_{period}' # Negative DI
-            if f'ADX_{period}' in dmi_df.columns: rename_map[f'ADX_{period}'] = f'ADX_{period}' # ADX 通常不变
-            return dmi_df.rename(columns=rename_map)
+            # MODIFIED: 检查 ADX 列是否存在并添加到重命名映射
+            adx_col_name_ta = f'ADX_{period}'
+            if adx_col_name_ta in dmi_df.columns:
+                 rename_map[adx_col_name_ta] = adx_col_name_ta # ADX 通常不变
+            else:
+                 # MODIFIED: 如果 ADX 列不存在，记录警告
+                 logger.warning(f"calculate_dmi (period {period}) pandas_ta.dm 返回的 DataFrame 中缺少 ADX 列 ({adx_col_name_ta})。")
+
+
+            # MODIFIED: 仅对需要重命名的列进行操作，并确保返回的 DataFrame 包含所有原始列（如果需要）
+            # pandas_ta.dm 默认 append=False，只返回指标列。这里只需要返回指标列。
+            # 确保返回的 DataFrame 包含 PDI, NDI, ADX (如果存在)
+            output_cols = [f'PDI_{period}', f'NDI_{period}']
+            if adx_col_name_ta in dmi_df.columns:
+                 output_cols.append(adx_col_name_ta)
+
+            # 选择并重命名列
+            # 确保只选择实际存在于 dmi_df.columns 且在 rename_map 中的列
+            cols_to_select = [ta_col for ta_col, final_col in rename_map.items() if ta_col in dmi_df.columns]
+            if not cols_to_select:
+                 logger.warning(f"calculate_dmi (period {period}) pandas_ta.dm 返回的 DataFrame 中没有找到任何预期的指标列。")
+                 return None # 没有找到任何指标列，返回 None
+
+            result_df = dmi_df[cols_to_select].rename(columns=rename_map)
+
+            # 检查结果 DataFrame 是否包含所有必需的评分列 (PDI, NDI, ADX)
+            # 注意：这里检查的是 calculate_dmi 返回的 DataFrame，它应该包含 PDI, NDI, ADX (如果计算成功)
+            # 评分函数需要的是 PDI, NDI, ADX Series，这些 Series 的列名在 calculate_all_indicator_scores 中会被映射
+            # calculate_dmi 返回的 DataFrame 列名应该是 PDI_period, NDI_period, ADX_period
+            expected_return_cols = [f'PDI_{period}', f'NDI_{period}']
+            if adx_col_name_ta in dmi_df.columns: # 只有当 pandas_ta 返回了 ADX，我们才期望 calculate_dmi 返回它
+                 expected_return_cols.append(adx_col_name_ta) # ADX 列名在 calculate_dmi 返回时通常不变
+
+            # 检查 result_df 是否包含所有 expected_return_cols
+            missing_return_cols = [col for col in expected_return_cols if col not in result_df.columns]
+            if missing_return_cols:
+                 logger.warning(f"calculate_dmi (period {period}) 返回的 DataFrame 缺少预期的列: {missing_return_cols}. 返回的列: {result_df.columns.tolist()}")
+                 # 即使缺少 ADX，只要 PDI/NDI 存在，仍然返回，让评分函数处理缺失
+                 # 如果 PDI 或 NDI 缺失，则返回 None
+                 if f'PDI_{period}' not in result_df.columns or f'NDI_{period}' not in result_df.columns:
+                      logger.error(f"calculate_dmi (period {period}) 返回的 DataFrame 缺少必需的 PDI 或 NDI 列。")
+                      return None
+
+
+            return result_df # 返回包含 PDI, NDI, ADX (如果存在) 的 DataFrame
+
         except Exception as e:
             logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
             return None
+
 
     async def calculate_ichimoku(self, df: pd.DataFrame, tenkan_period: int = 9, kijun_period: int = 26, senkou_period: int = 52, chikou_period: Optional[int] = None, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算一目均衡表 (Ichimoku Cloud)"""
