@@ -2590,10 +2590,10 @@ def adjust_score_with_volume(
     data: pd.DataFrame,
     vc_params: Dict,
     # 新增参数以支持调用时传递的额外参数，设置为可选参数
-    vc_tf_list: Optional[List[str]] = None, # <-- 修改点：接收时间框架列表
-    vol_ma_period: Optional[int] = None,
+    vc_tf_list: Optional[List[str]] = None,
+    vol_ma_period: Optional[int] = None, # <-- 接收成交量均线周期参数
     obv_ma_period: Optional[int] = None,
-    naming_config: Optional[Dict] = None # <-- 修改点：接收命名配置
+    naming_config: Optional[Dict] = None # 虽然不再用于格式化，但保留参数以兼容调用方
 ) -> pd.DataFrame:
     """
     使用量能相关指标（成交量、OBV、CMF等）对初步的策略评分 (0-100) 进行调整和确认。
@@ -2623,7 +2623,9 @@ def adjust_score_with_volume(
             'cmf_period': int, CMF指标的计算周期 (应与指标服务中的计算一致)。
             'cmf_confirmation_threshold': float, CMF确认趋势的阈值 (例如 0.05)。
             'obv_ma_period': int, OBV移动平均线的计算周期 (应与指标服务中的计算一致)。
+            'volume_ma_period': int, 成交量移动平均线的计算周期 (应与指标服务中的计算一致)。
             'vp_divergence_lookback': int, 量价背离检测的回看窗口期。
+            'vp_divergence_peak_offset': int, 在量价背离中，比较当前极值点与之前第N个极值点。(此参数在当前实现中可能不直接使用，但保留)
             'vp_divergence_price_threshold': float, 价格创出新高/新低的最小幅度（相对于前一极值）。
             'vp_divergence_obv_threshold': float, OBV未能同步创出新高/新低的最小幅度（相对于前一极值对应的OBV）。
             'vp_divergence_penalty_factor': float, 量价背离惩罚分数调整的比例。
@@ -2643,10 +2645,10 @@ def adjust_score_with_volume(
     # --- 0. 初始化和参数准备 ---
     result_df = pd.DataFrame(index=preliminary_score.index)
     # 初始调整后分数等于原始分数，后续会修改
-    result_df['ADJUSTED_SCORE'] = preliminary_score.copy().fillna(50.0) # <-- 修改点：初始化时填充NaN为50
+    result_df['ADJUSTED_SCORE'] = preliminary_score.copy().fillna(50.0) # 初始化时填充NaN为50
 
     # 使用传入的 naming_config，如果未传入则使用默认
-    current_naming_config = naming_config
+    # current_naming_config = naming_config if naming_config is not None else NAMING_CONFIG # 删除此行，不再需要 naming_config 来获取模式
 
     # 确定要处理的时间框架列表
     # 优先使用传入的 vc_tf_list 参数
@@ -2672,16 +2674,13 @@ def adjust_score_with_volume(
         logger.info("量能分数调整和量能分析均未启用。")
         # 即使不启用，也返回包含原始分数和默认0信号列的DataFrame
         # 预先创建所有可能的信号列，并用0填充，确保它们总是存在于返回的DataFrame中
-        internal_cols_conf = current_naming_config.get('strategy_internal_columns', {}).get('output_columns', [])
-        signal_patterns = {
-            'confirm': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_CONFIRM_SIGNAL_")), "VOL_CONFIRM_SIGNAL_{timeframe}"),
-            'spike': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_SPIKE_SIGNAL_")), "VOL_SPIKE_SIGNAL_{timeframe}"),
-            'div': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_PRICE_DIV_SIGNAL_")), "VOL_PRICE_DIV_SIGNAL_{timeframe}")
-        }
+        # internal_cols_conf = current_naming_config.get('strategy_internal_columns', {}).get('output_columns', []) # 删除此行
+        # signal_patterns = { ... } # 删除此字典创建
         for tf in vol_tf_list_to_process:
-            result_df[_format_indicator_name(signal_patterns['confirm'], timeframe=tf)[0]] = 0
-            result_df[_format_indicator_name(signal_patterns['spike'], timeframe=tf)[0]] = 0
-            result_df[_format_indicator_name(signal_patterns['div'], timeframe=tf)[0]] = 0
+             # 直接使用字符串拼接构建信号列名 # 修改行
+             result_df[f'VOL_CONFIRM_SIGNAL_{tf}'] = 0 # 修改行
+             result_df[f'VOL_SPIKE_SIGNAL_{tf}'] = 0 # 修改行
+             result_df[f'VOL_PRICE_DIV_SIGNAL_{tf}'] = 0 # 修改行
 
         return result_df # 返回包含默认0信号和原始（或填充后）分数的DataFrame
 
@@ -2694,8 +2693,8 @@ def adjust_score_with_volume(
     cmf_confirm_thresh = vc_params.get('cmf_confirmation_threshold', 0.05)
 
     # 使用传入的周期参数，如果未传入则使用 vc_params 中的配置
-    current_vol_ma_period = vol_ma_period if vol_ma_period is not None else vc_params.get('volume_ma_period', 20) # <-- 修改点：优先使用传入参数
-    current_obv_ma_period = obv_ma_period if obv_ma_period is not None else vc_params.get('obv_ma_period', 10) # <-- 修改点：优先使用传入参数
+    current_vol_ma_period = vol_ma_period if vol_ma_period is not None else vc_params.get('volume_ma_period', 20) # 优先使用传入参数
+    current_obv_ma_period = obv_ma_period if obv_ma_period is not None else vc_params.get('obv_ma_period', 10) # 优先使用传入参数
 
     # 量价背离相关参数
     vp_div_lookback = vc_params.get('vp_divergence_lookback', 21)
@@ -2710,294 +2709,268 @@ def adjust_score_with_volume(
     adjustment_div_signal = pd.Series(0, index=result_df.index)
     first_tf_processed = False # 标记是否已成功处理至少一个时间框架
 
-    # 获取命名模式
-    ohlcv_patterns = {c['name_pattern'].split('_')[0]: c['name_pattern'] for c in current_naming_config.get('ohlcv_naming_convention', {}).get('output_columns', []) if isinstance(c, dict) and 'name_pattern' in c}
-    indicator_patterns = {c['name_pattern'].split('_')[0]: c['name_pattern'] for c in current_naming_config.get('indicator_naming_convention', {}).get('output_columns', []) if isinstance(c, dict) and 'name_pattern' in c}
-    internal_cols_conf = current_naming_config.get('strategy_internal_columns', {}).get('output_columns', [])
-    signal_patterns = {
-        'confirm': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_CONFIRM_SIGNAL_")), "VOL_CONFIRM_SIGNAL_{timeframe}"),
-        'spike': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_SPIKE_SIGNAL_")), "VOL_SPIKE_SIGNAL_{timeframe}"),
-        'div': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_PRICE_DIV_SIGNAL_")), "VOL_PRICE_DIV_SIGNAL_{timeframe}")
-    }
-
-
     # --- 循环处理每个时间框架 ---
     processed_tfs = [] # 记录成功处理的时间框架
     for current_vol_tf in vol_tf_list_to_process:
-        print(f"处理量能时间框架: {current_vol_tf}")
+        print(f"\n--- DEBUG PRINT: 处理量能时间框架: {current_vol_tf} ---") # 保留调试输出
 
         # 1. 数据列名构建和有效性检查 (针对当前时间框架)
-        # 使用命名模式构建列名
-        close_col = _format_indicator_name(ohlcv_patterns.get('close', 'close_{timeframe}'), timeframe=current_vol_tf)[0]
-        high_col = _format_indicator_name(ohlcv_patterns.get('high', 'high_{timeframe}'), timeframe=current_vol_tf)[0]
-        low_col = _format_indicator_name(ohlcv_patterns.get('low', 'low_{timeframe}'), timeframe=current_vol_tf)[0]
-        volume_col = _format_indicator_name(ohlcv_patterns.get('volume', 'volume_{timeframe}'), timeframe=current_vol_tf)[0]
+        # 直接使用字符串拼接构建列名 # 修改行
+        close_col = f'close_{current_vol_tf}' # 修改行
+        high_col = f'high_{current_vol_tf}' # 修改行
+        low_col = f'low_{current_vol_tf}' # 修改行
+        volume_col = f'volume_{current_vol_tf}' # 修改行
 
-        cmf_col_name = _format_indicator_name(indicator_patterns.get('CMF', 'CMF_{period}_{timeframe}'), period=cmf_period, timeframe=current_vol_tf)[0]
-        obv_col_name = _format_indicator_name(indicator_patterns.get('OBV', 'OBV_{timeframe}'), timeframe=current_vol_tf)[0]
-        obv_ma_col_name = _format_indicator_name(indicator_patterns.get('OBV_MA', 'OBV_MA_{period}_{timeframe}'), period=current_obv_ma_period, timeframe=current_vol_tf)[0]
+        cmf_col_name = f'CMF_{cmf_period}_{current_vol_tf}' # 修改行
+        obv_col_name = f'OBV_{current_vol_tf}' # 修改行
+        obv_ma_col_name = f'OBV_MA_{current_obv_ma_period}_{current_vol_tf}' # 修改行
+
         required_cols = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name, obv_ma_col_name]
 
-        # --- 添加 DEBUG PRINT 输出当前时间框架的数据信息 --- # 新增行
-        print(f"DEBUG PRINT: 量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 新增行
-        print(f"DEBUG PRINT: 量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 新增行
-        print(f"DEBUG PRINT: 输入数据 data 的所有列: {list(data.columns)}") # 新增行
-        print(f"DEBUG PRINT: 输入数据 data 的形状: {data.shape}") # 新增行
-        if not data.empty: # 新增行
-             print(f"DEBUG PRINT: 输入数据 data 的索引范围: {data.index.min()} to {data.index.max()}") # 新增行
-        else: # 新增行
-             print("DEBUG PRINT: 输入数据 data 为空 DataFrame。") # 新增行
+        # --- 添加 DEBUG PRINT 输出当前时间框架的数据信息 --- # 保留调试输出
+        print(f"DEBUG PRINT: 量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 保留调试输出
+        print(f"DEBUG PRINT: 量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 保留调试输出
+        print(f"DEBUG PRINT: 输入数据 data 的所有列: {list(data.columns)}") # 保留调试输出
+        print(f"DEBUG PRINT: 输入数据 data 的形状: {data.shape}") # 保留调试输出
+        if not data.empty: # 保留调试输出
+             print(f"DEBUG PRINT: 输入数据 data 的索引范围: {data.index.min()} to {data.index.max()}") # 保留调试输出
+        else: # 保留调试输出
+             print("DEBUG PRINT: 输入数据 data 为空 DataFrame。") # 保留调试输出
 
-        print("DEBUG PRINT: 检查所需列在数据中的状态:") # 新增行
-        missing_cols = [] # 新增行
-        for col in required_cols: # 新增行
-            if col not in data.columns: # 新增行
-                print(f"DEBUG PRINT: 列 '{col}' 不存在于输入数据中。") # 新增行
-                missing_cols.append(col) # 新增行
-            else: # 新增行
-                non_nan_count = data[col].count() # 新增行
-                print(f"DEBUG PRINT: 列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 新增行
-                if non_nan_count == 0: # 新增行
-                    print(f"DEBUG PRINT: 警告 - 列 '{col}' 存在但所有值均为 NaN。") # 新增行
-                    if col not in missing_cols: # 避免重复添加
-                         missing_cols.append(col) # 新增行
-        # --- DEBUG PRINT 输出结束 --- # 新增行
+        print("DEBUG PRINT: 检查所需列在数据中的状态:") # 保留调试输出
+        missing_cols = [] # 保留调试输出
+        for col in required_cols: # 保留调试输出
+            if col not in data.columns: # 保留调试输出
+                print(f"DEBUG PRINT: 列 '{col}' 不存在于输入数据中。") # 保留调试输出
+                missing_cols.append(col) # 保留调试输出
+            else: # 保留调试输出
+                non_nan_count = data[col].count() # 保留调试输出
+                print(f"DEBUG PRINT: 列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 保留调试输出
+                if non_nan_count == 0: # 保留调试输出
+                    print(f"DEBUG PRINT: 警告 - 列 '{col}' 存在但所有值均为 NaN。") # 保留调试输出
+                    if col not in missing_cols: # 避免重复添加 # 保留调试输出
+                         missing_cols.append(col) # 保留调试输出
+        # --- DEBUG PRINT 输出结束 --- # 保留调试输出
 
-        missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
 
         # 预先创建当前时间框架的信号列，并用0填充，即使数据缺失也要确保列存在
-        confirm_signal_col = _format_indicator_name(signal_patterns['confirm'], timeframe=current_vol_tf)[0]
-        spike_signal_col = _format_indicator_name(signal_patterns['spike'], timeframe=current_vol_tf)[0]
-        div_signal_col = _format_indicator_name(signal_patterns['div'], timeframe=current_vol_tf)[0]
+        # 直接使用字符串拼接构建信号列名 # 修改行
+        confirm_signal_col = f'VOL_CONFIRM_SIGNAL_{current_vol_tf}' # 修改行
+        spike_signal_col = f'VOL_SPIKE_SIGNAL_{current_vol_tf}' # 修改行
+        div_signal_col = f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}' # 修改行
         result_df[confirm_signal_col] = 0
         result_df[spike_signal_col] = 0
         result_df[div_signal_col] = 0
-        print(f"量能调整/分析模块：")
 
-        if missing_cols:
-            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 缺少必需的数据列或数据全为 NaN: {missing_cols}。跳过此时间框架的分析。")
-            continue  # 跳过当前时间框架，继续处理下一个
 
-        # 2. 数据提取、对齐和填充 (针对当前时间框架)
-        # 合并 preliminary_score 和所需数据列，确保索引对齐
-        # 使用 outer join 避免丢失任一方的索引，然后 reindex 回 preliminary_score 的索引
-        data_subset = data[required_cols].copy()  # 操作副本
-        merged_df_tf = pd.concat([preliminary_score.rename("PRELIM_SCORE_TEMP_COL"), data_subset], axis=1, join='outer')
-        merged_df_tf = merged_df_tf.reindex(preliminary_score.index)  # 确保最终索引与输入分数一致
+        if missing_cols: # 使用上面构建的 missing_cols 列表 
+            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 缺少必需的数据列或数据全为 NaN: {missing_cols}。跳过此时间框架的分析。") 
+            continue  # 跳过当前时间框架，继续处理下一个 
 
-        # 对提取的序列进行填充
-        close = merged_df_tf[close_col].ffill().bfill()  # 价格用前后值填充
-        high = merged_df_tf[high_col].ffill().bfill()
-        low = merged_df_tf[low_col].ffill().bfill()
-        volume = merged_df_tf[volume_col].fillna(0)  # 成交量NaN填充为0
-        cmf = merged_df_tf[cmf_col_name].fillna(0)  # CMF NaN填充为0 (代表中性资金流)
-        obv = merged_df_tf[obv_col_name].ffill().bfill()  # OBV是累积值，用前后值填充可能更合理
-        obv_ma = merged_df_tf[obv_ma_col_name].ffill().bfill()  # OBV均线也用前后值填充
+        # 2. 数据提取、对齐和填充 (针对当前时间框架) 
+        # 合并 preliminary_score 和所需数据列，确保索引对齐 
+        # 使用 outer join 避免丢失任一方的索引，然后 reindex 回 preliminary_score 的索引 
+        data_subset = data[required_cols].copy()  # 操作副本 
+        merged_df_tf = pd.concat([preliminary_score.rename("PRELIM_SCORE_TEMP_COL"), data_subset], axis=1, join='outer') 
+        merged_df_tf = merged_df_tf.reindex(preliminary_score.index)  # 确保最终索引与输入分数一致 
 
-        # 再次检查关键数据是否在填充后仍然无效
-        if close.isnull().all() or obv.isnull().all() or volume.isnull().all():
-            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 的关键数据 (收盘价/OBV/成交量) 在填充后仍无效。跳过此时间框架的分析。")
-            continue # 跳过当前时间框架，继续处理下一个
+        # 对提取的序列进行填充 
+        close = merged_df_tf[close_col].ffill().bfill()  # 价格用前后值填充 
+        high = merged_df_tf[high_col].ffill().bfill() 
+        low = merged_df_tf[low_col].ffill().bfill() 
+        volume = merged_df_tf[volume_col].fillna(0)  # 成交量NaN填充为0 
+        cmf = merged_df_tf[cmf_col_name].fillna(0)  # CMF NaN填充为0 (代表中性资金流) 
+        obv = merged_df_tf[obv_col_name].ffill().bfill()  # OBV是累积值，用前后值填充可能更合理 
+        obv_ma = merged_df_tf[obv_ma_col_name].ffill().bfill()  # OBV均线也用前后值填充 
 
-        # --- 3. 计算量能分析信号 (针对当前时间框架) ---
+        # 再次检查关键数据是否在填充后仍然无效 
+        if close.isnull().all() or obv.isnull().all() or volume.isnull().all(): 
+            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 的关键数据 (收盘价/OBV/成交量) 在填充后仍无效。跳过此时间框架的分析。") 
+            continue # 跳过当前时间框架，继续处理下一个 
 
-        # 3.1. 量能确认信号 (VOL_CONFIRM_SIGNAL_{TF})
-        # 定义：CMF 和 OBV 相对于其均线的方向是否支持当前价格趋势的初步判断
-        # 看涨量能确认: CMF 为正且高于阈值，并且 OBV 在其均线上方
-        bullish_volume_confirmation = (cmf > cmf_confirm_thresh) & (obv > obv_ma)
-        # 看跌量能确认: CMF 为负且低于负阈值，并且 OBV 在其均线下方
-        bearish_volume_confirmation = (cmf < -cmf_confirm_thresh) & (obv < obv_ma)
+        # --- 3. 计算量能分析信号 (针对当前时间框架) --- 
 
-        # 将信号存储到 result_df 中对应的列
-        result_df.loc[bullish_volume_confirmation, confirm_signal_col] = 1
-        result_df.loc[bearish_volume_confirmation, confirm_signal_col] = -1
+        # 3.1. 量能确认信号 (VOL_CONFIRM_SIGNAL_{TF}) 
+        # 定义：CMF 和 OBV 相对于其均线的方向是否支持当前价格趋势的初步判断 
+        # 看涨量能确认: CMF 为正且高于阈值，并且 OBV 在其均线上方 
+        bullish_volume_confirmation = (cmf > cmf_confirm_thresh) & (obv > obv_ma) 
+        # 看跌量能确认: CMF 为负且低于负阈值，并且 OBV 在其均线下方 
+        bearish_volume_confirmation = (cmf < -cmf_confirm_thresh) & (obv < obv_ma) 
 
-        # 3.2. 成交量突增信号 (VOL_SPIKE_SIGNAL_{TF})
-        # 定义：当前成交量显著高于其近期移动平均值
-        if vol_analysis_lookback > 0 and not volume.empty:
-            # 计算成交量均线，替换0值为NaN以避免除零错误
-            # 使用 current_vol_ma_period 作为成交量均线周期，如果 vc_params 中没有，则使用 vol_analysis_lookback
-            volume_mean = volume.rolling(window=current_vol_ma_period, min_periods=max(1, current_vol_ma_period // 2)).mean().replace(0, np.nan)
-            # 仅在volume_mean有效时进行比较
-            valid_mean_mask = volume_mean.notna()
-            is_spike = pd.Series(False, index=volume.index)  # 初始化为全False
-            is_spike.loc[valid_mean_mask] = (volume.loc[valid_mean_mask] / volume_mean.loc[valid_mean_mask]) > vol_spike_threshold
-            result_df[spike_signal_col] = is_spike.astype(int)
+        # 将信号存储到 result_df 中对应的列 
+        result_df.loc[bullish_volume_confirmation, confirm_signal_col] = 1 
+        result_df.loc[bearish_volume_confirmation, confirm_signal_col] = -1 
 
-        # 3.3. 量价背离信号 (VOL_PRICE_DIV_SIGNAL_{TF}) - 深化版检测
-        # 目标：检测价格创出新高/新低时，OBV是否未能同步创出新高/新低
-        # 我们通过回溯窗口，寻找窗口内的最高价/最低价及其对应的OBV值，并与当前价/OBV进行比较。
+        # 3.2. 成交量突增信号 (VOL_SPIKE_SIGNAL_{TF}) 
+        # 定义：当前成交量显著高于其近期移动平均值 
+        if vol_analysis_lookback > 0 and not volume.empty: 
+            # 计算成交量均线，替换0值为NaN以避免除零错误 
+            # 使用 current_vol_ma_period 作为成交量均线周期 
+            vol_mean_period = current_vol_ma_period 
+            volume_mean = volume.rolling(window=vol_mean_period, min_periods=max(1, vol_mean_period // 2)).mean().replace(0, np.nan) 
+            # 仅在volume_mean有效时进行比较 
+            valid_mean_mask = volume_mean.notna() 
+            is_spike = pd.Series(False, index=volume.index)  # 初始化为全False 
+            is_spike.loc[valid_mean_mask] = (volume.loc[valid_mean_mask] / volume_mean.loc[valid_mean_mask]) > vol_spike_threshold 
+            result_df[spike_signal_col] = is_spike.astype(int) 
 
-        # 初始化背离信号 Series (针对当前时间框架)
-        divergence_signals = pd.Series(0, index=result_df.index)
+        # 3.3. 量价背离信号 (VOL_PRICE_DIV_SIGNAL_{TF}) - 深化版检测 
+        # 目标：检测价格创出新高/新低时，OBV是否未能同步创出新高/新低 
+        # 我们通过回溯窗口，寻找窗口内的最高价/最低价及其对应的OBV值，并与当前价/OBV进行比较。 
 
-        if vp_div_lookback > 1 and not obv.isnull().all():  # 需要至少2个点进行比较，且OBV数据有效
-            # 遍历每个数据点，从可以形成完整回溯窗口的点开始
-            # iloc 索引用于迭代，loc 索引用于基于日期/时间查找
-            # 使用 merged_df_tf 来确保索引与 preliminary_score 对齐
-            for i in range(vp_div_lookback - 1, len(merged_df_tf)):  # 确保至少有 lookback 数量的数据可以回溯
-                current_date_idx = merged_df_tf.index[i]  # 当前日期索引
+        # 初始化背离信号 Series (针对当前时间框架) 
+        divergence_signals = pd.Series(0, index=result_df.index) 
 
-                # 获取回溯窗口数据 (不包含当前日期)
-                lookback_slice = merged_df_tf.iloc[max(0, i - vp_div_lookback + 1): i].copy()  # 过去 vp_div_lookback-1 天的数据
+        if vp_div_lookback > 1 and not obv.isnull().all():  # 需要至少2个点进行比较，且OBV数据有效 
+            # 遍历每个数据点，从可以形成完整回溯窗口的点开始 
+            # iloc 索引用于迭代，loc 索引用于基于日期/时间查找 
+            # 使用 merged_df_tf 来确保索引与 preliminary_score 对齐 
+            for i in range(vp_div_lookback - 1, len(merged_df_tf)):  # 确保至少有 lookback 数量的数据可以回溯 
+                current_date_idx = merged_df_tf.index[i]  # 当前日期索引 
 
-                if lookback_slice.empty:
-                    continue  # 窗口为空，跳过
+                # 获取回溯窗口数据 (不包含当前日期) 
+                lookback_slice = merged_df_tf.iloc[max(0, i - vp_div_lookback + 1): i].copy()  # 过去 vp_div_lookback-1 天的数据 
 
-                # 确保回溯窗口内有有效数据
-                if lookback_slice[high_col].isnull().all() or lookback_slice[low_col].isnull().all() or lookback_slice[obv_col_name].isnull().all():
-                    continue  # 窗口内关键数据无效，跳过
+                if lookback_slice.empty: 
+                    continue  # 窗口为空，跳过 
 
-                # --- 寻找回溯窗口内的价格极值点及其对应的OBV值 ---
-                # 找到窗口内的最高价及其索引 (P1)
-                p1_val = lookback_slice[high_col].max()
-                p1_date_idx = lookback_slice[high_col].idxmax()  # 最高价对应的日期索引
+                # 确保回溯窗口内有有效数据 
+                if lookback_slice[high_col].isnull().all() or lookback_slice[low_col].isnull().all() or lookback_slice[obv_col_name].isnull().all(): 
+                    continue  # 窗口内关键数据无效，跳过 
 
-                # 找到窗口内的最低价及其索引 (T1)
-                t1_val = lookback_slice[low_col].min()
-                t1_date_idx = lookback_slice[low_col].idxmin()  # 最低价对应的日期索引
+                # --- 寻找回溯窗口内的价格极值点及其对应的OBV值 --- 
+                # 找到窗口内的最高价及其索引 (P1) 
+                p1_val = lookback_slice[high_col].max() 
+                p1_date_idx = lookback_slice[high_col].idxmax()  # 最高价对应的日期索引 
 
-                # 获取 P1 和 T1 日期对应的 OBV 值 (I1_at_P1, I1_at_T1)
-                i1_obv_at_p1 = lookback_slice.loc[p1_date_idx, obv_col_name] if p1_date_idx in lookback_slice.index else np.nan  # 确保索引存在
-                i1_obv_at_t1 = lookback_slice.loc[t1_date_idx, obv_col_name] if t1_date_idx in lookback_slice.index else np.nan  # 确保索引存在
+                # 找到窗口内的最低价及其索引 (T1) 
+                t1_val = lookback_slice[low_col].min() 
+                t1_date_idx = lookback_slice[low_col].idxmin()  # 最低价对应的日期索引 
 
-                # --- 获取当前日期的价格和OBV值 (P2, I2) ---
-                p2_val_high = high.iloc[i]  # 当前最高价
-                p2_val_low = low.iloc[i]  # 当前最低价
-                i2_obv = obv.iloc[i]  # 当前OBV
+                # 获取 P1 和 T1 日期对应的 OBV 值 (I1_at_P1, I1_at_T1) 
+                i1_obv_at_p1 = lookback_slice.loc[p1_date_idx, obv_col_name] if p1_date_idx in lookback_slice.index else np.nan  # 确保索引存在 
+                i1_obv_at_t1 = lookback_slice.loc[t1_date_idx, obv_col_name] if t1_date_idx in lookback_slice.index else np.nan  # 确保索引存在 
 
-                # 检查当前数据是否有效
-                if pd.isna(p2_val_high) or pd.isna(p2_val_low) or pd.isna(i2_obv):
-                    continue
+                # --- 获取当前日期的价格和OBV值 (P2, I2) --- 
+                p2_val_high = high.iloc[i]  # 当前最高价 
+                p2_val_low = low.iloc[i]  # 当前最低价 
+                i2_obv = obv.iloc[i]  # 当前OBV 
 
-                # --- 判断量价背离 ---
-                # 看跌背离条件: 价格创出更高的高点 (P2 > P1) 且 OBV 未能创出更高的高点 (I2 <= I1_at_P1)
-                # 同时考虑阈值，避免微小波动引起的误判
-                if p2_val_high > p1_val * (1 + vp_price_thresh):  # 价格明显创新高
-                    # OBV 未能同步创新高：OBV 当前值低于或等于之前高点对应的OBV值 (考虑OBV阈值)
-                    # 使用 OBV 的相对变化，避免 OBV 绝对值大小的影响
-                    if not pd.isna(i1_obv_at_p1) and (i2_obv <= i1_obv_at_p1 or (i1_obv_at_p1 != 0 and (i2_obv - i1_obv_at_p1) / abs(i1_obv_at_p1) < -vp_obv_thresh)):
-                        divergence_signals.loc[current_date_idx] = -1  # 标记为看跌背离
+                # 检查当前数据是否有效 
+                if pd.isna(p2_val_high) or pd.isna(p2_val_low) or pd.isna(i2_obv): 
+                    continue 
 
-                # 看涨背离条件: 价格创出更低的低点 (P2 < T1) 且 OBV 未能创出更低的低点 (I2 >= I1_at_T1)
-                # 同时考虑阈值，避免微小波动引起的误判
-                # 只有当前点没有被标记为看跌背离时才检查看涨背离
-                if divergence_signals.loc[current_date_idx] == 0 and p2_val_low < t1_val * (1 - vp_price_thresh):  # 价格明显创新低
-                    # OBV 未能同步创新低：OBV 当前值高于或等于之前低点对应的OBV值 (考虑OBV阈值)
-                    if not pd.isna(i1_obv_at_t1) and (i2_obv >= i1_obv_at_t1 or (i1_obv_at_t1 != 0 and (i2_obv - i1_obv_at_t1) / abs(i1_obv_at_t1) > vp_obv_thresh)):
-                        divergence_signals.loc[current_date_idx] = 1  # 标记为看涨背离
+                # --- 判断量价背离 --- 
+                # 看跌背离条件: 价格创出更高的高点 (P2 > P1) 且 OBV 未能创出更高的高点 (I2 <= I1_at_P1) 
+                # 同时考虑阈值，避免微小波动引起的误判 
+                if p2_val_high > p1_val * (1 + vp_price_thresh):  # 价格明显创新高 
+                    # OBV 未能同步创新高：OBV 当前值低于或等于之前高点对应的OBV值 (考虑OBV阈值) 
+                    # 使用 OBV 的相对变化，避免 OBV 绝对值大小的影响 
+                    if not pd.isna(i1_obv_at_p1) and (i2_obv <= i1_obv_at_p1 or (i1_obv_at_p1 != 0 and (i2_obv - i1_obv_at_p1) / abs(i1_obv_at_p1) < -vp_obv_thresh)): 
+                        divergence_signals.loc[current_date_idx] = -1  # 标记为看跌背离 
 
-        result_df[div_signal_col] = divergence_signals.astype(int)  # 确保信号为整数类型
+                # 看涨背离条件: 价格创出更低的低点 (P2 < T1) 且 OBV 未能创出更低的低点 (I2 >= I1_at_T1) 
+                # 同时考虑阈值，避免微小波动引起的误判 
+                # 只有当前点没有被标记为看跌背离时才检查看涨背离 
+                if divergence_signals.loc[current_date_idx] == 0 and p2_val_low < t1_val * (1 - vp_price_thresh):  # 价格明显创新低 
+                    # OBV 未能同步创新低：OBV 当前值高于或等于之前低点对应的OBV值 (考虑OBV阈值) 
+                    if not pd.isna(i1_obv_at_t1) and (i2_obv >= i1_obv_at_t1 or (i1_obv_at_t1 != 0 and (i2_obv - i1_obv_at_t1) / abs(i1_obv_at_t1) > vp_obv_thresh)): 
+                        divergence_signals.loc[current_date_idx] = 1  # 标记为看涨背离 
 
-        # 如果这是第一个成功处理的时间框架，则将其信号用于后续的分数调整
-        if not first_tf_processed:
-            adjustment_confirm_signal = result_df[confirm_signal_col].copy()
-            adjustment_spike_signal = result_df[spike_signal_col].copy()
-            adjustment_div_signal = result_df[div_signal_col].copy()
-            first_tf_processed = True
-            print(f"使用时间框架 '{current_vol_tf}' 的信号进行分数调整。")
+        result_df[div_signal_col] = divergence_signals.astype(int)  # 确保信号为整数类型 
 
-        processed_tfs.append(current_vol_tf) # 记录成功处理的时间框架
+        # 如果这是第一个成功处理的时间框架，则将其信号用于后续的分数调整 
+        if not first_tf_processed: 
+            adjustment_confirm_signal = result_df[confirm_signal_col].copy() 
+            adjustment_spike_signal = result_df[spike_signal_col].copy() 
+            adjustment_div_signal = result_df[div_signal_col].copy() 
+            first_tf_processed = True 
+            logger.debug(f"使用时间框架 '{current_vol_tf}' 的信号进行分数调整。") 
 
-    # --- 4. 应用量能调整到初步分数 (在循环结束后，仅当 score_adjustment_enabled 为 True 且至少处理了一个时间框架) ---
-    if score_adjustment_enabled and first_tf_processed:
-        logger.info("应用量能调整到初步分数...")
-        current_score = result_df['ADJUSTED_SCORE'].copy()  # 获取当前待调整的分数副本
+        processed_tfs.append(current_vol_tf) # 记录成功处理的时间框架 
 
-        # 判断初步分数的趋势方向 (基于原始初步分数)
-        is_bullish_prelim_score = preliminary_score.fillna(50.0) > 55  # 初步看涨 (可根据实际策略调整阈值)
-        is_bearish_prelim_score = preliminary_score.fillna(50.0) < 45  # 初步看跌 (可根据实际策略调整阈值)
-        is_neutral_prelim_score = (~is_bullish_prelim_score) & (~is_bearish_prelim_score)  # 初步中性
+    # --- 4. 应用量能调整到初步分数 (在循环结束后，仅当 score_adjustment_enabled 为 True 且至少处理了一个时间框架) --- 
+    if score_adjustment_enabled and first_tf_processed: 
+        logger.info("应用量能调整到初步分数...") 
+        current_score = result_df['ADJUSTED_SCORE'].copy()  # 获取当前待调整的分数副本 
 
-        # 4.1. 基于量能确认信号调整 (使用第一个成功处理的时间框架的信号)
-        # a) 初步看涨
-        #    - 量能支持 (adjustment_confirm_signal == 1): 分数向100移动
-        bull_confirmed_cond = is_bullish_prelim_score & (adjustment_confirm_signal == 1)
-        current_score.loc[bull_confirmed_cond] = current_score + (100 - current_score) * boost_factor
-        #    - 量能矛盾 (adjustment_confirm_signal == -1): 分数向50移动
-        bull_contradict_cond = is_bullish_prelim_score & (adjustment_confirm_signal == -1)
-        current_score.loc[bull_contradict_cond] = current_score - (current_score - 50) * penalty_factor
+        # 判断初步分数的趋势方向 (基于原始初步分数) 
+        is_bullish_prelim_score = preliminary_score.fillna(50.0) > 55  # 初步看涨 (可根据实际策略调整阈值) 
+        is_bearish_prelim_score = preliminary_score.fillna(50.0) < 45  # 初步看跌 (可根据实际策略调整阈值) 
+        is_neutral_prelim_score = (~is_bullish_prelim_score) & (~is_bearish_prelim_score)  # 初步中性 
 
-        # b) 初步看跌
-        #    - 量能支持 (adjustment_confirm_signal == -1): 分数向0移动
-        bear_confirmed_cond = is_bearish_prelim_score & (adjustment_confirm_signal == -1)
-        current_score.loc[bear_confirmed_cond] = current_score - current_score * boost_factor
-        #    - 量能矛盾 (adjustment_confirm_signal == 1): 分数向50移动
-        bear_contradict_cond = is_bearish_prelim_score & (adjustment_confirm_signal == 1)
-        current_score.loc[bear_contradict_cond] = current_score + (50 - current_score) * penalty_factor
+        # 4.1. 基于量能确认信号调整 (使用第一个成功处理的时间框架的信号) 
+        # a) 初步看涨 
+        #    - 量能支持 (adjustment_confirm_signal == 1): 分数向100移动 
+        bull_confirmed_cond = is_bullish_prelim_score & (adjustment_confirm_signal == 1) 
+        current_score.loc[bull_confirmed_cond] = current_score + (100 - current_score) * boost_factor 
+        #    - 量能矛盾 (adjustment_confirm_signal == -1): 分数向50移动 
+        bull_contradict_cond = is_bullish_prelim_score & (adjustment_confirm_signal == -1) 
+        current_score.loc[bull_contradict_cond] = current_score - (current_score - 50) * penalty_factor 
 
-        # c) 初步中性 (分数在45-55之间)
-        #    - 量能看涨 (adjustment_confirm_signal == 1): 分数向看涨区域轻微移动 (例如60)
-        neutral_to_bull_cond = is_neutral_prelim_score & (adjustment_confirm_signal == 1)
-        current_score.loc[neutral_to_bull_cond] = current_score + (60 - current_score) * boost_factor * 0.5  # 调整幅度减半
-        #    - 量能看跌 (adjustment_confirm_signal == -1): 分数向看跌区域轻微移动 (例如40)
-        neutral_to_bear_cond = is_neutral_prelim_score & (adjustment_confirm_signal == -1)
-        current_score.loc[neutral_to_bear_cond] = current_score - (current_score - 40) * boost_factor * 0.5  # 调整幅度减半
+        # b) 初步看跌 
+        #    - 量能支持 (adjustment_confirm_signal == -1): 分数向0移动 
+        bear_confirmed_cond = is_bearish_prelim_score & (adjustment_confirm_signal == -1) 
+        current_score.loc[bear_confirmed_cond] = current_score - current_score * boost_factor 
+        #    - 量能矛盾 (adjustment_confirm_signal == 1): 分数向50移动 
+        bear_contradict_cond = is_bearish_prelim_score & (adjustment_confirm_signal == 1) 
+        current_score.loc[bear_contradict_cond] = current_score + (50 - current_score) * penalty_factor 
 
-        # 4.2. 基于量价背离信号调整 (通常是惩罚性或警示性) (使用第一个成功处理的时间框架的信号)
-        # a) 初步看涨，但出现看跌量价背离 (adjustment_div_signal == -1) -> 分数向50回调
-        bull_score_with_bear_div = is_bullish_prelim_score & (adjustment_div_signal == -1)
+        # c) 初步中性 (分数在45-55之间) 
+        #    - 量能看涨 (adjustment_confirm_signal == 1): 分数向看涨区域轻微移动 (例如60) 
+        neutral_to_bull_cond = is_neutral_prelim_score & (adjustment_confirm_signal == 1) 
+        current_score.loc[neutral_to_bull_cond] = current_score + (60 - current_score) * boost_factor * 0.5  # 调整幅度减半 
+        #    - 量能看跌 (adjustment_confirm_signal == -1): 分数向看跌区域轻微移动 (例如40) 
+        neutral_to_bear_cond = is_neutral_prelim_score & (adjustment_confirm_signal == -1) 
+        current_score.loc[neutral_to_bear_cond] = current_score - (current_score - 40) * boost_factor * 0.5  # 调整幅度减半 
+
+        # 4.2. 基于量价背离信号调整 (通常是惩罚性或警示性) (使用第一个成功处理的时间框架的信号) 
+        # a) 初步看涨，但出现看跌量价背离 (adjustment_div_signal == -1) -> 分数向50回调 
+        bull_score_with_bear_div = is_bullish_prelim_score & (adjustment_div_signal == -1) 
         result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] = \
             result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] - \
-            (result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] - 50) * vp_div_penalty_factor
+            (result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] - 50) * vp_div_penalty_factor 
 
-        # b) 初步看跌，但出现看涨量价背离 (adjustment_div_signal == 1) -> 分数向50回调
-        bear_score_with_bull_div = is_bearish_prelim_score & (adjustment_div_signal == 1)
+        # b) 初步看跌，但出现看涨量价背离 (adjustment_div_signal == 1) -> 分数向50回调 
+        bear_score_with_bull_div = is_bearish_prelim_score & (adjustment_div_signal == 1) 
         result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE'] = \
             result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE'] + \
-            (50 - result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE']) * vp_div_penalty_factor
+            (50 - result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE']) * vp_div_penalty_factor 
 
-        # 4.3. 基于成交量突增信号调整 (可选，可能加强趋势或预示反转) (使用第一个成功处理的时间框架的信号)
-        # 这里简化为：如果趋势与突增方向一致，则轻微加强分数；如果矛盾，则轻微拉回。
-        # a) 初步看涨 + 成交量突增: 轻微加强看涨分数
-        bull_score_with_spike = is_bullish_prelim_score & (adjustment_spike_signal == 1)
+        # 4.3. 基于成交量突增信号调整 (可选，可能加强趋势或预示反转) (使用第一个成功处理的时间框架的信号) 
+        # 这里简化为：如果趋势与突增方向一致，则轻微加强分数；如果矛盾，则轻微拉回。 
+        # a) 初步看涨 + 成交量突增: 轻微加强看涨分数 
+        bull_score_with_spike = is_bullish_prelim_score & (adjustment_spike_signal == 1) 
         result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE'] = \
             result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE'] + \
-            (100 - result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE']) * vol_spike_adj_factor
+            (100 - result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE']) * vol_spike_adj_factor 
 
-        # b) 初步看跌 + 成交量突增: 轻微加强看跌分数
-        bear_score_with_spike = is_bearish_prelim_score & (adjustment_spike_signal == 1)
+        # b) 初步看跌 + 成交量突增: 轻微加强看跌分数 
+        bear_score_with_spike = is_bearish_prelim_score & (adjustment_spike_signal == 1) 
         result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] = \
             result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] - \
-            result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] * vol_spike_adj_factor
+            result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] * vol_spike_adj_factor 
 
-        # 确保最终分数在0-100范围内
-        result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].clip(0, 100)
+        # 确保最终分数在0-100范围内 
+        result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].clip(0, 100) 
 
-    elif score_adjustment_enabled and not first_tf_processed:
-         logger.warning("量能分数调整已启用，但没有成功处理任何时间框架的量能数据。分数将不会被调整。")
-
-
-    # --- 5. 最终填充和返回 ---
-    # 确保 ADJUSTED_SCORE 列的 NaN 被填充为中性值 50 (再次确认)
-    result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].fillna(50.0)
-    # 其他信号列的 NaN (理论上在初始化时已处理) 再次确保填充为0并转换为整数
-    # 遍历所有以信号模式开头的列
-    all_signal_cols = [col for col in result_df.columns if any(col.startswith(signal_patterns[key].split('_')[0]) for key in signal_patterns)]
-    for col in all_signal_cols:
-        result_df[col] = result_df[col].fillna(0).astype(int)
-
-    logger.info(f"量能调整和分析模块处理完成。成功处理的时间框架: {processed_tfs}。")
-    return result_df
+    elif score_adjustment_enabled and not first_tf_processed: 
+         logger.warning("量能分数调整已启用，但没有成功处理任何时间框架的量能数据。分数将不会被调整。") 
 
 
-@staticmethod
-def _format_indicator_name(pattern: str, **kwargs) -> Tuple[str, ...]:
-    """
-    根据命名模式和参数格式化指标名称。
-    Args:
-        pattern (str): 命名模式，例如 'SMA_{period}_{timeframe}'。
-        **kwargs: 包含 period, timeframe 等参数的字典。
-    Returns:
-        Tuple[str, ...]: 格式化后的指标名称元组。
-    """
-    try:
-        # 使用 format_map 安全地格式化字符串，处理缺失的键
-        formatted_name = pattern.format_map(kwargs)
-        return (formatted_name,)
-    except KeyError as e:
-        logger.error(f"格式化指标名称时缺少参数: {e} for pattern {pattern}")
-        return (pattern,) # 返回原始模式或空字符串，取决于错误处理需求
+    # --- 5. 最终填充和返回 --- 
+    # 确保 ADJUSTED_SCORE 列的 NaN 被填充为中性值 50 (再次确认) 
+    result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].fillna(50.0) 
+    # 其他信号列的 NaN (理论上在初始化时已处理) 再次确保填充为0并转换为整数 
+    # 遍历所有以信号模式开头的列 # 修改行
+    # 由于不再使用 signal_patterns 字典，手动构建信号列名前缀列表 # 新增行
+    signal_prefixes = ['VOL_CONFIRM_SIGNAL_', 'VOL_SPIKE_SIGNAL_', 'VOL_PRICE_DIV_SIGNAL_'] # 新增行
+    all_signal_cols = [col for col in result_df.columns if any(col.startswith(prefix) for prefix in signal_prefixes)] # 修改行
+    for col in all_signal_cols: 
+        result_df[col] = result_df[col].fillna(0).astype(int) 
+
+    logger.info(f"量能调整和分析模块处理完成。成功处理的时间框架: {processed_tfs}。") 
+    return result_df 
 # --- 指标评分信息配置 ---
 # 这个字典详细配置了每个指标进行评分所需的信息。
 # 'func': 对应的评分计算函数（此处先设为None，假设后续会动态获取或赋值）
