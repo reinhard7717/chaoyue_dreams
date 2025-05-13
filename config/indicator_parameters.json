@@ -325,6 +325,7 @@
 
   "indicator_analysis_params": {
     "calculate_amt_ma": true,
+    "calculate_obv_ma": true,
     "calculate_cmf": true,
     "calculate_vol_ma": true,
     "calculate_vwap": true,

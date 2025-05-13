@@ -2728,14 +2728,16 @@ def adjust_score_with_volume(
 
         # 1. 数据列名构建和有效性检查 (针对当前时间框架)
         # 使用命名模式构建列名
+        # --- 添加调试日志，查看格式化后的列名 --- # 新增行
         close_col = _format_indicator_name(ohlcv_patterns.get('close', 'close_{timeframe}'), timeframe=current_vol_tf)[0]
         high_col = _format_indicator_name(ohlcv_patterns.get('high', 'high_{timeframe}'), timeframe=current_vol_tf)[0]
         low_col = _format_indicator_name(ohlcv_patterns.get('low', 'low_{timeframe}'), timeframe=current_vol_tf)[0]
         volume_col = _format_indicator_name(ohlcv_patterns.get('volume', 'volume_{timeframe}'), timeframe=current_vol_tf)[0]
+
         cmf_col_name = _format_indicator_name(indicator_patterns.get('CMF', 'CMF_{period}_{timeframe}'), period=cmf_period, timeframe=current_vol_tf)[0]
         obv_col_name = _format_indicator_name(indicator_patterns.get('OBV', 'OBV_{timeframe}'), timeframe=current_vol_tf)[0]
-        obv_ma_col_name = _format_indicator_name(indicator_patterns.get('OBV_MA', 'OBV_MA_{period}_{timeframe}'), period=current_obv_ma_period, timeframe=current_vol_tf)[0] # <-- 修改点：使用 current_obv_ma_period
-
+        obv_ma_col_name = _format_indicator_name(indicator_patterns.get('OBV_MA', 'OBV_MA_{period}_{timeframe}'), period=current_obv_ma_period, timeframe=current_vol_tf)[0]
+        # --- 调试日志结束 --- # 新增行
         required_cols = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name, obv_ma_col_name]
 
         # --- 添加调试日志输出当前时间框架的数据信息 --- # 新增行
