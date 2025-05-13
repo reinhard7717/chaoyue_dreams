@@ -1222,7 +1222,7 @@ class IndicatorService:
         print(f"[{stock_code}] Debug: 最终 DataFrame 形状: {final_df.shape}") # 调试输出
         print(f"[{stock_code}] Debug: 最终 DataFrame 列数: {len(final_df.columns)}") # 调试输出
         # 限制打印的列数，防止日志过长
-        print(f"[{stock_code}] Debug: 最终 DataFrame 列名 (前150条): {final_df.columns.tolist()[:150]}...") # 调试输出
+        print(f"[{stock_code}] Debug: 最终 DataFrame 列名: {final_df.columns.tolist()}...") # 调试输出
 
 
         # 返回最终的 DataFrame 和注册的指标配置列表
