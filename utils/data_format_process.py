@@ -520,9 +520,9 @@ class FundFlowFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    def set_fund_flow_industry_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
+    def set_fund_flow_industry_ths_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
         data_dict = {
-            "stock": stock,
+            "ths_index": ths_index,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
             "industry": getattr(df_data, "industry", None),
             "lead_stock": getattr(df_data, "lead_stock", None),

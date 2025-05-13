@@ -4,6 +4,7 @@ from datetime import date, datetime
 import time
 from typing import Dict, List
 from dao_manager.base_dao import BaseDAO
+from dao_manager.tushare_daos.industry_dao import IndustryDao
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyDC, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
 from utils.data_format_process import FundFlowFormatProcess
 
@@ -17,6 +18,7 @@ class FundFlowDao(BaseDAO):
         from utils.cash_key import StockCashKey
 
         self.data_format_process = FundFlowFormatProcess()
+        self.industry_dao = IndustryDao()
         self.stock_cache_key = StockCashKey()
         self.stock_cache_set = StockInfoCacheSet()
         self.stock_cache_get = StockInfoCacheGet()
@@ -402,9 +404,9 @@ class FundFlowDao(BaseDAO):
         if not df.empty:
             data_dicts = []
             for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
+                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
+                if ths_index:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(ths_index=ths_index, df_data=row)
                     data_dicts.append(data_dict)
             result =  await self._save_all_to_db_native_upsert(
                 model_class=FundFlowCntTHS,
@@ -429,9 +431,9 @@ class FundFlowDao(BaseDAO):
         if not df.empty:
             data_dicts = []
             for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(row)
+                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
+                if ths_index:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(ths_index=ths_index, df_data=row)
                     data_dicts.append(data_dict)
             result =  await self._save_all_to_db_native_upsert(
                 model_class=FundFlowCntTHS,
@@ -522,9 +524,9 @@ class FundFlowDao(BaseDAO):
         if not df.empty:
             data_dicts = []
             for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
+                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
+                if ths_index:
+                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(ths_index=ths_index, df_data=row)
                     data_dicts.append(data_dict)
             result =  await self._save_all_to_db_native_upsert(
                 model_class=FundFlowIndustryTHS,
@@ -549,9 +551,9 @@ class FundFlowDao(BaseDAO):
         if not df.empty:
             data_dicts = []
             for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(stock, row)
+                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
+                if ths_index:
+                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(ths_index=ths_index, df_data=row)
                     data_dicts.append(data_dict)
             result =  await self._save_all_to_db_native_upsert(
                 model_class=FundFlowIndustryTHS,
