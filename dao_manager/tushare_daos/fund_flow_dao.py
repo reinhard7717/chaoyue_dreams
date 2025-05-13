@@ -413,6 +413,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+            print(f"完成 {today} 板块资金流向数据（同花顺），result: {result}")
         return result
 
     async def save_history_fund_flow_cnt_ths_data(self, trade_date: date) -> Dict:
@@ -440,6 +441,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+            print(f"完成 {trade_date} 板块资金流向数据（同花顺），result: {result}")
         time.sleep(0.5)
         return result
 
@@ -473,6 +475,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+            print(f"完成 {today} 板块资金流向数据（东方财富），result: {result}")
         return result
 
     async def save_history_fund_flow_cnt_dc_data(self, trade_date: str) -> Dict:
@@ -533,6 +536,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+            print(f"完成 {today} 板块资金流向数据（同花顺），result: {result}")
         return result
 
     async def save_history_fund_flow_industry_ths_data(self, trade_date: date) -> Dict:
@@ -560,6 +564,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+            print(f"完成 {trade_date} 板块资金流向数据（同花顺），result: {result}")
         return result
 
     # ============== 大盘资金流向数据 - 东方财富 ==============

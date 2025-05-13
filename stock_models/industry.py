@@ -222,6 +222,9 @@ class ThsIndex(models.Model):
         verbose_name = "同花顺概念和行业指数"
         verbose_name_plural = verbose_name
 
+    def __str__(self):
+        return f"{self.ts_code}-{self.name}"
+
 # 同花顺概念板块成分
 class ThsIndexMember(models.Model):
     ths_index = models.ForeignKey('ThsIndex', db_column='ts_code', to_field='ts_code', null=True, blank=True, on_delete=models.CASCADE, related_name="ths_member", verbose_name=_("指数"))
@@ -238,6 +241,8 @@ class ThsIndexMember(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['ths_index', 'stock'], name='unique_index_stock')
         ]
+    def __str__(self):
+        return f"{self.ths_index.ts_code}-{self.ths_index.name}-{self.stock}"
 
 # 同花顺板块指数行情
 class ThsIndexDaily(models.Model):
@@ -284,6 +289,9 @@ class DcIndex(models.Model):
         db_table = "dc_index"
         verbose_name = "东方财富概念板块"
         verbose_name_plural = verbose_name
+    
+    def __str__(self):
+        return f"{self.ts_code}-{self.name}"
 
 # 东方财富板块指数行情
 class DcIndexDaily(models.Model):
@@ -313,6 +321,9 @@ class DcIndexDaily(models.Model):
         verbose_name = "东方财富板块指数行情"
         verbose_name_plural = verbose_name
         unique_together = ('dc_index', 'trade_time')
+    
+    def __str__(self):
+        return f"{self.dc_index.ts_code}-{self.dc_index.name}"
 
 # 东方财富板块成分
 class DcIndexMember(models.Model):
@@ -325,3 +336,5 @@ class DcIndexMember(models.Model):
         verbose_name = "东方财富板块成分"
         verbose_name_plural = verbose_name
         unique_together = ('trade_time', 'dc_index', 'stock')
+    def __str__(self):
+        return f"{self.dc_index.ts_code} - {self.trade_date} - {self.stock}"
