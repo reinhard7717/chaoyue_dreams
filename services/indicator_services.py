@@ -784,7 +784,7 @@ class IndicatorService:
             # 应用重命名，如果 rename_map 不为空则复制并重命名，否则只复制
             resampled_df_renamed = resampled_df.rename(columns=rename_map) if rename_map else resampled_df.copy()
             # *** 调试点：检查重采样并添加后缀后的列名 ***
-            print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_renamed.columns.tolist()[:20]}...") # 调试输出：检查重采样和重命名后的列
+            # print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_renamed.columns.tolist()[:20]}...") # 调试输出：检查重采样和重命名后的列
             # 将处理后的 DataFrame 存储起来
             resampled_ohlcv_dfs[tf_resample] = resampled_df_renamed
 

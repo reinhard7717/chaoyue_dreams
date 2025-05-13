@@ -1967,7 +1967,7 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
     # 检查列名是否以期望的时间框架后缀结尾
     if not col_name.endswith(f"_{tf_suffix}"):
          # 如果后缀不匹配，记录调试信息并返回 None
-         # logger.debug(f"列名 '{col_name}' 后缀与期望 '{tf_suffix}' 不匹配，无法解析参数。")
+         # print(f"列名 '{col_name}' 后缀与期望 '{tf_suffix}' 不匹配，无法解析参数。")
          return None
 
     # 移除时间框架后缀，得到基础名称和参数部分
@@ -2131,11 +2131,11 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
         # close 列名也无需通过此函数解析参数
 
         # 如果列名模式不识别，记录调试信息并返回 None
-        logger.debug(f"列名 '{col_name}' 不符合指标 '{indicator_key}' 期望的参数模式，或参数数量/类型不匹配 (suffix: {tf_suffix}).")
+        print(f"列名 '{col_name}' 不符合指标 '{indicator_key}' 期望的参数模式，或参数数量/类型不匹配 (suffix: {tf_suffix}).")
         return None
     except (ValueError, IndexError) as e:
         # 如果在参数转换或索引访问时发生错误，记录调试信息并返回 None
-        logger.debug(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}). 错误: {e}", exc_info=True)
+        print(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}). 错误: {e}", exc_info=True)
         return None # 参数转换失败或索引越界
 
 def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicator_configs: List[Dict], naming_config: Dict) -> pd.DataFrame:
@@ -2299,7 +2299,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                                  break # 字典模式下，任一必需列缺失则 config 映射失败
 
                          elif internal_key not in required_score_keys:
-                             logger.debug(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config 字典映射包含非评分必需键 '{internal_key}'.")
+                             print(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的 config 字典映射包含非评分必需键 '{internal_key}'.")
 
                 # 情况 2: config_cols_info 是一个列名列表 (暗示顺序重要，并与 required_score_keys 列表对应)
                 elif isinstance(config_cols_info, list) and len(config_cols_info) == len(required_score_keys):
@@ -2724,7 +2724,7 @@ def adjust_score_with_volume(
     # --- 循环处理每个时间框架 ---
     processed_tfs = [] # 记录成功处理的时间框架
     for current_vol_tf in vol_tf_list_to_process:
-        logger.debug(f"处理量能时间框架: {current_vol_tf}")
+        print(f"处理量能时间框架: {current_vol_tf}")
 
         # 1. 数据列名构建和有效性检查 (针对当前时间框架)
         # 使用命名模式构建列名
@@ -2739,18 +2739,18 @@ def adjust_score_with_volume(
         required_cols = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name, obv_ma_col_name]
 
         # --- 添加调试日志输出当前时间框架的数据信息 --- # 新增行
-        logger.debug(f"量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 新增行
-        logger.debug(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 新增行
+        print(f"量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 新增行
+        print(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 新增行
         for col in required_cols: # 新增行
             if col not in data.columns: # 新增行
-                logger.debug(f"量能调整/分析模块：列 '{col}' 不存在于输入数据中。") # 新增行
+                print(f"量能调整/分析模块：列 '{col}' 不存在于输入数据中。") # 新增行
             else: # 新增行
                 non_nan_count = data[col].count() # 新增行
-                logger.debug(f"量能调整/分析模块：列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 新增行
+                print(f"量能调整/分析模块：列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 新增行
                 if non_nan_count == 0: # 新增行
                     logger.warning(f"量能调整/分析模块：警告 - 列 '{col}' 存在但所有值均为 NaN。") # 新增行
         # --- 调试日志输出结束 --- # 新增行
-        
+
         missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
 
         # 预先创建当前时间框架的信号列，并用0填充，即使数据缺失也要确保列存在
@@ -2883,7 +2883,7 @@ def adjust_score_with_volume(
             adjustment_spike_signal = result_df[spike_signal_col].copy()
             adjustment_div_signal = result_df[div_signal_col].copy()
             first_tf_processed = True
-            logger.debug(f"使用时间框架 '{current_vol_tf}' 的信号进行分数调整。")
+            print(f"使用时间框架 '{current_vol_tf}' 的信号进行分数调整。")
 
         processed_tfs.append(current_vol_tf) # 记录成功处理的时间框架
 
