@@ -32,165 +32,204 @@ pd.options.mode.chained_assignment = None # default='warn'
 # 'prefixes': 用于在 DataFrame 中查找列的可能前缀列表
 indicator_scoring_info: Dict[str, Dict[str, Any]] = {
     'macd': {
-        'func': None, 'param_passing_style': 'none',
+        'func': calculate_macd_score, 
+        'param_passing_style': 'none',
         'bs_param_key_to_score_func_arg': {},
         'defaults': {},
         'required_keys': ['macd_series', 'macd_d', 'macd_h'],
         'prefixes': ['MACD_', 'MACDh_', 'MACDs_']
     },
     'rsi': {
-        'func': None, 'param_passing_style': 'dict',
+        'func': calculate_rsi_score, 
+        'param_passing_style': 'dict',
         'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
         'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
         'required_keys': ['rsi'],
         'prefixes': ['RSI_']
     },
     'kdj': {
-        'func': None, 'param_passing_style': 'dict',
+        'func': calculate_kdj_score, 
+        'param_passing_style': 'dict',
         'bs_param_key_to_score_func_arg': {'kdj_period': 'period', 'kdj_signal_period': 'signal_period', 'kdj_smooth_k_period': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'},
         'defaults': {'period': 9, 'signal_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
         'required_keys': ['k', 'd', 'j'],
         'prefixes': ['K_', 'D_', 'J_']
     },
     'boll': {
-       'func': None, 'param_passing_style': 'none',
+       'func': calculate_boll_score, 
+       'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
        'defaults': {},
-       'required_keys': ['close', 'upper', 'mid', 'lower'], # 需要 close 列进行相对位置判断
+       'required_keys': ['close', 'upper', 'mid', 'lower'], 
        'prefixes': ['BBL_', 'BBM_', 'BBU_']
     },
     'cci': {
-       'func': None, 'param_passing_style': 'dict',
+       'func': calculate_cci_score, 
+       'param_passing_style': 'dict',
        'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
        'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
        'required_keys': ['cci'],
        'prefixes': ['CCI_']
     },
     'mfi': {
-       'func': None, 'param_passing_style': 'dict',
+       'func': calculate_mfi_score, 
+       'param_passing_style': 'dict',
        'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
        'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
        'required_keys': ['mfi'],
        'prefixes': ['MFI_']
     },
     'roc': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
+       'func': calculate_roc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
        'required_keys': ['roc'],
        'prefixes': ['ROC_']
     },
     'dmi': {
-       'func': None, 'param_passing_style': 'dict',
+       'func': calculate_dmi_score, 
+       'param_passing_style': 'dict',
        'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
        'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
        'required_keys': ['pdi', 'ndi', 'adx'],
        'prefixes': ['PDI_', 'NDI_', 'ADX_']
     },
     'sar': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['close', 'sar'], # 需要 close 列判断价格与 SAR 的相对位置
+       'func': calculate_sar_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'sar'], 
        'prefixes': ['SAR_']
     },
     'stoch': {
-       'func': None, 'param_passing_style': 'dict',
+       'func': calculate_stoch_score, 
+       'param_passing_style': 'dict',
        'bs_param_key_to_score_func_arg': {'stoch_k_period': 'k_period', 'stoch_d_period': 'd_period', 'stoch_smooth_k_period': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'},
        'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
-       'required_keys': ['k', 'd'], # Stoch 评分通常只基于 K 和 D 线
+       'required_keys': ['k', 'd'], 
        'prefixes': ['STOCHk_', 'STOCHd_']
     },
     'ema': {
-       'func': None, 'param_passing_style': 'dict',
+       'func': calculate_ma_score, 
+       'param_passing_style': 'dict',
        'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
        'defaults': {'period': 20},
-       'required_keys': ['close', 'ma'], # 需要 close 和 MA 列进行交叉判断
-       'prefixes': ['EMA_']},
+       'required_keys': ['close', 'ma'], 
+       'prefixes': ['EMA_']
+    },
     'sma': {
-       'func': None, 'param_passing_style': 'dict',
+       'func': calculate_ma_score, 
+       'param_passing_style': 'dict',
        'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
        'defaults': {'period': 20},
-       'required_keys': ['close', 'ma'], # 需要 close 和 MA 列进行交叉判断
+       'required_keys': ['close', 'ma'], 
        'prefixes': ['SMA_']
     },
     'atr': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
+       'func': calculate_atr_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
        'required_keys': ['atr'],
        'prefixes': ['ATR_']
     },
     'adl': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['adl'], # Adl 评分可能基于其趋势或位置，假设需要 ADL 本身
+       'func': calculate_adl_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['adl'], 
        'prefixes': ['ADL_']
     },
     'vwap': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['close', 'vwap'], # 需要 close 列判断价格与 VWAP 的相对位置
+       'func': calculate_vwap_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'vwap'], 
        'prefixes': ['VWAP_']
     },
     'ichimoku': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], # 一目均衡表需要多个组成部分
-       'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_'] # 可能的列名前缀
+       'func': calculate_ichimoku_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], 
+       'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_']
     },
     'mom': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['mom'], # 动量指标评分可能基于其值或趋势
+       'func': calculate_mom_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['mom'], 
        'prefixes': ['MOM_']
     },
     'willr': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['willr'], # WillR 评分通常基于超买超卖区域
+       'func': calculate_willr_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['willr'], 
        'prefixes': ['WILLR_']
     },
     'cmf': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['cmf'], # CMF 评分可能基于其值或穿越零线
+       'func': calculate_cmf_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['cmf'], 
        'prefixes': ['CMF_']
     },
     'obv': {
-       'func': None, 'param_passing_style': 'individual', # 可以单独接受 obv_ma 和 obv_ma_period 参数
-       'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, # 从 bs_params 获取 obv_ma_period 参数
-       'defaults': {'obv_ma_period': 10}, # obv_ma_period 默认值
-       'required_keys': ['obv'], # 评分函数至少需要 OBV 本身
-       'prefixes': ['OBV_'] # 可能的前缀
+       'func': calculate_obv_score, 
+       'param_passing_style': 'individual', 
+       'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, 
+       'defaults': {'obv_ma_period': 10}, 
+       'required_keys': ['obv'], 
+       'prefixes': ['OBV_']
     },
     'kc': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['close', 'upper', 'mid', 'lower'], # Kelner Channels 评分需要 close 和通道界限
+       'func': calculate_kc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'upper', 'mid', 'lower'], 
        'prefixes': ['KCL_', 'KCM_', 'KCU_']
     },
     'hv': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['hv'], # 历史波动率评分可能基于其值或趋势
+       'func': calculate_hv_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['hv'], 
        'prefixes': ['HV_']
     },
     'vroc': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['vroc'], # 量价变化率评分
+       'func': calculate_vroc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['vroc'], 
        'prefixes': ['VROC_']
     },
     'aroc': {
-       'func': None, 'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 'defaults': {},
-       'required_keys': ['aroc'], # 绝对价格变化率评分
+       'func': calculate_aroc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['aroc'], 
        'prefixes': ['AROC_']
     },
     'pivot': {
-       'func': None, 'param_passing_style': 'dict', # 接受 params 字典，也需要 tf 参数
-       'bs_param_key_to_score_func_arg': {}, # bs_params 没有直接映射到 params 字典的参数
-       'defaults': {}, # 没有默认参数
-       'required_keys': ['close', 'pivot_levels'], # Pivot 评分需要 close 和 pivot levels (一个字典或列表)
-       'prefixes': [] # Pivot levels 列名通常没有统一的指标前缀，而是基于 PP, R1, S1 等
+       'func': calculate_pivot_score, 
+       'param_passing_style': 'dict', 
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {}, 
+       'required_keys': ['close', 'pivot_levels'], 
+       'prefixes': []
     }
 }
 # --- 结束指标评分信息配置 ---
@@ -2757,17 +2796,27 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
     logger.info("指标评分计算完成。")
     return scoring_results
 
-def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, vc_params: Dict ) -> pd.DataFrame:
+def adjust_score_with_volume(
+    preliminary_score: pd.Series, 
+    data: pd.DataFrame, 
+    vc_params: Dict,
+    # 新增参数以支持调用时传递的额外参数，设置为可选参数
+    vc_tf_list: Optional[List[str]] = None,
+    vol_ma_period: Optional[int] = None,
+    obv_ma_period: Optional[int] = None,
+    naming_config: Optional[Dict] = None
+) -> pd.DataFrame:
     """
     使用量能相关指标（成交量、OBV、CMF等）对初步的策略评分 (0-100) 进行调整和确认。
     同时，此函数会计算并输出相关的量能分析信号。
 
     主要优化和深化点：
-    1.  更健壮的量价背离检测逻辑（启发式，寻找价格与OBV的趋势不一致）。
-    2.  改进了分数调整机制，使其按比例向目标值（0, 50, 100）移动。
-    3.  清晰的参数配置和默认值。
-    4.  加强了数据对齐、缺失值处理的鲁棒性。
-    5.  详细的中文注释。
+    1. 更健壮的量价背离检测逻辑（启发式，寻找价格与OBV的趋势不一致）。
+    2. 改进了分数调整机制，使其按比例向目标值（0, 50, 100）移动。
+    3. 清晰的参数配置和默认值。
+    4. 加强了数据对齐、缺失值处理的鲁棒性。
+    5. 详细的中文注释。
+
     Args:
         preliminary_score (pd.Series): 经过基础指标计算得到的初步分数 (0-100)，索引为时间。
         data (pd.DataFrame): 包含OHLCV价格数据以及计算好的CMF、OBV等指标的DataFrame。
@@ -2789,6 +2838,11 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
             'vp_divergence_obv_threshold': float, OBV未能同步创出新高/新低的最小幅度（相对于前一极值对应的OBV）。
             'vp_divergence_penalty_factor': float, 量价背离惩罚分数调整的比例。
             'volume_spike_adj_factor': float, 成交量突增时调整分数的比例。
+        vc_tf_list (Optional[List[str]]): 量能分析的时间框架列表，默认为None。
+        vol_ma_period (Optional[int]): 成交量移动平均线的周期，默认为None。
+        obv_ma_period (Optional[int]): OBV移动平均线的周期，默认为None。
+        naming_config (Optional[Dict]): 命名规范配置字典，默认为None。
+
     Returns:
         pd.DataFrame: 返回一个DataFrame，索引与 preliminary_score 一致，包含以下列:
             - 'ADJUSTED_SCORE': 经过量能调整后的最终分数 (0-100)。
@@ -2798,7 +2852,7 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
     """
     # --- 0. 初始化和参数准备 ---
     result_df = pd.DataFrame(index=preliminary_score.index)
-    result_df['ADJUSTED_SCORE'] = preliminary_score.copy() # 默认调整后分数等于原始分数
+    result_df['ADJUSTED_SCORE'] = preliminary_score.copy()  # 默认调整后分数等于原始分数
 
     # 获取分析的时间级别，默认为日线 'D'
     vol_tf = vc_params.get('tf', 'D')
@@ -2822,19 +2876,21 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
 
     # 提取各项配置参数
     boost_factor = vc_params.get('boost_factor', 0.20)  # 分数向极值移动20%的剩余距离
-    penalty_factor = vc_params.get('penalty_factor', 0.30) # 分数向中性值50移动30%的剩余距离
+    penalty_factor = vc_params.get('penalty_factor', 0.30)  # 分数向中性值50移动30%的剩余距离
     vol_spike_threshold = vc_params.get('volume_spike_threshold', 2.5)
     vol_analysis_lookback = vc_params.get('volume_analysis_lookback', 20)
     cmf_period = vc_params.get('cmf_period', 20)
     cmf_confirm_thresh = vc_params.get('cmf_confirmation_threshold', 0.05)
-    obv_ma_period = vc_params.get('obv_ma_period', 10)
+    obv_ma_period_config = vc_params.get('obv_ma_period', 10)
+    # 如果调用时传递了 obv_ma_period 参数，则优先使用该参数
+    if obv_ma_period is not None:
+        obv_ma_period_config = obv_ma_period
 
     # 量价背离相关参数
-    vp_div_lookback = vc_params.get('vp_divergence_lookback', 21) # 例如过去一个月（21个交易日）
-    vp_price_thresh = vc_params.get('vp_divergence_price_threshold', 0.005) # 价格新高/低至少超过前高/低0.5%
-    vp_obv_thresh = vc_params.get('vp_divergence_obv_threshold', 0.005)   # OBV未能同步的幅度阈值（这里定义为相对幅度）
-    vp_div_penalty_factor = vc_params.get('vp_divergence_penalty_factor', 0.25) # 背离惩罚使分数向50移动25%
-
+    vp_div_lookback = vc_params.get('vp_divergence_lookback', 21)  # 例如过去一个月（21个交易日）
+    vp_price_thresh = vc_params.get('vp_divergence_price_threshold', 0.005)  # 价格新高/低至少超过前高/低0.5%
+    vp_obv_thresh = vc_params.get('vp_divergence_obv_threshold', 0.005)  # OBV未能同步的幅度阈值（这里定义为相对幅度）
+    vp_div_penalty_factor = vc_params.get('vp_divergence_penalty_factor', 0.25)  # 背离惩罚使分数向50移动25%
 
     # --- 1. 数据列名构建和有效性检查 ---
     close_col = f'close_{vol_tf}'
@@ -2843,7 +2899,7 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
     volume_col = f'volume_{vol_tf}'
     cmf_col_name = f'CMF_{cmf_period}_{vol_tf}'
     obv_col_name = f'OBV_{vol_tf}'
-    obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{vol_tf}'
+    obv_ma_col_name = f'OBV_MA_{obv_ma_period_config}_{vol_tf}'
 
     required_cols = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name, obv_ma_col_name]
     missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
@@ -2851,23 +2907,23 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
     if missing_cols:
         logger.warning(f"量能调整/分析模块：时间框架 '{vol_tf}' 缺少必需的数据列: {missing_cols}。跳过此模块。")
         result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].fillna(50.0)
-        return result_df # 返回包含默认0信号和原始（或填充后）分数的DataFrame
+        return result_df  # 返回包含默认0信号和原始（或填充后）分数的DataFrame
 
     # --- 2. 数据提取、对齐和填充 ---
     # 合并 preliminary_score 和所需数据列，确保索引对齐
     # 使用 outer join 避免丢失任一方的索引，然后 reindex 回 preliminary_score 的索引
-    data_subset = data[required_cols].copy() # 操作副本
+    data_subset = data[required_cols].copy()  # 操作副本
     merged_df = pd.concat([preliminary_score.rename("PRELIM_SCORE_TEMP_COL"), data_subset], axis=1, join='outer')
-    merged_df = merged_df.reindex(preliminary_score.index) # 确保最终索引与输入分数一致
+    merged_df = merged_df.reindex(preliminary_score.index)  # 确保最终索引与输入分数一致
 
     # 对提取的序列进行填充
-    close = merged_df[close_col].ffill().bfill() # 价格用前后值填充
+    close = merged_df[close_col].ffill().bfill()  # 价格用前后值填充
     high = merged_df[high_col].ffill().bfill()
     low = merged_df[low_col].ffill().bfill()
-    volume = merged_df[volume_col].fillna(0)          # 成交量NaN填充为0
-    cmf = merged_df[cmf_col_name].fillna(0)           # CMF NaN填充为0 (代表中性资金流)
-    obv = merged_df[obv_col_name].ffill().bfill()     # OBV是累积值，用前后值填充可能更合理
-    obv_ma = merged_df[obv_ma_col_name].ffill().bfill() # OBV均线也用前后值填充
+    volume = merged_df[volume_col].fillna(0)  # 成交量NaN填充为0
+    cmf = merged_df[cmf_col_name].fillna(0)  # CMF NaN填充为0 (代表中性资金流)
+    obv = merged_df[obv_col_name].ffill().bfill()  # OBV是累积值，用前后值填充可能更合理
+    obv_ma = merged_df[obv_ma_col_name].ffill().bfill()  # OBV均线也用前后值填充
 
     # 再次检查关键数据是否在填充后仍然无效
     if close.isnull().all() or obv.isnull().all() or volume.isnull().all():
@@ -2876,7 +2932,6 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
         return result_df
 
     # --- 3. 计算量能分析信号 ---
-
     # 3.1. 量能确认信号 (VOL_CONFIRM_SIGNAL)
     # 定义：CMF 和 OBV 相对于其均线的方向是否支持当前价格趋势的初步判断
     # 看涨量能确认: CMF 为正且高于阈值，并且 OBV 在其均线上方
@@ -2893,7 +2948,7 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
         volume_mean = volume.rolling(window=vol_analysis_lookback, min_periods=max(1, vol_analysis_lookback // 2)).mean().replace(0, np.nan)
         # 仅在volume_mean有效时进行比较
         valid_mean_mask = volume_mean.notna()
-        is_spike = pd.Series(False, index=volume.index) # 初始化为全False
+        is_spike = pd.Series(False, index=volume.index)  # 初始化为全False
         is_spike.loc[valid_mean_mask] = (volume.loc[valid_mean_mask] / volume_mean.loc[valid_mean_mask]) > vol_spike_threshold
         result_df[spike_signal_col] = is_spike.astype(int)
 
@@ -2904,82 +2959,71 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
     # 初始化背离信号 Series
     divergence_signals = pd.Series(0, index=result_df.index)
 
-    if vp_div_lookback > 1 and not obv.isnull().all(): # 需要至少2个点进行比较，且OBV数据有效
-
+    if vp_div_lookback > 1 and not obv.isnull().all():  # 需要至少2个点进行比较，且OBV数据有效
         # 遍历每个数据点，从可以形成完整回溯窗口的点开始
         # iloc 索引用于迭代，loc 索引用于基于日期/时间查找
-        for i in range(vp_div_lookback - 1, len(merged_df)): # 确保至少有 lookback 数量的数据可以回溯
-            current_date_idx = merged_df.index[i] # 当前日期索引
+        for i in range(vp_div_lookback - 1, len(merged_df)):  # 确保至少有 lookback 数量的数据可以回溯
+            current_date_idx = merged_df.index[i]  # 当前日期索引
 
             # 获取回溯窗口数据 (不包含当前日期)
-            # iloc 索引: [start_loc : end_loc]
-            # start_loc = max(0, i - vp_div_lookback) 错误：这里应该回溯 vp_div_lookback 个交易日，所以是 i - vp_div_lookback + 1
-            # 正确的回溯窗口是 iloc[i - vp_div_lookback + 1 : i+1] 包含了当前点，再取子集 [:-1]
-            # 或者直接取 iloc[max(0, i - vp_div_lookback + 1): i] 不包含当前点 i
-            lookback_slice = merged_df.iloc[max(0, i - vp_div_lookback + 1) : i].copy() # 过去 vp_div_lookback-1 天的数据
+            lookback_slice = merged_df.iloc[max(0, i - vp_div_lookback + 1): i].copy()  # 过去 vp_div_lookback-1 天的数据
 
             if lookback_slice.empty:
-                continue # 窗口为空，跳过
+                continue  # 窗口为空，跳过
 
             # 确保回溯窗口内有有效数据
             if lookback_slice[high_col].isnull().all() or lookback_slice[low_col].isnull().all() or lookback_slice[obv_col_name].isnull().all():
-                 continue # 窗口内关键数据无效，跳过
+                continue  # 窗口内关键数据无效，跳过
 
             # --- 寻找回溯窗口内的价格极值点及其对应的OBV值 ---
             # 找到窗口内的最高价及其索引 (P1)
             p1_val = lookback_slice[high_col].max()
-            p1_date_idx = lookback_slice[high_col].idxmax() # 最高价对应的日期索引
+            p1_date_idx = lookback_slice[high_col].idxmax()  # 最高价对应的日期索引
 
             # 找到窗口内的最低价及其索引 (T1)
             t1_val = lookback_slice[low_col].min()
-            t1_date_idx = lookback_slice[low_col].idxmin() # 最低价对应的日期索引
+            t1_date_idx = lookback_slice[low_col].idxmin()  # 最低价对应的日期索引
 
             # 获取 P1 和 T1 日期对应的 OBV 值 (I1_at_P1, I1_at_T1)
-            i1_obv_at_p1 = lookback_slice.loc[p1_date_idx, obv_col_name] if p1_date_idx in lookback_slice.index else np.nan # 确保索引存在
-            i1_obv_at_t1 = lookback_slice.loc[t1_date_idx, obv_col_name] if t1_date_idx in lookback_slice.index else np.nan # 确保索引存在
+            i1_obv_at_p1 = lookback_slice.loc[p1_date_idx, obv_col_name] if p1_date_idx in lookback_slice.index else np.nan  # 确保索引存在
+            i1_obv_at_t1 = lookback_slice.loc[t1_date_idx, obv_col_name] if t1_date_idx in lookback_slice.index else np.nan  # 确保索引存在
 
             # --- 获取当前日期的价格和OBV值 (P2, I2) ---
-            p2_val_high = high.iloc[i] # 当前最高价
-            p2_val_low = low.iloc[i]   # 当前最低价
-            i2_obv = obv.iloc[i]       # 当前OBV
+            p2_val_high = high.iloc[i]  # 当前最高价
+            p2_val_low = low.iloc[i]  # 当前最低价
+            i2_obv = obv.iloc[i]  # 当前OBV
 
             # 检查当前数据是否有效
             if pd.isna(p2_val_high) or pd.isna(p2_val_low) or pd.isna(i2_obv):
-                 continue
+                continue
 
             # --- 判断量价背离 ---
-
             # 看跌背离条件: 价格创出更高的高点 (P2 > P1) 且 OBV 未能创出更高的高点 (I2 <= I1_at_P1)
             # 同时考虑阈值，避免微小波动引起的误判
-            if p2_val_high > p1_val * (1 + vp_price_thresh): # 价格明显创新高
+            if p2_val_high > p1_val * (1 + vp_price_thresh):  # 价格明显创新高
                 # OBV 未能同步创新高：OBV 当前值低于或等于之前高点对应的OBV值 (考虑OBV阈值)
                 # 使用 OBV 的相对变化，避免 OBV 绝对值大小的影响
                 if not pd.isna(i1_obv_at_p1) and (i2_obv <= i1_obv_at_p1 or (i1_obv_at_p1 != 0 and (i2_obv - i1_obv_at_p1) / abs(i1_obv_at_p1) < -vp_obv_thresh)):
-                    # 进一步检查：P1 和 P2 之间的日期间隔是否合理？ (可选，当前简化不检查)
-                    # 进一步检查：P1 确实是一个“峰”？ (可选，当前简化不检查)
-                    divergence_signals.loc[current_date_idx] = -1 # 标记为看跌背离
+                    divergence_signals.loc[current_date_idx] = -1  # 标记为看跌背离
 
             # 看涨背离条件: 价格创出更低的低点 (P2 < T1) 且 OBV 未能创出更低的低点 (I2 >= I1_at_T1)
             # 同时考虑阈值，避免微小波动引起的误判
             # 只有当前点没有被标记为看跌背离时才检查看涨背离
-            if divergence_signals.loc[current_date_idx] == 0 and p2_val_low < t1_val * (1 - vp_price_thresh): # 价格明显创新低
+            if divergence_signals.loc[current_date_idx] == 0 and p2_val_low < t1_val * (1 - vp_price_thresh):  # 价格明显创新低
                 # OBV 未能同步创新低：OBV 当前值高于或等于之前低点对应的OBV值 (考虑OBV阈值)
                 if not pd.isna(i1_obv_at_t1) and (i2_obv >= i1_obv_at_t1 or (i1_obv_at_t1 != 0 and (i2_obv - i1_obv_at_t1) / abs(i1_obv_at_t1) > vp_obv_thresh)):
-                     # 进一步检查：T1 和 P2 之间的日期间隔是否合理？ (可选，当前简化不检查)
-                     # 进一步检查：T1 确实是一个“谷”？ (可选，当前简化不检查)
-                    divergence_signals.loc[current_date_idx] = 1 # 标记为看涨背离
+                    divergence_signals.loc[current_date_idx] = 1  # 标记为看涨背离
 
-    result_df[div_signal_col] = divergence_signals.astype(int) # 确保信号为整数类型
-
+    result_df[div_signal_col] = divergence_signals.astype(int)  # 确保信号为整数类型
 
     # --- 4. 应用量能调整到初步分数 (仅当 score_adjustment_enabled 为 True) ---
     if score_adjustment_enabled:
-        current_score = result_df['ADJUSTED_SCORE'].copy() # 获取当前待调整的分数副本
+        current_score = result_df['ADJUSTED_SCORE'].copy()  # 获取当前待调整的分数副本
         
         # 判断初步分数的趋势方向
         is_bullish_prelim_score = current_score > 55  # 初步看涨 (可根据实际策略调整阈值)
         is_bearish_prelim_score = current_score < 45  # 初步看跌 (可根据实际策略调整阈值)
-        is_neutral_prelim_score = (~is_bullish_prelim_score) & (~is_bearish_prelim_score) # 初步中性
+        is_neutral_prelim_score = (~is_bullish_prelim_score) & (~is_bearish_prelim_score)  # 初步中性
 
         # 4.1. 基于量能确认信号调整
         # a) 初步看涨
@@ -3001,12 +3045,12 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
         # c) 初步中性 (分数在45-55之间)
         #    - 量能看涨 (confirm_signal == 1): 分数向看涨区域轻微移动 (例如60)
         neutral_to_bull_cond = is_neutral_prelim_score & (result_df[confirm_signal_col] == 1)
-        current_score.loc[neutral_to_bull_cond] = current_score + (60 - current_score) * boost_factor * 0.5 # 调整幅度减半
+        current_score.loc[neutral_to_bull_cond] = current_score + (60 - current_score) * boost_factor * 0.5  # 调整幅度减半
         #    - 量能看跌 (confirm_signal == -1): 分数向看跌区域轻微移动 (例如40)
         neutral_to_bear_cond = is_neutral_prelim_score & (result_df[confirm_signal_col] == -1)
-        current_score.loc[neutral_to_bear_cond] = current_score - (current_score - 40) * boost_factor * 0.5 # 调整幅度减半
+        current_score.loc[neutral_to_bear_cond] = current_score - (current_score - 40) * boost_factor * 0.5  # 调整幅度减半
 
-        result_df['ADJUSTED_SCORE'] = current_score # 更新调整后的分数
+        result_df['ADJUSTED_SCORE'] = current_score  # 更新调整后的分数
 
         # 4.2. 基于量价背离信号调整 (通常是惩罚性或警示性)
         # a) 初步看涨，但出现看跌量价背离 (div_signal == -1) -> 分数向50回调
@@ -3023,7 +3067,7 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
 
         # 4.3. 基于成交量突增信号调整 (可选，可能加强趋势或预示反转)
         # 这里简化为：如果趋势与突增方向一致，则轻微加强分数；如果矛盾，则轻微拉回。
-        vol_spike_adj_factor = vc_params.get('volume_spike_adj_factor', 0.10) # 突增调整幅度10%
+        vol_spike_adj_factor = vc_params.get('volume_spike_adj_factor', 0.10)  # 突增调整幅度10%
         # a) 初步看涨 + 成交量突增: 轻微加强看涨分数
         bull_score_with_spike = is_bullish_prelim_score & (result_df[spike_signal_col] == 1)
         result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE'] = \
@@ -3044,8 +3088,8 @@ def adjust_score_with_volume( preliminary_score: pd.Series, data: pd.DataFrame, 
     result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].fillna(50.0)
     # 其他信号列的 NaN (理论上在初始化时已处理) 再次确保填充为0
     for col in [confirm_signal_col, spike_signal_col, div_signal_col]:
-        if col in result_df.columns: # 确保列存在
-            result_df[col] = result_df[col].fillna(0).astype(int) # 转换为整数类型
+        if col in result_df.columns:  # 确保列存在
+            result_df[col] = result_df[col].fillna(0).astype(int)  # 转换为整数类型
 
     logger.info(f"量能调整和分析模块（时间框架 {vol_tf}）处理完成。")
     return result_df
