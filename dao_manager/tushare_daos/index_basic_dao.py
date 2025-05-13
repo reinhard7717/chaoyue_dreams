@@ -333,7 +333,7 @@ class IndexBasicDAO(BaseDAO):
         today = datetime.datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
-        indexs = self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
         all_index_codes = [index.index_code for index in indexs]
         index_dailybasic_dicts = []
         # 切片每50个一组，合成逗号分隔字符串
@@ -385,7 +385,7 @@ class IndexBasicDAO(BaseDAO):
         today = datetime.datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
-        indexs = self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
         for index in indexs:
             index_dailybasic_dicts = []
             # 拉取数据
