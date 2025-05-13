@@ -554,6 +554,7 @@ class IndicatorService:
         if ia_params.get('calculate_vwap', False):
             vwap_p = {'anchor': ia_params.get('vwap_anchor', None)}
             vwap_calc_params = _get_indicator_params(ia_params, {'anchor': None}, param_override_key='vwap_params') # VWAP 默认 anchor 是 None
+            print(f"[{stock_code}] Debug: 注册 VWAP 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出：注册DMI配置
             _add_indicator_config('VWAP', self.calculate_vwap, 'indicator_analysis_params', vwap_calc_params, ia_timeframes) # 注册的配置名称是 'VWAP'
         # ADL 计算
         if ia_params.get('calculate_adl', False):
