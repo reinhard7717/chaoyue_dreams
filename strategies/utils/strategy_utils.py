@@ -22,217 +22,6 @@ warnings.filterwarnings(action='ignore', category=FutureWarning, message='.*Pass
 warnings.filterwarnings(action='ignore', category=FutureWarning, message='.*use_inf_as_na option is deprecated*')
 pd.options.mode.chained_assignment = None # default='warn'
 
-# --- 指标评分信息配置 ---
-# 这个字典详细配置了每个指标进行评分所需的信息。
-# 'func': 对应的评分计算函数（此处先设为None，假设后续会动态获取或赋值）
-# 'param_passing_style': 参数传递风格 ('none', 'dict', 'individual')，决定如何将bs_params中的参数传递给评分函数
-# 'bs_param_key_to_score_func_arg': 从 bs_params 字典中获取的键名与评分函数参数名的映射
-# 'defaults': 参数的默认值
-# 'required_keys': 评分计算所需的内部数据键名列表（例如，MACD需要'macd_series', 'macd_d', 'macd_h'）
-# 'prefixes': 用于在 DataFrame 中查找列的可能前缀列表
-indicator_scoring_info: Dict[str, Dict[str, Any]] = {
-    'macd': {
-        'func': calculate_macd_score, 
-        'param_passing_style': 'none',
-        'bs_param_key_to_score_func_arg': {},
-        'defaults': {},
-        'required_keys': ['macd_series', 'macd_d', 'macd_h'],
-        'prefixes': ['MACD_', 'MACDh_', 'MACDs_']
-    },
-    'rsi': {
-        'func': calculate_rsi_score, 
-        'param_passing_style': 'dict',
-        'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
-        'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
-        'required_keys': ['rsi'],
-        'prefixes': ['RSI_']
-    },
-    'kdj': {
-        'func': calculate_kdj_score, 
-        'param_passing_style': 'dict',
-        'bs_param_key_to_score_func_arg': {'kdj_period': 'period', 'kdj_signal_period': 'signal_period', 'kdj_smooth_k_period': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'},
-        'defaults': {'period': 9, 'signal_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
-        'required_keys': ['k', 'd', 'j'],
-        'prefixes': ['K_', 'D_', 'J_']
-    },
-    'boll': {
-       'func': calculate_boll_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
-       'required_keys': ['close', 'upper', 'mid', 'lower'], 
-       'prefixes': ['BBL_', 'BBM_', 'BBU_']
-    },
-    'cci': {
-       'func': calculate_cci_score, 
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
-       'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
-       'required_keys': ['cci'],
-       'prefixes': ['CCI_']
-    },
-    'mfi': {
-       'func': calculate_mfi_score, 
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
-       'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
-       'required_keys': ['mfi'],
-       'prefixes': ['MFI_']
-    },
-    'roc': {
-       'func': calculate_roc_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['roc'],
-       'prefixes': ['ROC_']
-    },
-    'dmi': {
-       'func': calculate_dmi_score, 
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
-       'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
-       'required_keys': ['pdi', 'ndi', 'adx'],
-       'prefixes': ['PDI_', 'NDI_', 'ADX_']
-    },
-    'sar': {
-       'func': calculate_sar_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['close', 'sar'], 
-       'prefixes': ['SAR_']
-    },
-    'stoch': {
-       'func': calculate_stoch_score, 
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'stoch_k_period': 'k_period', 'stoch_d_period': 'd_period', 'stoch_smooth_k_period': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'},
-       'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
-       'required_keys': ['k', 'd'], 
-       'prefixes': ['STOCHk_', 'STOCHd_']
-    },
-    'ema': {
-       'func': calculate_ma_score, 
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
-       'defaults': {'period': 20},
-       'required_keys': ['close', 'ma'], 
-       'prefixes': ['EMA_']
-    },
-    'sma': {
-       'func': calculate_ma_score, 
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
-       'defaults': {'period': 20},
-       'required_keys': ['close', 'ma'], 
-       'prefixes': ['SMA_']
-    },
-    'atr': {
-       'func': calculate_atr_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['atr'],
-       'prefixes': ['ATR_']
-    },
-    'adl': {
-       'func': calculate_adl_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['adl'], 
-       'prefixes': ['ADL_']
-    },
-    'vwap': {
-       'func': calculate_vwap_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['close', 'vwap'], 
-       'prefixes': ['VWAP_']
-    },
-    'ichimoku': {
-       'func': calculate_ichimoku_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], 
-       'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_']
-    },
-    'mom': {
-       'func': calculate_mom_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['mom'], 
-       'prefixes': ['MOM_']
-    },
-    'willr': {
-       'func': calculate_willr_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['willr'], 
-       'prefixes': ['WILLR_']
-    },
-    'cmf': {
-       'func': calculate_cmf_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['cmf'], 
-       'prefixes': ['CMF_']
-    },
-    'obv': {
-       'func': calculate_obv_score, 
-       'param_passing_style': 'individual', 
-       'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, 
-       'defaults': {'obv_ma_period': 10}, 
-       'required_keys': ['obv'], 
-       'prefixes': ['OBV_']
-    },
-    'kc': {
-       'func': calculate_kc_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['close', 'upper', 'mid', 'lower'], 
-       'prefixes': ['KCL_', 'KCM_', 'KCU_']
-    },
-    'hv': {
-       'func': calculate_hv_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['hv'], 
-       'prefixes': ['HV_']
-    },
-    'vroc': {
-       'func': calculate_vroc_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['vroc'], 
-       'prefixes': ['VROC_']
-    },
-    'aroc': {
-       'func': calculate_aroc_score, 
-       'param_passing_style': 'none',
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {},
-       'required_keys': ['aroc'], 
-       'prefixes': ['AROC_']
-    },
-    'pivot': {
-       'func': calculate_pivot_score, 
-       'param_passing_style': 'dict', 
-       'bs_param_key_to_score_func_arg': {}, 
-       'defaults': {}, 
-       'required_keys': ['close', 'pivot_levels'], 
-       'prefixes': []
-    }
-}
-# --- 结束指标评分信息配置 ---
 
 # --- 辅助函数区 ---
 
@@ -3094,5 +2883,216 @@ def adjust_score_with_volume(
     logger.info(f"量能调整和分析模块（时间框架 {vol_tf}）处理完成。")
     return result_df
 
+# --- 指标评分信息配置 ---
+# 这个字典详细配置了每个指标进行评分所需的信息。
+# 'func': 对应的评分计算函数（此处先设为None，假设后续会动态获取或赋值）
+# 'param_passing_style': 参数传递风格 ('none', 'dict', 'individual')，决定如何将bs_params中的参数传递给评分函数
+# 'bs_param_key_to_score_func_arg': 从 bs_params 字典中获取的键名与评分函数参数名的映射
+# 'defaults': 参数的默认值
+# 'required_keys': 评分计算所需的内部数据键名列表（例如，MACD需要'macd_series', 'macd_d', 'macd_h'）
+# 'prefixes': 用于在 DataFrame 中查找列的可能前缀列表
+indicator_scoring_info: Dict[str, Dict[str, Any]] = {
+    'macd': {
+        'func': calculate_macd_score, 
+        'param_passing_style': 'none',
+        'bs_param_key_to_score_func_arg': {},
+        'defaults': {},
+        'required_keys': ['macd_series', 'macd_d', 'macd_h'],
+        'prefixes': ['MACD_', 'MACDh_', 'MACDs_']
+    },
+    'rsi': {
+        'func': calculate_rsi_score, 
+        'param_passing_style': 'dict',
+        'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
+        'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
+        'required_keys': ['rsi'],
+        'prefixes': ['RSI_']
+    },
+    'kdj': {
+        'func': calculate_kdj_score, 
+        'param_passing_style': 'dict',
+        'bs_param_key_to_score_func_arg': {'kdj_period': 'period', 'kdj_signal_period': 'signal_period', 'kdj_smooth_k_period': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'},
+        'defaults': {'period': 9, 'signal_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
+        'required_keys': ['k', 'd', 'j'],
+        'prefixes': ['K_', 'D_', 'J_']
+    },
+    'boll': {
+       'func': calculate_boll_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {},
+       'defaults': {},
+       'required_keys': ['close', 'upper', 'mid', 'lower'], 
+       'prefixes': ['BBL_', 'BBM_', 'BBU_']
+    },
+    'cci': {
+       'func': calculate_cci_score, 
+       'param_passing_style': 'dict',
+       'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
+       'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
+       'required_keys': ['cci'],
+       'prefixes': ['CCI_']
+    },
+    'mfi': {
+       'func': calculate_mfi_score, 
+       'param_passing_style': 'dict',
+       'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
+       'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
+       'required_keys': ['mfi'],
+       'prefixes': ['MFI_']
+    },
+    'roc': {
+       'func': calculate_roc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['roc'],
+       'prefixes': ['ROC_']
+    },
+    'dmi': {
+       'func': calculate_dmi_score, 
+       'param_passing_style': 'dict',
+       'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
+       'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
+       'required_keys': ['pdi', 'ndi', 'adx'],
+       'prefixes': ['PDI_', 'NDI_', 'ADX_']
+    },
+    'sar': {
+       'func': calculate_sar_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'sar'], 
+       'prefixes': ['SAR_']
+    },
+    'stoch': {
+       'func': calculate_stoch_score, 
+       'param_passing_style': 'dict',
+       'bs_param_key_to_score_func_arg': {'stoch_k_period': 'k_period', 'stoch_d_period': 'd_period', 'stoch_smooth_k_period': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'},
+       'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
+       'required_keys': ['k', 'd'], 
+       'prefixes': ['STOCHk_', 'STOCHd_']
+    },
+    'ema': {
+       'func': calculate_ma_score, 
+       'param_passing_style': 'dict',
+       'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
+       'defaults': {'period': 20},
+       'required_keys': ['close', 'ma'], 
+       'prefixes': ['EMA_']
+    },
+    'sma': {
+       'func': calculate_ma_score, 
+       'param_passing_style': 'dict',
+       'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
+       'defaults': {'period': 20},
+       'required_keys': ['close', 'ma'], 
+       'prefixes': ['SMA_']
+    },
+    'atr': {
+       'func': calculate_atr_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['atr'],
+       'prefixes': ['ATR_']
+    },
+    'adl': {
+       'func': calculate_adl_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['adl'], 
+       'prefixes': ['ADL_']
+    },
+    'vwap': {
+       'func': calculate_vwap_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'vwap'], 
+       'prefixes': ['VWAP_']
+    },
+    'ichimoku': {
+       'func': calculate_ichimoku_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'], 
+       'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_']
+    },
+    'mom': {
+       'func': calculate_mom_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['mom'], 
+       'prefixes': ['MOM_']
+    },
+    'willr': {
+       'func': calculate_willr_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['willr'], 
+       'prefixes': ['WILLR_']
+    },
+    'cmf': {
+       'func': calculate_cmf_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['cmf'], 
+       'prefixes': ['CMF_']
+    },
+    'obv': {
+       'func': calculate_obv_score, 
+       'param_passing_style': 'individual', 
+       'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, 
+       'defaults': {'obv_ma_period': 10}, 
+       'required_keys': ['obv'], 
+       'prefixes': ['OBV_']
+    },
+    'kc': {
+       'func': calculate_kc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['close', 'upper', 'mid', 'lower'], 
+       'prefixes': ['KCL_', 'KCM_', 'KCU_']
+    },
+    'hv': {
+       'func': calculate_hv_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['hv'], 
+       'prefixes': ['HV_']
+    },
+    'vroc': {
+       'func': calculate_vroc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['vroc'], 
+       'prefixes': ['VROC_']
+    },
+    'aroc': {
+       'func': calculate_aroc_score, 
+       'param_passing_style': 'none',
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {},
+       'required_keys': ['aroc'], 
+       'prefixes': ['AROC_']
+    },
+    'pivot': {
+       'func': calculate_pivot_score, 
+       'param_passing_style': 'dict', 
+       'bs_param_key_to_score_func_arg': {}, 
+       'defaults': {}, 
+       'required_keys': ['close', 'pivot_levels'], 
+       'prefixes': []
+    }
+}
+# --- 结束指标评分信息配置 ---
 
 
