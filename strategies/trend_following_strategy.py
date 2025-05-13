@@ -1569,13 +1569,13 @@ class TrendFollowingStrategy:
              # 需要传递量能相关的周期参数和时间框架列表给 strategy_utils
              try:
                  volume_adjusted_results_df = strategy_utils.adjust_score_with_volume(
-                     base_score_raw, 
-                     data, 
-                     vc_params_adjusted, 
-                     vc_tf_list, # 传递时间框架列表
-                     vol_ma_period_vc, # 传递 VOL_MA 周期
-                     obv_ma_period_vc, # 传递 OBV_MA 周期
-                     NAMING_CONFIG # 传递命名规范
+                    preliminary_score=base_score_raw, 
+                    data=data, 
+                    vc_params=vc_params_adjusted, 
+                    vc_tf_list=vc_tf_list, # 传递时间框架列表
+                    vol_ma_period=vol_ma_period_vc, # 传递 VOL_MA 周期
+                    obv_ma_period=obv_ma_period_vc, # 传递 OBV_MA 周期
+                    naming_config=NAMING_CONFIG # 传递命名规范
                  )
                  # 检查 ADJUSTED_SCORE 列是否存在
                  if 'ADJUSTED_SCORE' not in volume_adjusted_results_df.columns:
@@ -3469,11 +3469,7 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存 StockScoreAnalysis 记录出错: {e}", exc_info=True)
 
-# Note: The implementation of strategy_utils and deep_learning_utils functions
-# (like calculate_all_indicator_scores, adjust_score_with_volume, detect_divergence,
-# build_transformer_model, predict_with_transformer_model, prepare_data_for_transformer, etc.)
-# are assumed to exist and work correctly in their respective files,
-# and they should handle the column naming according to the NAMING_CONFIG where applicable.
+
 
 
 
