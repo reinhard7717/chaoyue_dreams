@@ -2728,7 +2728,6 @@ def adjust_score_with_volume(
 
         # 1. 数据列名构建和有效性检查 (针对当前时间框架)
         # 使用命名模式构建列名
-        # --- 添加调试日志，查看格式化后的列名 --- # 新增行
         close_col = _format_indicator_name(ohlcv_patterns.get('close', 'close_{timeframe}'), timeframe=current_vol_tf)[0]
         high_col = _format_indicator_name(ohlcv_patterns.get('high', 'high_{timeframe}'), timeframe=current_vol_tf)[0]
         low_col = _format_indicator_name(ohlcv_patterns.get('low', 'low_{timeframe}'), timeframe=current_vol_tf)[0]
@@ -2737,21 +2736,32 @@ def adjust_score_with_volume(
         cmf_col_name = _format_indicator_name(indicator_patterns.get('CMF', 'CMF_{period}_{timeframe}'), period=cmf_period, timeframe=current_vol_tf)[0]
         obv_col_name = _format_indicator_name(indicator_patterns.get('OBV', 'OBV_{timeframe}'), timeframe=current_vol_tf)[0]
         obv_ma_col_name = _format_indicator_name(indicator_patterns.get('OBV_MA', 'OBV_MA_{period}_{timeframe}'), period=current_obv_ma_period, timeframe=current_vol_tf)[0]
-        # --- 调试日志结束 --- # 新增行
         required_cols = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name, obv_ma_col_name]
 
-        # --- 添加调试日志输出当前时间框架的数据信息 --- # 新增行
-        print(f"量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 新增行
-        print(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 新增行
+        # --- 添加 DEBUG PRINT 输出当前时间框架的数据信息 --- # 新增行
+        print(f"DEBUG PRINT: 量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 新增行
+        print(f"DEBUG PRINT: 量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 新增行
+        print(f"DEBUG PRINT: 输入数据 data 的所有列: {list(data.columns)}") # 新增行
+        print(f"DEBUG PRINT: 输入数据 data 的形状: {data.shape}") # 新增行
+        if not data.empty: # 新增行
+             print(f"DEBUG PRINT: 输入数据 data 的索引范围: {data.index.min()} to {data.index.max()}") # 新增行
+        else: # 新增行
+             print("DEBUG PRINT: 输入数据 data 为空 DataFrame。") # 新增行
+
+        print("DEBUG PRINT: 检查所需列在数据中的状态:") # 新增行
+        missing_cols = [] # 新增行
         for col in required_cols: # 新增行
             if col not in data.columns: # 新增行
-                print(f"量能调整/分析模块：列 '{col}' 不存在于输入数据中。") # 新增行
+                print(f"DEBUG PRINT: 列 '{col}' 不存在于输入数据中。") # 新增行
+                missing_cols.append(col) # 新增行
             else: # 新增行
                 non_nan_count = data[col].count() # 新增行
-                print(f"量能调整/分析模块：列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 新增行
+                print(f"DEBUG PRINT: 列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 新增行
                 if non_nan_count == 0: # 新增行
-                    logger.warning(f"量能调整/分析模块：警告 - 列 '{col}' 存在但所有值均为 NaN。") # 新增行
-        # --- 调试日志输出结束 --- # 新增行
+                    print(f"DEBUG PRINT: 警告 - 列 '{col}' 存在但所有值均为 NaN。") # 新增行
+                    if col not in missing_cols: # 避免重复添加
+                         missing_cols.append(col) # 新增行
+        # --- DEBUG PRINT 输出结束 --- # 新增行
 
         missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
 
