@@ -26,6 +26,21 @@ from core.constants import TimeLevel # 确保 TimeLevel 枚举和可能需要的
 
 logger = logging.getLogger("services")
 
+# 定义从衍生特征 base_name 到基础指标注册名称的映射表
+# 注意：这个映射表本身主要服务于下游的衍生特征计算逻辑。
+# 在 prepare_strategy_dataframe 中，我们通过额外注册配置来兼容下游可能不使用这个映射表
+# 直接查找 K, D, J, ADX 等名称的行为。
+DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP = {
+    'K': 'KDJ',
+    'D': 'KDJ',
+    'J': 'KDJ',
+    'ADX': 'DMI',
+    'PDI': 'DMI',
+    'NDI': 'DMI',
+    # 其他 base_name 和注册名称一致的指标不需要在这里列出
+    # 例如：'RSI': 'RSI', 'MACD': 'MACD', 'BOLL': 'BOLL', 'KC': 'KC', 'OBV': 'OBV', 等
+}
+
 class IndicatorService:
     """
     技术指标计算服务 (使用 pandas-ta)
@@ -330,7 +345,6 @@ class IndicatorService:
         # <<< 新增调试日志 >>>
         return None # 无法构建列名，返回 None
 
-
     async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
         """
         根据策略 JSON 配置文件准备包含重采样基础数据和所有计算指标的 DataFrame。
@@ -341,9 +355,9 @@ class IndicatorService:
         3. 确定最小时间级别和指标的最大回看期，估算需要获取的原始数据量。
         4. 并行获取所有所需时间级别的原始 OHLCV 数据。
         5. 对原始数据进行重采样和初步清洗，并给 OHLCV 列名添加时间周期后缀。
-        6. 并行计算所有配置的指标，并给指标列名添加时间周期后缀。
-        7. 将所有时间级别的 OHLCV 数据和计算出的指标数据合并到同一个 DataFrame 中。
-        8. 计算基于合并后数据的衍生特征。
+        6. 并行计算所有配置的基础指标。
+        7. 将所有时间级别的 OHLCV 数据和计算出的指标数据合并到同一个 DataFrame 中，以最小时间级别索引为基准。
+        8. (此方法不包含衍生特征计算，该步骤通常在合并数据后进行)
         9. 对最终的 DataFrame 进行缺失值填充。
         10. 返回最终的 DataFrame 和指标配置列表。
 
@@ -385,41 +399,19 @@ class IndicatorService:
         # 2. 识别需求：时间级别和全局指标最大回看期
         # 存储所有需要的时间级别，使用集合避免重复
         all_time_levels_needed: Set[str] = set()
-        # 存储每个指标的计算配置 (名称, 函数, 参数, 适用的时间级别列表)
+        # 存储每个指标的计算配置 (名称, 函数, 参数, 适用的时间级别列表, 参数块键名, 参数覆盖键名)
         indicator_configs: List[Dict[str, Any]] = []
 
         # 辅助函数：用于简化从参数中提取指标配置并添加到 indicator_configs 列表的过程
         def _add_indicator_config(
-            name: str, # 指标名称，用于识别
+            name: str, # 指标名称，用于识别和下游查找
             func: Callable, # 计算该指标的异步函数引用 (如 self.calculate_macd)
-            param_block_key: str, # 参数块的键名，指示该指标的配置位于 JSON 的哪个部分 (如 'base_scoring')
-            default_params: Dict, # 该指标计算函数自身的默认参数字典
+            param_block_key: Optional[str], # 参数块的键名，指示该指标的配置位于 JSON 的哪个部分 (如 'base_scoring')，None表示不来自特定参数块
+            params_dict: Dict, # 传递给计算函数的参数字典
             applicable_tfs: Union[str, List[str]], # 适用于该指标的时间级别，可以是单个字符串或字符串列表
-            param_override_key: Optional[str] = None # 可选：在参数块内，用于覆盖默认参数的具体指标键名 (如 'rsi_period')
+            param_override_key: Optional[str] = None # 可选：在参数块内，用于覆盖默认参数的具体指标键名
         ):
-            # 从主 params 字典中获取指定的参数块
-            param_block = params.get(param_block_key, {})
-            # 根据 param_override_key 确定最终用于指标计算的参数字典来源
-            # 如果指定了 param_override_key，则使用 param_block[param_override_key] 作为参数字典
-            # 否则，使用 param_block 本身作为参数字典
-            indi_specific_params_json = param_block.get(param_override_key, param_block) if param_override_key else param_block
-
-            # 合并参数：以 default_params 为基础，使用 indi_specific_params_json 中的值覆盖
-            final_calc_params = default_params.copy()
-            # 遍历 JSON 中提供的参数，只覆盖 default_params 中存在的键，忽略 JSON 中的额外参数
-            for k, v_json in indi_specific_params_json.items():
-                # 检查 key 是否在 default_params 中，并且值类型是否匹配或可转换
-                # 简单实现：只覆盖 default_params 中已有的键
-                if k in final_calc_params:
-                     final_calc_params[k] = v_json
-                # 更严格的实现可能需要类型检查
-                # if k in final_calc_params and isinstance(v_json, type(final_calc_params[k])):
-                #     final_calc_params[k] = v_json
-                # elif k in final_calc_params:
-                #     logger.warning(f"[{stock_code}] 参数 {param_block_key}.{param_override_key or ''}.{k}: JSON值类型 {type(v_json)} 与默认类型 {type(final_calc_params[k])} 不匹配，忽略。")
-
-
-            # 将适用的时间级别转换为列表，并添加到 all_time_levels_needed 集合中
+             # 将适用的时间级别转换为列表，并添加到 all_time_levels_needed 集合中
             tfs = [applicable_tfs] if isinstance(applicable_tfs, str) else applicable_tfs
             all_time_levels_needed.update(tfs)
 
@@ -427,11 +419,23 @@ class IndicatorService:
             indicator_configs.append({
                 'name': name, # 指标名称
                 'func': func, # 指标计算函数引用
-                'params': final_calc_params, # 传递给计算函数的最终参数字典
+                'params': params_dict, # 传递给计算函数的最终参数字典
                 'timeframes': tfs, # 适用该指标的时间级别列表
                 'param_block_key': param_block_key, # 参数块键名 (用于日志或调试)
                 'param_override_key': param_override_key # 参数覆盖键名 (用于日志或调试)
             })
+
+
+        # 辅助函数：从参数中提取并合并单个指标的参数
+        def _get_indicator_params(param_block: Dict, default_params: Dict, param_override_key: Optional[str] = None) -> Dict:
+             """从参数块中提取并合并单个指标的参数。"""
+             indi_specific_params_json = param_block.get(param_override_key, param_block) if param_override_key else param_block
+             final_calc_params = default_params.copy()
+             for k, v_json in indi_specific_params_json.items():
+                 if k in final_calc_params:
+                      final_calc_params[k] = v_json
+             return final_calc_params
+
 
         # --- 从参数文件动态构建指标计算列表 ---
         # 获取基础评分相关的参数，包括时间级别列表
@@ -468,8 +472,12 @@ class IndicatorService:
         # 遍历 base_scoring.score_indicators 列表中启用的指标键名
         for indi_key in bs_params.get('score_indicators', []):
             # 为每个启用的指标调用 _add_indicator_config 辅助函数
-            if indi_key == 'macd': _add_indicator_config('MACD', self.calculate_macd, 'base_scoring', default_macd_p, bs_timeframes)
-            elif indi_key == 'rsi': _add_indicator_config('RSI', self.calculate_rsi, 'base_scoring', default_rsi_p, bs_timeframes)
+            if indi_key == 'macd':
+                 macd_calc_params = _get_indicator_params(bs_params, default_macd_p)
+                 _add_indicator_config('MACD', self.calculate_macd, 'base_scoring', macd_calc_params, bs_timeframes)
+            elif indi_key == 'rsi':
+                 rsi_calc_params = _get_indicator_params(bs_params, default_rsi_p)
+                 _add_indicator_config('RSI', self.calculate_rsi, 'base_scoring', rsi_calc_params, bs_timeframes)
             elif indi_key == 'kdj':
                 # KDJ 的周期参数在 JSON 中可能有特定的键名，这里从 bs_params 中提取并覆盖默认值
                 kdj_calc_params = {
@@ -483,93 +491,146 @@ class IndicatorService:
                     'base_scoring',
                     kdj_calc_params, # 传递已经根据 JSON 配置好的参数字典
                     bs_timeframes
-                    # param_override_key 不再需要
                 )
-            # *** 调试点：检查 BOLL 是否在 base_scoring.score_indicators 中并被注册 ***
-            # *** 检查您的 JSON 参数文件 base_scoring.score_indicators 中是否包含 "boll" ***
-            elif indi_key == 'boll':
-                 # 注意：这里的默认周期是 20, 2.0。如果您的 JSON 中配置的是 15, 2.2，
-                 # 且 base_scoring 块包含了 boll 的参数覆盖，例如 {"boll_period": 15, "boll_std_dev": 2.2}，
-                 # 那么 _add_indicator_config 会正确合并这些参数，最终 default_boll_p 会被覆盖。
-                 # 最终传递给 calculate_boll_bands_and_width 的将是 JSON 中的值。
-                 # 之前警告中的 BBU_15_2.2_30 表明 JSON 中配置的周期可能是 15, 2.2。
-                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出：注册BOLL配置
-                boll_calc_params = {
-                     'period': bs_params.get('boll_period', default_boll_p['period']),
-                     'std_dev': bs_params.get('boll_std_dev', default_boll_p['std_dev'])
-                 }
-                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {boll_calc_params} 应用于时间框架: {bs_timeframes}") # 调试输出：打印BOLL参数
-                # 使用获取到的参数注册计算配置
+                # -------------------- 修改开始 --------------------
+                # 为了兼容下游可能直接按 K, D, J 名称查找配置的行为，额外注册这些名称。
+                # 它们指向同一个计算函数和参数，不改变 KDJ 本身的计算逻辑，仅用于下游查找。
+                print(f"[{stock_code}] Debug: 为下游兼容性额外注册 K, D, J 配置 (指向 KDJ)...") # 调试输出：额外注册KDJ组成部分
                 _add_indicator_config(
-                    'BOLL', # 注册的配置名称是 'BOLL'
-                    self.calculate_boll_bands_and_width,
+                    'K', # 额外注册名称为 'K'
+                    self.calculate_kdj, # 指向 KDJ 的计算函数
                     'base_scoring',
-                    boll_calc_params, # 传递已经根据 JSON 配置好的参数字典
+                    kdj_calc_params, # 使用相同的 KDJ 参数
                     bs_timeframes
-                    # param_override_key 不再需要，因为我们手动映射了参数
                 )
-            elif indi_key == 'cci': _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', default_cci_p, bs_timeframes)
-            elif indi_key == 'mfi': _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', default_mfi_p, bs_timeframes)
-            elif indi_key == 'roc': _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', default_roc_p, bs_timeframes)
-            # *** 调试点：检查 DMI 是否在 base_scoring.score_indicators 中并被注册 ***
-            # *** 检查您的 JSON 参数文件 base_scoring.score_indicators 中是否包含 "dmi" ***
-            # *** 检查 base_scoring 块中是否有 dmi_period 覆盖默认值 14 ***
-            # *** 之前警告中的 ADX_14_30 表明 JSON 中配置的 DMI 周期可能是 14。
+                _add_indicator_config(
+                    'D', # 额外注册名称为 'D'
+                    self.calculate_kdj, # 指向 KDJ 的计算函数
+                    'base_scoring',
+                    kdj_calc_params, # 使用相同的 KDJ 参数
+                    bs_timeframes
+                )
+                _add_indicator_config(
+                    'J', # 额外注册名称为 'J'
+                    self.calculate_kdj, # 指向 KDJ 的计算函数
+                    'base_scoring',
+                    kdj_calc_params, # 使用相同的 KDJ 参数
+                    bs_timeframes
+                )
+                # -------------------- 修改结束 --------------------
+
+            elif indi_key == 'boll':
+                 boll_calc_params = _get_indicator_params(bs_params, default_boll_p)
+                 print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {boll_calc_params} 应用于时间框架: {bs_timeframes}") # 调试输出：打印BOLL参数
+                 _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', boll_calc_params, bs_timeframes)
+            elif indi_key == 'cci':
+                 cci_calc_params = _get_indicator_params(bs_params, default_cci_p)
+                 _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', cci_calc_params, bs_timeframes)
+            elif indi_key == 'mfi':
+                 mfi_calc_params = _get_indicator_params(bs_params, default_mfi_p)
+                 _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', mfi_calc_params, bs_timeframes)
+            elif indi_key == 'roc':
+                 roc_calc_params = _get_indicator_params(bs_params, default_roc_p)
+                 _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', roc_calc_params, bs_timeframes)
             elif indi_key == 'dmi':
                 print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出：注册DMI配置
-                _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', default_dmi_p, bs_timeframes) # 注册的配置名称是 'DMI'
-            elif indi_key == 'sar': _add_indicator_config('SAR', self.calculate_sar, 'base_scoring', default_sar_p, bs_timeframes)
+                dmi_calc_params = _get_indicator_params(bs_params, default_dmi_p)
+                _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', dmi_calc_params, bs_timeframes) # 注册的配置名称是 'DMI'
+                # -------------------- 修改开始 --------------------
+                # 为了兼容下游可能直接按 ADX, PDI, NDI 名称查找配置的行为，额外注册这些名称。
+                # 它们指向同一个计算函数和参数，不改变 DMI 本身的计算逻辑，仅用于下游查找。
+                print(f"[{stock_code}] Debug: 为下游兼容性额外注册 ADX, PDI, NDI 配置 (指向 DMI)...") # 调试输出：额外注册DMI组成部分
+                _add_indicator_config(
+                    'ADX', # 额外注册名称为 'ADX'
+                    self.calculate_dmi, # 指向 DMI 的计算函数
+                    'base_scoring',
+                    dmi_calc_params, # 使用相同的 DMI 参数
+                    bs_timeframes
+                )
+                _add_indicator_config(
+                    'PDI', # 额外注册名称为 'PDI'
+                    self.calculate_dmi, # 指向 DMI 的计算函数
+                    'base_scoring',
+                    dmi_calc_params, # 使用相同的 DMI 参数
+                    bs_timeframes
+                )
+                _add_indicator_config(
+                    'NDI', # 额外注册名称为 'NDI'
+                    self.calculate_dmi, # 指向 DMI 的计算函数
+                    'base_scoring',
+                    dmi_calc_params, # 使用相同的 DMI 参数
+                    bs_timeframes
+                )
+                # -------------------- 修改结束 --------------------
+
+            elif indi_key == 'sar':
+                 sar_calc_params = _get_indicator_params(bs_params, default_sar_p)
+                 _add_indicator_config('SAR', self.calculate_sar, 'base_scoring', sar_calc_params, bs_timeframes)
             # EMA 和 SMA 通常不在 score_indicators 里，而是作为独立特征或趋势分析的一部分
             # 如果参数中明确要计算EMA/SMA作为评分指标 (这种情况较少，通常在 feature_engineering)
             elif indi_key == 'ema':
+                 # 注意：这里假设如果 EMA 在 score_indicators 里，只计算一个特定周期的 EMA
                  ema_p = bs_params.get('ema_period', default_sma_ema_p['period'])
-                 _add_indicator_config(f'EMA_{ema_p}', self.calculate_ema, 'base_scoring', {'period': ema_p}, bs_timeframes, param_override_key='ema_params')
+                 ema_calc_params = {'period': ema_p} # 明确构建参数字典
+                 _add_indicator_config('EMA', self.calculate_ema, 'base_scoring', ema_calc_params, bs_timeframes, param_override_key='ema_params') # 注册的配置名称是 'EMA'
+
             elif indi_key == 'sma':
+                 # 注意：这里假设如果 SMA 在 score_indicators 里，只计算一个特定周期的 SMA
                  sma_p = bs_params.get('sma_period', default_sma_ema_p['period'])
-                 _add_indicator_config(f'SMA_{sma_p}', self.calculate_sma, 'base_scoring', {'period': sma_p}, bs_timeframes, param_override_key='sma_params')
+                 sma_calc_params = {'period': sma_p} # 明确构建参数字典
+                 _add_indicator_config('SMA', self.calculate_sma, 'base_scoring', sma_calc_params, bs_timeframes, param_override_key='sma_params') # 注册的配置名称是 'SMA'
+
 
         # --- 注册成交量和 indicator_analysis 相关指标的计算配置 ---
         vc_params = params.get('volume_confirmation', {})
         ia_params = params.get('indicator_analysis_params', {})
         # 成交量/额分析通常在基础时间框架上进行，除非 volume_confirmation 中指定了特定的 'tf'
-        vol_ana_tf = vc_params.get('tf', bs_timeframes) if vc_params.get('enabled', False) else bs_timeframes
-        # 确保如果 ia_params 启用了某个计算，即使 vc_params 未启用，也应计算
-        # 合并可能的不同来源的时间框架，并去重
-        target_vol_ana_tfs = list(set([vol_ana_tf] + ia_params.get('timeframes', [])))
+        vol_ana_tf_cfg = vc_params.get('tf', bs_timeframes) # 从vc_params获取tf配置
+        vol_ana_tfs_vc = [vol_ana_tf_cfg] if isinstance(vol_ana_tf_cfg, str) else vol_ana_tf_cfg if vc_params.get('enabled', False) else [] # 如果vc未启用，不考虑其tf
+        ia_tfs_cfg = ia_params.get('timeframes', bs_timeframes) # 从ia_params获取timeframes配置
+        ia_tfs = [ia_tfs_cfg] if isinstance(ia_tfs_cfg, str) else ia_tfs_cfg if ia_params else [] # 如果ia未启用，不考虑其timeframes
+
+        # 合并所有可能的时间框架，并去重
+        target_vol_ana_tfs = list(set(vol_ana_tfs_vc) | set(ia_tfs) | set(bs_timeframes)) # 确保基础时间级别也在内
+
         all_time_levels_needed.update(target_vol_ana_tfs)
 
 
         # AMT_MA 计算
         if vc_params.get('enabled', False) or ia_params.get('calculate_amt_ma', False):
-             _add_indicator_config('AMT_MA', self.calculate_amount_ma, 'volume_confirmation', {'period': vc_params.get('amount_ma_period', ia_params.get('amount_ma_period', 20))}, target_vol_ana_tfs, param_override_key='amount_ma_params')
+             amt_ma_p = vc_params.get('amount_ma_period', ia_params.get('amount_ma_period', 20))
+             amt_ma_calc_params = {'period': amt_ma_p}
+             _add_indicator_config('AMT_MA', self.calculate_amount_ma, 'volume_confirmation' if vc_params.get('enabled', False) else 'indicator_analysis_params', amt_ma_calc_params, target_vol_ana_tfs, param_override_key='amount_ma_params')
         # CMF 计算
         if vc_params.get('enabled', False) or ia_params.get('calculate_cmf', False):
-            _add_indicator_config('CMF', self.calculate_cmf, 'volume_confirmation', {'period': vc_params.get('cmf_period', ia_params.get('cmf_period', 20))}, target_vol_ana_tfs, param_override_key='cmf_params')
+            cmf_p = vc_params.get('cmf_period', ia_params.get('cmf_period', 20))
+            cmf_calc_params = {'period': cmf_p}
+            _add_indicator_config('CMF', self.calculate_cmf, 'volume_confirmation' if vc_params.get('enabled', False) else 'indicator_analysis_params', cmf_calc_params, target_vol_ana_tfs, param_override_key='cmf_params')
         # VOL_MA 计算
         if ia_params.get('calculate_vol_ma', False):
-            _add_indicator_config('VOL_MA', self.calculate_vol_ma, 'indicator_analysis_params', {'period': ia_params.get('volume_ma_period', 20)}, target_vol_ana_tfs, param_override_key='volume_ma_params')
+            vol_ma_p = ia_params.get('volume_ma_period', 20)
+            vol_ma_calc_params = {'period': vol_ma_p}
+            _add_indicator_config('VOL_MA', self.calculate_vol_ma, 'indicator_analysis_params', vol_ma_calc_params, target_vol_ana_tfs, param_override_key='volume_ma_params')
 
         # 其他分析指标 (来自 indicator_analysis_params)
-        ia_timeframes = ia_params.get('timeframes', bs_timeframes)
+        ia_timeframes = ia_params.get('timeframes', bs_timeframes) # 这里重新获取 ia_params 的 timeframes 用于这些指标
         all_time_levels_needed.update(ia_timeframes)
 
         # STOCH 计算
-        # *** 检查您的 JSON 参数文件 indicator_analysis_params 中是否包含 calculate_stoch: true ***
-        # *** 检查 indicator_analysis_params 块中是否有 stoch_k, stoch_d, stoch_smooth_k 覆盖默认值 ***
         if ia_params.get('calculate_stoch', False):
             stoch_p = {
                 'k_period': ia_params.get('stoch_k', default_stoch_p['k_period']),
                 'd_period': ia_params.get('stoch_d', default_stoch_p['d_period']),
                 'smooth_k_period': ia_params.get('stoch_smooth_k', default_stoch_p['smooth_k_period'])
             }
-            _add_indicator_config('STOCH', self.calculate_stoch, 'indicator_analysis_params', stoch_p, ia_timeframes, param_override_key='stoch_params') # 注册的配置名称是 'STOCH'
+            stoch_calc_params = _get_indicator_params(ia_params, default_stoch_p, param_override_key='stoch_params') # 使用辅助函数提取参数
+            _add_indicator_config('STOCH', self.calculate_stoch, 'indicator_analysis_params', stoch_calc_params, ia_timeframes) # 注册的配置名称是 'STOCH'
 
         # VWAP 计算
-        # *** 检查您的 JSON 参数文件 indicator_analysis_params 中是否包含 calculate_vwap: true ***
-        # *** 检查 indicator_analysis_params 块中是否有 vwap_anchor 覆盖默认值 None ***
         if ia_params.get('calculate_vwap', False):
             vwap_p = {'anchor': ia_params.get('vwap_anchor', None)}
-            _add_indicator_config('VWAP', self.calculate_vwap, 'indicator_analysis_params', vwap_p, ia_timeframes, param_override_key='vwap_params') # 注册的配置名称是 'VWAP'
+            vwap_calc_params = _get_indicator_params(ia_params, {'anchor': None}, param_override_key='vwap_params') # VWAP 默认 anchor 是 None
+            _add_indicator_config('VWAP', self.calculate_vwap, 'indicator_analysis_params', vwap_calc_params, ia_timeframes) # 注册的配置名称是 'VWAP'
 
         # ADL 计算
         if ia_params.get('calculate_adl', False):
@@ -582,64 +643,76 @@ class IndicatorService:
                  'kijun_period': ia_params.get('ichimoku_kijun', default_ichimoku_p['kijun_period']),
                  'senkou_period': ia_params.get('ichimoku_senkou', default_ichimoku_p['senkou_period'])
              }
-             _add_indicator_config('Ichimoku', self.calculate_ichimoku, 'indicator_analysis_params', ichimoku_p, ia_timeframes, param_override_key='ichimoku_params') # 注册的配置名称是 'Ichimoku'
+             ichimoku_calc_params = _get_indicator_params(ia_params, default_ichimoku_p, param_override_key='ichimoku_params') # 使用辅助函数提取参数
+             _add_indicator_config('Ichimoku', self.calculate_ichimoku, 'indicator_analysis_params', ichimoku_calc_params, ia_timeframes) # 注册的配置名称是 'Ichimoku'
 
         # Pivot Points 计算 (通常基于日线计算，但代码中注册为 bs_timeframes，这里修正为只在 'D' 上计算)
-        # *** 检查您的 JSON 参数文件 indicator_analysis_params 中是否包含 calculate_pivot_points: true ***
         if ia_params.get('calculate_pivot_points', False):
              # Pivot 通常基于日线计算，所以适用时间级别应为 ['D']
-             _add_indicator_config('PivotPoints', self.calculate_pivot_points, 'indicator_analysis_params', {}, ['D'], param_override_key='pivot_params') # 注册的配置名称是 'PivotPoints'
+             pivot_calc_params = _get_indicator_params(ia_params, {}, param_override_key='pivot_params') # Pivot Points 通常无参数
+             _add_indicator_config('PivotPoints', self.calculate_pivot_points, 'indicator_analysis_params', pivot_calc_params, ['D']) # 注册的配置名称是 'PivotPoints'
              all_time_levels_needed.add('D') # 确保 'D' 被包含在所需时间级别中
 
 
         # --- 注册特征工程指标的计算配置 ---
         fe_params = params.get('feature_engineering_params', {})
         # 特征工程默认应用于基础时间框架，除非参数中指定了 apply_on_timeframes
-        fe_timeframes = fe_params.get('apply_on_timeframes', bs_timeframes)
+        fe_timeframes_cfg = fe_params.get('apply_on_timeframes', bs_timeframes)
+        fe_timeframes = [fe_timeframes_cfg] if isinstance(fe_timeframes_cfg, str) else fe_timeframes_cfg if fe_params else []
         all_time_levels_needed.update(fe_timeframes)
 
         # ATR 计算
         if fe_params.get('calculate_atr', False):
-             _add_indicator_config('ATR', self.calculate_atr, 'feature_engineering_params', default_atr_p, fe_timeframes, param_override_key='atr_params') # 注册的配置名称是 'ATR'
+             atr_calc_params = _get_indicator_params(fe_params, default_atr_p, param_override_key='atr_params')
+             _add_indicator_config('ATR', self.calculate_atr, 'feature_engineering_params', atr_calc_params, fe_timeframes) # 注册的配置名称是 'ATR'
         # 历史波动率 (HV) 计算
         if fe_params.get('calculate_hv', False):
-             _add_indicator_config('HV', self.calculate_historical_volatility, 'feature_engineering_params', default_hv_p, fe_timeframes, param_override_key='hv_params') # 注册的配置名称是 'HV'
+             hv_calc_params = _get_indicator_params(fe_params, default_hv_p, param_override_key='hv_params')
+             _add_indicator_config('HV', self.calculate_historical_volatility, 'feature_engineering_params', hv_calc_params, fe_timeframes) # 注册的配置名称是 'HV'
         # 肯特纳通道 (KC) 计算
         if fe_params.get('calculate_kc', False):
-             _add_indicator_config('KC', self.calculate_keltner_channels, 'feature_engineering_params', default_kc_p, fe_timeframes, param_override_key='kc_params') # 注册的配置名称是 'KC'
+             kc_calc_params = _get_indicator_params(fe_params, default_kc_p, param_override_key='kc_params')
+             _add_indicator_config('KC', self.calculate_keltner_channels, 'feature_engineering_params', kc_calc_params, fe_timeframes) # 注册的配置名称是 'KC'
         # 动量 (MOM) 计算
         if fe_params.get('calculate_mom', False):
-             _add_indicator_config('MOM', self.calculate_mom, 'feature_engineering_params', default_mom_p, fe_timeframes, param_override_key='mom_params') # 注册的配置名称是 'MOM'
+             mom_calc_params = _get_indicator_params(fe_params, default_mom_p, param_override_key='mom_params')
+             _add_indicator_config('MOM', self.calculate_mom, 'feature_engineering_params', mom_calc_params, fe_timeframes) # 注册的配置名称是 'MOM'
         # Williams %R (WILLR) 计算
         if fe_params.get('calculate_willr', False):
-             _add_indicator_config('WILLR', self.calculate_willr, 'feature_engineering_params', default_willr_p, fe_timeframes, param_override_key='willr_params') # 注册的配置名称是 'WILLR'
+             willr_calc_params = _get_indicator_params(fe_params, default_willr_p, param_override_key='willr_params')
+             _add_indicator_config('WILLR', self.calculate_willr, 'feature_engineering_params', willr_calc_params, fe_timeframes) # 注册的配置名称是 'WILLR'
         # 成交量变化率 (VROC) 计算
         if fe_params.get('calculate_vroc', False):
-             _add_indicator_config('VROC', self.calculate_volume_roc, 'feature_engineering_params', default_roc_p, fe_timeframes, param_override_key='vroc_params') # 注册的配置名称是 'VROC'
+             vroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='vroc_params')
+             _add_indicator_config('VROC', self.calculate_volume_roc, 'feature_engineering_params', vroc_calc_params, fe_timeframes) # 注册的配置名称是 'VROC'
         # 成交额变化率 (AROC) 计算
         if fe_params.get('calculate_aroc', False):
-             _add_indicator_config('AROC', self.calculate_amount_roc, 'feature_engineering_params', default_roc_p, fe_timeframes, param_override_key='aroc_params') # 注册的配置名称是 'AROC'
+             aroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='aroc_params')
+             _add_indicator_config('AROC', self.calculate_amount_roc, 'feature_engineering_params', aroc_calc_params, fe_timeframes) # 注册的配置名称是 'AROC'
 
         # 计算 EMA 和 SMA (如果参数中指定了周期列表)
         # 这些通常作为独立特征或用于计算与其他指标的关系
         for ma_type, ma_func in [('EMA', self.calculate_ema), ('SMA', self.calculate_sma)]:
             # 从 fe_params 中获取指定类型的均线周期列表，例如 "ema_periods": [5, 10, 20]
             ma_periods = fe_params.get(f'{ma_type.lower()}_periods', [])
-            for p in ma_periods:
-                if isinstance(p, int) and p > 0: # 确保周期是有效的正整数
-                    # 为每个周期添加一个计算配置
-                    # !!! 注意：这里 name 直接使用了 ma_type，而参数是 {"period": p}。
-                    # _build_indicator_base_name_for_lookup 在处理 'EMA'/'SMA' 时，需要 'period' 参数来构建列名 'EMA_5'/'SMA_20' 等。
-                    # 这与 name 使用 f'EMA_{p}' 是一致的。但在 derivative feature lookup 中，我们可能需要根据 name='EMA' 找到 params 来构建列名。
-                    # 保持 name 是通用名称 ('EMA'/'SMA') 可能更好，方便 lookup。
-                     _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', {'period': p}, fe_timeframes, param_override_key=f'{ma_type.lower()}_params') # 注册的配置名称是 'EMA' 或 'SMA'
+            if ma_periods: # 如果配置了周期列表
+                 # 为每个周期添加一个计算配置
+                for p in ma_periods:
+                     if isinstance(p, int) and p > 0: # 确保周期是有效的正整数
+                         ma_calc_params = {'period': p}
+                         # 使用通用的名称 'EMA' 或 'SMA' 注册，参数中带周期
+                         _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes) # 注册的配置名称是 'EMA' 或 'SMA'
+            elif fe_params.get(f'calculate_{ma_type.lower()}', False): # 如果没有指定列表，但calculate标志为True，则使用默认周期
+                 ma_p = fe_params.get(f'{ma_type.lower()}_period', default_sma_ema_p['period'])
+                 ma_calc_params = {'period': ma_p}
+                 _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes) # 注册的配置名称是 'EMA' 或 'SMA'
 
 
         # OBV 是基础的，通常都需要计算。确保只添加一次。
-        # 检查 indicator_configs 列表中是否已经有 OBV 的配置
+        # OBV 的计算没有依赖特定的参数块，所以 param_block_key 可以是 None
         if not any(conf['name'] == 'OBV' for conf in indicator_configs):
             # 将 OBV 添加到所有需要的时间级别上计算
-            _add_indicator_config('OBV', self.calculate_obv, 'base_scoring', {}, list(all_time_levels_needed)) # 使用 list() 复制集合内容，注册的配置名称是 'OBV'
+            _add_indicator_config('OBV', self.calculate_obv, None, {}, list(all_time_levels_needed)) # OBV 无参数，使用 None 作为 param_block_key，注册的配置名称是 'OBV'
 
 
         # --- 调试点：确认需要的时间级别集合中是否包含目标 focus_tf (如 '30') ---
@@ -647,6 +720,14 @@ class IndicatorService:
         focus_tf = params.get('trend_following_params', {}).get('focus_timeframe', '30')
         print(f"[{stock_code}] Debug: 策略关注的时间级别 (focus_tf): {focus_tf}") # 调试输出：策略关注的时间级别
         print(f"[{stock_code}] Debug: 所有策略所需时间级别集合: {sorted(list(all_time_levels_needed))}") # 调试输出：所有所需时间级别
+
+        # --- 调试点：打印注册完成的 indicator_configs 列表摘要 ---
+        print(f"[{stock_code}] Debug: Contents of indicator_configs after registration (summary):") # 调试输出
+        for i, conf in enumerate(indicator_configs):
+             # 避免打印完整的 params 字典，只打印类型和部分键
+             params_summary = ', '.join([f"{k}:{conf['params'][k]}" for k in list(conf['params'].keys())[: min(3, len(conf['params'])) ]]) + ('...' if len(conf['params']) > 3 else '')
+             print(f"  [{i}] Name: {conf['name']}, Timeframes: {conf['timeframes']}, Params (partial): {{{params_summary}}}") # 调试输出
+        print("-" * 30) # 分隔线
 
 
         # --- 确定最小时间级别 ---
@@ -680,11 +761,51 @@ class IndicatorService:
         # --- 动态计算 global_max_lookback ---
         # 估算所有指标计算所需的最大历史回看期，用于确定需要获取多少根 K 线数据
         global_max_lookback = 0
+        # 注意：这里的回看期计算应该基于“实际”注册的指标配置，而不是为了下游兼容性额外注册的冗余项。
+        # 通过过滤掉 param_block_key 为 None 的项（如额外注册的 K, D, J, ADX 等），
+        # 以及根据 params 来去重，可以尽量避免重复计算。
+        # 更精确的做法是维护一个只包含核心指标配置的列表用于回看期计算。
+        # 这里采用一种去重思路，将配置项转换为可哈希的元组进行去重。
+        unique_configs_for_lookback = {}
         for config in indicator_configs:
+             # 对于用于兼容性额外注册的配置 (param_block_key 不为 None 但 name 在 DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP 的键中)，
+             # 或者 param_block_key 为 None 的通用指标 (如 OBV), 可能会与核心指标重复。
+             # 这里尝试用 (name, tuple(sorted(params.items()))) 来作为键进行去重。
+             # 这样 KDJ 的核心配置 ('KDJ', {...}) 和额外配置 ('K', {...}) 会被视为不同的键，但参数相同。
+             # 需要进一步判断哪些是“核心”配置。一种方法是只考虑那些 param_block_key 不为 None 且 name 不在 DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP 的键中的配置，
+             # 以及少数已知 param_block_key 为 None 的核心指标 (如 OBV)。
+
+             # 更简单的去重方法：直接根据 name 和 params 来去重，但这样无法区分 'EMA' 在不同周期下的回看期。
+             # 最可靠的方法是只遍历 JSON 参数中明确启用的指标及其参数来计算回看期。
+
+             # 回退到基于参数块和 name 的基本判断，并处理EMA/SMA多周期的情况
+             is_core_config = False
+             if config['param_block_key'] in ['base_scoring', 'volume_confirmation', 'indicator_analysis_params', 'feature_engineering_params']:
+                  # 属于某个参数块的配置
+                  if config['name'] in ['EMA', 'SMA']:
+                      # EMA/SMA 是按周期注册多个，每个都是独立的配置
+                      is_core_config = True
+                  elif config['name'] not in DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP.keys():
+                      # 非 EMA/SMA 且 name 不在衍生特征 base_name 列表中，认为是核心配置
+                       is_core_config = True
+             elif config['name'] == 'OBV' and config['param_block_key'] is None:
+                  # OBV 是一个特殊的通用核心指标
+                  is_core_config = True
+
+             if is_core_config:
+                  # 使用 name 和参数的哈希作为键进行去重
+                  params_hashable = tuple(sorted(config['params'].items()))
+                  key = (config['name'], params_hashable)
+                  if key not in unique_configs_for_lookback:
+                      unique_configs_for_lookback[key] = config
+
+        print(f"[{stock_code}] Debug: 用于回看期计算的唯一核心指标配置数量: {len(unique_configs_for_lookback)}") # 调试输出
+
+        for config in unique_configs_for_lookback.values():
             current_max_period = 0
             # 检查所有可能的周期参数键名
             period_keys = ['period', 'period_fast', 'period_slow', 'signal_period', 'k_period', 'd_period', 'smooth_k_period',
-                           'ema_period', 'atr_period', 'tenkan_period', 'kijun_period', 'senkou_period', 'atr_multiplier'] # 添加 atr_multiplier
+                           'ema_period', 'atr_period', 'tenkan_period', 'kijun_period', 'senkou_period', 'atr_multiplier']
             for p_key in period_keys:
                 # 获取参数值，确保是数字且大于当前最大周期
                 # 对于乘数等非周期参数，不用于计算回看期，跳过
@@ -700,13 +821,24 @@ class IndicatorService:
                  p = config['params']
                  # 修正 MACD 回看期估算，通常只需慢周期长度 + 信号周期平滑长度
                  current_max_period = max(current_max_period, p.get('period_slow',0) + p.get('signal_period',0))
+            # 注意：这里判断的是核心指标名称 'DMI'，不是额外注册的 'ADX'
             if config['name'] == 'DMI' and 'period' in config['params']: # DMI/ADX
                 # ADX 计算需要至少 2*period 根数据，外加 EMA 平滑，所以需要更长的回看期
                 current_max_period = max(current_max_period, int(config['params']['period'] * 2.5 + 10)) # 稍微保守一些的估算
             if config['name'] == 'KC': # Keltner Channels 也依赖 EMA 和 ATR 周期
                  p = config['params']
                  current_max_period = max(current_max_period, p.get('ema_period', 0), p.get('atr_period', 0))
-
+            if config['name'] == 'Ichimoku': # Ichimoku depends on multiple periods
+                 p = config['params']
+                 current_max_period = max(current_max_period, p.get('tenkan_period', 0), p.get('kijun_period', 0), p.get('senkou_period', 0))
+            if config['name'] in ['EMA', 'SMA']: # EMA/SMA 直接使用其 period
+                 current_max_period = max(current_max_period, config['params'].get('period', 0))
+            if config['name'] in ['AMT_MA', 'VOL_MA', 'MOM', 'WILLR', 'VROC', 'AROC', 'RSI', 'CCI', 'MFI', 'ROC', 'ATR', 'SAR']: # 其他单周期指标
+                 current_max_period = max(current_max_period, config['params'].get('period', 0), config['params'].get('k_period', 0), config['params'].get('d_period', 0), config['params'].get('smooth_k_period', 0))
+            if config['name'] == 'KDJ': # KDJ 依赖其平滑周期
+                 p = config['params']
+                 current_max_period = max(current_max_period, p.get('period', 0), p.get('signal_period', 0), p.get('smooth_k_period', 0))
+            # OBV, ADL, PivotPoints, VWAP 的回看期计算逻辑可能不同或较小，这里简化处理，主要考虑带周期的指标
 
             global_max_lookback = max(global_max_lookback, current_max_period)
 
@@ -728,7 +860,7 @@ class IndicatorService:
             needed_bars_for_tf = self._calculate_needed_bars_for_tf(
                 target_tf=tf_fetch, min_tf=min_time_level,
                 base_needed_bars=effective_base_needed_bars, # 使用基础所需条数
-                global_max_lookback=global_max_lookback
+                global_max_lookback=global_max_lookback # 考虑全局指标回看期
             )
             logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})需(估算){effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
             # 创建异步获取数据的任务
@@ -795,7 +927,7 @@ class IndicatorService:
         base_index = resampled_ohlcv_dfs[min_time_level].index
         logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，数量: {len(base_index)}。")
 
-        # 5. 计算所有配置的指标 (并行)
+        # 5. 计算所有配置的基础指标 (并行)
         indicator_calculation_tasks = [] # 存储异步指标计算任务
 
         # 定义一个异步辅助函数来计算单个指标
@@ -831,16 +963,9 @@ class IndicatorService:
                 required_cols_for_func.add('volume')
             if config_item['name'] in ['AMT_MA', 'AROC']:
                 required_cols_for_func.add('amount')
-            # Keltner Channels (KC) 需要高、低、收盘价以及 ATR，所以需要 ATR 列
-            if config_item['name'] == 'KC':
-                 # KC 计算函数 calculate_keltner_channels 需要 ATR_period 列
-                 # 这里应该检查的是原始的 ATR 列是否能被计算，而不是计算前的 df_for_ta 里是否有 ATR 列
-                 # 因为 ATR 应该作为独立指标计算，KC 直接使用 ATR 计算结果
-                 # 所以如果 calculate_keltner_channels 依赖 ATR_period 列作为输入，
-                 # 需要确保 ATR 在 KC 之前计算完成并存在于 df_for_ta 中 (已重命名回标准名)
-                 # 但是 calculate_keltner_channels 接收 close, high, low 和参数 ema_period, atr_period, atr_multiplier
-                 # 并在内部计算 ATR。所以这里不需要检查 ATR_period 列。
-                 pass # 无需额外添加 required_cols_for_func for KC
+            # Keltner Channels (KC) 需要高、低、收盘价以及 ATR，calculate_keltner_channels 函数内部会计算或使用 ATR
+            # 所以这里仅需要 OHLCV 列，不需要检查 ATR 列是否存在于 df_for_ta 中
+            pass # 无需额外添加 required_cols_for_func for KC
 
             # 检查 df_for_ta 是否包含计算该指标所需的所有列
             if not all(col in df_for_ta.columns for col in required_cols_for_func):
@@ -857,7 +982,10 @@ class IndicatorService:
 
                 # 调用具体的指标计算函数 (这些函数使用标准的列名，如 'close')
                 # calculate_dmi 和 calculate_boll_bands_and_width 就是在这里被调用的
+                # 注意：这里调用的是 config_item['func']，而不是根据 name 判断调用哪个函数
+                # config_item['func'] 在 _add_indicator_config 时已经正确设定（例如 KDJ 配置的 func 是 calculate_kdj）
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
+
 
                 # *** 调试点：检查指标计算函数的原始返回结果 ***
                 if indicator_result_df is None:
@@ -880,12 +1008,13 @@ class IndicatorService:
                     if isinstance(indicator_result_df, pd.Series):
                         # 使用指标名称作为列名，如果 Series 没有 name
                         series_name = indicator_result_df.name if indicator_result_df.name else config_item['name']
-                        # 检查 Series name 是否包含参数，如果只返回基础名称，需要根据 config_item 的 params 加上参数
-                        # 例如， calculate_rsi 可能返回 Series，name 是 RSI_14
-                        # calculate_macd 返回 dataframe，列是 MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
-                        # 为了确保列名带参数，这里可以根据 config_item['name'] 和 config_item['params'] 重新构建列名
-                        # 但是 _build_indicator_base_name 函数是用于查找已存在的列名，不是用于生成 Series 的列名
                         # 假设计算函数返回的 Series/DataFrame 列名已经包含参数
+                        # 例如 pandas_ta 的 KDJ 会返回 K_x_y_z, D_x_y_z, J_x_y_z
+                        # MACD 会返回 MACD_x_y_z, MACDh_x_y_z, MACDs_x_y_z
+                        # RSI 返回 RSI_x
+                        # DMI 返回 ADX_x, PDI_x, NDI_x
+                        # OBV 返回 OBV
+                        # 所以这里转换为 DataFrame 时，直接使用原始的 Series name 或 config_item['name'] 作为备用
                         indicator_result_df = indicator_result_df.to_frame(name=series_name)
                         print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 转换为DataFrame后列名: {indicator_result_df.columns.tolist()}") # 调试输出：Series转换为DataFrame后的列名
                     else:
@@ -894,7 +1023,7 @@ class IndicatorService:
                         return None # 无法处理的返回类型
 
                 # *** 关键步骤：给计算出的指标列名添加时间周期后缀 ***
-                # 例如，将 calculate_dmi 返回的 'ADX_14' 重命名为 'ADX_14_30'
+                # 例如，将 calculate_dmi 返回的 'ADX_14', 'PDI_14', 'NDI_14' 重命名为 'ADX_14_30', 'PDI_14_30', 'NDI_14_30'
                 # lambda 函数 x: f"{x}_{tf_calc}" 对 DataFrame 的所有列名应用后缀
                 result_renamed_df = indicator_result_df.rename(columns=lambda x: f"{x}_{tf_calc}")
 
@@ -956,644 +1085,159 @@ class IndicatorService:
         # --- 后处理 OBV_MA ---
         # OBV_MA 需要在 OBV 计算完成后才能计算
         # 从参数中获取 OBV_MA 的周期
-        obv_ma_period_json = vc_params.get('obv_ma_period', ia_params.get('obv_ma_period', 10)) # 尝试从 volume_confirmation 或 indicator_analysis_params 获取
+        # OBV_MA 计算通常在 volume_confirmation 或 indicator_analysis_params 中配置
+        obv_ma_period_vc = vc_params.get('obv_ma_period')
+        obv_ma_period_ia = ia_params.get('obv_ma_period')
+        # 优先使用 volume_confirmation 的配置，其次 indicator_analysis_params，最后默认值
+        obv_ma_period = obv_ma_period_vc if obv_ma_period_vc is not None else \
+                        obv_ma_period_ia if obv_ma_period_ia is not None else 10 # 默认周期为 10
 
         # 检查是否需要计算 OBV_MA
-        if vc_params.get('enabled', False) or ia_params.get('calculate_obv_ma', False): # 如果成交量确认或指标分析中启用了 OBV_MA 计算
-            print(f"[{stock_code}] Debug: 尝试计算 OBV_MA (周期 {obv_ma_period_json})...") # 调试输出：尝试计算OBV_MA
-            # 遍历所有计算了指标的时间级别
-            for tf_obv_ma, df_list_obv_ma in calculated_indicators_by_tf.items():
-                # 在该时间级别的指标列表中查找 OBV 列所在的 DataFrame
-                # 期望的 OBV 列名是 'OBV_{tf_obv_ma}'
-                obv_col_name = f'OBV_{tf_obv_ma}' # OBV 列名
+        # OBV_MA 是否启用取决于 volume_confirmation 或 indicator_analysis_params 中的 calculate_obv_ma 标志
+        calculate_obv_ma_enabled = vc_params.get('calculate_obv_ma', False) or ia_params.get('calculate_obv_ma', False)
 
-                # 查找包含 OBV 列的 DataFrame
-                obv_df_with_suffix = None
-                for df_item in df_list_obv_ma:
-                    if obv_col_name in df_item.columns:
-                        obv_df_with_suffix = df_item
-                        break
+        if calculate_obv_ma_enabled: # 如果启用了 OBV_MA 计算
+            print(f"[{stock_code}] Debug: 尝试计算 OBV_MA (周期 {obv_ma_period})...") # 调试输出：尝试计算OBV_MA
+            # OBV_MA 的计算适用于所有已经计算了 OBV 的时间级别
+            # 我们需要找到 OBV 列所在的 DataFrame
+            for tf_obv_ma, df_list_obv_ma in list(calculated_indicators_by_tf.items()): # 使用 list() 复制以允许在迭代中修改 calculated_indicators_by_tf
+                # 查找 OBV 列名的模式，它会带有时间后缀，例如 'OBV_30'
+                obv_col_pattern = f'OBV_{tf_obv_ma}'
+                obv_df_found = None
+                # 遍历该时间级别下所有计算出的指标 DataFrame，查找包含 OBV 列的那个
+                for df in df_list_obv_ma:
+                     if obv_col_pattern in df.columns:
+                          obv_df_found = df
+                          break # 找到 OBV 所在的 DataFrame
 
-                # 如果找到了 OBV 数据
-                if obv_df_with_suffix is not None:
+                if obv_df_found is not None:
+                    # 找到了 OBV 所在的 DataFrame，现在计算 OBV 的移动平均
                     try:
-                        # 计算 OBV 的移动平均
-                        obv_series = obv_df_with_suffix[obv_col_name].rolling(window=obv_ma_period_json, min_periods=max(1, int(obv_ma_period_json*0.5))).mean()
-                        # 将计算结果转换为 DataFrame 并添加带有周期和时间框架后缀的列名
-                        # 根据 JSON 衍生特征命名约定，OBV_MA 列名是 OBV_MA_{period} (在添加时间级别后缀前)
-                        obv_ma_df_res = pd.DataFrame({f'OBV_MA_{obv_ma_period_json}_{tf_obv_ma}': obv_series}) # 添加时间级别后缀
-                        # 将 OBV_MA 的结果添加到该时间级别的指标列表中，以便后续合并
-                        calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df_res)
-                        logger.debug(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period_json} 计算完成。")
-                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period_json} 计算并添加到分组列表。列名: {obv_ma_df_res.columns.tolist()}") # 调试输出：OBV_MA计算完成
-                    except Exception as e_obvma:
-                        # 记录 OBV_MA 计算出错的日志
-                        logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period_json} 出错: {e_obvma}", exc_info=True)
-                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period_json} 出错: {e_obvma}") # 调试输出：OBV_MA计算出错
+                        # 确保 OBV 列是数值类型，防止移动平均计算出错
+                        if not pd.api.types.is_numeric_dtype(obv_df_found[obv_col_pattern]):
+                             print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。") # 调试输出：OBV列非数值
+                             logger.warning(f"[{stock_code}] TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。")
+                             continue # 跳过当前时间级别的 OBV_MA 计算
+
+                        # 使用 pandas 的 rolling().mean() 计算移动平均
+                        obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{tf_obv_ma}' # OBV MA 列名带周期和时间后缀
+                        # -------------------- 修改开始 --------------------
+                        # 使用 apply 在 Series 上计算移动平均，确保 NaN 处理正确
+                        obv_ma_series = obv_df_found[obv_col_pattern].rolling(window=obv_ma_period, min_periods=1).mean() # 计算移动平均，min_periods=1 表示窗口不足时也计算
+                        obv_ma_df = obv_ma_series.to_frame(name=obv_ma_col_name) # 转换为 DataFrame
+                        # -------------------- 修改结束 --------------------
+
+                        # 将计算出的 OBV_MA DataFrame 添加到该时间级别下的指标列表中
+                        # 注意：这里直接修改了 defaultdict 中的列表
+                        calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df)
+                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算并添加到分组列表。列名: [{obv_ma_col_name}]") # 调试输出：OBV_MA计算成功
+                        logger.info(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算完成。")
+
+                    except Exception as e_obv_ma:
+                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}") # 调试输出：OBV_MA计算出错
+                        logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}", exc_info=True)
                 else:
-                    # 如果需要计算 OBV_MA 但没有找到 OBV 数据，记录警告
-                    logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 需要计算 OBV_MA_{obv_ma_period_json} 但没有找到 {obv_col_name} 列。")
-                    print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 需要计算 OBV_MA_{obv_ma_period_json} 但没有找到 {obv_col_name} 列。") # 调试输出：OBV列缺失
+                    print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。") # 调试输出：未找到OBV列
+                    logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。")
 
 
-        # 6. 合并所有 DataFrame
-        merged_indicators_by_tf = {}
-        for tf_merge_indi, df_list_merge_indi in calculated_indicators_by_tf.items():
-            if df_list_merge_indi:
-                base_df_merge = resampled_ohlcv_dfs.get(tf_merge_indi)
-                if base_df_merge is not None:
-                    # 从基础OHLCV开始合并
-                    merged_tf_df_res = base_df_merge.copy()
-                    # *** 调试点：打印基础合并 DataFrame 的初始列 ***
-                    # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 合并起点 DataFrame 初始列 (来自重采样OHLCV): {merged_tf_df_res.columns.tolist()[:20]}...") # 调试输出
+        # 6. 将所有时间级别的 OHLCV 和指标数据合并到最终 DataFrame
+        # 使用最小时间级别的 OHLCV 数据作为基础 DataFrame
+        if min_time_level not in resampled_ohlcv_dfs:
+             logger.error(f"[{stock_code}] 关键错误: 最小时间级别 {min_time_level} 的 OHLCV 数据在重采样后丢失。终止。")
+             return None # 理论上不会发生，前面已经检查过
 
-                    for indi_df_to_merge in df_list_merge_indi:
-                        # 检查索引是否一致，如果不同，需要reindex (理论上应该一致)
-                        if not merged_tf_df_res.index.equals(indi_df_to_merge.index):
-                            logger.warning(f"[{stock_code}] TF {tf_merge_indi}: 指标 DataFrame (cols: {indi_df_to_merge.columns.tolist()}) 与基础数据索引不一致，尝试reindex。")
-                            print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 指标 DataFrame (cols: {indi_df_to_merge.columns.tolist()}) 与基础数据索引不一致，尝试reindex。") # 调试输出：指标DataFrame索引不一致
-                            indi_df_to_merge = indi_df_to_merge.reindex(merged_tf_df_res.index) # 简单reindex，可能引入NaN
+        final_df = resampled_ohlcv_dfs[min_time_level].copy()
+        logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的数据作为最终 DataFrame 基础，形状: {final_df.shape}")
 
-                        # *** 调试点：打印即将合并的指标 DataFrame 的列 ***
-                        # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 正在合并指标 DataFrame，列: {indi_df_to_merge.columns.tolist()}") # 调试输出
-
-                        # 使用 pd.merge 按索引合并
-                        # suffixes 参数用于处理列名冲突，理论上因为我们已经加了 _tf 后缀，不会有 OHLCV 列与指标列冲突
-                        # 但如果不同指标计算函数内部有相同的临时列名且都返回了，suffixes 可以帮助区分
-                        # 这里的 suffixes 只是为了防止极端情况，并且不会影响我们期望的带 _tf 后缀的列名
-                        merged_tf_df_res = pd.merge(merged_tf_df_res, indi_df_to_merge, left_index=True, right_index=True, how='left', suffixes=('', '_indicator')) # 使用更通用的后缀
-
-                        # 检查是否存在带 _indicator 后缀的列，并考虑移除或警告（如果这不是期望的）
-                        # 例如， unexpected_cols = [col for col in merged_tf_df_res.columns if col.endswith('_indicator')]
-
-                        # *** 调试点：打印合并后的 DataFrame 列数 (可选，如果列太多可能刷屏) ***
-                        # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 合并后的 DataFrame 当前列数: {len(merged_tf_df_res.columns)}") # 调试输出
-
-                    merged_indicators_by_tf[tf_merge_indi] = merged_tf_df_res
-                    # print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 指标合并完成，最终列数: {len(merged_indicators_by_tf[tf_merge_indi].columns)}") # 调试输出
-                else:
-                    logger.warning(f"[{stock_code}] TF {tf_merge_indi}: 基础重采样数据丢失，无法合并指标。")
-                    print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 基础重采样数据丢失，无法合并指标。") # 调试输出：基础重采样数据丢失
-            elif tf_merge_indi in resampled_ohlcv_dfs: # 如果没有计算出任何指标，但有基础数据
-                # 确保即使没有指标，该时间级别的数据也存在于 merged_indicators_by_tf 中
-                merged_indicators_by_tf[tf_merge_indi] = resampled_ohlcv_dfs[tf_merge_indi]
-                print(f"[{stock_code}] Debug: TF {tf_merge_indi}: 没有计算的指标，仅保留基础OHLCV数据。列数: {len(merged_indicators_by_tf[tf_merge_indi].columns)}") # 调试输出：仅保留基础OHLCV
-
-
-        if not merged_indicators_by_tf or min_time_level not in merged_indicators_by_tf:
-            logger.error(f"[{stock_code}] 没有可合并的数据，或最小时间级别 {min_time_level} 的数据丢失。")
-            print(f"[{stock_code}] Debug: 没有可合并的数据，或最小时间级别 {min_time_level} 的数据丢失。") # 调试输出：无数据可合并或最小时间级别数据丢失
-            return None
-
-        # 以最小时间级别的数据为基础，合并其他时间级别的数据
-        final_merged_df = merged_indicators_by_tf[min_time_level].copy()
-
-        # *** 调试点：打印最终合并起点 (最小时间级别) 的列 ***
-        # print(f"[{stock_code}] Debug: 最终合并起点 (最小时间级别 {min_time_level}) 列数: {len(final_merged_df.columns)}. 部分列: {final_merged_df.columns.tolist()[:50]}...") # 调试输出
-
-        # 对 all_time_levels_needed 进行排序，确保合并顺序一致性 (从小到大)
-        sorted_time_levels_for_merge = sorted(list(all_time_levels_needed), key=lambda x: self._get_timeframe_in_minutes(x) or float('inf'))
-
-        for tf_final_merge in sorted_time_levels_for_merge:
-            # 跳过最小时间级别，因为它已经是合并的起点了
-            if tf_final_merge == min_time_level:
-                continue
-
-            if tf_final_merge in merged_indicators_by_tf:
-                # 获取要合并的时间级别数据，并 reindex 到最小时间级别的索引上，使用 ffill 填充缺失值
-                df_to_merge_final = merged_indicators_by_tf[tf_final_merge].reindex(final_merged_df.index, method='ffill')
-
-                # *** 调试点：打印即将合并的其他时间级别的数据列 ***
-                # print(f"[{stock_code}] Debug: 最终合并: 正在合并 TF {tf_final_merge} 的数据，Shape: {df_to_merge_final.shape}, 列: {df_to_merge_final.columns.tolist()[:20]}...") # 调试输出
-
-                # 执行合并操作
-                # suffixes 参数用于处理可能出现的同名列冲突，虽然我们期望列名已经通过 _tf 后缀区分，
-                # 但如果不同时间级别有相同的基础 OHLCV 列名（如 'open_5', 'open_15'），merge 默认会加后缀
-                # 这里保留 suffixes 是为了显式处理，或者可以依赖于我们已经加好的 _tf 后缀
-                # 使用更明确的后缀避免冲突
-                final_merged_df = pd.merge(final_merged_df, df_to_merge_final, left_index=True, right_index=True, how='left', suffixes=('', f'_{tf_final_merge}_merge'))
-
-                # *** 调试点：打印合并 TF {tf_final_merge} 后，检查是否有意外的列，例如带merge后缀的
-                # unexpected_merge_cols = [col for col in final_merged_df.columns if col.endswith(f'_{tf_final_merge}_merge')]
-                # if unexpected_merge_cols:
-                #      print(f"[{stock_code}] Debug: 合并 TF {tf_final_merge} 后发现意外合并后缀列: {unexpected_merge_cols}") # 调试输出
-
-
-                # *** 调试点：打印合并 TF {tf_final_merge} 后的最终 DataFrame 列数 ***
-                # print(f"[{stock_code}] Debug: 最终合并: 合并 TF {tf_final_merge} 后，总列数: {len(final_merged_df.columns)}") # 调试输出
+        # 遍历所有时间级别和其计算出的指标 DataFrame 列表
+        for tf_merge, df_list_merge in calculated_indicators_by_tf.items():
+            if tf_merge == min_time_level:
+                 # 如果是最小时间级别，将其指标合并到基础 DataFrame 中
+                 # 注意：这里需要确保合并时不会覆盖基础 OHLCV 列
+                 # concat 会按列名合并，如果列名不同则新增列，如果相同则报错或根据参数处理
+                 # 由于 _calculate_single_indicator_async 返回的指标列名已经带有时间后缀，
+                 # 且基础 OHLCV 列名也带有时间后缀，理论上指标列名和基础 OHLCV 列名不会冲突。
+                 # 例如，K_7_3_3_5 和 close_5 是不同的列名。
+                 # 多个指标计算结果 DataFrame 合并到同一个时间级别时，如果输出列名有重叠（不应该发生），concat 默认会处理。
+                 # 在这里，我们将该时间级别所有的指标 DataFrame concat 到一起，然后再与 final_df 合并。
+                 if df_list_merge:
+                     merged_indicators_for_tf = pd.concat(df_list_merge, axis=1)
+                     # 将合并后的指标 DataFrame 与 final_df 按索引对齐合并
+                     final_df = pd.merge(final_df, merged_indicators_for_tf, left_index=True, right_index=True, how='left')
+                     logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 {len(df_list_merge)} 个指标 DataFrame，当前 final_df 形状: {final_df.shape}")
+                 else:
+                     logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 没有计算出任何指标 DataFrame。")
 
             else:
-                logger.warning(f"[{stock_code}] 时间框架 {tf_final_merge} 的合并数据在 merged_indicators_by_tf 中未找到。")
-                print(f"[{stock_code}] Debug: 时间框架 {tf_final_merge} 的合并数据在 merged_indicators_by_tf 中未找到。") # 调试输出：合并数据未找到
+                # 如果是非最小时间级别，将其所有数据 (OHLCV + 指标) 合并到 final_df 中
+                if tf_merge in resampled_ohlcv_dfs:
+                    # 获取该时间级别的重采样 OHLCV 数据 (已带后缀)
+                    ohlcv_df_for_merge = resampled_ohlcv_dfs[tf_merge]
 
+                    # 将该时间级别所有计算出的指标 DataFrame concat 到一起
+                    if df_list_merge:
+                         merged_indicators_for_tf = pd.concat(df_list_merge, axis=1)
+                         # 将 OHLCV 数据和指标数据先 concat 到一起
+                         df_to_merge = pd.concat([ohlcv_df_for_merge, merged_indicators_for_tf], axis=1)
+                         logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据和 {len(df_list_merge)} 个指标 DataFrame，形状: {df_to_merge.shape}")
+                    else:
+                         # 如果该时间级别没有指标计算结果，只合并 OHLCV 数据
+                         df_to_merge = ohlcv_df_for_merge
+                         logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据 (无指标计算结果)，形状: {df_to_merge.shape}")
 
-        # --- 7. 计算基于合并后数据的衍生特征 ---
-        logger.info(f"[{stock_code}] 开始计算衍生特征...")
-        print(f"[{stock_code}] Debug: 计算衍生特征前，DataFrame 形状: {final_merged_df.shape}, 列数: {len(final_merged_df.columns)}") # 调试输出：衍生特征计算前状态
-        # 打印一部分列名，确认基础列和指标列是否存在
-        print(f"[{stock_code}] Debug: 计算衍生特征前，部分列: {final_merged_df.columns.tolist()[:50]}...") # 调试输出：衍生特征计算前部分列
+                    # 将这个时间级别的数据 (OHLCV + 指标) 与 final_df 按索引对齐合并
+                    # 使用 left 合并，以确保 final_df (基于最小时间级别索引) 的所有行都被保留
+                    final_df = pd.merge(final_df, df_to_merge, left_index=True, right_index=True, how='left')
+                    logger.info(f"[{stock_code}] 将时间级别 {tf_merge} 的数据合并到 final_df，当前 final_df 形状: {final_df.shape}")
 
-        # >>> 新增调试输出：打印 indicator_configs 的内容 <<<
-        print(f"[{stock_code}] Debug: Contents of indicator_configs before derivative feature calculation:") # Debug output: 指标配置内容
-        if indicator_configs: # 检查列表是否为空
-             for idx, cfg in enumerate(indicator_configs): # Debug output
-                 # 只打印前几个参数，避免刷屏
-                 params_summary = {k: cfg['params'][k] for k in list(cfg['params'].keys())[:min(len(cfg['params']), 5)]} if cfg['params'] else {} # 确保params非空且至少有5个键
-                 print(f"  [{idx}] Name: {cfg.get('name')}, Timeframes: {cfg.get('timeframes')}, Params (partial): {params_summary}...") # Debug output: 打印每个配置项摘要
-        else:
-            print(f"  indicator_configs 列表为空。") # Debug output: 列表为空
-        print("-" * 30) # Debug output
-        # <<< 新增调试输出结束 >>>
-
-
-        try:
-            # 价格与均线的关系 (EMA, SMA)
-            # ... (这部分代码保持不变)
-            for ma_type_deriv in ['EMA', 'SMA']:
-                # 获取用于计算关系的均线周期列表，优先使用 *_for_relation，否则使用 *_periods
-                ma_periods_deriv = fe_params.get(f'{ma_type_deriv.lower()}_periods_for_relation', fe_params.get(f'{ma_type_deriv.lower()}_periods', []))
-                for tf_str_deriv in all_time_levels_needed:
-                    # 构造收盘价列名
-                    close_col_tf_deriv = f'close_{tf_str_deriv}'
-                    # 如果收盘价列不存在，跳过该时间级别的均线关系计算
-                    if close_col_tf_deriv not in final_merged_df.columns:
-                        print(f"[{stock_code}] Debug: TF {tf_str_deriv}: 缺少收盘价列 {close_col_tf_deriv}，跳过 {ma_type_deriv} 关系计算。") # 调试输出：缺少收盘价列
-                        continue
-
-                    for p_deriv in ma_periods_deriv:
-                        # 构造均线列名，这里假设均线列名格式是 MA_Period_Timeframe
-                        ma_col_tf_deriv = f'{ma_type_deriv}_{p_deriv}_{tf_str_deriv}'
-                        # 如果均线列存在，则计算价格与均线的关系
-                        if ma_col_tf_deriv in final_merged_df.columns:
-                            # 计算价格与均线的比率
-                            final_merged_df[f'CLOSE_{ma_type_deriv}_RATIO_{p_deriv}_{tf_str_deriv}'] = final_merged_df[close_col_tf_deriv] / final_merged_df[ma_col_tf_deriv]
-                            # 计算价格与均线的归一化差值 (收盘价 - 均线) / 均线
-                            # 避免除以零，对均线列进行小数值检查再相除
-                            denominator_ndiff = final_merged_df[ma_col_tf_deriv]
-                            final_merged_df[f'CLOSE_{ma_type_deriv}_NDIFF_{p_deriv}_{tf_str_deriv}'] = np.where(
-                                 np.abs(denominator_ndiff) > 1e-9, # 检查均线值是否接近零
-                                 (final_merged_df[close_col_tf_deriv] - denominator_ndiff) / denominator_ndiff,
-                                 0 # 如果均线接近零，归一化差值设为 0
-                            )
-                        else:
-                            # 记录均线列缺失
-                             print(f"[{stock_code}] Debug: TF {tf_str_deriv}: 缺少均线列 {ma_col_tf_deriv}，跳过关系计算。") # 调试输出：缺少均线列
-
-
-            # 指标的变化率/差分 (RSI, MACDh, MFI, CMF, ADX 等)
-            # 注意这里的 base_name 应该对应 calculate_* 函数返回的列名，
-            # 而 calc_config_name 用于查找注册时的配置 name
-            indicators_to_diff_config = fe_params.get('indicators_for_difference', [
-                 {'base_name': 'RSI', 'calc_config_name': 'RSI'},
-                 {'base_name': 'MACD', 'calc_config_name': 'MACD'}, # MACD 快慢线
-                 {'base_name': 'MACDh', 'calc_config_name': 'MACD'}, # MACD 柱状图
-                 {'base_name': 'MACDs', 'calc_config_name': 'MACD'}, # MACD 信号线
-                 {'base_name': 'MFI', 'calc_config_name': 'MFI'},
-                 {'base_name': 'CCI', 'calc_config_name': 'CCI'},
-                 {'base_name': 'ADX', 'calc_config_name': 'DMI'}, # ADX 是 DMI 计算的输出
-                 {'base_name': 'PDI', 'calc_config_name': 'DMI'}, # PDI 是 DMI 计算的输出
-                 {'base_name': 'NDI', 'calc_config_name': 'DMI'}, # NDI 是 DMI 计算的输出
-                 {'base_name': 'K', 'calc_config_name': 'KDJ'}, # K 是 KDJ 计算的输出
-                 {'base_name': 'D', 'calc_config_name': 'KDJ'}, # D 是 KDJ 计算的输出
-                 {'base_name': 'J', 'calc_config_name': 'KDJ'}, # J 是 KDJ 计算的输出
-                 {'base_name': 'BBW', 'calc_config_name': 'BOLL'}, # BBW 是 BOLL 计算的输出
-                 {'base_name': 'BBP', 'calc_config_name': 'BOLL'}, # BBP 是 BOLL 计算的输出
-                 {'base_name': 'BBU', 'calc_config_name': 'BOLL'}, # 上轨也可以计算差分
-                 {'base_name': 'BBL', 'calc_config_name': 'BOLL'}, # 下轨也可以计算差分
-                 {'base_name': 'BBM', 'calc_config_name': 'BOLL'}, # 中轨也可以计算差分
-                 {'base_name': 'ATR', 'calc_config_name': 'ATR'},
-                 {'base_name': 'HV', 'calc_config_name': 'HV'},
-                 {'base_name': 'MOM', 'calc_config_name': 'MOM'},
-                 {'base_name': 'WILLR', 'calc_config_name': 'WILLR'},
-                 {'base_name': 'VROC', 'calc_config_name': 'VROC'},
-                 {'base_name': 'AROC', 'calc_config_name': 'AROC'},
-                 {'base_name': 'STOCHk', 'calc_config_name': 'STOCH'}, # STOCH 输出名
-                 {'base_name': 'STOCHd', 'calc_config_name': 'STOCH'}  # STOCH 输出名
-                 # 添加其他需要计算差分的指标配置
-            ])
-            diff_periods = fe_params.get('difference_periods', [1, 2]) # 计算1阶和2阶差分
-
-            # 遍历需要计算差分的指标配置
-            for indi_diff_conf in indicators_to_diff_config:
-                base_name = indi_diff_conf.get('base_name') # 例如 'RSI', 'MACDh', 'K', 'ADX'
-                # 增加 'calc_config_name' 字段，用于查找注册的计算配置，例如 'RSI', 'MACD', 'KDJ', 'DMI'
-                # 如果未指定 calc_config_name，尝试使用 base_name 查找（用于如 RSI, ATR 等计算函数只生成一个同名主列的情况）
-                calc_config_name = indi_diff_conf.get('calc_config_name', base_name)
-
-                if not base_name:
-                    logger.warning(f"[{stock_code}] 差分配置项缺少 'base_name'，跳过。配置: {indi_diff_conf}")
-                    print(f"[{stock_code}] Debug: 差分配置项缺少 'base_name'，跳过。配置: {indi_diff_conf}")
-                    continue
-
-                # 查找计算该 base_name 对应的原始指标时使用的实际参数
-                actual_params = None
-                registered_timeframes = []
-                # 修改查找逻辑：根据 calc_config_name 查找注册的配置
-                # >>> 修改开始：改进查找逻辑，增加更多调试输出，强制字符串比较 <<<
-                found_config = None
-                print(f"[{stock_code}] Debug: Searching for indicator config '{calc_config_name}' (for derivative base_name '{base_name}') in indicator_configs...") # Debug output: 开始查找配置
-                for registered_config in indicator_configs:
-                    reg_name = registered_config.get('name')
-                    # 强制转换为字符串进行比较，并增加调试输出
-                    print(f"[{stock_code}] Debug:   Comparing registered config name '{reg_name}' (type {type(reg_name)}) with target calc_config_name '{calc_config_name}' (type {type(calc_config_name)})") # Debug output: 详细比较过程
-                    if str(reg_name) == str(calc_config_name): # 强制转换为字符串比较
-                         found_config = registered_config
-                         print(f"[{stock_code}] Debug:   Match found for config name '{reg_name}'.") # Debug output: 找到匹配配置
-                         break # 找到匹配的计算配置
-
-                if found_config:
-                     actual_params = found_config['params']
-                     registered_timeframes = found_config['timeframes'] # 获取注册时适用的时间级别
-                     # 增加调试输出：确认找到了配置和参数
-                     print(f"[{stock_code}] Debug: Found indicator config for calc_config_name '{calc_config_name}' (for derivative base_name '{base_name}'). Actual params: {list(actual_params.items())[:min(len(actual_params), 5)]}...")
                 else:
-                     # 如果没有找到匹配的注册配置，记录警告并跳过该指标的差分计算
-                     # 修改警告信息，使其包含实际查找的 calc_config_name
-                     logger.warning(f"[{stock_code}] 未找到指标计算配置 '{calc_config_name}' (用于衍生特征 '{base_name}')，无法确定实际参数。跳过。配置: {indi_diff_conf}")
-                     print(f"[{stock_code}] Debug: 未找到指标计算配置 '{calc_config_name}' (用于衍生特征 '{base_name}')，无法确定实际参数。跳过。")
-                     continue # 跳过当前指标的差分计算
-                # >>> 修改结束 <<<
+                    logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 的重采样 OHLCV 数据未找到，无法合并该时间级别的数据和指标。")
 
+        logger.info(f"[{stock_code}] 所有时间级别的数据和指标合并完成，最终 DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}")
+        print(f"[{stock_code}] Debug: 合并完成后，DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}") # 调试输出：合并后形状
+        print(f"[{stock_code}] Debug: 合并完成后，部分列: {final_df.columns.tolist()[:50]}...") # 调试输出：合并后部分列
 
-                # 遍历所有需要计算差分的时间级别
-                # 默认对所有需要的时间级别计算差分，除非 fe_params 指定了 apply_on_timeframes
-                # 确保只在原始指标计算过的时间级别上计算差分
-                diff_timeframes_potential = fe_params.get('apply_on_timeframes', list(all_time_levels_needed))
-                # 过滤，只保留在注册配置中实际计算过的时间框架
-                diff_timeframes_for_this_indi = [tf for tf in diff_timeframes_potential if tf in registered_timeframes]
-
-                # 增加调试输出：显示将计算差分的时间框架列表
-                print(f"[{stock_code}] Debug: Derivative '{base_name}' (config '{calc_config_name}') will be calculated on timeframes: {diff_timeframes_for_this_indi}")
-
-
-                for tf_str_diff in diff_timeframes_for_this_indi:
-                    # >>> 调用 _build_indicator_base_name_for_lookup 构建基础列名 <<<
-                    # 构建不含时间级别的原始指标列名（带参数），使用查找到的实际参数
-                    # 注意：这里传递的 base_name 是 'K', 'MACDh', 'ADX' 等，而不是 'KDJ', 'MACD', 'DMI'
-                    indi_col_name_base = self._build_indicator_base_name_for_lookup(base_name, actual_params, stock_code)
-
-                    if indi_col_name_base is None:
-                        # _build_indicator_base_name_for_lookup 失败的情况，应该不太常见如果 base_name 配置正确
-                        logger.warning(f"[{stock_code}] TF {tf_str_diff}: 调用 _build_indicator_base_name_for_lookup({base_name}, {actual_params}) 无法构建基础列名进行差分计算。跳过。")
-                        print(f"[{stock_code}] Debug: TF {tf_str_diff}: 调用 _build_indicator_base_name_for_lookup({base_name}, {actual_params}) 无法构建基础列名进行差分计算。跳过。")
-                        continue # 无法构建基础列名，跳过该时间级别和指标的差分计算
-
-
-                    # 构造带有时间周期后缀的完整原始指标列名 (用于查找)
-                    source_col_name = f"{indi_col_name_base}_{tf_str_diff}"
-
-                    # >>> 新增调试输出：检查原始指标列是否存在 <<<
-                    print(f"[{stock_code}] Debug: TF {tf_str_diff}: Attempting to calculate DIFF for '{base_name}'. Source column lookup name: '{source_col_name}'. Exists in DataFrame: {source_col_name in final_merged_df.columns}") # 增加调试输出：检查原始列是否存在
-                    # <<< 新增调试输出结束 >>>
-
-                    if source_col_name in final_merged_df.columns:
-                        # 如果原始指标列存在，则计算其差分
-                        for diff_p in diff_periods:
-                            # 构造差分结果列名，遵循 JSON 衍生特征命名规范
-                            # 格式: {original_indicator_name_with_params}_DIFF{diff_period}_{timeframe}
-                            target_col_name = f"{indi_col_name_base}_DIFF{diff_p}_{tf_str_diff}"
-                            # 计算差分 (当前值 - N周期前的值)
-                            final_merged_df[target_col_name] = final_merged_df[source_col_name].diff(diff_p)
-                    else:
-                         # 记录原始指标列缺失的警告
-                         # 这个警告现在应该只会出现在原始计算函数没有成功生成该列的情况下
-                         print(f"[{stock_code}] Debug: TF {tf_str_diff}: 计算指标 {base_name} 差分时，原始指标列 {source_col_name} 不存在于 DataFrame 中。跳过。") # 调试输出：原始列不存在
-                         logger.debug(f"[{stock_code}] TF {tf_str_diff}: 计算指标 {base_name} 差分时，原始指标列 {source_col_name} 不存在于 DataFrame 中。跳过。")
-
-
-            # 价格在布林带/肯特纳通道中的位置
-            # 布林带位置 (%B 或类似)
-            # ... (这部分代码保持不变，因为它查找的是 BOLL 的配置，根据日志，BOLL 配置是找到了的)
-            # 获取布林带参数，优先使用 base_scoring 的，其次是 feature_engineering 的，最后是默认值
-            # 这些参数的获取逻辑已在 _add_indicator_config 中处理，并存储在 indicator_configs 中
-            # 我们需要查找注册的 BOLL 计算配置来获取实际参数
-
-
-            # 查找 BOLL 的计算配置以获取实际参数
-            boll_actual_params = None
-            boll_registered_timeframes = []
-            # 遍历已注册的指标配置列表
-            found_boll_config = None # 增加查找结果变量
-            print(f"[{stock_code}] Debug: Searching for indicator config 'BOLL' for BOLL position calculation...") # Debug output: 开始查找BOLL配置
-            for registered_config in indicator_configs:
-                 # 如果找到名称为 'BOLL' 的配置项
-                 if str(registered_config.get('name')) == 'BOLL': # 使用 .get() 并强制转换为字符串比较
-                      found_boll_config = registered_config # 找到配置
-                      print(f"[{stock_code}] Debug:   Match found for config name 'BOLL'.") # Debug output: 找到匹配配置
-                      break # 找到后即退出循环
-
-            if found_boll_config: # 检查是否找到了配置
-                 boll_actual_params = found_boll_config['params']
-                 boll_registered_timeframes = found_boll_config['timeframes'] # 获取实际计算的时间框架
-                 # 增加调试输出
-                 print(f"[{stock_code}] Debug: Found indicator config for 'BOLL'. Actual params: {list(boll_actual_params.items())[:min(len(boll_actual_params), 5)]}...") # Debug output: 找到BOLL配置和参数
-            else:
-                 logger.warning(f"[{stock_code}] 未找到指标计算配置 'BOLL'，无法确定实际参数构建布林带位置源列名。跳过布林带位置计算。")
-                 print(f"[{stock_code}] Debug: 未找到指标计算配置 'BOLL'，无法确定实际参数构建布林带位置源列名。跳过布林带位置计算。")
-
-
-            if boll_actual_params is not None: # 仅当找到 BOLL 配置时才计算位置
-                 # 从实际参数中获取周期和乘数，用于构建查找的列名和衍生特征输出列名
-                 boll_period_actual = boll_actual_params.get('period', default_boll_p['period'])
-                 boll_std_actual = boll_actual_params.get('std_dev', default_boll_p['std_dev'])
-                 # ATR 乘数可能用于基础指标列名 (尽管日志显示不包含)，但在衍生特征列名中通常不包含
-                 # 我们依赖 _build_indicator_base_name_for_lookup 来构建查找名
-                 # kc_atr_mult_actual = kc_actual_params.get('atr_multiplier', default_kc_p['atr_multiplier'])
-
-
-                 # 遍历所有需要计算布林带位置的时间级别
-                 # 只在 BOLL 实际计算过的时间级别上计算位置
-                 # 使用注册配置中的实际时间级别列表
-                 boll_pos_timeframes = boll_registered_timeframes
-                 # 增加调试输出：显示将计算BOLL位置的时间框架列表
-                 print(f"[{stock_code}] Debug: BOLL Position will be calculated on timeframes: {boll_pos_timeframes}")
-
-
-                 for tf_str_deriv_ch in boll_pos_timeframes:
-                    # 构造收盘价列名 (所有时间级别都有收盘价)
-                    close_col_ch = f'close_{tf_str_deriv_ch}'
-
-                    # >>> 调用 _build_indicator_base_name_for_lookup 构建 BOLL 上下轨的基础列名 <<<
-                    # 使用查找到的实际参数构建 BOLL 上下轨的基础列名（不含时间级别后缀）
-                    lower_b_col_base = self._build_indicator_base_name_for_lookup('BBL', boll_actual_params, stock_code)
-                    upper_b_col_base = self._build_indicator_base_name_for_lookup('BBU', boll_actual_params, stock_code)
-
-                    # 检查是否成功构建了基础列名
-                    if lower_b_col_base is None or upper_b_col_base is None:
-                         # 这个警告不太可能出现，除非 _build_indicator_base_name_for_lookup 的逻辑有问题
-                         logger.warning(f"[{stock_code}] TF {tf_str_deriv_ch}: 调用 _build_indicator_base_name_for_lookup(BBL/BBU, {boll_actual_params}) 无法构建基础列名进行布林带位置计算。跳过。")
-                         print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: 调用 _build_indicator_base_name_for_lookup(BBL/BBU, {boll_actual_params}) 无法构建基础列名进行布林带位置计算。跳过。")
-                         continue # 无法构建基础列名，跳过该时间级别和布林带位置计算
-
-
-                    # 构造带有时间周期后缀的完整 BOLL 上下轨列名 (用于查找)
-                    lower_b_col_lookup = f'{lower_b_col_base}_{tf_str_deriv_ch}'
-                    upper_b_col_lookup = f'{upper_b_col_base}_{tf_str_deriv_ch}'
-                    # 中轨列名，虽然 %B 计算不需要，但有些地方可能需要
-                    # middle_b_col = f'BBM_{boll_period_deriv}_{std_str_deriv}_{tf_str_deriv_ch}' # 保留以防万一，但查找不再使用手动拼接名
-
-                    # 检查所有必要列是否存在 (使用通过 _build_indicator_base_name_for_lookup 构建的查找名称)
-                    # >>> 新增调试输出：检查 BOLL 位置计算的原始列是否存在 <<<
-                    print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: Attempting to calculate BOLL POS. Required columns lookup: '{close_col_ch}', '{lower_b_col_lookup}', '{upper_b_col_lookup}'. Exists: {all(c in final_merged_df.columns for c in [close_col_ch, lower_b_col_lookup, upper_b_col_lookup])}") # 增加调试输出：检查BOLL位置原始列
-                    # <<< 新增调试输出结束 <<<
-                    if all(c in final_merged_df.columns for c in [close_col_ch, lower_b_col_lookup, upper_b_col_lookup]):
-                        # 计算布林带宽度
-                        band_width_b = final_merged_df[upper_b_col_lookup] - final_merged_df[lower_b_col_lookup]
-                         # 计算价格在布林带中的相对位置 (类似于 %B)
-                        # 避免除以零，对带宽进行小数值检查再相除
-                        # 根据 JSON 衍生特征命名约定: CLOSE_BB_POS_{period}_{std_dev:.1f}_{timeframe}
-                        # 衍生特征列名仍然需要手动构建，因为它有自己的命名约定，或者可以添加一个函数来构建衍生特征的输出列名
-                        # 这里继续手动构建，但使用实际参数
-                        # boll_period_actual 和 boll_std_actual 已经在循环外获取
-                        boll_std_str_actual = f"{boll_std_actual:.1f}" # 标准差格式化为字符串，保留一位小数
-
-                        bb_pos_col_name = f'CLOSE_BB_POS_{boll_period_actual}_{boll_std_str_actual}_{tf_str_deriv_ch}'
-
-                        final_merged_df[bb_pos_col_name] = np.where(
-                             np.abs(band_width_b) > 1e-9, # 检查带宽是否接近零
-                            (final_merged_df[close_col_ch] - final_merged_df[lower_b_col_lookup]) / band_width_b,
-                            0.5 # 带宽为零或接近零时，设为中轨位置
-                        )
-                    else:
-                         # 记录缺失列的警告，显示期望查找的列名 (使用通过 _build_indicator_base_name_for_lookup 构建的名称)
-                         missing_cols = [c for c in [close_col_ch, lower_b_col_lookup, upper_b_col_lookup] if c not in final_merged_df.columns]
-                         print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch}: 计算 BOLL 位置时，缺少列 {', '.join(missing_cols)}。跳过。") # 调试输出：缺少BOLL位置原始列
-                         logger.debug(f"[{stock_code}] TF {tf_str_deriv_ch}: 计算 BOLL 位置时，缺少列 {', '.join(missing_cols)}。跳过。")
-
-
-
-            # 肯特纳通道位置 (类似处理)
-            # 获取肯特纳通道参数，优先使用 feature_engineering 的，最后是默认值
-            # 这些参数的获取逻辑已在 _add_indicator_config中处理，并存储在 indicator_configs 中
-            # 我们需要查找注册的 KC 计算配置来获取实际参数
-
-            # >>> 修改开始：获取实际使用的 KC 参数并构建基础列名进行查找和衍生特征命名 <<<
-            # 查找 KC 的计算配置以获取实际参数
-            kc_actual_params = None
-            kc_registered_timeframes = []
-            # 遍历已注册的指标配置列表
-            found_kc_config = None # 增加查找结果变量
-            print(f"[{stock_code}] Debug: Searching for indicator config 'KC' for KC position calculation...") # Debug output: 开始查找KC配置
-            for registered_config in indicator_configs:
-                 # 如果找到名称为 'KC' 的配置项
-                 if str(registered_config.get('name')) == 'KC': # 使用 .get() 并强制转换为字符串比较
-                      found_kc_config = registered_config # 找到配置
-                      print(f"[{stock_code}] Debug:   Match found for config name 'KC'.") # Debug output: 找到匹配配置
-                      break # 找到后即退出循环
-
-            if found_kc_config: # 检查是否找到了配置
-                 kc_actual_params = found_kc_config['params']
-                 kc_registered_timeframes = found_kc_config['timeframes'] # 获取实际计算的时间框架
-                 # 增加调试输出
-                 print(f"[{stock_code}] Debug: Found indicator config for 'KC'. Actual params: {list(kc_actual_params.items())[:min(len(kc_actual_params), 5)]}...") # Debug output: 找到KC配置和参数
-                 # >>> 将实际参数的获取移到这里，并放在 if 块外面 <<<
-                 kc_ema_p_actual = kc_actual_params.get('ema_period', default_kc_p['ema_period'])
-                 kc_atr_p_actual = kc_actual_params.get('atr_period', default_kc_p['atr_period'])
-                 # <<< 移动和修改结束 >>>
-            else:
-                 logger.warning(f"[{stock_code}] 未找到指标计算配置 'KC'，无法确定实际参数构建肯特纳通道位置源列名。跳过肯特纳通道位置计算。")
-                 print(f"[{stock_code}] Debug: 未找到指标计算配置 'KC'，无法确定实际参数构建肯特纳通道位置源列名。跳过肯特纳通道位置计算。")
-
-            # 仅当找到 KC 配置且实际参数不为 None 时才计算位置
-            # 增加对 kc_actual_params 的 None 检查
-            if kc_actual_params is not None:
-                 # 从实际参数中获取周期，用于构建查找的列名和衍生特征输出列名
-                 # 这些变量 (kc_ema_p_actual, kc_atr_p_actual) 现在在 if found_kc_config 块内定义，可以在这里访问到
-
-                 # ATR 乘数可能用于基础指标列名 (尽管日志显示不包含)，但在衍生特征列名中通常不包含
-                 # 我们依赖 _build_indicator_base_name_for_lookup 来构建查找名
-                 # kc_atr_mult_actual = kc_actual_params.get('atr_multiplier', default_kc_p['atr_multiplier'])
-
-
-                 # 遍历所有需要计算肯特纳通道位置的时间级别
-                 # 只在 KC 实际计算过的时间级别上计算位置
-                 # 使用注册配置中的实际时间级别列表
-                 kc_pos_timeframes = kc_registered_timeframes
-                 # 增加调试输出：显示将计算KC位置的时间框架列表
-                 print(f"[{stock_code}] Debug: KC Position will be calculated on timeframes: {kc_pos_timeframes}")
-
-
-                 for tf_str_deriv_ch_kc in kc_pos_timeframes:
-                    # 构造收盘价列名 (所有时间级别都有收盘价)
-                    close_col_kc = f'close_{tf_str_deriv_ch_kc}'
-
-                    # >>> 调用 _build_indicator_base_name_for_lookup 构建 KCL/KCU 的基础列名 <<<
-                    # 使用查找到的实际参数构建 KCL/KCU 的基础列名（不含时间级别后缀）
-                    # _build_indicator_base_name_for_lookup 已经修正为不包含 ATR 乘数在 KC 列名中
-                    lower_kc_col_base = self._build_indicator_base_name_for_lookup('KCL', kc_actual_params, stock_code)
-                    upper_kc_col_base = self._build_indicator_base_name_for_lookup('KCU', kc_actual_params, stock_code)
-
-                    # 检查是否成功构建了基础列名
-                    if lower_kc_col_base is None or upper_kc_col_base is None:
-                         # 这个警告不太可能出现，除非 _build_indicator_base_name_for_lookup 的逻辑有问题
-                         logger.warning(f"[{stock_code}] TF {tf_str_deriv_ch_kc}: 调用 _build_indicator_base_name_for_lookup(KCL/KCU, {kc_actual_params}) 无法构建基础列名进行肯特纳通道位置计算。跳过。")
-                         print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 调用 _build_indicator_base_name_for_lookup(KCL/KCU, {kc_actual_params}) 无法构建基础列名进行肯特纳通道位置计算。跳过。")
-                         continue # 无法构建基础列名，跳过该时间级别和 KC 位置计算
-
-
-                    # 构造带有时间周期后缀的完整 KCL/KCU 列名 (用于查找)
-                    lower_kc_col_lookup = f'{lower_kc_col_base}_{tf_str_deriv_ch_kc}'
-                    upper_kc_col_lookup = f'{upper_kc_col_base}_{tf_str_deriv_ch_kc}'
-
-
-                    # 检查所有必要列是否存在 (使用通过 _build_indicator_base_name_for_lookup 构建的查找名称)
-                     # >>> 新增调试输出：检查 KC 位置计算的原始列是否存在 <<<
-                    print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: Attempting to calculate KC POS. Required columns lookup: '{close_col_kc}', '{lower_kc_col_lookup}', '{upper_kc_col_lookup}'. Exists: {all(c in final_merged_df.columns for c in [close_col_kc, lower_kc_col_lookup, upper_kc_col_lookup])}") # 增加调试输出：检查KC位置原始列
-                    # <<< 新增调试输出结束 >>>
-                    if all(c in final_merged_df.columns for c in [close_col_kc, lower_kc_col_lookup, upper_kc_col_lookup]):
-                        # 计算肯特纳通道宽度
-                        band_width_kc = final_merged_df[upper_kc_col_lookup] - final_merged_df[lower_kc_col_lookup]
-                         # 计算价格在肯特纳通道中的相对位置
-                        # 避免除以零，对带宽进行小数值检查再相除
-                        # 根据 JSON 衍生特征命名约定: CLOSE_KC_POS_{ema_period}_{atr_period}_{timeframe}
-                        # 衍生特征列名不包含 ATR 乘数，使用查找到的实际参数中的周期
-                        # kc_ema_p_actual 和 kc_atr_p_actual 已经在循环外获取
-
-                        kc_pos_col_name = f'CLOSE_KC_POS_{kc_ema_p_actual}_{kc_atr_p_actual}_{tf_str_deriv_ch_kc}' # 衍生特征列名不包含乘数
-
-                        final_merged_df[kc_pos_col_name] = np.where(
-                             np.abs(band_width_kc) > 1e-9, # 检查带宽是否接近零
-                            (final_merged_df[close_col_kc] - final_merged_df[lower_kc_col_lookup]) / band_width_kc,
-                            0.5 # 带宽为零或接近零时，设为中轨位置
-                        )
-                    else:
-                        # 记录缺失列的警告，显示期望查找的列名 (现在是正确的，不含乘数)
-                        missing_cols_kc = [c for c in [close_col_kc, lower_kc_col_lookup, upper_kc_col_lookup] if c not in final_merged_df.columns]
-                        print(f"[{stock_code}] Debug: TF {tf_str_deriv_ch_kc}: 计算 KC 位置时，缺少列 {', '.join(missing_cols_kc)}。跳过。") # 调试输出：缺少KC位置原始列
-                        logger.debug(f"[{stock_code}] TF {tf_str_deriv_ch_kc}: 计算 KC 位置时，缺少列 {', '.join(missing_cols_kc)}。跳过。")
-
-            # >>> 修改结束 <<<
-
-
-            logger.info(f"[{stock_code}] 衍生特征计算完成。")
-            print(f"[{stock_code}] Debug: 衍生特征计算完成，DataFrame 当前列数: {len(final_merged_df.columns)}") # 调试输出：衍生特征计算完成状态
-        except Exception as e_deriv:
-            logger.error(f"[{stock_code}] 计算衍生特征时出错: {e_deriv}", exc_info=True)
-            print(f"[{stock_code}] Debug: 计算衍生特征时出错: {e_deriv}") # 调试输出：衍生特征计算出错
-
-        # 8. 最终填充
-        # ... (这部分代码保持不变)
+        # 7. 最终填充 NaN
+        # 在合并不同时间级别的数据后，可能引入 NaN (例如，分钟线没有对应的高级别数据)
+        # 使用前向填充和后向填充组合，然后用 0 填充剩余的 NaN
         logger.info(f"[{stock_code}] 开始最终填充 NaN...")
-        print(f"[{stock_code}] Debug: 开始最终填充 NaN...") # 调试输出：开始最终填充
-        nan_before_final_fill = final_merged_df.isnull().sum().sum() # 计算填充前总 NaN 数量
-        final_merged_df.ffill(inplace=True) # 向前填充
-        final_merged_df.bfill(inplace=True) # 向后填充
-        nan_after_final_fill = final_merged_df.isnull().sum().sum() # 计算填充后总 NaN 数量
+        print(f"[{stock_code}] Debug: 开始最终填充 NaN...") # 调试输出：开始填充NaN
 
-        logger.info(f"[{stock_code}] 最终填充完成。填充前 NaN 总数: {nan_before_final_fill}, 填充后 NaN 总数: {nan_after_final_fill}")
-        print(f"[{stock_code}] Debug: 最终填充完成。填充前 NaN 总数: {nan_before_final_fill}, 填充后 NaN 总数: {nan_after_final_fill}") # 调试输出：最终填充完成状态
+        # 填充前 NaN 总数
+        nan_before = final_df.isnull().sum().sum()
+        print(f"[{stock_code}] Debug: 填充前 NaN 总数: {nan_before}") # 调试输出：填充前NaN数量
 
-        if nan_after_final_fill > 0:
-            nan_cols_summary = final_merged_df.isnull().sum()
-            nan_cols_summary = nan_cols_summary[nan_cols_summary > 0].sort_values(ascending=False)
-            logger.warning(f"[{stock_code}] 最终填充后仍存在 NaN 的列 (前10条): {nan_cols_summary.head(10).to_dict()}")
-            print(f"[{stock_code}] Debug: 最终填充后仍存在 NaN 的列 (前10条): {nan_cols_summary.head(10).to_dict()}") # 调试输出：填充后剩余NaN列
-            # 对于完全是NaN的列，可以考虑填充0或移除，但需谨慎
-            # final_merged_df.fillna(0, inplace=True) # 可选：强制填充所有剩余NaN为0
+        # 按列进行填充，可以提高效率，避免创建 DataFrame 副本
+        for col in final_df.columns:
+             # 先前向填充
+             final_df[col].fillna(method='ffill', inplace=True)
+             # 然后后向填充
+             final_df[col].fillna(method='bfill', inplace=True)
 
+        # 对于仍然存在的 NaN (例如 DataFrame 开头部分的 NaN，FFILL和BFILL无法处理)，用 0 填充
+        final_df.fillna(0, inplace=True)
 
-        if final_merged_df.empty:
-            logger.error(f"[{stock_code}] 最终合并和填充后的 DataFrame 为空。")
-            print(f"[{stock_code}] Debug: 最终合并和填充后的 DataFrame 为空。") # 调试输出：最终DataFrame为空
-            return None
+        # 填充后 NaN 总数
+        nan_after = final_df.isnull().sum().sum()
+        logger.info(f"[{stock_code}] 最终填充完成。填充前 NaN 总数: {nan_before}, 填充后 NaN 总数: {nan_after}")
+        print(f"[{stock_code}] Debug: 最终填充完成。填充前 NaN 总数: {nan_before}, 填充后 NaN 总数: {nan_after}") # 调试输出：填充后NaN数量
 
 
-        # 9. 返回最终结果
-        logger.info(f"[{stock_code}] 策略数据准备完成，最终 DataFrame 形状: {final_merged_df.shape}, 列数: {len(final_merged_df.columns)}")
-        print(f"[{stock_code}] Debug: 最终策略 DataFrame 准备完成.") # 调试输出：准备完成
-        print(f"[{stock_code}] Debug: 最终 DataFrame 形状: {final_merged_df.shape}") # 调试输出：最终DataFrame形状
-        print(f"[{stock_code}] Debug: 最终 DataFrame 列数: {len(final_merged_df.columns)}") # 调试输出：最终DataFrame列数
-        print(f"[{stock_code}] Debug: 最终 DataFrame 列名 (前50条): {final_merged_df.columns.tolist()[:50]}...") # 调试输出：最终DataFrame部分列名
-
-        # >>> 修改开始：在最终检查部分也使用查找配置的方式获取参数和构建列名 <<<
-
-        # 辅助函数：查找指标配置并获取参数
-        def _get_indicator_params_for_check(config_name: str) -> Optional[Dict]:
-             for registered_config in indicator_configs:
-                 if str(registered_config.get('name')) == config_name: # 使用字符串比较
-                      return registered_config['params']
-             return None
-
-        # 获取 focus_timeframe (用于后续检查)
-        focus_tf_p = params.get('trend_following_params',{}).get('focus_timeframe', '30')
-
-        print(f"[{stock_code}] Debug: 检查关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出：检查关键列
+        # 8. 策略数据准备完成
+        logger.info(f"[{stock_code}] 策略数据准备完成，最终 DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}")
+        print(f"[{stock_code}] Debug: 最终策略 DataFrame 准备完成.") # 调试输出
+        print(f"[{stock_code}] Debug: 最终 DataFrame 形状: {final_df.shape}") # 调试输出
+        print(f"[{stock_code}] Debug: 最终 DataFrame 列数: {len(final_df.columns)}") # 调试输出
+        # 限制打印的列数，防止日志过长
+        print(f"[{stock_code}] Debug: 最终 DataFrame 列名 (前50条): {final_df.columns.tolist()[:50]}...") # 调试输出
 
 
-        # 检查 ADX 列是否存在
-        dmi_params_for_check = _get_indicator_params_for_check('DMI')
-        target_adx_col_full = "ADX_UNKNOWN"
-        if dmi_params_for_check:
-            adx_base_name_for_check = self._build_indicator_base_name_for_lookup('ADX', dmi_params_for_check, stock_code)
-            if adx_base_name_for_check:
-                target_adx_col_full = f"{adx_base_name_for_check}_{focus_tf_p}"
-            else:
-                 print(f"[{stock_code}] Debug: 无法构建 ADX 基础列名进行最终检查 (params: {dmi_params_for_check})") # Debug output
-        else:
-            print(f"[{stock_code}] Debug: 未找到 DMI 配置，无法构建 ADX 检查列名。") # Debug output
-        print(f"  - ADX 列 '{target_adx_col_full}': {'存在' if target_adx_col_full in final_merged_df.columns else '不存在'}") # 调试输出：检查ADX列
-
-        # 检查 BOLL 上轨列是否存在
-        boll_params_for_check = _get_indicator_params_for_check('BOLL')
-        target_boll_upper_col_full = "BBU_UNKNOWN"
-        if boll_params_for_check:
-            boll_upper_base_name_for_check = self._build_indicator_base_name_for_lookup('BBU', boll_params_for_check, stock_code)
-            if boll_upper_base_name_for_check:
-                 target_boll_upper_col_full = f"{boll_upper_base_name_for_check}_{focus_tf_p}"
-            else:
-                 print(f"[{stock_code}] Debug: 无法构建 BBU 基础列名进行最终检查 (params: {boll_params_for_check})") # Debug output
-        else:
-             print(f"[{stock_code}] Debug: 未找到 BOLL 配置，无法构建 BBU 检查列名。") # Debug output
-        print(f"  - BOLL 上轨列 '{target_boll_upper_col_full}': {'存在' if target_boll_upper_col_full in final_merged_df.columns else '不存在'}") # 调试输出：检查BOLL上轨列
+        # 返回最终的 DataFrame 和注册的指标配置列表
+        # 指标配置列表 indicator_configs 中包含了为了兼容下游查找而额外注册的项
+        return final_df, indicator_configs
 
 
-        print(f"[{stock_code}] Debug: 检查衍生特征关键列 (for focus_tf='{focus_tf_p}'):") # 调试输出：检查衍生特征关键列
-
-        # 检查 RSI DIFF1 列是否存在
-        rsi_params_for_check = _get_indicator_params_for_check('RSI')
-        target_rsi_diff1_col = "RSI_DIFF1_UNKNOWN"
-        if rsi_params_for_check:
-            rsi_base_name_for_check = self._build_indicator_base_name_for_lookup('RSI', rsi_params_for_check, stock_code)
-            if rsi_base_name_for_check:
-                 target_rsi_diff1_col = f"{rsi_base_name_for_check}_DIFF1_{focus_tf_p}"
-            else:
-                 print(f"[{stock_code}] Debug: 无法构建 RSI 基础列名进行最终检查 (params: {rsi_params_for_check})") # Debug output
-        else:
-            print(f"[{stock_code}] Debug: 未找到 RSI 配置，无法构建 RSI DIFF1 检查列名。") # Debug output
-        print(f"  - RSI DIFF1 列 '{target_rsi_diff1_col}': {'存在' if target_rsi_diff1_col in final_merged_df.columns else '不存在'}") # 调试输出：检查RSI DIFF1列
-
-        # 检查 MACDh DIFF1 列是否存在
-        # MACDh 依赖于 MACD 的参数
-        macd_params_for_check = _get_indicator_params_for_check('MACD')
-        target_macd_diff1_col = "MACDh_DIFF1_UNKNOWN"
-        if macd_params_for_check:
-             macd_base_name_for_check = self._build_indicator_base_name_for_lookup('MACDh', macd_params_for_check, stock_code)
-             if macd_base_name_for_check:
-                  target_macd_diff1_col = f"{macd_base_name_for_check}_DIFF1_{focus_tf_p}"
-             else:
-                 print(f"[{stock_code}] Debug: 无法构建 MACDh 基础列名进行最终检查 (params: {macd_params_for_check})") # Debug output
-        else:
-             print(f"[{stock_code}] Debug: 未找到 MACD 配置，无法构建 MACDh DIFF1 检查列名。") # Debug output
-        print(f"  - MACDh DIFF1 列 '{target_macd_diff1_col}': {'存在' if target_macd_diff1_col in final_merged_df.columns else '不存在'}") # 调试输出：检查MACDh DIFF1列
-
-        # 检查 KC POS 列是否存在
-        # KC POS 依赖于 KC 的参数
-        kc_params_for_check = _get_indicator_params_for_check('KC')
-        kc_pos_check_col = "CLOSE_KC_POS_UNKNOWN"
-        if kc_params_for_check:
-            kc_ema_p_check = kc_params_for_check.get('ema_period', default_kc_p['ema_period'])
-            kc_atr_p_check = kc_params_for_check.get('atr_period', default_kc_p['atr_period'])
-            # 根据 JSON 约定，衍生特征列名不包含 ATR 乘数
-            kc_pos_check_col = f"CLOSE_KC_POS_{kc_ema_p_check}_{kc_atr_p_check}_{focus_tf_p}"
-        else:
-            print(f"[{stock_code}] Debug: 未找到 KC 配置，无法构建 KC POS 检查列名。") # Debug output
-        print(f"  - KC POS 列 '{kc_pos_check_col}': {'存在' if kc_pos_check_col in final_merged_df.columns else '不存在'}") # 调试输出：检查KC POS列
-
-        # <<< 修改结束 >>>
-
-
-        logger.debug(f"[{stock_code}] 最终 DataFrame 列名 (部分): {final_merged_df.columns.tolist()[:30]}...")
-        return final_merged_df, indicator_configs
 
     # --- 周期对齐函数 ---
     # 这个函数在引入重采样后，不再用于主要的时间序列标准化，
