@@ -546,7 +546,7 @@ class IndicatorDAO(BaseDAO):
 
             # --- 记录应用重命名和排序后的最终列名 ---
             logger.debug(f"转换并重命名后的 DataFrame 列名: {df.columns.tolist()} for {stock_code} {time_level_val}")
-            # ----------------------------------------------------
+
 
 
             # 8. 校验必要列是否存在

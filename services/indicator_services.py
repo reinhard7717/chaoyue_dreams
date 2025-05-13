@@ -181,7 +181,7 @@ class IndicatorService:
         if 'amount_col_from_dao' in df.columns and 'amount' not in df.columns:
             df.rename(columns={'amount_col_from_dao': 'amount'}, inplace=True)
             logger.debug(...)
-        # --------------------------------------
+
 
         if isinstance(df.index, pd.DatetimeIndex) and df.index.tzinfo is not None:
              logger.info(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
@@ -473,11 +473,11 @@ class IndicatorService:
         for indi_key in bs_params.get('score_indicators', []):
             # 为每个启用的指标调用 _add_indicator_config 辅助函数
             if indi_key == 'macd':
-                 macd_calc_params = _get_indicator_params(bs_params, default_macd_p)
-                 _add_indicator_config('MACD', self.calculate_macd, 'base_scoring', macd_calc_params, bs_timeframes)
+                macd_calc_params = _get_indicator_params(bs_params, default_macd_p)
+                _add_indicator_config('MACD', self.calculate_macd, 'base_scoring', macd_calc_params, bs_timeframes)
             elif indi_key == 'rsi':
-                 rsi_calc_params = _get_indicator_params(bs_params, default_rsi_p)
-                 _add_indicator_config('RSI', self.calculate_rsi, 'base_scoring', rsi_calc_params, bs_timeframes)
+                rsi_calc_params = _get_indicator_params(bs_params, default_rsi_p)
+                _add_indicator_config('RSI', self.calculate_rsi, 'base_scoring', rsi_calc_params, bs_timeframes)
             elif indi_key == 'kdj':
                 # KDJ 的周期参数在 JSON 中可能有特定的键名，这里从 bs_params 中提取并覆盖默认值
                 kdj_calc_params = {
@@ -492,93 +492,38 @@ class IndicatorService:
                     kdj_calc_params, # 传递已经根据 JSON 配置好的参数字典
                     bs_timeframes
                 )
-                # -------------------- 删除开始 --------------------
-                # 移除为下游兼容性额外注册 K, D, J 的配置，避免生成重复列
-                # print(f"[{stock_code}] Debug: 为下游兼容性额外注册 K, D, J 配置 (指向 KDJ)...") # 调试输出：额外注册KDJ组成部分
-                # _add_indicator_config(
-                #     'K', # 额外注册名称为 'K'
-                #     self.calculate_kdj, # 指向 KDJ 的计算函数
-                #     'base_scoring',
-                #     kdj_calc_params, # 使用相同的 KDJ 参数
-                #     bs_timeframes
-                # )
-                # _add_indicator_config(
-                #     'D', # 额外注册名称为 'D'
-                #     self.calculate_kdj, # 指向 KDJ 的计算函数
-                #     'base_scoring',
-                #     kdj_calc_params, # 使用相同的 KDJ 参数
-                #     bs_timeframes
-                # )
-                # _add_indicator_config(
-                #     'J', # 额外注册名称为 'J'
-                #     self.calculate_kdj, # 指向 KDJ 的计算函数
-                #     'base_scoring',
-                #     kdj_calc_params, # 使用相同的 KDJ 参数
-                #     bs_timeframes
-                # )
-                # -------------------- 删除结束 --------------------
-
             elif indi_key == 'boll':
-                 boll_calc_params = _get_indicator_params(bs_params, default_boll_p)
-                 print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {boll_calc_params} 应用于时间框架: {bs_timeframes}") # 调试输出：打印BOLL参数
-                 _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', boll_calc_params, bs_timeframes)
+                boll_calc_params = _get_indicator_params(bs_params, default_boll_p)
+                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {boll_calc_params} 应用于时间框架: {bs_timeframes}") # 调试输出：打印BOLL参数
+                _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', boll_calc_params, bs_timeframes)
             elif indi_key == 'cci':
-                 cci_calc_params = _get_indicator_params(bs_params, default_cci_p)
-                 _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', cci_calc_params, bs_timeframes)
+                cci_calc_params = _get_indicator_params(bs_params, default_cci_p)
+                _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', cci_calc_params, bs_timeframes)
             elif indi_key == 'mfi':
-                 mfi_calc_params = _get_indicator_params(bs_params, default_mfi_p)
-                 _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', mfi_calc_params, bs_timeframes)
+                mfi_calc_params = _get_indicator_params(bs_params, default_mfi_p)
+                _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', mfi_calc_params, bs_timeframes)
             elif indi_key == 'roc':
-                 roc_calc_params = _get_indicator_params(bs_params, default_roc_p)
-                 _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', roc_calc_params, bs_timeframes)
+                roc_calc_params = _get_indicator_params(bs_params, default_roc_p)
+                _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', roc_calc_params, bs_timeframes)
             elif indi_key == 'dmi':
                 print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出：注册DMI配置
                 dmi_calc_params = _get_indicator_params(bs_params, default_dmi_p)
                 _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', dmi_calc_params, bs_timeframes) # 注册的配置名称是 'DMI'
-                # -------------------- 删除开始 --------------------
-                # 移除为下游兼容性额外注册 ADX, PDI, NDI 的配置，避免生成重复列
-                # print(f"[{stock_code}] Debug: 为下游兼容性额外注册 ADX, PDI, NDI 配置 (指向 DMI)...") # 调试输出：额外注册DMI组成部分
-                # _add_indicator_config(
-                #     'ADX', # 额外注册名称为 'ADX'
-                #     self.calculate_dmi, # 指向 DMI 的计算函数
-                #     'base_scoring',
-                #     dmi_calc_params, # 使用相同的 DMI 参数
-                #     bs_timeframes
-                # )
-                # _add_indicator_config(
-                #     'PDI', # 额外注册名称为 'PDI'
-                #     self.calculate_dmi, # 指向 DMI 的计算函数
-                #     'base_scoring',
-                #     dmi_calc_params, # 使用相同的 DMI 参数
-                #     bs_timeframes
-                # )
-                # _add_indicator_config(
-                #     'NDI', # 额外注册名称为 'NDI'
-                #     self.calculate_dmi, # 指向 DMI 的计算函数
-                #     'base_scoring',
-                #     dmi_calc_params, # 使用相同的 DMI 参数
-                #     bs_timeframes
-                # )
-                # -------------------- 删除结束 --------------------
-
             elif indi_key == 'sar':
-                 sar_calc_params = _get_indicator_params(bs_params, default_sar_p)
-                 _add_indicator_config('SAR', self.calculate_sar, 'base_scoring', sar_calc_params, bs_timeframes)
+                sar_calc_params = _get_indicator_params(bs_params, default_sar_p)
+                _add_indicator_config('SAR', self.calculate_sar, 'base_scoring', sar_calc_params, bs_timeframes)
             # EMA 和 SMA 通常不在 score_indicators 里，而是作为独立特征或趋势分析的一部分
             # 如果参数中明确要计算EMA/SMA作为评分指标 (这种情况较少，通常在 feature_engineering)
             elif indi_key == 'ema':
-                 # 注意：这里假设如果 EMA 在 score_indicators 里，只计算一个特定周期的 EMA
-                 ema_p = bs_params.get('ema_period', default_sma_ema_p['period'])
-                 ema_calc_params = {'period': ema_p} # 明确构建参数字典
-                 _add_indicator_config('EMA', self.calculate_ema, 'base_scoring', ema_calc_params, bs_timeframes, param_override_key='ema_params') # 注册的配置名称是 'EMA'
-
+                # 注意：这里假设如果 EMA 在 score_indicators 里，只计算一个特定周期的 EMA
+                ema_p = bs_params.get('ema_period', default_sma_ema_p['period'])
+                ema_calc_params = {'period': ema_p} # 明确构建参数字典
+                _add_indicator_config('EMA', self.calculate_ema, 'base_scoring', ema_calc_params, bs_timeframes, param_override_key='ema_params') # 注册的配置名称是 'EMA'
             elif indi_key == 'sma':
-                 # 注意：这里假设如果 SMA 在 score_indicators 里，只计算一个特定周期的 SMA
-                 sma_p = bs_params.get('sma_period', default_sma_ema_p['period'])
-                 sma_calc_params = {'period': sma_p} # 明确构建参数字典
-                 _add_indicator_config('SMA', self.calculate_sma, 'base_scoring', sma_calc_params, bs_timeframes, param_override_key='sma_params') # 注册的配置名称是 'SMA'
-
-
+                # 注意：这里假设如果 SMA 在 score_indicators 里，只计算一个特定周期的 SMA
+                sma_p = bs_params.get('sma_period', default_sma_ema_p['period'])
+                sma_calc_params = {'period': sma_p} # 明确构建参数字典
+                _add_indicator_config('SMA', self.calculate_sma, 'base_scoring', sma_calc_params, bs_timeframes, param_override_key='sma_params') # 注册的配置名称是 'SMA'
         # --- 注册成交量和 indicator_analysis 相关指标的计算配置 ---
         vc_params = params.get('volume_confirmation', {})
         ia_params = params.get('indicator_analysis_params', {})
@@ -587,13 +532,9 @@ class IndicatorService:
         vol_ana_tfs_vc = [vol_ana_tf_cfg] if isinstance(vol_ana_tf_cfg, str) else vol_ana_tf_cfg if vc_params.get('enabled', False) else [] # 如果vc未启用，不考虑其tf
         ia_tfs_cfg = ia_params.get('timeframes', bs_timeframes) # 从ia_params获取timeframes配置
         ia_tfs = [ia_tfs_cfg] if isinstance(ia_tfs_cfg, str) else ia_tfs_cfg if ia_params else [] # 如果ia未启用，不考虑其timeframes
-
         # 合并所有可能的时间框架，并去重
         target_vol_ana_tfs = list(set(vol_ana_tfs_vc) | set(ia_tfs) | set(bs_timeframes)) # 确保基础时间级别也在内
-
         all_time_levels_needed.update(target_vol_ana_tfs)
-
-
         # AMT_MA 计算
         if vc_params.get('enabled', False) or ia_params.get('calculate_amt_ma', False):
              amt_ma_p = vc_params.get('amount_ma_period', ia_params.get('amount_ma_period', 20))
@@ -609,11 +550,9 @@ class IndicatorService:
             vol_ma_p = ia_params.get('volume_ma_period', 20)
             vol_ma_calc_params = {'period': vol_ma_p}
             _add_indicator_config('VOL_MA', self.calculate_vol_ma, 'indicator_analysis_params', vol_ma_calc_params, target_vol_ana_tfs, param_override_key='volume_ma_params')
-
         # 其他分析指标 (来自 indicator_analysis_params)
         ia_timeframes = ia_params.get('timeframes', bs_timeframes) # 这里重新获取 ia_params 的 timeframes 用于这些指标
         all_time_levels_needed.update(ia_timeframes)
-
         # STOCH 计算
         if ia_params.get('calculate_stoch', False):
             stoch_p = {
@@ -632,24 +571,24 @@ class IndicatorService:
 
         # ADL 计算
         if ia_params.get('calculate_adl', False):
-             _add_indicator_config('ADL', self.calculate_adl, 'indicator_analysis_params', {}, ia_timeframes, param_override_key='adl_params') # ADL 通常无参数，注册的配置名称是 'ADL'
+            _add_indicator_config('ADL', self.calculate_adl, 'indicator_analysis_params', {}, ia_timeframes, param_override_key='adl_params') # ADL 通常无参数，注册的配置名称是 'ADL'
 
         # Ichimoku 计算
         if ia_params.get('calculate_ichimoku', False):
-             ichimoku_p = {
-                 'tenkan_period': ia_params.get('ichimoku_tenkan', default_ichimoku_p['tenkan_period']),
-                 'kijun_period': ia_params.get('ichimoku_kijun', default_ichimoku_p['kijun_period']),
-                 'senkou_period': ia_params.get('ichimoku_senkou', default_ichimoku_p['senkou_period'])
-             }
-             ichimoku_calc_params = _get_indicator_params(ia_params, default_ichimoku_p, param_override_key='ichimoku_params') # 使用辅助函数提取参数
-             _add_indicator_config('Ichimoku', self.calculate_ichimoku, 'indicator_analysis_params', ichimoku_calc_params, ia_timeframes) # 注册的配置名称是 'Ichimoku'
+            ichimoku_p = {
+                'tenkan_period': ia_params.get('ichimoku_tenkan', default_ichimoku_p['tenkan_period']),
+                'kijun_period': ia_params.get('ichimoku_kijun', default_ichimoku_p['kijun_period']),
+                'senkou_period': ia_params.get('ichimoku_senkou', default_ichimoku_p['senkou_period'])
+            }
+            ichimoku_calc_params = _get_indicator_params(ia_params, default_ichimoku_p, param_override_key='ichimoku_params') # 使用辅助函数提取参数
+            _add_indicator_config('Ichimoku', self.calculate_ichimoku, 'indicator_analysis_params', ichimoku_calc_params, ia_timeframes) # 注册的配置名称是 'Ichimoku'
 
         # Pivot Points 计算 (通常基于日线计算，但代码中注册为 bs_timeframes，这里修正为只在 'D' 上计算)
         if ia_params.get('calculate_pivot_points', False):
-             # Pivot 通常基于日线计算，所以适用时间级别应为 ['D']
-             pivot_calc_params = _get_indicator_params(ia_params, {}, param_override_key='pivot_params') # Pivot Points 通常无参数
-             _add_indicator_config('PivotPoints', self.calculate_pivot_points, 'indicator_analysis_params', pivot_calc_params, ['D']) # 注册的配置名称是 'PivotPoints'
-             all_time_levels_needed.add('D') # 确保 'D' 被包含在所需时间级别中
+            # Pivot 通常基于日线计算，所以适用时间级别应为 ['D']
+            pivot_calc_params = _get_indicator_params(ia_params, {}, param_override_key='pivot_params') # Pivot Points 通常无参数
+            _add_indicator_config('PivotPoints', self.calculate_pivot_points, 'indicator_analysis_params', pivot_calc_params, ['D']) # 注册的配置名称是 'PivotPoints'
+            all_time_levels_needed.add('D') # 确保 'D' 被包含在所需时间级别中
 
 
         # --- 注册特征工程指标的计算配置 ---
@@ -705,13 +644,11 @@ class IndicatorService:
                  ma_calc_params = {'period': ma_p}
                  _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes) # 注册的配置名称是 'EMA' 或 'SMA'
 
-
-        # OBV 是基础的，通常都需要计算。确保只添加一次。
-        # OBV 的计算没有依赖特定的参数块，所以 param_block_key 可以是 None
+            # OBV 是基础的，通常都需要计算。确保只添加一次。
+            # OBV 的计算没有依赖特定的参数块，所以 param_block_key 可以是 None
         if not any(conf['name'] == 'OBV' for conf in indicator_configs):
             # 将 OBV 添加到所有需要的时间级别上计算
             _add_indicator_config('OBV', self.calculate_obv, None, {}, list(all_time_levels_needed)) # OBV 无参数，使用 None 作为 param_block_key，注册的配置名称是 'OBV'
-
 
         # --- 调试点：确认需要的时间级别集合中是否包含目标 focus_tf (如 '30') ---
         # 获取 focus_timeframe (用于后续检查)
@@ -1086,7 +1023,6 @@ class IndicatorService:
             print(f"[{stock_code}] Debug: 尝试计算 OBV_MA (周期 {obv_ma_period})...") # 调试输出：尝试计算OBV_MA
             # OBV_MA 的计算适用于所有已经计算了 OBV 的时间级别
             # 我们需要找到 OBV 列所在的 DataFrame
-            # -------------------- 修改开始 --------------------
             # 检查是否在 indicator_configs 中注册了 OBV，并获取其时间级别
             obv_config = next((c for c in indicator_configs if c['name'] == 'OBV'), None)
             if obv_config:
@@ -1134,8 +1070,6 @@ class IndicatorService:
             else:
                  print(f"[{stock_code}] Debug: 未找到 OBV 的注册配置，无法计算 OBV_MA。") # 调试输出：未找到OBV配置
                  logger.warning(f"[{stock_code}] 未找到 OBV 的注册配置，无法计算 OBV_MA。")
-
-            # -------------------- 修改结束 --------------------
 
 
         # 6. 将所有时间级别的 OHLCV 和指标数据合并到最终 DataFrame

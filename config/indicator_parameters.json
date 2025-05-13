@@ -330,6 +330,7 @@
   },
 
   "indicator_analysis_params": {
+    "calculate_stoch": true,
     "stoch_k": 14,
     "stoch_d": 3,
     "stoch_smooth_k": 3,
@@ -337,5 +338,5 @@
     "stoch_os": 20,
     "volume_ma_period": 20,
     "volume_spike_factor": 2.3
-  }
+}
 }
