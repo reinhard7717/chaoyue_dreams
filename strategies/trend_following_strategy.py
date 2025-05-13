@@ -1336,8 +1336,8 @@ class TrendFollowingStrategy:
         # 例如，日志中警告的 BOLL (15, 2.2) 在 focus_tf='30'
         boll_breakout_params_tf = self.tf_params.get('boll_breakout_params', {})
         if isinstance(boll_breakout_params_tf, dict):
-            boll_breakout_period = boll_breakout_params_tf.get('period', 15) # 默认值设为日志中的 15
-            boll_breakout_std_dev = boll_breakout_params_tf.get('std_dev', 2.2) # 默认值设为日志中的 2.2
+            boll_breakout_period = boll_breakout_params_tf.get('period', 20) # 默认值设为日志中的 15
+            boll_breakout_std_dev = boll_breakout_params_tf.get('std_dev', 2.0) # 默认值设为日志中的 2.2
             breakout_tf_signal = self.focus_timeframe # 假设 BOLL 突破信号只在 focus_timeframe 计算
 
             if isinstance(boll_breakout_period, (int, float)) and isinstance(boll_breakout_std_dev, (int, float)) and 'BOLL' in indicator_naming_conv:
@@ -2074,15 +2074,15 @@ class TrendFollowingStrategy:
              boll_std_dev_signal = boll_breakout_params_tf['std_dev']
         else:
              # 如果策略特定参数没有配置，回退使用 base_scoring 中的 BOLL 参数
-             boll_period_signal = bs_params_global.get("boll_period", 20)
-             boll_std_dev_signal = bs_params_global.get("boll_std_dev", 2.0)
+             boll_period_signal = bs_params_global.get("boll_period", 15)
+             boll_std_dev_signal = bs_params_global.get("boll_std_dev", 2.2)
              logger.debug(f"[{self.strategy_name}] _perform_trend_analysis: 未找到 trend_following_params.boll_breakout_params 或配置无效，回退使用 base_scoring BOLL 参数 ({boll_period_signal}, {boll_std_dev_signal}) 计算 BOLL 突破信号。")
 
-        # 确保参数是有效数字
-        if not (isinstance(boll_period_signal, (int, float)) and boll_period_signal > 0 and
-                isinstance(boll_std_dev_signal, (int, float)) and boll_std_dev_signal > 0):
-            logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: BOLL 突破信号参数无效: period={boll_period_signal}, std_dev={boll_std_dev_signal}. 使用默认值 20, 2.0。")
-            boll_period_signal, boll_std_dev_signal = 20, 2.0
+        # # 确保参数是有效数字
+        # if not (isinstance(boll_period_signal, (int, float)) and boll_period_signal > 0 and
+        #         isinstance(boll_std_dev_signal, (int, float)) and boll_std_dev_signal > 0):
+        #     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: BOLL 突破信号参数无效: period={boll_period_signal}, std_dev={boll_std_dev_signal}. 使用默认值 20, 2.0。")
+        #     boll_period_signal, boll_std_dev_signal = 20, 2.0
 
         std_str_signal = f"{boll_std_dev_signal:.1f}" # 格式化标准差到小数点后一位
         upper_col = f'BBU_{boll_period_signal}_{std_str_signal}_{focus_tf}'

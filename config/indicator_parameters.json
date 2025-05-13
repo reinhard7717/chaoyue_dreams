@@ -124,9 +124,9 @@
         {"base_name": "J", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
         {"base_name": "ADX", "params_key": ["dmi_period"], "default_period": [14]}
     ],
-    "difference_periods": [1, 5]
+    "difference_periods": [1, 5],
+    "calculate_vwap": true
   },
-
 
   "trend_following_params": {
     "focus_timeframe": "30",
@@ -165,12 +165,9 @@
     "stoch_overbought_threshold": 80,
     "vwap_deviation_threshold": 0.01,
     "volatility_benchmark": 5.0,
-
-
     "transformer_window_size": 60,
     "transformer_target_column": "final_rule_signal",
     "transformer_plot_history": true,
-
     "transformer_data_prep_config": {
         "scaler_type": "standard",
         "train_split": 0.7,
@@ -188,7 +185,6 @@
         "fs_selection_threshold": "median",
         "target_scaler_type": "minmax"
     },
-
     "transformer_model_config": {
       "d_model": 128,
       "nhead": 8,
@@ -197,7 +193,6 @@
       "dropout": 0.1,
       "activation": "gelu"
     },
-
     "transformer_training_config": {
       "epochs": 200,
       "batch_size": 64,
@@ -213,7 +208,6 @@
       "tensorboard_log_dir": "logs/tensorboard",
       "clip_grad_norm": 1.0
     },
-
      "signal_combination_weights": {
         "rule_weight": 0.6,
         "lstm_weight": 0.4

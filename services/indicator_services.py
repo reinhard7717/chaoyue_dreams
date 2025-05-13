@@ -360,13 +360,11 @@ class IndicatorService:
         8. (此方法不包含衍生特征计算，该步骤通常在合并数据后进行)
         9. 对最终的 DataFrame 进行缺失值填充。
         10. 返回最终的 DataFrame 和指标配置列表。
-
         Args:
             stock_code (str): 股票代码。
             params_file (str): 策略 JSON 配置文件的路径。
             base_needed_bars (Optional[int]): 如果提供，作为基础所需的最小时间级别数据条数，
                                                覆盖参数文件中的 lstm_window_size + buffer。
-
         Returns:
             Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]: 包含所有数据的 DataFrame 和指标配置列表，
                                                                 如果准备失败则返回 None。
@@ -376,7 +374,6 @@ class IndicatorService:
             print(f"[{stock_code}] Debug: pandas_ta 未加载。") # 调试输出：检查pandas_ta是否已导入
             logger.error(f"[{stock_code}] pandas_ta 未加载，无法准备策略数据。")
             return None
-
         # 1. 加载 JSON 参数文件
         try:
             # 检查文件是否存在
@@ -395,13 +392,11 @@ class IndicatorService:
             print(f"[{stock_code}] Debug: 加载或解析参数文件失败: {e}") # 调试输出：记录参数文件加载/解析错误
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
             return None
-
         # 2. 识别需求：时间级别和全局指标最大回看期
         # 存储所有需要的时间级别，使用集合避免重复
         all_time_levels_needed: Set[str] = set()
         # 存储每个指标的计算配置 (名称, 函数, 参数, 适用的时间级别列表, 参数块键名, 参数覆盖键名)
         indicator_configs: List[Dict[str, Any]] = []
-
         # 辅助函数：用于简化从参数中提取指标配置并添加到 indicator_configs 列表的过程
         def _add_indicator_config(
             name: str, # 指标名称，用于识别和下游查找
@@ -424,8 +419,6 @@ class IndicatorService:
                 'param_block_key': param_block_key, # 参数块键名 (用于日志或调试)
                 'param_override_key': param_override_key # 参数覆盖键名 (用于日志或调试)
             })
-
-
         # 辅助函数：从参数中提取并合并单个指标的参数
         def _get_indicator_params(param_block: Dict, default_params: Dict, param_override_key: Optional[str] = None) -> Dict:
              """从参数块中提取并合并单个指标的参数。"""
@@ -435,22 +428,19 @@ class IndicatorService:
                  if k in final_calc_params:
                       final_calc_params[k] = v_json
              return final_calc_params
-
-
         # --- 从参数文件动态构建指标计算列表 ---
         # 获取基础评分相关的参数，包括时间级别列表
         bs_params = params.get('base_scoring', {})
         bs_timeframes = bs_params.get('timeframes', ['5', '15', '30', '60', 'D']) # 基础评分默认使用的时间级别
         # 将基础评分时间级别添加到总所需时间级别集合中
         all_time_levels_needed.update(bs_timeframes)
-
         # 定义常用指标的默认参数。这些默认值在 JSON 参数中未提供时使用。
         default_macd_p = {'period_fast': 12, 'period_slow': 26, 'signal_period': 9}
         default_rsi_p = {'period': 14}
         # KDJ 周期参数的命名可能因库而异，这里使用一个示例结构，需与 calculate_kdj 匹配
         default_kdj_p = {'period': 9, 'signal_period': 3, 'smooth_k_period': 3}
         # *** 注意：这里的 default_boll_p 周期默认值是 20, 2.0。
-        default_boll_p = {'period': 20, 'std_dev': 2.0}
+        default_boll_p = {'period': 15, 'std_dev': 2.2}
         default_cci_p = {'period': 14}
         default_mfi_p = {'period': 14}
         default_roc_p = {'period': 12}
@@ -466,8 +456,6 @@ class IndicatorService:
         default_willr_p = {'period': 14}
         default_sma_ema_p = {'period': 20} # 通用均线周期默认值
         default_ichimoku_p = {'tenkan_period': 9, 'kijun_period': 26, 'senkou_period': 52}
-
-
         # --- 注册基础评分指标的计算配置 ---
         # 遍历 base_scoring.score_indicators 列表中启用的指标键名
         for indi_key in bs_params.get('score_indicators', []):
@@ -562,17 +550,14 @@ class IndicatorService:
             }
             stoch_calc_params = _get_indicator_params(ia_params, default_stoch_p, param_override_key='stoch_params') # 使用辅助函数提取参数
             _add_indicator_config('STOCH', self.calculate_stoch, 'indicator_analysis_params', stoch_calc_params, ia_timeframes) # 注册的配置名称是 'STOCH'
-
         # VWAP 计算
         if ia_params.get('calculate_vwap', False):
             vwap_p = {'anchor': ia_params.get('vwap_anchor', None)}
             vwap_calc_params = _get_indicator_params(ia_params, {'anchor': None}, param_override_key='vwap_params') # VWAP 默认 anchor 是 None
             _add_indicator_config('VWAP', self.calculate_vwap, 'indicator_analysis_params', vwap_calc_params, ia_timeframes) # 注册的配置名称是 'VWAP'
-
         # ADL 计算
         if ia_params.get('calculate_adl', False):
             _add_indicator_config('ADL', self.calculate_adl, 'indicator_analysis_params', {}, ia_timeframes, param_override_key='adl_params') # ADL 通常无参数，注册的配置名称是 'ADL'
-
         # Ichimoku 计算
         if ia_params.get('calculate_ichimoku', False):
             ichimoku_p = {
@@ -582,22 +567,18 @@ class IndicatorService:
             }
             ichimoku_calc_params = _get_indicator_params(ia_params, default_ichimoku_p, param_override_key='ichimoku_params') # 使用辅助函数提取参数
             _add_indicator_config('Ichimoku', self.calculate_ichimoku, 'indicator_analysis_params', ichimoku_calc_params, ia_timeframes) # 注册的配置名称是 'Ichimoku'
-
         # Pivot Points 计算 (通常基于日线计算，但代码中注册为 bs_timeframes，这里修正为只在 'D' 上计算)
         if ia_params.get('calculate_pivot_points', False):
             # Pivot 通常基于日线计算，所以适用时间级别应为 ['D']
             pivot_calc_params = _get_indicator_params(ia_params, {}, param_override_key='pivot_params') # Pivot Points 通常无参数
             _add_indicator_config('PivotPoints', self.calculate_pivot_points, 'indicator_analysis_params', pivot_calc_params, ['D']) # 注册的配置名称是 'PivotPoints'
             all_time_levels_needed.add('D') # 确保 'D' 被包含在所需时间级别中
-
-
         # --- 注册特征工程指标的计算配置 ---
         fe_params = params.get('feature_engineering_params', {})
         # 特征工程默认应用于基础时间框架，除非参数中指定了 apply_on_timeframes
         fe_timeframes_cfg = fe_params.get('apply_on_timeframes', bs_timeframes)
         fe_timeframes = [fe_timeframes_cfg] if isinstance(fe_timeframes_cfg, str) else fe_timeframes_cfg if fe_params else []
         all_time_levels_needed.update(fe_timeframes)
-
         # ATR 计算
         if fe_params.get('calculate_atr', False):
              atr_calc_params = _get_indicator_params(fe_params, default_atr_p, param_override_key='atr_params')
@@ -626,7 +607,6 @@ class IndicatorService:
         if fe_params.get('calculate_aroc', False):
              aroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='aroc_params')
              _add_indicator_config('AROC', self.calculate_amount_roc, 'feature_engineering_params', aroc_calc_params, fe_timeframes) # 注册的配置名称是 'AROC'
-
         # 计算 EMA 和 SMA (如果参数中指定了周期列表)
         # 这些通常作为独立特征或用于计算与其他指标的关系
         for ma_type, ma_func in [('EMA', self.calculate_ema), ('SMA', self.calculate_sma)]:
@@ -643,19 +623,16 @@ class IndicatorService:
                  ma_p = fe_params.get(f'{ma_type.lower()}_period', default_sma_ema_p['period'])
                  ma_calc_params = {'period': ma_p}
                  _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes) # 注册的配置名称是 'EMA' 或 'SMA'
-
-            # OBV 是基础的，通常都需要计算。确保只添加一次。
-            # OBV 的计算没有依赖特定的参数块，所以 param_block_key 可以是 None
+        # OBV 是基础的，通常都需要计算。确保只添加一次。
+        # OBV 的计算没有依赖特定的参数块，所以 param_block_key 可以是 None
         if not any(conf['name'] == 'OBV' for conf in indicator_configs):
             # 将 OBV 添加到所有需要的时间级别上计算
             _add_indicator_config('OBV', self.calculate_obv, None, {}, list(all_time_levels_needed)) # OBV 无参数，使用 None 作为 param_block_key，注册的配置名称是 'OBV'
-
         # --- 调试点：确认需要的时间级别集合中是否包含目标 focus_tf (如 '30') ---
         # 获取 focus_timeframe (用于后续检查)
         focus_tf = params.get('trend_following_params', {}).get('focus_timeframe', '30')
         print(f"[{stock_code}] Debug: 策略关注的时间级别 (focus_tf): {focus_tf}") # 调试输出：策略关注的时间级别
         print(f"[{stock_code}] Debug: 所有策略所需时间级别集合: {sorted(list(all_time_levels_needed))}") # 调试输出：所有所需时间级别
-
         # --- 调试点：打印注册完成的 indicator_configs 列表摘要 ---
         print(f"[{stock_code}] Debug: Contents of indicator_configs after registration (summary):") # 调试输出
         for i, conf in enumerate(indicator_configs):
@@ -663,8 +640,6 @@ class IndicatorService:
              params_summary = ', '.join([f"{k}:{conf['params'][k]}" for k in list(conf['params'].keys())[: min(3, len(conf['params'])) ]]) + ('...' if len(conf['params']) > 3 else '')
              print(f"  [{i}] Name: {conf['name']}, Timeframes: {conf['timeframes']}, Params (partial): {{{params_summary}}}") # 调试输出
         print("-" * 30) # 分隔线
-
-
         # --- 确定最小时间级别 ---
         # 从 all_time_levels_needed 集合中找到分钟数最小的时间级别
         min_time_level = None
@@ -672,7 +647,6 @@ class IndicatorService:
         if not all_time_levels_needed: # 如果没有任何时间级别被识别出来，记录错误并返回 None
             logger.error(f"[{stock_code}] 未能从参数文件中确定任何需要的时间级别。")
             return None
-
         # 遍历所有需要的时间级别，找到分钟数最小的那个
         for tf_str_loop in all_time_levels_needed:
             minutes = self._get_timeframe_in_minutes(tf_str_loop)
@@ -680,7 +654,6 @@ class IndicatorService:
             if minutes is not None and minutes < min_tf_minutes:
                  min_tf_minutes = minutes
                  min_time_level = tf_str_loop
-
         # 如果遍历完成后 min_time_level 仍然是 None (意味着所有时间级别都无法转换为分钟，或者集合为空)
         # 则尝试从 bs_timeframes 中取第一个作为最小级别，或者标记错误
         if min_time_level is None and bs_timeframes:
@@ -689,10 +662,7 @@ class IndicatorService:
         elif min_time_level is None:
             logger.error(f"[{stock_code}] 无法确定有效的最小时间级别从所需级别: {all_time_levels_needed}")
             return None
-
         logger.info(f"[{stock_code}] 策略所需时间级别: {sorted(list(all_time_levels_needed))}, 最小时间级别: {min_time_level} ({min_tf_minutes if min_tf_minutes != float('inf') else 'N/A'} 分钟)")
-
-
         # --- 动态计算 global_max_lookback ---
         # 估算所有指标计算所需的最大历史回看期，用于确定需要获取多少根 K 线数据
         global_max_lookback = 0
@@ -709,15 +679,11 @@ class IndicatorService:
             # 过滤掉 param_block_key 为 None 且 name 不是 OBV 的项（理论上不应该有）
             if config.get('param_block_key') is None and config['name'] != 'OBV':
                  continue # 跳过非 OBV 的无参数块配置
-
             params_hashable = tuple(sorted(config['params'].items()))
             key = (config['name'], params_hashable)
             if key not in unique_configs_for_lookback:
                  unique_configs_for_lookback[key] = config
-
         print(f"[{stock_code}] Debug: 用于回看期计算的唯一指标配置数量: {len(unique_configs_for_lookback)}") # 调试输出
-
-
         for config in unique_configs_for_lookback.values():
             current_max_period = 0
             # 检查所有可能的周期参数键名
@@ -728,10 +694,8 @@ class IndicatorService:
                 # 对于乘数等非周期参数，不用于计算回看期，跳过
                 if p_key == 'atr_multiplier':
                     continue
-
                 if p_key in config['params'] and isinstance(config['params'][p_key], (int, float)):
                     current_max_period = max(current_max_period, int(config['params'][p_key]))
-
             # 特殊处理组合周期，例如 MACD (慢周期 + 信号周期) 或 DMI/ADX (周期本身较大，ADX计算还需要平滑)
             # 这里采用一个更保守的估算，DMI/ADX 通常需要比周期长很多的数据
             if config['name'] == 'MACD':
@@ -760,10 +724,7 @@ class IndicatorService:
                  p = config['params']
                  current_max_period = max(current_max_period, p.get('period', 0), p.get('signal_period', 0), p.get('smooth_k_period', 0))
             # OBV, ADL, PivotPoints, VWAP 的回看期计算逻辑可能不同或较小，这里简化处理，主要考虑带周期的指标
-
-
             global_max_lookback = max(global_max_lookback, current_max_period)
-
         # 添加一个固定的缓冲期，以应对计算起点、复权等问题
         global_max_lookback += 100
         logger.info(f"[{stock_code}] 动态计算的全局指标最大回看期 (含缓冲): {global_max_lookback}")
@@ -775,7 +736,6 @@ class IndicatorService:
         lstm_window_size = params.get('lstm_training_config',{}).get('lstm_window_size', 60)
         effective_base_needed_bars = base_needed_bars if base_needed_bars is not None else \
                                      lstm_window_size + global_max_lookback + 500 # 额外加一个缓冲
-
         # 为每个所需时间级别创建一个数据获取任务
         for tf_fetch in all_time_levels_needed:
             # 根据目标时间级别和最小时间级别，估算需要获取的原始数据条数
@@ -787,56 +747,43 @@ class IndicatorService:
             logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})需(估算){effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
             # 创建异步获取数据的任务
             ohlcv_tasks[tf_fetch] = self._get_ohlcv_data(stock_code, tf_fetch, needed_bars_for_tf)
-
         # 并行执行所有数据获取任务，并收集结果
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         # 将结果按时间级别字典化
         raw_ohlcv_dfs = dict(zip(all_time_levels_needed, ohlcv_results))
-
-        # *** 调试点：检查获取到的原始数据状态 ***
-        # print(f"[{stock_code}] Debug: 原始 OHLCV 数据获取结果 (按时间级别):") # 调试输出
         for tf, df in raw_ohlcv_dfs.items():
             print(f"  - TF {tf}: {'None/Empty' if df is None or df.empty else f'Shape {df.shape}, Columns: {df.columns.tolist()}'}") # 调试输出：检查原始数据状态
-
         # 4. 重采样和初步清洗
         resampled_ohlcv_dfs = {} # 存储重采样和清洗后的数据
         # 定义最小可用数据条数的硬性门槛 (例如，基础所需条数的 60%)
         min_usable_bars = math.ceil(effective_base_needed_bars * 0.6)
-
         # 遍历所有获取到的原始数据，进行重采样和清洗
         for tf_resample, raw_df in raw_ohlcv_dfs.items():
             # 检查原始数据是否有效
             if raw_df is None or raw_df.empty:
                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 没有获取到原始数据，跳过重采样。")
                 continue
-
             # 执行重采样和清洗（例如处理缺失 K 线、填充等）
             # min_periods=1 和 fill_method='ffill' 是示例参数
             resampled_df = self._resample_and_clean_dataframe(raw_df, tf_resample, min_periods=1, fill_method='ffill')
-
             # 检查重采样后的数据是否有效
             if resampled_df is None or resampled_df.empty:
                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据为空，跳过。")
                 continue
-
             # 对最小时间级别的数据量进行硬性检查
             if tf_resample == min_time_level and len(resampled_df) < min_usable_bars:
                  logger.error(f"[{stock_code}] 最小时间级别 {tf_resample} 重采样后数据量 {len(resampled_df)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。")
                  return None # 数据量不足以支持后续分析，终止流程
-
             # 如果数据量显著少于全局最大回看期，记录警告
             if len(resampled_df) < global_max_lookback * 0.5:
                  logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据量 {len(resampled_df)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。")
-
             # *** 关键步骤：给基础 OHLCV 列名添加时间周期后缀 ***
             # 例如，将 'close' 列重命名为 'close_30'
             rename_map = {col: f"{col}_{tf_resample}" for col in ['open', 'high', 'low', 'close', 'volume', 'amount'] if col in resampled_df.columns}
             # 应用重命名，如果 rename_map 不为空则复制并重命名，否则只复制
             resampled_df_renamed = resampled_df.rename(columns=rename_map) if rename_map else resampled_df.copy()
-
             # *** 调试点：检查重采样并添加后缀后的列名 ***
             print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_renamed.columns.tolist()[:20]}...") # 调试输出：检查重采样和重命名后的列
-
             # 将处理后的 DataFrame 存储起来
             resampled_ohlcv_dfs[tf_resample] = resampled_df_renamed
 
@@ -860,11 +807,9 @@ class IndicatorService:
             if base_df_with_suffix is None or base_df_with_suffix.empty:
                 print(f"[{stock_code}] Debug: TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}") # 调试输出：基础数据为空
                 return None
-
             # 复制 DataFrame，用于传递给指标计算函数。
             # 指标计算函数通常期望标准的列名 (high, low, close)，而不是带后缀的 (high_30, low_30, close_30)。
             df_for_ta = base_df_with_suffix.copy()
-
             # 创建一个映射，将带后缀的列名暂时重命名为标准的列名
             ohlcv_map_to_std = {
                 f'open_{tf_calc}': 'open', f'high_{tf_calc}': 'high', f'low_{tf_calc}': 'low',
@@ -874,10 +819,6 @@ class IndicatorService:
             actual_rename_map_to_std = {k: v for k, v in ohlcv_map_to_std.items() if k in df_for_ta.columns}
             # 应用临时重命名
             df_for_ta.rename(columns=actual_rename_map_to_std, inplace=True)
-
-            # *** 调试点：检查用于指标计算的临时 DataFrame 的列名 ***
-            # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 用于计算的临时 df_for_ta 列名: {df_for_ta.columns.tolist()}") # 调试输出
-
             # 动态确定指标函数需要的列 (high, low, close, volume, amount 等)
             # 这是一个简化版本，实际可能需要更复杂的参数签名检查或配置
             required_cols_for_func = set(['high', 'low', 'close']) # 默认需要 HLC
@@ -899,16 +840,11 @@ class IndicatorService:
             try:
                 # 获取为该指标准备好的参数副本，传递给计算函数
                 func_params_to_pass = config_item['params'].copy()
-                # *** 调试点：打印传递给计算函数的参数 ***
-                # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 传递的计算参数: {func_params_to_pass}") # 调试输出
-
                 # 调用具体的指标计算函数 (这些函数使用标准的列名，如 'close')
                 # calculate_dmi 和 calculate_boll_bands_and_width 就是在这里被调用的
                 # 注意：这里调用的是 config_item['func']，而不是根据 name 判断调用哪个函数
                 # config_item['func'] 在 _add_indicator_config 时已经正确设定（例如 KDJ 配置的 func 是 calculate_kdj）
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
-
-
                 # *** 调试点：检查指标计算函数的原始返回结果 ***
                 if indicator_result_df is None:
                      print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。") # 调试输出：计算结果为None
@@ -1162,8 +1098,6 @@ class IndicatorService:
         # 返回最终的 DataFrame 和注册的指标配置列表
         # 指标配置列表 indicator_configs 中不再包含额外的冗余项，只包含核心配置
         return final_df, indicator_configs
-
-
 
     # --- 周期对齐函数 ---
     # 这个函数在引入重采样后，不再用于主要的时间序列标准化，
