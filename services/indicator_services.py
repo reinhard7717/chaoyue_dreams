@@ -487,37 +487,36 @@ class IndicatorService:
                 }
                 _add_indicator_config(
                     'KDJ', # 注册的配置名称是 'KDJ'
-                    self.calculate_kdj,
+                    self.calculate_kdj, # 指向 KDJ 的计算函数
                     'base_scoring',
                     kdj_calc_params, # 传递已经根据 JSON 配置好的参数字典
                     bs_timeframes
                 )
-                # -------------------- 修改开始 --------------------
-                # 为了兼容下游可能直接按 K, D, J 名称查找配置的行为，额外注册这些名称。
-                # 它们指向同一个计算函数和参数，不改变 KDJ 本身的计算逻辑，仅用于下游查找。
-                print(f"[{stock_code}] Debug: 为下游兼容性额外注册 K, D, J 配置 (指向 KDJ)...") # 调试输出：额外注册KDJ组成部分
-                _add_indicator_config(
-                    'K', # 额外注册名称为 'K'
-                    self.calculate_kdj, # 指向 KDJ 的计算函数
-                    'base_scoring',
-                    kdj_calc_params, # 使用相同的 KDJ 参数
-                    bs_timeframes
-                )
-                _add_indicator_config(
-                    'D', # 额外注册名称为 'D'
-                    self.calculate_kdj, # 指向 KDJ 的计算函数
-                    'base_scoring',
-                    kdj_calc_params, # 使用相同的 KDJ 参数
-                    bs_timeframes
-                )
-                _add_indicator_config(
-                    'J', # 额外注册名称为 'J'
-                    self.calculate_kdj, # 指向 KDJ 的计算函数
-                    'base_scoring',
-                    kdj_calc_params, # 使用相同的 KDJ 参数
-                    bs_timeframes
-                )
-                # -------------------- 修改结束 --------------------
+                # -------------------- 删除开始 --------------------
+                # 移除为下游兼容性额外注册 K, D, J 的配置，避免生成重复列
+                # print(f"[{stock_code}] Debug: 为下游兼容性额外注册 K, D, J 配置 (指向 KDJ)...") # 调试输出：额外注册KDJ组成部分
+                # _add_indicator_config(
+                #     'K', # 额外注册名称为 'K'
+                #     self.calculate_kdj, # 指向 KDJ 的计算函数
+                #     'base_scoring',
+                #     kdj_calc_params, # 使用相同的 KDJ 参数
+                #     bs_timeframes
+                # )
+                # _add_indicator_config(
+                #     'D', # 额外注册名称为 'D'
+                #     self.calculate_kdj, # 指向 KDJ 的计算函数
+                #     'base_scoring',
+                #     kdj_calc_params, # 使用相同的 KDJ 参数
+                #     bs_timeframes
+                # )
+                # _add_indicator_config(
+                #     'J', # 额外注册名称为 'J'
+                #     self.calculate_kdj, # 指向 KDJ 的计算函数
+                #     'base_scoring',
+                #     kdj_calc_params, # 使用相同的 KDJ 参数
+                #     bs_timeframes
+                # )
+                # -------------------- 删除结束 --------------------
 
             elif indi_key == 'boll':
                  boll_calc_params = _get_indicator_params(bs_params, default_boll_p)
@@ -536,32 +535,31 @@ class IndicatorService:
                 print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出：注册DMI配置
                 dmi_calc_params = _get_indicator_params(bs_params, default_dmi_p)
                 _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', dmi_calc_params, bs_timeframes) # 注册的配置名称是 'DMI'
-                # -------------------- 修改开始 --------------------
-                # 为了兼容下游可能直接按 ADX, PDI, NDI 名称查找配置的行为，额外注册这些名称。
-                # 它们指向同一个计算函数和参数，不改变 DMI 本身的计算逻辑，仅用于下游查找。
-                print(f"[{stock_code}] Debug: 为下游兼容性额外注册 ADX, PDI, NDI 配置 (指向 DMI)...") # 调试输出：额外注册DMI组成部分
-                _add_indicator_config(
-                    'ADX', # 额外注册名称为 'ADX'
-                    self.calculate_dmi, # 指向 DMI 的计算函数
-                    'base_scoring',
-                    dmi_calc_params, # 使用相同的 DMI 参数
-                    bs_timeframes
-                )
-                _add_indicator_config(
-                    'PDI', # 额外注册名称为 'PDI'
-                    self.calculate_dmi, # 指向 DMI 的计算函数
-                    'base_scoring',
-                    dmi_calc_params, # 使用相同的 DMI 参数
-                    bs_timeframes
-                )
-                _add_indicator_config(
-                    'NDI', # 额外注册名称为 'NDI'
-                    self.calculate_dmi, # 指向 DMI 的计算函数
-                    'base_scoring',
-                    dmi_calc_params, # 使用相同的 DMI 参数
-                    bs_timeframes
-                )
-                # -------------------- 修改结束 --------------------
+                # -------------------- 删除开始 --------------------
+                # 移除为下游兼容性额外注册 ADX, PDI, NDI 的配置，避免生成重复列
+                # print(f"[{stock_code}] Debug: 为下游兼容性额外注册 ADX, PDI, NDI 配置 (指向 DMI)...") # 调试输出：额外注册DMI组成部分
+                # _add_indicator_config(
+                #     'ADX', # 额外注册名称为 'ADX'
+                #     self.calculate_dmi, # 指向 DMI 的计算函数
+                #     'base_scoring',
+                #     dmi_calc_params, # 使用相同的 DMI 参数
+                #     bs_timeframes
+                # )
+                # _add_indicator_config(
+                #     'PDI', # 额外注册名称为 'PDI'
+                #     self.calculate_dmi, # 指向 DMI 的计算函数
+                #     'base_scoring',
+                #     dmi_calc_params, # 使用相同的 DMI 参数
+                #     bs_timeframes
+                # )
+                # _add_indicator_config(
+                #     'NDI', # 额外注册名称为 'NDI'
+                #     self.calculate_dmi, # 指向 DMI 的计算函数
+                #     'base_scoring',
+                #     dmi_calc_params, # 使用相同的 DMI 参数
+                #     bs_timeframes
+                # )
+                # -------------------- 删除结束 --------------------
 
             elif indi_key == 'sar':
                  sar_calc_params = _get_indicator_params(bs_params, default_sar_p)
@@ -761,45 +759,27 @@ class IndicatorService:
         # --- 动态计算 global_max_lookback ---
         # 估算所有指标计算所需的最大历史回看期，用于确定需要获取多少根 K 线数据
         global_max_lookback = 0
-        # 注意：这里的回看期计算应该基于“实际”注册的指标配置，而不是为了下游兼容性额外注册的冗余项。
-        # 通过过滤掉 param_block_key 为 None 的项（如额外注册的 K, D, J, ADX 等），
-        # 以及根据 params 来去重，可以尽量避免重复计算。
-        # 更精确的做法是维护一个只包含核心指标配置的列表用于回看期计算。
-        # 这里采用一种去重思路，将配置项转换为可哈希的元组进行去重。
+        # 回看期计算应基于实际注册的核心指标配置
+        # 我们可以直接遍历 indicator_configs，但需要注意同一个指标不同参数的配置
+        # 一个简单的方法是只考虑那些在 params 中有对应配置块或 score_indicators 列表中的指标
+        # 并且只计算其主要周期参数的回看期
+        # 这里还是采用之前的去重思路，基于 name 和 params 来识别唯一的“计算任务”配置
         unique_configs_for_lookback = {}
         for config in indicator_configs:
-             # 对于用于兼容性额外注册的配置 (param_block_key 不为 None 但 name 在 DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP 的键中)，
-             # 或者 param_block_key 为 None 的通用指标 (如 OBV), 可能会与核心指标重复。
-             # 这里尝试用 (name, tuple(sorted(params.items()))) 来作为键进行去重。
-             # 这样 KDJ 的核心配置 ('KDJ', {...}) 和额外配置 ('K', {...}) 会被视为不同的键，但参数相同。
-             # 需要进一步判断哪些是“核心”配置。一种方法是只考虑那些 param_block_key 不为 None 且 name 不在 DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP 的键中的配置，
-             # 以及少数已知 param_block_key 为 None 的核心指标 (如 OBV)。
+            # 使用 name 和参数的哈希作为键进行去重
+            # 注意：这里需要确保所有核心配置都能被包含进来，而不会因为 name 是 K, D, J 等而被过滤掉
+            # 但是我们已经移除了 K, D, J 等的额外注册，所以现在 indicator_configs 应该只包含核心名称
+            # 过滤掉 param_block_key 为 None 且 name 不是 OBV 的项（理论上不应该有）
+            if config.get('param_block_key') is None and config['name'] != 'OBV':
+                 continue # 跳过非 OBV 的无参数块配置
 
-             # 更简单的去重方法：直接根据 name 和 params 来去重，但这样无法区分 'EMA' 在不同周期下的回看期。
-             # 最可靠的方法是只遍历 JSON 参数中明确启用的指标及其参数来计算回看期。
+            params_hashable = tuple(sorted(config['params'].items()))
+            key = (config['name'], params_hashable)
+            if key not in unique_configs_for_lookback:
+                 unique_configs_for_lookback[key] = config
 
-             # 回退到基于参数块和 name 的基本判断，并处理EMA/SMA多周期的情况
-             is_core_config = False
-             if config['param_block_key'] in ['base_scoring', 'volume_confirmation', 'indicator_analysis_params', 'feature_engineering_params']:
-                  # 属于某个参数块的配置
-                  if config['name'] in ['EMA', 'SMA']:
-                      # EMA/SMA 是按周期注册多个，每个都是独立的配置
-                      is_core_config = True
-                  elif config['name'] not in DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP.keys():
-                      # 非 EMA/SMA 且 name 不在衍生特征 base_name 列表中，认为是核心配置
-                       is_core_config = True
-             elif config['name'] == 'OBV' and config['param_block_key'] is None:
-                  # OBV 是一个特殊的通用核心指标
-                  is_core_config = True
+        print(f"[{stock_code}] Debug: 用于回看期计算的唯一指标配置数量: {len(unique_configs_for_lookback)}") # 调试输出
 
-             if is_core_config:
-                  # 使用 name 和参数的哈希作为键进行去重
-                  params_hashable = tuple(sorted(config['params'].items()))
-                  key = (config['name'], params_hashable)
-                  if key not in unique_configs_for_lookback:
-                      unique_configs_for_lookback[key] = config
-
-        print(f"[{stock_code}] Debug: 用于回看期计算的唯一核心指标配置数量: {len(unique_configs_for_lookback)}") # 调试输出
 
         for config in unique_configs_for_lookback.values():
             current_max_period = 0
@@ -821,7 +801,7 @@ class IndicatorService:
                  p = config['params']
                  # 修正 MACD 回看期估算，通常只需慢周期长度 + 信号周期平滑长度
                  current_max_period = max(current_max_period, p.get('period_slow',0) + p.get('signal_period',0))
-            # 注意：这里判断的是核心指标名称 'DMI'，不是额外注册的 'ADX'
+            # 注意：这里判断的是核心指标名称 'DMI'
             if config['name'] == 'DMI' and 'period' in config['params']: # DMI/ADX
                 # ADX 计算需要至少 2*period 根数据，外加 EMA 平滑，所以需要更长的回看期
                 current_max_period = max(current_max_period, int(config['params']['period'] * 2.5 + 10)) # 稍微保守一些的估算
@@ -834,11 +814,16 @@ class IndicatorService:
             if config['name'] in ['EMA', 'SMA']: # EMA/SMA 直接使用其 period
                  current_max_period = max(current_max_period, config['params'].get('period', 0))
             if config['name'] in ['AMT_MA', 'VOL_MA', 'MOM', 'WILLR', 'VROC', 'AROC', 'RSI', 'CCI', 'MFI', 'ROC', 'ATR', 'SAR']: # 其他单周期指标
-                 current_max_period = max(current_max_period, config['params'].get('period', 0), config['params'].get('k_period', 0), config['params'].get('d_period', 0), config['params'].get('smooth_k_period', 0))
+                 # 检查 period, k_period, atr_period 等可能的周期键
+                 current_max_period = max(current_max_period,
+                                           config['params'].get('period', 0),
+                                           config['params'].get('k_period', 0),
+                                           config['params'].get('atr_period', 0)) # 添加 atr_period 检查，以防某些指标如 KC 注册时是核心，但此处未单独处理
             if config['name'] == 'KDJ': # KDJ 依赖其平滑周期
                  p = config['params']
                  current_max_period = max(current_max_period, p.get('period', 0), p.get('signal_period', 0), p.get('smooth_k_period', 0))
             # OBV, ADL, PivotPoints, VWAP 的回看期计算逻辑可能不同或较小，这里简化处理，主要考虑带周期的指标
+
 
             global_max_lookback = max(global_max_lookback, current_max_period)
 
@@ -1057,7 +1042,8 @@ class IndicatorService:
         calculated_results_tuples = await asyncio.gather(*indicator_calculation_tasks, return_exceptions=True)
 
         # 按时间级别对计算结果进行分组存储
-        calculated_indicators_by_tf = defaultdict(list) # { 'tf' : [indi_df1, indi_df2, ...] }
+        # defaultdict(list) 用于存储 { 'tf' : [indi_df1, indi_df2, ...] }
+        calculated_indicators_by_tf = defaultdict(list)
 
         # *** 调试点：检查所有指标计算任务的结果 ***
         # print(f"[{stock_code}] Debug: 所有指标计算任务原始结果 tuple 列表 (总数: {len(calculated_results_tuples)}):") # 调试输出
@@ -1100,45 +1086,56 @@ class IndicatorService:
             print(f"[{stock_code}] Debug: 尝试计算 OBV_MA (周期 {obv_ma_period})...") # 调试输出：尝试计算OBV_MA
             # OBV_MA 的计算适用于所有已经计算了 OBV 的时间级别
             # 我们需要找到 OBV 列所在的 DataFrame
-            for tf_obv_ma, df_list_obv_ma in list(calculated_indicators_by_tf.items()): # 使用 list() 复制以允许在迭代中修改 calculated_indicators_by_tf
-                # 查找 OBV 列名的模式，它会带有时间后缀，例如 'OBV_30'
-                obv_col_pattern = f'OBV_{tf_obv_ma}'
-                obv_df_found = None
-                # 遍历该时间级别下所有计算出的指标 DataFrame，查找包含 OBV 列的那个
-                for df in df_list_obv_ma:
-                     if obv_col_pattern in df.columns:
-                          obv_df_found = df
-                          break # 找到 OBV 所在的 DataFrame
+            # -------------------- 修改开始 --------------------
+            # 检查是否在 indicator_configs 中注册了 OBV，并获取其时间级别
+            obv_config = next((c for c in indicator_configs if c['name'] == 'OBV'), None)
+            if obv_config:
+                obv_timeframes = obv_config['timeframes']
+                for tf_obv_ma in obv_timeframes:
+                     # 在该时间级别的指标列表中查找 OBV 列所在的 DataFrame
+                     # 期望的 OBV 列名是 'OBV_{tf_obv_ma}' (因为基础指标计算时已经添加了时间后缀)
+                     obv_col_pattern = f'OBV_{tf_obv_ma}'
+                     obv_df_found = None
+                     # 遍历该时间级别下所有计算出的指标 DataFrame，查找包含 OBV 列的那个
+                     if tf_obv_ma in calculated_indicators_by_tf:
+                         for df in calculated_indicators_by_tf[tf_obv_ma]:
+                              if obv_col_pattern in df.columns:
+                                   obv_df_found = df
+                                   break # 找到 OBV 所在的 DataFrame
 
-                if obv_df_found is not None:
-                    # 找到了 OBV 所在的 DataFrame，现在计算 OBV 的移动平均
-                    try:
-                        # 确保 OBV 列是数值类型，防止移动平均计算出错
-                        if not pd.api.types.is_numeric_dtype(obv_df_found[obv_col_pattern]):
-                             print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。") # 调试输出：OBV列非数值
-                             logger.warning(f"[{stock_code}] TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。")
-                             continue # 跳过当前时间级别的 OBV_MA 计算
+                     if obv_df_found is not None:
+                         # 找到了 OBV 所在的 DataFrame，现在计算 OBV 的移动平均
+                         try:
+                             # 确保 OBV 列是数值类型，防止移动平均计算出错
+                             if not pd.api.types.is_numeric_dtype(obv_df_found[obv_col_pattern]):
+                                  print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。") # 调试输出：OBV列非数值
+                                  logger.warning(f"[{stock_code}] TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。")
+                                  continue # 跳过当前时间级别的 OBV_MA 计算
 
-                        # 使用 pandas 的 rolling().mean() 计算移动平均
-                        obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{tf_obv_ma}' # OBV MA 列名带周期和时间后缀
-                        # -------------------- 修改开始 --------------------
-                        # 使用 apply 在 Series 上计算移动平均，确保 NaN 处理正确
-                        obv_ma_series = obv_df_found[obv_col_pattern].rolling(window=obv_ma_period, min_periods=1).mean() # 计算移动平均，min_periods=1 表示窗口不足时也计算
-                        obv_ma_df = obv_ma_series.to_frame(name=obv_ma_col_name) # 转换为 DataFrame
-                        # -------------------- 修改结束 --------------------
+                             # 使用 pandas 的 rolling().mean() 计算移动平均
+                             obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{tf_obv_ma}' # OBV MA 列名带周期和时间后缀
+                             # 使用 apply 在 Series 上计算移动平均，确保 NaN 处理正确
+                             obv_ma_series = obv_df_found[obv_col_pattern].rolling(window=obv_ma_period, min_periods=1).mean() # 计算移动平均，min_periods=1 表示窗口不足时也计算
+                             obv_ma_df = obv_ma_series.to_frame(name=obv_ma_col_name) # 转换为 DataFrame
 
-                        # 将计算出的 OBV_MA DataFrame 添加到该时间级别下的指标列表中
-                        # 注意：这里直接修改了 defaultdict 中的列表
-                        calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df)
-                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算并添加到分组列表。列名: [{obv_ma_col_name}]") # 调试输出：OBV_MA计算成功
-                        logger.info(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算完成。")
+                             # 将计算出的 OBV_MA DataFrame 添加到该时间级别下的指标列表中
+                             # 注意：这里直接修改了 defaultdict 中的列表
+                             calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df)
+                             print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算并添加到分组列表。列名: [{obv_ma_col_name}]") # 调试输出：OBV_MA计算成功
+                             logger.info(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算完成。")
 
-                    except Exception as e_obv_ma:
-                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}") # 调试输出：OBV_MA计算出错
-                        logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}", exc_info=True)
-                else:
-                    print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。") # 调试输出：未找到OBV列
-                    logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。")
+                         except Exception as e_obv_ma:
+                             print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}") # 调试输出：OBV_MA计算出错
+                             logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}", exc_info=True)
+                     else:
+                         # 如果该时间级别未找到 OBV 数据，记录警告
+                         print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。") # 调试输出：未找到OBV列
+                         logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。")
+            else:
+                 print(f"[{stock_code}] Debug: 未找到 OBV 的注册配置，无法计算 OBV_MA。") # 调试输出：未找到OBV配置
+                 logger.warning(f"[{stock_code}] 未找到 OBV 的注册配置，无法计算 OBV_MA。")
+
+            # -------------------- 修改结束 --------------------
 
 
         # 6. 将所有时间级别的 OHLCV 和指标数据合并到最终 DataFrame
@@ -1152,47 +1149,42 @@ class IndicatorService:
 
         # 遍历所有时间级别和其计算出的指标 DataFrame 列表
         for tf_merge, df_list_merge in calculated_indicators_by_tf.items():
-            if tf_merge == min_time_level:
-                 # 如果是最小时间级别，将其指标合并到基础 DataFrame 中
-                 # 注意：这里需要确保合并时不会覆盖基础 OHLCV 列
-                 # concat 会按列名合并，如果列名不同则新增列，如果相同则报错或根据参数处理
-                 # 由于 _calculate_single_indicator_async 返回的指标列名已经带有时间后缀，
-                 # 且基础 OHLCV 列名也带有时间后缀，理论上指标列名和基础 OHLCV 列名不会冲突。
-                 # 例如，K_7_3_3_5 和 close_5 是不同的列名。
-                 # 多个指标计算结果 DataFrame 合并到同一个时间级别时，如果输出列名有重叠（不应该发生），concat 默认会处理。
-                 # 在这里，我们将该时间级别所有的指标 DataFrame concat 到一起，然后再与 final_df 合并。
-                 if df_list_merge:
-                     merged_indicators_for_tf = pd.concat(df_list_merge, axis=1)
-                     # 将合并后的指标 DataFrame 与 final_df 按索引对齐合并
-                     final_df = pd.merge(final_df, merged_indicators_for_tf, left_index=True, right_index=True, how='left')
-                     logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 {len(df_list_merge)} 个指标 DataFrame，当前 final_df 形状: {final_df.shape}")
-                 else:
-                     logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 没有计算出任何指标 DataFrame。")
+            # 将该时间级别所有的指标 DataFrame concat 到一起
+            # 注意：如果 df_list_merge 中的 DataFrame 包含重复列名，pd.concat 会保留所有重复列
+            # 这是日志中出现多个 K_7_3_3_5, ADX_14_5 的原因
+            # 修复方法是在注册时避免重复计算和返回 DataFrames，让每个基础指标只计算一次并返回一个 DataFrame
+            # 这已经在前面的删除额外注册的步骤中完成
+            if df_list_merge:
+                # 确保合并的 DataFrame 具有相同的索引，这里应该没问题，因为它们都基于重采样数据
+                merged_indicators_for_tf = pd.concat(df_list_merge, axis=1)
 
-            else:
-                # 如果是非最小时间级别，将其所有数据 (OHLCV + 指标) 合并到 final_df 中
-                if tf_merge in resampled_ohlcv_dfs:
-                    # 获取该时间级别的重采样 OHLCV 数据 (已带后缀)
-                    ohlcv_df_for_merge = resampled_ohlcv_dfs[tf_merge]
-
-                    # 将该时间级别所有计算出的指标 DataFrame concat 到一起
-                    if df_list_merge:
-                         merged_indicators_for_tf = pd.concat(df_list_merge, axis=1)
+                # 将合并后的指标 DataFrame 与 final_df 按索引对齐合并
+                # 使用 left 合并，以确保 final_df (基于最小时间级别索引) 的所有行都被保留
+                # 如果 tf_merge 就是最小时间级别，则只合并指标列
+                if tf_merge == min_time_level:
+                     # 确保不合并 OHLCV 列 (尽管列名带有后缀，理论上不会冲突，但为了清晰)
+                     # 实际上，因为基础 OHLCV 已经在 final_df 里了，merge 相同列名会自动处理（例如添加 _x, _y 后缀或报错），
+                     # 但因为我们已经处理了重复注册，这里的 merged_indicators_for_tf 应该只包含指标列。
+                     # 使用 join 更直接，因为它默认按索引对齐
+                     final_df = final_df.join(merged_indicators_for_tf, how='left')
+                     logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 {len(df_list_merge)} 个指标 DataFrame (到基础DF)，当前 final_df 形状: {final_df.shape}")
+                else:
+                     # 如果是非最小时间级别，需要先获取该时间级别的 OHLCV 数据
+                     if tf_merge in resampled_ohlcv_dfs:
+                         ohlcv_df_for_merge = resampled_ohlcv_dfs[tf_merge]
                          # 将 OHLCV 数据和指标数据先 concat 到一起
                          df_to_merge = pd.concat([ohlcv_df_for_merge, merged_indicators_for_tf], axis=1)
                          logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据和 {len(df_list_merge)} 个指标 DataFrame，形状: {df_to_merge.shape}")
-                    else:
-                         # 如果该时间级别没有指标计算结果，只合并 OHLCV 数据
-                         df_to_merge = ohlcv_df_for_merge
-                         logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据 (无指标计算结果)，形状: {df_to_merge.shape}")
 
-                    # 将这个时间级别的数据 (OHLCV + 指标) 与 final_df 按索引对齐合并
-                    # 使用 left 合并，以确保 final_df (基于最小时间级别索引) 的所有行都被保留
-                    final_df = pd.merge(final_df, df_to_merge, left_index=True, right_index=True, how='left')
-                    logger.info(f"[{stock_code}] 将时间级别 {tf_merge} 的数据合并到 final_df，当前 final_df 形状: {final_df.shape}")
+                         # 将这个时间级别的数据 (OHLCV + 指标) 与 final_df 按索引对齐合并
+                         final_df = final_df.join(df_to_merge, how='left')
+                         logger.info(f"[{stock_code}] 将时间级别 {tf_merge} 的数据合并到 final_df，当前 final_df 形状: {final_df.shape}")
+                     else:
+                         logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 的重采样 OHLCV 数据未找到，无法合并该时间级别的数据和指标。")
 
-                else:
-                    logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 的重采样 OHLCV 数据未找到，无法合并该时间级别的数据和指标。")
+            else:
+                logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 没有计算出任何指标 DataFrame。")
+
 
         logger.info(f"[{stock_code}] 所有时间级别的数据和指标合并完成，最终 DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}")
         print(f"[{stock_code}] Debug: 合并完成后，DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}") # 调试输出：合并后形状
@@ -1234,7 +1226,7 @@ class IndicatorService:
 
 
         # 返回最终的 DataFrame 和注册的指标配置列表
-        # 指标配置列表 indicator_configs 中包含了为了兼容下游查找而额外注册的项
+        # 指标配置列表 indicator_configs 中不再包含额外的冗余项，只包含核心配置
         return final_df, indicator_configs
 
 
