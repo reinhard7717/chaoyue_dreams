@@ -99,7 +99,7 @@ def batch_prepare_transformer_data(self, stock_code: str, params_file: str = Non
         feature_scaler, target_scaler, \
         selected_feature_names = prepare_data_for_transformer(
             data=data_for_prep,
-            required_columns=strategy.get_required_columns(), # 获取策略声明的原始列
+            required_columns=strategy.get_required_columns(stock_code), # 获取策略声明的原始列
             target_column=tf_params.get('transformer_target_column', 'final_rule_signal'),
             # ... (其他 prepare_data_for_transformer 参数)
             scaler_type=data_prep_config.get('scaler_type', 'standard'),

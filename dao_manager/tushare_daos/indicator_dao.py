@@ -14,8 +14,10 @@ from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
-from stock_models.industry import ThsIndexDaily
+from stock_models.industry import ThsIndexDaily, ThsIndexMember # 修改行：导入 ThsIndexMember 模型
 from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
+# 修改行：导入资金流向相关模型
+from stock_models.fund_flow import FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC, FundFlowCntTHS, FundFlowIndustryTHS
 from utils.cache_get import  StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -773,9 +775,283 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"获取股票 {stock_code} 筹码分布汇总数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
 
+    # 修改行：新增获取 FundFlowDaily 数据的异步方法
+    async def get_fund_flow_daily_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票在日期范围内（包含起止日）的日级资金流向数据，并转换为 DataFrame。
+        """
+        try:
+            # 使用 filter(stock__stock_code=stock_code) 过滤股票
+            data_qs = FundFlowDaily.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('stock') # 优化查询
+            data_list = await sync_to_async(list)(data_qs)
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的日级资金流向数据")
+                return None
+            data = []
+            for item in data_list:
+                data.append({
+                    'trade_time': getattr(item, 'trade_time', None),
+                    'ff_daily_buy_sm_vol': self._safe_int(getattr(item, 'buy_sm_vol', None)), # 添加前缀
+                    'ff_daily_buy_sm_amount': self._safe_float(getattr(item, 'buy_sm_amount', None)), # 添加前缀
+                    'ff_daily_sell_sm_vol': self._safe_int(getattr(item, 'sell_sm_vol', None)), # 添加前缀
+                    'ff_daily_sell_sm_amount': self._safe_float(getattr(item, 'sell_sm_amount', None)), # 添加前缀
+                    'ff_daily_buy_md_vol': self._safe_int(getattr(item, 'buy_md_vol', None)), # 添加前缀
+                    'ff_daily_buy_md_amount': self._safe_float(getattr(item, 'buy_md_amount', None)), # 添加前缀
+                    'ff_daily_sell_md_vol': self._safe_int(getattr(item, 'sell_md_vol', None)), # 添加前缀
+                    'ff_daily_sell_md_amount': self._safe_float(getattr(item, 'sell_md_amount', None)), # 添加前缀
+                    'ff_daily_buy_lg_vol': self._safe_int(getattr(item, 'buy_lg_vol', None)), # 添加前缀
+                    'ff_daily_buy_lg_amount': self._safe_float(getattr(item, 'buy_lg_amount', None)), # 添加前缀
+                    'ff_daily_sell_lg_vol': self._safe_int(getattr(item, 'sell_lg_vol', None)), # 添加前缀
+                    'ff_daily_sell_lg_amount': self._safe_float(getattr(item, 'sell_lg_amount', None)), # 添加前缀
+                    'ff_daily_buy_elg_vol': self._safe_int(getattr(item, 'buy_elg_vol', None)), # 添加前缀
+                    'ff_daily_buy_elg_amount': self._safe_float(getattr(item, 'buy_elg_amount', None)), # 添加前缀
+                    'ff_daily_sell_elg_vol': self._safe_int(getattr(item, 'sell_elg_vol', None)), # 添加前缀
+                    'ff_daily_sell_elg_amount': self._safe_float(getattr(item, 'sell_elg_amount', None)), # 添加前缀
+                    'ff_daily_net_mf_vol': self._safe_int(getattr(item, 'net_mf_vol', None)), # 添加前缀
+                    'ff_daily_net_mf_amount': self._safe_float(getattr(item, 'net_mf_amount', None)), # 添加前缀
+                })
+            if not data:
+                 logger.warning(f"从 FundFlowDaily Model 转换的数据列表为空 for {stock_code}")
+                 return None
+            df = pd.DataFrame(data)
+            if df.empty:
+                logger.warning(f"转换后的 FundFlowDaily DataFrame 为空 for {stock_code}")
+                return None
+            default_tz = timezone.get_default_timezone()
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True)
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 FundFlowDaily DataFrame 为空 for {stock_code}")
+                 return None
+            df.index = df['trade_time']
+            df.drop(columns=['trade_time'], inplace=True)
+            df.sort_index(ascending=True, inplace=True)
+            logger.info(f"成功获取并处理股票 {stock_code} 的日级资金流向数据，数据量: {len(df)} 条")
+            return df
+        except Exception as e:
+            logger.error(f"获取股票 {stock_code} 日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+    # 修改行：新增获取 FundFlowDailyTHS 数据的异步方法
+    async def get_fund_flow_daily_ths_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票在日期范围内（包含起止日）的同花顺日级资金流向数据，并转换为 DataFrame。
+        """
+        try:
+            data_qs = FundFlowDailyTHS.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('stock') # 优化查询
+            data_list = await sync_to_async(list)(data_qs)
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的同花顺日级资金流向数据")
+                return None
+            data = []
+            for item in data_list:
+                data.append({
+                    'trade_time': getattr(item, 'trade_time', None),
+                    'ff_ths_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
+                    'ff_ths_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
+                    'ff_ths_net_d5_amount': self._safe_float(getattr(item, 'net_d5_amount', None)), # 添加前缀
+                    'ff_ths_buy_lg_amount': self._safe_float(getattr(item, 'buy_lg_amount', None)), # 添加前缀
+                    'ff_ths_buy_lg_amount_rate': self._safe_float(getattr(item, 'buy_lg_amount_rate', None)), # 添加前缀
+                    'ff_ths_buy_md_amount': self._safe_float(getattr(item, 'buy_md_amount', None)), # 添加前缀
+                    'ff_ths_buy_md_amount_rate': self._safe_float(getattr(item, 'buy_md_amount_rate', None)), # 添加前缀
+                    'ff_ths_buy_sm_amount': self._safe_float(getattr(item, 'buy_sm_amount', None)), # 添加前缀
+                    'ff_ths_buy_sm_amount_rate': self._safe_float(getattr(item, 'buy_sm_amount_rate', None)), # 添加前缀
+                })
+            if not data:
+                 logger.warning(f"从 FundFlowDailyTHS Model 转换的数据列表为空 for {stock_code}")
+                 return None
+            df = pd.DataFrame(data)
+            if df.empty:
+                logger.warning(f"转换后的 FundFlowDailyTHS DataFrame 为空 for {stock_code}")
+                return None
+            default_tz = timezone.get_default_timezone()
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True)
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 FundFlowDailyTHS DataFrame 为空 for {stock_code}")
+                 return None
+            df.index = df['trade_time']
+            df.drop(columns=['trade_time'], inplace=True)
+            df.sort_index(ascending=True, inplace=True)
+            logger.info(f"成功获取并处理股票 {stock_code} 的同花顺日级资金流向数据，数据量: {len(df)} 条")
+            return df
+        except Exception as e:
+            logger.error(f"获取股票 {stock_code} 同花顺日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+    # 修改行：新增获取 FundFlowDailyDC 数据的异步方法
+    async def get_fund_flow_daily_dc_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票在日期范围内（包含起止日）的东方财富日级资金流向数据，并转换为 DataFrame。
+        """
+        try:
+            data_qs = FundFlowDailyDC.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('stock') # 优化查询
+            data_list = await sync_to_async(list)(data_qs)
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的东方财富日级资金流向数据")
+                return None
+            data = []
+            for item in data_list:
+                data.append({
+                    'trade_time': getattr(item, 'trade_time', None),
+                    # 'name': getattr(item, 'name', None), # 名称字段通常不需要合并到数值特征中
+                    'ff_dc_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
+                    'ff_dc_close': self._safe_float(getattr(item, 'close', None)), # 添加前缀
+                    'ff_dc_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
+                    'ff_dc_net_amount_rate': self._safe_float(getattr(item, 'net_amount_rate', None)), # 添加前缀
+                    'ff_dc_buy_elg_amount': self._safe_float(getattr(item, 'buy_elg_amount', None)), # 添加前缀
+                    'ff_dc_buy_elg_amount_rate': self._safe_float(getattr(item, 'buy_elg_amount_rate', None)), # 添加前缀
+                    'ff_dc_buy_lg_amount': self._safe_float(getattr(item, 'buy_lg_amount', None)), # 添加前缀
+                    'ff_dc_buy_lg_amount_rate': self._safe_float(getattr(item, 'buy_lg_amount_rate', None)), # 添加前缀
+                    'ff_dc_buy_md_amount': self._safe_float(getattr(item, 'buy_md_amount', None)), # 添加前缀
+                    'ff_dc_buy_md_amount_rate': self._safe_float(getattr(item, 'buy_md_amount_rate', None)), # 添加前缀
+                    'ff_dc_buy_sm_amount': self._safe_float(getattr(item, 'buy_sm_amount', None)), # 添加前缀
+                    'ff_dc_buy_sm_amount_rate': self._safe_float(getattr(item, 'buy_sm_amount_rate', None)), # 添加前缀
+                })
+            if not data:
+                 logger.warning(f"从 FundFlowDailyDC Model 转换的数据列表为空 for {stock_code}")
+                 return None
+            df = pd.DataFrame(data)
+            if df.empty:
+                logger.warning(f"转换后的 FundFlowDailyDC DataFrame 为空 for {stock_code}")
+                return None
+            default_tz = timezone.get_default_timezone()
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True)
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 FundFlowDailyDC DataFrame 为空 for {stock_code}")
+                 return None
+            df.index = df['trade_time']
+            df.drop(columns=['trade_time'], inplace=True)
+            df.sort_index(ascending=True, inplace=True)
+            logger.info(f"成功获取并处理股票 {stock_code} 的东方财富日级资金流向数据，数据量: {len(df)} 条")
+            return df
+        except Exception as e:
+            logger.error(f"获取股票 {stock_code} 东方财富日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+    # 修改行：新增获取 FundFlowCntTHS 数据的异步方法
+    async def get_fund_flow_cnt_ths_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定同花顺板块列表在日期范围内（包含起止日）的资金流向统计数据，并转换为 DataFrame。
+        """
+        if not ths_codes:
+            return None
+        try:
+            data_qs = FundFlowCntTHS.objects.filter(
+                ths_index__ts_code__in=ths_codes,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('ths_index') # 优化查询
+            data_list = await sync_to_async(list)(data_qs)
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺板块 {ths_codes} 的资金流向统计数据")
+                return None
+            data = []
+            for item in data_list:
+                data.append({
+                    'ts_code': getattr(item.ths_index, 'ts_code', None), # 保留板块代码用于后续处理
+                    'trade_time': getattr(item, 'trade_time', None),
+                    # 'lead_stock': getattr(item, 'lead_stock', None), # 领涨股名称通常不需要合并
+                    'ff_cnt_ths_close_price': self._safe_float(getattr(item, 'close_price', None)), # 添加前缀
+                    'ff_cnt_ths_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
+                    'ff_cnt_ths_industry_index': self._safe_float(getattr(item, 'industry_index', None)), # 添加前缀
+                    'ff_cnt_ths_company_num': self._safe_int(getattr(item, 'company_num', None)), # 添加前缀
+                    'ff_cnt_ths_pct_change_stock': self._safe_float(getattr(item, 'pct_change_stock', None)), # 添加前缀
+                    'ff_cnt_ths_net_buy_amount': self._safe_float(getattr(item, 'net_buy_amount', None)), # 添加前缀
+                    'ff_cnt_ths_net_sell_amount': self._safe_float(getattr(item, 'net_sell_amount', None)), # 添加前缀
+                    'ff_cnt_ths_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
+                })
+            if not data:
+                 logger.warning(f"从 FundFlowCntTHS Model 转换的数据列表为空 for {ths_codes}")
+                 return None
+            df = pd.DataFrame(data)
+            if df.empty:
+                logger.warning(f"转换后的 FundFlowCntTHS DataFrame 为空 for {ths_codes}")
+                return None
+            default_tz = timezone.get_default_timezone()
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True)
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 FundFlowCntTHS DataFrame 为空 for {ths_codes}")
+                 return None
+            # 不在这里设置索引，保留 ts_code 列用于后续分组和合并
+            df.sort_values(by=['ts_code', 'trade_time'], ascending=True, inplace=True)
+            logger.info(f"成功获取并处理同花顺板块 {ths_codes} 的资金流向统计数据，数据量: {len(df)} 条")
+            return df
+        except Exception as e:
+            logger.error(f"获取同花顺板块资金流向统计数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
+    # 修改行：新增获取 FundFlowIndustryTHS 数据的异步方法
+    async def get_fund_flow_industry_ths_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取指定同花顺行业列表在日期范围内（包含起止日）的资金流向统计数据，并转换为 DataFrame。
+        """
+        if not ths_codes:
+            return None
+        try:
+            data_qs = FundFlowIndustryTHS.objects.filter(
+                ths_index__ts_code__in=ths_codes,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).select_related('ths_index') # 优化查询
+            data_list = await sync_to_async(list)(data_qs)
+            if not data_list:
+                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺行业 {ths_codes} 的资金流向统计数据")
+                return None
+            data = []
+            for item in data_list:
+                data.append({
+                    'ts_code': getattr(item.ths_index, 'ts_code', None), # 保留行业代码用于后续处理
+                    'trade_time': getattr(item, 'trade_time', None),
+                    # 'industry': getattr(item, 'industry', None), # 行业名称通常不需要合并
+                    # 'lead_stock': getattr(item, 'lead_stock', None), # 领涨股名称通常不需要合并
+                    'ff_ind_ths_close': self._safe_float(getattr(item, 'close', None)), # 添加前缀
+                    'ff_ind_ths_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
+                    'ff_ind_ths_company_num': self._safe_int(getattr(item, 'company_num', None)), # 添加前缀
+                    'ff_ind_ths_pct_change_stock': self._safe_float(getattr(item, 'pct_change_stock', None)), # 添加前缀
+                    'ff_ind_ths_close_price': self._safe_float(getattr(item, 'close_price', None)), # 添加前缀
+                    'ff_ind_ths_net_buy_amount': self._safe_float(getattr(item, 'net_buy_amount', None)), # 添加前缀
+                    'ff_ind_ths_net_sell_amount': self._safe_float(getattr(item, 'net_sell_amount', None)), # 添加前缀
+                    'ff_ind_ths_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
+                })
+            if not data:
+                 logger.warning(f"从 FundFlowIndustryTHS Model 转换的数据列表为空 for {ths_codes}")
+                 return None
+            df = pd.DataFrame(data)
+            if df.empty:
+                logger.warning(f"转换后的 FundFlowIndustryTHS DataFrame 为空 for {ths_codes}")
+                return None
+            default_tz = timezone.get_default_timezone()
+            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
+            df.dropna(subset=['trade_time'], inplace=True)
+            if df.empty:
+                 logger.warning(f"处理无效 trade_time 后 FundFlowIndustryTHS DataFrame 为空 for {ths_codes}")
+                 return None
+            # 不在这里设置索引，保留 ts_code 列用于后续分组和合并
+            df.sort_values(by=['ts_code', 'trade_time'], ascending=True, inplace=True)
+            logger.info(f"成功获取并处理同花顺行业 {ths_codes} 的资金流向统计数据，数据量: {len(df)} 条")
+            return df
+        except Exception as e:
+            logger.error(f"获取同花顺行业资金流向统计数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
+            return None
+
     async def enrich_features(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
-        为K线DataFrame批量补充指数、板块、筹码等特征。
+        为K线DataFrame批量补充指数、板块、筹码、资金流向等特征。
         Args:
             df: 股票 OHLCV DataFrame (索引是时区感知的 pd.Timestamp)
             stock_code: 股票代码
@@ -814,7 +1090,6 @@ class IndicatorDAO(BaseDAO):
         ths_codes = [m.ths_index.ts_code for m in ths_members if m.ths_index] # 确保 m.ths_index 不是 None
         logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
         # 2. 定义主要市场指数代码 (可配置)
-        
         logger.info(f"需要获取的主要市场指数代码: {main_indices}")
         # 3. 批量获取板块/指数日线行情
         # 由于是日线数据，与股票的分钟线可能不对齐，需要处理合并时的 NaNs
@@ -865,13 +1140,11 @@ class IndicatorDAO(BaseDAO):
                             all_indices_df = pd.merge(all_indices_df, ths_d_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
                             # 清理可能的重复列后缀
                             all_indices_df = all_indices_df[[col for col in all_indices_df.columns if not col.endswith('_dup')]]
-
             if all_indices_df is not None:
                 logger.info(f"已获取并合并指数/板块数据，数据量: {len(all_indices_df)} 条，列数: {len(all_indices_df.columns)}")
             else:
                 logger.warning(f"未获取到任何指数/板块数据 for {stock_code}")
                 all_indices_df = pd.DataFrame() # 确保是一个 DataFrame
-
         # 4. 获取股票筹码分布汇总数据
         cyq_fetch_start_date = start_date # 筹码数据通常是日线，日期范围与股票数据的日期部分对齐即可
         cyq_perf_df = await self.get_stock_cyq_perf_df(stock_code, cyq_fetch_start_date, end_date)
@@ -883,31 +1156,135 @@ class IndicatorDAO(BaseDAO):
         else:
             logger.warning(f"未获取到股票 {stock_code} 的筹码分布汇总数据")
             cyq_perf_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # 修改行：5. 获取股票日级资金流向数据 (FundFlowDaily)
+        fund_flow_daily_df = await self.get_fund_flow_daily_df(stock_code, start_date, end_date)
+        if fund_flow_daily_df is not None and not fund_flow_daily_df.empty:
+             logger.info(f"已获取股票 {stock_code} 的日级资金流向数据，数据量: {len(fund_flow_daily_df)} 条，列数: {len(fund_flow_daily_df.columns)}")
+        else:
+             logger.warning(f"未获取到股票 {stock_code} 的日级资金流向数据")
+             fund_flow_daily_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # 修改行：6. 获取股票同花顺日级资金流向数据 (FundFlowDailyTHS)
+        fund_flow_daily_ths_df = await self.get_fund_flow_daily_ths_df(stock_code, start_date, end_date)
+        if fund_flow_daily_ths_df is not None and not fund_flow_daily_ths_df.empty:
+             logger.info(f"已获取股票 {stock_code} 的同花顺日级资金流向数据，数据量: {len(fund_flow_daily_ths_df)} 条，列数: {len(fund_flow_daily_ths_df.columns)}")
+        else:
+             logger.warning(f"未获取到股票 {stock_code} 的同花顺日级资金流向数据")
+             fund_flow_daily_ths_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # 修改行：7. 获取股票东方财富日级资金流向数据 (FundFlowDailyDC)
+        fund_flow_daily_dc_df = await self.get_fund_flow_daily_dc_df(stock_code, start_date, end_date)
+        if fund_flow_daily_dc_df is not None and not fund_flow_daily_dc_df.empty:
+             logger.info(f"已获取股票 {stock_code} 的东方财富日级资金流向数据，数据量: {len(fund_flow_daily_dc_df)} 条，列数: {len(fund_flow_daily_dc_df.columns)}")
+        else:
+             logger.warning(f"未获取到股票 {stock_code} 的东方财富日级资金流向数据")
+             fund_flow_daily_dc_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # 修改行：8. 获取同花顺板块资金流向统计数据 (FundFlowCntTHS)
+        # 注意：这个数据是按板块代码和日期索引的，需要处理后合并
+        fund_flow_cnt_ths_df_raw = await self.get_fund_flow_cnt_ths_df(ths_codes, index_fetch_start_date, end_date)
+        fund_flow_cnt_ths_df_processed = pd.DataFrame() # 用于存放处理后的板块资金流向数据
+        if fund_flow_cnt_ths_df_raw is not None and not fund_flow_cnt_ths_df_raw.empty:
+             logger.info(f"已获取同花顺板块资金流向统计数据 (原始)，数据量: {len(fund_flow_cnt_ths_df_raw)} 条")
+             # 遍历每个板块代码，提取数据并重命名列
+             for ths_code in fund_flow_cnt_ths_df_raw['ts_code'].unique():
+                  cnt_df = fund_flow_cnt_ths_df_raw[fund_flow_cnt_ths_df_raw['ts_code'] == ths_code].copy()
+                  if not cnt_df.empty:
+                       cnt_df.drop(columns=['ts_code'], inplace=True)
+                       # 重命名列，添加板块代码前缀
+                       cnt_df.columns = [f'ff_cnt_ths_{ths_code.replace(".", "_").lower()}_{col}' for col in cnt_df.columns]
+                       # 设置时间索引
+                       cnt_df.set_index('trade_time', inplace=True)
+                       cnt_df.sort_index(ascending=True, inplace=True)
+                       if fund_flow_cnt_ths_df_processed.empty:
+                            fund_flow_cnt_ths_df_processed = cnt_df
+                       else:
+                            fund_flow_cnt_ths_df_processed = pd.merge(fund_flow_cnt_ths_df_processed, cnt_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
+                            fund_flow_cnt_ths_df_processed = fund_flow_cnt_ths_df_processed[[col for col in fund_flow_cnt_ths_df_processed.columns if not col.endswith('_dup')]]
+             if not fund_flow_cnt_ths_df_processed.empty:
+                  logger.info(f"已处理同花顺板块资金流向统计数据，数据量: {len(fund_flow_cnt_ths_df_processed)} 条，列数: {len(fund_flow_cnt_ths_df_processed.columns)}")
+             else:
+                  logger.warning(f"处理同花顺板块资金流向统计数据后 DataFrame 为空 for {ths_codes}")
+        else:
+             logger.warning(f"未获取到同花顺板块资金流向统计数据 for {ths_codes}")
+
+        # 修改行：9. 获取同花顺行业资金流向统计数据 (FundFlowIndustryTHS)
+        # 注意：这个数据也是按行业代码和日期索引的，需要处理后合并
+        fund_flow_industry_ths_df_raw = await self.get_fund_flow_industry_ths_df(ths_codes, index_fetch_start_date, end_date)
+        fund_flow_industry_ths_df_processed = pd.DataFrame() # 用于存放处理后的行业资金流向数据
+        if fund_flow_industry_ths_df_raw is not None and not fund_flow_industry_ths_df_raw.empty:
+             logger.info(f"已获取同花顺行业资金流向统计数据 (原始)，数据量: {len(fund_flow_industry_ths_df_raw)} 条")
+             # 遍历每个行业代码，提取数据并重命名列
+             for ths_code in fund_flow_industry_ths_df_raw['ts_code'].unique():
+                  ind_df = fund_flow_industry_ths_df_raw[fund_flow_industry_ths_df_raw['ts_code'] == ths_code].copy()
+                  if not ind_df.empty:
+                       ind_df.drop(columns=['ts_code'], inplace=True)
+                       # 重命名列，添加行业代码前缀
+                       ind_df.columns = [f'ff_ind_ths_{ths_code.replace(".", "_").lower()}_{col}' for col in ind_df.columns]
+                       # 设置时间索引
+                       ind_df.set_index('trade_time', inplace=True)
+                       ind_df.sort_index(ascending=True, inplace=True)
+                       if fund_flow_industry_ths_df_processed.empty:
+                            fund_flow_industry_ths_df_processed = ind_df
+                       else:
+                            fund_flow_industry_ths_df_processed = pd.merge(fund_flow_industry_ths_df_processed, ind_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
+                            fund_flow_industry_ths_df_processed = fund_flow_industry_ths_df_processed[[col for col in fund_flow_industry_ths_df_processed.columns if not col.endswith('_dup')]]
+             if not fund_flow_industry_ths_df_processed.empty:
+                  logger.info(f"已处理同花顺行业资金流向统计数据，数据量: {len(fund_flow_industry_ths_df_processed)} 条，列数: {len(fund_flow_industry_ths_df_processed.columns)}")
+             else:
+                  logger.warning(f"处理同花顺行业资金流向统计数据后 DataFrame 为空 for {ths_codes}")
+        else:
+             logger.warning(f"未获取到同花顺行业资金流向统计数据 for {ths_codes}")
+
         # --- 合并数据 ---
         # 将获取的外部数据合并到主股票 DataFrame 中
-        # 使用左合并 (left join)，保留所有股票数据的时间点，补充外部数据
-        # 外部数据（指数、筹码）通常是日线，与股票分钟线合并时，同一天的分钟线数据会对应相同的日线数据
-        # 如果股票数据是日线，则日期会完全对齐
-        # 如果股票数据是分钟线，需要考虑如何处理每日的外部数据
-        # 常规做法是：对于同一天的分钟数据，使用该天对应的日线指数/筹码数据。合并时 pandas 会自动处理。
         merged_df = df.copy() # 创建副本进行操作
+
+        # 合并指数/板块日线行情数据
         if all_indices_df is not None and not all_indices_df.empty:
-            # 合并指数/板块数据
             merged_df = pd.merge(merged_df, all_indices_df, left_index=True, right_index=True, how='left', suffixes=('', '_index_dup'))
             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_index_dup')]] # 清理重复列
+
+        # 合并筹码数据
         if cyq_perf_df is not None and not cyq_perf_df.empty:
-            # 合并筹码数据
             merged_df = pd.merge(merged_df, cyq_perf_df, left_index=True, right_index=True, how='left', suffixes=('', '_cyq_dup'))
             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_cyq_dup')]] # 清理重复列
+
+        # 修改行：合并日级资金流向数据 (FundFlowDaily)
+        if fund_flow_daily_df is not None and not fund_flow_daily_df.empty:
+             merged_df = pd.merge(merged_df, fund_flow_daily_df, left_index=True, right_index=True, how='left', suffixes=('', '_ff_daily_dup'))
+             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_ff_daily_dup')]] # 清理重复列
+
+        # 修改行：合并同花顺日级资金流向数据 (FundFlowDailyTHS)
+        if fund_flow_daily_ths_df is not None and not fund_flow_daily_ths_df.empty:
+             merged_df = pd.merge(merged_df, fund_flow_daily_ths_df, left_index=True, right_index=True, how='left', suffixes=('', '_ff_ths_dup'))
+             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_ff_ths_dup')]] # 清理重复列
+
+        # 修改行：合并东方财富日级资金流向数据 (FundFlowDailyDC)
+        if fund_flow_daily_dc_df is not None and not fund_flow_daily_dc_df.empty:
+             merged_df = pd.merge(merged_df, fund_flow_daily_dc_df, left_index=True, right_index=True, how='left', suffixes=('', '_ff_dc_dup'))
+             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_ff_dc_dup')]] # 清理重复列
+
+        # 修改行：合并同花顺板块资金流向统计数据 (FundFlowCntTHS)
+        if fund_flow_cnt_ths_df_processed is not None and not fund_flow_cnt_ths_df_processed.empty:
+             merged_df = pd.merge(merged_df, fund_flow_cnt_ths_df_processed, left_index=True, right_index=True, how='left', suffixes=('', '_ff_cnt_ths_dup'))
+             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_ff_cnt_ths_dup')]] # 清理重复列
+
+        # 修改行：合并同花顺行业资金流向统计数据 (FundFlowIndustryTHS)
+        if fund_flow_industry_ths_df_processed is not None and not fund_flow_industry_ths_df_processed.empty:
+             merged_df = pd.merge(merged_df, fund_flow_industry_ths_df_processed, left_index=True, right_index=True, how='left', suffixes=('', '_ff_ind_ths_dup'))
+             merged_df = merged_df[[col for col in merged_df.columns if not col.endswith('_ff_ind_ths_dup')]] # 清理重复列
+
         logger.info(f"合并外部数据后，DataFrame 列数: {len(merged_df.columns)}")
         # --- 处理合并过程中产生的 NaN 值 ---
-        # 外部数据（如指数日线、筹码日线）合并到股票分钟线时，除了每天的第一个分钟数据行，其他分钟数据行的这些列都会是 NaN。
+        # 外部数据（如指数日线、筹码日线、资金流向日线）合并到股票分钟线时，除了每天的第一个分钟数据行，其他分钟数据行的这些列都会是 NaN。
         # 通常的做法是使用 forward fill (ffill) 将日线数据填充到该天的所有分钟数据行。
         # 对于计算技术指标产生的 NaN (例如 SMA 前面 N-1 天)，可以保留或用其他方法填充（如填充0或平均值，但对于时间序列不推荐）。
         # 对于超额收益、筹码偏离等衍生特征，如果计算依赖的原始列有 NaN，则结果也是 NaN，可以保留或 ffill。
-        # 对指数/板块和筹码相关列进行前向填充
-        # 找出所有以 'index_', 'ths_', 'cyq_' 开头的列
-        cols_to_ffill = [col for col in merged_df.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_')]
+        # 对指数/板块、筹码和资金流向相关列进行前向填充
+        # 找出所有以 'index_', 'ths_', 'cyq_', 'ff_daily_', 'ff_ths_', 'ff_dc_', 'ff_cnt_ths_', 'ff_ind_ths_' 开头的列
+        cols_to_ffill = [col for col in merged_df.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_') or col.startswith('ff_daily_') or col.startswith('ff_ths_') or col.startswith('ff_dc_') or col.startswith('ff_cnt_ths_') or col.startswith('ff_ind_ths_')] # 修改行：更新需要前向填充的列前缀列表
         if cols_to_ffill:
             try:
                 merged_df[cols_to_ffill] = merged_df[cols_to_ffill].fillna(method='ffill')
@@ -918,9 +1295,9 @@ class IndicatorDAO(BaseDAO):
         # 例如，fillna(0) 可能不合适，fillna(method='bfill') 然后再 ffill 也是一种方法
         # 或者保留 NaN，让模型自己处理
         # merged_df.fillna(0, inplace=True) # 示例：用0填充所有剩余 NaN (可能不推荐)
-        logger.info(f"特征工程完成，最终 DataFrame 形状: {merged_df.shape} for {stock_code}")
+        logger.info(f"特征工程数据准备完成，最终 DataFrame 形状: {merged_df.shape} for {stock_code}")
         return merged_df
-    
+
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:
         """将输入值安全转换为 Decimal 类型"""

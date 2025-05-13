@@ -191,7 +191,7 @@ def save_fund_flow_daily_data_ths_history_task(self):
     logger.info(f"任务启动: save_fund_flow_daily_data_ths_history_task (调度器模式)")
     try:
         index_info_dao = IndexBasicDAO()
-        trade_days = index_info_dao.get_last_n_trade_cal_open(n=1500)
+        trade_days = asyncio.run(index_info_dao.get_last_n_trade_cal_open(n=1500))
         total_dispatched_batches = 0
         for cal_date in trade_days:
             # cal_date格式为'YYYYMMDD'，转为date对象
