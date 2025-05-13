@@ -88,7 +88,7 @@ class TrendFollowingStrategy:
             base_data_dir (str): 存储策略相关数据（如模型、scalers）的基础目录。
                                  默认为 Django settings 中的 STRATEGY_DATA_DIR。
         """
-        # 修改：检查settings中是否配置了INDICATOR_PARAMETERS_CONFIG_PATH
+        # 检查settings中是否配置了INDICATOR_PARAMETERS_CONFIG_PATH
         if params_file is None:
             if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH') or not settings.INDICATOR_PARAMETERS_CONFIG_PATH:
                  logger.error("CRITICAL: Django settings.INDICATOR_PARAMETERS_CONFIG_PATH 未配置!")
@@ -197,7 +197,7 @@ class TrendFollowingStrategy:
             loaded_params = {} # 确保 loaded_params 是一个空字典
 
         # --- 阶段 3: 设置 self.params (之前由 BaseStrategy 完成) ---
-        self.params: Dict[str, Any] = loaded_params # 修改：直接将加载的参数赋值给 self.params
+        self.params: Dict[str, Any] = loaded_params # 直接将加载的参数赋值给 self.params
         # 修改: 增加对 self.params 是否为空的日志判断
         logger.debug(f"{temp_log_prefix} self.params 已设置。是否为空: {not bool(self.params)}. 顶层键 (部分): {list(self.params.keys())[:5] if self.params else 'None'}")
         
@@ -380,13 +380,13 @@ class TrendFollowingStrategy:
 
     def _normalize_weights(self, weights: Dict[str, float]):
         """归一化权重字典，使其总和为1。"""
-        # 修改：增加对 weights 是否为字典的检查
+        # 增加对 weights 是否为字典的检查
         if not isinstance(weights, dict):
             logger.warning(f"[{self.strategy_name}] 尝试归一化的权重对象不是字典: {type(weights)}")
             return # 不是字典则直接返回，不处理
 
         total_weight = sum(weights.values())
-        # 修改：使用一个小的容差值进行浮点数比较，避免精确比较问题
+        # 使用一个小的容差值进行浮点数比较，避免精确比较问题
         if total_weight > 0 and not np.isclose(total_weight, 1.0, atol=1e-9): # atol=1e-9 是一个合理的默认容差
             for key in weights:
                 if total_weight != 0: # 避免除以零
@@ -966,7 +966,7 @@ class TrendFollowingStrategy:
                  continue # 跳过未在基础时间框架中定义的级别
 
             # STOCH (JSON: STOCHk, STOCHd)
-            # 修改：使用从param_sources获取的STOCH参数，这与_perform_trend_analysis中使用的参数一致
+            # 使用从param_sources获取的STOCH参数，这与_perform_trend_analysis中使用的参数一致
             stoch_k_ia = _get_param_val(param_sources, 'stoch_k', 14) 
             stoch_d_ia = _get_param_val(param_sources, 'stoch_d', 3)   
             stoch_smooth_k_ia = _get_param_val(param_sources, 'stoch_smooth_k', 3) 
@@ -1320,7 +1320,7 @@ class TrendFollowingStrategy:
                 ema_patterns = [c['name_pattern'] for c in ema_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
                 for period in ema_periods_align:
                      if isinstance(period, (int, float)) and period > 0:
-                        # 修改：EMA排列信号通常在所有timeframes上计算，所以为所有timeframes请求
+                        # EMA排列信号通常在所有timeframes上计算，所以为所有timeframes请求
                         for tf_str in timeframes: 
                              for name in TrendFollowingStrategy._format_indicator_name(ema_patterns, period=period):
                                 required.add(f"{name}_{tf_str}")
@@ -1371,7 +1371,7 @@ class TrendFollowingStrategy:
     def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str, indicator_configs: List[Dict]) -> Tuple[pd.Series, Dict]:
         """
         计算基于规则的信号。
-        修改：使用JSON配置获取指标列名。
+        使用JSON配置获取指标列名。
         """
         if data is None or data.empty:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 输入数据为空，无法生成规则信号。")
@@ -1447,15 +1447,18 @@ class TrendFollowingStrategy:
         timeframes_from_config = bs_params.get('timeframes', [])
         if not isinstance(timeframes_from_config, list) or not timeframes_from_config: 
             logger.error(f"[{self.strategy_name}][{stock_code}] 'base_scoring.timeframes' 为空或无效，无法计算基础评分。")
-             # 修改：返回一个全为50的Series和一个空的Dict
+             # 返回一个全为50的Series和一个空的Dict
             return pd.Series(50.0, index=data.index, name='final_rule_signal'), {}
 
+        # 确定时间框架权重 current_weights
         if self.timeframe_weights is not None and isinstance(self.timeframe_weights, dict):
             current_weights = self.timeframe_weights.copy()
             defined_tfs_set = set(timeframes_from_config)
+            # 移除不在配置列表中的权重
             for tf_w in list(current_weights.keys()):
                 if tf_w not in defined_tfs_set:
                     del current_weights[tf_w]
+            # 为配置列表中但没有权重的添加0权重
             for tf_d in defined_tfs_set:
                 if tf_d not in current_weights:
                     current_weights[tf_d] = 0.0
@@ -1470,12 +1473,12 @@ class TrendFollowingStrategy:
             num_other_tfs = len(timeframes_from_config) - 1
             if num_other_tfs > 0:
                 base_weight_val = (1.0 - focus_weight_val) / num_other_tfs
-            elif len(timeframes_from_config) == 1: 
+            elif len(timeframes_from_config) == 1:
                 base_weight_val = 0.0
-                focus_weight_val = 1.0 
-            else: 
+                focus_weight_val = 1.0
+            else: # timeframes_from_config 为空的情况已在前面处理，这里理论上不会发生
                 base_weight_val = 0.0
-                focus_weight_val = 0.0 # 如果 timeframes_from_config 为空，这里也会处理
+                focus_weight_val = 0.0
 
             current_weights = {tf: base_weight_val for tf in timeframes_from_config if tf != self.focus_timeframe}
             if self.focus_timeframe in timeframes_from_config: # 确保 focus_timeframe 在列表中才添加权重
@@ -1485,44 +1488,51 @@ class TrendFollowingStrategy:
                  avg_weight = 1.0 / len(timeframes_from_config) if timeframes_from_config else 0.0
                  current_weights = {tf: avg_weight for tf in timeframes_from_config}
 
-            self._normalize_weights(current_weights) 
+            self._normalize_weights(current_weights)
 
-            base_score_raw = pd.Series(0.0, index=data.index)
-            total_effective_weight = 0.0 # 用于确认加权总和
+        # 初始化 base_score_raw，用于累加加权得分
+        # 在计算权重后，但在加权求和循环之前初始化 base_score_raw
+        base_score_raw = pd.Series(0.0, index=data.index)
+        total_effective_weight = 0.0 # 用于确认加权总和
 
-            for tf_s in timeframes_from_config:
-                tf_weight = current_weights.get(tf_s, 0)
-                if tf_weight == 0: continue
+        # 根据确定的权重 current_weights 计算加权平均基础得分
+        # 将加权求和循环移动到确定 current_weights 之后
+        for tf_s in timeframes_from_config:
+            tf_weight = current_weights.get(tf_s, 0)
+            if tf_weight == 0: continue
 
-                # SCORE_ 列名由 strategy_utils.calculate_all_indicator_scores 内部逻辑决定
-                tf_score_cols = [col for col in indicator_scores_df.columns if col.endswith(f'_{tf_s}') and col.startswith('SCORE_')]
-                
-                if tf_score_cols:
-                    # 过滤掉所有值都是 NaN 的列，避免拉低平均分
-                    valid_tf_score_cols = [col for col in tf_score_cols if not indicator_scores_df[col].isnull().all()]
-                    if valid_tf_score_cols:
-                        tf_average_score = indicator_scores_df[valid_tf_score_cols].mean(axis=1).fillna(50.0)
-                        base_score_raw = base_score_raw.add(tf_average_score * tf_weight, fill_value=0.0) 
-                        total_effective_weight += tf_weight
-                    else:
-                         logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 的所有指标评分列全为 NaN。将使用中性分50参与加权。")
-                         base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
-                         total_effective_weight += tf_weight
-                else:
-                    logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 没有找到任何指标评分列。将使用中性分50参与加权。")
-                    base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
+            # SCORE_ 列名由 strategy_utils.calculate_all_indicator_scores 内部逻辑决定
+            tf_score_cols = [col for col in indicator_scores_df.columns if col.endswith(f'_{tf_s}') and col.startswith('SCORE_')]
+
+            if tf_score_cols:
+                # 过滤掉所有值都是 NaN 的列，避免拉低平均分
+                valid_tf_score_cols = [col for col in tf_score_cols if not indicator_scores_df[col].isnull().all()]
+                if valid_tf_score_cols:
+                    tf_average_score = indicator_scores_df[valid_tf_score_cols].mean(axis=1).fillna(50.0)
+                    base_score_raw = base_score_raw.add(tf_average_score * tf_weight, fill_value=0.0)
                     total_effective_weight += tf_weight
-            
-            # 如果所有有效权重总和为零，或者 timeframes_from_config 为空，则基础评分全为 50
-            if total_effective_weight == 0 and timeframes_from_config: # 如果timeframes不为空但有效权重总和为零
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] 所有时间框架的有效权重总和为零，基础评分将为中性50。")
-                 base_score_raw = pd.Series(50.0, index=data.index)
-            elif not timeframes_from_config: # timeframes为空的情况已在前面处理
-                 pass # base_score_raw 已经是全0或全50，取决于初始化
-            elif not np.isclose(total_effective_weight, sum(current_weights.values())) and sum(current_weights.values()) > 0:
-                # logger.warning(f"[{self.strategy_name}][{stock_code}] 有效权重总和 {total_effective_weight:.4f} 与预期权重总和 {sum(current_weights.values()):.4f} 不符。可能存在计算问题。")
-                pass # 这是一个调试信息，不是必须的警告
+                else:
+                     logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 的所有指标评分列全为 NaN。将使用中性分50参与加权。")
+                     base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
+                     total_effective_weight += tf_weight
+            else:
+                logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 没有找到任何指标评分列。将使用中性分50参与加权。")
+                base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
+                total_effective_weight += tf_weight
 
+        # 如果所有有效权重总和为零，或者 timeframes_from_config 为空，则基础评分全为 50
+        # 这个检查现在在加权求和之后进行
+        if total_effective_weight == 0 and timeframes_from_config: # 如果timeframes不为空但有效权重总和为零
+             logger.warning(f"[{self.strategy_name}][{stock_code}] 所有时间框架的有效权重总和为零，基础评分将为中性50。")
+             base_score_raw = pd.Series(50.0, index=data.index)
+        # elif not timeframes_from_config: # timeframes为空的情况已在前面处理并返回
+        #      pass # base_score_raw 已经是全0或全50，取决于初始化
+        elif not np.isclose(total_effective_weight, sum(current_weights.values())) and sum(current_weights.values()) > 0:
+            # logger.warning(f"[{self.strategy_name}][{stock_code}] 有效权重总和 {total_effective_weight:.4f} 与预期权重总和 {sum(current_weights.values()):.4f} 不符。可能存在计算问题。")
+            pass # 这是一个调试信息，不是必须的警告
+
+        # 对计算出的原始基础评分进行剪切和填充 NaN
+        # 这一行现在在加权求和计算之后执行
         base_score_raw = base_score_raw.clip(0, 100).fillna(50.0)
 
         # 量能调整基础评分 (假定 strategy_utils 包含此函数)
@@ -2057,7 +2067,7 @@ class TrendFollowingStrategy:
 
 
         # 11. BOLL 突破判断 (使用 focus_timeframe 的 BOLL 数据)
-        # 修改：BOLL 参数优先来自 trend_following_params.boll_breakout_params，如果没有，再看 base_scoring
+        # BOLL 参数优先来自 trend_following_params.boll_breakout_params，如果没有，再看 base_scoring
         boll_breakout_params_tf = tf_params.get('boll_breakout_params', {})
         if isinstance(boll_breakout_params_tf, dict) and 'period' in boll_breakout_params_tf and 'std_dev' in boll_breakout_params_tf:
              boll_period_signal = boll_breakout_params_tf['period']
@@ -2107,7 +2117,7 @@ class TrendFollowingStrategy:
     def _adjust_volatility_parameters(self, data: pd.DataFrame):
         """
         根据股票波动率动态调整参数，如波动率阈值。
-        修改：使用JSON配置获取close列名。
+        使用JSON配置获取close列名。
         """
         focus_tf = self.focus_timeframe
         # 使用JSON配置获取close列名
@@ -2240,7 +2250,7 @@ class TrendFollowingStrategy:
     def _apply_divergence_penalty(self, final_signal: pd.Series, divergence_signals_df: pd.DataFrame, dd_params: Dict) -> pd.Series:
         """
         模块化调整逻辑：应用背离惩罚。
-        修改：使用JSON配置获取背离信号列名。
+        使用JSON配置获取背离信号列名。
         """
         final_signal_filled = final_signal.fillna(50.0)
         if divergence_signals_df.empty:
@@ -2360,7 +2370,7 @@ class TrendFollowingStrategy:
         return filtered_signal.clip(0, 100) # 确保过滤后的信号也在 0-100 范围内
 
 
-    # 修改：这个方法是实际的信号生成入口，返回 DataFrame
+    # 这个方法是实际的信号生成入口，返回 DataFrame
     def generate_signals(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None) -> pd.DataFrame:
         """
         生成趋势跟踪信号，整合规则信号和Transformer模型预测。
@@ -2445,7 +2455,7 @@ class TrendFollowingStrategy:
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index) 
 
         self.set_model_paths(stock_code)
-        # 修改：调用加载 Transformer 模型的方法
+        # 调用加载 Transformer 模型的方法
         self.load_transformer_model(stock_code) 
 
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
@@ -2491,7 +2501,7 @@ class TrendFollowingStrategy:
         logger.info(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号...")
         try:
             # 获取信号组合权重
-            # 修改：从 tf_params 中获取 signal_combination_weights，并确保是字典
+            # 从 tf_params 中获取 signal_combination_weights，并确保是字典
             signal_combination_weights = self.tf_params.get('signal_combination_weights', {})
             if not isinstance(signal_combination_weights, dict) or not signal_combination_weights:
                  logger.warning(f"[{self.strategy_name}][{stock_code}] 'signal_combination_weights' 参数无效或为空，使用默认权重 {{'rule_weight': 0.6, 'transformer_weight': 0.4}}。")
@@ -2584,7 +2594,7 @@ class TrendFollowingStrategy:
         # 返回包含所有中间计算和最终信号的 DataFrame
         return self.intermediate_data
 
-    # 修改：将 load_lstm_model 更名为 load_transformer_model
+    # 将 load_lstm_model 更名为 load_transformer_model
     def load_transformer_model(self, stock_code: str):
         """
         为特定股票加载 Transformer 模型权重和 scaler。
@@ -2677,7 +2687,7 @@ class TrendFollowingStrategy:
         self.set_model_paths(stock_code) 
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备数据：部分或全部路径未设置。")
-            # 修改：不是 raise 异常，而是返回 False 表示保存失败
+            # 不是 raise 异常，而是返回 False 表示保存失败
             return False
 
         try:
@@ -2703,7 +2713,7 @@ class TrendFollowingStrategy:
             return True # 返回 True 表示保存成功
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备好的数据、Scaler或特征列表时出错: {e}", exc_info=True)
-            # 修改：返回 False 表示保存失败
+            # 返回 False 表示保存失败
             return False
 
     def load_prepared_data(self, stock_code: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[Union[MinMaxScaler, StandardScaler]], Optional[Union[MinMaxScaler, StandardScaler]]]:
@@ -2717,7 +2727,7 @@ class TrendFollowingStrategy:
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 加载准备数据：部分或全部路径未设置。")
             self.selected_feature_names_for_transformer = [] # 重置列表
-            # 修改：返回空 NumPy 数组和 None
+            # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
 
         required_files_exist = all([
@@ -2730,7 +2740,7 @@ class TrendFollowingStrategy:
         if not required_files_exist:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 缺失必需的准备数据/Scaler/特征文件，无法加载。")
             self.selected_feature_names_for_transformer = [] # 重置列表
-             # 修改：返回空 NumPy 数组和 None
+             # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
         
         try:
@@ -2761,7 +2771,7 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 加载准备好的数据、Scaler或特征列表时出错: {e}", exc_info=True)
             self.selected_feature_names_for_transformer = [] # 重置列表
-            # 修改：返回空 NumPy 数组和 None
+            # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
 
 
@@ -2941,7 +2951,7 @@ class TrendFollowingStrategy:
     def _calculate_trend_duration(self, data_with_signals: pd.DataFrame) -> Dict[str, Any]:
         """
         计算趋势的持续时间和强度，基于 'final_rule_signal' 列。
-        修改：使用JSON配置获取内部列名。
+        使用JSON配置获取内部列名。
         """
         trend_duration_info = {
             'bullish_duration': 0, 'bearish_duration': 0,
@@ -3126,7 +3136,7 @@ class TrendFollowingStrategy:
     def analyze_signals(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         分析趋势策略信号，生成解读和建议。
-        修改：使用JSON配置获取内部列名。
+        使用JSON配置获取内部列名。
         """
         if self.intermediate_data is None or self.intermediate_data.empty:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 中间数据为空，无法进行信号分析。")
@@ -3311,11 +3321,11 @@ class TrendFollowingStrategy:
         """返回信号分析结果字典。"""
         return self.analysis_results
 
-    # 修改：添加 timestamp 参数，用于记录分析发生的时间点，data 参数可选，方便获取最新价格
+    # 添加 timestamp 参数，用于记录分析发生的时间点，data 参数可选，方便获取最新价格
     def save_analysis_results(self, stock_code: str, timestamp: pd.Timestamp, data: Optional[pd.DataFrame]=None):
         """
         保存趋势跟踪策略的分析结果到数据库。
-        修改：使用JSON配置获取内部列名和OHLCV列名。
+        使用JSON配置获取内部列名和OHLCV列名。
         """
         from stock_models.stock_analytics import StockScoreAnalysis
         from stock_models.stock_basic import StockInfo
