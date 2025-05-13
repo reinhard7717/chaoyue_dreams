@@ -918,7 +918,7 @@ class IndicatorService:
         # 定义一个异步辅助函数来计算单个指标
         async def _calculate_single_indicator_async(tf_calc: str, base_df_with_suffix: pd.DataFrame, config_item: Dict) -> Optional[Tuple[str, pd.DataFrame]]:
             """异步计算单个时间级别上的单个指标。"""
-            print(f"[{stock_code}] Debug: 开始计算指标 {config_item['name']} for TF {tf_calc}...") # 调试输出：开始计算单个指标
+            # print(f"[{stock_code}] Debug: 开始计算指标 {config_item['name']} for TF {tf_calc}...") # 调试输出：开始计算单个指标
             # 检查输入的基础数据是否有效
             if base_df_with_suffix is None or base_df_with_suffix.empty:
                 print(f"[{stock_code}] Debug: TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}") # 调试输出：基础数据为空
