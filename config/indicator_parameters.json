@@ -328,7 +328,6 @@
     "calculate_cmf": true,
     "calculate_vol_ma": true,
     "calculate_vwap": true,
-    "vwap_anchor": 30,
     "calculate_adl": true,
     "calculate_ichimoku": true,
     "calculate_pivot_points": true,

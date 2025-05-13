@@ -2679,9 +2679,9 @@ def adjust_score_with_volume(
             'div': next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_PRICE_DIV_SIGNAL_")), "VOL_PRICE_DIV_SIGNAL_{timeframe}")
         }
         for tf in vol_tf_list_to_process:
-             result_df[_format_indicator_name(signal_patterns['confirm'], timeframe=tf)[0]] = 0
-             result_df[_format_indicator_name(signal_patterns['spike'], timeframe=tf)[0]] = 0
-             result_df[_format_indicator_name(signal_patterns['div'], timeframe=tf)[0]] = 0
+            result_df[_format_indicator_name(signal_patterns['confirm'], timeframe=tf)[0]] = 0
+            result_df[_format_indicator_name(signal_patterns['spike'], timeframe=tf)[0]] = 0
+            result_df[_format_indicator_name(signal_patterns['div'], timeframe=tf)[0]] = 0
 
         return result_df # 返回包含默认0信号和原始（或填充后）分数的DataFrame
 
@@ -2737,6 +2737,20 @@ def adjust_score_with_volume(
         obv_ma_col_name = _format_indicator_name(indicator_patterns.get('OBV_MA', 'OBV_MA_{period}_{timeframe}'), period=current_obv_ma_period, timeframe=current_vol_tf)[0] # <-- 修改点：使用 current_obv_ma_period
 
         required_cols = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name, obv_ma_col_name]
+
+        # --- 添加调试日志输出当前时间框架的数据信息 --- # 新增行
+        logger.debug(f"量能调整/分析模块：检查时间框架 '{current_vol_tf}' 的数据。") # 新增行
+        logger.debug(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 需要的列: {required_cols}") # 新增行
+        for col in required_cols: # 新增行
+            if col not in data.columns: # 新增行
+                logger.debug(f"量能调整/分析模块：列 '{col}' 不存在于输入数据中。") # 新增行
+            else: # 新增行
+                non_nan_count = data[col].count() # 新增行
+                logger.debug(f"量能调整/分析模块：列 '{col}' 存在，非NaN值数量: {non_nan_count}/{len(data)}") # 新增行
+                if non_nan_count == 0: # 新增行
+                    logger.warning(f"量能调整/分析模块：警告 - 列 '{col}' 存在但所有值均为 NaN。") # 新增行
+        # --- 调试日志输出结束 --- # 新增行
+        
         missing_cols = [col for col in required_cols if col not in data.columns or data[col].isnull().all()]
 
         # 预先创建当前时间框架的信号列，并用0填充，即使数据缺失也要确保列存在
@@ -2746,7 +2760,7 @@ def adjust_score_with_volume(
         result_df[confirm_signal_col] = 0
         result_df[spike_signal_col] = 0
         result_df[div_signal_col] = 0
-
+        print(f"量能调整/分析模块：")
 
         if missing_cols:
             logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 缺少必需的数据列或数据全为 NaN: {missing_cols}。跳过此时间框架的分析。")

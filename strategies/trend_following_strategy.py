@@ -1607,7 +1607,7 @@ class TrendFollowingStrategy:
                 # 需要将背离检测参数传递给 strategy_utils
                 # 例如，需要知道检测哪些指标的背离，背离的长度阈值等
                 # 假设 strategy_utils.detect_divergence 需要数据、dd_params 和 naming_config
-                divergence_signals_df = strategy_utils.detect_divergence(data, dd_params, NAMING_CONFIG)
+                divergence_signals_df = strategy_utils.detect_divergence(data=data, dd_params=dd_params, indicator_configs=NAMING_CONFIG)
                 if not divergence_signals_df.empty:
                      # 检查背离信号列是否存在，如果不存在则添加到df并填False
                      internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
