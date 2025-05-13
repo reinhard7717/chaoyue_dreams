@@ -35,7 +35,7 @@ app.conf.update(
         'tasks.tushare.index_tasks',
         'tasks.tushare.train_transformer_tasks',
         'tasks.tushare.industry_tasks',
-        'tasks.cal_daily_tasks',
+        'tasks.tushare.cal_daily_tasks',
         
         # 如果还有其他文件包含 Celery 任务，也一并添加到这里
         # 例如: 'tasks.other_tasks'
