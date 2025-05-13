@@ -16,6 +16,8 @@ from torch.utils.data import DataLoader
 from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas_ta as ta
 
+from dao_manager.tushare_daos.industry_dao import IndustryDao
+
 # 假设 BaseStrategy 在 .base 模块中定义 (根据您的文件结构)
 # from .base import BaseStrategy # 原文件中被注释，为了代码独立性暂不保留，但请注意可能需要引入 BaseStrategy
 from .utils import strategy_utils
@@ -45,21 +47,6 @@ def load_naming_config():
         logger.error(f"加载命名规范文件出错: {e}", exc_info=True)
         return {} # 加载失败返回空字典
 
-# load_params_config 函数似乎没有在类中使用，可以保留或移除
-# def load_params_config():
-#     if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH') or not settings.INDICATOR_PARAMETERS_CONFIG_PATH:
-#          logger.error("CRITICAL: Django settings.INDICATOR_PARAMETERS_CONFIG_PATH 未配置!")
-#          return {}
-#     if not os.path.exists(settings.INDICATOR_PARAMETERS_CONFIG_PATH):
-#          logger.error(f"参数配置文件未找到: {settings.INDICATOR_PARAMETERS_CONFIG_PATH}")
-#          return {}
-#     try:
-#         with open(settings.INDICATOR_PARAMETERS_CONFIG_PATH, 'r', encoding='utf-8') as f:
-#             return json.load(f)
-#     except Exception as e:
-#          logger.error(f"加载参数配置文件出错: {e}", exc_info=True)
-#          return {}
-
 NAMING_CONFIG = load_naming_config()
 
 logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
@@ -81,13 +68,13 @@ class TrendFollowingStrategy:
     def __init__(self, params_file: str = None, base_data_dir: str = None):
         """
         初始化趋势跟踪策略。
-
         Args:
             params_file (str): 策略参数JSON文件的路径。
                                可以是绝对路径，也可以是相对于项目根目录或当前工作目录的相对路径。
             base_data_dir (str): 存储策略相关数据（如模型、scalers）的基础目录。
                                  默认为 Django settings 中的 STRATEGY_DATA_DIR。
         """
+        self.industry_dao = IndustryDao()
         # 检查settings中是否配置了INDICATOR_PARAMETERS_CONFIG_PATH
         if params_file is None:
             if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH') or not settings.INDICATOR_PARAMETERS_CONFIG_PATH:
@@ -96,7 +83,6 @@ class TrendFollowingStrategy:
                  params_file = "" 
             else:
                 params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
-
         if base_data_dir is None:
             # 确保 settings 中定义了 STRATEGY_DATA_DIR
             if not hasattr(settings, 'STRATEGY_DATA_DIR') or not settings.STRATEGY_DATA_DIR:
@@ -106,7 +92,6 @@ class TrendFollowingStrategy:
                  logger.warning(f"使用默认备用策略数据目录: {base_data_dir}")
             else:
                 base_data_dir = settings.STRATEGY_DATA_DIR
-
         self.params_file = params_file
         self.base_data_dir = base_data_dir
         # --- 阶段 0: 初始化局部变量 ---
@@ -1291,17 +1276,6 @@ class TrendFollowingStrategy:
                             else:
                                 logger.warning(f"{log_prefix} 衍生特征 CLOSE_KC_POS 配置中的 kc_params 不是字典。")
 
-                        # OBV_MA 已经在量能确认部分处理，这里可以跳过或确保一致性
-                        # elif deriv_feature_key_upper == 'OBV_MA':
-                        #     obv_ma_period_deriv = deriv_feature_config.get('period')
-                        #     if obv_ma_period_deriv is not None:
-                        #          for name in TrendFollowingStrategy._format_indicator_name(pattern, period=obv_ma_period_deriv):
-                        #              required.add(f"{name}_{deriv_tf_str}")
-                        #     else:
-                        #          logger.warning(f"{log_prefix} 衍生特征 OBV_MA 配置缺少 period。")
-                        
-                        # 添加其他可能需要的衍生特征处理逻辑
-
         # 6. 添加策略内部计算所需的其他基础指标列 (如果它们没有在评分/分析/特征工程中包含)
         # 例如，计算 EMA 排列需要多个周期的 EMA。这些周期的列表可以在参数中配置。
         # EMA 列表来自 trend_analysis.ema_periods 或 feature_engineering_params.ema_periods
@@ -1309,10 +1283,10 @@ class TrendFollowingStrategy:
         ta_params_global = self.params.get('trend_analysis', {})
         ema_periods_align = ta_params_global.get('ema_periods', []) # 用于 score 的 EMA
         if not ema_periods_align or not isinstance(ema_periods_align, list): # 如果 trend_analysis 没有配置或配置无效
-             ema_periods_align = fe_params.get('ema_periods', []) # 使用 feature_engineering 的 EMA 列表作为备选
-             if not isinstance(ema_periods_align, list): # 再次检查类型
-                  logger.warning(f"{log_prefix} 'trend_analysis.ema_periods' 和 'feature_engineering_params.ema_periods' 参数配置无效或缺失，无法为 EMA 排列请求 EMA 列。")
-                  ema_periods_align = []
+            ema_periods_align = fe_params.get('ema_periods', []) # 使用 feature_engineering 的 EMA 列表作为备选
+            if not isinstance(ema_periods_align, list): # 再次检查类型
+                logger.warning(f"{log_prefix} 'trend_analysis.ema_periods' 和 'feature_engineering_params.ema_periods' 参数配置无效或缺失，无法为 EMA 排列请求 EMA 列。")
+                ema_periods_align = []
 
         if ema_periods_align and 'EMA' in indicator_naming_conv:
              ema_naming_conf = indicator_naming_conv['EMA']

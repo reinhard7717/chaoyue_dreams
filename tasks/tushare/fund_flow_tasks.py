@@ -3,6 +3,7 @@ import asyncio
 import logging
 import datetime
 import time
+from django.db.models import Q
 from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 # from celery import chain # 不再需要 chain，除非有后续步骤
@@ -66,7 +67,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
-#  ================ （当日）日级资金流向数据 （三种渠道） ================
+#  ================ （当日）个股日级资金流向数据 （三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_today(self):
     """
@@ -143,48 +144,58 @@ def save_fund_flow_daily_data_history_task(self):
         logger.error(f"执行 save_fund_flow_daily_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
-# ================ （历史）板块资金流向数据 - 同花顺&东方财富 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_batch')
-def save_fund_flow_daily_data_ths_history_batch(self, trade_date: str):
+# ================ （当日）板块、行业资金流向数据 - 同花顺 ================
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
+def save_fund_flow_daily_data_ths_today(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     Args:
         stock_codes: 股票代码列表
     """
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 （历史）板块资金流向数据 - 同花顺...")
+    logger.info(f"开始处理（当日）板块、行业资金流向数据 - 同花顺...")
+    # 在任务开始时创建一次 DAO 实例
+    fund_flow_dao = FundFlowDao()
+    try:
+        # 异步获取数据并保存
+        asyncio.run(fund_flow_dao.save_today_fund_flow_daily_ths_data())
+    except Exception as e:
+        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+# ================ （历史）板块、行业资金流向数据 - 同花顺 ================
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_batch')
+def save_fund_flow_daily_data_ths_history_batch(self, trade_date: datetime.date):
+    """
+    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    logger.info(f"开始处理 {trade_date} 的 （历史）板块资金流向数据 - 同花顺...")
     # 在任务开始时创建一次 DAO 实例
     fund_flow_dao = FundFlowDao()
     try:
         # 异步获取数据并保存
         asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date))
-        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_dc_data(trade_date))
+        asyncio.run(fund_flow_dao.save_history_fund_flow_industry_ths_data(trade_date))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_task')
-def save_fund_flow_daily_data_ths_history_task(self, batch_size: int = 2):
+def save_fund_flow_daily_data_ths_history_task(self):
     """
     调度器任务：
     1. 获取最近60天的A股交易日。
     2. 为每个交易日分派 save_fund_flow_daily_data_ths_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    from django.db.models import Q
-    from myapp.models import TradeCalendar  # 替换为你的app名
-
-    logger.info(f"任务启动: save_fund_flow_daily_data_ths_history_task (调度器模式) - 只在交易日分派任务 (批次大小: {batch_size})")
+ 
+    logger.info(f"任务启动: save_fund_flow_daily_data_ths_history_task (调度器模式)")
     try:
         index_info_dao = IndexBasicDAO()
-        today = datetime.datetime.today().date()
-        start_date = (today - datetime.timedelta(days=120)).strftime('%Y%m%d')  # 多取一些天数，防止节假日
-        end_date = today.strftime('%Y%m%d')
-        trade_days = index_info_dao.get_trade_cal_open(start_date, end_date)
-        trade_days = sorted(trade_days)  # 升序排列
+        trade_days = index_info_dao.get_last_n_trade_cal_open(n=1500)
         total_dispatched_batches = 0
         for cal_date in trade_days:
             # cal_date格式为'YYYYMMDD'，转为date对象
-            day_str = datetime.datetime.strptime(cal_date, '%Y%m%d')
-            save_fund_flow_daily_data_ths_history_batch.s(day_str).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+            save_fund_flow_daily_data_ths_history_batch.s(cal_date).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
             total_dispatched_batches += 1
 
         logger.info(f"任务结束: save_fund_flow_daily_data_ths_history_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")

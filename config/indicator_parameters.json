@@ -6,6 +6,7 @@
   "t_plus_0_strategy_name": "T+0(VWAP)v1.0",
 
   "base_scoring": {
+    "main_index_codes": ["000001.SH", "399001.SZ", "000300.SH", "000905.SH", "399006.SZ", "000688.SH", "000016.SH", "399005.SZ", "000015.SH", "000852.SH"],
     "timeframes": ["5", "15", "30", "60", "D"],
     "score_indicators": ["macd", "rsi", "kdj", "boll", "cci", "mfi", "roc", "dmi", "sar"],
     "rsi_period": 9,
@@ -125,7 +126,8 @@
         {"base_name": "ADX", "params_key": ["dmi_period"], "default_period": [14]}
     ],
     "difference_periods": [1, 5],
-    "calculate_vwap": true
+    "calculate_vwap": true,
+    "use_chip_data": true
   },
 
   "trend_following_params": {

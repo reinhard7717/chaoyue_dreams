@@ -446,7 +446,7 @@ class IndustryDao(BaseDAO):
             )
         return result
 
-    async def save_ths_index_daily_history(self, start_date: date, end_date: date) -> Dict:
+    async def save_ths_index_daily_history(self, start_date: date, end_date: date = None) -> Dict:
         """
         接口：ths_daily
         描述：获取同花顺板块指数行情。注：数据版权归属同花顺，如做商业用途，请主动联系同花顺，如需帮助请联系微信：waditu_a
@@ -456,7 +456,10 @@ class IndustryDao(BaseDAO):
             Dict: 保存结果
         """
         start_date_str = start_date.strftime.strftime('%Y%m%d')
-        end_date_str = end_date.strftime.strftime('%Y%m%d')
+        if end_date is None:
+            end_date_str = ""
+        else:
+            end_date_str = end_date.strftime.strftime('%Y%m%d')
         result = {}
         index_basic_dao = IndexBasicDAO()
         # 拉取数据

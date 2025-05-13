@@ -15,14 +15,14 @@ from django.utils import timezone
 from typing import Any, Callable, List, Optional, Set, Tuple, Union, Dict
 from django.db import models # 确保导入 models
 import pandas_ta as ta
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from core.constants import TimeLevel # 确保 TimeLevel 枚举和可能需要的其他常量导入
 
 # --- 忽略特定警告 ---
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
 warnings.filterwarnings(action='ignore', category=FutureWarning, message=".*Passing 'suffixes' which cause duplicate columns.*")
 pd.options.mode.chained_assignment = None
 
-from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from core.constants import TimeLevel # 确保 TimeLevel 枚举和可能需要的其他常量导入
 
 logger = logging.getLogger("services")
 
@@ -49,6 +49,7 @@ class IndicatorService:
     def __init__(self):
         self.indicator_dao = IndicatorDAO()
         self.stock_basic_dao = StockBasicInfoDao() # 用于获取 StockInfo 对象
+        
         # 动态导入 pandas_ta，避免在类实例化时就强制依赖
         try:
             global ta
@@ -217,9 +218,16 @@ class IndicatorService:
             'close': 'last',
             'volume': 'sum',
             'amount': 'sum',
-            # 如果有换手率等其他列需要聚合，根据其性质添加
-            # 'turnover_rate': 'last' # 或者其他合适的聚合方式
         }
+        # 为外部特征列添加聚合规则，通常取最后一个值 (last)
+        external_cols = [col for col in df.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_')]
+        for ext_col in external_cols:
+             # 检查该列是否已经是数值类型，非数值类型（如字符串）不应进行 'last' 聚合
+             if pd.api.types.is_numeric_dtype(df[ext_col]):
+                 agg_rules[ext_col] = 'last'
+             else:
+                 logger.warning(f"[{df.index.name}] 时间级别 {tf}: 外部特征列 '{ext_col}' 不是数值类型 ({df[ext_col].dtype})，跳过重采样聚合。")
+
         # 过滤掉 DataFrame 中不存在的列
         agg_rules = {col: rule for col, rule in agg_rules.items() if col in df.columns}
         if not agg_rules:
@@ -257,8 +265,11 @@ class IndicatorService:
                  missing_cols_detail = missing_cols_detail[missing_cols_detail > 0].sort_values(ascending=False).head()
                  if not missing_cols_detail.empty:
                      logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后缺失比例较高的列 (初步填充后): {missing_cols_detail.to_dict()}")
-            # logger.info(f"[{df.index.name}] 时间级别 {tf} 重采样完成，数据量: {len(resampled_df)} 条。")
-            return resampled_df
+            # 关键步骤：给所有列名添加时间周期后缀 (包括 OHLCV 和外部特征)
+            # 例如，将 'close' 列重命名为 'close_30'，将 'index_000300_sh_close' 重命名为 'index_000300_sh_close_30'
+            rename_map_with_suffix = {col: f"{col}_{tf}" for col in resampled_df.columns}
+            resampled_df_renamed = resampled_df.rename(columns=rename_map_with_suffix)
+            return resampled_df_renamed
         except Exception as e:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 重采样和清理数据时出错: {e}", exc_info=True)
             return None
@@ -747,7 +758,8 @@ class IndicatorService:
             )
             logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})需(估算){effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
             # 创建异步获取数据的任务
-            ohlcv_tasks[tf_fetch] = self._get_ohlcv_data(stock_code, tf_fetch, needed_bars_for_tf)
+            # 调用 DAO 的 get_history_ohlcv_df，它现在会返回包含外部特征的 DataFrame
+            ohlcv_tasks[tf_fetch] = self.indicator_dao.get_history_ohlcv_df(stock_code, tf_fetch, limit=needed_bars_for_tf)
         # 并行执行所有数据获取任务，并收集结果
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         # 将结果按时间级别字典化
@@ -765,7 +777,7 @@ class IndicatorService:
                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 没有获取到原始数据，跳过重采样。")
                 continue
             # 执行重采样和清洗（例如处理缺失 K 线、填充等）
-            # min_periods=1 和 fill_method='ffill' 是示例参数
+            # 调用修改后的 _resample_and_clean_dataframe，它会处理外部特征并添加后缀
             resampled_df = self._resample_and_clean_dataframe(raw_df, tf_resample, min_periods=1, fill_method='ffill')
             # 检查重采样后的数据是否有效
             if resampled_df is None or resampled_df.empty:
@@ -820,6 +832,11 @@ class IndicatorService:
             actual_rename_map_to_std = {k: v for k, v in ohlcv_map_to_std.items() if k in df_for_ta.columns}
             # 应用临时重命名
             df_for_ta.rename(columns=actual_rename_map_to_std, inplace=True)
+            # 移除外部特征列，确保只将 OHLCV 数据传递给技术指标计算函数
+            cols_to_drop = [col for col in df_for_ta.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_')]
+            if cols_to_drop:
+                 df_for_ta.drop(columns=cols_to_drop, inplace=True, errors='ignore')
+                 # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 临时移除外部特征列进行技术指标计算。") # 调试输出
             # 动态确定指标函数需要的列 (high, low, close, volume, amount 等)
             # 这是一个简化版本，实际可能需要更复杂的参数签名检查或配置
             required_cols_for_func = set(['high', 'low', 'close']) # 默认需要 HLC
@@ -902,6 +919,7 @@ class IndicatorService:
             for tf_conf in config_item_loop['timeframes']:
                 # 确保该时间级别的重采样数据已经准备好
                 if tf_conf in resampled_ohlcv_dfs:
+                    # 将重采样后的 DataFrame (包含 OHLCV 和外部特征，且已添加后缀) 传递给计算函数
                     base_ohlcv_df_for_tf_loop = resampled_ohlcv_dfs[tf_conf]
                     # 创建异步计算任务并添加到列表中
                     indicator_calculation_tasks.append(
@@ -940,8 +958,6 @@ class IndicatorService:
             elif isinstance(res_tuple_item, Exception):
                 # 如果任务返回的是异常，记录错误 - 已经在 _calculate_single_indicator_async 中记录了
                 pass
-
-
         # --- 后处理 OBV_MA ---
         # OBV_MA 需要在 OBV 计算完成后才能计算
         # 从参数中获取 OBV_MA 的周期
@@ -951,11 +967,9 @@ class IndicatorService:
         # 优先使用 volume_confirmation 的配置，其次 indicator_analysis_params，最后默认值
         obv_ma_period = obv_ma_period_vc if obv_ma_period_vc is not None else \
                         obv_ma_period_ia if obv_ma_period_ia is not None else 10 # 默认周期为 10
-
         # 检查是否需要计算 OBV_MA
         # OBV_MA 是否启用取决于 volume_confirmation 或 indicator_analysis_params 中的 calculate_obv_ma 标志
         calculate_obv_ma_enabled = vc_params.get('calculate_obv_ma', False) or ia_params.get('calculate_obv_ma', False)
-
         if calculate_obv_ma_enabled: # 如果启用了 OBV_MA 计算
             print(f"[{stock_code}] Debug: 尝试计算 OBV_MA (周期 {obv_ma_period})...") # 调试输出：尝试计算OBV_MA
             # OBV_MA 的计算适用于所有已经计算了 OBV 的时间级别
@@ -965,59 +979,54 @@ class IndicatorService:
             if obv_config:
                 obv_timeframes = obv_config['timeframes']
                 for tf_obv_ma in obv_timeframes:
-                     # 在该时间级别的指标列表中查找 OBV 列所在的 DataFrame
-                     # 期望的 OBV 列名是 'OBV_{tf_obv_ma}' (因为基础指标计算时已经添加了时间后缀)
-                     obv_col_pattern = f'OBV_{tf_obv_ma}'
-                     obv_df_found = None
-                     # 遍历该时间级别下所有计算出的指标 DataFrame，查找包含 OBV 列的那个
-                     if tf_obv_ma in calculated_indicators_by_tf:
-                         for df in calculated_indicators_by_tf[tf_obv_ma]:
-                              if obv_col_pattern in df.columns:
-                                   obv_df_found = df
-                                   break # 找到 OBV 所在的 DataFrame
+                    # 在该时间级别的指标列表中查找 OBV 列所在的 DataFrame
+                    # 期望的 OBV 列名是 'OBV_{tf_obv_ma}' (因为基础指标计算时已经添加了时间后缀)
+                    obv_col_pattern = f'OBV_{tf_obv_ma}'
+                    obv_df_found = None
+                    # 遍历该时间级别下所有计算出的指标 DataFrame，查找包含 OBV 列的那个
+                    if tf_obv_ma in calculated_indicators_by_tf:
+                        for df in calculated_indicators_by_tf[tf_obv_ma]:
+                            if obv_col_pattern in df.columns:
+                                obv_df_found = df
+                                break # 找到 OBV 所在的 DataFrame
+                    if obv_df_found is not None:
+                        # 找到了 OBV 所在的 DataFrame，现在计算 OBV 的移动平均
+                        try:
+                            # 确保 OBV 列是数值类型，防止移动平均计算出错
+                            if not pd.api.types.is_numeric_dtype(obv_df_found[obv_col_pattern]):
+                                print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。") # 调试输出：OBV列非数值
+                                logger.warning(f"[{stock_code}] TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。")
+                                continue # 跳过当前时间级别的 OBV_MA 计算
 
-                     if obv_df_found is not None:
-                         # 找到了 OBV 所在的 DataFrame，现在计算 OBV 的移动平均
-                         try:
-                             # 确保 OBV 列是数值类型，防止移动平均计算出错
-                             if not pd.api.types.is_numeric_dtype(obv_df_found[obv_col_pattern]):
-                                  print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。") # 调试输出：OBV列非数值
-                                  logger.warning(f"[{stock_code}] TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。")
-                                  continue # 跳过当前时间级别的 OBV_MA 计算
+                            # 使用 pandas 的 rolling().mean() 计算移动平均
+                            obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{tf_obv_ma}' # OBV MA 列名带周期和时间后缀
+                            # 使用 apply 在 Series 上计算移动平均，确保 NaN 处理正确
+                            obv_ma_series = obv_df_found[obv_col_pattern].rolling(window=obv_ma_period, min_periods=1).mean() # 计算移动平均，min_periods=1 表示窗口不足时也计算
+                            obv_ma_df = obv_ma_series.to_frame(name=obv_ma_col_name) # 转换为 DataFrame
 
-                             # 使用 pandas 的 rolling().mean() 计算移动平均
-                             obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{tf_obv_ma}' # OBV MA 列名带周期和时间后缀
-                             # 使用 apply 在 Series 上计算移动平均，确保 NaN 处理正确
-                             obv_ma_series = obv_df_found[obv_col_pattern].rolling(window=obv_ma_period, min_periods=1).mean() # 计算移动平均，min_periods=1 表示窗口不足时也计算
-                             obv_ma_df = obv_ma_series.to_frame(name=obv_ma_col_name) # 转换为 DataFrame
+                            # 将计算出的 OBV_MA DataFrame 添加到该时间级别下的指标列表中
+                            # 注意：这里直接修改了 defaultdict 中的列表
+                            calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df)
+                            print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算并添加到分组列表。列名: [{obv_ma_col_name}]") # 调试输出：OBV_MA计算成功
+                            logger.info(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算完成。")
 
-                             # 将计算出的 OBV_MA DataFrame 添加到该时间级别下的指标列表中
-                             # 注意：这里直接修改了 defaultdict 中的列表
-                             calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df)
-                             print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算并添加到分组列表。列名: [{obv_ma_col_name}]") # 调试输出：OBV_MA计算成功
-                             logger.info(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算完成。")
-
-                         except Exception as e_obv_ma:
-                             print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}") # 调试输出：OBV_MA计算出错
-                             logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}", exc_info=True)
-                     else:
-                         # 如果该时间级别未找到 OBV 数据，记录警告
-                         print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。") # 调试输出：未找到OBV列
-                         logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。")
+                        except Exception as e_obv_ma:
+                            print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}") # 调试输出：OBV_MA计算出错
+                            logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}", exc_info=True)
+                    else:
+                        # 如果该时间级别未找到 OBV 数据，记录警告
+                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。") # 调试输出：未找到OBV列
+                        logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。")
             else:
                  print(f"[{stock_code}] Debug: 未找到 OBV 的注册配置，无法计算 OBV_MA。") # 调试输出：未找到OBV配置
                  logger.warning(f"[{stock_code}] 未找到 OBV 的注册配置，无法计算 OBV_MA。")
-
-
         # 6. 将所有时间级别的 OHLCV 和指标数据合并到最终 DataFrame
         # 使用最小时间级别的 OHLCV 数据作为基础 DataFrame
         if min_time_level not in resampled_ohlcv_dfs:
              logger.error(f"[{stock_code}] 关键错误: 最小时间级别 {min_time_level} 的 OHLCV 数据在重采样后丢失。终止。")
              return None # 理论上不会发生，前面已经检查过
-
         final_df = resampled_ohlcv_dfs[min_time_level].copy()
         logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的数据作为最终 DataFrame 基础，形状: {final_df.shape}")
-
         # 遍历所有时间级别和其计算出的指标 DataFrame 列表
         for tf_merge, df_list_merge in calculated_indicators_by_tf.items():
             # 将该时间级别所有的指标 DataFrame concat 到一起
@@ -1033,69 +1042,70 @@ class IndicatorService:
                 # 使用 left 合并，以确保 final_df (基于最小时间级别索引) 的所有行都被保留
                 # 如果 tf_merge 就是最小时间级别，则只合并指标列
                 if tf_merge == min_time_level:
-                     # 确保不合并 OHLCV 列 (尽管列名带有后缀，理论上不会冲突，但为了清晰)
-                     # 实际上，因为基础 OHLCV 已经在 final_df 里了，merge 相同列名会自动处理（例如添加 _x, _y 后缀或报错），
-                     # 但因为我们已经处理了重复注册，这里的 merged_indicators_for_tf 应该只包含指标列。
-                     # 使用 join 更直接，因为它默认按索引对齐
-                     final_df = final_df.join(merged_indicators_for_tf, how='left')
-                     logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 {len(df_list_merge)} 个指标 DataFrame (到基础DF)，当前 final_df 形状: {final_df.shape}")
+                    # 确保不合并 OHLCV 列 (尽管列名带有后缀，理论上不会冲突，但为了清晰)
+                    # 实际上，因为基础 OHLCV 已经在 final_df 里了，merge 相同列名会自动处理（例如添加 _x, _y 后缀或报错），
+                    # 但因为我们已经处理了重复注册，这里的 merged_indicators_for_tf 应该只包含指标列。
+                    # 使用 join 更直接，因为它默认按索引对齐
+                    final_df = final_df.join(merged_indicators_for_tf, how='left')
+                    logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 {len(df_list_merge)} 个指标 DataFrame (到基础DF)，当前 final_df 形状: {final_df.shape}")
                 else:
-                     # 如果是非最小时间级别，需要先获取该时间级别的 OHLCV 数据
-                     if tf_merge in resampled_ohlcv_dfs:
-                         ohlcv_df_for_merge = resampled_ohlcv_dfs[tf_merge]
-                         # 将 OHLCV 数据和指标数据先 concat 到一起
-                         df_to_merge = pd.concat([ohlcv_df_for_merge, merged_indicators_for_tf], axis=1)
-                         logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据和 {len(df_list_merge)} 个指标 DataFrame，形状: {df_to_merge.shape}")
+                    # 如果是非最小时间级别，需要先获取该时间级别的 OHLCV 数据
+                    if tf_merge in resampled_ohlcv_dfs:
+                        ohlcv_df_for_merge = resampled_ohlcv_dfs[tf_merge]
+                        # 将 OHLCV 数据和指标数据先 concat 到一起
+                        df_to_merge = pd.concat([ohlcv_df_for_merge, merged_indicators_for_tf], axis=1)
+                        logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据和 {len(df_list_merge)} 个指标 DataFrame，形状: {df_to_merge.shape}")
 
-                         # 将这个时间级别的数据 (OHLCV + 指标) 与 final_df 按索引对齐合并
-                         final_df = final_df.join(df_to_merge, how='left')
-                         logger.info(f"[{stock_code}] 将时间级别 {tf_merge} 的数据合并到 final_df，当前 final_df 形状: {final_df.shape}")
-                     else:
-                         logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 的重采样 OHLCV 数据未找到，无法合并该时间级别的数据和指标。")
+                        # 将这个时间级别的数据 (OHLCV + 指标) 与 final_df 按索引对齐合并
+                        final_df = final_df.join(df_to_merge, how='left')
+                        logger.info(f"[{stock_code}] 将时间级别 {tf_merge} 的数据合并到 final_df，当前 final_df 形状: {final_df.shape}")
+                    else:
+                        logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 的重采样 OHLCV 数据未找到，无法合并该时间级别的数据和指标。")
 
             else:
                 logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 没有计算出任何指标 DataFrame。")
-
-
         logger.info(f"[{stock_code}] 所有时间级别的数据和指标合并完成，最终 DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}")
         print(f"[{stock_code}] Debug: 合并完成后，DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}") # 调试输出：合并后形状
         print(f"[{stock_code}] Debug: 合并完成后，部分列: {final_df.columns.tolist()[:50]}...") # 调试输出：合并后部分列
+        # 7. 最终缺失值填充
+        # 对合并后的 DataFrame 进行最终的缺失值填充
+        # 可以选择不同的填充策略，例如 ffill, bfill, 或填充特定值
+        # 对于时间序列数据，ffill 是常用的方法，特别是对于高频数据合并低频数据产生的 NaN
+        # bfill 可以填充序列开头的 NaN (如果 ffill 不够)
+        # 也可以考虑用 0 填充某些列 (如成交量相关的指标)，但需要谨慎
+        print(f"[{stock_code}] Debug: 合并前总列数: {len(final_df.columns)}") # 调试输出
+        # 记录合并后的 NaN 数量 (填充前)
+        nan_before_final_fill = final_df.isnull().sum().sum()
+        if nan_before_final_fill > 0:
+            logger.warning(f"[{stock_code}] 合并后 DataFrame 存在 {nan_before_final_fill} 个 NaN 值 (填充前)。")
+            # 打印缺失比例较高的列 (填充前)
+            missing_cols_detail_before = final_df.isnull().mean()
+            missing_cols_detail_before = missing_cols_detail_before[missing_cols_detail_before > 0].sort_values(ascending=False).head()
+            if not missing_cols_detail_before.empty:
+                logger.warning(f"[{stock_code}] 合并后缺失比例较高的列 (填充前): {missing_cols_detail_before.to_dict()}")
+        # 对所有列进行前向填充
+        final_df.ffill(inplace=True)
+        # 接着进行后向填充，处理序列开头的 NaN
+        final_df.bfill(inplace=True)
+        # 记录最终填充后的 NaN 数量
+        nan_after_final_fill = final_df.isnull().sum().sum()
+        if nan_after_final_fill > 0:
+             logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_after_final_fill} 个 NaN 值。")
+             # 打印最终缺失比例较高的列
+             missing_cols_detail_after = final_df.isnull().mean()
+             missing_cols_detail_after = missing_cols_detail_after[missing_cols_detail_after > 0].sort_values(ascending=False).head()
+             if not missing_cols_detail_after.empty:
+                 logger.warning(f"[{stock_code}] 最终填充后缺失比例较高的列: {missing_cols_detail_after.to_dict()}")
+        else:
+             logger.info(f"[{stock_code}] 最终填充后 DataFrame 不含 NaN 值。")
 
-        # 7. 最终填充 NaN
-        # 在合并不同时间级别的数据后，可能引入 NaN (例如，分钟线没有对应的高级别数据)
-        # 使用前向填充和后向填充组合，然后用 0 填充剩余的 NaN
-        logger.info(f"[{stock_code}] 开始最终填充 NaN...")
-        print(f"[{stock_code}] Debug: 开始最终填充 NaN...") # 调试输出：开始填充NaN
-
-        # 填充前 NaN 总数
-        nan_before = final_df.isnull().sum().sum()
-        print(f"[{stock_code}] Debug: 填充前 NaN 总数: {nan_before}") # 调试输出：填充前NaN数量
-
-        # 按列进行填充，可以提高效率，避免创建 DataFrame 副本
-        for col in final_df.columns:
-             # 先前向填充
-             final_df[col].fillna(method='ffill', inplace=True)
-             # 然后后向填充
-             final_df[col].fillna(method='bfill', inplace=True)
-
-        # 对于仍然存在的 NaN (例如 DataFrame 开头部分的 NaN，FFILL和BFILL无法处理)，用 0 填充
-        final_df.fillna(0, inplace=True)
-
-        # 填充后 NaN 总数
-        nan_after = final_df.isnull().sum().sum()
-        logger.info(f"[{stock_code}] 最终填充完成。填充前 NaN 总数: {nan_before}, 填充后 NaN 总数: {nan_after}")
-        print(f"[{stock_code}] Debug: 最终填充完成。填充前 NaN 总数: {nan_before}, 填充后 NaN 总数: {nan_after}") # 调试输出：填充后NaN数量
-
-
-        # 8. 策略数据准备完成
-        logger.info(f"[{stock_code}] 策略数据准备完成，最终 DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}")
+        logger.info(f"[{stock_code}] 策略 DataFrame 准备完成，最终形状: {final_df.shape}")
+        # 8. 返回最终的 DataFrame 和指标配置列表
         print(f"[{stock_code}] Debug: 最终策略 DataFrame 准备完成.") # 调试输出
         print(f"[{stock_code}] Debug: 最终 DataFrame 形状: {final_df.shape}") # 调试输出
         print(f"[{stock_code}] Debug: 最终 DataFrame 列数: {len(final_df.columns)}") # 调试输出
         # 限制打印的列数，防止日志过长
         print(f"[{stock_code}] Debug: 最终 DataFrame 列名: {final_df.columns.tolist()}...") # 调试输出
-
-
         # 返回最终的 DataFrame 和注册的指标配置列表
         # 指标配置列表 indicator_configs 中不再包含额外的冗余项，只包含核心配置
         return final_df, indicator_configs

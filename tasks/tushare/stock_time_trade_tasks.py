@@ -84,59 +84,6 @@ async def _get_all_relevant_stock_codes_for_processing():
 # ===================================================
 #                      当日任务
 # ===================================================
-#  ================ 整体任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.run_daily_data_ingestion_task')
-def run_daily_data_ingestion_task(self, trade_time_str=None):
-    """
-    整体任务：按顺序执行当日收盘后的数据采集任务。
-    包括：分钟数据、日线数据（含筹码）、当日基本信息。
-    这个任务由 Celery Beat 调度，通常在收盘后执行。
-    """
-    logger.info("整体任务启动: run_daily_data_ingestion_task - 开始执行当日数据采集流程")
-
-    try:
-        # 步骤 1: 执行分钟数据采集调度任务
-        # 这个任务会获取所有股票并分批派发 save_stocks_minute_data_today_batch
-        logger.info("开始执行: 分钟数据采集调度任务...")
-        # 使用 .delay() 或 .apply_async() 异步触发子任务
-        # .delay() 是 .apply_async() 的简化版
-        minute_task_result = save_stocks_minute_data_today_task.delay(trade_time_str=trade_time_str)
-        logger.info(f"已分派分钟数据采集调度任务。任务ID: {minute_task_result.id}")
-
-        # 注意：这里使用 .delay() 意味着整体任务会立即返回，而子任务会在后台异步执行。
-        # 如果你需要严格等待前一个任务完成后再开始下一个，你需要使用 Celery 的 Chain 或 Group/Chord，
-        # 或者在当前任务中调用子任务的 .get() 方法（但这会阻塞当前 worker，不推荐用于长时间任务）。
-        # 对于数据采集，通常分派出去即可，让 worker 自己处理并发和顺序（如果子任务内部有依赖）。
-        # 当前设计是整体任务负责“分派”子任务，子任务各自执行。
-
-        # 步骤 2: 执行日线数据（含筹码）采集任务
-        # 这个任务会采集日线数据，并且内部包含了筹码数据的采集
-        logger.info("开始执行: 日线数据（含筹码）采集任务...")
-        daily_data_task_result = save_day_data_today_task.delay()
-        logger.info(f"已分派日线数据（含筹码）采集任务。任务ID: {daily_data_task_result.id}")
-
-        # 步骤 3: 执行当日基本信息采集任务
-        logger.info("开始执行: 当日基本信息采集任务...")
-        daily_basic_task_result = save_stocks_daily_basic_data_today_task.delay()
-        logger.info(f"已分派当日基本信息采集任务。任务ID: {daily_basic_task_result.id}")
-
-        logger.info("整体任务结束: run_daily_data_ingestion_task - 所有当日数据采集任务已分派。")
-
-        # 返回一些信息，方便查看任务状态
-        return {
-            "status": "success",
-            "message": "所有当日数据采集任务已分派",
-            "dispatched_tasks": {
-                "minute_data_scheduler": minute_task_result.id,
-                "daily_data_and_chips": daily_data_task_result.id,
-                "daily_basic_info": daily_basic_task_result.id,
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"整体任务 run_daily_data_ingestion_task 执行失败: {e}", exc_info=True)
-        # 记录异常并返回错误状态
-        return {"status": "error", "message": f"整体任务执行失败: {e}"}
 
 #  ================ 分钟数据任务（当日收盘后） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch')

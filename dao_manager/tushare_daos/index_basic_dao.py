@@ -204,25 +204,6 @@ class IndexBasicDAO(BaseDAO):
         else:
             return None
 
-    # 获取大盘指数的行情特征
-    async def get_index_daily_feature(self, index_code: str, trade_date: str) -> dict:
-        """
-        获取大盘指数的行情特征
-        """
-        obj = await sync_to_async(IndexDailyBasic.objects.filter(
-            index__index_code=index_code, trade_time=trade_date
-        ).first)()
-        if obj:
-            return {
-                "total_mv": obj.total_mv,
-                "float_mv": obj.float_mv,
-                "turnover_rate": obj.turnover_rate,
-                "pe": obj.pe,
-                "pb": obj.pb,
-                # ...可扩展
-            }
-        return {}
-
     async def save_indexs(self) -> Dict:
         """
         保存指数信息到数据库
@@ -416,7 +397,7 @@ class IndexBasicDAO(BaseDAO):
                     break
                 # 拉取数据
                 df = self.ts_pro.index_dailybasic(**{
-                    "trade_date": index.index_code, "ts_code": "", "start_date": "20200101", "end_date": today_str, "limit": limit, "offset": offset
+                    "trade_date": index.index_code, "ts_code": "", "start_date": "20250101", "end_date": today_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
                     "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"

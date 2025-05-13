@@ -208,6 +208,7 @@ class KplConceptConstituent(models.Model):
         return f"{self.trade_time} - {self.name}({self.ts_code}) - {self.con_name}({self.con_code})"
 
 # 同花顺行业概念板块
+# 指数类型 N-概念指数 I-行业指数 R-地域指数 S-同花顺特色指数 ST-同花顺风格指数 TH-同花顺主题指数 BB-同花顺宽基指数
 class ThsIndex(models.Model):
     ts_code = models.CharField(max_length=20, verbose_name="代码", unique=True)
     name = models.CharField(max_length=50, verbose_name="名称")

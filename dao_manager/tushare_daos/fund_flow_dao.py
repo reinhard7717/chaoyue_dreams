@@ -1,6 +1,7 @@
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
+import time
 from typing import Dict, List
 from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyDC, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
@@ -143,7 +144,7 @@ class FundFlowDao(BaseDAO):
         return result
 
 
-    # ============== 日级资金流向数据 - 同花顺 ==============
+    # ============== 个股日级资金流向数据 - 同花顺 ==============
     async def save_today_fund_flow_daily_ths_data(self) -> Dict:
         """
         保存今天的日级资金流向数据 - 同花顺
@@ -412,7 +413,7 @@ class FundFlowDao(BaseDAO):
             )
         return result
 
-    async def save_history_fund_flow_cnt_ths_data(self, trade_date: str) -> Dict:
+    async def save_history_fund_flow_cnt_ths_data(self, trade_date: date) -> Dict:
         """
         保存历史板块资金流向数据 - 同花顺
         """
@@ -437,6 +438,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+        time.sleep(0.5)
         return result
 
     # ============== 板块资金流向数据 - 东方财富 ==============
@@ -497,6 +499,7 @@ class FundFlowDao(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
+        time.sleep(0.5)
         return result
     
     # ============== 行业资金流向数据 - 同花顺 ==============
@@ -530,7 +533,7 @@ class FundFlowDao(BaseDAO):
             )
         return result
 
-    async def save_history_fund_flow_industry_ths_data(self, trade_date: str) -> Dict:
+    async def save_history_fund_flow_industry_ths_data(self, trade_date: date) -> Dict:
         """
         保存历史行业资金流向数据 - 同花顺
         """
