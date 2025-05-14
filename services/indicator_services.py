@@ -389,9 +389,9 @@ class IndicatorService:
             ths_indexs = []
         ths_codes = [m.ths_index.ts_code for m in ths_indexs if m.ths_index] # 确保 m.ths_index 不是 None
         logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
-        # 2. 定义主要市场指数代码 (可配置)
-        main_indices = self.indicator_dao.main_indices # 从 self.indicator_dao 获取 main_indices
-        logger.info(f"需要获取的主要市场指数代码: {main_indices}")
+        # # 2. 定义主要市场指数代码 (可配置)
+        # main_indices = self.indicator_dao.main_indices # 从 self.indicator_dao 获取 main_indices
+        # logger.info(f"需要获取的主要市场指数代码: {main_indices}")
         # 3. 批量获取板块/指数日线行情
         # 由于是日线数据，与股票的分钟线可能不对齐，需要处理合并时的 NaNs
         # 这里获取的日期范围使用计算出的 external_fetch_start_date 到 end_date

@@ -14,9 +14,9 @@ from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
-from stock_models.industry import ThsIndexDaily, ThsIndexMember # 修改行：导入 ThsIndexMember 模型
+from stock_models.industry import ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
 from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
-# 修改行：导入资金流向相关模型
+# 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC, FundFlowCntTHS, FundFlowIndustryTHS
 from utils.cache_get import  StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
@@ -140,7 +140,7 @@ class IndicatorDAO(BaseDAO):
         from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
         self.stock_basic_dao = StockBasicInfoDao()
         self.industry_dao = IndustryDao()
-        self.index_basic_dao = IndexBasicDAO()  # 修改行：添加 IndexBasicDAO 的初始化
+        self.index_basic_dao = IndexBasicDAO()  # 添加 IndexBasicDAO 的初始化
         self.cache_manager = None # 缓存管理器
         self.cache_get = None # 缓存获取工具
         self.ta = ta
@@ -558,13 +558,7 @@ class IndicatorDAO(BaseDAO):
                  missing_details = df[required_cols].isnull().mean().apply(lambda x: f'{x:.2%}')
                  logger.warning(f"处理后 DataFrame 必要列平均缺失比例 {missing_ratio_required:.2%} 超过阈值 {missing_threshold_df}，可能影响后续计算: {stock_code} {time_level_val}. 必要列缺失比例详情: {missing_details.to_dict()}")
             logger.info(f"返回 DataFrame，必要列平均缺失比例: {missing_ratio_required:.2%}，数据量: {len(df)} 条: {stock_code} {time_level_val}")
-
-            # 11. 调用 enrich_features 方法补充特征
-            logger.info(f"开始为 {stock_code} {time_level_val} 数据补充特征...")
-            
-            # 12. 返回补充特征后的 DataFrame
-            return df # 修改行：返回补充特征后的 df
-
+            return df
         except Exception as e:
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None
@@ -772,7 +766,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"获取股票 {stock_code} 筹码分布汇总数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
 
-    # 修改行：新增获取 FundFlowDaily 数据的异步方法
+    # 新增获取 FundFlowDaily 数据的异步方法
     async def get_fund_flow_daily_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         获取指定股票在日期范围内（包含起止日）的日级资金流向数据，并转换为 DataFrame。
@@ -833,7 +827,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"获取股票 {stock_code} 日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
 
-    # 修改行：新增获取 FundFlowDailyTHS 数据的异步方法
+    # 新增获取 FundFlowDailyTHS 数据的异步方法
     async def get_fund_flow_daily_ths_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         获取指定股票在日期范围内（包含起止日）的同花顺日级资金流向数据，并转换为 DataFrame。
@@ -884,7 +878,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"获取股票 {stock_code} 同花顺日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
 
-    # 修改行：新增获取 FundFlowDailyDC 数据的异步方法
+    # 新增获取 FundFlowDailyDC 数据的异步方法
     async def get_fund_flow_daily_dc_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         获取指定股票在日期范围内（包含起止日）的东方财富日级资金流向数据，并转换为 DataFrame。
@@ -939,7 +933,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"获取股票 {stock_code} 东方财富日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
 
-    # 修改行：新增获取 FundFlowCntTHS 数据的异步方法
+    # 新增获取 FundFlowCntTHS 数据的异步方法
     async def get_fund_flow_cnt_ths_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         获取指定同花顺板块列表在日期范围内（包含起止日）的资金流向统计数据，并转换为 DataFrame。
@@ -992,7 +986,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"获取同花顺板块资金流向统计数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
 
-    # 修改行：新增获取 FundFlowIndustryTHS 数据的异步方法
+    # 新增获取 FundFlowIndustryTHS 数据的异步方法
     async def get_fund_flow_industry_ths_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         获取指定同花顺行业列表在日期范围内（包含起止日）的资金流向统计数据，并转换为 DataFrame。
