@@ -435,7 +435,6 @@ class TrendFollowingStrategy:
              self.tf_params = {}
         elif not self.tf_params:
             logger.warning(f"{log_prefix} VALIDATION: 'trend_following_params' 块在参数中存在，但其内容为空！将依赖代码默认值。")
-
         # 验证 base_scoring 块和 timeframes
         bs_params = self.params.get('base_scoring', {})
         timeframes = bs_params.get('timeframes', [])
@@ -456,8 +455,6 @@ class TrendFollowingStrategy:
                 logger.warning(f"{log_prefix} VALIDATION: 主要关注时间框架 '{self.focus_timeframe}' 不在 'base_scoring.timeframes' ({timeframes_list}) 中。请检查配置。策略可能无法按预期工作或导致错误。")
              else:
                  logger.warning(f"{log_prefix} VALIDATION: 'base_scoring.timeframes' 为空，无法验证 focus_timeframe '{self.focus_timeframe}' 是否在其列表中。")
-
-
         # 验证 timeframe_weights (如果存在)
         if self.timeframe_weights is not None:
             if not isinstance(self.timeframe_weights, dict):
@@ -470,22 +467,17 @@ class TrendFollowingStrategy:
                      if tf_w not in defined_tfs_set:
                         logger.warning(f"{log_prefix} VALIDATION: timeframe_weights 中包含未在 base_scoring.timeframes 中定义的时间框架: '{tf_w}'。对应的权重将被忽略。")
                         del self.timeframe_weights[tf_w] # 移除不在定义列表中的时间框架权重
-
                 # 检查是否所有 base_scoring timeframes 都在 timeframe_weights 中定义 (如果 weights 存在的话)
                 for tf_d in defined_tfs_set:
                      if tf_d not in self.timeframe_weights:
                           logger.warning(f"{log_prefix} VALIDATION: base_scoring.timeframes 中定义的时间框架 '{tf_d}' 未在 timeframe_weights 中找到。将使用默认权重 0。")
-
                 self._normalize_weights(self.timeframe_weights) # 归一化权重
         # else: # 如果 timeframe_weights 为 None，表示使用 focus_weight 逻辑，不需要额外验证结构
-
         # 验证 trend_indicators
         if not self.trend_indicators:
             logger.warning(f"{log_prefix} VALIDATION: 'trend_following_params.trend_indicators' 为空列表。策略可能无法有效识别趋势。")
         elif not isinstance(self.trend_indicators, list):
              logger.error(f"{log_prefix} VALIDATION: 'trend_following_params.trend_indicators' 参数类型不正确 (应为列表)，但得到的是: {type(self.trend_indicators)}！")
-
-
         # 验证 Transformer 模型和训练配置
         model_conf = self.transformer_model_config
         if not isinstance(model_conf, dict):
@@ -494,7 +486,6 @@ class TrendFollowingStrategy:
         required_model_keys = ['d_model', 'nhead', 'dim_feedforward', 'nlayers']
         if not all(key in model_conf for key in required_model_keys):
              logger.warning(f"{log_prefix} VALIDATION: Transformer模型结构配置 'transformer_model_config' 缺少关键参数: {required_model_keys}。可能使用默认值。当前配置: {model_conf}")
-
         train_conf = self.transformer_training_config
         if not isinstance(train_conf, dict):
              logger.error(f"{log_prefix} VALIDATION: Transformer训练配置 'transformer_training_config' 参数类型不正确 (应为字典)，但得到的是: {type(train_conf)}！")
@@ -502,7 +493,6 @@ class TrendFollowingStrategy:
         required_train_keys = ['epochs', 'batch_size', 'learning_rate', 'loss']
         if not all(key in train_conf for key in required_train_keys):
              logger.warning(f"{log_prefix} VALIDATION: Transformer训练配置 'transformer_training_config' 缺少关键参数: {required_train_keys}。可能使用默认值。当前配置: {train_conf}")
-
         # 验证 rule_signal_weights 并归一化
         if not isinstance(self.rule_signal_weights, dict) or not self.rule_signal_weights:
              logger.warning(f"{log_prefix} VALIDATION: 'rule_signal_weights' 参数无效或为空。将使用代码中定义的默认权重并归一化。当前值: {self.rule_signal_weights}")
@@ -512,7 +502,6 @@ class TrendFollowingStrategy:
                 'volume_spike': 0.05
             }
         self._normalize_weights(self.rule_signal_weights)
-
         # 验证 signal_combination_weights 并归一化
         # 从 tf_params 中安全获取 signal_combination_weights
         lstm_combination_weights = self.tf_params.get('signal_combination_weights', {})
@@ -527,15 +516,12 @@ class TrendFollowingStrategy:
         # 确保 self.tf_params 中的 signal_combination_weights 也是归一化后的值
         if isinstance(self.tf_params, dict) and 'signal_combination_weights' in self.tf_params:
              self.tf_params['signal_combination_weights'] = lstm_combination_weights
-
-
         # 检查其他可能需要的参数，例如用于 BOLL 突破、OBV_MA 的周期等
         # 这些参数通常会在 get_required_columns 或其他信号计算部分使用，
         # 可以在这里增加检查，确保关键参数存在于 tf_params 或其他相关参数块中。
         boll_breakout_params = self.tf_params.get('boll_breakout_params', {})
         if self.rule_signal_weights.get('boll_breakout', 0) > 0 and (not isinstance(boll_breakout_params, dict) or 'period' not in boll_breakout_params or 'std_dev' not in boll_breakout_params):
              logger.warning(f"{log_prefix} VALIDATION: 'boll_breakout' 信号权重 > 0，但 'boll_breakout_params' (包含 period, std_dev) 未在 trend_following_params 中找到或无效。将使用默认值或可能导致错误。")
-
         volume_conf = self.params.get('volume_confirmation', {})
         if isinstance(volume_conf, dict) and (volume_conf.get('enabled', False) or volume_conf.get('volume_analysis_enabled', False)):
              obv_ma_period = volume_conf.get('obv_ma_period')
@@ -548,8 +534,6 @@ class TrendFollowingStrategy:
                   volume_conf['tf'] = [vc_tfs] # 统一为列表
              elif not isinstance(vc_tfs, list):
                   logger.error(f"{log_prefix} VALIDATION: 'volume_confirmation.tf' 必须是字符串或列表，但得到的是: {type(vc_tfs)}。量能确认可能无法按预期工作。")
-
-
         logger.debug(f"{log_prefix} TrendFollowingStrategy 特定参数验证完成。")
 
     def set_model_paths(self, stock_code: str):

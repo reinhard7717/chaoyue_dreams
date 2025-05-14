@@ -150,7 +150,6 @@ class IndicatorService:
         # 向上取整，确保获取足够数量
         return math.ceil(needed)
 
-
     async def _get_ohlcv_data(self, stock_code: str, time_level: Union[TimeLevel, str], needed_bars: int) -> Optional[pd.DataFrame]:
         """
         获取足够用于计算的原始历史数据 DataFrame。
@@ -382,12 +381,12 @@ class IndicatorService:
 
         # --- 获取相关数据 ---
         # 1. 获取股票所属同花顺板块代码
-        # await self.industry_dao.ths_indexs 方法返回的是 ThsIndex 实例列表
-        ths_indexs = await self.industry_dao.get_ths_indexs_by_code(stock_code)
-        if ths_indexs is None:  # 新增：防止 NoneType 报错
+        # await self.industry_dao.get_stock_ths_indices 方法返回的是 ThsIndex 实例列表
+        ths_member = await self.industry_dao.get_stock_ths_indices(stock_code)
+        if ths_member is None:  # 新增：防止 NoneType 报错
             logger.warning(f"get_ths_indexs_by_code 返回 None，stock_code={stock_code}")
-            ths_indexs = []
-        ths_codes = [m.ths_index.ts_code for m in ths_indexs if m.ths_index] # 确保 m.ths_index 不是 None
+            ths_member = []
+        ths_codes = [m.ths_index.ts_code for m in ths_member if m.ths_index] # 确保 m.ths_index 不是 None
         logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
         # # 2. 定义主要市场指数代码 (可配置)
         # main_indices = self.indicator_dao.main_indices # 从 self.indicator_dao 获取 main_indices
@@ -1912,9 +1911,10 @@ class IndicatorService:
             logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
+    def calculate_relative_strength(df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
         """
         计算股票相对于基准指数/板块的相对强度/超额收益。
+        使用对数收益率的累积差值进行计算。
         Args:
             df (pd.DataFrame): 包含股票和基准数据的 DataFrame。
             stock_close_col (str): 股票收盘价列名 (已带时间级别后缀)。
@@ -1924,50 +1924,82 @@ class IndicatorService:
         Returns:
             pd.DataFrame: 补充了相对强度特征的 DataFrame。
         """
+        print(f"开始计算相对强度，股票列: {stock_close_col}, 基准: {benchmark_codes}, 周期: {periods}, 时间级别: {time_level}") # 调试信息
+
         if df is None or df.empty or stock_close_col not in df.columns:
             logger.warning(f"计算相对强度失败，输入 DataFrame 无效或缺少股票收盘价列 {stock_close_col}。")
+            print(f"计算相对强度失败，输入 DataFrame 无效或缺少股票收盘价列 {stock_close_col}。") # 调试信息
             return df
 
-        # 计算股票的对数收益率
-        stock_returns = np.log(df[stock_close_col] / df[stock_close_col].shift(1))
+        # 创建 DataFrame 的副本，避免修改原始数据并防止 SettingWithCopyWarning
+        df_processed = df.copy()
+
+        # 计算股票的对数收益率 (每日/每周期)
+        # 避免除以零或log(0)的情况
+        stock_close_shifted = df_processed[stock_close_col].shift(1)
+        # 仅在 shift(1) 不为零时计算对数收益率，否则为 NaN
+        stock_returns = np.log(df_processed[stock_close_col] / stock_close_shifted)
+        # 替换 inf/-inf 为 NaN，以防万一出现极端值
+        stock_returns = stock_returns.replace([np.inf, -np.inf], np.nan)
+        print(f"已计算股票 {stock_close_col} 的对数收益率。") # 调试信息
 
         for benchmark_code in benchmark_codes:
             # 查找基准指数/板块的收盘价列名 (已带前缀，日线数据无时间级别后缀)
             # 根据代码格式判断是普通指数还是同花顺板块
-            if '.' in benchmark_code: # 假设包含 '.' 是普通指数代码 (如 000001.SH)
-                 benchmark_col_prefix = f'index_{benchmark_code.replace(".", "_").lower()}_'
-            else: # 假设不包含 '.' 是同花顺板块代码 (如 881121.TI -> ths_881121_ti_)
-                 benchmark_col_prefix = f'ths_{benchmark_code.replace(".", "_").lower()}_'
+            # 假设包含 '.' 是普通指数代码 (如 000001.SH)
+            if '.' in benchmark_code:
+                benchmark_col_prefix = f'index_{benchmark_code.replace(".", "_").lower()}_'
+            # 假设不包含 '.' 是同花顺板块代码 (如 881121.TI -> ths_881121_ti_)
+            else:
+                benchmark_col_prefix = f'ths_{benchmark_code.replace(".", "_").lower()}_'
 
+            # 构建基准收盘价列名，保持与原始代码一致，不加 time_level 后缀
             benchmark_close_col = f'{benchmark_col_prefix}close'
 
-            if benchmark_close_col in df.columns:
-                # 计算基准的对数收益率
-                benchmark_returns = np.log(df[benchmark_close_col] / df[benchmark_close_col].shift(1))
+            print(f"查找基准 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
+
+            if benchmark_close_col in df_processed.columns:
+                # 计算基准的对数收益率 (每日/每周期)
+                # 避免除以零或log(0)的情况
+                benchmark_close_shifted = df_processed[benchmark_close_col].shift(1)
+                # 仅在 shift(1) 不为零时计算对数收益率，否则为 NaN
+                benchmark_returns = np.log(df_processed[benchmark_close_col] / benchmark_close_shifted)
+                # 替换 inf/-inf 为 NaN
+                benchmark_returns = benchmark_returns.replace([np.inf, -np.inf], np.nan)
+                print(f"已计算基准 {benchmark_close_col} 的对数收益率。") # 调试信息
 
                 for period in periods:
-                    # 计算股票和基准在指定周期内的累积收益率 (使用滚动求和对数收益率)
-                    # 或者更简单地，计算 period 周期内的价格变化百分比
-                    # 注意：这里计算的是相对于当前时间点回溯 period 个周期
-                    # 如果 period 很大，可能跨越多个交易日，pct_change 会自动处理 NaN
-                    stock_pct_change = df[stock_close_col].pct_change(periods=period)
-                    benchmark_pct_change = df[benchmark_close_col].pct_change(periods=period)
+                    # 计算股票在指定周期内的累积对数收益率 (滚动求和)
+                    # rolling(window=period) 包含当前行和前面 period-1 行
+                    # sum() 对这 period 行的对数收益率求和
+                    # 结果是 log(Price_t / Price_{t-period})
+                    # 修改点：使用 rolling().sum() 计算累积对数收益率
+                    cumulative_stock_log_return = stock_returns.rolling(window=period).sum()
 
-                    # 计算超额收益 (股票收益 - 基准收益)
-                    excess_return = stock_pct_change - benchmark_pct_change
+                    # 计算基准在指定周期内的累积对数收益率 (滚动求和)
+                    # 修改点：使用 rolling().sum() 计算累积对数收益率
+                    cumulative_benchmark_log_return = benchmark_returns.rolling(window=period).sum()
+
+                    # 计算超额对数收益 (股票累积对数收益 - 基准累积对数收益)
+                    # 这等价于 log(Price_t_stock / Price_{t-period}_stock) - log(Price_t_benchmark / Price_{t-period}_benchmark)
+                    # = log( (Price_t_stock / Price_{t-period}_stock) / (Price_t_benchmark / Price_{t-period}_benchmark) )
+                    # = log( (Price_t_stock / Price_t_benchmark) / (Price_{t-period}_stock / Price_{t-period}_benchmark) )
+                    # 这是相对强度比率在 period 周期内的对数变化
+                    # 修改点：计算累积对数收益率的差值
+                    excess_log_return = cumulative_stock_log_return - cumulative_benchmark_log_return
+
                     # 列名格式：RS_基准代码(下划线)_周期_时间级别
-                    df[f'RS_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'] = excess_return
-
-                    # 也可以计算相对强度比率 (股票价格 / 基准价格) 的变化率或对数变化率
-                    # 相对强度比率 (需要处理基准价格为零的情况)
-                    # relative_strength_ratio = df[stock_close_col] / df[benchmark_close_col]
-                    # relative_strength_change = relative_strength_ratio.pct_change(periods=period)
-                    # df[f'RS_Ratio_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'] = relative_strength_change
+                    # 沿用原始的列名格式，但计算方法已改为对数收益差
+                    rs_col_name = f'RS_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'
+                    df_processed[rs_col_name] = excess_log_return
+                    print(f"已计算并添加列: {rs_col_name} (周期: {period})") # 调试信息
 
             else:
                 logger.warning(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}")
+                # print(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
 
-        return df
+        print("相对强度计算完成。") # 调试信息
+        return df_processed
 
     def add_lagged_features(self, df: pd.DataFrame, columns_to_lag_with_suffix: List[str], lags: List[int]) -> pd.DataFrame:
         """

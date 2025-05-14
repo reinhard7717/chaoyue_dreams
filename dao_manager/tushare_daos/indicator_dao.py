@@ -691,17 +691,12 @@ class IndicatorDAO(BaseDAO):
             if df.empty:
                  logger.warning(f"处理无效 trade_time 后 ThsIndexDaily DataFrame 为空 for {ths_codes}")
                  return None
-
             df.index = df['trade_time']
             df.drop(columns=['trade_time'], inplace=True)
-
             # 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
-
             logger.info(f"成功获取并处理同花顺指数 {ths_codes} 的日线数据，数据量: {len(df)} 条")
-
             return df
-
         except Exception as e:
             logger.error(f"获取同花顺指数日线数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
@@ -722,7 +717,7 @@ class IndicatorDAO(BaseDAO):
             # 用 sync_to_async 包裹 ORM 查询
             data_list = await sync_to_async(
                 lambda: list(
-                    StockCyqPerf.objects.filter( stock=stock, trade_time__gte=start_date, trade_time__lte=end_date )
+                    StockCyqPerf.objects.filter( stock=stock, trade_time__gte=start_date, trade_time__lte=end_date ).select_related('stock')
                 )
             )()
             if not data_list:
