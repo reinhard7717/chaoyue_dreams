@@ -211,7 +211,7 @@ class IndustryDao(BaseDAO):
         industry_list = await sync_to_async(lambda: list(ThsIndex.objects.all()))()
         return industry_list
 
-    async def get_ths_index_by_code(self, index_code: str) -> Optional['ThsIndex']:
+    async def get_ths_indexs_by_code(self, index_code: str) -> List['ThsIndex']:
         """
         获取指定同花顺概念和行业指数的基本信息
         Args:
@@ -220,9 +220,9 @@ class IndustryDao(BaseDAO):
             ThsIndex: 同花顺概念和行业指数基本信息
         """
         # 从数据库获取
-        industry = await sync_to_async(lambda: ThsIndex.objects.filter(ts_code=index_code).first())()
-        if industry:
-            return industry
+        industrys = await sync_to_async(lambda: list(ThsIndex.objects.filter(ts_code=index_code)))()
+        if industrys:
+            return industrys
         return None
 
     async def save_ths_index_list(self) -> Dict:

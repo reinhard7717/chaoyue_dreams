@@ -896,36 +896,38 @@ class StockTimeTradeDAO(BaseDAO):
         """
         保存股票的日线基本信息
         """
-        start_date_str = ""
-        end_date_str = ""
-        if start_date is not None:
-            start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        data_dicts = []
-        # 拉取数据
-        df = self.ts_pro.daily_basic(**{
-            "ts_code": stock_code, "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
-            "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
-        ])
-        if not df.empty:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                if stock:
+        stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+        if stock:
+            start_date_str = ""
+            end_date_str = ""
+            if start_date is not None:
+                start_date_str = start_date.strftime('%Y%m%d')
+            if end_date is not None:
+                end_date_str = end_date.strftime('%Y%m%d')
+            data_dicts = []
+            # 拉取数据
+            df = self.ts_pro.daily_basic(**{
+                "ts_code": stock_code, "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+                "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
+            ])
+            if not df.empty:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in df.itertuples():
                     data_dict = self.data_format_process_trade.set_stock_daily_basic_data(stock=stock, df_data=row)
                     await self.cache_set.stock_day_basic_info(row.ts_code, data_dict)
                     data_dicts.append(data_dict)
-        if data_dicts is not None:
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockDailyBasic,
-                data_list=data_dicts,
-                unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
-            )
-        return result
+            if data_dicts is not None:
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockDailyBasic,
+                    data_list=data_dicts,
+                    unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+                )
+            return result
+        else:
+            return None
 
     async def save_stock_daily_basic_history_by_stock_codes(self, stock_codes: List[str], start_date: date=None, end_date: date=None) -> None:
         """
@@ -1157,7 +1159,7 @@ class StockTimeTradeDAO(BaseDAO):
                 logger.info(f"完成每日筹码分布：{stock}, 结果：{result}")
         return result
 
-    async def save_cyq_chips_history(self, start_date: date=None, end_date: date=None) -> None:
+    async def save_cyq_chips_history(self, stock: StockInfo, start_date: date=None, end_date: date=None) -> None:
         """
         保存股票的每日筹码分布数据
         """
@@ -1170,53 +1172,37 @@ class StockTimeTradeDAO(BaseDAO):
         # 拉取数据
         offset = 0
         limit = 2000
-        all_stocks = await self.stock_basic_dao.get_stock_list()
-        for stock in all_stocks:
-            data_dicts = []
-            while True:
-                if offset >= 100000:
-                    logger.warning(f"每日筹码分布 offset已达10万，停止拉取。")
-                    break
-                df = self.ts_pro.cyq_chips(**{
-                    "ts_code": stock.stock_code, "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
-                }, fields=[
-                    "ts_code", "trade_date", "price", "percent"
-                ])
-                if df.empty:
-                    break
-                else:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                    for row in df.itertuples():
-                        if stock:
-                            data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
-                            data_dicts.append(data_dict)
-                time.sleep(0.5)
-                if len(df) < limit:
-                    break
-                offset += limit
-            if data_dicts is not None:
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=StockCyqChips,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'trade_time', 'price']
-                )
-                logger.info(f"完成每日筹码分布：{stock}, 结果：{result}")
+        data_dicts = []
+        while True:
+            if offset >= 100000:
+                logger.warning(f"每日筹码分布 offset已达10万，停止拉取。")
+                break
+            df = self.ts_pro.cyq_chips(**{
+                "ts_code": stock.stock_code, "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
+            }, fields=[
+                "ts_code", "trade_date", "price", "percent"
+            ])
+            if df.empty:
+                break
+            else:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in df.itertuples():
+                    if stock:
+                        data_dict = self.data_format_process_trade.set_cyq_chips_data(stock=stock, df_data=row)
+                        data_dicts.append(data_dict)
+            time.sleep(0.5)
+            if len(df) < limit:
+                break
+            offset += limit
+        if data_dicts is not None:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockCyqChips,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time', 'price']
+            )
+            logger.info(f"完成每日筹码分布：{stock}, 结果：{result}")
         return result
-
-        """
-        获取股票的每日筹码分布数据
-        """
-        # 从Redis缓存中获取数据
-        cache_key = self.cache_key.cyq_chips(stock_code)
-        data_dicts = await self.cache_get.cyq_chips(cache_key)
-        stock_cyq_chips_list = []
-        if data_dicts:
-            for data_dict in data_dicts:
-                stock_cyq_chips_list.append(StockCyqChips(**data_dict))
-        # 从数据库中获取数据
-        stock_cyq_chips_list = StockCyqChips.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
-        return stock_cyq_chips_list
     
 
 

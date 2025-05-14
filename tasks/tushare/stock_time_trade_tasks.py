@@ -324,9 +324,9 @@ def save_stocks_daily_basic_data_this_week_task(self):
         except Exception as e:
             logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-# ============== 每日筹码分布任务 ==============
+# ============== （本周）每日筹码分布任务 ==============
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveData_TimeTrade')
-def save_cyq_chips_this_week_batch(self, start_date: datetime.date, end_date: datetime.date):
+def save_cyq_chips_this_week_batch(self, stock: StockInfo, start_date: datetime.date, end_date: datetime.date):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:
@@ -335,8 +335,8 @@ def save_cyq_chips_this_week_batch(self, start_date: datetime.date, end_date: da
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_cyq_chips_history(start_date=start_date, end_date=end_date))
-        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+        result = asyncio.run(stock_time_trade_dao.save_cyq_chips_history(stock=stock, start_date=start_date, end_date=end_date))
+        print(f"保存 （本周）每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -351,7 +351,7 @@ def save_cyq_perf_this_week_batch(self, start_date: datetime.date, end_date: dat
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         result = asyncio.run(stock_time_trade_dao.save_cyq_perf_history(start_date=start_date, end_date=end_date))
-        print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
+        print(f"保存 （本周）每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -365,9 +365,12 @@ def save_cyq_data_this_week_task(self):
     这个任务由 Celery Beat 调度。
     """
     logger.info(f"任务启动: save_cyq_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
+    stock_basic_dao = StockBasicInfoDao()
     try:
         this_monday, this_friday = get_this_monday_and_friday()
-        save_cyq_chips_this_week_batch.s(start_date=this_monday, end_date=this_friday).set().apply_async()
+        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        for stock in all_stocks:
+            save_cyq_chips_this_week_batch.s(stock=stock, start_date=this_monday, end_date=this_friday).set().apply_async()
         save_cyq_perf_this_week_batch.s(start_date=this_monday, end_date=this_friday).set().apply_async()
         logger.info(f"任务结束: save_cyq_data_this_week_task (调度器模式)")
     except Exception as e:

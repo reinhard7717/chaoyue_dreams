@@ -15,6 +15,7 @@ from django.utils import timezone
 from typing import Any, Callable, List, Optional, Set, Tuple, Union, Dict
 from django.db import models # 确保导入 models
 import pandas_ta as ta
+from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from core.constants import TimeLevel # 确保 TimeLevel 枚举和可能需要的其他常量导入
 
@@ -48,6 +49,7 @@ class IndicatorService:
     """
     def __init__(self):
         self.indicator_dao = IndicatorDAO()
+        self.industry_dao = IndustryDao()
         self.stock_basic_dao = StockBasicInfoDao() # 用于获取 StockInfo 对象
         
         # 动态导入 pandas_ta，避免在类实例化时就强制依赖
@@ -100,7 +102,7 @@ class IndicatorService:
             logger.warning(f"不支持的时间级别 '{tf_str}' 进行重采样。")
             return None
 
-    # --- 新增辅助函数：计算特定时间级别所需的 K 线数量 ---
+    # --- 辅助函数：计算特定时间级别所需的 K 线数量 ---
     def _calculate_needed_bars_for_tf(
         self,
         target_tf: str,
@@ -199,7 +201,7 @@ class IndicatorService:
             df (pd.DataFrame): 从 DAO 获取的原始 DataFrame (index 是 DatetimeIndex, tz-aware)。
             tf (str): 目标时间级别字符串 (e.g., '5', '15', 'D').
             min_periods (int): 重采样聚合所需的最小原始数据点数量，小于此数量将产生 NaN。
-            fill_method (str): 重采样后填充 NaN 的方法 ('ffill', 'bfill', None)。
+            fill_method (str): 重采样后填充 NaN 的方法 ('ffill', 'bfill', None).
         Returns:
             Optional[pd.DataFrame]: 重采样并初步填充后的 DataFrame，如果重采样后数据量过少或全为 NaN 则返回 None。
         """
@@ -219,15 +221,6 @@ class IndicatorService:
             'volume': 'sum',
             'amount': 'sum',
         }
-        # 为外部特征列添加聚合规则，通常取最后一个值 (last)
-        external_cols = [col for col in df.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_')]
-        for ext_col in external_cols:
-             # 检查该列是否已经是数值类型，非数值类型（如字符串）不应进行 'last' 聚合
-             if pd.api.types.is_numeric_dtype(df[ext_col]):
-                 agg_rules[ext_col] = 'last'
-             else:
-                 logger.warning(f"[{df.index.name}] 时间级别 {tf}: 外部特征列 '{ext_col}' 不是数值类型 ({df[ext_col].dtype})，跳过重采样聚合。")
-
         # 过滤掉 DataFrame 中不存在的列
         agg_rules = {col: rule for col, rule in agg_rules.items() if col in df.columns}
         if not agg_rules:
@@ -251,11 +244,13 @@ class IndicatorService:
             if resampled_df[required_agg_cols].isnull().all().all():
                 logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后必要列全部为 NaN，数据无效。")
                 return None
+
             # 初步填充重采样引入的 NaN
             if fill_method == 'ffill':
                 resampled_df.ffill(inplace=True)
             elif fill_method == 'bfill':
                 resampled_df.bfill(inplace=True)
+
             # 记录重采样后的数据量和缺失情况 (初步填充后)
             missing_after_resample_fill = resampled_df.isnull().sum().sum()
             if missing_after_resample_fill > 0:
@@ -265,10 +260,19 @@ class IndicatorService:
                  missing_cols_detail = missing_cols_detail[missing_cols_detail > 0].sort_values(ascending=False).head()
                  if not missing_cols_detail.empty:
                      logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后缺失比例较高的列 (初步填充后): {missing_cols_detail.to_dict()}")
-            # 关键步骤：给所有列名添加时间周期后缀 (包括 OHLCV 和外部特征)
-            # 例如，将 'close' 列重命名为 'close_30'，将 'index_000300_sh_close' 重命名为 'index_000300_sh_close_30'
-            rename_map_with_suffix = {col: f"{col}_{tf}" for col in resampled_df.columns}
-            resampled_df_renamed = resampled_df.rename(columns=rename_map_with_suffix)
+
+            # 关键步骤：给所有 OHLCV 和 Amount 列名添加时间周期后缀
+            # 例如，将 'close' 列重命名为 'close_30'
+            cols_to_suffix = ['open', 'high', 'low', 'close', 'volume', 'amount']
+            rename_map_with_suffix = {col: f"{col}_{tf}" for col in cols_to_suffix if col in resampled_df.columns}
+
+            # 应用重命名。如果 rename_map_with_suffix 为空，rename 方法会返回一个副本。
+            # 修正：移除对未定义变量 rename_map 的检查，直接使用 rename_map_with_suffix
+            resampled_df_renamed = resampled_df.rename(columns=rename_map_with_suffix) # 修改行
+
+            # *** 调试点：检查重采样并添加后缀后的列名 ***
+            # print(f"[{df.index.name}] Debug: TF {tf} 重采样并重命名后的列: {resampled_df_renamed.columns.tolist()[:20]}...") # 调试输出：检查重采样和重命名后的列
+
             return resampled_df_renamed
         except Exception as e:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 重采样和清理数据时出错: {e}", exc_info=True)
@@ -298,7 +302,7 @@ class IndicatorService:
             p_k = params.get('period', 9) # 注意 KDJ 参数命名可能需要调整以匹配您的 calculate_kdj
             p_d = params.get('signal_period', 3)
             p_j = params.get('smooth_k_period', 3)
-            # 如果您的 calculate_kdj 参数键名不同，这里需要修改以匹配
+            # 如果您的 calculate_kdj 参数键名不同，这里需要以匹配
             # 例如，如果 calculate_kdj 接收 kdj_period_k, kdj_period_d, kdj_period_j
             # p_k = params.get('kdj_period_k', 9) etc.
             return f"{base_name}_{p_k}_{p_d}_{p_j}"
@@ -338,28 +342,242 @@ class IndicatorService:
              atr_p = params.get('atr_period', 10)
              # atr_m = params.get('atr_multiplier', 2.0) # 移除 atr_multiplier
              # atr_m_str = f"{atr_m:.1f}" # 移除 atr_multiplier 格式化
-
-             # >>> 修改开始 >>>
-             # 根据日志 KCL_20_10_5 和 JSON 约定 KCL_{ema_period}_{atr_period}，
-             # 基础 KC 列名不包含 atr_multiplier 参数。
              return f"{base_name}_{ema_p}_{atr_p}"
-             # <<< 修改结束 <<<
-
-        # 如果是 Ichimoku 或 PivotPoints 的子列，可能需要更复杂的逻辑
-        # 例如，如果 base_name 是 TENKAN，需要找到 Ichimoku 的参数来构建列名 TENKAN_9
-        # 暂时不在这里处理 Ichimoku/PivotPoints 的子列查找，如果需要差分再添加
-        # 例如，TENKAN_9, KIJUN_26, CHIKOU_26, SENKOU_A_9_26, SENKOU_B_52
-        # PivotPoints: PP, S1, R1 等没有参数
-
-        # >>> 新增调试日志 >>>
+        # >>> 调试日志 >>>
         logger.warning(f"[{stock_code}] 无法为基础指标 {base_name} 构建列名查找模式。参数: {params}")
-        # <<< 新增调试日志 >>>
         return None # 无法构建列名，返回 None
+
+    async def enrich_features(self, df: pd.DataFrame, stock_code: str, main_indices: List[str], external_data_history_days: int) -> pd.DataFrame:
+        """
+        为K线DataFrame批量补充指数、板块、筹码、资金流向等特征。
+        Args:
+            df: 股票 OHLCV DataFrame (索引是时区感知的 pd.Timestamp)
+            stock_code: 股票代码
+        Returns:
+            补充了新特征的 DataFrame
+        """
+        if df.empty:
+            logger.warning(f"输入 DataFrame 为空，跳过特征工程 for {stock_code}")
+            return df
+        # 确保 df 的索引是时区感知的
+        if not isinstance(df.index, pd.DatetimeIndex) or df.index.tzinfo is None:
+             logger.error(f"输入 DataFrame 的索引不是时区感知的 DatetimeIndex for {stock_code}")
+             # 尝试转换为默认时区，如果失败则返回原始 df
+             try:
+                  default_tz = timezone.get_default_timezone()
+                  # 如果是 naive，假设它是默认时区的
+                  if df.index.tzinfo is None:
+                      df.index = df.index.tz_localize(default_tz)
+                  else: # 如果是 aware 但不是默认时区
+                      df.index = df.index.tz_convert(default_tz)
+                  logger.warning(f"尝试将输入 DataFrame 的索引转换为默认时区 for {stock_code}")
+             except Exception as e:
+                  logger.error(f"转换输入 DataFrame 索引时区失败 for {stock_code}: {e}", exc_info=True)
+                  return df # 无法处理时间索引，返回原始 df
+        # 获取 DataFrame 的日期范围 (转换为 date 对象用于数据库查询)
+        # 使用 .date 属性获取 naive date，因为数据库 DateField 不存储时区信息
+        start_date = df.index.min().date()
+        end_date = df.index.max().date()
+        logger.info(f"对股票 {stock_code} 在日期范围 {start_date} 到 {end_date} 进行特征工程")
+        trade_days_for_external = await self.indicator_dao.index_basic_dao.get_last_n_trade_cal_open(n=external_data_history_days, trade_date=end_date)
+        if not trade_days_for_external:
+             logger.warning(f"无法获取用于确定外部特征起始日期的交易日历数据 for {stock_code} (请求 {external_data_history_days} 天，基准日期 {end_date})。跳过外部特征获取。")
+             return df # 无法获取交易日历，跳过外部特征
+        # external_fetch_start_date 是获取到的交易日历中的最早日期
+        external_fetch_start_date = trade_days_for_external[0]
+        logger.info(f"对股票 {stock_code} 在日期范围 {start_date} 到 {end_date} 进行特征工程，外部特征获取范围: {external_fetch_start_date} 到 {end_date}") # 日志信息
+
+        # --- 获取相关数据 ---
+        # 1. 获取股票所属同花顺板块代码
+        # await self.industry_dao.ths_indexs 方法返回的是 ThsIndex 实例列表
+        ths_indexs = await self.industry_dao.get_ths_indexs_by_code(stock_code)
+        ths_codes = [m.ths_index.ts_code for m in ths_indexs if m.ths_index] # 确保 m.ths_index 不是 None
+        logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
+        # 2. 定义主要市场指数代码 (可配置)
+        main_indices = self.indicator_dao.main_indices # 从 self.indicator_dao 获取 main_indices
+        logger.info(f"需要获取的主要市场指数代码: {main_indices}")
+        # 3. 批量获取板块/指数日线行情
+        # 由于是日线数据，与股票的分钟线可能不对齐，需要处理合并时的 NaNs
+        # 这里获取的日期范围使用计算出的 external_fetch_start_date 到 end_date
+        all_index_codes = list(set(ths_codes + main_indices)) # 合并并去重
+        # 并发获取普通指数、同花顺指数、筹码、资金流向数据
+        tasks = []
+        if main_indices:
+             tasks.append(self.indicator_dao.get_index_daily_df(main_indices, external_fetch_start_date, end_date))
+        if ths_codes:
+             tasks.append(self.indicator_dao.get_ths_index_daily_df(ths_codes, external_fetch_start_date, end_date))
+             tasks.append(self.indicator_dao.get_fund_flow_cnt_ths_df(ths_codes, external_fetch_start_date, end_date))
+             tasks.append(self.indicator_dao.get_fund_flow_industry_ths_df(ths_codes, external_fetch_start_date, end_date))
+        tasks.append(self.indicator_dao.get_stock_cyq_perf_df(stock_code, external_fetch_start_date, end_date))
+        tasks.append(self.indicator_dao.get_fund_flow_daily_df(stock_code, external_fetch_start_date, end_date))
+        tasks.append(self.indicator_dao.get_fund_flow_daily_ths_df(stock_code, external_fetch_start_date, end_date))
+        tasks.append(self.indicator_dao.get_fund_flow_daily_dc_df(stock_code, external_fetch_start_date, end_date))
+        # 并行执行所有外部数据获取任务
+        results = await asyncio.gather(*tasks)
+
+        # 将结果按类型分组
+        index_daily_df = None
+        ths_daily_df = None
+        cyq_perf_df = None
+        fund_flow_daily_df = None
+        fund_flow_daily_ths_df = None
+        fund_flow_daily_dc_df = None
+        fund_flow_cnt_ths_df_raw = None
+        fund_flow_industry_ths_df_raw = None
+
+        # 根据任务顺序和返回类型分配结果
+        result_index = 0
+        if main_indices:
+             index_daily_df = results[result_index]
+             result_index += 1
+        if ths_codes:
+             ths_daily_df = results[result_index]
+             fund_flow_cnt_ths_df_raw = results[result_index + 1] # 根据任务顺序获取资金流向统计数据
+             fund_flow_industry_ths_df_raw = results[result_index + 2] # 根据任务顺序获取行业资金流向数据
+             result_index += 3 # 调整索引增量
+        cyq_perf_df = results[result_index]
+        fund_flow_daily_df = results[result_index + 1] # 根据任务顺序获取资金流向数据
+        fund_flow_daily_ths_df = results[result_index + 2] # 根据任务顺序获取同花顺资金流向数据
+        fund_flow_daily_dc_df = results[result_index + 3] # 根据任务顺序获取东方财富资金流向数据
+
+        # --- 处理并合并指数/板块数据 ---
+        all_indices_df = None # 用于存放所有指数/板块数据的 DataFrame
+        if index_daily_df is not None and not index_daily_df.empty:
+            # 为普通指数数据添加前缀并添加到 all_indices_df
+            for index_code in main_indices:
+                idx_df = index_daily_df[index_daily_df['index_code'] == index_code].copy()
+                if not idx_df.empty:
+                    idx_df.drop(columns=['index_code'], inplace=True)
+                    # 重命名列，添加指数代码前缀
+                    idx_df.columns = [f'index_{index_code.replace(".", "_").lower()}_{col}' for col in idx_df.columns]
+                    if all_indices_df is None:
+                        all_indices_df = idx_df
+                    else:
+                        # 使用 merge 或 join 合并，基于索引
+                        all_indices_df = pd.merge(all_indices_df, idx_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{index_code.replace(".", "_").lower()}_dup'))
+                        # 清理可能的重复列后缀
+                        all_indices_df = all_indices_df[[col for col in all_indices_df.columns if not col.endswith('_dup')]]
+        if ths_daily_df is not None and not ths_daily_df.empty:
+            # 为同花顺板块数据添加前缀并添加到 all_indices_df
+            for ths_code in ths_codes:
+                ths_d_df = ths_daily_df[ths_daily_df['ts_code'] == ths_code].copy()
+                if not ths_d_df.empty:
+                    ths_d_df.drop(columns=['ts_code'], inplace=True)
+                    # 重命名列，添加板块代码前缀
+                    ths_d_df.columns = [f'ths_{ths_code.replace(".", "_").lower()}_{col}' for col in ths_d_df.columns]
+                    if all_indices_df is None:
+                        all_indices_df = ths_d_df
+                    else:
+                        # 使用 merge 或 join 合并，基于索引
+                        all_indices_df = pd.merge(all_indices_df, ths_d_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
+                        # 清理可能的重复列后缀
+                        all_indices_df = all_indices_df[[col for col in all_indices_df.columns if not col.endswith('_dup')]]
+        if all_indices_df is not None:
+            logger.info(f"已获取并合并指数/板块数据，数据量: {len(all_indices_df)} 条，列数: {len(all_indices_df.columns)}")
+        else:
+            logger.warning(f"未获取到任何指数/板块数据 for {stock_code}")
+            all_indices_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # --- 处理并合并筹码分布汇总数据 ---
+        if cyq_perf_df is not None and not cyq_perf_df.empty:
+            cyq_perf_df.drop(columns=['stock_code'], inplace=True, errors='ignore') # 移除股票代码列
+            # 添加前缀以区分
+            cyq_perf_df.columns = [f'cyq_{col}' for col in cyq_perf_df.columns]
+            logger.info(f"已获取股票 {stock_code} 的筹码分布汇总数据，数据量: {len(cyq_perf_df)} 条，列数: {len(cyq_perf_df.columns)}")
+        else:
+            logger.warning(f"未获取到股票 {stock_code} 的筹码分布汇总数据")
+            cyq_perf_df = pd.DataFrame() # 确保是一个 DataFrame
+
+        # --- 处理并合并资金流向数据 ---
+        # FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC 已经在 DAO 中添加了前缀
+        # FundFlowCntTHS 和 FundFlowIndustryTHS 需要按板块/行业代码处理后合并
+        fund_flow_cnt_ths_df_processed = pd.DataFrame() # 用于存放处理后的板块资金流向数据
+        if fund_flow_cnt_ths_df_raw is not None and not fund_flow_cnt_ths_df_raw.empty:
+             logger.info(f"已获取同花顺板块资金流向统计数据 (原始)，数据量: {len(fund_flow_cnt_ths_df_raw)} 条")
+             # 遍历每个板块代码，提取数据并重命名列
+             for ths_code in fund_flow_cnt_ths_df_raw['ts_code'].unique():
+                  cnt_df = fund_flow_cnt_ths_df_raw[fund_flow_cnt_ths_df_raw['ts_code'] == ths_code].copy()
+                  if not cnt_df.empty:
+                       cnt_df.drop(columns=['ts_code'], inplace=True)
+                       # 重命名列，添加板块代码前缀
+                       cnt_df.columns = [f'ff_cnt_ths_{ths_code.replace(".", "_").lower()}_{col}' for col in cnt_df.columns]
+                       # 设置时间索引
+                       cnt_df.set_index('trade_time', inplace=True)
+                       cnt_df.sort_index(ascending=True, inplace=True)
+                       if fund_flow_cnt_ths_df_processed.empty:
+                            fund_flow_cnt_ths_df_processed = cnt_df
+                       else:
+                            fund_flow_cnt_ths_df_processed = pd.merge(fund_flow_cnt_ths_df_processed, cnt_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
+                            fund_flow_cnt_ths_df_processed = fund_flow_cnt_ths_df_processed[[col for col in fund_flow_cnt_ths_df_processed.columns if not col.endswith('_dup')]]
+             if not fund_flow_cnt_ths_df_processed.empty:
+                  logger.info(f"已处理同花顺板块资金流向统计数据，数据量: {len(fund_flow_cnt_ths_df_processed)} 条，列数: {len(fund_flow_cnt_ths_df_processed.columns)}")
+             else:
+                  logger.warning(f"处理同花顺板块资金流向统计数据后 DataFrame 为空 for {ths_codes}")
+        else:
+             logger.warning(f"未获取到同花顺板块资金流向统计数据 for {ths_codes}")
+
+        fund_flow_industry_ths_df_processed = pd.DataFrame() # 用于存放处理后的行业资金流向数据
+        if fund_flow_industry_ths_df_raw is not None and not fund_flow_industry_ths_df_raw.empty:
+             logger.info(f"已获取同花顺行业资金流向统计数据 (原始)，数据量: {len(fund_flow_industry_ths_df_raw)} 条")
+             # 遍历每个行业代码，提取数据并重命名列
+             for ths_code in fund_flow_industry_ths_df_raw['ts_code'].unique():
+                  ind_df = fund_flow_industry_ths_df_raw[fund_flow_industry_ths_df_raw['ts_code'] == ths_code].copy()
+                  if not ind_df.empty:
+                       ind_df.drop(columns=['ts_code'], inplace=True)
+                       # 重命名列，添加行业代码前缀
+                       ind_df.columns = [f'ff_ind_ths_{ths_code.replace(".", "_").lower()}_{col}' for col in ind_df.columns]
+                       # 设置时间索引
+                       ind_df.set_index('trade_time', inplace=True)
+                       ind_df.sort_index(ascending=True, inplace=True)
+                       if fund_flow_industry_ths_df_processed.empty:
+                            fund_flow_industry_ths_df_processed = ind_df
+                       else:
+                            fund_flow_industry_ths_df_processed = pd.merge(fund_flow_industry_ths_df_processed, ind_df, left_index=True, right_index=True, how='outer', suffixes=('', f'_{ths_code.replace(".", "_").lower()}_dup'))
+                            fund_flow_industry_ths_df_processed = fund_flow_industry_ths_df_processed[[col for col in fund_flow_industry_ths_df_processed.columns if not col.endswith('_dup')]]
+             if not fund_flow_industry_ths_df_processed.empty:
+                  logger.info(f"已处理同花顺行业资金流向统计数据，数据量: {len(fund_flow_industry_ths_df_processed)} 条，列数: {len(fund_flow_industry_ths_df_processed.columns)}")
+             else:
+                  logger.warning(f"处理同花顺行业资金流向统计数据后 DataFrame 为空 for {ths_codes}")
+        else:
+             logger.warning(f"未获取到同花顺行业资金流向统计数据 for {ths_codes}")
+
+        # 合并所有外部特征 DataFrame
+        external_features_dfs = [
+            all_indices_df,
+            cyq_perf_df,
+            fund_flow_daily_df,
+            fund_flow_daily_ths_df,
+            fund_flow_daily_dc_df,
+            fund_flow_cnt_ths_df_processed,
+            fund_flow_industry_ths_df_processed
+        ]
+        # 使用 reduce 和 merge 将所有非空的外部特征 DataFrame 合并到一个 DataFrame 中
+        # 以第一个非空 DataFrame 为基础，或者如果都为空则创建一个空 DataFrame
+        merged_external_df = pd.DataFrame()
+        for ext_df in external_features_dfs:
+             if ext_df is not None and not ext_df.empty:
+                  if merged_external_df.empty:
+                       merged_external_df = ext_df
+                  else:
+                       # 使用 outer join 合并，保留所有时间点
+                       merged_external_df = pd.merge(merged_external_df, ext_df, left_index=True, right_index=True, how='outer')
+
+        if not merged_external_df.empty:
+             logger.info(f"所有外部特征数据合并完成，数据量: {len(merged_external_df)} 条，列数: {len(merged_external_df.columns)}")
+             # 将合并后的外部特征 DataFrame 与主 DataFrame (df) 合并
+             # 使用 left join，以主 DataFrame 的索引为准
+             # 注意：这里假设输入 df 已经是包含 OHLCV 和技术指标的 DataFrame
+             # 并且其索引是时区感知的 pd.Timestamp
+             final_df = pd.merge(df, merged_external_df, left_index=True, right_index=True, how='left')
+             logger.info(f"外部特征已合并到主 DataFrame，合并后数据量: {len(final_df)} 条，列数: {len(final_df.columns)}")
+             return final_df
+        else:
+             logger.warning(f"没有获取到任何外部特征数据 for {stock_code}，返回原始 DataFrame。")
+             return df # 如果没有外部特征数据，返回原始 DataFrame
 
     async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
         """
         根据策略 JSON 配置文件准备包含重采样基础数据和所有计算指标的 DataFrame。
-
         该函数执行以下步骤：
         1. 加载策略参数文件。
         2. 解析参数，识别所需的时间级别和要计算的指标及其参数。
@@ -368,9 +586,10 @@ class IndicatorService:
         5. 对原始数据进行重采样和初步清洗，并给 OHLCV 列名添加时间周期后缀。
         6. 并行计算所有配置的基础指标。
         7. 将所有时间级别的 OHLCV 数据和计算出的指标数据合并到同一个 DataFrame 中，以最小时间级别索引为基准。
-        8. (此方法不包含衍生特征计算，该步骤通常在合并数据后进行)
-        9. 对最终的 DataFrame 进行缺失值填充。
-        10. 返回最终的 DataFrame 和指标配置列表。
+        8. 补充外部特征 (指数、板块、筹码、资金流向)。
+        9. 计算相对强度、滞后特征、滚动统计特征等衍生特征。
+        10. 对最终的 DataFrame 进行缺失值填充。
+        11. 返回最终的 DataFrame 和指标配置列表。
         Args:
             stock_code (str): 股票代码。
             params_file (str): 策略 JSON 配置文件的路径。
@@ -397,12 +616,22 @@ class IndicatorService:
                 params = json.load(f)
             logger.info(f"[{stock_code}] 从 {params_file} 加载策略参数成功。")
             # 添加参数加载成功的调试输出，可以部分打印参数
-            print(f"[{stock_code}] Debug: 加载策略参数成功，部分参数: base_scoring={params.get('base_scoring', {})}, indicator_analysis_params={params.get('indicator_analysis_params', {})}, trend_following_params={params.get('trend_following_params', {})}") # 调试输出：打印部分加载的参数
+            print(f"[{stock_code}] Debug: 加载策略参数成功，部分参数: base_scoring={params.get('base_scoring', {})}, indicator_analysis_params={params.get('indicator_analysis_params', {})}, feature_engineering_params={params.get('feature_engineering_params', {})}") # 调试输出：打印部分加载的参数
         except Exception as e:
             # 记录加载或解析失败的错误
             print(f"[{stock_code}] Debug: 加载或解析参数文件失败: {e}") # 调试输出：记录参数文件加载/解析错误
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
             return None
+        # 从 JSON 参数中读取主要指数代码 (作为相对强度的固定基准之一)
+        main_index_codes = params.get('base_scoring', {}).get('main_index_codes', [])
+        if not main_index_codes:
+             logger.warning(f"[{stock_code}] JSON 参数中未配置 'base_scoring.main_index_codes'，相对强度计算将仅使用股票所属板块作为基准。")
+             # 可以设置一个默认值，或者根据策略需求决定是否终止
+             # main_index_codes = ['000001.SH'] # 示例默认值
+        # 从 JSON 参数中读取外部特征历史数据天数
+        fe_params = params.get('feature_engineering_params', {}) # 获取特征工程参数块
+        external_data_history_days = fe_params.get('external_data_history_days', 365) # 默认 365 天
+        logger.info(f"[{stock_code}] 外部特征历史数据天数 (从 JSON 读取): {external_data_history_days}")
         # 2. 识别需求：时间级别和全局指标最大回看期
         # 存储所有需要的时间级别，使用集合避免重复
         all_time_levels_needed: Set[str] = set()
@@ -470,7 +699,7 @@ class IndicatorService:
         # --- 注册基础评分指标的计算配置 ---
         # 遍历 base_scoring.score_indicators 列表中启用的指标键名
         for indi_key in bs_params.get('score_indicators', []):
-            # 为每个启用的指标调用 _add_indicator_config 辅助函数
+            # 为每个启用的指标调用 _add_indicator_config辅助函数
             if indi_key == 'macd':
                 macd_calc_params = _get_indicator_params(bs_params, default_macd_p)
                 _add_indicator_config('MACD', self.calculate_macd, 'base_scoring', macd_calc_params, bs_timeframes)
@@ -586,7 +815,7 @@ class IndicatorService:
             _add_indicator_config('PivotPoints', self.calculate_pivot_points, 'indicator_analysis_params', pivot_calc_params, ['D']) # 注册的配置名称是 'PivotPoints'
             all_time_levels_needed.add('D') # 确保 'D' 被包含在所需时间级别中
         # --- 注册特征工程指标的计算配置 ---
-        fe_params = params.get('feature_engineering_params', {})
+        # fe_params = params.get('feature_engineering_params', {}) # 已经在前面获取
         # 特征工程默认应用于基础时间框架，除非参数中指定了 apply_on_timeframes
         fe_timeframes_cfg = fe_params.get('apply_on_timeframes', bs_timeframes)
         fe_timeframes = [fe_timeframes_cfg] if isinstance(fe_timeframes_cfg, str) else fe_timeframes_cfg if fe_params else []
@@ -653,7 +882,7 @@ class IndicatorService:
              print(f"  [{i}] Name: {conf['name']}, Timeframes: {conf['timeframes']}, Params (partial): {{{params_summary}}}") # 调试输出
         print("-" * 30) # 分隔线
         # --- 确定最小时间级别 ---
-        # 从 all_time_levels_needed 集合中找到分钟数最小的时间级别
+        # 从 all_time_levels_needed 集合中找到分钟数最小的那个时间级别
         min_time_level = None
         min_tf_minutes = float('inf') # 初始化为无穷大
         if not all_time_levels_needed: # 如果没有任何时间级别被识别出来，记录错误并返回 None
@@ -740,7 +969,6 @@ class IndicatorService:
         # 添加一个固定的缓冲期，以应对计算起点、复权等问题
         global_max_lookback += 100
         logger.info(f"[{stock_code}] 动态计算的全局指标最大回看期 (含缓冲): {global_max_lookback}")
-
         # 3. 并行获取原始 OHLCV 数据
         ohlcv_tasks = {} # 存储异步数据获取任务
         # 确定基础所需数据条数，如果 base_needed_bars 未指定，则从参数文件获取 LSTM 窗口大小加上指标回看期和缓冲
@@ -758,8 +986,8 @@ class IndicatorService:
             )
             logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})需(估算){effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
             # 创建异步获取数据的任务
-            # 调用 DAO 的 get_history_ohlcv_df，它现在会返回包含外部特征的 DataFrame
-            ohlcv_tasks[tf_fetch] = self.indicator_dao.get_history_ohlcv_df(stock_code, tf_fetch, limit=needed_bars_for_tf)
+           # 调用 _get_ohlcv_data，它内部调用 DAO 且只获取基础 OHLCV
+            ohlcv_tasks[tf_fetch] = self._get_ohlcv_data(stock_code, tf_fetch, needed_bars=needed_bars_for_tf)
         # 并行执行所有数据获取任务，并收集结果
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         # 将结果按时间级别字典化
@@ -777,41 +1005,33 @@ class IndicatorService:
                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 没有获取到原始数据，跳过重采样。")
                 continue
             # 执行重采样和清洗（例如处理缺失 K 线、填充等）
-            # 调用修改后的 _resample_and_clean_dataframe，它会处理外部特征并添加后缀
-            resampled_df = self._resample_and_clean_dataframe(raw_df, tf_resample, min_periods=1, fill_method='ffill')
+            # 调用 _resample_and_clean_dataframe，它会处理重采样、初步填充并给 OHLCV 列名添加时间周期后缀
+            resampled_df_processed = self._resample_and_clean_dataframe(raw_df, tf_resample, min_periods=1, fill_method='ffill') # 修改行：直接接收处理后的DataFrame
+
             # 检查重采样后的数据是否有效
-            if resampled_df is None or resampled_df.empty:
+            if resampled_df_processed is None or resampled_df_processed.empty: # 修改行：使用 resampled_df_processed
                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据为空，跳过。")
                 continue
             # 对最小时间级别的数据量进行硬性检查
-            if tf_resample == min_time_level and len(resampled_df) < min_usable_bars:
-                 logger.error(f"[{stock_code}] 最小时间级别 {tf_resample} 重采样后数据量 {len(resampled_df)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。")
+            if tf_resample == min_time_level and len(resampled_df_processed) < min_usable_bars: # 修改行：使用 resampled_df_processed
+                 logger.error(f"[{stock_code}] 最小时间级别 {tf_resample} 重采样后数据量 {len(resampled_df_processed)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。") # 修改行：使用 resampled_df_processed
                  return None # 数据量不足以支持后续分析，终止流程
             # 如果数据量显著少于全局最大回看期，记录警告
-            if len(resampled_df) < global_max_lookback * 0.5:
-                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据量 {len(resampled_df)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。")
-            # *** 关键步骤：给基础 OHLCV 列名添加时间周期后缀 ***
-            # 例如，将 'close' 列重命名为 'close_30'
-            rename_map = {col: f"{col}_{tf_resample}" for col in ['open', 'high', 'low', 'close', 'volume', 'amount'] if col in resampled_df.columns}
-            # 应用重命名，如果 rename_map 不为空则复制并重命名，否则只复制
-            resampled_df_renamed = resampled_df.rename(columns=rename_map) if rename_map else resampled_df.copy()
+            if len(resampled_df_processed) < global_max_lookback * 0.5: # 修改行：使用 resampled_df_processed
+                 logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据量 {len(resampled_df_processed)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。") # 修改行：使用 resampled_df_processed
             # *** 调试点：检查重采样并添加后缀后的列名 ***
-            # print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_renamed.columns.tolist()[:20]}...") # 调试输出：检查重采样和重命名后的列
+            # print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_processed.columns.tolist()[:20]}...") # 修改行：使用 resampled_df_processed
             # 将处理后的 DataFrame 存储起来
-            resampled_ohlcv_dfs[tf_resample] = resampled_df_renamed
-
+            resampled_ohlcv_dfs[tf_resample] = resampled_df_processed # 修改行：存储 resampled_df_processed
         # 最终检查最小时间级别的数据是否存在且非空
         if min_time_level not in resampled_ohlcv_dfs or resampled_ohlcv_dfs[min_time_level].empty:
-             logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 重采样后的数据不可用。终止。")
-             return None # 最小时间级别数据缺失，终止流程
-
+             logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
+             return None # 基础数据缺失，无法合并
         # 使用最小时间级别的数据索引作为最终合并的基准索引
         base_index = resampled_ohlcv_dfs[min_time_level].index
         logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，数量: {len(base_index)}。")
-
         # 5. 计算所有配置的基础指标 (并行)
         indicator_calculation_tasks = [] # 存储异步指标计算任务
-
         # 定义一个异步辅助函数来计算单个指标
         async def _calculate_single_indicator_async(tf_calc: str, base_df_with_suffix: pd.DataFrame, config_item: Dict) -> Optional[Tuple[str, pd.DataFrame]]:
             """异步计算单个时间级别上的单个指标。"""
@@ -832,11 +1052,6 @@ class IndicatorService:
             actual_rename_map_to_std = {k: v for k, v in ohlcv_map_to_std.items() if k in df_for_ta.columns}
             # 应用临时重命名
             df_for_ta.rename(columns=actual_rename_map_to_std, inplace=True)
-            # 移除外部特征列，确保只将 OHLCV 数据传递给技术指标计算函数
-            cols_to_drop = [col for col in df_for_ta.columns if col.startswith('index_') or col.startswith('ths_') or col.startswith('cyq_')]
-            if cols_to_drop:
-                 df_for_ta.drop(columns=cols_to_drop, inplace=True, errors='ignore')
-                 # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 临时移除外部特征列进行技术指标计算。") # 调试输出
             # 动态确定指标函数需要的列 (high, low, close, volume, amount 等)
             # 这是一个简化版本，实际可能需要更复杂的参数签名检查或配置
             required_cols_for_func = set(['high', 'low', 'close']) # 默认需要 HLC
@@ -847,14 +1062,12 @@ class IndicatorService:
             # Keltner Channels (KC) 需要高、低、收盘价以及 ATR，calculate_keltner_channels 函数内部会计算或使用 ATR
             # 所以这里仅需要 OHLCV 列，不需要检查 ATR 列是否存在于 df_for_ta 中
             pass # 无需额外添加 required_cols_for_func for KC
-
             # 检查 df_for_ta 是否包含计算该指标所需的所有列
             if not all(col in df_for_ta.columns for col in required_cols_for_func):
                 missing_cols_str = ", ".join(list(required_cols_for_func - set(df_for_ta.columns)))
                 print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 缺少必要列 ({missing_cols_str})，跳过计算。") # 调试输出：缺少必要列
                 logger.debug(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} 时，df_for_ta 缺少必要列 ({missing_cols_str})。可用: {df_for_ta.columns.tolist()}")
                 return None # 缺少必要列，无法计算
-
             try:
                 # 获取为该指标准备好的参数副本，传递给计算函数
                 func_params_to_pass = config_item['params'].copy()
@@ -872,7 +1085,6 @@ class IndicatorService:
                      print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 Empty DataFrame。") # 调试输出：计算结果为空DataFrame
                      logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为空。")
                      return None
-
                 # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算原始结果列名: {indicator_result_df.columns.tolist()}") # 调试输出
                 # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算原始结果 Shape: {indicator_result_df.shape}") # 调试输出
 
@@ -897,15 +1109,12 @@ class IndicatorService:
                         print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 返回类型 {type(indicator_result_df)} 无法处理。") # 调试输出：无法处理的返回类型
                         logger.warning(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 返回类型 {type(indicator_result_df)} 无法处理。")
                         return None # 无法处理的返回类型
-
                 # *** 关键步骤：给计算出的指标列名添加时间周期后缀 ***
                 # 例如，将 calculate_dmi 返回的 'ADX_14', 'PDI_14', 'NDI_14' 重命名为 'ADX_14_30', 'PDI_14_30', 'NDI_14_30'
                 # lambda 函数 x: f"{x}_{tf_calc}" 对 DataFrame 的所有列名应用后缀
                 result_renamed_df = indicator_result_df.rename(columns=lambda x: f"{x}_{tf_calc}")
-
                 # *** 调试点：检查添加后缀后的指标 DataFrame 列名 ***
                 # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 添加后缀后的列名: {result_renamed_df.columns.tolist()}") # 调试输出
-
                 # 返回时间级别和带有后缀的结果 DataFrame
                 return (tf_calc, result_renamed_df)
             except Exception as e_calc:
@@ -913,13 +1122,12 @@ class IndicatorService:
                 print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}") # 调试输出：指标计算出错
                 logger.error(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}", exc_info=True)
                 return None # 计算出错，返回 None
-
         # 为每个指标配置和适用的时间级别创建一个计算任务
         for config_item_loop in indicator_configs:
             for tf_conf in config_item_loop['timeframes']:
                 # 确保该时间级别的重采样数据已经准备好
                 if tf_conf in resampled_ohlcv_dfs:
-                    # 将重采样后的 DataFrame (包含 OHLCV 和外部特征，且已添加后缀) 传递给计算函数
+                    # 传递重采样后的 OHLCV DataFrame (不包含外部特征)
                     base_ohlcv_df_for_tf_loop = resampled_ohlcv_dfs[tf_conf]
                     # 创建异步计算任务并添加到列表中
                     indicator_calculation_tasks.append(
@@ -928,20 +1136,12 @@ class IndicatorService:
                 else:
                     print(f"[{stock_code}] Debug: 时间框架 {tf_conf} 的基础数据未找到 ({config_item_loop['name']})，无法创建计算任务。") # 调试输出：基础数据未找到
                     logger.warning(f"[{stock_code}] 时间框架 {tf_conf} 在 resampled_ohlcv_dfs 中未找到，无法为指标 {config_item_loop['name']} 创建计算任务。")
-
         # 并行执行所有指标计算任务
         # return_exceptions=True 确保即使某个任务失败，也不会中断整个 gather，而是返回异常对象
         calculated_results_tuples = await asyncio.gather(*indicator_calculation_tasks, return_exceptions=True)
-
         # 按时间级别对计算结果进行分组存储
         # defaultdict(list) 用于存储 { 'tf' : [indi_df1, indi_df2, ...] }
         calculated_indicators_by_tf = defaultdict(list)
-
-        # *** 调试点：检查所有指标计算任务的结果 ***
-        # print(f"[{stock_code}] Debug: 所有指标计算任务原始结果 tuple 列表 (总数: {len(calculated_results_tuples)}):") # 调试输出
-        # 打印部分结果摘要，避免刷屏
-        # print(f"[{stock_code}] Debug: 部分计算结果摘要: {[r for r in calculated_results_tuples[:10]]}...")
-
         for res_tuple_item in calculated_results_tuples:
             # 检查任务结果是否成功 (不是异常对象，且是预期的元组格式)
             if isinstance(res_tuple_item, tuple) and len(res_tuple_item) == 2:
@@ -956,164 +1156,172 @@ class IndicatorService:
                     # 记录计算结果为空的情况 - 已经在 _calculate_single_indicator_async 中记录了
                     pass
             elif isinstance(res_tuple_item, Exception):
-                # 如果任务返回的是异常，记录错误 - 已经在 _calculate_single_indicator_async 中记录了
-                pass
-        # --- 后处理 OBV_MA ---
-        # OBV_MA 需要在 OBV 计算完成后才能计算
-        # 从参数中获取 OBV_MA 的周期
-        # OBV_MA 计算通常在 volume_confirmation 或 indicator_analysis_params 中配置
-        obv_ma_period_vc = vc_params.get('obv_ma_period')
-        obv_ma_period_ia = ia_params.get('obv_ma_period')
-        # 优先使用 volume_confirmation 的配置，其次 indicator_analysis_params，最后默认值
-        obv_ma_period = obv_ma_period_vc if obv_ma_period_vc is not None else \
-                        obv_ma_period_ia if obv_ma_period_ia is not None else 10 # 默认周期为 10
-        # 检查是否需要计算 OBV_MA
-        # OBV_MA 是否启用取决于 volume_confirmation 或 indicator_analysis_params 中的 calculate_obv_ma 标志
-        calculate_obv_ma_enabled = vc_params.get('calculate_obv_ma', False) or ia_params.get('calculate_obv_ma', False)
-        if calculate_obv_ma_enabled: # 如果启用了 OBV_MA 计算
-            print(f"[{stock_code}] Debug: 尝试计算 OBV_MA (周期 {obv_ma_period})...") # 调试输出：尝试计算OBV_MA
-            # OBV_MA 的计算适用于所有已经计算了 OBV 的时间级别
-            # 我们需要找到 OBV 列所在的 DataFrame
-            # 检查是否在 indicator_configs 中注册了 OBV，并获取其时间级别
-            obv_config = next((c for c in indicator_configs if c['name'] == 'OBV'), None)
-            if obv_config:
-                obv_timeframes = obv_config['timeframes']
-                for tf_obv_ma in obv_timeframes:
-                    # 在该时间级别的指标列表中查找 OBV 列所在的 DataFrame
-                    # 期望的 OBV 列名是 'OBV_{tf_obv_ma}' (因为基础指标计算时已经添加了时间后缀)
-                    obv_col_pattern = f'OBV_{tf_obv_ma}'
-                    obv_df_found = None
-                    # 遍历该时间级别下所有计算出的指标 DataFrame，查找包含 OBV 列的那个
-                    if tf_obv_ma in calculated_indicators_by_tf:
-                        for df in calculated_indicators_by_tf[tf_obv_ma]:
-                            if obv_col_pattern in df.columns:
-                                obv_df_found = df
-                                break # 找到 OBV 所在的 DataFrame
-                    if obv_df_found is not None:
-                        # 找到了 OBV 所在的 DataFrame，现在计算 OBV 的移动平均
-                        try:
-                            # 确保 OBV 列是数值类型，防止移动平均计算出错
-                            if not pd.api.types.is_numeric_dtype(obv_df_found[obv_col_pattern]):
-                                print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。") # 调试输出：OBV列非数值
-                                logger.warning(f"[{stock_code}] TF {tf_obv_ma}: OBV 列 '{obv_col_pattern}' 不是数值类型，无法计算 OBV_MA。")
-                                continue # 跳过当前时间级别的 OBV_MA 计算
-
-                            # 使用 pandas 的 rolling().mean() 计算移动平均
-                            obv_ma_col_name = f'OBV_MA_{obv_ma_period}_{tf_obv_ma}' # OBV MA 列名带周期和时间后缀
-                            # 使用 apply 在 Series 上计算移动平均，确保 NaN 处理正确
-                            obv_ma_series = obv_df_found[obv_col_pattern].rolling(window=obv_ma_period, min_periods=1).mean() # 计算移动平均，min_periods=1 表示窗口不足时也计算
-                            obv_ma_df = obv_ma_series.to_frame(name=obv_ma_col_name) # 转换为 DataFrame
-
-                            # 将计算出的 OBV_MA DataFrame 添加到该时间级别下的指标列表中
-                            # 注意：这里直接修改了 defaultdict 中的列表
-                            calculated_indicators_by_tf[tf_obv_ma].append(obv_ma_df)
-                            print(f"[{stock_code}] Debug: TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算并添加到分组列表。列名: [{obv_ma_col_name}]") # 调试输出：OBV_MA计算成功
-                            logger.info(f"[{stock_code}] TF {tf_obv_ma}: OBV_MA_{obv_ma_period} 计算完成。")
-
-                        except Exception as e_obv_ma:
-                            print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}") # 调试输出：OBV_MA计算出错
-                            logger.error(f"[{stock_code}] TF {tf_obv_ma}: 计算 OBV_MA_{obv_ma_period} 时出错: {e_obv_ma}", exc_info=True)
-                    else:
-                        # 如果该时间级别未找到 OBV 数据，记录警告
-                        print(f"[{stock_code}] Debug: TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。") # 调试输出：未找到OBV列
-                        logger.warning(f"[{stock_code}] TF {tf_obv_ma}: 未找到 OBV 列 '{obv_col_pattern}'，跳过 OBV_MA 计算。")
+                 # 记录计算任务中的异常
+                 print(f"[{stock_code}] Debug: 指标计算任务发生异常: {res_tuple_item}") # 调试输出：指标计算任务异常
+                 logger.error(f"[{stock_code}] 指标计算任务发生异常: {res_tuple_item}", exc_info=True)
             else:
-                 print(f"[{stock_code}] Debug: 未找到 OBV 的注册配置，无法计算 OBV_MA。") # 调试输出：未找到OBV配置
-                 logger.warning(f"[{stock_code}] 未找到 OBV 的注册配置，无法计算 OBV_MA。")
-        # 6. 将所有时间级别的 OHLCV 和指标数据合并到最终 DataFrame
-        # 使用最小时间级别的 OHLCV 数据作为基础 DataFrame
-        if min_time_level not in resampled_ohlcv_dfs:
-             logger.error(f"[{stock_code}] 关键错误: 最小时间级别 {min_time_level} 的 OHLCV 数据在重采样后丢失。终止。")
-             return None # 理论上不会发生，前面已经检查过
-        final_df = resampled_ohlcv_dfs[min_time_level].copy()
-        logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的数据作为最终 DataFrame 基础，形状: {final_df.shape}")
-        # 遍历所有时间级别和其计算出的指标 DataFrame 列表
-        for tf_merge, df_list_merge in calculated_indicators_by_tf.items():
-            # 将该时间级别所有的指标 DataFrame concat 到一起
-            # 注意：如果 df_list_merge 中的 DataFrame 包含重复列名，pd.concat 会保留所有重复列
-            # 这是日志中出现多个 K_7_3_3_5, ADX_14_5 的原因
-            # 修复方法是在注册时避免重复计算和返回 DataFrames，让每个基础指标只计算一次并返回一个 DataFrame
-            # 这已经在前面的删除额外注册的步骤中完成
-            if df_list_merge:
-                # 确保合并的 DataFrame 具有相同的索引，这里应该没问题，因为它们都基于重采样数据
-                merged_indicators_for_tf = pd.concat(df_list_merge, axis=1)
-
-                # 将合并后的指标 DataFrame 与 final_df 按索引对齐合并
-                # 使用 left 合并，以确保 final_df (基于最小时间级别索引) 的所有行都被保留
-                # 如果 tf_merge 就是最小时间级别，则只合并指标列
-                if tf_merge == min_time_level:
-                    # 确保不合并 OHLCV 列 (尽管列名带有后缀，理论上不会冲突，但为了清晰)
-                    # 实际上，因为基础 OHLCV 已经在 final_df 里了，merge 相同列名会自动处理（例如添加 _x, _y 后缀或报错），
-                    # 但因为我们已经处理了重复注册，这里的 merged_indicators_for_tf 应该只包含指标列。
-                    # 使用 join 更直接，因为它默认按索引对齐
-                    final_df = final_df.join(merged_indicators_for_tf, how='left')
-                    logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 {len(df_list_merge)} 个指标 DataFrame (到基础DF)，当前 final_df 形状: {final_df.shape}")
-                else:
-                    # 如果是非最小时间级别，需要先获取该时间级别的 OHLCV 数据
-                    if tf_merge in resampled_ohlcv_dfs:
-                        ohlcv_df_for_merge = resampled_ohlcv_dfs[tf_merge]
-                        # 将 OHLCV 数据和指标数据先 concat 到一起
-                        df_to_merge = pd.concat([ohlcv_df_for_merge, merged_indicators_for_tf], axis=1)
-                        logger.info(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据和 {len(df_list_merge)} 个指标 DataFrame，形状: {df_to_merge.shape}")
-
-                        # 将这个时间级别的数据 (OHLCV + 指标) 与 final_df 按索引对齐合并
-                        final_df = final_df.join(df_to_merge, how='left')
-                        logger.info(f"[{stock_code}] 将时间级别 {tf_merge} 的数据合并到 final_df，当前 final_df 形状: {final_df.shape}")
-                    else:
-                        logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 的重采样 OHLCV 数据未找到，无法合并该时间级别的数据和指标。")
-
-            else:
-                logger.warning(f"[{stock_code}] 时间级别 {tf_merge} 没有计算出任何指标 DataFrame。")
-        logger.info(f"[{stock_code}] 所有时间级别的数据和指标合并完成，最终 DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}")
-        print(f"[{stock_code}] Debug: 合并完成后，DataFrame 形状: {final_df.shape}, 列数: {len(final_df.columns)}") # 调试输出：合并后形状
-        print(f"[{stock_code}] Debug: 合并完成后，部分列: {final_df.columns.tolist()[:50]}...") # 调试输出：合并后部分列
-        # 7. 最终缺失值填充
-        # 对合并后的 DataFrame 进行最终的缺失值填充
-        # 可以选择不同的填充策略，例如 ffill, bfill, 或填充特定值
-        # 对于时间序列数据，ffill 是常用的方法，特别是对于高频数据合并低频数据产生的 NaN
-        # bfill 可以填充序列开头的 NaN (如果 ffill 不够)
-        # 也可以考虑用 0 填充某些列 (如成交量相关的指标)，但需要谨慎
-        print(f"[{stock_code}] Debug: 合并前总列数: {len(final_df.columns)}") # 调试输出
-        # 记录合并后的 NaN 数量 (填充前)
-        nan_before_final_fill = final_df.isnull().sum().sum()
-        if nan_before_final_fill > 0:
-            logger.warning(f"[{stock_code}] 合并后 DataFrame 存在 {nan_before_final_fill} 个 NaN 值 (填充前)。")
-            # 打印缺失比例较高的列 (填充前)
-            missing_cols_detail_before = final_df.isnull().mean()
-            missing_cols_detail_before = missing_cols_detail_before[missing_cols_detail_before > 0].sort_values(ascending=False).head()
-            if not missing_cols_detail_before.empty:
-                logger.warning(f"[{stock_code}] 合并后缺失比例较高的列 (填充前): {missing_cols_detail_before.to_dict()}")
-        # 对所有列进行前向填充
+                 # 记录非预期结果
+                 print(f"[{stock_code}] Debug: 指标计算任务返回非预期结果: {res_tuple_item}") # 调试输出：非预期结果
+                 logger.warning(f"[{stock_code}] 指标计算任务返回非预期结果: {res_tuple_item}")
+        # 6. 合并所有数据到同一个 DataFrame
+        # 从最小时间级别的数据开始作为基础 DataFrame
+        final_df = resampled_ohlcv_dfs.get(min_time_level)
+        if final_df is None or final_df.empty:
+             logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
+             return None # 基础数据缺失，无法合并
+        # 合并其他时间级别的重采样 OHLCV 数据
+        for tf_merge, df_to_merge in resampled_ohlcv_dfs.items():
+             if tf_merge != min_time_level and df_to_merge is not None and not df_to_merge.empty:
+                  # 使用 left join，以最小时间级别的索引为准
+                  final_df = pd.merge(final_df, df_to_merge, left_index=True, right_index=True, how='left')
+                  logger.debug(f"[{stock_code}] 合并时间级别 {tf_merge} 的 OHLCV 数据，合并后 Shape: {final_df.shape}")
+        # 合并所有计算出的指标数据
+        for tf_indi, indi_dfs_list in calculated_indicators_by_tf.items():
+             if indi_dfs_list: # 确保该时间级别有计算出的指标 DataFrame 列表
+                  # 将同一时间级别的所有指标 DataFrame 合并成一个
+                  merged_indi_df_for_tf = pd.concat(indi_dfs_list, axis=1)
+                  if not merged_indi_df_for_tf.empty:
+                       # 使用 left join，以最小时间级别的索引为准
+                       final_df = pd.merge(final_df, merged_indi_df_for_tf, left_index=True, right_index=True, how='left')
+                       logger.debug(f"[{stock_code}] 合并时间级别 {tf_indi} 的指标数据，合并后 Shape: {final_df.shape}")
+                  else:
+                       logger.warning(f"[{stock_code}] 时间级别 {tf_indi} 的指标数据合并后为空。")
+        # 检查合并后的 DataFrame 是否有效
+        if final_df is None or final_df.empty:
+             logger.error(f"[{stock_code}] 合并所有 OHLCV 和指标数据后 DataFrame 为空。")
+             return None
+        logger.info(f"[{stock_code}] 所有 OHLCV 和指标数据合并完成，最终 Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
+        # *** 调试点：检查合并后的 DataFrame 列名 ***
+        # print(f"[{stock_code}] Debug: 合并 OHLCV 和指标后的列名 (部分): {final_df.columns.tolist()[:30]}...") # 调试输出
+        # 7. 调用 enrich_features 方法补充外部特征
+        # 在调用 enrich_features 之前，先获取股票所属的同花顺板块代码
+        # 这部分代码已经移到 enrich_features 内部，并在那里获取 ths_codes
+        # enrich_features 会返回包含指数、板块、筹码、资金流向等数据的 DataFrame
+        logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
+        # 调用 Service自身的 enrich_features 方法，并传递 main_index_codes 和 external_data_history_days
+        # enrich_features 内部会使用传入的 main_indices 和根据 stock_code 获取的 ths_codes 来获取数据
+        final_df = await self.enrich_features(final_df, stock_code, main_index_codes, external_data_history_days)
+        logger.info(f"[{stock_code}] 外部特征补充完成。最终 DataFrame Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
+        # *** 调试点：检查补充外部特征后的 DataFrame 列名 ***
+        # print(f"[{stock_code}] Debug: 补充外部特征后的列名 (部分): {final_df.columns.tolist()[:30]}...") # 调试输出
+        # 8. 计算新的特征工程 (相对强度, 滞后特征, 滚动统计)
+        fe_config = params.get('feature_engineering_params', {}) # 再次获取特征工程参数块
+        apply_on_tfs = fe_config.get('apply_on_timeframes', bs_timeframes) # 获取应用特征工程的时间级别列表
+        # 8.1 计算相对强度/超额收益
+        rs_config = fe_config.get('relative_strength', {})
+        if rs_config.get('enabled', False):
+             # 动态确定相对强度的基准代码列表：固定主要指数 + 股票所属同花顺板块
+             # enrich_features 内部已经获取了 ths_codes 并合并了数据，这里需要再次获取 ths_codes
+             # 或者修改 enrich_features 返回 ths_codes，但为了保持 enrich_features 的单一职责，这里再次获取
+             # 考虑到相对强度需要股票和基准在同一时间索引上，且基准是日线，股票是多时间级别，
+             # 在所有数据合并到 final_df 后计算相对强度是合理的。
+             # 再次获取 ths_codes 是必要的，因为 enrich_features 内部获取的 ths_codes 没有返回。
+             ths_indexs_for_rs = await self.industry_dao.get_ths_indexs_by_code(stock_code)
+             ths_codes_for_rs = [m.ths_index.ts_code for m in ths_indexs_for_rs if m.ths_index]
+             # 动态确定相对强度的基准代码列表：固定主要指数 + 股票所属同花顺板块
+             # 确保列表唯一
+             all_benchmark_codes_for_rs = list(set(main_index_codes + ths_codes_for_rs))
+             periods = rs_config.get('periods', [5, 10, 20])
+             if all_benchmark_codes_for_rs and periods:
+                  logger.info(f"[{stock_code}] 开始计算相对强度/超额收益特征，基准代码: {all_benchmark_codes_for_rs}...")
+                  # 相对强度通常基于日线计算，但结果可以填充到分钟线
+                  # 我们需要在 apply_on_tfs 中的每个时间级别上计算相对强度
+                  for tf_apply in apply_on_tfs:
+                       # 找到该时间级别对应的股票收盘价列
+                       stock_close_col = f'close_{tf_apply}'
+                       if stock_close_col in final_df.columns:
+                            # 将动态确定的基准代码列表传递给 calculate_relative_strength
+                            final_df = self.calculate_relative_strength(final_df, stock_close_col, all_benchmark_codes_for_rs, periods, tf_apply)
+                            logger.debug(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 完成。")
+                       else:
+                            logger.warning(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 失败，未找到股票收盘价列: {stock_close_col}")
+                  logger.info(f"[{stock_code}] 相对强度/超额收益特征计算完成。")
+             else:
+                  logger.warning(f"[{stock_code}] 相对强度/超额收益特征未启用或配置不完整 (基准代码或周期列表为空)。")
+        # 8.2 添加滞后特征
+        lag_config = fe_config.get('lagged_features', {})
+        if lag_config.get('enabled', False):
+             columns_to_lag = lag_config.get('columns_to_lag', [])
+             lags = lag_config.get('lags', [1, 2, 3])
+             if columns_to_lag and lags:
+                  logger.info(f"[{stock_code}] 开始添加滞后特征...")
+                  # 滞后特征应用于指定时间级别上的指定列
+                  for tf_apply in apply_on_tfs:
+                       # 构建该时间级别下需要滞后的具体列名 (例如 'close_30', 'RSI_14_30')
+                       # 需要检查原始列名是否存在于 final_df 中，并拼接时间级别后缀
+                       cols_with_tf_suffix = []
+                       for base_col in columns_to_lag:
+                            col_with_suffix = f"{base_col}_{tf_apply}"
+                            if col_with_suffix in final_df.columns:
+                                 cols_with_tf_suffix.append(col_with_suffix)
+                            else:
+                                 # 如果直接拼接后缀找不到，尝试查找不带后缀的列 (例如外部特征列)
+                                 if base_col in final_df.columns:
+                                      cols_with_tf_suffix.append(base_col)
+                                      logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {base_col} 进行滞后计算。")
+                                 else:
+                                      logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {base_col} 或其带后缀形式 {col_with_suffix} 进行滞后计算。")
+                       if cols_with_tf_suffix:
+                            logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滞后特征: {cols_with_tf_suffix}")
+                            final_df = self.add_lagged_features(final_df, cols_with_tf_suffix, lags)
+                            logger.debug(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 完成。")
+                       else:
+                            logger.warning(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 失败，未找到任何指定列 ({columns_to_lag}) 及其时间级别后缀。")
+                  logger.info(f"[{stock_code}] 滞后特征添加完成。")
+             else:
+                  logger.warning(f"[{stock_code}] 滞后特征未启用或配置不完整。")
+        # 8.3 添加滚动统计特征
+        roll_config = fe_config.get('rolling_features', {})
+        if roll_config.get('enabled', False):
+             columns_to_roll = roll_config.get('columns_to_roll', [])
+             windows = roll_config.get('windows', [5, 10, 20])
+             stats = roll_config.get('stats', ["mean", "std"])
+             if columns_to_roll and windows and stats:
+                  logger.info(f"[{stock_code}] 开始添加滚动统计特征...")
+                  # 滚动统计特征应用于指定时间级别上的指定列
+                  for tf_apply in apply_on_tfs:
+                       # 构建该时间级别下需要滚动统计的具体列名 (例如 'volume_30', 'MACDh_12_26_9_30')
+                       # 逻辑同滞后特征，检查基础 OHLCV 或计算过的指标列
+                       cols_with_tf_suffix = []
+                       for base_col in columns_to_roll:
+                            col_with_suffix = f"{base_col}_{tf_apply}"
+                            if col_with_suffix in final_df.columns:
+                                 cols_with_tf_suffix.append(col_with_suffix)
+                            else:
+                                 # 如果直接拼接后缀找不到，尝试查找不带后缀的列 (例如外部特征列)
+                                 if base_col in final_df.columns:
+                                      cols_with_tf_suffix.append(base_col)
+                                      logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {base_col} 进行滚动统计计算。")
+                                 else:
+                                      logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {base_col} 或其带后缀形式 {col_with_suffix} 进行滚动统计计算。")
+                       if cols_with_tf_suffix:
+                            logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滚动统计特征: {cols_with_tf_suffix}")
+                            final_df = self.add_rolling_features(final_df, cols_with_tf_suffix, windows, stats)
+                            logger.debug(f"[{stock_code}] 添加滚动统计特征 for TF {tf_apply} 完成。")
+                       else:
+                            logger.warning(f"[{stock_code}] 滚动统计特征 for TF {tf_apply} 失败，未找到任何指定列 ({columns_to_roll}) 及其时间级别后缀。")
+                  logger.info(f"[{stock_code}] 滚动统计特征添加完成。")
+             else:
+                  logger.warning(f"[{stock_code}] 滚动统计特征未启用或配置不完整。")
+        # 9. 最终缺失值填充
+        # 对所有列进行前向填充，然后后向填充，以处理合并引入的 NaN
+        # 注意：这里填充的是所有列，包括 OHLCV、指标和外部特征
+        # 外部特征（如日线数据）在分钟线上的 NaN 会被填充为前一个交易日的值，这是合理的
+        original_nan_count = final_df.isnull().sum().sum()
         final_df.ffill(inplace=True)
-        # 接着进行后向填充，处理序列开头的 NaN
         final_df.bfill(inplace=True)
-        # 记录最终填充后的 NaN 数量
-        nan_after_final_fill = final_df.isnull().sum().sum()
-        if nan_after_final_fill > 0:
-             logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_after_final_fill} 个 NaN 值。")
-             # 打印最终缺失比例较高的列
-             missing_cols_detail_after = final_df.isnull().mean()
-             missing_cols_detail_after = missing_cols_detail_after[missing_cols_detail_after > 0].sort_values(ascending=False).head()
-             if not missing_cols_detail_after.empty:
-                 logger.warning(f"[{stock_code}] 最终填充后缺失比例较高的列: {missing_cols_detail_after.to_dict()}")
+        nan_count_after_fill = final_df.isnull().sum().sum()
+        if nan_count_after_fill > 0:
+             logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
         else:
-             logger.info(f"[{stock_code}] 最终填充后 DataFrame 不含 NaN 值。")
-
-        logger.info(f"[{stock_code}] 策略 DataFrame 准备完成，最终形状: {final_df.shape}")
-        # 8. 返回最终的 DataFrame 和指标配置列表
-        print(f"[{stock_code}] Debug: 最终策略 DataFrame 准备完成.") # 调试输出
-        print(f"[{stock_code}] Debug: 最终 DataFrame 形状: {final_df.shape}") # 调试输出
-        print(f"[{stock_code}] Debug: 最终 DataFrame 列数: {len(final_df.columns)}") # 调试输出
-        # 限制打印的列数，防止日志过长
-        print(f"[{stock_code}] Debug: 最终 DataFrame 列名: {final_df.columns.tolist()}...") # 调试输出
-        # 返回最终的 DataFrame 和注册的指标配置列表
-        # 指标配置列表 indicator_configs 中不再包含额外的冗余项，只包含核心配置
+             logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
+        # 10. 返回最终的 DataFrame 和指标配置列表
         return final_df, indicator_configs
 
     # --- 周期对齐函数 ---
     # 这个函数在引入重采样后，不再用于主要的时间序列标准化，
     # 但可以在重采样后用于额外的验证或在特定情况下使用。
-    # 当前修改方案中，主要依赖重采样。可以保留此函数，但确保在 prepare_strategy_dataframe 中不再用于原始数据过滤。
+    # 当前方案中，主要依赖重采样。可以保留此函数，但确保在 prepare_strategy_dataframe 中不再用于原始数据过滤。
     def filter_to_period_points(self, df: pd.DataFrame, tf: str) -> pd.DataFrame:
         """
         尝试保留周期对齐的时间点。
@@ -1194,7 +1402,8 @@ class IndicatorService:
 
             # 检查关键列的缺失情况 (只检查那些实际有缺失的关键列)
             # 关键列可能是包含 open, high, low, close, volume 的列，无论时间级别
-            key_indicators = ['open', 'high', 'low', 'close', 'volume', 'macd', 'rsi', 'kdj', 'boll', 'cci', 'mfi', 'roc', 'adx', 'dmp', 'dmn', 'sar', 'stoch', 'vol_ma', 'vwap', 'amount', 'turnover_rate']
+            # 添加新的特征工程相关的关键词
+            key_indicators = ['open', 'high', 'low', 'close', 'volume', 'macd', 'rsi', 'kdj', 'boll', 'cci', 'mfi', 'roc', 'adx', 'dmp', 'dmn', 'sar', 'stoch', 'vol_ma', 'vwap', 'amount', 'turnover_rate', 'rs_', 'lag_', 'rolling_']
             key_cols = [col for col in df.columns if any(indicator_name in col.lower() for indicator_name in key_indicators)] # 不区分大小写匹配
 
             # 从有缺失的列中筛选出关键列
@@ -1703,6 +1912,156 @@ class IndicatorService:
             logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
+    def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
+        """
+        计算股票相对于基准指数/板块的相对强度/超额收益。
+        Args:
+            df (pd.DataFrame): 包含股票和基准数据的 DataFrame。
+            stock_close_col (str): 股票收盘价列名 (已带时间级别后缀)。
+            benchmark_codes (List[str]): 基准指数/板块代码列表 (动态生成)。
+            periods (List[int]): 计算相对强度的周期列表。
+            time_level (str): 当前计算的时间级别。
+        Returns:
+            pd.DataFrame: 补充了相对强度特征的 DataFrame。
+        """
+        if df is None or df.empty or stock_close_col not in df.columns:
+            logger.warning(f"计算相对强度失败，输入 DataFrame 无效或缺少股票收盘价列 {stock_close_col}。")
+            return df
+
+        # 计算股票的对数收益率
+        stock_returns = np.log(df[stock_close_col] / df[stock_close_col].shift(1))
+
+        for benchmark_code in benchmark_codes:
+            # 查找基准指数/板块的收盘价列名 (已带前缀，日线数据无时间级别后缀)
+            # 根据代码格式判断是普通指数还是同花顺板块
+            if '.' in benchmark_code: # 假设包含 '.' 是普通指数代码 (如 000001.SH)
+                 benchmark_col_prefix = f'index_{benchmark_code.replace(".", "_").lower()}_'
+            else: # 假设不包含 '.' 是同花顺板块代码 (如 881121.TI -> ths_881121_ti_)
+                 benchmark_col_prefix = f'ths_{benchmark_code.replace(".", "_").lower()}_'
+
+            benchmark_close_col = f'{benchmark_col_prefix}close'
+
+            if benchmark_close_col in df.columns:
+                # 计算基准的对数收益率
+                benchmark_returns = np.log(df[benchmark_close_col] / df[benchmark_close_col].shift(1))
+
+                for period in periods:
+                    # 计算股票和基准在指定周期内的累积收益率 (使用滚动求和对数收益率)
+                    # 或者更简单地，计算 period 周期内的价格变化百分比
+                    # 注意：这里计算的是相对于当前时间点回溯 period 个周期
+                    # 如果 period 很大，可能跨越多个交易日，pct_change 会自动处理 NaN
+                    stock_pct_change = df[stock_close_col].pct_change(periods=period)
+                    benchmark_pct_change = df[benchmark_close_col].pct_change(periods=period)
+
+                    # 计算超额收益 (股票收益 - 基准收益)
+                    excess_return = stock_pct_change - benchmark_pct_change
+                    # 列名格式：RS_基准代码(下划线)_周期_时间级别
+                    df[f'RS_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'] = excess_return
+
+                    # 也可以计算相对强度比率 (股票价格 / 基准价格) 的变化率或对数变化率
+                    # 相对强度比率 (需要处理基准价格为零的情况)
+                    # relative_strength_ratio = df[stock_close_col] / df[benchmark_close_col]
+                    # relative_strength_change = relative_strength_ratio.pct_change(periods=period)
+                    # df[f'RS_Ratio_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'] = relative_strength_change
+
+            else:
+                logger.warning(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}")
+
+        return df
+
+    def add_lagged_features(self, df: pd.DataFrame, columns_to_lag_with_suffix: List[str], lags: List[int]) -> pd.DataFrame:
+        """
+        为指定的列添加滞后特征。
+        Args:
+            df (pd.DataFrame): 输入 DataFrame。
+            columns_to_lag_with_suffix (List[str]): 需要添加滞后特征的列名列表 (已带时间级别后缀)。
+            lags (List[int]): 滞后周期列表。
+        Returns:
+            pd.DataFrame: 补充了滞后特征的 DataFrame。
+        """
+        if df is None or df.empty or not columns_to_lag_with_suffix or not lags:
+            logger.warning("添加滞后特征失败，输入 DataFrame 无效或配置不完整。")
+            return df
+
+        for col in columns_to_lag_with_suffix:
+            if col in df.columns:
+                for lag in lags:
+                    if lag <= 0:
+                         logger.warning(f"无效的滞后周期: {lag}，跳过。")
+                         continue
+                    new_col_name = f'{col}_lag_{lag}'
+                    if new_col_name not in df.columns: # 避免重复添加
+                         df[new_col_name] = df[col].shift(lag)
+                    else:
+                         logger.debug(f"列 {new_col_name} 已存在，跳过添加。")
+            else:
+                logger.warning(f"添加滞后特征失败，未找到列: {col}")
+
+        return df
+
+    def add_rolling_features(self, df: pd.DataFrame, columns_to_roll_with_suffix: List[str], windows: List[int], stats: List[str]) -> pd.DataFrame:
+        """
+        为指定的列添加滚动统计特征。
+        Args:
+            df (pd.DataFrame): 输入 DataFrame。
+            columns_to_roll_with_suffix (List[str]): 需要添加滚动统计特征的列名列表 (已带时间级别后缀)。
+            windows (List[int]): 滚动窗口大小列表。
+            stats (List[str]): 滚动统计类型列表 ('mean', 'std', 'min', 'max', 'sum', 'median', 'count', 'var', 'skew', 'kurt').
+        Returns:
+            pd.DataFrame: 补充了滚动统计特征的 DataFrame。
+        """
+        if df is None or df.empty or not columns_to_roll_with_suffix or not windows or not stats:
+            logger.warning("添加滚动统计特征失败，输入 DataFrame 无效或配置不完整。")
+            return df
+
+        valid_stats = ['mean', 'std', 'min', 'max', 'sum', 'median', 'count', 'var', 'skew', 'kurt']
+        stats_to_apply = [s for s in stats if s in valid_stats]
+
+        if not stats_to_apply:
+             logger.warning(f"未指定有效的滚动统计类型。支持类型: {valid_stats}")
+             return df
+
+        for col in columns_to_roll_with_suffix:
+            if col in df.columns:
+                for window in windows:
+                    if window <= 0:
+                         logger.warning(f"无效的滚动窗口大小: {window}，跳过。")
+                         continue
+                    rolling_obj = df[col].rolling(window=window, min_periods=max(1, int(window*0.5))) # min_periods至少为1或窗口的一半
+
+                    for stat in stats_to_apply:
+                        new_col_name = f'{col}_rolling_{stat}_{window}'
+                        if new_col_name not in df.columns: # 避免重复添加
+                            try:
+                                if stat == 'mean':
+                                    df[new_col_name] = rolling_obj.mean()
+                                elif stat == 'std':
+                                    df[new_col_name] = rolling_obj.std()
+                                elif stat == 'min':
+                                    df[new_col_name] = rolling_obj.min()
+                                elif stat == 'max':
+                                    df[new_col_name] = rolling_obj.max()
+                                elif stat == 'sum':
+                                    df[new_col_name] = rolling_obj.sum()
+                                elif stat == 'median':
+                                    df[new_col_name] = rolling_obj.median()
+                                elif stat == 'count':
+                                    df[new_col_name] = rolling_obj.count()
+                                elif stat == 'var':
+                                    df[new_col_name] = rolling_obj.var()
+                                elif stat == 'skew':
+                                    df[new_col_name] = rolling_obj.skew()
+                                elif stat == 'kurt':
+                                    df[new_col_name] = rolling_obj.kurt()
+                            except Exception as e:
+                                logger.error(f"计算滚动统计 {stat} for 列 {col} (窗口 {window}) 出错: {e}", exc_info=True)
+                                df[new_col_name] = np.nan # 计算失败则填充 NaN
+                        else:
+                             logger.debug(f"列 {new_col_name} 已存在，跳过添加。")
+            else:
+                logger.warning(f"添加滚动统计特征失败，未找到列: {col}")
+
+        return df
 
 
 

@@ -98,6 +98,8 @@
   },
 
   "feature_engineering_params": {
+    "enabled": true,
+    "external_data_history_days": 500,
     "apply_on_timeframes": ["5", "15", "30", "60", "D"],
     "calculate_atr": true,
     "atr_params": {"period": 14},
@@ -127,7 +129,22 @@
     ],
     "difference_periods": [1, 5],
     "calculate_vwap": true,
-    "use_chip_data": true
+    "use_chip_data": true,
+    "lagged_features": {
+      "enabled": true,
+      "columns_to_lag": ["close", "volume", "RSI_14", "MACD_12_26_9_30"],
+      "lags": [1, 2, 3, 5]
+    },
+    "rolling_features": {
+      "enabled": true,
+      "columns_to_roll": ["close", "volume", "MACDh_12_26_9_30"], 
+      "windows": [5, 10, 20], 
+      "stats": ["mean", "std", "min", "max"]
+    },
+    "relative_strength": {
+      "enabled": true,
+      "periods": [5, 10, 20, 60]
+    }
   },
 
   "trend_following_params": {
