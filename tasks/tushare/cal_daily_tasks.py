@@ -87,7 +87,7 @@ def run_this_week_data_ingestion_task(self, trade_time_str=None):
         logger.info("开始执行: 分钟数据采集调度任务...")
         # 使用 .delay() 或 .apply_async() 异步触发子任务
         # .delay() 是 .apply_async() 的简化版
-        minute_task_result = save_stocks_minute_data_this_week_task.delay(trade_time_str=trade_time_str)
+        minute_task_result = save_stocks_minute_data_this_week_task.delay()
         logger.info(f"已分派分钟数据采集调度任务。任务ID: {minute_task_result.id}")
 
         # 步骤 2: 执行日线数据（含筹码）采集任务
