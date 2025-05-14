@@ -123,10 +123,10 @@ class TrendFollowingStrategy:
                     path_based_on_cwd = os.path.abspath(params_file)
                     if os.path.exists(path_based_on_cwd) and os.path.isfile(path_based_on_cwd):
                         resolved_params_file_path = path_based_on_cwd
-                        # 修改: 将 CWD 路径解析成功的日志级别降低，并强调建议使用相对 BASE_DIR 的路径
+                        # 将 CWD 路径解析成功的日志级别降低，并强调建议使用相对 BASE_DIR 的路径
                         logger.info(f"{temp_log_prefix} 参数文件在当前工作目录 '{os.getcwd()}' 找到: '{resolved_params_file_path}'. 建议使用相对于项目根目录 (BASE_DIR) 的路径以提高健壮性。")
                     else:
-                        # 修改: 对于相对路径在 BASE_DIR 和 CWD 都找不到的情况，提升日志级别到 ERROR 或 CRITICAL
+                        # 对于相对路径在 BASE_DIR 和 CWD 都找不到的情况，提升日志级别到 ERROR 或 CRITICAL
                         logger.error(f"{temp_log_prefix} CRITICAL: 相对参数文件 '{params_file}' 在 BASE_DIR 和 CWD (解析为 '{path_based_on_cwd}') 中均未找到。无法加载参数。")
                         resolved_params_file_path = None # 标记为无效路径
             else:
@@ -134,10 +134,10 @@ class TrendFollowingStrategy:
                 path_based_on_cwd = os.path.abspath(params_file)
                 if os.path.exists(path_based_on_cwd) and os.path.isfile(path_based_on_cwd):
                     resolved_params_file_path = path_based_on_cwd
-                    # 修改: 将 CWD 路径解析成功的日志级别降低，并强调建议定义 BASE_DIR
+                    # 将 CWD 路径解析成功的日志级别降低，并强调建议定义 BASE_DIR
                     logger.info(f"{temp_log_prefix} Django settings.BASE_DIR 未定义。相对参数文件在当前工作目录 '{os.getcwd()}' 找到: '{resolved_params_file_path}'. 强烈建议定义 settings.BASE_DIR。")
                 else:
-                    # 修改: 对于 BASE_DIR 未定义且相对路径在 CWD 找不到的情况，提升日志级别到 ERROR 或 CRITICAL
+                    # 对于 BASE_DIR 未定义且相对路径在 CWD 找不到的情况，提升日志级别到 ERROR 或 CRITICAL
                     logger.error(f"{temp_log_prefix} CRITICAL: Django settings.BASE_DIR 未定义，且相对参数文件在 CWD (解析为 '{path_based_on_cwd}') 也未找到。无法加载参数。")
                     resolved_params_file_path = None # 标记为无效路径
         else:
@@ -145,7 +145,7 @@ class TrendFollowingStrategy:
             resolved_params_file_path = params_file
 
         # --- 阶段 2: 从解析后的路径加载参数文件 ---
-        # 修改: 在尝试加载前，先检查 resolved_params_file_path 是否有效
+        # 在尝试加载前，先检查 resolved_params_file_path 是否有效
         if resolved_params_file_path is not None:
             logger.info(f"{temp_log_prefix} 尝试从最终路径 '{resolved_params_file_path}' 加载参数...")
             if os.path.exists(resolved_params_file_path) and os.path.isfile(resolved_params_file_path):
@@ -156,23 +156,23 @@ class TrendFollowingStrategy:
                         file_load_success = True
                         logger.info(f"{temp_log_prefix} 策略参数已成功从 '{resolved_params_file_path}' 解析。顶层键数量: {len(loaded_params)}. 顶层键 (部分): {list(loaded_params.keys())[:5]}")
                     else:
-                        # 修改: 文件存在但内容为空或无效 JSON，提升日志级别到 ERROR 或 CRITICAL
+                        # 文件存在但内容为空或无效 JSON，提升日志级别到 ERROR 或 CRITICAL
                         logger.error(f"{temp_log_prefix} CRITICAL: 参数文件 '{resolved_params_file_path}' 内容为空或不是有效的JSON对象 (解析后类型: {type(loaded_params)}).")
                         loaded_params = {} # 确保 loaded_params 是一个空字典
                 except FileNotFoundError:
-                    # 修改: 尽管之前检查存在，但打开时未找到，这非常异常，提升日志级别
+                    # 尽管之前检查存在，但打开时未找到，这非常异常，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 文件 '{resolved_params_file_path}' 在尝试打开时未找到 (despite previous check).")
                 except PermissionError:
-                    # 修改: 权限错误，提升日志级别
+                    # 权限错误，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 没有权限读取参数文件 '{resolved_params_file_path}'。")
                 except json.JSONDecodeError as e_json:
-                    # 修改: JSON 解析错误，提升日志级别
+                    # JSON 解析错误，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 解析参数文件 '{resolved_params_file_path}' 时发生JSON解码错误: {e_json}")
                 except Exception as e_load:
-                    # 修改: 其他未知加载错误，提升日志级别
+                    # 其他未知加载错误，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 加载参数文件 '{resolved_params_file_path}' 时发生未知错误: {e_load}", exc_info=True)
             else:
-                # 修改: 最终确认文件不存在或不是文件，提升日志级别
+                # 最终确认文件不存在或不是文件，提升日志级别
                 logger.error(f"{temp_log_prefix} CRITICAL: 最终确认参数文件 '{resolved_params_file_path}' (原始输入: '{params_file}') 不存在或不是文件。无法加载参数。")
         else:
             # 如果 resolved_params_file_path 在解析阶段就无效，直接记录无法加载
@@ -180,7 +180,7 @@ class TrendFollowingStrategy:
 
 
         if not file_load_success:
-            # 修改: 如果文件加载失败，明确记录策略将使用默认参数运行
+            # 如果文件加载失败，明确记录策略将使用默认参数运行
             logger.warning(f"{temp_log_prefix} 参数文件加载失败或内容无效，策略将使用默认参数运行。")
             loaded_params = {} # 确保 loaded_params 是一个空字典
 
@@ -188,11 +188,11 @@ class TrendFollowingStrategy:
         self.params: Dict[str, Any] = loaded_params # 直接将加载的参数赋值给 self.params
         # 修改行：在设置 self.params 后，安全获取 fe_params
         self.fe_params = self.params.get('feature_engineering_params', {}) # 修改行：在加载参数后获取 fe_params
-        # 修改: 增加对 self.params 是否为空的日志判断
+        # 增加对 self.params 是否为空的日志判断
         logger.debug(f"{temp_log_prefix} self.params 已设置。是否为空: {not bool(self.params)}. 顶层键 (部分): {list(self.params.keys())[:5] if self.params else 'None'}")
 
         # --- 阶段 4: 设置 TrendFollowingStrategy 实例的最终 strategy_name ---
-        # 修改: 优化 strategy_name 的设置逻辑，确保总能得到一个字符串名称
+        # 优化 strategy_name 的设置逻辑，确保总能得到一个字符串名称
         strategy_name_from_params = self.params.get('trend_following_strategy_name')
         if isinstance(strategy_name_from_params, str) and strategy_name_from_params:
             self.strategy_name = strategy_name_from_params
@@ -210,24 +210,21 @@ class TrendFollowingStrategy:
         self.base_data_dir = base_data_dir
         logger.debug(f"{log_prefix} base_data_dir 设置为: '{self.base_data_dir}'")
 
-        # 修改: 安全获取 trend_following_params，即使 self.params 为空
+        # 安全获取 trend_following_params，即使 self.params 为空
         self.tf_params: Dict[str, Any] = self.params.get('trend_following_params', {})
-
         if not self.params:
             logger.error(f"{log_prefix} CRITICAL INIT (最终属性设置前): 策略参数 (self.params) 仍为空！后续属性将完全依赖代码默认值。")
         elif not self.tf_params:
             logger.error(f"{log_prefix} CRITICAL INIT (最终属性设置前): 'trend_following_params' 块在已加载的参数中缺失或为空！后续特定参数将依赖代码默认值。")
-
         # 使用 .get() 方法安全获取参数，提供默认值
         self.focus_timeframe: str = str(self.tf_params.get('focus_timeframe', self.default_focus_timeframe))
         self.timeframe_weights: Optional[Dict[str, float]] = self.tf_params.get('timeframe_weights', None)
-        # 修改: 确保 trend_indicators 是列表，即使参数中不是
+        # 确保 trend_indicators 是列表，即使参数中不是
         self.trend_indicators: List[str] = self.tf_params.get('trend_indicators', ['dmi', 'sar', 'macd', 'ema_alignment', 'obv', 'rsi'])
         if not isinstance(self.trend_indicators, list):
             logger.warning(f"{log_prefix} 参数 'trend_indicators' 不是一个列表，使用默认值。")
             self.trend_indicators = ['dmi', 'sar', 'macd', 'ema_alignment', 'obv', 'rsi']
-
-        # 修改: 确保 rule_signal_weights 是字典，即使参数中不是
+        # 确保 rule_signal_weights 是字典，即使参数中不是
         self.rule_signal_weights: Dict[str, float] = self.tf_params.get('rule_signal_weights', {
             'base_score': 0.5, 'alignment': 0.25, 'long_context': 0.1, 'momentum': 0.15,
             'ema_cross': 0.15, 'boll_breakout': 0.1, 'adx_strength': 0.1, 'vwap_deviation': 0.05,
@@ -240,16 +237,13 @@ class TrendFollowingStrategy:
                 'ema_cross': 0.15, 'boll_breakout': 0.1, 'adx_strength': 0.1, 'vwap_deviation': 0.05,
                 'volume_spike': 0.05
             }
-
         vc_global_params = self.params.get('volume_confirmation', {})
         self.volume_boost_factor: float = self.tf_params.get('volume_boost_factor', vc_global_params.get('boost_factor', 1.2))
         self.volume_penalty_factor: float = self.tf_params.get('volume_penalty_factor', vc_global_params.get('penalty_factor', 0.8))
         self.volume_spike_threshold: float = self.tf_params.get('volume_spike_threshold', 2.0)
-
         self.volatility_threshold_high: float = self.tf_params.get('volatility_threshold_high', 10.0)
         self.volatility_threshold_low: float = self.tf_params.get('volatility_threshold_low', 5.0)
         self.volatility_adjust_factor: float = 1.0 # 这个值似乎是内部计算的，不是参数
-
         self.adx_strong_threshold: int = self.tf_params.get('adx_strong_threshold', 30)
         self.adx_moderate_threshold: int = self.tf_params.get('adx_moderate_threshold', 20)
         self.trend_duration_threshold_strong: int = self.tf_params.get('trend_duration_threshold_strong', 5)
@@ -258,23 +252,18 @@ class TrendFollowingStrategy:
         self.stoch_overbought_threshold: int = self.tf_params.get('stoch_overbought_threshold', 80)
         self.vwap_deviation_threshold: float = self.tf_params.get('vwap_deviation_threshold', 0.01)
         self.trend_confirmation_periods: int = self.tf_params.get('trend_confirmation_periods', 3)
-
         self.transformer_window_size: int = self.tf_params.get('transformer_window_size', 60)
         self.transformer_batch_size: int = self.tf_params.get('transformer_batch_size', 128)
         self.transformer_target_column: str = self.tf_params.get('transformer_target_column', 'final_rule_signal')
-
-        # 修改: 安全获取 transformer_model_config 和 transformer_training_config
+        # 安全获取 transformer_model_config 和 transformer_training_config
         self.transformer_model_config: Dict[str, Any] = self.tf_params.get('transformer_model_config', {})
         self.transformer_training_config: Dict[str, Any] = self.tf_params.get('transformer_training_config', {})
 
         # 确保训练配置中的 batch_size 覆盖策略参数中的值（如果存在）
         if 'batch_size' in self.transformer_training_config:
              self.transformer_batch_size = self.transformer_training_config['batch_size']
-
-        # 修改: 安全获取 transformer_data_prep_config
+        # 安全获取 transformer_data_prep_config
         self.transformer_data_prep_config: Dict[str, Any] = self.tf_params.get('transformer_data_prep_config', {})
-
-
         self.transformer_model: Optional[nn.Module] = None
         self.feature_scaler: Optional[Union[MinMaxScaler, StandardScaler]] = None
         self.target_scaler: Optional[Union[MinMaxScaler, StandardScaler]] = None
@@ -300,7 +289,7 @@ class TrendFollowingStrategy:
             self._validate_params()
             logger.debug(f"{log_prefix} self._validate_params() 调用完成。")
         except Exception as e_validate:
-            # 修改: 在验证过程中发生错误，提升日志级别
+            # 在验证过程中发生错误，提升日志级别
             logger.error(f"{log_prefix} CRITICAL: 在执行 _validate_params 时发生错误: {e_validate}", exc_info=True)
 
         # --- 阶段 7: 初始化完成最终日志 ---
@@ -311,7 +300,7 @@ class TrendFollowingStrategy:
         logger.info(f"{log_prefix} self.tf_params 最终是否为空: {not bool(self.tf_params)} (True表示空).")
         logger.info(f"{log_prefix} 最终使用的 transformer_window_size: {self.transformer_window_size}")
         logger.info(f"{log_prefix} 最终使用的 transformer_target_column: '{self.transformer_target_column}'")
-        # 修改: 安全访问 rule_signal_weights 中的键
+        # 安全访问 rule_signal_weights 中的键
         logger.info(f"{log_prefix} 最终使用的 rule_signal_weights (部分): base_score={self.rule_signal_weights.get('base_score') if isinstance(self.rule_signal_weights, dict) else 'N/A'}")
 
         if self.params:
@@ -343,7 +332,7 @@ class TrendFollowingStrategy:
             # prepare_strategy_dataframe 返回 (DataFrame, indicator_configs)
             prepared_data_tuple = await self.indicator_service.prepare_strategy_dataframe(
                 stock_code=stock_code,
-                params_file=self.params_file, # 传递参数文件路径
+                params_file=self.tf_params, # 传递参数文件路径
                 base_needed_bars=self.transformer_window_size # 传递基础所需条数（例如 LSTM 窗口大小）
             )
             if prepared_data_tuple is None:
@@ -459,7 +448,7 @@ class TrendFollowingStrategy:
         if not isinstance(timeframes_list, list): timeframes_list = [] # 再次检查类型
 
         if self.focus_timeframe not in timeframes_list:
-             # 修改: 如果 timeframes_list 为空，这个警告是预期内的
+             # 如果 timeframes_list 为空，这个警告是预期内的
              if timeframes_list:
                 logger.warning(f"{log_prefix} VALIDATION: 主要关注时间框架 '{self.focus_timeframe}' 不在 'base_scoring.timeframes' ({timeframes_list}) 中。请检查配置。策略可能无法按预期工作或导致错误。")
              else:
@@ -522,12 +511,12 @@ class TrendFollowingStrategy:
         self._normalize_weights(self.rule_signal_weights)
 
         # 验证 signal_combination_weights 并归一化
-        # 修改: 从 tf_params 中安全获取 signal_combination_weights
+        # 从 tf_params 中安全获取 signal_combination_weights
         lstm_combination_weights = self.tf_params.get('signal_combination_weights', {})
         if not isinstance(lstm_combination_weights, dict) or not lstm_combination_weights:
              logger.warning(f"{log_prefix} VALIDATION: 'signal_combination_weights' (在 trend_following_params 中) 参数无效或为空。将使用代码中定义的默认组合权重 (0.6/0.4) 并归一化。当前值: {lstm_combination_weights}")
              default_combo_weights = {'rule_weight': 0.6, 'transformer_weight': 0.4} # 修改键名以反映是 Transformer
-             # 修改: 直接赋值给 tf_params，确保这个默认值被保存
+             # 直接赋值给 tf_params，确保这个默认值被保存
              if isinstance(self.tf_params, dict):
                  self.tf_params['signal_combination_weights'] = default_combo_weights
              lstm_combination_weights = default_combo_weights # 使用默认值进行归一化
@@ -589,7 +578,7 @@ class TrendFollowingStrategy:
         self.set_model_paths(stock_code)
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
 
-        # 修改: 增加错误处理，确保 load_prepared_data 返回有效数据
+        # 增加错误处理，确保 load_prepared_data 返回有效数据
         try:
             features_scaled_train_np, targets_scaled_train_np, \
             features_scaled_val_np, targets_scaled_val_np, \
@@ -627,11 +616,11 @@ class TrendFollowingStrategy:
             train_dataset = TimeSeriesDataset(features_scaled_train_np, targets_scaled_train_np, self.transformer_window_size)
 
             val_loader = None
-            # 修改: 检查验证集数据量是否足够创建 Dataset 和 DataLoader
+            # 检查验证集数据量是否足够创建 Dataset 和 DataLoader
             if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and targets_scaled_val_np is not None and targets_scaled_val_np.shape[0] >= self.transformer_window_size:
                 val_dataset = TimeSeriesDataset(features_scaled_val_np, targets_scaled_val_np, self.transformer_window_size)
                 if len(val_dataset) > 0:
-                    # 修改: 验证集 DataLoader 不需要 shuffle
+                    # 验证集 DataLoader 不需要 shuffle
                     val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。验证阶段将跳过。")
@@ -640,11 +629,11 @@ class TrendFollowingStrategy:
 
 
             test_loader = None
-            # 修改: 检查测试集数据量是否足够创建 Dataset 和 DataLoader
+            # 检查测试集数据量是否足够创建 Dataset 和 DataLoader
             if features_scaled_test_np is not None and features_scaled_test_np.shape[0] >= self.transformer_window_size and targets_scaled_test_np is not None and targets_scaled_test_np.shape[0] >= self.transformer_window_size:
                 test_dataset = TimeSeriesDataset(features_scaled_test_np, targets_scaled_test_np, self.transformer_window_size)
                 if len(test_dataset) > 0:
-                    # 修改: 测试集 DataLoader 不需要 shuffle
+                    # 测试集 DataLoader 不需要 shuffle
                     test_loader = DataLoader(test_dataset, batch_size=self.transformer_batch_size, shuffle=False)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。测试评估将跳过。")
@@ -652,7 +641,7 @@ class TrendFollowingStrategy:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集数据量不足 {self.transformer_window_size}。测试评估将跳过。")
 
 
-            # 修改: 检查训练集数据量是否足够创建 Dataset 和 DataLoader
+            # 检查训练集数据量是否足够创建 Dataset 和 DataLoader
             if len(train_dataset) == 0:
                 logger.error(f"[{self.strategy_name}][{stock_code}] 训练集 Dataset 为空 (数据量不足 {self.transformer_window_size})。停止训练。")
                 return
@@ -666,7 +655,7 @@ class TrendFollowingStrategy:
                 num_features=num_features,
                 model_config=self.transformer_model_config,
                 summary=True,
-                window_size=self.transformer_window_size # 修改: 传递 window_size 给 build_transformer_model
+                window_size=self.transformer_window_size # 传递 window_size 给 build_transformer_model
             )
             self.transformer_model = model
         except Exception as e:
