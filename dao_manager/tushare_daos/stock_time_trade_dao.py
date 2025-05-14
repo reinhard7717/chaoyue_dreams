@@ -417,6 +417,7 @@ class StockTimeTradeDAO(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
+            time.sleep(0.2)
             if len(df) < limit:
                 break
             offset += limit
