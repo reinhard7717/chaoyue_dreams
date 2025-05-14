@@ -52,7 +52,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         logger.info(f"{task_id_str} [{stock_code}]：开始使用 IndicatorService 准备数据...")
         # 调用策略的 prepare_data 方法，它内部会调用 IndicatorService
         # prepare_data 返回包含所有 OHLCV, 指标, 外部特征, 衍生特征的 DataFrame
-        data_df = asyncio.run(strategy.prepare_data(stock_code=stock_code)) # 修改行：调用策略的 prepare_data 方法
+        data_df = asyncio.run(strategy.prepare_data(stock_code=stock_code, base_needed_count=base_bars)) # 修改行：调用策略的 prepare_data 方法
 
         if data_df is None or data_df.empty:
             logger.warning(f"{task_id_str} [{stock_code}]：未能获取准备好的数据 (data_df为空)。")

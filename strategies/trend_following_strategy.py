@@ -318,7 +318,7 @@ class TrendFollowingStrategy:
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
 
     # 在 __init__ 方法之后，其他方法之前添加
-    async def prepare_data(self, stock_code: str) -> Optional[pd.DataFrame]:
+    async def prepare_data(self, stock_code: str, base_needed_count: int = 10000) -> Optional[pd.DataFrame]:
         """
         使用 IndicatorService 准备包含所有时间级别数据和计算指标的 DataFrame。
         Args:
@@ -336,7 +336,7 @@ class TrendFollowingStrategy:
             prepared_data_tuple = await self.indicator_service.prepare_strategy_dataframe(
                 stock_code=stock_code,
                 params_file=self.params_file_path, # 传递存储的参数文件路径属性
-                base_needed_bars=self.transformer_window_size # 传递基础所需条数（例如 LSTM 窗口大小）
+                base_needed_bars=base_needed_count + self.transformer_window_size # 传递基础所需条数（例如 LSTM 窗口大小）
             )
             if prepared_data_tuple is None:
                 logger.error(f"{log_prefix} IndicatorService.prepare_strategy_dataframe 返回 None。数据准备失败。")

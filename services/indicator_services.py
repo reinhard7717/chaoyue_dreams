@@ -103,27 +103,20 @@ class IndicatorService:
             return None
 
     # --- 辅助函数：计算特定时间级别所需的 K 线数量 ---
-    def _calculate_needed_bars_for_tf(
-        self,
-        target_tf: str,
-        min_tf: str,
-        base_needed_bars: int,
-        global_max_lookback: int
-    ) -> int:
+    def _calculate_needed_bars_for_tf( self, target_tf: str, min_tf: str, base_needed_bars: int, global_max_lookback: int ) -> int:
         """
         计算目标时间级别需要从 DAO 获取的原始 K 线数量。
         获取的数量应该足够覆盖基础时间级别所需的最早时间点，以及所有指标的最大回看期。
         注意：这里计算的是应从数据源请求的“大致”数量，不是精确的数量或重采样后的数量。
-
         Args:
             target_tf (str): 目标时间级别 (e.g., '15', 'D').
             min_tf (str): 基础（最小）时间级别 (e.g., '5').
             base_needed_bars (int): 基础时间级别要求的 K 线数量（用于训练窗口等）.
             global_max_lookback (int): 所有指标计算所需的最大回看期.
-
         Returns:
             int: 最终计算出的目标时间级别应获取的 K 线数量 (作为 DAO 的 limit 参数).
         """
+        
         # 首先确定需要覆盖的总时间跨度，基于最小时间级别的基础数量和全局最大回看期
         # 假设我们需要获取足够的数据来覆盖 min_tf 的 base_needed_bars + global_max_lookback 时长
         # 这是一个估算，因为交易日非连续
@@ -391,6 +384,9 @@ class IndicatorService:
         # 1. 获取股票所属同花顺板块代码
         # await self.industry_dao.ths_indexs 方法返回的是 ThsIndex 实例列表
         ths_indexs = await self.industry_dao.get_ths_indexs_by_code(stock_code)
+        if ths_indexs is None:  # 新增：防止 NoneType 报错
+            logger.warning(f"get_ths_indexs_by_code 返回 None，stock_code={stock_code}")
+            ths_indexs = []
         ths_codes = [m.ths_index.ts_code for m in ths_indexs if m.ths_index] # 确保 m.ths_index 不是 None
         logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
         # 2. 定义主要市场指数代码 (可配置)
