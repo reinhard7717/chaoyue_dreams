@@ -92,7 +92,7 @@ class StockTimeTradeDAO(BaseDAO):
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
 
-    async def save_daily_time_trade_history_by_trade_dates(self, start_date: date, end_date: date) -> None:
+    async def save_daily_time_trade_history_by_trade_dates(self, start_date: date = None, end_date: date = None) -> None:
         """
         保存股票的历史日线交易数据
         接口：stk_factor
@@ -100,19 +100,12 @@ class StockTimeTradeDAO(BaseDAO):
         限量：单次最大6000条，可以循环或者分页提取
         积分：5000积分每分钟可以请求100次，8000积分以上每分钟500次，具体请参阅积分获取办法
         """
-        start_date_str, end_date_str = "", ""
-        if isinstance(start_date_str, str):
-            start_date_str = start_date
-        elif isinstance(start_date_str, date):
-            start_date_str = start_date.strftime("%Y%m%d")
-        else:
-            raise ValueError("start_date 必须是 str 或 date 类型")
-        if isinstance(end_date_str, str):
-            end_date_str = end_date
-        elif isinstance(end_date_str, date):
-            end_date_str = end_date.strftime("%Y%m%d")
-        else:
-            raise ValueError("end_date 必须是 str 或 date 类型")
+        start_date_str = ""
+        end_date_str = ""
+        if start_date is not None:
+            start_date_str = start_date.strftime('%Y%m%d')
+        if end_date is not None:
+            end_date_str = end_date.strftime('%Y%m%d')
         offset = 0
         limit = 6000
         data_dicts = []
@@ -124,7 +117,7 @@ class StockTimeTradeDAO(BaseDAO):
                                            "end_date": end_date_str, "offset": offset, "limit": limit }, 
                 fields=[ "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol", 
                         "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq", 
-                        "low_qfq", "pre_close_hfq", "pre_close_qfq",])
+                        "low_qfq", "pre_close_hfq", "pre_close_qfq"])
             if df.empty:
                 break
             else:
