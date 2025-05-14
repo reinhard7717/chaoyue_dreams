@@ -220,7 +220,7 @@ def find_divergence_for_indicator(price_series: pd.Series,
         check_divergence_pairs(price_trough_matches, is_peak=False, div_type='hidden_bullish')
     return result_df.fillna(0).astype(int)
     
-def detect_divergence(data: pd.DataFrame, dd_params: Dict, indicator_configs: List[Dict]) -> pd.DataFrame:
+def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: List[Dict]) -> pd.DataFrame:
     """
     检测价格与多个指定指标之间的常规和隐藏背离。
     优化：
@@ -252,11 +252,11 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, indicator_configs: Li
         return all_divergence_signals
 
     # 构建指标列名查找字典: {(indicator_base_name, tf): full_column_name}
-    # indicator_configs 的结构: [{'name': 'RSI', 'params': {'length': 14}, 'timeframes': ['D', '60'], 'func': ...}, ...]
+    # naming_config 的结构: [{'name': 'RSI', 'params': {'length': 14}, 'timeframes': ['D', '60'], 'func': ...}, ...]
     # 生成的列名可能是: RSI_14_D, MACDh_12_26_9_60
-    # 我们需要从 indicator_configs 更精确地构建这个映射
+    # 我们需要从 naming_config 更精确地构建这个映射
     col_name_map = {}
-    for config in indicator_configs:
+    for config in naming_config:
         base_name = config['name']
         params_str = "_".join(map(str, config.get('params', {}).values())) if config.get('params') else ""
         

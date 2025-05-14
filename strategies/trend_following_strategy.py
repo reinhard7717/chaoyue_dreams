@@ -13,6 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from services.indicator_services import IndicatorService # 确保导入 IndicatorService
 from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas_ta as ta
 
@@ -27,7 +28,7 @@ from .utils.deep_learning_utils import (
     train_transformer_model,
     predict_with_transformer_model,
     TimeSeriesDataset,
-    prepare_data_for_transformer
+    prepare_data_for_transformer # prepare_data_for_transformer 仍然从这里导入
 )
 
 # 读取指标规范命名json
@@ -75,12 +76,13 @@ class TrendFollowingStrategy:
                                  默认为 Django settings 中的 STRATEGY_DATA_DIR。
         """
         self.industry_dao = IndustryDao()
+        self.indicator_service = IndicatorService() # 修改行：初始化 IndicatorService
         # 检查settings中是否配置了INDICATOR_PARAMETERS_CONFIG_PATH
         if params_file is None:
             if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH') or not settings.INDICATOR_PARAMETERS_CONFIG_PATH:
                  logger.error("CRITICAL: Django settings.INDICATOR_PARAMETERS_CONFIG_PATH 未配置!")
                  # 如果路径未配置，使用一个无效值，后续加载会失败
-                 params_file = "" 
+                 params_file = ""
             else:
                 params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
         if base_data_dir is None:
@@ -92,13 +94,14 @@ class TrendFollowingStrategy:
                  logger.warning(f"使用默认备用策略数据目录: {base_data_dir}")
             else:
                 base_data_dir = settings.STRATEGY_DATA_DIR
-        self.params_file = params_file
+        # 修改行：在加载参数之前初始化 fe_params 为空字典
+        self.fe_params: Dict[str, Any] = {} # 初始化 fe_params 为空字典
         self.base_data_dir = base_data_dir
         # --- 阶段 0: 初始化局部变量 ---
         loaded_params: Dict[str, Any] = {} # 用于存储从文件加载的参数
         resolved_params_file_path = params_file # 初始化解析后的路径为传入的路径
         file_load_success = False # 标记参数文件是否成功加载并解析
-        
+
         # 使用类名作为临时的日志前缀，直到实例的 strategy_name 被最终确定
         temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]"
 
@@ -117,7 +120,7 @@ class TrendFollowingStrategy:
                     logger.debug(f"{temp_log_prefix} 参数文件解析为基于 BASE_DIR 的路径: '{resolved_params_file_path}'")
                 else:
                     logger.debug(f"{temp_log_prefix} 未在 BASE_DIR ('{settings.BASE_DIR}') 下找到 '{params_file}'。尝试基于 CWD...")
-                    path_based_on_cwd = os.path.abspath(params_file) 
+                    path_based_on_cwd = os.path.abspath(params_file)
                     if os.path.exists(path_based_on_cwd) and os.path.isfile(path_based_on_cwd):
                         resolved_params_file_path = path_based_on_cwd
                         # 修改: 将 CWD 路径解析成功的日志级别降低，并强调建议使用相对 BASE_DIR 的路径
@@ -126,7 +129,7 @@ class TrendFollowingStrategy:
                         # 修改: 对于相对路径在 BASE_DIR 和 CWD 都找不到的情况，提升日志级别到 ERROR 或 CRITICAL
                         logger.error(f"{temp_log_prefix} CRITICAL: 相对参数文件 '{params_file}' 在 BASE_DIR 和 CWD (解析为 '{path_based_on_cwd}') 中均未找到。无法加载参数。")
                         resolved_params_file_path = None # 标记为无效路径
-            else: 
+            else:
                 logger.warning(f"{temp_log_prefix} Django settings.BASE_DIR 未定义。尝试基于 CWD 解析相对路径 '{params_file}'...")
                 path_based_on_cwd = os.path.abspath(params_file)
                 if os.path.exists(path_based_on_cwd) and os.path.isfile(path_based_on_cwd):
@@ -137,7 +140,7 @@ class TrendFollowingStrategy:
                     # 修改: 对于 BASE_DIR 未定义且相对路径在 CWD 找不到的情况，提升日志级别到 ERROR 或 CRITICAL
                     logger.error(f"{temp_log_prefix} CRITICAL: Django settings.BASE_DIR 未定义，且相对参数文件在 CWD (解析为 '{path_based_on_cwd}') 也未找到。无法加载参数。")
                     resolved_params_file_path = None # 标记为无效路径
-        else: 
+        else:
             logger.debug(f"{temp_log_prefix} 参数文件路径 '{params_file}' 是绝对路径，直接使用。")
             resolved_params_file_path = params_file
 
@@ -156,7 +159,7 @@ class TrendFollowingStrategy:
                         # 修改: 文件存在但内容为空或无效 JSON，提升日志级别到 ERROR 或 CRITICAL
                         logger.error(f"{temp_log_prefix} CRITICAL: 参数文件 '{resolved_params_file_path}' 内容为空或不是有效的JSON对象 (解析后类型: {type(loaded_params)}).")
                         loaded_params = {} # 确保 loaded_params 是一个空字典
-                except FileNotFoundError: 
+                except FileNotFoundError:
                     # 修改: 尽管之前检查存在，但打开时未找到，这非常异常，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 文件 '{resolved_params_file_path}' 在尝试打开时未找到 (despite previous check).")
                 except PermissionError:
@@ -165,7 +168,7 @@ class TrendFollowingStrategy:
                 except json.JSONDecodeError as e_json:
                     # 修改: JSON 解析错误，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 解析参数文件 '{resolved_params_file_path}' 时发生JSON解码错误: {e_json}")
-                except Exception as e_load: 
+                except Exception as e_load:
                     # 修改: 其他未知加载错误，提升日志级别
                     logger.error(f"{temp_log_prefix} CRITICAL: 加载参数文件 '{resolved_params_file_path}' 时发生未知错误: {e_load}", exc_info=True)
             else:
@@ -183,9 +186,11 @@ class TrendFollowingStrategy:
 
         # --- 阶段 3: 设置 self.params (之前由 BaseStrategy 完成) ---
         self.params: Dict[str, Any] = loaded_params # 直接将加载的参数赋值给 self.params
+        # 修改行：在设置 self.params 后，安全获取 fe_params
+        self.fe_params = self.params.get('feature_engineering_params', {}) # 修改行：在加载参数后获取 fe_params
         # 修改: 增加对 self.params 是否为空的日志判断
         logger.debug(f"{temp_log_prefix} self.params 已设置。是否为空: {not bool(self.params)}. 顶层键 (部分): {list(self.params.keys())[:5] if self.params else 'None'}")
-        
+
         # --- 阶段 4: 设置 TrendFollowingStrategy 实例的最终 strategy_name ---
         # 修改: 优化 strategy_name 的设置逻辑，确保总能得到一个字符串名称
         strategy_name_from_params = self.params.get('trend_following_strategy_name')
@@ -198,7 +203,7 @@ class TrendFollowingStrategy:
                  logger.warning(f"[{self.strategy_name}-init-阶段4] 参数中未找到 'trend_following_strategy_name'键，实例策略名使用类默认值: '{self.strategy_name}'")
             elif not isinstance(strategy_name_from_params, str) or not strategy_name_from_params:
                  logger.warning(f"[{self.strategy_name}-init-阶段4] 参数中的 'trend_following_strategy_name' 无效 (非字符串或为空): '{strategy_name_from_params}'，实例策略名使用类默认值: '{self.strategy_name}'")
-        
+
         log_prefix = f"[{self.strategy_name}]"
 
         # --- 阶段 5: 初始化 TrendFollowingStrategy 特有的其他属性 ---
@@ -208,11 +213,11 @@ class TrendFollowingStrategy:
         # 修改: 安全获取 trend_following_params，即使 self.params 为空
         self.tf_params: Dict[str, Any] = self.params.get('trend_following_params', {})
 
-        if not self.params: 
+        if not self.params:
             logger.error(f"{log_prefix} CRITICAL INIT (最终属性设置前): 策略参数 (self.params) 仍为空！后续属性将完全依赖代码默认值。")
-        elif not self.tf_params: 
+        elif not self.tf_params:
             logger.error(f"{log_prefix} CRITICAL INIT (最终属性设置前): 'trend_following_params' 块在已加载的参数中缺失或为空！后续特定参数将依赖代码默认值。")
-        
+
         # 使用 .get() 方法安全获取参数，提供默认值
         self.focus_timeframe: str = str(self.tf_params.get('focus_timeframe', self.default_focus_timeframe))
         self.timeframe_weights: Optional[Dict[str, float]] = self.tf_params.get('timeframe_weights', None)
@@ -247,7 +252,7 @@ class TrendFollowingStrategy:
 
         self.adx_strong_threshold: int = self.tf_params.get('adx_strong_threshold', 30)
         self.adx_moderate_threshold: int = self.tf_params.get('adx_moderate_threshold', 20)
-        self.trend_duration_threshold_strong: int = self.tf_params.get('trend_duration_threshold_strong', 5) 
+        self.trend_duration_threshold_strong: int = self.tf_params.get('trend_duration_threshold_strong', 5)
         self.trend_duration_threshold_moderate: int = self.tf_params.get('trend_duration_threshold_moderate', 10)
         self.stoch_oversold_threshold: int = self.tf_params.get('stoch_oversold_threshold', 20)
         self.stoch_overbought_threshold: int = self.tf_params.get('stoch_overbought_threshold', 80)
@@ -255,7 +260,7 @@ class TrendFollowingStrategy:
         self.trend_confirmation_periods: int = self.tf_params.get('trend_confirmation_periods', 3)
 
         self.transformer_window_size: int = self.tf_params.get('transformer_window_size', 60)
-        self.transformer_batch_size: int = self.tf_params.get('transformer_batch_size', 128) 
+        self.transformer_batch_size: int = self.tf_params.get('transformer_batch_size', 128)
         self.transformer_target_column: str = self.tf_params.get('transformer_target_column', 'final_rule_signal')
 
         # 修改: 安全获取 transformer_model_config 和 transformer_training_config
@@ -292,7 +297,7 @@ class TrendFollowingStrategy:
         # --- 阶段 6: 执行参数验证 ---
         logger.debug(f"{log_prefix} 即将调用 self._validate_params()...")
         try:
-            self._validate_params() 
+            self._validate_params()
             logger.debug(f"{log_prefix} self._validate_params() 调用完成。")
         except Exception as e_validate:
             # 修改: 在验证过程中发生错误，提升日志级别
@@ -308,17 +313,58 @@ class TrendFollowingStrategy:
         logger.info(f"{log_prefix} 最终使用的 transformer_target_column: '{self.transformer_target_column}'")
         # 修改: 安全访问 rule_signal_weights 中的键
         logger.info(f"{log_prefix} 最终使用的 rule_signal_weights (部分): base_score={self.rule_signal_weights.get('base_score') if isinstance(self.rule_signal_weights, dict) else 'N/A'}")
-        
-        if self.params: 
+
+        if self.params:
             logger.debug(f"{log_prefix} 最终已加载参数的顶层键: {list(self.params.keys())}")
-            if self.tf_params: 
+            if self.tf_params:
                  logger.debug(f"{log_prefix} 最终 trend_following_params 内容 (部分): "
                               f"focus_timeframe='{self.tf_params.get('focus_timeframe')}', "
                               f"transformer_model_config.d_model='{self.tf_params.get('transformer_model_config', {}).get('d_model')}'")
-            elif 'trend_following_params' in self.params: 
+            elif 'trend_following_params' in self.params:
                  logger.warning(f"{log_prefix} 最终 'trend_following_params' 键存在于参数中，但其内容为空。")
-        
+
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
+
+    # 在 __init__ 方法之后，其他方法之前添加
+    async def prepare_data(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        使用 IndicatorService 准备包含所有时间级别数据和计算指标的 DataFrame。
+        Args:
+            stock_code (str): 股票代码。
+        Returns:
+            Optional[pd.DataFrame]: 包含所有数据的 DataFrame，如果准备失败则返回 None。
+        """
+        log_prefix = f"[{self.strategy_name}][{stock_code}]"
+        logger.info(f"{log_prefix} 开始准备策略数据...")
+        # 调用 IndicatorService 的 prepare_strategy_dataframe 方法
+        # 将参数文件路径和 LSTM 窗口大小传递给服务
+        # IndicatorService 会根据参数文件确定所需时间级别、指标、特征工程等
+        try:
+            # prepare_strategy_dataframe 返回 (DataFrame, indicator_configs)
+            prepared_data_tuple = await self.indicator_service.prepare_strategy_dataframe(
+                stock_code=stock_code,
+                params_file=self.params_file, # 传递参数文件路径
+                base_needed_bars=self.transformer_window_size # 传递基础所需条数（例如 LSTM 窗口大小）
+            )
+            if prepared_data_tuple is None:
+                logger.error(f"{log_prefix} IndicatorService.prepare_strategy_dataframe 返回 None。数据准备失败。")
+                return None
+            data_df, indicator_configs_from_service = prepared_data_tuple # 解包返回的元组
+            if data_df is None or data_df.empty:
+                logger.error(f"{log_prefix} IndicatorService.prepare_strategy_dataframe 返回空 DataFrame。数据准备失败。")
+                return None
+            # 将 IndicatorService 返回的 DataFrame 存储到实例变量，可能用于调试或后续步骤
+            self.intermediate_data = data_df # 修改行：存储 IndicatorService 返回的 DataFrame
+            logger.info(f"{log_prefix} 数据准备完成。DataFrame Shape: {data_df.shape}, 列数: {len(data_df.columns)}")
+            # logger.debug(f"{log_prefix} 准备好的数据列 (部分): {data_df.columns.tolist()[:30]}...") # 调试输出
+            # IndicatorService 已经处理了缺失值填充，这里不再需要额外的填充步骤
+            return data_df
+
+        except Exception as e:
+            logger.error(f"{log_prefix} 调用 IndicatorService.prepare_strategy_dataframe 时出错: {e}", exc_info=True)
+            return None
+
+
 
     @staticmethod # 设为静态方法
     def _format_indicator_name(template_or_list: Union[str, List[str]], **kwargs) -> List[str]:
@@ -333,7 +379,7 @@ class TrendFollowingStrategy:
         """
         # 清理kwargs中的None值，避免 .format 失败
         clean_kwargs = {k: v for k, v in kwargs.items() if v is not None}
-        
+
         templates = [template_or_list] if isinstance(template_or_list, str) else template_or_list
 
         formatted_list = []
@@ -384,7 +430,7 @@ class TrendFollowingStrategy:
         验证 TrendFollowingStrategy 特定的参数以及从基类继承的参数。
         此方法由 __init__ 在 self.params 被赋值后调用。
         """
-        log_prefix = f"[{self.strategy_name}]" 
+        log_prefix = f"[{self.strategy_name}]"
         if not self.params:
             logger.warning(f"{log_prefix} _validate_params: 由于 self.params 为空 (参数文件可能未加载或无效)，无法进行详细参数验证。策略将依赖代码中的默认值。")
             # 后续验证会继续，但会基于默认值。
@@ -397,25 +443,24 @@ class TrendFollowingStrategy:
         elif not isinstance(self.tf_params, dict):
              logger.error(f"{log_prefix} CRITICAL VALIDATION: 'trend_following_params' 参数类型不正确 (应为字典)，但得到的是: {type(self.tf_params)}！将完全依赖代码默认值。")
              self.tf_params = {}
-        elif not self.tf_params: 
+        elif not self.tf_params:
             logger.warning(f"{log_prefix} VALIDATION: 'trend_following_params' 块在参数中存在，但其内容为空！将依赖代码默认值。")
-        
+
         # 验证 base_scoring 块和 timeframes
-        bs_params = self.params.get('base_scoring', {}) 
-        if not bs_params:
-            logger.warning(f"{log_prefix} VALIDATION: 'base_scoring' 参数块缺失或为空。基础评分相关功能可能受影响。")
-        elif not isinstance(bs_params, dict):
-             logger.error(f"{log_prefix} VALIDATION: 'base_scoring' 参数类型不正确 (应为字典)，但得到的是: {type(bs_params)}！")
-        elif not bs_params.get('timeframes'): 
-            logger.error(f"{log_prefix} VALIDATION: 'base_scoring.timeframes' 未定义或为空。无法确定操作时间级别。基础评分将无法计算。")
+        bs_params = self.params.get('base_scoring', {})
+        timeframes = bs_params.get('timeframes', [])
+        if not isinstance(timeframes, list):
+             logger.error(f"{log_prefix} 'base_scoring.timeframes' 参数类型不正确 (应为列表)，但得到的是: {type(timeframes)}！")
+             timeframes = [] # 设为空列表以避免后续错误
+        if not timeframes:
+            logger.error(f"{log_prefix} 无法获取所需列，因为 'base_scoring.timeframes' 未定义或为空。")
+            # 不返回，让后续依赖 timeframes 的验证继续，但会基于空列表
 
         # 验证 focus_timeframe 是否在 timeframes 中
-        timeframes_list = bs_params.get('timeframes', [])
-        if not isinstance(timeframes_list, list):
-             logger.error(f"{log_prefix} VALIDATION: 'base_scoring.timeframes' 参数类型不正确 (应为列表)，但得到的是: {type(timeframes_list)}！")
-             timeframes_list = [] # 设为空列表以避免后续错误
+        timeframes_list = bs_params.get('timeframes', []) # 重新获取，确保是列表
+        if not isinstance(timeframes_list, list): timeframes_list = [] # 再次检查类型
 
-        if self.focus_timeframe not in timeframes_list: 
+        if self.focus_timeframe not in timeframes_list:
              # 修改: 如果 timeframes_list 为空，这个警告是预期内的
              if timeframes_list:
                 logger.warning(f"{log_prefix} VALIDATION: 主要关注时间框架 '{self.focus_timeframe}' 不在 'base_scoring.timeframes' ({timeframes_list}) 中。请检查配置。策略可能无法按预期工作或导致错误。")
@@ -424,10 +469,10 @@ class TrendFollowingStrategy:
 
 
         # 验证 timeframe_weights (如果存在)
-        if self.timeframe_weights is not None: 
+        if self.timeframe_weights is not None:
             if not isinstance(self.timeframe_weights, dict):
                 logger.error(f"{log_prefix} VALIDATION: 'trend_following_params.timeframe_weights' 必须是一个字典，但得到的是: {type(self.timeframe_weights)}。将忽略此配置。")
-                self.timeframe_weights = None 
+                self.timeframe_weights = None
             else:
                 # 检查 timeframe_weights 中的时间框架是否都在 base_scoring.timeframes 中
                 defined_tfs_set = set(timeframes_list) # 使用已验证的 timeframes_list
@@ -445,7 +490,7 @@ class TrendFollowingStrategy:
         # else: # 如果 timeframe_weights 为 None，表示使用 focus_weight 逻辑，不需要额外验证结构
 
         # 验证 trend_indicators
-        if not self.trend_indicators: 
+        if not self.trend_indicators:
             logger.warning(f"{log_prefix} VALIDATION: 'trend_following_params.trend_indicators' 为空列表。策略可能无法有效识别趋势。")
         elif not isinstance(self.trend_indicators, list):
              logger.error(f"{log_prefix} VALIDATION: 'trend_following_params.trend_indicators' 参数类型不正确 (应为列表)，但得到的是: {type(self.trend_indicators)}！")
@@ -459,7 +504,7 @@ class TrendFollowingStrategy:
         required_model_keys = ['d_model', 'nhead', 'dim_feedforward', 'nlayers']
         if not all(key in model_conf for key in required_model_keys):
              logger.warning(f"{log_prefix} VALIDATION: Transformer模型结构配置 'transformer_model_config' 缺少关键参数: {required_model_keys}。可能使用默认值。当前配置: {model_conf}")
-        
+
         train_conf = self.transformer_training_config
         if not isinstance(train_conf, dict):
              logger.error(f"{log_prefix} VALIDATION: Transformer训练配置 'transformer_training_config' 参数类型不正确 (应为字典)，但得到的是: {type(train_conf)}！")
@@ -476,11 +521,11 @@ class TrendFollowingStrategy:
                 'ema_cross': 0.15, 'boll_breakout': 0.1, 'adx_strength': 0.1, 'vwap_deviation': 0.05,
                 'volume_spike': 0.05
             }
-        self._normalize_weights(self.rule_signal_weights) 
+        self._normalize_weights(self.rule_signal_weights)
 
         # 验证 signal_combination_weights 并归一化
         # 修改: 从 tf_params 中安全获取 signal_combination_weights
-        lstm_combination_weights = self.tf_params.get('signal_combination_weights', {}) 
+        lstm_combination_weights = self.tf_params.get('signal_combination_weights', {})
         if not isinstance(lstm_combination_weights, dict) or not lstm_combination_weights:
              logger.warning(f"{log_prefix} VALIDATION: 'signal_combination_weights' (在 trend_following_params 中) 参数无效或为空。将使用代码中定义的默认组合权重 (0.6/0.4) 并归一化。当前值: {lstm_combination_weights}")
              default_combo_weights = {'rule_weight': 0.6, 'transformer_weight': 0.4} # 修改键名以反映是 Transformer
@@ -517,13 +562,12 @@ class TrendFollowingStrategy:
 
         logger.debug(f"{log_prefix} TrendFollowingStrategy 特定参数验证完成。")
 
-
     def set_model_paths(self, stock_code: str):
         """
         为特定股票设置模型、scaler 和准备好的数据的保存/加载路径。
         """
         stock_root_dir =  os.path.join(self.base_data_dir, stock_code)
-        os.makedirs(stock_root_dir, exist_ok=True) 
+        os.makedirs(stock_root_dir, exist_ok=True)
         prepared_data_dir = os.path.join(stock_root_dir, "prepared_data")
         os.makedirs(prepared_data_dir, exist_ok=True)
         trained_model_dir = os.path.join(stock_root_dir, "trained_model")
@@ -554,12 +598,11 @@ class TrendFollowingStrategy:
             features_scaled_test_np, targets_scaled_test_np, \
             feature_scaler, target_scaler = self.load_prepared_data(stock_code)
 
-            if features_scaled_train_np is None or targets_scaled_train_np is None or \
-               features_scaled_val_np is None or targets_scaled_val_np is None or \
-               features_scaled_test_np is None or targets_scaled_test_np is None or \
+            if features_scaled_train_np is None or features_scaled_train_np.shape[0] == 0 or \
+               targets_scaled_train_np is None or targets_scaled_train_np.shape[0] == 0 or \
                feature_scaler is None or target_scaler is None or not self.selected_feature_names_for_transformer:
                 logger.error(f"[{self.strategy_name}] 股票 {stock_code} 加载已准备好的数据/Scaler/特征列表失败或数据无效，无法继续训练。")
-                self.transformer_model = None 
+                self.transformer_model = None
                 self.feature_scaler = None
                 self.target_scaler = None
                 self.selected_feature_names_for_transformer = []
@@ -584,10 +627,10 @@ class TrendFollowingStrategy:
 
         try:
             train_dataset = TimeSeriesDataset(features_scaled_train_np, targets_scaled_train_np, self.transformer_window_size)
-            
+
             val_loader = None
             # 修改: 检查验证集数据量是否足够创建 Dataset 和 DataLoader
-            if features_scaled_val_np.shape[0] >= self.transformer_window_size and targets_scaled_val_np.shape[0] >= self.transformer_window_size:
+            if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and targets_scaled_val_np is not None and targets_scaled_val_np.shape[0] >= self.transformer_window_size:
                 val_dataset = TimeSeriesDataset(features_scaled_val_np, targets_scaled_val_np, self.transformer_window_size)
                 if len(val_dataset) > 0:
                     # 修改: 验证集 DataLoader 不需要 shuffle
@@ -600,7 +643,7 @@ class TrendFollowingStrategy:
 
             test_loader = None
             # 修改: 检查测试集数据量是否足够创建 Dataset 和 DataLoader
-            if features_scaled_test_np.shape[0] >= self.transformer_window_size and targets_scaled_test_np.shape[0] >= self.transformer_window_size:
+            if features_scaled_test_np is not None and features_scaled_test_np.shape[0] >= self.transformer_window_size and targets_scaled_test_np is not None and targets_scaled_test_np.shape[0] >= self.transformer_window_size:
                 test_dataset = TimeSeriesDataset(features_scaled_test_np, targets_scaled_test_np, self.transformer_window_size)
                 if len(test_dataset) > 0:
                     # 修改: 测试集 DataLoader 不需要 shuffle
@@ -645,12 +688,12 @@ class TrendFollowingStrategy:
                 val_loader=val_loader,
                 target_scaler=self.target_scaler,
                 training_config=self.transformer_training_config,
-                checkpoint_dir=checkpoint_dir, 
+                checkpoint_dir=checkpoint_dir,
                 stock_code=stock_code,
                 plot_training_history=self.tf_params.get('transformer_plot_history', False),
             )
             # 训练完成后，最佳模型权重应该已经加载到 self.transformer_model
-            if self.model_path: 
+            if self.model_path:
                  logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，最佳模型权重已加载。")
             else:
                  logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，但 model_path 未设置，模型权重可能未按预期保存或加载。")
@@ -662,7 +705,7 @@ class TrendFollowingStrategy:
                 loss_fn_name = self.transformer_training_config.get('loss', 'mse').lower()
                 criterion_eval = nn.MSELoss() if loss_fn_name == 'mse' else \
                                  nn.L1Loss() if loss_fn_name == 'mae' else \
-                                 nn.HuberLoss() if loss_fn_name == 'huber' else nn.MSELoss() 
+                                 nn.HuberLoss() if loss_fn_name == 'huber' else nn.MSELoss()
                 mae_metric_eval = nn.L1Loss() # 通常评估也会关注 MAE
 
                 test_metrics = evaluate_transformer_model(
@@ -678,144 +721,129 @@ class TrendFollowingStrategy:
             logger.error(f"[{self.strategy_name}][{stock_code}] 训练 Transformer 模型出错: {e}", exc_info=True)
             self.transformer_model = None
 
-    def get_required_columns(self) -> List[str]: # 使用JSON配置
+    async def get_required_columns(self, stock_code: str) -> List[str]:
         """
         根据策略参数和指标命名规范，动态生成并返回 IndicatorService 需要准备的所有数据列名。
+        这些是 IndicatorService 最终会在 DataFrame 中生成的列名。
         """
         required = set()
         log_prefix = f"[{self.strategy_name}]"
-        
         # 检查 NAMING_CONFIG 是否已加载
         if not NAMING_CONFIG:
             logger.error(f"{log_prefix} get_required_columns: NAMING_CONFIG 未加载或为空，无法确定所需列。")
             return []
-
         # 检查策略参数 self.params 是否已加载
         if not self.params:
             logger.error(f"{log_prefix} get_required_columns: 策略参数 (self.params) 为空，无法确定所需列。")
             return []
-        
         # 确保 base_scoring 参数块存在且包含 timeframes
         bs_params = self.params.get('base_scoring', {})
         timeframes = bs_params.get('timeframes', [])
-        if not isinstance(timeframes, list): # 增加类型检查
-             logger.error(f"{log_prefix} 'base_scoring.timeframes' 参数类型不正确 (应为列表)，但得到的是: {type(timeframes)}！无法获取所需列。")
-             return []
+        if not isinstance(timeframes, list):
+            logger.error(f"{log_prefix} 'base_scoring.timeframes' 参数类型不正确 (应为列表)，但得到的是: {type(timeframes)}！无法获取所需列。")
+            return []
         if not timeframes:
             logger.error(f"{log_prefix} 无法获取所需列，因为 'base_scoring.timeframes' 未定义或为空。")
             return []
-
-        # 提取参数的辅助函数
+        # 提取参数的辅助函数 (保留原有的，因为它从多个源查找参数)
         def _get_param_val(sources: List[Dict], key: str, default: Any = None) -> Any:
             """从参数源列表中按顺序查找键的值，返回第一个找到的值或默认值。"""
             for source_dict in sources:
-                # 检查 source_dict 是否是有效的字典
                 if isinstance(source_dict, dict) and key in source_dict:
                     return source_dict[key]
             return default
-
         # 准备参数源列表，优先级从高到低 (策略特定参数通常优先级高)
         param_sources = [
             self.tf_params, # trend_following_params (策略特定参数)
             self.params.get('volume_confirmation', {}), # volume_confirmation
             self.params.get('indicator_analysis_params', {}), # indicator_analysis_params
-            self.params.get('feature_engineering_params', {}), # feature_engineering_params
+            self.fe_params, # feature_engineering_params
             bs_params # base_scoring
         ]
-        
-        # 1. 基础OHLCV (来自NAMING_CONFIG.ohlcv_naming_convention)
-        ohlcv_config = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
-        if not isinstance(ohlcv_config, list): # 增加类型检查
-             logger.error(f"{log_prefix} OHLCV 命名规范 output_columns 类型不正确 (应为列表)。")
-             ohlcv_config = []
-        
-        for tf_str in timeframes:
-            for col_conf in ohlcv_config:
-                # 确保 column_conf 是字典且包含 'name_pattern'
-                if isinstance(col_conf, dict) and 'name_pattern' in col_conf:
-                    required.add(f"{col_conf['name_pattern']}_{tf_str}")
+        # 获取命名规范字典
+        indicator_naming_conv = NAMING_CONFIG.get('indicator_naming_conventions', {})
+        derivative_naming_conv = NAMING_CONFIG.get('derivative_feature_naming_conventions', {})
+        ohlcv_naming_conv = NAMING_CONFIG.get('ohlcv_naming_convention', {})
+        external_naming_conv = NAMING_CONFIG.get('external_feature_naming_conventions', {}) # 新增：外部特征命名规范
 
+        # 增加类型检查
+        if not isinstance(indicator_naming_conv, dict): indicator_naming_conv = {}
+        if not isinstance(derivative_naming_conv, dict): derivative_naming_conv = {}
+        if not isinstance(ohlcv_naming_conv, dict): ohlcv_naming_conv = {}
+        if not isinstance(external_naming_conv, dict): external_naming_conv = {}
+
+
+        # 1. 基础OHLCV (来自NAMING_CONFIG.ohlcv_naming_convention)
+        ohlcv_output_cols_conf = ohlcv_naming_conv.get('output_columns', [])
+        if not isinstance(ohlcv_output_cols_conf, list):
+            logger.error(f"{log_prefix} OHLCV 命名规范 output_columns 类型不正确 (应为列表)。")
+            ohlcv_output_cols_conf = []
+        for tf_str in timeframes:
+            for col_conf in ohlcv_output_cols_conf:
+                if isinstance(col_conf, dict) and 'name_pattern' in col_conf:
+                    # OHLCV 列名模式通常不包含参数，直接拼接时间框架后缀
+                    required.add(f"{col_conf['name_pattern']}_{tf_str}")
         # 2. 基础评分指标 (来自NAMING_CONFIG.indicator_naming_conventions)
         score_indicators_config_keys = bs_params.get('score_indicators', [])
-        if not isinstance(score_indicators_config_keys, list): # 增加类型检查
-             logger.error(f"{log_prefix} 'base_scoring.score_indicators' 参数类型不正确 (应为列表)。")
-             score_indicators_config_keys = []
-
-        # 获取指标参数，这些值将用于填充命名模板
-        # 使用 _get_param_val 从 param_sources 中获取参数
+        if not isinstance(score_indicators_config_keys, list):
+            logger.error(f"{log_prefix} 'base_scoring.score_indicators' 参数类型不正确 (应为列表)。")
+            score_indicators_config_keys = []
+        # 获取指标参数，这些值将用于填充命名模板 (使用 _get_param_val 从 param_sources 中获取参数)
         # MACD参数
-        macd_fast = _get_param_val(param_sources, 'macd_fast', 12)
-        macd_slow = _get_param_val(param_sources, 'macd_slow', 26)
-        # JSON中是 signal_period, 策略bs_params中可能是 macd_signal_period，这里统一用 signal_period 并在 param_sources 中查找
-        macd_sig = _get_param_val(param_sources, 'signal_period', 9) 
+        macd_fast = _get_param_val(param_sources, 'period_fast', 12) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period_fast
+        macd_slow = _get_param_val(param_sources, 'period_slow', 26) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period_slow
+        macd_sig = _get_param_val(param_sources, 'signal_period', 9) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 signal_period
         # RSI参数
-        rsi_period = _get_param_val(param_sources, 'rsi_period', 14)
+        rsi_period = _get_param_val(param_sources, 'period', 14) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period
         # KDJ参数 (注意JSON和策略中参数名的对应)
-        # JSON KDJ: period, signal_period, smooth_k_period
-        # 策略 bs_params: kdj_period_k, kdj_period_d, kdj_period_j
-        kdj_k_period = _get_param_val(param_sources, 'kdj_period_k', 9)
-        kdj_d_period = _get_param_val(param_sources, 'kdj_d', 3) # 修正：JSON和bs_params中d的参数名可能不同，这里统一用kdj_d并在param_sources中查找
-        kdj_j_smooth_k = _get_param_val(param_sources, 'kdj_j', 3) # 修正：同上
+        kdj_k_period = _get_param_val(param_sources, 'kdj_period_k', _get_param_val(param_sources, 'period', 9)) # 优先 kdj_period_k，其次 period
+        kdj_d_period = _get_param_val(param_sources, 'kdj_period_d', _get_param_val(param_sources, 'signal_period', 3)) # 优先 kdj_period_d，其次 signal_period
+        kdj_j_smooth_k = _get_param_val(param_sources, 'kdj_period_j', _get_param_val(param_sources, 'smooth_k_period', 3)) # 优先 kdj_period_j，其次 smooth_k_period
         # BOLL参数 (基础评分用的BOLL)
-        boll_period = _get_param_val(param_sources, 'boll_period', 20)
-        boll_std_dev = _get_param_val(param_sources, 'boll_std_dev', 2.0)
+        boll_period = _get_param_val(param_sources, 'boll_period', _get_param_val(param_sources, 'period', 20)) # 优先 boll_period，其次 period
+        boll_std_dev = _get_param_val(param_sources, 'boll_std_dev', _get_param_val(param_sources, 'std_dev', 2.0)) # 优先 boll_std_dev，其次 std_dev
         # CCI参数
-        cci_period = _get_param_val(param_sources, 'cci_period', 14)
+        cci_period = _get_param_val(param_sources, 'period', 14)
         # MFI参数
-        mfi_period = _get_param_val(param_sources, 'mfi_period', 14)
+        mfi_period = _get_param_val(param_sources, 'period', 14)
         # ROC参数
-        roc_period = _get_param_val(param_sources, 'roc_period', 12)
+        roc_period = _get_param_val(param_sources, 'period', 12)
         # DMI参数
-        dmi_period = _get_param_val(param_sources, 'dmi_period', 14)
+        dmi_period = _get_param_val(param_sources, 'period', 14)
         # SAR参数
-        sar_step = _get_param_val(param_sources, 'sar_step', 0.02)
-        sar_max_af = _get_param_val(param_sources, 'sar_max', 0.2)
+        sar_step = _get_param_val(param_sources, 'af_step', 0.02)
+        sar_max_af = _get_param_val(param_sources, 'max_af', 0.2)
         # EMA/SMA 基础参数 (如果 score_indicators 中包含它们，通常是某个默认周期)
-        # 注意：这里的基础周期可能与 feature_engineering 中定义的 EMA/SMA periods 列表不同
-        ema_base_period = _get_param_val(param_sources, 'ema_base_period', 20) # 添加一个默认的 base_period 参数查找
-        sma_base_period = _get_param_val(param_sources, 'sma_base_period', 20) # 添加一个默认的 base_period 参数查找
-
-
-        indicator_naming_conv = NAMING_CONFIG.get('indicator_naming_conventions', {})
-        if not isinstance(indicator_naming_conv, dict):
-             logger.error(f"{log_prefix} 指标命名规范 indicator_naming_conventions 类型不正确 (应为字典)。")
-             indicator_naming_conv = {}
-
-
-        for indi_key_upper in [str(key).upper() for key in score_indicators_config_keys]: # 转为大写以匹配JSON键
+        ema_base_period = _get_param_val(param_sources, 'ema_base_period', _get_param_val(param_sources, 'period', 20)) # 优先 ema_base_period，其次 period
+        sma_base_period = _get_param_val(param_sources, 'sma_base_period', _get_param_val(param_sources, 'period', 20)) # 优先 sma_base_period，其次 period
+        for indi_key_upper in [str(key).upper() for key in score_indicators_config_keys]:
             if indi_key_upper not in indicator_naming_conv:
                 logger.warning(f"{log_prefix} 评分指标 '{indi_key_upper}' 在命名规范中未定义或加载失败，跳过。")
                 continue
-            
             indi_naming_conf = indicator_naming_conv[indi_key_upper]
-            # 确保 indi_naming_conf 是字典且包含 output_columns
             if not isinstance(indi_naming_conf, dict) or 'output_columns' not in indi_naming_conf or not isinstance(indi_naming_conf['output_columns'], list):
                 logger.warning(f"{log_prefix} 评分指标 '{indi_key_upper}' 的命名配置无效，跳过。")
                 continue
-
             params_for_format = {}
             # 根据指标类型填充格式化参数字典
             if indi_key_upper == 'MACD':
                 params_for_format = {'period_fast': macd_fast, 'period_slow': macd_slow, 'signal_period': macd_sig}
             elif indi_key_upper == 'RSI':
                 params_for_format = {'period': rsi_period}
-            elif indi_key_upper == 'KDJ': # KDJ的参数名在JSON和策略中不完全一致，这里做映射
-                # 确保参数是有效数字
+            elif indi_key_upper == 'KDJ':
                 if isinstance(kdj_k_period, (int, float)) and isinstance(kdj_d_period, (int, float)) and isinstance(kdj_j_smooth_k, (int, float)):
                     params_for_format = {'period': kdj_k_period, 'signal_period': kdj_d_period, 'smooth_k_period': kdj_j_smooth_k}
                 else:
                     logger.warning(f"{log_prefix} KDJ 评分指标参数无效: k_period={kdj_k_period}, d_period={kdj_d_period}, smooth_k_period={kdj_j_smooth_k}. 跳过 KDJ 评分列请求。")
-                    continue # 参数无效，跳过请求该指标
+                    continue
             elif indi_key_upper == 'BOLL':
-                 # 确保参数是有效数字
-                 if isinstance(boll_period, (int, float)) and isinstance(boll_std_dev, (int, float)):
+                if isinstance(boll_period, (int, float)) and isinstance(boll_std_dev, (int, float)):
                     params_for_format = {'period': boll_period, 'std_dev': boll_std_dev}
-                 else:
+                else:
                     logger.warning(f"{log_prefix} BOLL 评分指标参数无效: period={boll_period}, std_dev={boll_std_dev}. 跳过 BOLL 评分列请求。")
-                    continue # 参数无效，跳过请求该指标
+                    continue
             elif indi_key_upper == 'CCI':
-                if isinstance(cci_period, (int, float)): 
-                    params_for_format = {'period': cci_period}
+                if isinstance(cci_period, (int, float)): params_for_format = {'period': cci_period}
                 else: continue
             elif indi_key_upper == 'MFI':
                 if isinstance(mfi_period, (int, float)): params_for_format = {'period': mfi_period}
@@ -836,195 +864,133 @@ class TrendFollowingStrategy:
                 if isinstance(sma_base_period, (int, float)): params_for_format = {'period': sma_base_period}
                 else: continue
             # 其他无参数或固定参数的指标如 OBV, ADL 不需要特别处理 params_for_format
-
             for tf_str in timeframes:
-                for col_conf in indi_naming_conf['output_columns']:
-                    # 确保 col_conf 是字典且包含 'name_pattern'
+                for col_conf in indi_naming_conv['output_columns']:
                     if isinstance(col_conf, dict) and 'name_pattern' in col_conf:
                         base_names = TrendFollowingStrategy._format_indicator_name(col_conf['name_pattern'], **params_for_format)
                         for base_name in base_names:
+                            # 基础指标列名格式: BASE_NAME_PARAMS_TF
                             required.add(f"{base_name}_{tf_str}")
-        
-        # 3. 量能确认指标 (AMT_MA, CMF) 和 **OBV_MA (衍生特征)**
+        # 3. 量能确认指标 (AMT_MA, CMF) 和 OBV, OBV_MA
         vc_params = self.params.get('volume_confirmation', {})
-        # 修改: 检查量能确认是否启用
         if isinstance(vc_params, dict) and (vc_params.get('enabled', False) or vc_params.get('volume_analysis_enabled', False)):
-            # 修改: 获取量能确认应用的时间框架列表，如果未指定则使用所有 timeframes
-            vc_tf_list_raw = vc_params.get('tf', timeframes) # 如果未指定tf，则对所有timeframes计算
+            vc_tf_list_raw = vc_params.get('tf', timeframes)
             vc_tf_list = [vc_tf_list_raw] if isinstance(vc_tf_list_raw, str) else vc_tf_list_raw
-            if not isinstance(vc_tf_list, list): # 增加类型检查
-                 logger.error(f"{log_prefix} 'volume_confirmation.tf' 参数类型不正确 (应为字符串或列表)，但得到的是: {type(vc_tf_list)}！量能指标请求可能不完整。")
-                 vc_tf_list = [] # 清空以避免后续错误
-
+            if not isinstance(vc_tf_list, list):
+                logger.error(f"{log_prefix} 'volume_confirmation.tf' 参数类型不正确 (应为字符串或列表)，但得到的是: {type(vc_tf_list)}！量能指标请求可能不完整。")
+                vc_tf_list = []
             # 获取量能指标参数
-            amt_ma_period_vc = _get_param_val(param_sources, 'amount_ma_period', 15) # 日志显示是 15
+            amt_ma_period_vc = _get_param_val(param_sources, 'amount_ma_period', 15)
             cmf_period_vc = _get_param_val(param_sources, 'cmf_period', 20)
-            # 修改: 获取 OBV MA 周期，日志显示是 10
-            obv_ma_period_vc = _get_param_val(param_sources, 'obv_ma_period', 10) # 默认值设为日志中的 10
-
-            indicator_naming_conv = NAMING_CONFIG.get('indicator_naming_conventions', {})
-            derivative_naming_conv = NAMING_CONFIG.get('derivative_feature_naming_conventions', {})
-
+            obv_ma_period_vc = _get_param_val(param_sources, 'obv_ma_period', 10)
             for vc_tf_str in vc_tf_list:
-                # 检查时间框架是否在 base_scoring.timeframes 中定义
-                if vc_tf_str not in timeframes:
-                    # logger.warning(f"{log_prefix} 量能确认时间框架 '{vc_tf_str}' 未在 'base_scoring.timeframes' 中定义，跳过此时间框架的量能指标请求。") # 日志记录可能过于频繁
-                    continue
-
+                if vc_tf_str not in timeframes: continue # 只请求在基础时间框架中定义的级别
                 # AMT_MA
                 if 'AMT_MA' in indicator_naming_conv:
                     amt_ma_naming_conf = indicator_naming_conv['AMT_MA']
                     if isinstance(amt_ma_naming_conf, dict) and 'output_columns' in amt_ma_naming_conf and isinstance(amt_ma_naming_conf['output_columns'], list):
                         amt_ma_name_patterns = [c['name_pattern'] for c in amt_ma_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                         # 确保 period 是有效数字
                         if isinstance(amt_ma_period_vc, (int, float)) and amt_ma_period_vc > 0:
                             for name in TrendFollowingStrategy._format_indicator_name(amt_ma_name_patterns, period=amt_ma_period_vc):
                                 required.add(f"{name}_{vc_tf_str}")
-
                 # CMF
                 if 'CMF' in indicator_naming_conv:
                     cmf_naming_conf = indicator_naming_conv['CMF']
                     if isinstance(cmf_naming_conf, dict) and 'output_columns' in cmf_naming_conf and isinstance(cmf_naming_conf['output_columns'], list):
                         cmf_name_patterns = [c['name_pattern'] for c in cmf_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                         # 确保 period 是有效数字
                         if isinstance(cmf_period_vc, (int, float)) and cmf_period_vc > 0:
                             for name in TrendFollowingStrategy._format_indicator_name(cmf_name_patterns, period=cmf_period_vc):
                                 required.add(f"{name}_{vc_tf_str}")
-                
-                # 添加 OBV 作为基础指标 (OBV MA 依赖 OBV)，OBV 本身是无参数的
+                # OBV (基础指标)
                 if 'OBV' in indicator_naming_conv:
                     obv_naming_conf = indicator_naming_conv['OBV']
                     if isinstance(obv_naming_conf, dict) and 'output_columns' in obv_naming_conf and isinstance(obv_naming_conf['output_columns'], list):
                          obv_name_patterns = [c['name_pattern'] for c in obv_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
                          for name in TrendFollowingStrategy._format_indicator_name(obv_name_patterns): # OBV 无参数
                             required.add(f"{name}_{vc_tf_str}")
-
-                # OBV_MA (衍生特征) - 需要 OBV 作为基础
+                # OBV_MA (衍生特征)
                 if 'OBV_MA' in derivative_naming_conv:
                     obv_ma_deriv_conf = derivative_naming_conv['OBV_MA']
                     if isinstance(obv_ma_deriv_conf, dict) and 'output_column_pattern' in obv_ma_deriv_conf and obv_ma_period_vc is not None:
                         obv_ma_pattern = obv_ma_deriv_conf['output_column_pattern']
-                         # 确保 period 是有效数字
                         if isinstance(obv_ma_period_vc, (int, float)) and obv_ma_period_vc > 0:
                             for name in TrendFollowingStrategy._format_indicator_name(obv_ma_pattern, period=obv_ma_period_vc):
                                 required.add(f"{name}_{vc_tf_str}")
-
-
         # 4. 其他分析指标 (STOCH, VOL_MA, VWAP, ADL, ICHIMOKU, PIVOT_POINTS, ATR, HV, KC, MOM, WILLR, VROC, AROC)
-        # 这些指标可能用于基础评分以外的分析或信号计算
-        ia_params = self.params.get('indicator_analysis_params', {})
-        fe_params = self.params.get('feature_engineering_params', {})
-        
-        # 增加类型检查
-        if not isinstance(ia_params, dict):
-             logger.error(f"{log_prefix} 'indicator_analysis_params' 参数类型不正确 (应为字典)。")
-             ia_params = {}
-        if not isinstance(fe_params, dict):
-             logger.error(f"{log_prefix} 'feature_engineering_params' 参数类型不正确 (应为字典)。")
-             fe_params = {}
-
-
-        # 获取分析和特征工程应用的时间框架列表，如果未指定则使用 base_scoring 的 timeframes
-        ia_tf_list = ia_params.get('apply_on_timeframes', timeframes)
-        if isinstance(ia_tf_list, str): ia_tf_list = [ia_tf_list]
-        if not isinstance(ia_tf_list, list): # 增加类型检查
-             logger.error(f"{log_prefix} 'indicator_analysis_params.apply_on_timeframes' 参数类型不正确 (应为字符串或列表)。")
-             ia_tf_list = []
-        
-        fe_tf_list = fe_params.get('apply_on_timeframes', timeframes)
-        if isinstance(fe_tf_list, str): fe_tf_list = [fe_tf_list]
-        if not isinstance(fe_tf_list, list): # 增加类型检查
-             logger.error(f"{log_prefix} 'feature_engineering_params.apply_on_timeframes' 参数类型不正确 (应为字符串或列表)。")
-             fe_tf_list = []
-
-
-        # 合并去重时间框架列表
+        ia_params_global = self.params.get('indicator_analysis_params', {})
+        fe_params_global = self.fe_params # 使用 self.fe_params
+        if not isinstance(ia_params_global, dict): ia_params_global = {}
+        if not isinstance(fe_params_global, dict): fe_params_global = {}
+        ia_tf_list_raw = ia_params_global.get('apply_on_timeframes', timeframes)
+        ia_tf_list = [ia_tf_list_raw] if isinstance(ia_tf_list_raw, str) else ia_tf_list_raw
+        if not isinstance(ia_tf_list, list): ia_tf_list = []
+        fe_tf_list_raw = fe_params_global.get('apply_on_timeframes', timeframes)
+        fe_tf_list = [fe_tf_list_raw] if isinstance(fe_tf_list_raw, str) else fe_tf_list_raw
+        if not isinstance(fe_tf_list, list): fe_tf_list = []
         analysis_timeframes = list(set(ia_tf_list + fe_tf_list))
-
-        indicator_naming_conv = NAMING_CONFIG.get('indicator_naming_conventions', {})
-        derivative_naming_conv = NAMING_CONFIG.get('derivative_feature_naming_conventions', {})
-
         for analyze_tf_str in analysis_timeframes:
-            # 检查时间框架是否在 base_scoring.timeframes 中定义
-            if analyze_tf_str not in timeframes:
-                 # logger.warning(f"{log_prefix} 分析/特征工程时间框架 '{analyze_tf_str}' 未在 'base_scoring.timeframes' 中定义，跳过此时间框架的指标请求。")
-                 continue # 跳过未在基础时间框架中定义的级别
-
-            # STOCH (JSON: STOCHk, STOCHd)
-            # 使用从param_sources获取的STOCH参数，这与_perform_trend_analysis中使用的参数一致
-            stoch_k_ia = _get_param_val(param_sources, 'stoch_k', 14) 
-            stoch_d_ia = _get_param_val(param_sources, 'stoch_d', 3)   
-            stoch_smooth_k_ia = _get_param_val(param_sources, 'stoch_smooth_k', 3) 
-            if 'STOCH' in indicator_naming_conv:
+            if analyze_tf_str not in timeframes: continue # 只请求在基础时间框架中定义的级别
+            # STOCH
+            stoch_k_ia = _get_param_val(param_sources, 'stoch_k', _get_param_val(param_sources, 'k_period', 14))
+            stoch_d_ia = _get_param_val(param_sources, 'stoch_d', _get_param_val(param_sources, 'd_period', 3))
+            stoch_smooth_k_ia = _get_param_val(param_sources, 'stoch_smooth_k', _get_param_val(param_sources, 'smooth_k_period', 3))
+            if ia_params_global.get('calculate_stoch', False) and 'STOCH' in indicator_naming_conv:
                 stoch_naming_conf = indicator_naming_conv['STOCH']
                 if isinstance(stoch_naming_conf, dict) and 'output_columns' in stoch_naming_conf and isinstance(stoch_naming_conf['output_columns'], list):
                     stoch_name_patterns = [c['name_pattern'] for c in stoch_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    # 确保参数是有效数字
                     if isinstance(stoch_k_ia, (int, float)) and isinstance(stoch_d_ia, (int, float)) and isinstance(stoch_smooth_k_ia, (int, float)):
                         for name in TrendFollowingStrategy._format_indicator_name(stoch_name_patterns, k_period=stoch_k_ia, d_period=stoch_d_ia, smooth_k_period=stoch_smooth_k_ia):
                             required.add(f"{name}_{analyze_tf_str}")
                     else:
-                         logger.warning(f"{log_prefix} STOCH 指标参数无效: k={stoch_k_ia}, d={stoch_d_ia}, smooth_k={stoch_smooth_k_ia}. 跳过 STOCH 列请求 ({analyze_tf_str})。")
-
+                        logger.warning(f"{log_prefix} STOCH 指标参数无效: k={stoch_k_ia}, d={stoch_d_ia}, smooth_k={stoch_smooth_k_ia}. 跳过 STOCH 列请求 ({analyze_tf_str})。")
             # VOL_MA
-            vol_ma_period_ia = _get_param_val(param_sources, 'volume_ma_period', 20)
-            if 'VOL_MA' in indicator_naming_conv:
+            vol_ma_period_ia = _get_param_val(param_sources, 'volume_ma_period', _get_param_val(param_sources, 'period', 20))
+            if ia_params_global.get('calculate_vol_ma', False) and 'VOL_MA' in indicator_naming_conv:
                 vol_ma_naming_conf = indicator_naming_conv['VOL_MA']
                 if isinstance(vol_ma_naming_conf, dict) and 'output_columns' in vol_ma_naming_conf and isinstance(vol_ma_naming_conf['output_columns'], list):
                     vol_ma_name_patterns = [c['name_pattern'] for c in vol_ma_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    # 确保 period 是有效数字
                     if isinstance(vol_ma_period_ia, (int, float)) and vol_ma_period_ia > 0:
-                         for name in TrendFollowingStrategy._format_indicator_name(vol_ma_name_patterns, period=vol_ma_period_ia):
+                        for name in TrendFollowingStrategy._format_indicator_name(vol_ma_name_patterns, period=vol_ma_period_ia):
                             required.add(f"{name}_{analyze_tf_str}")
-
             # VWAP
-            # VWAP 参数可以在 indicator_analysis_params 或 feature_engineering_params 中配置
             vwap_anchor_ia = _get_param_val(param_sources, 'vwap_anchor', None)
-            if 'VWAP' in indicator_naming_conv:
-                vwap_configs = indicator_naming_conv['VWAP']['output_columns']
-                # 确保 vwap_configs 是列表且包含字典
+            if ia_params_global.get('calculate_vwap', False) and 'VWAP' in indicator_naming_conv:
+                vwap_configs = indicator_naming_conv['VWAP'].get('output_columns', [])
                 if isinstance(vwap_configs, list):
-                    if vwap_anchor_ia is None: # 无锚点
-                        # 查找不包含 {anchor} 占位符的模式
+                    if vwap_anchor_ia is None:
                         pattern = next((c['name_pattern'] for c in vwap_configs if isinstance(c, dict) and 'name_pattern' in c and "{anchor}" not in c['name_pattern']), None)
                         if pattern:
-                             for name in TrendFollowingStrategy._format_indicator_name(pattern): # 无参数
+                            for name in TrendFollowingStrategy._format_indicator_name(pattern):
                                 required.add(f"{name}_{analyze_tf_str}")
                         else:
-                             logger.warning(f"{log_prefix} VWAP 命名规范中未找到无锚点的模式。无法为 {analyze_tf_str} 请求无锚点VWAP。")
-                    else: # 有锚点
-                        # 查找包含 {anchor} 占位符的模式
+                            logger.warning(f"{log_prefix} VWAP 命名规范中未找到无锚点的模式。无法为 {analyze_tf_str} 请求无锚点VWAP。")
+                    else:
                         pattern = next((c['name_pattern'] for c in vwap_configs if isinstance(c, dict) and 'name_pattern' in c and "{anchor}" in c['name_pattern']), None)
                         if pattern:
-                             for name in TrendFollowingStrategy._format_indicator_name(pattern, anchor=vwap_anchor_ia):
+                            for name in TrendFollowingStrategy._format_indicator_name(pattern, anchor=vwap_anchor_ia):
                                 required.add(f"{name}_{analyze_tf_str}")
                         else:
-                             logger.warning(f"{log_prefix} VWAP 命名规范中未找到带锚点的模式。无法为 {analyze_tf_str} 请求带锚点VWAP (锚点: {vwap_anchor_ia})。")
+                            logger.warning(f"{log_prefix} VWAP 命名规范中未找到带锚点的模式。无法为 {analyze_tf_str} 请求带锚点VWAP (锚点: {vwap_anchor_ia})。")
                 else:
-                     logger.warning(f"{log_prefix} VWAP 命名规范 output_columns 类型不正确 (应为列表)。")
-
-
+                    logger.warning(f"{log_prefix} VWAP 命名规范 output_columns 类型不正确 (应为列表)。")
             # ADL (无参数)
-            if ia_params.get('calculate_adl', False) and 'ADL' in indicator_naming_conv: # 默认为 False
-                 adl_naming_conf = indicator_naming_conv['ADL']
-                 if isinstance(adl_naming_conf, dict) and 'output_columns' in adl_naming_conf and isinstance(adl_naming_conf['output_columns'], list):
+            if ia_params_global.get('calculate_adl', False) and 'ADL' in indicator_naming_conv:
+                adl_naming_conf = indicator_naming_conv['ADL']
+                if isinstance(adl_naming_conf, dict) and 'output_columns' in adl_naming_conf and isinstance(adl_naming_conf['output_columns'], list):
                     adl_name_patterns = [c['name_pattern'] for c in adl_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    for name in TrendFollowingStrategy._format_indicator_name(adl_name_patterns): # 无参数
+                    for name in TrendFollowingStrategy._format_indicator_name(adl_name_patterns):
                         required.add(f"{name}_{analyze_tf_str}")
-
             # ICHIMOKU
-            if ia_params.get('calculate_ichimoku', False) and 'ICHIMOKU' in indicator_naming_conv: # 默认为 False
-                ichimoku_tenkan_ia = _get_param_val(param_sources, 'ichimoku_tenkan', 9)
-                ichimoku_kijun_ia = _get_param_val(param_sources, 'ichimoku_kijun', 26)
-                ichimoku_senkou_ia = _get_param_val(param_sources, 'ichimoku_senkou', 52)
-                ichimoku_conf = indicator_naming_conv['ICHIMOKU']['output_columns']
-                 # 确保 ichimoku_conf 是列表且包含字典
+            if ia_params_global.get('calculate_ichimoku', False) and 'ICHIMOKU' in indicator_naming_conv:
+                ichimoku_tenkan_ia = _get_param_val(param_sources, 'ichimoku_tenkan', _get_param_val(param_sources, 'tenkan_period', 9))
+                ichimoku_kijun_ia = _get_param_val(param_sources, 'ichimoku_kijun', _get_param_val(param_sources, 'kijun_period', 26))
+                ichimoku_senkou_ia = _get_param_val(param_sources, 'ichimoku_senkou', _get_param_val(param_sources, 'senkou_period', 52))
+                ichimoku_conf = indicator_naming_conv['ICHIMOKU'].get('output_columns', [])
                 if isinstance(ichimoku_conf, list):
-                    # 确保参数是有效数字
                     if isinstance(ichimoku_tenkan_ia, (int, float)) and isinstance(ichimoku_kijun_ia, (int, float)) and isinstance(ichimoku_senkou_ia, (int, float)):
                         for col_conf in ichimoku_conf:
                             if isinstance(col_conf, dict) and 'name_pattern' in col_conf:
-                                params_for_ichi = { # 根据模式中的占位符提供参数
+                                params_for_ichi = {
                                     'tenkan_period': ichimoku_tenkan_ia,
                                     'kijun_period': ichimoku_kijun_ia,
                                     'senkou_period': ichimoku_senkou_ia
@@ -1034,310 +1000,373 @@ class TrendFollowingStrategy:
                     else:
                         logger.warning(f"{log_prefix} ICHIMOKU 指标参数无效，跳过 ICHIMOKU 列请求 ({analyze_tf_str})。")
                 else:
-                     logger.warning(f"{log_prefix} ICHIMOKU 命名规范 output_columns 类型不正确 (应为列表)。")
-            
+                    logger.warning(f"{log_prefix} ICHIMOKU 命名规范 output_columns 类型不正确 (应为列表)。")
             # PIVOT_POINTS (通常基于日线, 无可变参数)
-            # 检查 ia_params 中是否明确配置了计算 PIVOT_POINTS，且当前时间框架是日线 'D'
-            if ia_params.get('calculate_pivot_points', False) and analyze_tf_str == 'D' and 'PIVOT_POINTS' in indicator_naming_conv:
-                pivot_conf = indicator_naming_conv['PIVOT_POINTS']['output_columns']
-                # 确保 pivot_conf 是列表且包含字典
+            if ia_params_global.get('calculate_pivot_points', False) and analyze_tf_str == 'D' and 'PIVOT_POINTS' in indicator_naming_conv:
+                pivot_conf = indicator_naming_conv['PIVOT_POINTS'].get('output_columns', [])
                 if isinstance(pivot_conf, list):
                     for col_conf in pivot_conf:
                         if isinstance(col_conf, dict) and 'name_pattern' in col_conf:
-                            # Pivot point 名称是固定的，不需要 format
                             required.add(f"{col_conf['name_pattern']}_{analyze_tf_str}")
                 else:
-                     logger.warning(f"{log_prefix} PIVOT_POINTS 命名规范 output_columns 类型不正确 (应为列表)。")
-
+                    logger.warning(f"{log_prefix} PIVOT_POINTS 命名规范 output_columns 类型不正确 (应为列表)。")
             # ATR
-            atr_period_fe = _get_param_val(param_sources, 'atr_period', 14)
-            if fe_params.get('calculate_atr', True) and 'ATR' in indicator_naming_conv:
-                 atr_naming_conf = indicator_naming_conv['ATR']
-                 if isinstance(atr_naming_conf, dict) and 'output_columns' in atr_naming_conf and isinstance(atr_naming_conf['output_columns'], list):
+            atr_period_fe = _get_param_val(param_sources, 'atr_period', _get_param_val(param_sources, 'period', 14))
+            if fe_params_global.get('calculate_atr', False) and 'ATR' in indicator_naming_conv:
+                atr_naming_conf = indicator_naming_conv['ATR']
+                if isinstance(atr_naming_conf, dict) and 'output_columns' in atr_naming_conf and isinstance(atr_naming_conf['output_columns'], list):
                     atr_patterns = [c['name_pattern'] for c in atr_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                     # 确保 period 是有效数字
                     if isinstance(atr_period_fe, (int, float)) and atr_period_fe > 0:
                         for name in TrendFollowingStrategy._format_indicator_name(atr_patterns, period=atr_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
-
             # HV (Historical Volatility)
-            hv_period_fe = _get_param_val(param_sources, 'hv_period', 20)
-            if fe_params.get('calculate_hv', True) and 'HV' in indicator_naming_conv:
-                 hv_naming_conf = indicator_naming_conv['HV']
-                 if isinstance(hv_naming_conf, dict) and 'output_columns' in hv_naming_conf and isinstance(hv_naming_conf['output_columns'], list):
+            hv_period_fe = _get_param_val(param_sources, 'hv_period', _get_param_val(param_sources, 'period', 20))
+            if fe_params_global.get('calculate_hv', False) and 'HV' in indicator_naming_conv:
+                hv_naming_conf = indicator_naming_conv['HV']
+                if isinstance(hv_naming_conf, dict) and 'output_columns' in hv_naming_conf and isinstance(hv_naming_conf['output_columns'], list):
                     hv_patterns = [c['name_pattern'] for c in hv_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                     # 确保 period 是有效数字
                     if isinstance(hv_period_fe, (int, float)) and hv_period_fe > 0:
                         for name in TrendFollowingStrategy._format_indicator_name(hv_patterns, period=hv_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
-
             # KC (Keltner Channels)
-            kc_ema_period_fe = _get_param_val(param_sources, 'kc_ema_period', 20)
-            kc_atr_period_fe = _get_param_val(param_sources, 'kc_atr_period', 10)
-            if fe_params.get('calculate_kc', True) and 'KC' in indicator_naming_conv:
-                 kc_naming_conf = indicator_naming_conv['KC']
-                 if isinstance(kc_naming_conf, dict) and 'output_columns' in kc_naming_conf and isinstance(kc_naming_conf['output_columns'], list):
+            kc_ema_period_fe = _get_param_val(param_sources, 'kc_ema_period', _get_param_val(param_sources, 'ema_period', 20))
+            kc_atr_period_fe = _get_param_val(param_sources, 'kc_atr_period', _get_param_val(param_sources, 'atr_period', 10))
+            if fe_params_global.get('calculate_kc', False) and 'KC' in indicator_naming_conv:
+                kc_naming_conf = indicator_naming_conv['KC']
+                if isinstance(kc_naming_conf, dict) and 'output_columns' in kc_naming_conf and isinstance(kc_naming_conf['output_columns'], list):
                     kc_patterns = [c['name_pattern'] for c in kc_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                     # 确保参数是有效数字
                     if isinstance(kc_ema_period_fe, (int, float)) and isinstance(kc_atr_period_fe, (int, float)):
                         for name in TrendFollowingStrategy._format_indicator_name(kc_patterns, ema_period=kc_ema_period_fe, atr_period=kc_atr_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
                     else:
-                         logger.warning(f"{log_prefix} KC 指标参数无效: ema_period={kc_ema_period_fe}, atr_period={kc_atr_period_fe}. 跳过 KC 列请求 ({analyze_tf_str})。")
-
+                        logger.warning(f"{log_prefix} KC 指标参数无效: ema_period={kc_ema_period_fe}, atr_period={kc_atr_period_fe}. 跳过 KC 列请求 ({analyze_tf_str})。")
             # MOM
-            mom_period_fe = _get_param_val(param_sources, 'mom_period', 10)
-            if fe_params.get('calculate_mom', True) and 'MOM' in indicator_naming_conv:
-                 mom_naming_conf = indicator_naming_conv['MOM']
-                 if isinstance(mom_naming_conf, dict) and 'output_columns' in mom_naming_conf and isinstance(mom_naming_conf['output_columns'], list):
+            mom_period_fe = _get_param_val(param_sources, 'mom_period', _get_param_val(param_sources, 'period', 10))
+            if fe_params_global.get('calculate_mom', False) and 'MOM' in indicator_naming_conv:
+                mom_naming_conf = indicator_naming_conv['MOM']
+                if isinstance(mom_naming_conf, dict) and 'output_columns' in mom_naming_conf and isinstance(mom_naming_conf['output_columns'], list):
                     mom_patterns = [c['name_pattern'] for c in mom_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    # 确保 period 是有效数字
                     if isinstance(mom_period_fe, (int, float)) and mom_period_fe > 0:
                         for name in TrendFollowingStrategy._format_indicator_name(mom_patterns, period=mom_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
             # WILLR
-            willr_period_fe = _get_param_val(param_sources, 'willr_period', 14)
-            if fe_params.get('calculate_willr', True) and 'WILLR' in indicator_naming_conv:
-                 willr_naming_conf = indicator_naming_conv['WILLR']
-                 if isinstance(willr_naming_conf, dict) and 'output_columns' in willr_naming_conf and isinstance(willr_naming_conf['output_columns'], list):
+            willr_period_fe = _get_param_val(param_sources, 'willr_period', _get_param_val(param_sources, 'period', 14))
+            if fe_params_global.get('calculate_willr', False) and 'WILLR' in indicator_naming_conv:
+                willr_naming_conf = indicator_naming_conv['WILLR']
+                if isinstance(willr_naming_conf, dict) and 'output_columns' in willr_naming_conf and isinstance(willr_naming_conf['output_columns'], list):
                     willr_patterns = [c['name_pattern'] for c in willr_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    # 确保 period 是有效数字
                     if isinstance(willr_period_fe, (int, float)) and willr_period_fe > 0:
                         for name in TrendFollowingStrategy._format_indicator_name(willr_patterns, period=willr_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
-            
             # VROC
-            vroc_period_fe = _get_param_val(param_sources, 'vroc_period', 10)
-            if fe_params.get('calculate_vroc', True) and 'VROC' in indicator_naming_conv:
-                 vroc_naming_conf = indicator_naming_conv['VROC']
-                 if isinstance(vroc_naming_conf, dict) and 'output_columns' in vroc_naming_conf and isinstance(vroc_naming_conf['output_columns'], list):
+            vroc_period_fe = _get_param_val(param_sources, 'vroc_period', _get_param_val(param_sources, 'period', 10))
+            if fe_params_global.get('calculate_vroc', False) and 'VROC' in indicator_naming_conv:
+                vroc_naming_conf = indicator_naming_conv['VROC']
+                if isinstance(vroc_naming_conf, dict) and 'output_columns' in vroc_naming_conf and isinstance(vroc_naming_conf['output_columns'], list):
                     vroc_patterns = [c['name_pattern'] for c in vroc_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    # 确保 period 是有效数字
                     if isinstance(vroc_period_fe, (int, float)) and vroc_period_fe > 0:
                         for name in TrendFollowingStrategy._format_indicator_name(vroc_patterns, period=vroc_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
-
             # AROC
-            aroc_period_fe = _get_param_val(param_sources, 'aroc_period', 10)
-            if fe_params.get('calculate_aroc', True) and 'AROC' in indicator_naming_conv:
-                 aroc_naming_conf = indicator_naming_conv['AROC']
-                 if isinstance(aroc_naming_conf, dict) and 'output_columns' in aroc_naming_conf and isinstance(aroc_naming_conf['output_columns'], list):
+            aroc_period_fe = _get_param_val(param_sources, 'aroc_period', _get_param_val(param_sources, 'period', 10))
+            if fe_params_global.get('calculate_aroc', False) and 'AROC' in indicator_naming_conv:
+                aroc_naming_conf = indicator_naming_conv['AROC']
+                if isinstance(aroc_naming_conf, dict) and 'output_columns' in aroc_naming_conf and isinstance(aroc_naming_conf['output_columns'], list):
                     aroc_patterns = [c['name_pattern'] for c in aroc_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
-                    # 确保 period 是有效数字
                     if isinstance(aroc_period_fe, (int, float)) and aroc_period_fe > 0:
                         for name in TrendFollowingStrategy._format_indicator_name(aroc_patterns, period=aroc_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
-
             # EMA 列表, SMA 列表 (来自 feature_engineering_params)
             for ma_type_fe_upper in ['EMA', 'SMA']:
                 ma_key_lower = ma_type_fe_upper.lower()
-                ma_periods_list_fe = fe_params.get(f'{ma_key_lower}_periods', [])
-                # 确保 ma_periods_list_fe 是列表
-                if not isinstance(ma_periods_list_fe, list):
-                     logger.warning(f"{log_prefix} feature_engineering_params 中的 '{ma_key_lower}_periods' 参数不是列表，跳过。")
-                     continue
-
+                ma_periods_list_fe = fe_params_global.get(f'{ma_key_lower}_periods', [])
+                if not isinstance(ma_periods_list_fe, list): continue
                 if ma_periods_list_fe and ma_type_fe_upper in indicator_naming_conv:
-                     ma_naming_conf = indicator_naming_conv[ma_type_fe_upper]
-                     if isinstance(ma_naming_conf, dict) and 'output_columns' in ma_naming_conf and isinstance(ma_naming_conf['output_columns'], list):
+                    ma_naming_conf = indicator_naming_conv[ma_type_fe_upper]
+                    if isinstance(ma_naming_conf, dict) and 'output_columns' in ma_naming_conf and isinstance(ma_naming_conf['output_columns'], list):
                         ma_patterns = [c['name_pattern'] for c in ma_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
                         for period in ma_periods_list_fe:
-                             # 确保 period 是有效数字
-                             if isinstance(period, (int, float)) and period > 0:
-                                 for name in TrendFollowingStrategy._format_indicator_name(ma_patterns, period=period):
-                                     required.add(f"{name}_{analyze_tf_str}")
-
-
-        # 5. 衍生特征 (Derivative Features)
-        # 遍历 derivative_feature_naming_conventions，根据 feature_engineering_params 中的配置决定是否请求
+                            if isinstance(period, (int, float)) and period > 0:
+                                for name in TrendFollowingStrategy._format_indicator_name(ma_patterns, period=period):
+                                    required.add(f"{name}_{analyze_tf_str}")
+        # 5. 衍生特征 (Derivative Features) - 请求这些特征本身
         derivative_naming_conv = NAMING_CONFIG.get('derivative_feature_naming_conventions', {})
-        if not isinstance(derivative_naming_conv, dict):
-             logger.error(f"{log_prefix} 衍生特征命名规范 derivative_feature_naming_conventions 类型不正确 (应为字典)。")
-             derivative_naming_conv = {}
-
-        fe_derivative_features_params = fe_params.get('derivative_features', {}) # 例如 {"CLOSE_MA_RATIO": {"enabled": true, "ma_type": ["ema", "sma"], "periods": [10, 20]}, ...}
-
-        if isinstance(fe_derivative_features_params, dict): # 确保是字典格式
+        if not isinstance(derivative_naming_conv, dict): derivative_naming_conv = {}
+        fe_derivative_features_params = self.fe_params.get('derivative_features', {})
+        if isinstance(fe_derivative_features_params, dict):
             for deriv_feature_key, deriv_feature_config in fe_derivative_features_params.items():
-                 # 确保配置是字典且已启用
                 if isinstance(deriv_feature_config, dict) and deriv_feature_config.get('enabled', False):
                     deriv_feature_key_upper = deriv_feature_key.upper()
                     if deriv_feature_key_upper not in derivative_naming_conv:
-                         logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 在命名规范中未定义，跳过。")
-                         continue
-
+                        logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 在命名规范中未定义，跳过。")
+                        continue
                     deriv_naming_conf = derivative_naming_conv[deriv_feature_key_upper]
-                    # 确保命名配置有效
                     if not isinstance(deriv_naming_conf, dict) or 'output_column_pattern' not in deriv_naming_conf:
-                         logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的命名配置无效，跳过。")
-                         continue
-
+                        logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的命名配置无效，跳过。")
+                        continue
                     pattern = deriv_naming_conf['output_column_pattern']
-                    apply_tfs_deriv = deriv_feature_config.get('apply_on_timeframes', fe_tf_list) # 可以在衍生特征层面指定应用时间框架
-                    if isinstance(apply_tfs_deriv, str): apply_tfs_deriv = [apply_tfs_deriv]
-                    if not isinstance(apply_tfs_deriv, list): # 增加类型检查
-                         logger.error(f"{log_prefix} 衍生特征 '{deriv_feature_key}'.apply_on_timeframes 参数类型不正确 (应为字符串或列表)。")
-                         apply_tfs_deriv = []
-
-
+                    apply_tfs_deriv_raw = deriv_feature_config.get('apply_on_timeframes', fe_tf_list)
+                    apply_tfs_deriv = [apply_tfs_deriv_raw] if isinstance(apply_tfs_deriv_raw, str) else apply_tfs_deriv_raw
+                    if not isinstance(apply_tfs_deriv, list): apply_tfs_deriv = []
                     for deriv_tf_str in apply_tfs_deriv:
-                        if deriv_tf_str not in timeframes:
-                            # logger.warning(f"{log_prefix} 衍生特征时间框架 '{deriv_tf_str}' 未在 'base_scoring.timeframes' 中定义，跳过。")
-                            continue # 跳过未在基础时间框架中定义的级别
-
+                        if deriv_tf_str not in timeframes: continue # 只请求在基础时间框架中定义的级别
                         # 根据不同的衍生特征类型，从配置中获取参数并格式化列名
-                        if deriv_feature_key_upper == 'CLOSE_MA_RATIO' or deriv_feature_key_upper == 'CLOSE_MA_NDIFF':
+                        if deriv_feature_key_upper in ['CLOSE_MA_RATIO', 'CLOSE_MA_NDIFF']:
                             ma_types = deriv_feature_config.get('ma_type', [])
                             periods = deriv_feature_config.get('periods', [])
                             if isinstance(ma_types, str): ma_types = [ma_types]
                             if isinstance(periods, (int, float)): periods = [periods]
-                            # 增加类型检查
                             if not isinstance(ma_types, list) or not isinstance(periods, list):
-                                 logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 ma_type 或 periods 参数类型不正确。跳过。")
-                                 continue
-
+                                logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 ma_type 或 periods 参数类型不正确。跳过。")
+                                continue
                             if ma_types and periods:
                                 for ma_type in ma_types:
                                     for period in periods:
-                                         # 确保 period 是有效数字
-                                         if isinstance(period, (int, float)) and period > 0:
-                                            # 确保 ma_type 是字符串
-                                            if isinstance(ma_type, str):
-                                                 for name in TrendFollowingStrategy._format_indicator_name(pattern, ma_type=ma_type.upper(), period=period): # MA_TYPE usually upper
-                                                    required.add(f"{name}_{deriv_tf_str}")
-                                            else:
-                                                 logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 ma_type 参数不是字符串: {ma_type}. 跳过。")
-
-
+                                        if isinstance(period, (int, float)) and period > 0 and isinstance(ma_type, str):
+                                            for name in TrendFollowingStrategy._format_indicator_name(pattern, ma_type=ma_type.upper(), period=period):
+                                                required.add(f"{name}_{deriv_tf_str}")
+                                        else:
+                                            logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 参数无效: ma_type={ma_type}, period={period}. 跳过。")
                         elif deriv_feature_key_upper == 'INDICATOR_DIFF':
-                            # 这类衍生特征需要知道原始指标名和差分周期
-                            # 配置示例: {"INDICATOR_DIFF": {"enabled": true, "indicators": [{"name": "RSI_14", "diff_periods": [1, 3]}]}}
                             indicator_configs_deriv = deriv_feature_config.get('indicators', [])
-                            if not isinstance(indicator_configs_deriv, list): # 增加类型检查
-                                 logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 indicators 参数类型不正确。跳过。")
-                                 continue
-
+                            if not isinstance(indicator_configs_deriv, list):
+                                logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 indicators 参数类型不正确。跳过。")
+                                continue
                             if indicator_configs_deriv:
                                 for indi_cfg in indicator_configs_deriv:
-                                     if isinstance(indi_cfg, dict) and 'name' in indi_cfg and 'diff_periods' in indi_cfg:
-                                        original_name_pattern = indi_cfg['name'] # 这里的 name 应该是原始指标的模式，例如 "RSI_{period}"
+                                    if isinstance(indi_cfg, dict) and 'name' in indi_cfg and 'diff_periods' in indi_cfg:
+                                        original_name_pattern = indi_cfg['name']
                                         diff_periods = indi_cfg['diff_periods']
                                         if isinstance(diff_periods, (int, float)): diff_periods = [diff_periods]
-                                        if not isinstance(diff_periods, list): # 增加类型检查
-                                             logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' ({original_name_pattern}) 的 diff_periods 参数类型不正确。跳过。")
-                                             continue
+                                        if not isinstance(diff_periods, list):
+                                            logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' ({original_name_pattern}) 的 diff_periods 参数类型不正确。跳过。")
+                                            continue
 
-                                        # 简化处理，假设配置中的 "name" 已经是带参数的基名，例如 "RSI_14"
-                                        original_indicator_base_name = original_name_pattern
-                                        
+                                        # 这里的 original_name_pattern 应该是基础指标的名称模式，例如 "RSI_{period}"
+                                        # 需要根据这个模式和参数，找到 IndicatorService 生成的带参数的基础指标名
+                                        # 例如，如果 original_name_pattern 是 "RSI_{period}"，参数是 {"period": 14}
+                                        # 那么 IndicatorService 生成的基础指标名是 "RSI_14"
+                                        # 衍生特征列名模式是 "{original_indicator_name_with_params}_diff_{diff_period}"
+                                        # 最终列名是 "RSI_14_diff_1_30" (如果 deriv_tf_str 是 '30')
+
+                                        # 尝试根据 original_name_pattern 和可能的参数，构建 IndicatorService 生成的基础指标名
+                                        # 这是一个简化的查找逻辑，可能需要更精确的匹配
+                                        # 假设 original_name_pattern 已经是带参数的基名，例如 "RSI_14"
+                                        original_indicator_base_name = original_name_pattern # 假设配置中已经是 "RSI_14" 这样的格式
+
                                         if isinstance(original_indicator_base_name, str) and diff_periods:
-                                            # 检查命名规范中 INDICATOR_DIFF 的模式是否匹配
                                             deriv_pattern_template = derivative_naming_conv.get('INDICATOR_DIFF', {}).get('output_column_pattern')
                                             if deriv_pattern_template:
                                                 for diff_period in diff_periods:
-                                                     # 确保 diff_period 是有效数字
-                                                     if isinstance(diff_period, (int, float)) and diff_period > 0:
-                                                          formatted_name = TrendFollowingStrategy._format_indicator_name(deriv_pattern_template, original_indicator_name_with_params=original_indicator_base_name, diff_period=diff_period)
-                                                          required.update([f"{n}_{deriv_tf_str}" for n in formatted_name])
+                                                    if isinstance(diff_period, (int, float)) and diff_period > 0:
+                                                        # 格式化列名，例如 RSI_14_diff_1
+                                                        base_diff_name = TrendFollowingStrategy._format_indicator_name(deriv_pattern_template, original_indicator_name_with_params=original_indicator_base_name, diff_period=diff_period)
+                                                        # 添加时间级别后缀，例如 RSI_14_diff_1_30
+                                                        required.update([f"{n}_{deriv_tf_str}" for n in base_diff_name])
+                                                    else:
+                                                        logger.warning(f"{log_prefix} 衍生特征 INDICATOR_DIFF 的 diff_period 参数无效: {diff_period}. 跳过。")
                                             else:
                                                 logger.warning(f"{log_prefix} 衍生特征 INDICATOR_DIFF 的命名模式未找到。")
                                         else:
-                                             logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 name 或 diff_periods 参数无效。跳过。")
-
-
+                                            logger.warning(f"{log_prefix} 衍生特征 '{deriv_feature_key}' 的 name 或 diff_periods 参数无效。跳过。")
                         elif deriv_feature_key_upper == 'CLOSE_BB_POS':
-                            # 需要 BOLL 的周期和标准差
                             boll_params_deriv = deriv_feature_config.get('boll_params', {})
                             if isinstance(boll_params_deriv, dict):
                                 boll_period_deriv = boll_params_deriv.get('period')
                                 boll_std_dev_deriv = boll_params_deriv.get('std_dev')
-                                # 确保参数是有效数字
                                 if isinstance(boll_period_deriv, (int, float)) and isinstance(boll_std_dev_deriv, (int, float)):
-                                     # 格式化模式 "{period}_{std_dev:.1f}"
-                                     for name in TrendFollowingStrategy._format_indicator_name(pattern, period=boll_period_deriv, std_dev=boll_std_dev_deriv):
-                                         required.add(f"{name}_{deriv_tf_str}")
+                                    for name in TrendFollowingStrategy._format_indicator_name(pattern, period=boll_period_deriv, std_dev=boll_std_dev_deriv):
+                                        required.add(f"{name}_{deriv_tf_str}")
                                 else:
-                                     logger.warning(f"{log_prefix} 衍生特征 CLOSE_BB_POS 配置缺少有效 boll_params (period, std_dev)。")
+                                    logger.warning(f"{log_prefix} 衍生特征 CLOSE_BB_POS 配置缺少有效 boll_params (period, std_dev)。")
                             else:
                                 logger.warning(f"{log_prefix} 衍生特征 CLOSE_BB_POS 配置中的 boll_params 不是字典。")
-
                         elif deriv_feature_key_upper == 'CLOSE_KC_POS':
-                             # 需要 KC 的 EMA 周期和 ATR 周期
                             kc_params_deriv = deriv_feature_config.get('kc_params', {})
                             if isinstance(kc_params_deriv, dict):
                                 kc_ema_period_deriv = kc_params_deriv.get('ema_period')
                                 kc_atr_period_deriv = kc_params_deriv.get('atr_period')
-                                # 确保参数是有效数字
                                 if isinstance(kc_ema_period_deriv, (int, float)) and isinstance(kc_atr_period_deriv, (int, float)):
-                                     for name in TrendFollowingStrategy._format_indicator_name(pattern, ema_period=kc_ema_period_deriv, atr_period=kc_atr_period_deriv):
-                                         required.add(f"{name}_{deriv_tf_str}")
+                                    for name in TrendFollowingStrategy._format_indicator_name(pattern, ema_period=kc_ema_period_deriv, atr_period=kc_atr_period_deriv):
+                                        required.add(f"{name}_{deriv_tf_str}")
                                 else:
-                                     logger.warning(f"{log_prefix} 衍生特征 CLOSE_KC_POS 配置缺少有效 kc_params (ema_period, atr_period)。")
+                                    logger.warning(f"{log_prefix} 衍生特征 CLOSE_KC_POS 配置缺少有效 kc_params (ema_period, atr_period)。")
                             else:
                                 logger.warning(f"{log_prefix} 衍生特征 CLOSE_KC_POS 配置中的 kc_params 不是字典。")
-
+                        # 相对强度 (Relative Strength)
+                        # RS 列名模式: RS_{benchmark_code}_{period}_{time_level}
+                        if deriv_feature_key_upper == 'RELATIVE_STRENGTH':
+                            rs_config = deriv_feature_config
+                            rs_periods = rs_config.get('periods', [])
+                            if isinstance(rs_periods, (int, float)): rs_periods = [rs_periods]
+                            if not isinstance(rs_periods, list):
+                                logger.warning(f"{log_prefix} 衍生特征 RELATIVE_STRENGTH 的 periods 参数类型不正确。跳过。")
+                                continue
+                            # 获取基准代码列表：固定主要指数 + 股票所属同花顺板块
+                            main_index_codes = bs_params.get('main_index_codes', [])
+                            # 需要异步获取同花顺板块代码 (这里是 get_required_columns，不应该执行异步IO)
+                            # 策略在初始化时或 prepare_data 中获取 ths_codes 更合适
+                            # 暂时假设 main_index_codes 已经足够，或者 ths_codes 会在 prepare_data 中处理
+                            # 实际上，IndicatorService.prepare_strategy_dataframe 会获取 ths_codes
+                            # 所以这里只需要请求 main_index_codes 相关的 RS 列名
+                            all_benchmark_codes_for_rs = list(set(main_index_codes)) # 暂时只考虑 main_index_codes
+                            if all_benchmark_codes_for_rs and rs_periods:
+                                rs_pattern_template = derivative_naming_conv.get('RELATIVE_STRENGTH', {}).get('output_column_pattern')
+                                if rs_pattern_template:
+                                    for benchmark_code in all_benchmark_codes_for_rs:
+                                            for period in rs_periods:
+                                                if isinstance(period, (int, float)) and period > 0:
+                                                    formatted_benchmark_code = benchmark_code.replace(".", "_").lower()
+                                                    # 格式化列名，例如 RS_000001_sh_5
+                                                    base_rs_name = TrendFollowingStrategy._format_indicator_name(rs_pattern_template, benchmark_code=formatted_benchmark_code, period=period)
+                                                    # 添加时间级别后缀，例如 RS_000001_sh_5_30
+                                                    required.update([f"{n}_{deriv_tf_str}" for n in base_rs_name])
+                                                else:
+                                                    logger.warning(f"{log_prefix} 衍生特征 RELATIVE_STRENGTH 的 period 参数无效: {period}. 跳过。")
+                                else:
+                                    logger.warning(f"{log_prefix} 衍生特征 RELATIVE_STRENGTH 的命名模式未找到。")
+                            else:
+                                logger.warning(f"{log_prefix} 衍生特征 RELATIVE_STRENGTH 未配置基准代码或周期。")
+                        # 滞后特征 (Lagged Features)
+                        # Lagged 列名模式: {original_column_name}_lag_{lag}
+                        if deriv_feature_key_upper == 'LAGGED_FEATURES':
+                            lag_config = deriv_feature_config
+                            columns_to_lag = lag_config.get('columns_to_lag', [])
+                            lags = lag_config.get('lags', [])
+                            if isinstance(columns_to_lag, str): columns_to_lag = [columns_to_lag]
+                            if isinstance(lags, (int, float)): lags = [lags]
+                            if not isinstance(columns_to_lag, list) or not isinstance(lags, list):
+                                logger.warning(f"{log_prefix} 衍生特征 LAGGED_FEATURES 的 columns_to_lag 或 lags 参数类型不正确。跳过。")
+                                continue
+                            if columns_to_lag and lags:
+                                lag_pattern_template = derivative_naming_conv.get('LAGGED_FEATURES', {}).get('output_column_pattern')
+                                if lag_pattern_template:
+                                    for original_col_base_name in columns_to_lag:
+                                            # 原始列名需要带时间级别后缀
+                                            original_col_with_tf = f"{original_col_base_name}_{deriv_tf_str}"
+                                            for lag in lags:
+                                                if isinstance(lag, (int, float)) and lag > 0:
+                                                    lagged_col_name = TrendFollowingStrategy._format_indicator_name(lag_pattern_template, original_column_name=original_col_with_tf, lag=lag)
+                                                    required.update(lagged_col_name)
+                                                else:
+                                                    logger.warning(f"{log_prefix} 衍生特征 LAGGED_FEATURES 的 lag 参数无效: {lag}. 跳过。")
+                                else:
+                                    logger.warning(f"{log_prefix} 衍生特征 LAGGED_FEATURES 的命名模式未找到。")
+                            else:
+                                logger.warning(f"{log_prefix} 衍生特征 LAGGED_FEATURES 未配置 columns_to_lag 或 lags。")
+                        # 滚动统计特征 (Rolling Features)
+                        # Rolling 列名模式: {original_column_name}_rolling_{stat}_{window}
+                        if deriv_feature_key_upper == 'ROLLING_FEATURES':
+                            roll_config = deriv_feature_config
+                            columns_to_roll = roll_config.get('columns_to_roll', [])
+                            windows = roll_config.get('windows', [])
+                            stats = roll_config.get('stats', [])
+                            if isinstance(columns_to_roll, str): columns_to_roll = [columns_to_roll]
+                            if isinstance(windows, (int, float)): windows = [windows]
+                            if isinstance(stats, str): stats = [stats]
+                            if not isinstance(columns_to_roll, list) or not isinstance(windows, list) or not isinstance(stats, list):
+                                logger.warning(f"{log_prefix} 衍生特征 ROLLING_FEATURES 的 columns_to_roll, windows 或 stats 参数类型不正确。跳过。")
+                                continue
+                            if columns_to_roll and windows and stats:
+                                roll_pattern_template = derivative_naming_conv.get('ROLLING_FEATURES', {}).get('output_column_pattern')
+                                if roll_pattern_template:
+                                    for original_col_base_name in columns_to_roll:
+                                            original_col_with_tf = f"{original_col_base_name}_{deriv_tf_str}"
+                                            for window in windows:
+                                                if isinstance(window, (int, float)) and window > 0:
+                                                    for stat in stats:
+                                                        if isinstance(stat, str) and stat:
+                                                                rolling_col_name = TrendFollowingStrategy._format_indicator_name(roll_pattern_template, original_column_name=original_col_with_tf, stat=stat, window=window)
+                                                                required.update(rolling_col_name)
+                                                        else:
+                                                                logger.warning(f"{log_prefix} 衍生特征 ROLLING_FEATURES 的 stat 参数无效: {stat}. 跳过。")
+                                                else:
+                                                    logger.warning(f"{log_prefix} 衍生特征 ROLLING_FEATURES 的 window 参数无效: {window}. 跳过。")
+                                else:
+                                    logger.warning(f"{log_prefix} 衍生特征 ROLLING_FEATURES 的命名模式未找到。")
+                            else:
+                                logger.warning(f"{log_prefix} 衍生特征 ROLLING_FEATURES 未配置 columns_to_roll, windows 或 stats。")
         # 6. 添加策略内部计算所需的其他基础指标列 (如果它们没有在评分/分析/特征工程中包含)
         # 例如，计算 EMA 排列需要多个周期的 EMA。这些周期的列表可以在参数中配置。
-        # EMA 列表来自 trend_analysis.ema_periods 或 feature_engineering_params.ema_periods
-        # 优先使用 trend_analysis 中的配置，如果没有，再看 feature_engineering
         ta_params_global = self.params.get('trend_analysis', {})
-        ema_periods_align = ta_params_global.get('ema_periods', []) # 用于 score 的 EMA
-        if not ema_periods_align or not isinstance(ema_periods_align, list): # 如果 trend_analysis 没有配置或配置无效
-            ema_periods_align = fe_params.get('ema_periods', []) # 使用 feature_engineering 的 EMA 列表作为备选
-            if not isinstance(ema_periods_align, list): # 再次检查类型
+        if not isinstance(ta_params_global, dict): ta_params_global = {}
+        ema_periods_align = ta_params_global.get('ema_periods', [])
+        if not ema_periods_align or not isinstance(ema_periods_align, list):
+            ema_periods_list_fe = self.fe_params.get('ema_periods', [])
+            if isinstance(ema_periods_list_fe, list):
+                ema_periods_align = ema_periods_list_fe
+            else:
                 logger.warning(f"{log_prefix} 'trend_analysis.ema_periods' 和 'feature_engineering_params.ema_periods' 参数配置无效或缺失，无法为 EMA 排列请求 EMA 列。")
                 ema_periods_align = []
-
         if ema_periods_align and 'EMA' in indicator_naming_conv:
-             ema_naming_conf = indicator_naming_conv['EMA']
-             if isinstance(ema_naming_conf, dict) and 'output_columns' in ema_naming_conf and isinstance(ema_naming_conf['output_columns'], list):
+            ema_naming_conf = indicator_naming_conv['EMA']
+            if isinstance(ema_naming_conf, dict) and 'output_columns' in ema_naming_conf and isinstance(ema_naming_conf['output_columns'], list):
                 ema_patterns = [c['name_pattern'] for c in ema_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
                 for period in ema_periods_align:
-                     if isinstance(period, (int, float)) and period > 0:
-                        # EMA排列信号通常在所有timeframes上计算，所以为所有timeframes请求
-                        for tf_str in timeframes: 
-                             for name in TrendFollowingStrategy._format_indicator_name(ema_patterns, period=period):
+                    if isinstance(period, (int, float)) and period > 0:
+                        for tf_str in timeframes: # EMA排列信号通常在所有timeframes上计算，所以为所有timeframes请求
+                            for name in TrendFollowingStrategy._format_indicator_name(ema_patterns, period=period):
                                 required.add(f"{name}_{tf_str}")
-
-        # 添加计算量价背离可能需要的基础指标（如 OBV, ADL, VROC, AROC 等，确保它们已被包含）
-        # 背离检测通常也依赖于 OHLCV 数据，确保包含。
-        # 添加计算趋势强度信号可能需要的 DMI 指标 (PDI, NDI, ADX)，确保它们已被包含。
-        # 添加计算 STOCH 信号可能需要的 STOCHk, STOCHd，确保它们已被包含。
-        # 添加计算 VWAP 偏离可能需要的 VWAP 和 close，确保已被包含。
-        # 添加计算 BOLL 突破可能需要的 BBU, BBL 和 close，确保已被包含。
-
-        # 再次确保用于信号计算的关键指标的列被请求，即使它们在基础评分或特征工程中没有被包含或参数不同
-        # 例如，日志中警告的 BOLL (15, 2.2) 在 focus_tf='30'
-        boll_breakout_params_tf = self.tf_params.get('boll_breakout_params', {})
-        if isinstance(boll_breakout_params_tf, dict):
-            boll_breakout_period = boll_breakout_params_tf.get('period', 20) # 默认值设为日志中的 15
-            boll_breakout_std_dev = boll_breakout_params_tf.get('std_dev', 2.0) # 默认值设为日志中的 2.2
-            breakout_tf_signal = self.focus_timeframe # 假设 BOLL 突破信号只在 focus_timeframe 计算
-
-            if isinstance(boll_breakout_period, (int, float)) and isinstance(boll_breakout_std_dev, (int, float)) and 'BOLL' in indicator_naming_conv:
-                 boll_naming_conf = indicator_naming_conv['BOLL']
-                 if isinstance(boll_naming_conf, dict) and 'output_columns' in boll_naming_conf and isinstance(boll_naming_conf['output_columns'], list):
-                    boll_patterns_breakout = [c['name_pattern'] for c in boll_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c and ('BBL' in c['name_pattern'] or 'BBU' in c['name_pattern'])]
-                    # 日志显示是 focus_timeframe '30'
-                    if breakout_tf_signal in timeframes:
-                         for name in TrendFollowingStrategy._format_indicator_name(boll_patterns_breakout, period=boll_breakout_period, std_dev=boll_breakout_std_dev):
-                            required.add(f"{name}_{breakout_tf_signal}")
+        # 7. 外部特征列 (指数、板块、筹码、资金流向)
+        # 这些列名由 enrich_features 生成，并带有前缀 (index_, ths_, cyq_, ff_)，不带时间级别后缀
+        # 需要根据命名规范和参数（如 main_index_codes）构建这些列名
+        external_features_config = self.fe_params.get('external_features', {})
+        if isinstance(external_features_config, dict) and external_features_config.get('enabled', False):
+            # 指数和板块数据
+            index_sector_config = external_features_config.get('index_sector_data', {})
+            if isinstance(index_sector_config, dict) and index_sector_config.get('enabled', False):
+                main_index_codes = bs_params.get('main_index_codes', [])
+                # 策略需要知道它所属的同花顺板块代码，以便请求这些板块的数据
+                # IndicatorService.prepare_strategy_dataframe 会获取 ths_codes
+                # 这里只需要请求 main_index_codes 相关的列名模式
+                all_benchmark_codes = list(set(main_index_codes)) # 暂时只考虑 main_index_codes
+                if all_benchmark_codes:
+                    # 普通指数命名规范
+                    index_naming_conf = external_naming_conv.get('INDEX_DAILY', {})
+                    if isinstance(index_naming_conf, dict) and 'output_columns' in index_naming_conf and isinstance(index_naming_conf['output_columns'], list):
+                            index_patterns = [c['name_pattern'] for c in index_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
+                            for benchmark_code in all_benchmark_codes:
+                                if '.' in benchmark_code: # 假设包含 '.' 是普通指数代码
+                                    formatted_benchmark_code = benchmark_code.replace(".", "_").lower()
+                                    for pattern in index_patterns:
+                                        # 格式化列名，例如 index_000001_sh_close
+                                        formatted_names = TrendFollowingStrategy._format_indicator_name(pattern, index_code=formatted_benchmark_code)
+                                        required.update(formatted_names)
                     else:
-                         logger.warning(f"{log_prefix} BOLL 突破信号的 focus_timeframe '{breakout_tf_signal}' 未在 base_scoring.timeframes 中定义，无法请求 BOLL 突破指标。")
-            elif isinstance(boll_breakout_params_tf, dict): # 如果 boll_breakout_params 是字典但参数无效
-                 logger.warning(f"{log_prefix} BOLL 突破信号参数无效: period={boll_breakout_period}, std_dev={boll_breakout_std_dev}. 跳过 BOLL 突破指标请求。")
-        # else: # boll_breakout_params is not a dict, ignore
-
-
-        # 确保 close 列也被请求，因为很多信号依赖收盘价 (已在 OHLCV 部分处理)
-
-        # 确保 volume 和 amount 也被请求，因为量能指标和特征需要 (已在 OHLCV 部分处理)
-
-        logger.info(f"{log_prefix} get_required_columns 将请求 {len(required)} 列。")
-        # logger.debug(f"{log_prefix} 请求的列包括: {sorted(list(required))}") # 可能非常冗长
-
+                            logger.warning(f"{log_prefix} 普通指数命名规范无效。")
+                    # 同花顺板块命名规范
+                    ths_naming_conf = external_naming_conv.get('THS_INDEX_DAILY', {})
+                    if isinstance(ths_naming_conf, dict) and 'output_columns' in ths_naming_conf and isinstance(ths_naming_conf['output_columns'], list):
+                            ths_patterns = [c['name_pattern'] for c in ths_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
+                            # 这里无法预知股票所属的所有 ths_codes，只能请求所有可能的 ths_codes 的列名
+                            # 或者依赖 IndicatorService 返回所有已获取的 ths_codes 数据
+                            # 考虑到 IndicatorService 已经获取并合并了，这里只需要知道命名模式
+                            # 策略在 prepare_data_for_transformer 中选择特征时，会根据实际列名来选择
+                            # 所以这里不需要列出所有 ths_codes 的列名，只需要知道模式
+                            # 暂时跳过 ths_codes 的具体列名请求，依赖 prepare_data_for_transformer 根据实际列名选择
+                            pass # 依赖 prepare_data_for_transformer 根据实际列名选择
+            # 筹码分布数据
+            cyq_config = external_features_config.get('cyq_data', {})
+            if isinstance(cyq_config, dict) and cyq_config.get('enabled', False):
+                cyq_naming_conf = external_naming_conv.get('STOCK_CYQ_PERF', {})
+                if isinstance(cyq_naming_conf, dict) and 'output_columns' in cyq_naming_conf and isinstance(cyq_naming_conf['output_columns'], list):
+                    cyq_patterns = [c['name_pattern'] for c in cyq_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
+                    required.update(cyq_patterns) # 筹码列名不带参数和后缀
+            # 资金流向数据
+            fund_flow_config = external_features_config.get('fund_flow_data', {})
+            if isinstance(fund_flow_config, dict) and fund_flow_config.get('enabled', False):
+                # 股票资金流向 (FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC)
+                for ff_type in ['FUND_FLOW_DAILY', 'FUND_FLOW_DAILY_THS', 'FUND_FLOW_DAILY_DC']:
+                    ff_naming_conf = external_naming_conv.get(ff_type, {})
+                    if isinstance(ff_naming_conf, dict) and 'output_columns' in ff_naming_conf and isinstance(ff_naming_conf['output_columns'], list):
+                            ff_patterns = [c['name_pattern'] for c in ff_naming_conf['output_columns'] if isinstance(c, dict) and 'name_pattern' in c]
+                            required.update(ff_patterns) # 资金流向列名不带参数和后缀
+                # 板块/行业资金流向 (FundFlowCntTHS, FundFlowIndustryTHS)
+                # 同样，这里无法预知股票所属的所有 ths_codes，依赖 prepare_data_for_transformer 根据实际列名选择
+                pass # 依赖 prepare_data_for_transformer 根据实际列名选择
+        logger.info(f"[{log_prefix}] get_required_columns 将请求 {len(required)} 列。")
+        # logger.debug(f"[{log_prefix}] 请求的列包括: {sorted(list(required))}") # 可能非常冗长
         return list(sorted(list(required))) # 返回排序后的列表
-
 
     # --- 移除重复的 _calculate_rule_based_signal 方法，只保留一个 ---
     # 原代码中有两段完全相同的 _calculate_rule_based_signal 定义，删除其中一个
@@ -1354,7 +1383,7 @@ class TrendFollowingStrategy:
         if not self.params:
             logger.error(f"[{self.strategy_name}][{stock_code}] 规则信号计算：策略参数 (self.params) 为空。")
             return pd.Series(50.0, index=data.index, name='final_rule_signal'), {}
-        
+
         def _get_param_val(sources: List[Dict], key: str, default: Any = None) -> Any:
             """从参数源列表中按顺序查找键的值，返回第一个找到的值或默认值。"""
             for source_dict in sources:
@@ -1377,37 +1406,50 @@ class TrendFollowingStrategy:
             bs_params # base_scoring
         ]
 
-        focus_tf = self.focus_timeframe 
-        
+        focus_tf = self.focus_timeframe
+
+        # 获取命名规范字典
+        ohlcv_naming_conv = NAMING_CONFIG.get('ohlcv_naming_convention', {})
+        indicator_naming_conv = NAMING_CONFIG.get('indicator_naming_conventions', {})
+        derivative_naming_conv = NAMING_CONFIG.get('derivative_feature_naming_conventions', {})
+        strategy_internal_naming_conv = NAMING_CONFIG.get('strategy_internal_columns', {}) # 新增：策略内部列命名规范
+
+        # 增加类型检查
+        if not isinstance(ohlcv_naming_conv, dict): ohlcv_naming_conv = {}
+        if not isinstance(indicator_naming_conv, dict): indicator_naming_conv = {}
+        if not isinstance(derivative_naming_conv, dict): derivative_naming_conv = {}
+        if not isinstance(strategy_internal_naming_conv, dict): strategy_internal_naming_conv = {}
+
+
         # 检查关键OHLCV列
-        ohlcv_base_names_list = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
+        ohlcv_base_names_list = ohlcv_naming_conv.get('output_columns', [])
         # 增加类型检查
         if not isinstance(ohlcv_base_names_list, list):
              logger.error(f"[{self.strategy_name}][{stock_code}] 规则信号计算：OHLCV 命名规范 output_columns 类型不正确 (应为列表)。")
              ohlcv_base_names_list = []
         ohlcv_base_names = [c['name_pattern'] for c in ohlcv_base_names_list if isinstance(c, dict) and 'name_pattern' in c]
-        
+        # 检查 focus_tf 的 close 和 volume 列
+        close_col_focus = f"close_{focus_tf}" # 修改行：使用带后缀的列名
+        volume_col_focus = f"volume_{focus_tf}" # 修改行：使用带后缀的列名
         critical_ohlcv_cols = [f"{base_col}_{focus_tf}" for base_col in ohlcv_base_names if base_col in ['close', 'volume']]
-        
+
         missing_critical_cols = [col for col in critical_ohlcv_cols if col not in data.columns or data[col].isnull().all()]
         if missing_critical_cols:
             logger.error(f"[{self.strategy_name}][{stock_code}] 规则信号计算缺少关键OHLCV列或数据全为 NaN: {missing_critical_cols}。")
             return pd.Series(50.0, index=data.index), {}
 
         # 动态调整波动率参数
-        self._adjust_volatility_parameters(data) 
+        self._adjust_volatility_parameters(data)
 
         # 计算基础指标得分 (假定 strategy_utils 包含此函数)
-        # score_indicators_config_keys = bs_params.get('score_indicators', []) # 获取评分指标列表
-        # calculate_score_in_strategy = bs_params.get('calculate_score_in_strategy', True) # 标记是否需要在策略内部计算得分
-
-        # if calculate_score_in_strategy:
+        # IndicatorService 已经计算了基础指标，但策略内部可能需要根据这些指标计算一个综合评分
+        # strategy_utils.calculate_all_indicator_scores 应该接收 IndicatorService 返回的 DataFrame
+        # 并根据 bs_params 和 NAMING_CONFIG 找到对应的指标列（带后缀），然后计算 SCORE 列
         logger.info(f"[{self.strategy_name}][{stock_code}] 计算基础指标评分...")
-        # 传递命名规范
-        # 确保 indicator_configs 参数被传递给 strategy_utils
-        indicator_scores_df = strategy_utils.calculate_all_indicator_scores(data, bs_params, indicator_configs, NAMING_CONFIG) 
-        # else: # 如果 IndicatorService 已经提供了 SCORE 列
-        #     indicator_scores_df = data.filter(like='SCORE_') # 过滤出 SCORE 列
+        # 传递命名规范和 IndicatorService 返回的 indicator_configs (如果需要的话)
+        # strategy_utils.calculate_all_indicator_scores 需要知道如何找到带后缀的指标列
+        # 它可以根据 bs_params 中的 score_indicators 列表和 NAMING_CONFIG 来构建带后缀的列名
+        indicator_scores_df = strategy_utils.calculate_all_indicator_scores(data, bs_params, NAMING_CONFIG) # 修改行：传递 NAMING_CONFIG
 
         if indicator_scores_df is None or indicator_scores_df.empty or not any(col.startswith('SCORE_') for col in (indicator_scores_df.columns if isinstance(indicator_scores_df, pd.DataFrame) else [])):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 未计算或未找到任何指标评分列。基础评分将为中性50。")
@@ -1419,7 +1461,7 @@ class TrendFollowingStrategy:
         # current_weights 的计算逻辑与 __init__ 中验证时基本一致
         current_weights: Dict[str, float]
         timeframes_from_config = bs_params.get('timeframes', [])
-        if not isinstance(timeframes_from_config, list) or not timeframes_from_config: 
+        if not isinstance(timeframes_from_config, list) or not timeframes_from_config:
             logger.error(f"[{self.strategy_name}][{stock_code}] 'base_scoring.timeframes' 为空或无效，无法计算基础评分。")
              # 返回一个全为50的Series和一个空的Dict
             return pd.Series(50.0, index=data.index, name='final_rule_signal'), {}
@@ -1462,7 +1504,7 @@ class TrendFollowingStrategy:
                  avg_weight = 1.0 / len(timeframes_from_config) if timeframes_from_config else 0.0
                  current_weights = {tf: avg_weight for tf in timeframes_from_config}
 
-            self._normalize_weights(current_weights)
+        self._normalize_weights(current_weights)
 
         # 初始化 base_score_raw，用于累加加权得分
         # 在计算权重后，但在加权求和循环之前初始化 base_score_raw
@@ -1510,20 +1552,19 @@ class TrendFollowingStrategy:
         base_score_raw = base_score_raw.clip(0, 100).fillna(50.0)
 
         # 量能调整基础评分 (假定 strategy_utils 包含此函数)
-        vc_params_adjusted = vc_params.copy() 
+        logger.info(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块...")
+        vc_params_adjusted = vc_params.copy()
         # 确保 vc_params_adjusted 是字典
         if not isinstance(vc_params_adjusted, dict):
             vc_params_adjusted = {}
-        vc_params_adjusted['boost_factor'] = self.volume_boost_factor 
-        vc_params_adjusted['penalty_factor'] = self.volume_penalty_factor 
-        vc_params_adjusted['volume_spike_threshold'] = self.volume_spike_threshold 
-        
-        # 从 JSON 配置获取 VOL_MA 周期
-        vol_ma_period_vc = _get_param_val(param_sources, 'volume_ma_period', 20) # 默认值 20
-        obv_ma_period_vc = _get_param_val(param_sources, 'obv_ma_period', 10) # 默认值 10
+        vc_params_adjusted['boost_factor'] = self.volume_boost_factor
+        vc_params_adjusted['penalty_factor'] = self.volume_penalty_factor
+        vc_params_adjusted['volume_spike_threshold'] = self.volume_spike_threshold
 
-        # 量能分析可能在多个时间框架上进行，这里需要根据配置传递给 strategy_utils
-        vc_tf_list_raw = vc_params.get('tf', [self.focus_timeframe]) 
+        vol_ma_period_vc = _get_param_val(param_sources, 'volume_ma_period', 20)
+        obv_ma_period_vc = _get_param_val(param_sources, 'obv_ma_period', 10)
+
+        vc_tf_list_raw = vc_params.get('tf', [self.focus_timeframe])
         vc_tf_list = [vc_tf_list_raw] if isinstance(vc_tf_list_raw, str) else vc_tf_list_raw
         if not isinstance(vc_tf_list, list) or not vc_tf_list:
              logger.warning(f"[{self.strategy_name}][{stock_code}] 量能确认时间框架配置无效或为空，量能调整将跳过。")
@@ -1539,13 +1580,12 @@ class TrendFollowingStrategy:
                  volume_adjusted_results_df[vol_spike_col_name] = 0.0
 
         else:
-             logger.info(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块...")
-             # 需要传递量能相关的周期参数和时间框架列表给 strategy_utils
              try:
+                 # strategy_utils.adjust_score_with_volume 需要知道如何找到带后缀的 OHLCV, OBV, AMT_MA, VOL_MA 列
                  volume_adjusted_results_df = strategy_utils.adjust_score_with_volume(
-                    preliminary_score=base_score_raw, 
-                    data=data, 
-                    vc_params=vc_params_adjusted, 
+                    preliminary_score=base_score_raw,
+                    data=data, # 传递包含所有数据的 DataFrame
+                    vc_params=vc_params_adjusted,
                     vc_tf_list=vc_tf_list, # 传递时间框架列表
                     vol_ma_period=vol_ma_period_vc, # 传递 VOL_MA 周期
                     obv_ma_period=obv_ma_period_vc, # 传递 OBV_MA 周期
@@ -1558,7 +1598,6 @@ class TrendFollowingStrategy:
                  logger.info(f"[{self.strategy_name}][{stock_code}] 量能调整/分析完成。")
              except Exception as e:
                  logger.error(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块出错: {e}", exc_info=True)
-                 # 出现错误时，adjusted_score 就等于 raw_score，并为量价异动添加默认列
                  volume_adjusted_results_df = pd.DataFrame(index=data.index)
                  volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
                  internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
@@ -1566,24 +1605,17 @@ class TrendFollowingStrategy:
                  for tf in vc_tf_list:
                     vol_spike_col_name = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=tf)[0]
                     volume_adjusted_results_df[vol_spike_col_name] = 0.0
-
-
         base_score_volume_adjusted = volume_adjusted_results_df['ADJUSTED_SCORE']
-
         # 执行趋势分析 (假定 _perform_trend_analysis 已实现)
         trend_analysis_df = self._perform_trend_analysis(data, base_score_volume_adjusted)
-
         # 执行量价背离检测 (假定 strategy_utils 包含此函数)
         logger.info(f"[{self.strategy_name}][{stock_code}] 执行量价背离检测...")
         divergence_signals_df = pd.DataFrame(index=data.index)
-        if isinstance(dd_params, dict) and dd_params.get('enabled', True): 
+        if isinstance(dd_params, dict) and dd_params.get('enabled', True):
             try:
-                # 需要将背离检测参数传递给 strategy_utils
-                # 例如，需要知道检测哪些指标的背离，背离的长度阈值等
-                # 假设 strategy_utils.detect_divergence 需要数据、dd_params 和 naming_config
-                divergence_signals_df = strategy_utils.detect_divergence(data=data, dd_params=dd_params, indicator_configs=NAMING_CONFIG)
+                # strategy_utils.detect_divergence 需要知道如何找到带后缀的指标列
+                divergence_signals_df = strategy_utils.detect_divergence(data=data, dd_params=dd_params, naming_config=NAMING_CONFIG)
                 if not divergence_signals_df.empty:
-                     # 检查背离信号列是否存在，如果不存在则添加到df并填False
                      internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
                      has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
                      has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
@@ -1595,17 +1627,14 @@ class TrendFollowingStrategy:
 
                      logger.debug(f"[{self.strategy_name}][{stock_code}] 背离检测完成，最新信号: {divergence_signals_df.iloc[-1].to_dict() if not divergence_signals_df.empty else '无'}")
                 else:
-                    # 如果检测返回空 DataFrame，添加默认列并填 False
                      internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
                      has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
                      has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
                      divergence_signals_df[has_bearish_div_col] = False
                      divergence_signals_df[has_bullish_div_col] = False
 
-
             except Exception as e:
                 logger.error(f"[{self.strategy_name}][{stock_code}] 执行量价背离检测时出错: {e}", exc_info=True)
-                # 出现错误时，也添加默认列并填 False
                 internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
                 has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
                 has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
@@ -1623,7 +1652,7 @@ class TrendFollowingStrategy:
 
         # 综合规则信号 (假定 strategy_utils 包含 combine_rule_signals 函数)
         logger.info(f"[{self.strategy_name}][{stock_code}] 计算综合规则信号...")
-        weights = self.rule_signal_weights 
+        weights = self.rule_signal_weights
 
         # 提取各种信号列，如果缺失则用 0 填充
         base_score_norm = (base_score_volume_adjusted.fillna(50.0) - 50) / 50 # 归一化到 [-1, 1]
@@ -1634,8 +1663,9 @@ class TrendFollowingStrategy:
         ema_cross_norm = trend_analysis_df.get('ema_cross_signal', pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
         boll_breakout_norm = trend_analysis_df.get('boll_breakout_signal', pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
         adx_strength_norm = trend_analysis_df.get('adx_strength_signal', pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, -0.5, 0, 0.5, 1
-        vwap_dev_norm = trend_analysis_df.get('vwap_deviation_signal', pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
-        
+        stoch_signal_norm = trend_analysis_df.get('stoch_signal', pd.Series(0.0, index=data.index)).fillna(0.0) # 新增：STOCH信号
+        vwap_dev_norm = trend_analysis_df.get('vwap_deviation_signal', pd.Series(0.0, index=data.index)).fillna(0.0) # 新增：VWAP偏离信号
+
         # 从 volume_adjusted_results_df 获取量价异动信号
         vc_tf_list_vol_spike = vc_params.get('tf', [self.focus_timeframe]) # 获取量能分析时间框架列表
         if isinstance(vc_tf_list_vol_spike, str): vc_tf_list_vol_spike = [vc_tf_list_vol_spike]
@@ -1648,15 +1678,15 @@ class TrendFollowingStrategy:
             if isinstance(item, dict) and item.get('name_pattern', '').startswith("VOL_SPIKE_SIGNAL"):
                 vol_spike_pattern = item['name_pattern']
                 break
-        
+
         # 假设我们使用第一个量能时间框架的量价异动信号进行规则组合，或者对多个时间框架的信号进行某种聚合（这里简化为使用第一个）
-        volume_spike_signal_col = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=vc_tf_list_vol_spike[0])[0] if vc_tf_list_vol_spike else None
-        
+        vol_spike_signal_col = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=vc_tf_list_vol_spike[0])[0] if vc_tf_list_vol_spike else None
+
         # 检查量价异动列是否存在，如果不存在或没有指定时间框架，则使用全0 Series
-        if volume_spike_signal_col and volume_spike_signal_col in volume_adjusted_results_df.columns:
-             volume_spike_norm = volume_adjusted_results_df.get(volume_spike_signal_col, pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
+        if vol_spike_signal_col and vol_spike_signal_col in volume_adjusted_results_df.columns:
+             volume_spike_norm = volume_adjusted_results_df.get(vol_spike_signal_col, pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
         else:
-             logger.warning(f"[{self.strategy_name}][{stock_code}] 量价异动信号列 '{volume_spike_signal_col}' (基于时间框架 {vc_tf_list_vol_spike[0] if vc_tf_list_vol_spike else '无'}) 不存在或量能时间框架未配置。规则组合中量价异动贡献为 0。")
+             logger.warning(f"[{self.strategy_name}][{stock_code}] 量价异动信号列 '{vol_spike_signal_col}' (基于时间框架 {vc_tf_list_vol_spike[0] if vc_tf_list_vol_spike else '无'}) 不存在或量能时间框架未配置。规则组合中量价异动贡献为 0。")
              volume_spike_norm = pd.Series(0.0, index=data.index)
 
 
@@ -1668,26 +1698,32 @@ class TrendFollowingStrategy:
         total_weighted_contribution += momentum_norm * weights.get('momentum', 0)
         total_weighted_contribution += ema_cross_norm * weights.get('ema_cross', 0)
         total_weighted_contribution += boll_breakout_norm * weights.get('boll_breakout', 0)
-        total_weighted_contribution += adx_strength_norm * weights.get('adx_strength', 0) 
-        total_weighted_contribution += vwap_dev_norm * weights.get('vwap_deviation', 0)
+        total_weighted_contribution += adx_strength_norm * weights.get('adx_strength', 0)
+        total_weighted_contribution += stoch_signal_norm * weights.get('stoch_signal', 0) # 新增：STOCH信号权重
+        total_weighted_contribution += vwap_dev_norm * weights.get('vwap_deviation', 0) # 新增：VWAP偏离信号权重
         total_weighted_contribution += volume_spike_norm * weights.get('volume_spike', 0)
 
         # 将加权贡献转换回 0-100 的分数范围
         base_rule_signal_before_adjust = 50.0 + total_weighted_contribution * 50.0
-        base_rule_signal_before_adjust = base_rule_signal_before_adjust.clip(0, 100) 
+        base_rule_signal_before_adjust = base_rule_signal_before_adjust.clip(0, 100)
 
         # 应用 ADX 增强 (假定 _apply_adx_boost 已实现)
         final_rule_signal = self._apply_adx_boost(
-            base_rule_signal_before_adjust, 
-            adx_strength_norm, 
+            base_rule_signal_before_adjust,
+            adx_strength_norm,
             (base_rule_signal_before_adjust.fillna(50.0) - 50.0) / 50.0 # 传递归一化后的基础信号方向
         )
 
         # 应用背离惩罚 (假定 _apply_divergence_penalty 已实现)
-        final_rule_signal = self._apply_divergence_penalty(final_rule_signal, divergence_signals_df, dd_params)
+        # _apply_divergence_penalty 需要接收背离信号 DataFrame 和 dd_params
+        final_rule_signal = self._apply_divergence_penalty(final_rule_signal, divergence_signals_df, dd_params) # 修改行：传递 divergence_signals_df 和 dd_params
 
         # 应用趋势确认过滤 (假定 _apply_trend_confirmation 已实现)
-        final_rule_signal = self._apply_trend_confirmation(final_rule_signal)
+        # _apply_trend_confirmation 需要知道趋势持续时间阈值 (self.trend_duration_threshold_strong/moderate)
+        # 它还需要访问 ADX 强度信号 (adx_strength_norm) 和基础信号方向 ((final_rule_signal - 50)/50)
+        # 可以在 _apply_trend_confirmation 内部获取这些，或者作为参数传递
+        # 为了简化，假设 _apply_trend_confirmation 内部可以访问这些信息
+        final_rule_signal = self._apply_trend_confirmation(final_rule_signal) # 保持原签名，假设内部获取所需数据
 
         # 最终剪切和四舍五入
         final_rule_signal = final_rule_signal.clip(0, 100).round(2)
@@ -1703,10 +1739,10 @@ class TrendFollowingStrategy:
         }
         return final_rule_signal, intermediate_results
 
-
     def _perform_trend_analysis(self, data: pd.DataFrame, base_score_series: pd.Series) -> pd.DataFrame:
         """
         增强趋势分析，加入 ADX, STOCH, VWAP, BOLL 等辅助判断。
+        使用带有时间级别后缀的列名访问数据。
         """
         analysis_df = pd.DataFrame(index=data.index) # 使用原始数据的索引，包含所有时间点
         def _get_param_val(sources: List[Dict], key: str, default: Any = None) -> Any:
@@ -1732,7 +1768,7 @@ class TrendFollowingStrategy:
              logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 'indicator_analysis_params' 参数类型不正确。")
              ia_params_global = {}
         # feature_engineering_params 在全局配置中
-        fe_params_global = self.params.get('feature_engineering_params', {})
+        fe_params_global = self.fe_params # 使用 self.fe_params
         if not isinstance(fe_params_global, dict):
              logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 'feature_engineering_params' 参数类型不正确。")
              fe_params_global = {}
@@ -1770,7 +1806,7 @@ class TrendFollowingStrategy:
 
 
         score_series_filled = base_score_series.fillna(50.0)
-        
+
         # 准备参数源列表，与 get_required_columns 一致
         param_sources = [tf_params, self.params.get('volume_confirmation', {}), ia_params_global, fe_params_global, bs_params_global]
 
@@ -1785,16 +1821,16 @@ class TrendFollowingStrategy:
             try:
                  # 确保 period 是有效数字且大于 0
                 if isinstance(period, (int, float)) and period > 0:
-                    analysis_df[f'ema_score_{period}'] = ta.ema(score_series_filled, length=period)
+                    # EMA Score 是基于综合评分计算的，不带时间级别后缀
+                    analysis_df[f'ema_score_{period}'] = ta.ema(score_series_filled, length=period) # 修改行：计算 EMA Score
                 else:
                     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score 周期参数无效: {period}. 跳过计算。")
-                
+
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 计算 EMA Score {period} 时出错: {e}", exc_info=True)
                 analysis_df[f'ema_score_{period}'] = np.nan
-        
+
         # 2. 计算 EMA 排列信号 (基于上面计算的 ema_score)
-        # 使用 trend_following_params 中的 ema_alignment_periods，如果没有则使用前4个 score EMA 周期
         ema_periods_align = tf_params.get('ema_alignment_periods', all_ema_periods[:4])
         if not isinstance(ema_periods_align, list) or len(ema_periods_align) < 4:
              logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 'trend_following_params.ema_alignment_periods' 参数无效或数量不足4个，使用前4个 EMA Score 周期 ({all_ema_periods[:4]})。")
@@ -1822,10 +1858,10 @@ class TrendFollowingStrategy:
             analysis_df['alignment_signal'] = 0.0 # 缺失列则赋默认值
 
 
-        # 3. 计算 EMA 交叉信号 (使用 trend_following_params 中的 ema_cross_short/long，如果没有则使用 all_ema_periods 的前两个)
+        # 3. 计算 EMA 交叉信号 (基于 ema_score)
         ema_cross_short = tf_params.get('ema_cross_short', all_ema_periods[0] if len(all_ema_periods) > 0 else 5)
         ema_cross_long = tf_params.get('ema_cross_long', all_ema_periods[1] if len(all_ema_periods) > 1 else 20)
-        
+
         short_ema_col = f'ema_score_{ema_cross_short}'
         long_ema_col = f'ema_score_{ema_cross_long}'
 
@@ -1833,30 +1869,27 @@ class TrendFollowingStrategy:
             try:
                 short_ema = analysis_df[short_ema_col].fillna(50.0)
                 long_ema = analysis_df[long_ema_col].fillna(50.0)
-                
+
                 # 避免在交叉计算时引入未来数据，使用 shift(1) 比较前一个周期的值
                 golden_cross = (short_ema > long_ema) & (short_ema.shift(1).fillna(50.0) <= long_ema.shift(1).fillna(50.0))
                 death_cross = (short_ema < long_ema) & (short_ema.shift(1).fillna(50.0) >= long_ema.shift(1).fillna(50.0))
-                
+
                 analysis_df['ema_cross_signal'] = 0.0
                 analysis_df.loc[golden_cross, 'ema_cross_signal'] = 1.0
                 analysis_df.loc[death_cross, 'ema_cross_signal'] = -1.0
                 analysis_df['ema_cross_signal'] = analysis_df['ema_cross_signal'].fillna(0.0) # 填充计算过程中的NaN
             except Exception as e:
                  logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 计算 EMA 交叉信号 ({ema_cross_short}/{ema_cross_long}) 时出错: {e}", exc_info=True)
-                 analysis_df['ema_cross_signal'] = 0.0 # 出现错误则赋默认值
+                 analysis_df['ema_cross_signal'] = 0.0
         else:
             logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 缺少 EMA Score 列 ({short_ema_col}, {long_ema_col})，无法计算 EMA 交叉信号。")
-            analysis_df['ema_cross_signal'] = 0.0 # 缺失列则赋默认值
+            analysis_df['ema_cross_signal'] = 0.0
 
 
         # 4. 计算 EMA 强度 (短期EMA与长期EMA之差)
-        # 使用 trend_following_params 中的 ema_strength_short/long，如果没有则使用 all_ema_periods 的前两个和最后一个
         ema_strength_short_p = tf_params.get('ema_strength_short', all_ema_periods[0] if len(all_ema_periods) > 0 else 5)
-        # 使用全局 trend_analysis.long_term_ema_period 作为默认长期周期
         long_term_ema_period_for_strength = ta_params_global.get('long_term_ema_period', all_ema_periods[-1] if all_ema_periods else 60)
         ema_strength_long_p = tf_params.get('ema_strength_long', long_term_ema_period_for_strength)
-
 
         short_ema_col_strength = f'ema_score_{ema_strength_short_p}'
         long_ema_col_strength = f'ema_score_{ema_strength_long_p}'
@@ -1865,10 +1898,10 @@ class TrendFollowingStrategy:
                 analysis_df['ema_strength'] = (analysis_df[short_ema_col_strength].fillna(50.0) - analysis_df[long_ema_col_strength].fillna(50.0)).fillna(0.0)
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 计算 EMA 强度 ({ema_strength_short_p}/{ema_strength_long_p}) 时出错: {e}", exc_info=True)
-                analysis_df['ema_strength'] = 0.0 # 出现错误则赋默认值
+                analysis_df['ema_strength'] = 0.0
         else:
             logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 缺少 EMA Score 列 ({short_ema_col_strength}, {long_ema_col_strength})，无法计算 EMA 强度。")
-            analysis_df['ema_strength'] = 0.0 # 缺失列则赋默认值
+            analysis_df['ema_strength'] = 0.0
 
         # 5. 计算得分动量及动量加速
         analysis_df['score_momentum'] = score_series_filled.diff().fillna(0.0)
@@ -1879,7 +1912,7 @@ class TrendFollowingStrategy:
         if not isinstance(volatility_window, int) or volatility_window <= 0:
              logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 'trend_analysis.volatility_window' 参数无效 ({volatility_window})，使用默认值 10。")
              volatility_window = 10
-        
+
         min_periods_volatility = max(1, volatility_window // 2) # 确保 min_periods 至少为 1
         if len(score_series_filled) < min_periods_volatility:
              logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 数据长度不足 {min_periods_volatility}，无法计算得分波动率。")
@@ -1927,9 +1960,10 @@ class TrendFollowingStrategy:
             logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: DMI 周期参数无效 ({dmi_period_signal})，使用默认值 14。")
             dmi_period_signal = 14
 
-        pdi_col = f'PDI_{dmi_period_signal}_{focus_tf}'
-        ndi_col = f'NDI_{dmi_period_signal}_{focus_tf}'
-        adx_col = f'ADX_{dmi_period_signal}_{focus_tf}'
+        # 使用带后缀的列名访问 DMI 数据
+        pdi_col = f'PDI_{dmi_period_signal}_{focus_tf}' # 使用带后缀的列名
+        ndi_col = f'NDI_{dmi_period_signal}_{focus_tf}' # 使用带后缀的列名
+        adx_col = f'ADX_{dmi_period_signal}_{focus_tf}' # 使用带后缀的列名
 
         # 检查所需列是否存在
         missing_dmi_cols = [col for col in [adx_col, pdi_col, ndi_col] if col not in data.columns]
@@ -1970,10 +2004,10 @@ class TrendFollowingStrategy:
             logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: STOCH 信号参数无效: k={stoch_k_p_signal}, d={stoch_d_p_signal}, smooth_k={stoch_smooth_k_p_signal}. 使用默认值 14,3,3。")
             stoch_k_p_signal, stoch_d_p_signal, stoch_smooth_k_p_signal = 14, 3, 3
 
+        # 使用带后缀的列名访问 STOCH 数据
+        k_col = f'STOCHk_{stoch_k_p_signal}_{stoch_d_p_signal}_{stoch_smooth_k_p_signal}_{focus_tf}' # 使用带后缀的列名
+        d_col = f'STOCHd_{stoch_k_p_signal}_{stoch_d_p_signal}_{stoch_smooth_k_p_signal}_{focus_tf}' # 使用带后缀的列名
 
-        k_col = f'STOCHk_{stoch_k_p_signal}_{stoch_d_p_signal}_{stoch_smooth_k_p_signal}_{focus_tf}'
-        d_col = f'STOCHd_{stoch_k_p_signal}_{stoch_d_p_signal}_{stoch_smooth_k_p_signal}_{focus_tf}'
-        
         # STOCH 超买超卖阈值来自 trend_following_params (self.stoch_oversold_threshold / self.stoch_overbought_threshold)
         missing_stoch_cols = [col for col in [k_col, d_col] if col not in data.columns]
         if missing_stoch_cols:
@@ -1985,8 +2019,7 @@ class TrendFollowingStrategy:
                 d_val = data[d_col].fillna(50.0)
                 is_oversold = (k_val < self.stoch_oversold_threshold) & (d_val < self.stoch_oversold_threshold)
                 is_overbought = (k_val > self.stoch_overbought_threshold) & (d_val > self.stoch_overbought_threshold)
-                
-                # 避免在交叉计算时引入未来数据，使用 shift(1) 比较前一个周期的值
+
                 turning_up = (k_val > d_val) & (k_val.shift(1).fillna(50.0) <= d_val.shift(1).fillna(50.0))
                 turning_down = (k_val < d_val) & (k_val.shift(1).fillna(50.0) >= d_val.shift(1).fillna(50.0))
 
@@ -2005,8 +2038,9 @@ class TrendFollowingStrategy:
         # VWAP anchor 来自全局 indicator_analysis_params 或 feature_engineering_params
         vwap_anchor_signal = _get_param_val(param_sources, 'vwap_anchor', None)
         vwap_col_name_base = 'VWAP' if vwap_anchor_signal is None else f'VWAP_{vwap_anchor_signal}'
-        vwap_col = f"{vwap_col_name_base}_{focus_tf}"
-        close_col = f'close_{focus_tf}' # 收盘价列名
+        # 使用带后缀的列名访问 VWAP 数据
+        vwap_col = f"{vwap_col_name_base}_{focus_tf}" # 使用带后缀的列名
+        close_col = f'close_{focus_tf}' # 使用带后缀的列名
 
         # VWAP 偏离阈值来自 trend_following_params (self.vwap_deviation_threshold)
         missing_vwap_cols = [col for col in [vwap_col, close_col] if col not in data.columns]
@@ -2019,7 +2053,7 @@ class TrendFollowingStrategy:
                 vwap = data[vwap_col]
                 close_price = data[close_col]
                 # 避免除零，并填充NaN（使用前向填充后向填充处理）
-                vwap_safe = vwap.replace(0, np.nan).fillna(method='ffill').fillna(method='bfill') 
+                vwap_safe = vwap.replace(0, np.nan).fillna(method='ffill').fillna(method='bfill')
                 # 再次检查 vwap_safe 是否仍然全 NaN
                 if vwap_safe.isnull().all():
                     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: VWAP ({vwap_col}) 数据全为 NaN/0，无法计算 VWAP 偏离。")
@@ -2031,7 +2065,7 @@ class TrendFollowingStrategy:
                     # 确保 deviation Series 不包含 NaN
                     deviation_filled = deviation.fillna(0.0)
                     analysis_df.loc[deviation_filled > self.vwap_deviation_threshold, 'vwap_deviation_signal'] = 1.0
-                    analysis_df.loc[deviation_filled < -self.vwap_deviation_threshold, 'vwap_deviation_signal'] = -1.0
+                    analysis_df.loc[deviation_filled < -self.vwap_deviation_threshold, 'vwap_deviation_signal'] = -1.0 # 检查负向偏离
                     analysis_df['vwap_deviation_signal'] = analysis_df['vwap_deviation_signal'].fillna(0.0)
                     analysis_df['vwap_deviation_percent'] = (deviation * 100).fillna(0.0) # 偏离百分比也填充 0
             except Exception as e:
@@ -2059,26 +2093,32 @@ class TrendFollowingStrategy:
         #     boll_period_signal, boll_std_dev_signal = 20, 2.0
 
         std_str_signal = f"{boll_std_dev_signal:.1f}" # 格式化标准差到小数点后一位
-        upper_col = f'BBU_{boll_period_signal}_{std_str_signal}_{focus_tf}'
-        lower_col = f'BBL_{boll_period_signal}_{std_str_signal}_{focus_tf}'
-        close_col = f'close_{focus_tf}' # 收盘价列已定义
+        # 使用带后缀的列名访问 BOLL 数据
+        bbu_col = f'BBU_{boll_period_signal}_{std_str_signal}_{focus_tf}' # 使用带后缀的列名
+        bbl_col = f'BBL_{boll_period_signal}_{std_str_signal}_{focus_tf}' # 使用带后缀的列名
+        close_col = f'close_{focus_tf}' # 收盘价列名 (已在 VWAP 部分获取)
 
-        missing_boll_cols = [col for col in [upper_col, lower_col, close_col] if col not in data.columns]
+        missing_boll_cols = [col for col in [bbu_col, bbl_col, close_col] if col not in data.columns] # 修改行：检查 bbu_col 和 bbl_col
         if missing_boll_cols:
-            logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 缺少 BOLL 上轨/下轨或收盘价列 ({', '.join(missing_boll_cols)}) for focus_tf='{focus_tf}' (period={boll_period_signal}, std_dev={boll_std_dev_signal})，无法计算 BOLL 突破信号。")
+            logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 缺少 BOLL 上轨/下轨或收盘价列 ({', '.join(missing_boll_cols)}) for focus_tf='{focus_tf}' (period={boll_period_signal}, std_dev={boll_std_dev_signal})，无法计算 BOLL 突破信号。") # 修改行：日志信息
             analysis_df['boll_breakout_signal'] = 0.0 # 赋默认值
         else:
             try:
-                upper_band = data[upper_col]
-                lower_band = data[lower_col]
+                bbu = data[bbu_col].fillna(data[close_col]) # 填充 NaN，避免影响判断
+                bbl = data[bbl_col].fillna(data[close_col]) # 填充 NaN
                 close_price = data[close_col]
+
                 analysis_df['boll_breakout_signal'] = 0.0
-                analysis_df.loc[close_price > upper_band, 'boll_breakout_signal'] = 1.0
-                analysis_df.loc[close_price < lower_band, 'boll_breakout_signal'] = -1.0
+                # 避免在突破计算时引入未来数据，使用 shift(1) 比较前一个周期的值
+                bullish_breakout = (close_price > bbu) & (data[close_col].shift(1).fillna(bbu.shift(1)) <= bbu.shift(1).fillna(bbu)) # 使用 shift(1) 比较前一个周期的收盘价和上轨
+                bearish_breakout = (close_price < bbl) & (data[close_col].shift(1).fillna(bbl.shift(1)) >= bbl.shift(1).fillna(bbl)) # 使用 shift(1) 比较前一个周期的收盘价和下轨
+
+                analysis_df.loc[bullish_breakout, 'boll_breakout_signal'] = 1.0
+                analysis_df.loc[bearish_breakout, 'boll_breakout_signal'] = -1.0
                 analysis_df['boll_breakout_signal'] = analysis_df['boll_breakout_signal'].fillna(0.0)
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 计算 BOLL 突破信号出错: {e}", exc_info=True)
-                analysis_df['boll_breakout_signal'] = 0.0 # 出现错误则赋默认值
+                analysis_df['boll_breakout_signal'] = 0.0
 
 
         # 12. 计算综合趋势强度 (可选，作为辅助分析) - 暂时不在这里计算，留给 combine_rule_signals 或后续分析
@@ -2096,8 +2136,8 @@ class TrendFollowingStrategy:
         focus_tf = self.focus_timeframe
         # 使用JSON配置获取close列名
         ohlcv_configs = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
-        close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close') 
-        close_col = f'{close_base_name}_{focus_tf}'
+        close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close')
+        close_col = f'{close_base_name}_{focus_tf}' # 修改行：使用带后缀的列名
 
         if close_col not in data.columns or data[close_col].isnull().all():
             logger.warning(f"[{self.strategy_name}] 动态调整波动率：缺少收盘价列 {close_col} 或数据全为空。")
@@ -2117,7 +2157,7 @@ class TrendFollowingStrategy:
 
         try:
             price_volatility = data[close_col].rolling(window=volatility_window, min_periods=min_periods_volatility).std()
-            
+
             if price_volatility.isnull().all() or price_volatility.empty:
                 logger.warning(f"[{self.strategy_name}] 动态调整波动率：价格波动率数据计算后全为空或空 Series。")
                 return
@@ -2140,10 +2180,10 @@ class TrendFollowingStrategy:
                  return
 
             self.volatility_adjust_factor = max(0.5, min(2.0, latest_volatility / base_volatility_benchmark)) # 将调整因子限制在 0.5 到 2.0 之间
-            
-            original_high = self.tf_params.get('volatility_threshold_high', 10.0) 
+
+            original_high = self.tf_params.get('volatility_threshold_high', 10.0)
             original_low = self.tf_params.get('volatility_threshold_low', 5.0)
-            
+
             self.volatility_threshold_high = original_high * self.volatility_adjust_factor
             self.volatility_threshold_low = original_low * self.volatility_adjust_factor
 
@@ -2151,7 +2191,7 @@ class TrendFollowingStrategy:
             # 并且确保 low <= high
             self.volatility_threshold_high = np.clip(self.volatility_threshold_high, original_high * 0.5, original_high * 2.0)
             self.volatility_threshold_low = np.clip(self.volatility_threshold_low, original_low * 0.5, original_low * 2.0)
-            if self.volatility_threshold_low >= self.volatility_threshold_high: 
+            if self.volatility_threshold_low >= self.volatility_threshold_high:
                  self.volatility_threshold_low = self.volatility_threshold_high * 0.9 # 确保 low 略小于 high
 
 
@@ -2164,7 +2204,6 @@ class TrendFollowingStrategy:
              self.volatility_threshold_high = self.tf_params.get('volatility_threshold_high', 10.0)
              self.volatility_threshold_low = self.tf_params.get('volatility_threshold_low', 5.0)
              logger.debug(f"[{self.strategy_name}] 动态调整波动率阈值：计算出错，使用原始阈值 high={self.volatility_threshold_high:.2f}, low={self.volatility_threshold_low:.2f}, factor={self.volatility_adjust_factor:.2f}")
-
 
     def _apply_adx_boost(self, final_signal: pd.Series, adx_strength_norm: pd.Series, base_signal_direction_norm: pd.Series) -> pd.Series:
         """
@@ -2189,7 +2228,7 @@ class TrendFollowingStrategy:
 
 
         final_signal_filled = final_signal.fillna(50.0)
-        adx_adjustment_factor = self.tf_params.get('adx_adjustment_factor', 10.0) 
+        adx_adjustment_factor = self.tf_params.get('adx_adjustment_factor', 10.0)
         
         # 确保 adjustment_factor 是有效数字
         if not isinstance(adx_adjustment_factor, (int, float)):
@@ -2207,7 +2246,7 @@ class TrendFollowingStrategy:
         adjustment.loc[effective_mask] = np.sign(base_signal_direction_norm_aligned.loc[effective_mask]) * \
                                          np.abs(adx_strength_norm_aligned.loc[effective_mask]) * \
                                          adx_adjustment_factor
-        
+
         # 调整幅度限制，防止过度增强/减弱，例如限制在 +/- 15 分以内
         max_adjustment = self.tf_params.get('adx_max_adjustment', 15.0)
         if not isinstance(max_adjustment, (int, float)) or max_adjustment < 0:
@@ -2215,11 +2254,10 @@ class TrendFollowingStrategy:
             max_adjustment = 15.0
 
         adjustment = adjustment.clip(-max_adjustment, max_adjustment)
-        
+
         if not adjustment.empty:
              logger.debug(f"[{self.strategy_name}] ADX 增强调整 (最新值): {adjustment.iloc[-1] if not adjustment.empty else 'N/A'}")
         return (final_signal_filled + adjustment).clip(0, 100)
-
 
     def _apply_divergence_penalty(self, final_signal: pd.Series, divergence_signals_df: pd.DataFrame, dd_params: Dict) -> pd.Series:
         """
@@ -2243,8 +2281,8 @@ class TrendFollowingStrategy:
 
         # 从JSON获取背离信号列名 (这些是策略内部列)
         internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
-        has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern') == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE") 
-        has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern') == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE") 
+        has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern') == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
+        has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern') == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
 
         if has_bearish_div_col not in divergence_signals_df.columns or \
            has_bullish_div_col not in divergence_signals_df.columns:
@@ -2256,7 +2294,7 @@ class TrendFollowingStrategy:
             logger.warning(f"[{self.strategy_name}] 背离惩罚：信号和背离数据索引不一致，尝试重新对齐。")
             try:
                 # 使用 reindex 并保持布尔类型，用 False 填充缺失值
-                divergence_signals_aligned = divergence_signals_df.reindex(final_signal_filled.index).fillna(False) 
+                divergence_signals_aligned = divergence_signals_df.reindex(final_signal_filled.index).fillna(False)
                 has_bearish_div = divergence_signals_aligned[has_bearish_div_col].astype(bool)
                 has_bullish_div = divergence_signals_aligned[has_bullish_div_col].astype(bool)
             except Exception as e:
@@ -2280,10 +2318,10 @@ class TrendFollowingStrategy:
         mask_bearish_penalty = is_bearish_signal & has_bullish_div
          # 将信号拉向中性 50，惩罚越大，拉得越多
         adjusted_signal.loc[mask_bearish_penalty] = 50 + (adjusted_signal.loc[mask_bearish_penalty] - 50) * (1 - penalty_factor)
-        
+
         if not adjusted_signal.empty:
              logger.debug(f"[{self.strategy_name}] 背离惩罚调整后信号 (最新值): {adjusted_signal.iloc[-1] if not adjusted_signal.empty else 'N/A'}")
-        return adjusted_signal.clip(0, 100) 
+        return adjusted_signal.clip(0, 100)
 
     def _apply_trend_confirmation(self, final_signal: pd.Series) -> pd.Series:
         """
@@ -2294,8 +2332,8 @@ class TrendFollowingStrategy:
             return pd.Series(dtype=float) # 返回空 Series
 
         # trend_confirmation_threshold_upper/lower 和 confirmation_periods 来自 trend_following_params
-        trend_threshold_upper = self.tf_params.get('trend_confirmation_threshold_upper', 55) 
-        trend_threshold_lower = self.tf_params.get('trend_confirmation_threshold_lower', 45) 
+        trend_threshold_upper = self.tf_params.get('trend_confirmation_threshold_upper', 55)
+        trend_threshold_lower = self.tf_params.get('trend_confirmation_threshold_lower', 45)
         confirmation_periods = self.trend_confirmation_periods # 已在 __init__ 中从 tf_params 获取并有默认值
 
         # 确保阈值和周期是有效数字
@@ -2314,6 +2352,7 @@ class TrendFollowingStrategy:
              logger.warning(f"[{self.strategy_name}] 趋势确认过滤：lower ({trend_threshold_lower}) >= upper ({trend_threshold_upper}) 阈值，调整 lower 阈值。")
              trend_threshold_lower = trend_threshold_upper - 5 # 确保有一个间隔
 
+
         final_signal_filled = final_signal.fillna(50.0)
         filtered_signal = pd.Series(50.0, index=final_signal.index) # 默认过滤后信号是中性 50
 
@@ -2325,12 +2364,12 @@ class TrendFollowingStrategy:
             # 判断信号是否持续高于上限或低于下限足够周期
             above_upper_streak = (final_signal_filled >= trend_threshold_upper).rolling(window=confirmation_periods, min_periods=confirmation_periods).sum() == confirmation_periods
             below_lower_streak = (final_signal_filled <= trend_threshold_lower).rolling(window=confirmation_periods, min_periods=confirmation_periods).sum() == confirmation_periods
-            
+
             # 将确认后的信号赋值给 filtered_signal
             # 只有在连续满足条件时，才将原始信号值传递过来
             filtered_signal.loc[above_upper_streak] = final_signal_filled.loc[above_upper_streak]
             filtered_signal.loc[below_lower_streak] = final_signal_filled.loc[below_lower_streak]
-            
+
             # 填充 NaN，特别是开头 confirmation_periods-1 个点
             filtered_signal = filtered_signal.fillna(50.0) # 默认填充 50
 
@@ -2342,7 +2381,6 @@ class TrendFollowingStrategy:
         if not filtered_signal.empty:
              logger.debug(f"[{self.strategy_name}] 趋势确认过滤后信号 (最新值): {filtered_signal.iloc[-1] if not filtered_signal.empty else 'N/A'}")
         return filtered_signal.clip(0, 100) # 确保过滤后的信号也在 0-100 范围内
-
 
     # 这个方法是实际的信号生成入口，返回 DataFrame
     def generate_signals(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None) -> pd.DataFrame:
@@ -2386,7 +2424,7 @@ class TrendFollowingStrategy:
         logger.info(f"[{self.strategy_name}][{stock_code}] 规则信号计算完成。")
 
         # 将原始数据复制，并合并规则信号和中间结果
-        processed_data = data.copy() 
+        processed_data = data.copy()
         # 添加 final_rule_signal 列 (这是一个策略内部列)
         processed_data['final_rule_signal'] = final_rule_signal # final_rule_signal 是一个 Series
 
@@ -2400,7 +2438,7 @@ class TrendFollowingStrategy:
                     # 避免覆盖原始数据或已有的中间列，除非是特定的内部列需要更新
                     # 例如，ADJUSTED_SCORE 是临时列，应该被最终的 base_score_volume_adjusted 替代
                     # 假设 strategy_utils 返回的 DataFrame 列名是最终想要的列名（除了 ADJUSTED_SCORE）
-                    if col_join != 'ADJUSTED_SCORE' and col_join not in processed_data.columns: 
+                    if col_join != 'ADJUSTED_SCORE' and col_join not in processed_data.columns:
                          processed_data[col_join] = df_or_series[col_join]
                     elif col_join == 'ADJUSTED_SCORE':
                          # 特殊处理 ADJUSTED_SCORE，将其值赋值给 'base_score_volume_adjusted' 列 (如果还没有的话)
@@ -2408,34 +2446,34 @@ class TrendFollowingStrategy:
                               processed_data['base_score_volume_adjusted'] = df_or_series[col_join]
                          else:
                               logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 'ADJUSTED_SCORE' 已存在于 processed_data['base_score_volume_adjusted']，跳过合并。")
-                    else: 
+                    else:
                         logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 '{col_join}' 已存在于 processed_data，跳过合并来自 '{key}' 的同名列。")
 
-            elif isinstance(df_or_series, pd.Series) and not df_or_series.empty: 
+            elif isinstance(df_or_series, pd.Series) and not df_or_series.empty:
                  # 合并 Series
                  # 如果 Series 有 name 属性，使用 name 作为列名
                  series_col_name = df_or_series.name
                  if series_col_name and series_col_name not in processed_data.columns:
                      processed_data[series_col_name] = df_or_series
                  # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
-                 elif not series_col_name and key not in processed_data.columns: 
-                      processed_data[key] = df_or_series
+                 elif not series_col_name and key not in processed_data.columns:
+                      processed_data[key] = df_oried_data[key] = df_or_series
                  else:
                      logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
 
         # --- 阶段 2: Transformer 模型预测增强 ---
         logger.info(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
         # 添加 transformer_signal 列 (内部列)，默认填充 50.0
-        processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index) 
+        processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
 
         self.set_model_paths(stock_code)
         # 调用加载 Transformer 模型的方法
-        self.load_transformer_model(stock_code) 
+        self.load_transformer_model(stock_code)
 
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
             try:
                 logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型已加载，开始进行预测...")
-                
+
                 # 预测函数 predict_with_transformer_model 应该处理数据的选取、标准化、窗口化和预测
                 # 确保 processed_data 包含所有 selected_feature_names_for_transformer 中的列
                 # 预测函数会返回与原始数据索引对齐的预测结果 Series
@@ -2557,7 +2595,7 @@ class TrendFollowingStrategy:
 
 
         # --- 阶段 5: 存储中间数据并返回结果 ---
-        self.intermediate_data = processed_data.copy() 
+        self.intermediate_data = processed_data.copy()
 
         if not self.intermediate_data.empty:
             latest_signal_val = self.intermediate_data['signal'].iloc[-1] if 'signal' in self.intermediate_data.columns else 0
@@ -2591,7 +2629,7 @@ class TrendFollowingStrategy:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 缺失必需的 Transformer 模型/Scaler/特征文件，无法加载。")
             self._reset_model_components() # 重置状态
             return
-        
+
         try:
             # 加载选中特征列表
             with open(self.selected_features_path, 'r', encoding='utf-8') as f:
@@ -2612,7 +2650,7 @@ class TrendFollowingStrategy:
                 window_size=self.transformer_window_size
             )
             self.transformer_model.to(self.device)
-            
+
             # 加载模型权重
             self.transformer_model.load_state_dict(torch.load(self.model_path, map_location=self.device))
             logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型权重从 {self.model_path} 加载成功。")
@@ -2630,7 +2668,7 @@ class TrendFollowingStrategy:
                  self._reset_model_components() # 重置状态
             else:
                  # 设置模型为评估模式
-                 self.transformer_model.eval() 
+                 self.transformer_model.eval()
                  logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型及相关组件加载完成并设置为评估模式。")
 
         except Exception as e:
@@ -2652,13 +2690,13 @@ class TrendFollowingStrategy:
                         features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,
                         features_scaled_val: np.ndarray, targets_scaled_val: np.ndarray,
                         features_scaled_test: np.ndarray, targets_scaled_test: np.ndarray,
-                        feature_scaler: Union[MinMaxScaler, StandardScaler], 
+                        feature_scaler: Union[MinMaxScaler, StandardScaler],
                         target_scaler: Union[MinMaxScaler, StandardScaler],
                         selected_feature_names: List[str]):
         """
         保存准备好的 Transformer 训练数据和 Scaler。
         """
-        self.set_model_paths(stock_code) 
+        self.set_model_paths(stock_code)
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备数据：部分或全部路径未设置。")
             # 不是 raise 异常，而是返回 False 表示保存失败
@@ -2683,7 +2721,7 @@ class TrendFollowingStrategy:
             with open(self.selected_features_path, 'w', encoding='utf-8') as f:
                  json.dump(selected_feature_names, f, ensure_ascii=False, indent=4)
             logger.debug(f"[{self.strategy_name}][{stock_code}] 选中特征名列表已保存到 {self.selected_features_path}。")
-            
+
             return True # 返回 True 表示保存成功
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备好的数据、Scaler或特征列表时出错: {e}", exc_info=True)
@@ -2695,9 +2733,9 @@ class TrendFollowingStrategy:
         从文件加载特定股票准备好的 Transformer 训练数据和 Scaler。
         返回 NumPy 数组和 Scaler 对象。加载失败时返回空 NumPy 数组和 None。
         """
-        self.set_model_paths(stock_code) 
+        self.set_model_paths(stock_code)
         empty_array = np.array([])
-        
+
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 加载准备数据：部分或全部路径未设置。")
             self.selected_feature_names_for_transformer = [] # 重置列表
@@ -2716,7 +2754,7 @@ class TrendFollowingStrategy:
             self.selected_feature_names_for_transformer = [] # 重置列表
              # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
-        
+
         try:
             data_npz = np.load(self.all_prepared_data_npz_path)
             features_train = data_npz['features_scaled_train']
@@ -2733,7 +2771,7 @@ class TrendFollowingStrategy:
             with open(self.selected_features_path, 'r', encoding='utf-8') as f:
                  self.selected_feature_names_for_transformer = json.load(f)
             logger.debug(f"[{self.strategy_name}][{stock_code}] 选中特征名列表 ({len(self.selected_feature_names_for_transformer)}个) 从 {self.selected_features_path} 加载。")
-            
+
             # 检查加载的数据和 scaler 是否匹配 (维度检查)
             if feature_scaler is not None and features_train.shape[1] != len(self.selected_feature_names_for_transformer):
                  logger.error(f"[{self.strategy_name}][{stock_code}] 加载的数据特征维度 ({features_train.shape[1]}) 与选中特征列表长度 ({len(self.selected_feature_names_for_transformer)}) 不匹配！")
@@ -2747,7 +2785,6 @@ class TrendFollowingStrategy:
             self.selected_feature_names_for_transformer = [] # 重置列表
             # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
-
 
     def prepare_data_and_train(self, data: pd.DataFrame, stock_code: str, retrain: bool = False, indicator_configs: Optional[List[Dict]] = None):
         """
@@ -2766,7 +2803,7 @@ class TrendFollowingStrategy:
         feature_scaler_exists = os.path.exists(self.feature_scaler_path) if self.feature_scaler_path else False
         target_scaler_exists = os.path.exists(self.target_scaler_path) if self.target_scaler_path else False
         selected_features_exists = os.path.exists(self.selected_features_path) if self.selected_features_path else False
-        
+
         if model_exists and feature_scaler_exists and target_scaler_exists and selected_features_exists and not retrain:
             logger.info(f"{log_prefix} 模型和 Scalers 已存在，跳过数据准备和训练。")
             # 尝试加载它们，以便在 run 方法中使用 (这里实际上是在训练任务中调用，加载后用于评估等)
@@ -2783,7 +2820,7 @@ class TrendFollowingStrategy:
                      return # 加载成功并尝试训练/评估后返回
 
                  else:
-                      logger.warning(f"{log_prefix} 加载现有 Scalers/特征列表失败，即使文件存在。可能需要重新准备数据和训练。")
+                      logger.warning(f"[{log_prefix}] 加载现有 Scalers/特征列表失败，即使文件存在。可能需要重新准备数据和训练。")
                       retrain = True # 强制重新训练
             except Exception as e:
                  logger.error(f"[{log_prefix}] 加载现有 Scalers/特征列表时发生错误: {e}", exc_info=True)
@@ -2792,23 +2829,18 @@ class TrendFollowingStrategy:
 
         if retrain or not (model_exists and feature_scaler_exists and target_scaler_exists and selected_features_exists):
             logger.info(f"[{log_prefix}] 开始准备 Transformer 模型训练数据...")
-            
+
             # 确保输入数据 data 包含计算 target_column 所需的列以及所有潜在的特征列
             # Transformer 的 target_column 是 'final_rule_signal'，这需要通过规则计算得到
             # 所以在准备数据前，需要先运行规则信号计算逻辑
-            
+
             if data is None or data.empty:
                  logger.error(f"[{log_prefix}] 输入数据为空，无法准备 Transformer 数据。")
                  return
 
             # 假设 indicator_configs 已经由外部提供或在此之前加载
             # 如果没有提供 indicator_configs，_calculate_rule_based_signal 内部会尝试使用默认配置或跳过计算
-            # 为了确保 target_column 'final_rule_signal' 存在，我们需要调用规则计算
-            
-            # 注意：在训练任务中，我们可能没有 IndicatorService 提供的 indicator_configs 参数。
-            # 假设 prepare_data_and_train 接收到的 data 已经是经过 IndicatorService 处理后的包含所有基础指标的 DataFrame。
-            # 并且假设 strategy_utils.calculate_base_scores 等函数可以直接使用 data 中的指标列。
-            # 为了生成 'final_rule_signal' 作为 Transformer 的目标，我们需要在这里运行规则计算的一部分。
+            # 为了确保 target_column 'final_rule_signal' 存在，我们需要在这里运行规则计算的一部分。
 
             logger.info(f"[{log_prefix}] 在准备数据前计算规则信号以生成目标列 '{self.transformer_target_column}'...")
             try:
@@ -2817,7 +2849,7 @@ class TrendFollowingStrategy:
                  # 如果没有提供，可能会导致 _calculate_rule_based_signal 出错或生成默认信号
                  # 更好的做法是，由 IndicatorService 提供所有需要的指标和衍生特征列，然后在策略内部计算目标列
                  # 假设 prepare_data_and_train 接收到的 data 已经包含了足够计算 final_rule_signal 的所有基础指标和衍生特征
-                 
+
                  # 模拟获取 indicator_configs，如果外部未提供，尝试使用默认配置
                  if indicator_configs is None:
                      logger.warning(f"[{log_prefix}] 准备数据时未提供 indicator_configs，规则信号计算可能不完整。")
@@ -2830,11 +2862,11 @@ class TrendFollowingStrategy:
                       configs_for_rule_calc = indicator_configs # 使用传入的 configs
 
                  final_rule_signal_for_train, intermediate_results_dict_for_train = self._calculate_rule_based_signal(
-                     data=data, 
-                     stock_code=stock_code, 
+                     data=data,
+                     stock_code=stock_code,
                      indicator_configs=configs_for_rule_calc # 传递 configs
                  )
-                 
+
                  # 将计算出的 final_rule_signal 添加到 data 中作为目标列
                  data_with_target = data.copy()
                  data_with_target['final_rule_signal'] = final_rule_signal_for_train # 添加目标列
@@ -2865,7 +2897,7 @@ class TrendFollowingStrategy:
             # 调用 prepare_data_for_transformer 进行数据准备
             # prepare_data_for_transformer 会处理特征选择、标准化、窗口化、分割
             # 并返回 NumPy 数组以及训练过程中生成的 scalers 和 selected_feature_names
-            
+
             try:
                 features_scaled_train_np, targets_scaled_train_np, \
                 features_scaled_val_np, targets_scaled_val_np, \
@@ -2896,7 +2928,7 @@ class TrendFollowingStrategy:
                     fs_selection_threshold=self.transformer_data_prep_config.get('fs_selection_threshold', 'median'),
                     target_scaler_type=self.transformer_data_prep_config.get('target_scaler_type', 'minmax')
                 )
-                
+
                 self.feature_scaler = feature_scaler
                 self.target_scaler = target_scaler
                 self.selected_feature_names_for_transformer = selected_feature_names
@@ -2914,13 +2946,12 @@ class TrendFollowingStrategy:
                 # 调用训练方法
                 logger.info(f"[{log_prefix}] 开始训练 Transformer 模型...")
                 # train_transformer_model_from_prepared_data 会从文件加载 NPZ 数据并训练
-                self.train_transformer_model_from_prepared_data(stock_code) 
+                self.train_transformer_model_from_prepared_data(stock_code)
 
             except Exception as e:
                 logger.error(f"[{log_prefix}] 准备 Transformer 数据或训练出错: {e}", exc_info=True)
                 # 重置模型相关状态
                 self._reset_model_components()
-
 
     def _calculate_trend_duration(self, data_with_signals: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -2944,12 +2975,12 @@ class TrendFollowingStrategy:
         if final_signal_series.empty: return trend_duration_info
 
         # 趋势判断阈值来自 trend_following_params
-        trend_threshold_upper = self.tf_params.get('trend_confirmation_threshold_upper', 55) 
-        trend_threshold_lower = self.tf_params.get('trend_confirmation_threshold_lower', 45) 
-        strong_bullish_threshold = self.tf_params.get('strong_bullish_threshold', 75) 
-        strong_bearish_threshold = self.tf_params.get('strong_bearish_threshold', 25) 
-        moderate_bullish_threshold = self.tf_params.get('moderate_bullish_threshold', 60) 
-        moderate_bearish_threshold = self.tf_params.get('moderate_bearish_threshold', 40) 
+        trend_threshold_upper = self.tf_params.get('trend_confirmation_threshold_upper', 55)
+        trend_threshold_lower = self.tf_params.get('trend_confirmation_threshold_lower', 45)
+        strong_bullish_threshold = self.tf_params.get('strong_bullish_threshold', 75)
+        strong_bearish_threshold = self.tf_params.get('strong_bearish_threshold', 25)
+        moderate_bullish_threshold = self.tf_params.get('moderate_bullish_threshold', 60)
+        moderate_bearish_threshold = self.tf_params.get('moderate_bearish_threshold', 40)
 
         # 确保阈值是有效数字
         if not isinstance(trend_threshold_upper, (int, float)): trend_threshold_upper = 55.0
@@ -2963,16 +2994,16 @@ class TrendFollowingStrategy:
         current_bullish_streak = 0
         current_bearish_streak = 0
         # 从最新数据向前计算连续周期数
-        for signal_val in final_signal_series.iloc[::-1]: 
+        for signal_val in final_signal_series.iloc[::-1]:
             if signal_val >= trend_threshold_upper:
                 current_bullish_streak += 1
-                current_bearish_streak = 0 
+                current_bearish_streak = 0
             elif signal_val <= trend_threshold_lower:
                 current_bearish_streak += 1
-                current_bullish_streak = 0 
-            else: 
+                current_bullish_streak = 0
+            else:
                 break # 信号回到中性区域，趋势中断
-        
+
         trend_duration_info['bullish_duration'] = current_bullish_streak
         trend_duration_info['bearish_duration'] = current_bearish_streak
 
@@ -2986,7 +3017,7 @@ class TrendFollowingStrategy:
 
             # 获取交易日总分钟数参数，用于按“交易日”格式化持续时间
             # 默认为 A 股交易时间（上午 9:30-11:30, 下午 1:00-3:00），共 4 小时 = 240 分钟
-            trading_day_minutes = self.tf_params.get('trading_day_minutes', 240) 
+            trading_day_minutes = self.tf_params.get('trading_day_minutes', 240)
             if not isinstance(trading_day_minutes, (int, float)) or trading_day_minutes <= 0:
                  logger.warning(f"[{self.strategy_name}] 趋势持续时间计算：'trading_day_minutes' 参数无效 ({trading_day_minutes})，使用简单天/小时/分钟格式。")
                  # 定义简单格式化函数
@@ -3000,7 +3031,7 @@ class TrendFollowingStrategy:
                          days, rem_hours = divmod(hours, 24)
                          # 确保分钟部分也包含
                          return f"{days}天{rem_hours}小时{rem_minutes}分钟" if rem_hours or rem_minutes else f"{days}天"
-                 
+
                  # 使用简单格式化函数
                  trend_duration_info['bullish_duration_text'] = format_duration_simple(bullish_total_minutes)
                  trend_duration_info['bearish_duration_text'] = format_duration_simple(bearish_total_minutes)
@@ -3009,7 +3040,7 @@ class TrendFollowingStrategy:
                 # 定义按交易日格式化函数
                 def format_duration_with_trading_day(total_minutes, trading_day_minutes):
                     if total_minutes == 0: return "0分钟"
-                    
+
                     full_trading_days = total_minutes // trading_day_minutes
                     remaining_minutes_after_days = total_minutes % trading_day_minutes
 
@@ -3049,11 +3080,11 @@ class TrendFollowingStrategy:
         # 判断当前趋势方向和强度
         latest_rule_signal_val = final_signal_series.iloc[-1]
         # 趋势强度阈值来自 trend_following_params
-        strong_bullish_threshold = self.tf_params.get('strong_bullish_threshold', 75) 
-        strong_bearish_threshold = self.tf_params.get('strong_bearish_threshold', 25) 
-        moderate_bullish_threshold = self.tf_params.get('moderate_bullish_threshold', 60) 
-        moderate_bearish_threshold = self.tf_params.get('moderate_bearish_threshold', 40) 
-        
+        strong_bullish_threshold = self.tf_params.get('strong_bullish_threshold', 75)
+        strong_bearish_threshold = self.tf_params.get('strong_bearish_threshold', 25)
+        moderate_bullish_threshold = self.tf_params.get('moderate_bullish_threshold', 60)
+        moderate_bearish_threshold = self.tf_params.get('moderate_bearish_threshold', 40)
+
         # 确保阈值是有效数字
         if not isinstance(strong_bullish_threshold, (int, float)): strong_bullish_threshold = 75.0
         if not isinstance(strong_bearish_threshold, (int, float)): strong_bearish_threshold = 25.0
@@ -3080,7 +3111,7 @@ class TrendFollowingStrategy:
         # 判断趋势持续状态（短、中、长）
         current_duration_periods = max(current_bullish_streak, current_bearish_streak)
         # 趋势持续时间阈值来自 trend_following_params
-        trend_duration_threshold_strong = self.tf_params.get('trend_duration_threshold_strong', 5) 
+        trend_duration_threshold_strong = self.tf_params.get('trend_duration_threshold_strong', 5)
         trend_duration_threshold_moderate = self.tf_params.get('trend_duration_threshold_moderate', 10)
 
         # 确保阈值是有效数字
@@ -3115,7 +3146,7 @@ class TrendFollowingStrategy:
         if self.intermediate_data is None or self.intermediate_data.empty:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 中间数据为空，无法进行信号分析。")
             return None
-        
+
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
 
@@ -3132,17 +3163,21 @@ class TrendFollowingStrategy:
             return default_name # 如果没找到，返回默认名字
 
         # 获取内部列名
+        combined_signal_col = get_internal_col_name("combined_signal", "combined_signal")
         final_rule_signal_col = get_internal_col_name("final_rule_signal", "final_rule_signal")
         transformer_signal_col = get_internal_col_name("transformer_signal", "transformer_signal")
-        combined_signal_col = get_internal_col_name("combined_signal", "combined_signal")
         base_score_raw_col = get_internal_col_name("base_score_raw", "base_score_raw")
-        base_score_volume_adjusted_col = get_internal_col_name("base_score_volume_adjusted", "base_score_volume_adjusted")
+        base_score_volume_adjusted_col = get_internal_col_name("ADJUSTED_SCORE", "base_score_volume_adjusted") # ADJUSTED_SCORE 在 adjust_score_with_volume 中生成，通常映射到 base_score_volume_adjusted
         alignment_signal_col = get_internal_col_name("alignment_signal", "alignment_signal")
         long_term_context_col = get_internal_col_name("long_term_context", "long_term_context")
         adx_strength_signal_col = get_internal_col_name("adx_strength_signal", "adx_strength_signal")
         stoch_signal_col = get_internal_col_name("stoch_signal", "stoch_signal")
         has_bearish_div_col = get_internal_col_name("HAS_BEARISH_DIVERGENCE", "HAS_BEARISH_DIVERGENCE")
         has_bullish_div_col = get_internal_col_name("HAS_BULLISH_DIVERGENCE", "HAS_BULLISH_DIVERGENCE")
+        # VOL_SPIKE_SIGNAL_{timeframe} 列名模式，需要根据 focus_timeframe 获取具体列名
+        vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern', '').startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
+        vol_spike_signal_col_tf = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
+        vol_spike_signal_col = vol_spike_signal_col_tf[0] if vol_spike_signal_col_tf else None # 使用第一个格式化结果
 
 
         # combined_signal 是内部列
@@ -3163,7 +3198,7 @@ class TrendFollowingStrategy:
         operation_advice_str = "中性观望"
         risk_warning_str = ""
         t_plus_1_note_str = "（受 T+1 限制，建议次日操作）"
-        
+
         # 从 latest_data_row 中安全获取信号值，如果列不存在则默认为 50.0
         final_score_val = latest_data_row.get(combined_signal_col, 50.0)
         final_rule_score_val = latest_data_row.get(final_rule_signal_col, 50.0)
@@ -3190,7 +3225,7 @@ class TrendFollowingStrategy:
                   signal_judgment_dict['overall_signal'] += " (强)"
                   operation_advice_str = f"持有或逢低加仓 (信号强劲) {t_plus_1_note_str}"
                   if duration_status_rule_str == '长': operation_advice_str = f"坚定持有或加仓 (信号强劲且趋势持续) {t_plus_1_note_str}"
-             else: 
+             else:
                   signal_judgment_dict['overall_signal'] += " (温和)"
                   operation_advice_str = f"观望或轻仓试多 (信号温和) {t_plus_1_note_str}"
                   if duration_status_rule_str == '长': operation_advice_str = f"谨慎持有 (信号温和但趋势已久) {t_plus_1_note_str}"
@@ -3200,16 +3235,16 @@ class TrendFollowingStrategy:
                   signal_judgment_dict['overall_signal'] += " (强)"
                   operation_advice_str = f"卖出或逢高减仓 (信号强劲) {t_plus_1_note_str}"
                   if duration_status_rule_str == '长': operation_advice_str = f"坚定空仓或减仓 (信号强劲且趋势持续) {t_plus_1_note_str}"
-             else: 
+             else:
                   signal_judgment_dict['overall_signal'] += " (温和)"
                   operation_advice_str = f"观望或轻仓试空 (信号温和) {t_plus_1_note_str}"
                   if duration_status_rule_str == '长': operation_advice_str = f"谨慎空仓或观望 (信号温和但趋势已久) {t_plus_1_note_str}"
-        else: 
+        else:
             signal_judgment_dict['overall_signal'] = "中性信号"
             operation_advice_str = f"中性观望，等待信号明朗 {t_plus_1_note_str}"
-        
+
         # EMA 排列状态判断 (内部列)
-        alignment_val = latest_data_row.get(alignment_signal_col, np.nan) 
+        alignment_val = latest_data_row.get(alignment_signal_col, np.nan)
         if not np.isnan(alignment_val):
              if alignment_val == 3: signal_judgment_dict['alignment_status'] = "完全多头排列"
              elif alignment_val == -3: signal_judgment_dict['alignment_status'] = "完全空头排列"
@@ -3222,11 +3257,13 @@ class TrendFollowingStrategy:
 
 
         # ADX 强度判断 (内部列)
-        adx_signal_val = latest_data_row.get(adx_strength_signal_col, np.nan)
-        if not np.isnan(adx_signal_val):
+        adx_strength_signal_val = latest_data_row.get(adx_strength_signal_col, np.nan) # 获取归一化后的 ADX 强度信号
+        if not np.isnan(adx_strength_signal_val):
             # 使用原始 ADX 阈值进行判断，而不是归一化后的信号
-            adx_period_bs = self.params.get('base_scoring', {}).get("dmi_period", 14)
-            adx_col = f'ADX_{adx_period_bs}_{self.focus_timeframe}'
+            # DMI 周期来自全局 base_scoring.dmi_period 或 indicator_analysis_params.dmi_period
+            param_sources = [self.tf_params, self.params.get('volume_confirmation', {}), self.params.get('indicator_analysis_params', {}), self.fe_params, self.params.get('base_scoring', {})]
+            dmi_period_bs = next((_get_param_val(param_sources, 'dmi_period', 14) for _ in [None]), 14) # 使用辅助函数获取 DMI 周期
+            adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}' # 修改行：使用带后缀的原始 ADX 列名
             adx_val = latest_data_row.get(adx_col, np.nan) # 获取原始 ADX 值
 
             if not np.isnan(adx_val):
@@ -3251,7 +3288,7 @@ class TrendFollowingStrategy:
         # 背离状态判断 (内部列)
         has_bearish_div_val = latest_data_row.get(has_bearish_div_col, False)
         has_bullish_div_val = latest_data_row.get(has_bullish_div_col, False)
-        
+
         if has_bearish_div_val and final_score_val > 50:
             signal_judgment_dict['divergence_status'] = "检测到顶背离"
             risk_warning_str += "检测到顶背离，可能预示趋势衰竭或反转！ "
@@ -3275,7 +3312,7 @@ class TrendFollowingStrategy:
             f"基于规则趋势判断: {trend_duration_info_dict.get('current_trend', '中性')} (强度: {trend_duration_info_dict.get('trend_strength', '不明')})\n"
             f"趋势持续时间: {trend_duration_info_dict.get('bullish_duration_text' if trend_duration_info_dict.get('current_trend','').startswith('看涨') else 'bearish_duration_text','未知')} (状态: {trend_duration_info_dict.get('duration_status', '短')})\n"
             f"EMA排列状态: {signal_judgment_dict.get('alignment_status', '未知')}\n"
-            f"ADX强度信号: {latest_data_row.get(adx_strength_signal_col, np.nan):.2f} ({signal_judgment_dict.get('adx_status', '未知')})\n" 
+            f"ADX强度信号: {latest_data_row.get(adx_strength_signal_col, np.nan):.2f} ({signal_judgment_dict.get('adx_status', '未知')})\n"
             f"背离状态: {signal_judgment_dict.get('divergence_status', '未知')}\n"
             f"操作建议: {operation_advice_str}\n"
             f"风险提示: {risk_warning_str if risk_warning_str else '无明显风险提示。'}\n"
@@ -3285,9 +3322,9 @@ class TrendFollowingStrategy:
         analysis_results_dict['risk_warning'] = risk_warning_str
         analysis_results_dict['chinese_interpretation'] = chinese_interpretation_str
 
-        self.analysis_results = analysis_results_dict 
+        self.analysis_results = analysis_results_dict
         logger.info(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
-        logger.info(chinese_interpretation_str) 
+        logger.info(chinese_interpretation_str)
 
         return analysis_results_dict
 
@@ -3303,7 +3340,7 @@ class TrendFollowingStrategy:
         """
         from stock_models.stock_analytics import StockScoreAnalysis
         from stock_models.stock_basic import StockInfo
-        
+
         if self.analysis_results is None:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 无分析结果可保存。请先运行 analyze_signals。")
             return
@@ -3340,21 +3377,19 @@ class TrendFollowingStrategy:
                   logger.warning(f"[{self.strategy_name}][{stock_code}] 从原始输入 data 获取最新数据行出错: {e}。")
                   latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
 
-
         if latest_intermediate_row.empty:
              logger.error(f"[{self.strategy_name}][{stock_code}] 无法获取最新的数据行用于保存分析结果。")
              # 继续保存，但部分字段可能为 None
 
-
         try:
             stock_obj = StockInfo.objects.get(stock_code=stock_code)
-            
+
             # 辅助函数，将 NaN, Inf 或 None 转换为 None，以便保存到数据库字段
-            def convert_nan_to_none(value): 
+            def convert_nan_to_none(value):
                 if isinstance(value, (float, np.floating)) and (np.isnan(value) or np.isinf(value)):
                     return None
                 # 检查 pandas NotNa，用于处理 pd.NA 或 pd.NaT
-                return value if pd.notna(value) else None 
+                return value if pd.notna(value) else None
 
             # 获取策略内部列名
             internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
@@ -3382,28 +3417,27 @@ class TrendFollowingStrategy:
             vol_spike_signal_col_tf = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
             vol_spike_signal_col = vol_spike_signal_col_tf[0] if vol_spike_signal_col_tf else None # 使用第一个格式化结果
 
-
             # 获取 close 列名，使用 JSON 配置
             ohlcv_configs = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
-            close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close') 
-            close_price_col_name = f'{close_base_name}_{self.focus_timeframe}'
+            close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close')
+            close_price_col_name = f'{close_base_name}_{self.focus_timeframe}' # 修改行：使用带后缀的列名
 
             defaults_payload = {
-                'score': convert_nan_to_none(latest_intermediate_row.get(combined_signal_col)), 
-                'rule_signal': convert_nan_to_none(latest_intermediate_row.get(final_rule_signal_col)), 
-                'lstm_signal': convert_nan_to_none(latest_intermediate_row.get(transformer_signal_col)), 
-                'base_score_raw': convert_nan_to_none(latest_intermediate_row.get(base_score_raw_col)), 
-                'base_score_volume_adjusted': convert_nan_to_none(latest_intermediate_row.get(base_score_volume_adjusted_col)), 
-                'alignment_signal': convert_nan_to_none(latest_intermediate_row.get(alignment_signal_col)), 
-                'long_term_context': convert_nan_to_none(latest_intermediate_row.get(long_term_context_col)), 
-                'adx_strength_signal': convert_nan_to_none(latest_intermediate_row.get(adx_strength_signal_col)), 
-                'stoch_signal': convert_nan_to_none(latest_intermediate_row.get(stoch_signal_col)), 
+                'score': convert_nan_to_none(latest_intermediate_row.get(combined_signal_col)),
+                'rule_signal': convert_nan_to_none(latest_intermediate_row.get(final_rule_signal_col)),
+                'lstm_signal': convert_nan_to_none(latest_intermediate_row.get(transformer_signal_col)),
+                'base_score_raw': convert_nan_to_none(latest_intermediate_row.get(base_score_raw_col)),
+                'base_score_volume_adjusted': convert_nan_to_none(latest_intermediate_row.get(base_score_volume_adjusted_col)),
+                'alignment_signal': convert_nan_to_none(latest_intermediate_row.get(alignment_signal_col)),
+                'long_term_context': convert_nan_to_none(latest_intermediate_row.get(long_term_context_col)),
+                'adx_strength_signal': convert_nan_to_none(latest_intermediate_row.get(adx_strength_signal_col)),
+                'stoch_signal': convert_nan_to_none(latest_intermediate_row.get(stoch_signal_col)),
                 'div_has_bearish_divergence': bool(latest_intermediate_row.get(has_bearish_div_col, False)), # 确保是布尔值
                 'div_has_bullish_divergence': bool(latest_intermediate_row.get(has_bullish_div_col, False)), # 确保是布尔值
                 # 确保 volume_spike_signal_col 存在于 latest_intermediate_row 中
                 'volume_spike_signal': convert_nan_to_none(latest_intermediate_row.get(vol_spike_signal_col)),
 
-                'close_price': convert_nan_to_none(latest_intermediate_row.get(close_price_col_name)), 
+                'close_price': convert_nan_to_none(latest_intermediate_row.get(close_price_col_name)),
 
                 'current_trend': self.analysis_results.get('current_trend'),
                 'trend_strength': self.analysis_results.get('trend_strength'),
@@ -3412,18 +3446,18 @@ class TrendFollowingStrategy:
                 'trend_duration_text_bullish': self.analysis_results.get('bullish_duration_text'),
                 'trend_duration_text_bearish': self.analysis_results.get('bearish_duration_text'),
                 'trend_duration_status': self.analysis_results.get('duration_status'),
-                
+
                 'operation_advice': self.analysis_results.get('operation_advice'),
                 'risk_warning': self.analysis_results.get('risk_warning'),
                 'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
-                
+
                 # TODO: 可以根据需要在 analysis_results_dict 中添加更多字段，并在此处保存
                 # 例如：'score_momentum', 'score_volatility', 'vwap_deviation_percent', 'boll_breakout_signal' 等
                 # 这些字段需要在 _perform_trend_analysis 和 analyze_signals 中计算并添加到 analysis_results_dict
 
                 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x)) # 保存完整的分析结果字典 (将不可序列化的对象转为字符串)
             }
-            
+
             # 使用 update_or_create 方法避免重复创建
             obj, created = StockScoreAnalysis.objects.update_or_create(
                 stock=stock_obj,
@@ -3432,7 +3466,7 @@ class TrendFollowingStrategy:
                 timeframe=self.focus_timeframe, # 保存策略的焦点时间框架
                 defaults=defaults_payload
             )
-            
+
             if created:
                 logger.info(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 创建新的 StockScoreAnalysis 记录。")
             else:
@@ -3442,10 +3476,4 @@ class TrendFollowingStrategy:
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。")
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存 StockScoreAnalysis 记录出错: {e}", exc_info=True)
-
-
-
-
-
-
 
