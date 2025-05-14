@@ -575,13 +575,16 @@ class IndicatorDAO(BaseDAO):
         try:
             # 使用 filter(index__index_code__in=index_codes) 批量查询
             # 注意 IndexDaily 模型的外键关联 IndexInfo 的 index_code 字段
-            data_qs = IndexDaily.objects.filter(
-                index__index_code__in=index_codes,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('index') # 使用 select_related 优化查询
-            # 将 QuerySet 转换为列表
-            data_list = await sync_to_async(list)(data_qs)
+            # 用 sync_to_async 包裹整个 ORM 查询过程，保证异步安全
+            data_list = await sync_to_async(
+                lambda: list(
+                    IndexDaily.objects.filter(
+                        index__index_code__in=index_codes,
+                        trade_time__gte=start_date,
+                        trade_time__lte=end_date
+                    ).select_related('index')
+                )
+            )()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到指数 {index_codes} 的日线数据")
                 return None
@@ -640,13 +643,15 @@ class IndicatorDAO(BaseDAO):
         try:
             # 使用 filter(ths_index__ts_code__in=ths_codes) 批量查询
             # 注意 ThsIndexDaily 模型的外键关联 ThsIndex 的 ts_code 字段
-            data_qs = ThsIndexDaily.objects.filter(
-                ths_index__ts_code__in=ths_codes,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('ths_index') # 使用 select_related 优化查询
-             # 将 QuerySet 转换为列表
-            data_list = await sync_to_async(list)(data_qs)
+            data_list = await sync_to_async(
+                lambda: list(
+                    ThsIndexDaily.objects.filter(
+                        ths_index__ts_code__in=ths_codes,
+                        trade_time__gte=start_date,
+                        trade_time__lte=end_date
+                    ).select_related('ths_index')
+                )
+            )()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺指数 {ths_codes} 的日线数据")
                 return None
@@ -714,13 +719,12 @@ class IndicatorDAO(BaseDAO):
             if not stock:
                  logger.warning(f"无法找到股票信息: {stock_code}，无法获取筹码数据")
                  return None
-            data_qs = StockCyqPerf.objects.filter(
-                stock=stock, # 直接使用股票模型实例进行过滤
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            )
-            # 将 QuerySet 转换为列表
-            data_list = await sync_to_async(list)(data_qs)
+            # 用 sync_to_async 包裹 ORM 查询
+            data_list = await sync_to_async(
+                lambda: list(
+                    StockCyqPerf.objects.filter( stock=stock, trade_time__gte=start_date, trade_time__lte=end_date )
+                )
+            )()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的筹码分布汇总数据")
                 return None
@@ -773,12 +777,15 @@ class IndicatorDAO(BaseDAO):
         """
         try:
             # 使用 filter(stock__stock_code=stock_code) 过滤股票
-            data_qs = FundFlowDaily.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('stock') # 优化查询
-            data_list = await sync_to_async(list)(data_qs)
+            data_list = await sync_to_async(
+                lambda: list(
+                    FundFlowDaily.objects.filter(
+                        stock__stock_code=stock_code,
+                        trade_time__gte=start_date,
+                        trade_time__lte=end_date
+                    ).select_related('stock')
+                )
+            )()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的日级资金流向数据")
                 return None
@@ -833,12 +840,15 @@ class IndicatorDAO(BaseDAO):
         获取指定股票在日期范围内（包含起止日）的同花顺日级资金流向数据，并转换为 DataFrame。
         """
         try:
-            data_qs = FundFlowDailyTHS.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('stock') # 优化查询
-            data_list = await sync_to_async(list)(data_qs)
+            data_list = await sync_to_async(
+                lambda: list(
+                    FundFlowDailyTHS.objects.filter(
+                        stock__stock_code=stock_code,
+                        trade_time__gte=start_date,
+                        trade_time__lte=end_date
+                    ).select_related('stock')
+                )
+            )()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的同花顺日级资金流向数据")
                 return None
@@ -884,12 +894,13 @@ class IndicatorDAO(BaseDAO):
         获取指定股票在日期范围内（包含起止日）的东方财富日级资金流向数据，并转换为 DataFrame。
         """
         try:
-            data_qs = FundFlowDailyDC.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('stock') # 优化查询
-            data_list = await sync_to_async(list)(data_qs)
+            data_list = await sync_to_async(lambda: list(
+                FundFlowDailyDC.objects.filter(
+                    stock__stock_code=stock_code,
+                    trade_time__gte=start_date,
+                    trade_time__lte=end_date
+                ).select_related('stock') # 优化查询
+            ))()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的东方财富日级资金流向数据")
                 return None
@@ -941,12 +952,13 @@ class IndicatorDAO(BaseDAO):
         if not ths_codes:
             return None
         try:
-            data_qs = FundFlowCntTHS.objects.filter(
-                ths_index__ts_code__in=ths_codes,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('ths_index') # 优化查询
-            data_list = await sync_to_async(list)(data_qs)
+            data_list = await sync_to_async(lambda: list(
+                FundFlowCntTHS.objects.filter(
+                    ths_index__ts_code__in=ths_codes,
+                    trade_time__gte=start_date,
+                    trade_time__lte=end_date
+                ).select_related('ths_index') # 优化查询
+            ))()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺板块 {ths_codes} 的资金流向统计数据")
                 return None
@@ -994,12 +1006,13 @@ class IndicatorDAO(BaseDAO):
         if not ths_codes:
             return None
         try:
-            data_qs = FundFlowIndustryTHS.objects.filter(
-                ths_index__ts_code__in=ths_codes,
-                trade_time__gte=start_date,
-                trade_time__lte=end_date
-            ).select_related('ths_index') # 优化查询
-            data_list = await sync_to_async(list)(data_qs)
+            data_list = await sync_to_async(lambda: list(
+                FundFlowIndustryTHS.objects.filter(
+                    ths_index__ts_code__in=ths_codes,
+                    trade_time__gte=start_date,
+                    trade_time__lte=end_date
+                ).select_related('ths_index') # 优化查询
+            ))()
             if not data_list:
                 logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺行业 {ths_codes} 的资金流向统计数据")
                 return None

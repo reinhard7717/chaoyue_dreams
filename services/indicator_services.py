@@ -871,12 +871,12 @@ class IndicatorService:
         print(f"[{stock_code}] Debug: 策略关注的时间级别 (focus_tf): {focus_tf}") # 调试输出：策略关注的时间级别
         print(f"[{stock_code}] Debug: 所有策略所需时间级别集合: {sorted(list(all_time_levels_needed))}") # 调试输出：所有所需时间级别
         # --- 调试点：打印注册完成的 indicator_configs 列表摘要 ---
-        print(f"[{stock_code}] Debug: Contents of indicator_configs after registration (summary):") # 调试输出
-        for i, conf in enumerate(indicator_configs):
-             # 避免打印完整的 params 字典，只打印类型和部分键
-             params_summary = ', '.join([f"{k}:{conf['params'][k]}" for k in list(conf['params'].keys())[: min(3, len(conf['params'])) ]]) + ('...' if len(conf['params']) > 3 else '')
-             print(f"  [{i}] Name: {conf['name']}, Timeframes: {conf['timeframes']}, Params (partial): {{{params_summary}}}") # 调试输出
-        print("-" * 30) # 分隔线
+        # print(f"[{stock_code}] Debug: Contents of indicator_configs after registration (summary):") # 调试输出
+        # for i, conf in enumerate(indicator_configs):
+        #      # 避免打印完整的 params 字典，只打印类型和部分键
+        #      params_summary = ', '.join([f"{k}:{conf['params'][k]}" for k in list(conf['params'].keys())[: min(3, len(conf['params'])) ]]) + ('...' if len(conf['params']) > 3 else '')
+        #      print(f"  [{i}] Name: {conf['name']}, Timeframes: {conf['timeframes']}, Params (partial): {{{params_summary}}}") # 调试输出
+        # print("-" * 30) # 分隔线
         # --- 确定最小时间级别 ---
         # 从 all_time_levels_needed 集合中找到分钟数最小的那个时间级别
         min_time_level = None
@@ -1213,7 +1213,11 @@ class IndicatorService:
              # 在所有数据合并到 final_df 后计算相对强度是合理的。
              # 再次获取 ths_codes 是必要的，因为 enrich_features 内部获取的 ths_codes 没有返回。
              ths_indexs_for_rs = await self.industry_dao.get_ths_indexs_by_code(stock_code)
-             ths_codes_for_rs = [m.ths_index.ts_code for m in ths_indexs_for_rs if m.ths_index]
+             if ths_indexs_for_rs is None:
+                  logger.warning(f"[{stock_code}] 无法获取股票 {stock_code} 的同花顺板块信息。相对强度计算将跳过。")
+                  ths_codes_for_rs = []
+             else:
+                ths_codes_for_rs = [m.ths_index.ts_code for m in ths_indexs_for_rs if m.ths_index]
              # 动态确定相对强度的基准代码列表：固定主要指数 + 股票所属同花顺板块
              # 确保列表唯一
              all_benchmark_codes_for_rs = list(set(main_index_codes + ths_codes_for_rs))
