@@ -1439,7 +1439,7 @@ class TrendFollowingStrategy:
         # 传递命名规范和 IndicatorService 返回的 indicator_configs (如果需要的话)
         # strategy_utils.calculate_all_indicator_scores 需要知道如何找到带后缀的指标列
         # 它可以根据 bs_params 中的 score_indicators 列表和 NAMING_CONFIG 来构建带后缀的列名
-        indicator_scores_df = strategy_utils.calculate_all_indicator_scores(data, bs_params, NAMING_CONFIG) # 传递 NAMING_CONFIG
+        indicator_scores_df = strategy_utils.calculate_all_indicator_scores(data, bs_params, indicator_configs, NAMING_CONFIG)
 
         if indicator_scores_df is None or indicator_scores_df.empty or not any(col.startswith('SCORE_') for col in (indicator_scores_df.columns if isinstance(indicator_scores_df, pd.DataFrame) else [])):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 未计算或未找到任何指标评分列。基础评分将为中性50。")
