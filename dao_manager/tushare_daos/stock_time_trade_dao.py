@@ -66,21 +66,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
-                    # # 2. 准备缓存数据
-                    # cache_data_dict = data_dict.copy()
-                    # if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                    #     # 替换为 stock_code
-                    #     cache_data_dict['stock_code'] = stock.stock_code
-                    #     del cache_data_dict['stock'] # 删除实例键
-                    # prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    # if prepared_data:
-                    #     await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
-                    #     # --- 函数末尾执行最终修剪 ---
-                    #     cache_key =  self.cache_key.history_time_trade(stock.stock_code, "Day")
-                    #     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                    #     # --- 修剪调用结束 ---
-                    # else:
-                    #     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if data_dicts is not None:
                 # 使用包含 StockInfo 实例的列表
                 result = await self._save_all_to_db_native_upsert(
@@ -129,17 +114,6 @@ class StockTimeTradeDAO(BaseDAO):
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                         data_dicts.append(data_dict)
-                        # 2. 准备缓存数据
-                        cache_data_dict = data_dict.copy()
-                        if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                            # 替换为 stock_code
-                            cache_data_dict['stock_code'] = stock.stock_code
-                            del cache_data_dict['stock'] # 删除实例键
-                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
-                        else:
-                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if len(df) < limit:
                 break
             offset += limit
@@ -178,17 +152,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = stock.stock_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if data_dicts is not None:
                 # 使用包含 StockInfo 实例的列表
                 result = await self._save_all_to_db_native_upsert(
@@ -238,17 +201,6 @@ class StockTimeTradeDAO(BaseDAO):
                         data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                         # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                         data_dicts.append(data_dict)
-                        # 2. 准备缓存数据
-                        cache_data_dict = data_dict.copy()
-                        if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                            # 替换为 stock_code
-                            cache_data_dict['stock_code'] = stock.stock_code
-                            del cache_data_dict['stock'] # 删除实例键
-                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
-                        else:
-                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if len(df) < limit:
                 break
             offset += limit
@@ -308,17 +260,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = cache_data_dict['stock'].stock_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.latest_time_trade(stock_code, "Day", prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             # 使用包含 StockInfo 实例的列表
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockDailyData,
@@ -367,17 +308,6 @@ class StockTimeTradeDAO(BaseDAO):
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                     data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = row.ts_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(stock_code, time_level, prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if data_dicts is not None:
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockMinuteData,
@@ -414,17 +344,6 @@ class StockTimeTradeDAO(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-                        # 2. 准备缓存数据
-                        cache_data_dict = data_dict.copy()
-                        if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                            # 替换为 stock_code
-                            cache_data_dict['stock_code'] = row.ts_code
-                            del cache_data_dict['stock'] # 删除实例键
-                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.history_time_trade(stock_code, time_level, prepared_data)
-                        else:
-                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMinuteData,
@@ -513,17 +432,6 @@ class StockTimeTradeDAO(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-                        # 2. 准备缓存数据
-                        cache_data_dict = data_dict.copy()
-                        if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                            # 替换为 stock_code
-                            cache_data_dict['stock_code'] = row.ts_code
-                            del cache_data_dict['stock'] # 删除实例键
-                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                        else:
-                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if len(df) < limit:
                 break
             offset += limit
@@ -563,17 +471,6 @@ class StockTimeTradeDAO(BaseDAO):
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                     data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = row.ts_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMinuteData,
@@ -606,16 +503,6 @@ class StockTimeTradeDAO(BaseDAO):
                     for row in df.itertuples():
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-                        # 2. 准备缓存数据
-                        cache_data_dict = data_dict.copy()
-                        if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                            cache_data_dict['stock_code'] = row.ts_code
-                            del cache_data_dict['stock']
-                        prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                        if prepared_data:
-                            await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                        else:
-                            logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts is not None:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMinuteData,
@@ -663,16 +550,6 @@ class StockTimeTradeDAO(BaseDAO):
                             data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                             # print(f"处理股票: {stock.stock_code}, 时间: {row.trade_time}, 数据: {data_dict}")
                             data_dicts.append(data_dict)
-                            # 准备缓存数据
-                            cache_data_dict = data_dict.copy()
-                            if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                                cache_data_dict['stock_code'] = row.ts_code
-                                del cache_data_dict['stock']
-                            prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                            if prepared_data:
-                                await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                            else:
-                                logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
                 if len(df) < limit:
                     break
                 offset += limit
@@ -714,17 +591,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = row.ts_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(stock_code, time_level, prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if data_dicts:
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockMinuteData,
@@ -802,16 +668,16 @@ class StockTimeTradeDAO(BaseDAO):
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
                     data_dicts.append(data_dict)
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = row.ts_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+                    # cache_data_dict = data_dict.copy()
+                    # if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
+                    #     # 替换为 stock_code
+                    #     cache_data_dict['stock_code'] = row.ts_code
+                    #     del cache_data_dict['stock'] # 删除实例键
+                    # prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    # if prepared_data:
+                    #     await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
+                    # else:
+                    #     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMinuteData,
