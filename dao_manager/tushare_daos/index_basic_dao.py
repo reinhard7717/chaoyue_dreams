@@ -81,24 +81,28 @@ class IndexBasicDAO(BaseDAO):
         :param trade_date: 查询的基准日期（datetime.date类型），为空则默认今天
         :return: 开盘日期列表（datetime.date类型）
         """
-        # 如果没有传trade_date，则使用今天日期
         if not trade_date:
             trade_date = datetime.date.today()
         print(f"基准日期为: {trade_date}")  # 调试信息
-        # 转换为字符串格式以便数据库查询
         trade_date_str = trade_date.strftime('%Y%m%d')
-        # 使用sync_to_async包裹同步ORM查询
-        trade_days_str = await sync_to_async(
+        trade_days_raw = await sync_to_async(
             lambda: list(
                 TradeCalendar.objects.filter(
-                    cal_date__lte=trade_date_str,  # 用trade_date作为基准
+                    cal_date__lte=trade_date_str,
                     is_open=1
                 ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
             )
         )()
-        print(f"查询到的开盘日数量: {len(trade_days_str)}")  # 调试信息
-        # 将字符串日期转为datetime.date类型
-        trade_days = [datetime.datetime.strptime(day, '%Y%m%d').date() for day in trade_days_str]
+        print(f"查询到的开盘日数量: {len(trade_days_raw)}")  # 调试信息
+        # 修改：兼容字符串和datetime.date类型
+        trade_days = []
+        for day in trade_days_raw:
+            if isinstance(day, datetime.date):
+                trade_days.append(day)
+            elif isinstance(day, str):
+                trade_days.append(datetime.datetime.strptime(day, '%Y%m%d').date())
+            else:
+                print(f"未知类型: {type(day)}, 值: {day}")
         return trade_days
     
     async def get_trade_cal_list(self) -> List['TradeCalendar']:
