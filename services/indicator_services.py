@@ -1230,7 +1230,7 @@ class IndicatorService:
                        stock_close_col = f'close_{tf_apply}'
                        if stock_close_col in final_df.columns:
                             # 将动态确定的基准代码列表传递给 calculate_relative_strength
-                            final_df = self.calculate_relative_strength(final_df, stock_close_col, all_benchmark_codes_for_rs, periods, tf_apply)
+                            final_df = self.calculate_relative_strength(df=final_df, stock_close_col=stock_close_col, benchmark_codes=all_benchmark_codes_for_rs, periods=periods, time_level=tf_apply)
                             logger.debug(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 完成。")
                        else:
                             logger.warning(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 失败，未找到股票收盘价列: {stock_close_col}")
@@ -1911,7 +1911,7 @@ class IndicatorService:
             logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    def calculate_relative_strength(df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
+    def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
         """
         计算股票相对于基准指数/板块的相对强度/超额收益。
         使用对数收益率的累积差值进行计算。
