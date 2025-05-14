@@ -561,10 +561,7 @@ class IndicatorDAO(BaseDAO):
 
             # 11. 调用 enrich_features 方法补充特征
             logger.info(f"开始为 {stock_code} {time_level_val} 数据补充特征...")
-            # 调用 enrich_features，并将返回的 DataFrame 赋值给 df
-            df = await self.enrich_features(df, stock_code) # 修改行：调用 enrich_features 并更新 df
-            logger.info(f"特征补充完成 for {stock_code} {time_level_val}.")
-
+            
             # 12. 返回补充特征后的 DataFrame
             return df # 修改行：返回补充特征后的 df
 
