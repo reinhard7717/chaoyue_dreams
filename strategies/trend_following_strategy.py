@@ -364,8 +364,6 @@ class TrendFollowingStrategy:
             logger.error(f"{log_prefix} 调用 IndicatorService.prepare_strategy_dataframe 时出错: {e}", exc_info=True)
             return None
 
-
-
     @staticmethod # 设为静态方法
     def _format_indicator_name(template_or_list: Union[str, List[str]], **kwargs) -> List[str]:
         """
@@ -2119,10 +2117,7 @@ class TrendFollowingStrategy:
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 计算 BOLL 突破信号出错: {e}", exc_info=True)
                 analysis_df['boll_breakout_signal'] = 0.0
-
-
         # 12. 计算综合趋势强度 (可选，作为辅助分析) - 暂时不在这里计算，留给 combine_rule_signals 或后续分析
-
         logger.debug(f"[{self.strategy_name}] 趋势分析完成，最新分析信号 (部分): "
                      f"Alignment: {analysis_df['alignment_signal'].iloc[-1] if not analysis_df.empty and 'alignment_signal' in analysis_df.columns else 'N/A'}, "
                      f"ADX Strength: {analysis_df['adx_strength_signal'].iloc[-1] if not analysis_df.empty and 'adx_strength_signal' in analysis_df.columns else 'N/A'}")
