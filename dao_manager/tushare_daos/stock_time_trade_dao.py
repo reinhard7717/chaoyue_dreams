@@ -66,21 +66,21 @@ class StockTimeTradeDAO(BaseDAO):
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                     # 1. 添加到数据库保存列表 (包含 StockInfo 实例)
                     data_dicts.append(data_dict)
-                    # 2. 准备缓存数据
-                    cache_data_dict = data_dict.copy()
-                    if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
-                        # 替换为 stock_code
-                        cache_data_dict['stock_code'] = stock.stock_code
-                        del cache_data_dict['stock'] # 删除实例键
-                    prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    if prepared_data:
-                        await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
-                        # --- 函数末尾执行最终修剪 ---
-                        cache_key =  self.cache_key.history_time_trade(stock.stock_code, "Day")
-                        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                        # --- 修剪调用结束 ---
-                    else:
-                        logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
+                    # # 2. 准备缓存数据
+                    # cache_data_dict = data_dict.copy()
+                    # if 'stock' in cache_data_dict and isinstance(cache_data_dict['stock'], StockInfo):
+                    #     # 替换为 stock_code
+                    #     cache_data_dict['stock_code'] = stock.stock_code
+                    #     del cache_data_dict['stock'] # 删除实例键
+                    # prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
+                    # if prepared_data:
+                    #     await self.cache_set.history_time_trade(stock.stock_code, "Day", prepared_data)
+                    #     # --- 函数末尾执行最终修剪 ---
+                    #     cache_key =  self.cache_key.history_time_trade(stock.stock_code, "Day")
+                    #     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+                    #     # --- 修剪调用结束 ---
+                    # else:
+                    #     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
             if data_dicts is not None:
                 # 使用包含 StockInfo 实例的列表
                 result = await self._save_all_to_db_native_upsert(

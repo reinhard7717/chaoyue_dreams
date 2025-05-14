@@ -9,7 +9,7 @@ from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, s
 logger = logging.getLogger('tasks')
 
 #  ================ （当日）整体任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task', queue="SaveData_TimeTrade")
+@celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task', queue='celery')
 def run_daily_data_ingestion_task(self, trade_time_str=None):
     """
     整体任务：按顺序执行当日收盘后的数据采集任务。
@@ -72,7 +72,7 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
         return {"status": "error", "message": f"整体任务执行失败: {e}"}
 
 #  ================ （本周）整体任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.run_this_week_data_ingestion_task', queue="SaveData_TimeTrade")
+@celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.run_this_week_data_ingestion_task', queue='celery')
 def run_this_week_data_ingestion_task(self, trade_time_str=None):
     """
     整体任务：按顺序执行当日收盘后的数据采集任务。
