@@ -76,7 +76,7 @@ class TrendFollowingStrategy:
                                  默认为 Django settings 中的 STRATEGY_DATA_DIR。
         """
         self.industry_dao = IndustryDao()
-        self.indicator_service = IndicatorService() # 修改行：初始化 IndicatorService
+        self.indicator_service = IndicatorService() # 初始化 IndicatorService
         # 检查settings中是否配置了INDICATOR_PARAMETERS_CONFIG_PATH
         if params_file is None:
             if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH') or not settings.INDICATOR_PARAMETERS_CONFIG_PATH:
@@ -94,13 +94,16 @@ class TrendFollowingStrategy:
                  logger.warning(f"使用默认备用策略数据目录: {base_data_dir}")
             else:
                 base_data_dir = settings.STRATEGY_DATA_DIR
-        # 修改行：在加载参数之前初始化 fe_params 为空字典
+        # 在加载参数之前初始化 fe_params 为空字典
         self.fe_params: Dict[str, Any] = {} # 初始化 fe_params 为空字典
         self.base_data_dir = base_data_dir
         # --- 阶段 0: 初始化局部变量 ---
         loaded_params: Dict[str, Any] = {} # 用于存储从文件加载的参数
         resolved_params_file_path = params_file # 初始化解析后的路径为传入的路径
         file_load_success = False # 标记参数文件是否成功加载并解析
+        
+        # 将解析后的参数文件路径存储为实例属性
+        self.params_file_path = resolved_params_file_path # 存储解析后的参数文件路径
 
         # 使用类名作为临时的日志前缀，直到实例的 strategy_name 被最终确定
         temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]"
@@ -186,8 +189,8 @@ class TrendFollowingStrategy:
 
         # --- 阶段 3: 设置 self.params (之前由 BaseStrategy 完成) ---
         self.params: Dict[str, Any] = loaded_params # 直接将加载的参数赋值给 self.params
-        # 修改行：在设置 self.params 后，安全获取 fe_params
-        self.fe_params = self.params.get('feature_engineering_params', {}) # 修改行：在加载参数后获取 fe_params
+        # 在设置 self.params 后，安全获取 fe_params
+        self.fe_params = self.params.get('feature_engineering_params', {}) # 在加载参数后获取 fe_params
         # 增加对 self.params 是否为空的日志判断
         logger.debug(f"{temp_log_prefix} self.params 已设置。是否为空: {not bool(self.params)}. 顶层键 (部分): {list(self.params.keys())[:5] if self.params else 'None'}")
 
@@ -332,7 +335,7 @@ class TrendFollowingStrategy:
             # prepare_strategy_dataframe 返回 (DataFrame, indicator_configs)
             prepared_data_tuple = await self.indicator_service.prepare_strategy_dataframe(
                 stock_code=stock_code,
-                params_file=self.tf_params, # 传递参数文件路径
+                params_file=self.params_file_path, # 传递存储的参数文件路径属性
                 base_needed_bars=self.transformer_window_size # 传递基础所需条数（例如 LSTM 窗口大小）
             )
             if prepared_data_tuple is None:
@@ -343,7 +346,7 @@ class TrendFollowingStrategy:
                 logger.error(f"{log_prefix} IndicatorService.prepare_strategy_dataframe 返回空 DataFrame。数据准备失败。")
                 return None
             # 将 IndicatorService 返回的 DataFrame 存储到实例变量，可能用于调试或后续步骤
-            self.intermediate_data = data_df # 修改行：存储 IndicatorService 返回的 DataFrame
+            self.intermediate_data = data_df # 存储 IndicatorService 返回的 DataFrame
             logger.info(f"{log_prefix} 数据准备完成。DataFrame Shape: {data_df.shape}, 列数: {len(data_df.columns)}")
             # logger.debug(f"{log_prefix} 准备好的数据列 (部分): {data_df.columns.tolist()[:30]}...") # 调试输出
             # IndicatorService 已经处理了缺失值填充，这里不再需要额外的填充步骤
@@ -1416,8 +1419,8 @@ class TrendFollowingStrategy:
              ohlcv_base_names_list = []
         ohlcv_base_names = [c['name_pattern'] for c in ohlcv_base_names_list if isinstance(c, dict) and 'name_pattern' in c]
         # 检查 focus_tf 的 close 和 volume 列
-        close_col_focus = f"close_{focus_tf}" # 修改行：使用带后缀的列名
-        volume_col_focus = f"volume_{focus_tf}" # 修改行：使用带后缀的列名
+        close_col_focus = f"close_{focus_tf}" # 使用带后缀的列名
+        volume_col_focus = f"volume_{focus_tf}" # 使用带后缀的列名
         critical_ohlcv_cols = [f"{base_col}_{focus_tf}" for base_col in ohlcv_base_names if base_col in ['close', 'volume']]
 
         missing_critical_cols = [col for col in critical_ohlcv_cols if col not in data.columns or data[col].isnull().all()]
@@ -1436,7 +1439,7 @@ class TrendFollowingStrategy:
         # 传递命名规范和 IndicatorService 返回的 indicator_configs (如果需要的话)
         # strategy_utils.calculate_all_indicator_scores 需要知道如何找到带后缀的指标列
         # 它可以根据 bs_params 中的 score_indicators 列表和 NAMING_CONFIG 来构建带后缀的列名
-        indicator_scores_df = strategy_utils.calculate_all_indicator_scores(data, bs_params, NAMING_CONFIG) # 修改行：传递 NAMING_CONFIG
+        indicator_scores_df = strategy_utils.calculate_all_indicator_scores(data, bs_params, NAMING_CONFIG) # 传递 NAMING_CONFIG
 
         if indicator_scores_df is None or indicator_scores_df.empty or not any(col.startswith('SCORE_') for col in (indicator_scores_df.columns if isinstance(indicator_scores_df, pd.DataFrame) else [])):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 未计算或未找到任何指标评分列。基础评分将为中性50。")
@@ -1703,7 +1706,7 @@ class TrendFollowingStrategy:
 
         # 应用背离惩罚 (假定 _apply_divergence_penalty 已实现)
         # _apply_divergence_penalty 需要接收背离信号 DataFrame 和 dd_params
-        final_rule_signal = self._apply_divergence_penalty(final_rule_signal, divergence_signals_df, dd_params) # 修改行：传递 divergence_signals_df 和 dd_params
+        final_rule_signal = self._apply_divergence_penalty(final_rule_signal, divergence_signals_df, dd_params) # 传递 divergence_signals_df 和 dd_params
 
         # 应用趋势确认过滤 (假定 _apply_trend_confirmation 已实现)
         # _apply_trend_confirmation 需要知道趋势持续时间阈值 (self.trend_duration_threshold_strong/moderate)
@@ -1809,7 +1812,7 @@ class TrendFollowingStrategy:
                  # 确保 period 是有效数字且大于 0
                 if isinstance(period, (int, float)) and period > 0:
                     # EMA Score 是基于综合评分计算的，不带时间级别后缀
-                    analysis_df[f'ema_score_{period}'] = ta.ema(score_series_filled, length=period) # 修改行：计算 EMA Score
+                    analysis_df[f'ema_score_{period}'] = ta.ema(score_series_filled, length=period) # 计算 EMA Score
                 else:
                     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score 周期参数无效: {period}. 跳过计算。")
 
@@ -2085,9 +2088,9 @@ class TrendFollowingStrategy:
         bbl_col = f'BBL_{boll_period_signal}_{std_str_signal}_{focus_tf}' # 使用带后缀的列名
         close_col = f'close_{focus_tf}' # 收盘价列名 (已在 VWAP 部分获取)
 
-        missing_boll_cols = [col for col in [bbu_col, bbl_col, close_col] if col not in data.columns] # 修改行：检查 bbu_col 和 bbl_col
+        missing_boll_cols = [col for col in [bbu_col, bbl_col, close_col] if col not in data.columns] # 检查 bbu_col 和 bbl_col
         if missing_boll_cols:
-            logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 缺少 BOLL 上轨/下轨或收盘价列 ({', '.join(missing_boll_cols)}) for focus_tf='{focus_tf}' (period={boll_period_signal}, std_dev={boll_std_dev_signal})，无法计算 BOLL 突破信号。") # 修改行：日志信息
+            logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: 缺少 BOLL 上轨/下轨或收盘价列 ({', '.join(missing_boll_cols)}) for focus_tf='{focus_tf}' (period={boll_period_signal}, std_dev={boll_std_dev_signal})，无法计算 BOLL 突破信号。") # 日志信息
             analysis_df['boll_breakout_signal'] = 0.0 # 赋默认值
         else:
             try:
@@ -2121,7 +2124,7 @@ class TrendFollowingStrategy:
         # 使用JSON配置获取close列名
         ohlcv_configs = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
         close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close')
-        close_col = f'{close_base_name}_{focus_tf}' # 修改行：使用带后缀的列名
+        close_col = f'{close_base_name}_{focus_tf}' # 使用带后缀的列名
 
         if close_col not in data.columns or data[close_col].isnull().all():
             logger.warning(f"[{self.strategy_name}] 动态调整波动率：缺少收盘价列 {close_col} 或数据全为空。")
@@ -3247,7 +3250,7 @@ class TrendFollowingStrategy:
             # DMI 周期来自全局 base_scoring.dmi_period 或 indicator_analysis_params.dmi_period
             param_sources = [self.tf_params, self.params.get('volume_confirmation', {}), self.params.get('indicator_analysis_params', {}), self.fe_params, self.params.get('base_scoring', {})]
             dmi_period_bs = next((_get_param_val(param_sources, 'dmi_period', 14) for _ in [None]), 14) # 使用辅助函数获取 DMI 周期
-            adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}' # 修改行：使用带后缀的原始 ADX 列名
+            adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}' # 使用带后缀的原始 ADX 列名
             adx_val = latest_data_row.get(adx_col, np.nan) # 获取原始 ADX 值
 
             if not np.isnan(adx_val):
@@ -3404,7 +3407,7 @@ class TrendFollowingStrategy:
             # 获取 close 列名，使用 JSON 配置
             ohlcv_configs = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
             close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close')
-            close_price_col_name = f'{close_base_name}_{self.focus_timeframe}' # 修改行：使用带后缀的列名
+            close_price_col_name = f'{close_base_name}_{self.focus_timeframe}' # 使用带后缀的列名
 
             defaults_payload = {
                 'score': convert_nan_to_none(latest_intermediate_row.get(combined_signal_col)),
