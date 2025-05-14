@@ -192,13 +192,14 @@ class IndexBasicDAO(BaseDAO):
                 return index_data_dict
         return None
 
-    async def get_indexs_by_publisher(self, publisher: str="中证指数有限公司") -> Optional['IndexInfo']:
+    async def get_indexs_by_publisher(self, publisher: str="中证指数有限公司") -> Optional[list]:
         """
         获得指数信息
         Args
         """
         # 从数据库获取
-        index_infos = await sync_to_async(lambda: IndexInfo.objects.filter(publisher=publisher, exp_date=None).all())()
+        # 用list强制执行ORM查询，避免惰性查询在async上下文触发
+        index_infos = await sync_to_async(lambda: list(IndexInfo.objects.filter(publisher=publisher, exp_date=None)))()
         if index_infos:
             return index_infos
         else:
