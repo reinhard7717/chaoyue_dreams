@@ -123,12 +123,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
-        # --- 函数末尾执行最终修剪 ---
-        stocks = self.stock_basic_dao.get_stock_list()
-        for stock in stocks:
-            cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level="Day")
-            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        # --- 修剪调用结束 ---
         return result
 
     async def save_daily_time_trade_history_by_stock_code(self, stock_code: str) -> None:
@@ -159,10 +153,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_list=data_dicts,
                     unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
                 )
-            # --- 函数末尾执行最终修剪 ---
-            cache_key =  self.cache_key.history_time_trade(stock_code, "Day")
-            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-            # --- 修剪调用结束 ---
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
@@ -211,11 +201,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
-        for stock_code in stock_codes:
-            # --- 函数末尾执行最终修剪 ---
-            cache_key =  self.cache_key.history_time_trade(stock_code, "Day")
-            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-            # --- 修剪调用结束 ---
         return result
 
     async def save_daily_time_trade_today(self) -> None:
@@ -441,10 +426,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
-        # --- 函数末尾执行最终修剪 ---
-        cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        # --- 修剪调用结束 ---
         return result
 
     async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
@@ -478,11 +459,11 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
             )
             logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据完成. 结果: {result}")
-        for stock_code in stock_codes:
-            # --- 函数末尾执行最终修剪 ---
-            cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-            # --- 修剪调用结束 ---
+        # for stock_code in stock_codes:
+        #     # --- 函数末尾执行最终修剪 ---
+        #     cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
+        #     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
+        #     # --- 修剪调用结束 ---
         
         return result
 
@@ -597,10 +578,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_list=data_dicts,
                     unique_fields=['stock', 'trade_time'] # ORM 能处理 stock 实例
                 )
-                # --- 函数末尾执行最终修剪 ---
-                cache_key =  self.cache_key.history_time_trade(stock.stock_code, time_level)
-                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                # --- 修剪调用结束 ---
         else:
             result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
@@ -635,12 +612,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
-            for stock_code in stock_codes:
-                for time_level in time_levels:
-                    # --- 函数末尾执行最终修剪 ---
-                    cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-                    await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                    # --- 修剪调用结束 ---
             return result
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
@@ -684,11 +655,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
-            for stock_code in stock_codes:
-                # --- 函数末尾执行最终修剪 ---
-                cache_key =  self.cache_key.history_time_trade(stock_code, time_level)
-                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-                # --- 修剪调用结束 ---
             return result
         else:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
@@ -958,10 +924,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_dicts,
                 unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
             )
-        # --- 函数末尾执行最终修剪 ---
-        cache_key = self.cache_key.stock_day_basic_info(stock_code)
-        await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        # --- 修剪调用结束 ---
         return result
 
     async def save_stock_daily_basic_history_by_stock_codes(self, stock_codes: List[str], start_date: date=None, end_date: date=None) -> None:
@@ -1006,11 +968,6 @@ class StockTimeTradeDAO(BaseDAO):
             )
         else:
             result = []
-        # --- 函数末尾执行最终修剪 ---
-        for stock_code in stock_codes:
-            cache_key = self.cache_key.stock_day_basic_info(stock_code)
-            await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        # --- 修剪调用结束 ---
         return result
 
     async def get_stock_daily_basic(self, stock_code: str) -> None:
