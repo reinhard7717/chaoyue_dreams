@@ -233,15 +233,15 @@ class StockCyqPerf(models.Model):
 class IndexDaily(models.Model):
     index = models.ForeignKey('IndexInfo', to_field='index_code', db_column='index_code', related_name="index_daily", on_delete=models.CASCADE, verbose_name="指数")
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
-    close = models.FloatField(verbose_name="收盘点位")
-    open = models.FloatField(verbose_name="开盘点位")
-    high = models.FloatField(verbose_name="最高点位")
-    low = models.FloatField(verbose_name="最低点位")
+    close = models.FloatField(verbose_name="收盘点位", null=True, blank=True)
+    open = models.FloatField(verbose_name="开盘点位", null=True, blank=True)
+    high = models.FloatField(verbose_name="最高点位", null=True, blank=True)
+    low = models.FloatField(verbose_name="最低点位", null=True, blank=True)
     pre_close = models.FloatField(verbose_name="昨日收盘点", null=True, blank=True)
-    change = models.FloatField(verbose_name="涨跌点")
-    pct_chg = models.FloatField(verbose_name="涨跌幅")
-    vol = models.FloatField(verbose_name="成交量(手)")
-    amount = models.FloatField(verbose_name="成交额(千元)")
+    change = models.FloatField(verbose_name="涨跌点", null=True, blank=True)
+    pct_chg = models.FloatField(verbose_name="涨跌幅", null=True, blank=True)
+    vol = models.FloatField(verbose_name="成交量(手)", null=True, blank=True)
+    amount = models.FloatField(verbose_name="成交额(千元)", null=True, blank=True)
 
     class Meta:
         db_table = "index_time_trade_day"
