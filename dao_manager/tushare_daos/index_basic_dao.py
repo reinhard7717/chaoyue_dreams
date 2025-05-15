@@ -402,22 +402,24 @@ class IndexBasicDAO(BaseDAO):
             )
         return result        
 
-    async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
+    async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, indexs: List[IndexInfo] = None) -> Dict:
         """
         保存指数每日指标到数据库
         接口：index_daily，可以通过数据工具调试和查看数据。
         描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
         数据来源：Tushare社区统计计算
         """
-        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        if indexs is None:
+            indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        else:
+            indexs = indexs
         today = datetime.datetime.today()
         today_str = today.strftime('%Y%m%d')
         print(f"指数数量: {len(indexs)}")
         index_daily_dicts = []
         batch_size = 100000  # 每10万条保存一次
         result = None  # 初始化result，防止未保存时未定义
-
-        for index_info in indexs:
+        for i,index_info in enumerate(indexs):
             start_date_str = index_info.list_date
             end_date_str = today_str
             if start_date is not None:
@@ -436,7 +438,7 @@ class IndexBasicDAO(BaseDAO):
                     "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
                 ])
                 if not df.empty:
-                    print(f"获取指数日线行情: {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
+                    print(f"获取指数日线行情: {i+1}/{len(indexs)} {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
                     df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                     df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                     for row in df.itertuples():

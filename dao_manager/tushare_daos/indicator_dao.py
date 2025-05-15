@@ -345,7 +345,7 @@ class IndicatorDAO(BaseDAO):
                 max_time = trade_times_aware[-1]
                 # 对于分钟线，实际范围是 trade_times_aware 中的最早和最晚时间
                 # 对于日/周/月线，实际范围是 trade_times_aware (日期) 中的最早和最晚日期
-                logger.info(f"实际数据时间范围: {min_time} 至 {max_time}，数据量: {len(data_list)} 条，股票: {stock_code} {time_level_str}")
+                # logger.info(f"实际数据时间范围: {min_time} 至 {max_time}，数据量: {len(data_list)} 条，股票: {stock_code} {time_level_str}")
             else:
                 logger.warning(f"无法确定实际数据时间范围，从数据库获取的 trade_times_aware 列表为空，股票: {stock_code} {time_level_str}")
                 # 如果没有有效时间点，数据无效
@@ -557,7 +557,7 @@ class IndicatorDAO(BaseDAO):
                  # 打印各必要列的缺失比例详情
                  missing_details = df[required_cols].isnull().mean().apply(lambda x: f'{x:.2%}')
                  logger.warning(f"处理后 DataFrame 必要列平均缺失比例 {missing_ratio_required:.2%} 超过阈值 {missing_threshold_df}，可能影响后续计算: {stock_code} {time_level_val}. 必要列缺失比例详情: {missing_details.to_dict()}")
-            logger.info(f"返回 DataFrame，必要列平均缺失比例: {missing_ratio_required:.2%}，数据量: {len(df)} 条: {stock_code} {time_level_val}")
+            # logger.info(f"返回 DataFrame，必要列平均缺失比例: {missing_ratio_required:.2%}，数据量: {len(df)} 条: {stock_code} {time_level_val}")
             return df
         except Exception as e:
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
