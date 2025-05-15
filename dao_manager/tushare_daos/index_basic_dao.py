@@ -415,7 +415,7 @@ class IndexBasicDAO(BaseDAO):
             index_codes = index_codes
         today = datetime.datetime.today()
         today_str = today.strftime('%Y%m%d')
-        print(f"指数数量: {len(indexs)}")
+        print(f"指数数量: {len(index_codes)}")
         index_daily_dicts = []
         batch_size = 100000  # 每10万条保存一次
         result = None  # 初始化result，防止未保存时未定义
