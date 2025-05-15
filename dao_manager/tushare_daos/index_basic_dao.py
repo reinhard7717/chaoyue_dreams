@@ -200,8 +200,8 @@ class IndexBasicDAO(BaseDAO):
         index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
         if index_info:
             index_data_dict = self.data_format_process.set_index_info_data(index_info)
-            await self.index_cache_set.index_info(index_code, index_info)
-            return index_data_dict
+            await self.index_cache_set.index_info(index_code, index_data_dict)
+            return index_info
         return None
 
     async def get_indexs_by_publisher(self, publisher: str="中证指数有限公司") -> Optional[list]:
