@@ -437,6 +437,7 @@ class IndexBasicDAO(BaseDAO):
                     data_list=index_dailybasic_dicts,
                     unique_fields=['index_code', 'trade_time']
                 )
+                print(f"保存 {index.index_code} 指数日线行情, freq=Day")
         return result
 
 
