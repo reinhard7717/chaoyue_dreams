@@ -1211,7 +1211,7 @@ class IndicatorService:
              # 考虑到相对强度需要股票和基准在同一时间索引上，且基准是日线，股票是多时间级别，
              # 在所有数据合并到 final_df 后计算相对强度是合理的。
              # 再次获取 ths_codes 是必要的，因为 enrich_features 内部获取的 ths_codes 没有返回。
-             ths_indexs_for_rs = await self.industry_dao.get_ths_index_member(stock_code)
+             ths_indexs_for_rs = await self.industry_dao.get_stock_ths_indices(stock_code)
              if ths_indexs_for_rs is None:
                   logger.warning(f"[{stock_code}] 无法获取股票 {stock_code} 的同花顺板块信息。相对强度计算将跳过。")
                   ths_codes_for_rs = []
