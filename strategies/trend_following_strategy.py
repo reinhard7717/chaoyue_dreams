@@ -309,7 +309,7 @@ class TrendFollowingStrategy:
 
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
 
-    async def prepare_data(self, stock_code: str, base_needed_count: int = 10000) -> Optional[pd.DataFrame]:
+    async def prepare_data(self, stock_code: str, base_needed_count: int = 10000) -> Optional[Tuple[pd.DataFrame, List[Dict]]]:
         """
         使用 IndicatorService 准备包含所有时间级别数据和计算指标的 DataFrame。
         Args:
@@ -341,7 +341,7 @@ class TrendFollowingStrategy:
             logger.info(f"{log_prefix} 数据准备完成。DataFrame Shape: {data_df.shape}, 列数: {len(data_df.columns)}")
             # logger.debug(f"{log_prefix} 准备好的数据列 (部分): {data_df.columns.tolist()[:30]}...") # 调试输出
             # IndicatorService 已经处理了缺失值填充，这里不再需要额外的填充步骤
-            return data_df
+            return data_df, indicator_configs_from_service # 返回 DataFrame 和 indicator_configs
         except Exception as e:
             logger.error(f"{log_prefix} 调用 IndicatorService.prepare_strategy_dataframe 时出错: {e}", exc_info=True)
             return None
