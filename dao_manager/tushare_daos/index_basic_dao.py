@@ -413,7 +413,7 @@ class IndexBasicDAO(BaseDAO):
                     break
                 # 拉取数据
                 df = self.ts_pro.index_dailybasic(**{
-                    "trade_date": index.index_code, "ts_code": "", "start_date": "20250101", "end_date": today_str, "limit": limit, "offset": offset
+                    "trade_date": index.index_code, "ts_code": "", "start_date": "20220101", "end_date": today_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
                     "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"

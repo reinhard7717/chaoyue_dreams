@@ -631,7 +631,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
     # 初始化默认的结果DataFrame，所有形态信号默认为0，索引与输入df一致
     # MODIFIED: Use naming_config to get pattern prefix if available, otherwise use default 'KAP_'
     kline_pattern_prefix = naming_config.get('kline_pattern_naming_convention', {}).get('prefix', 'KAP_') # 新增：从命名规范获取K线形态前缀
-    default_pattern_df = pd.DataFrame(0, index=df.index, columns=[f'{kline_pattern_prefix}{name.upper()}_{tf}' for name in pattern_names]) # 修改行：使用获取到的前缀
+    default_pattern_df = pd.DataFrame(0, index=df.index, columns=[f'{kline_pattern_prefix}{name.upper()}_{tf}' for name in pattern_names]) # 使用获取到的前缀
 
     # 检查所需列是否存在于输入DataFrame中
     if not all(col in df.columns for col in required_cols_tf):
@@ -719,15 +719,15 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
     is_doji = (body <= full_range * doji_body_max_ratio_of_range) & \
               (body >= full_range * doji_body_min_abs_ratio_of_range)
     # Doji信号：阳十字为1，阴十字为-1 (或统一为1表示出现，方向由上下文判断)
-    patterns_calc.loc[is_doji, f'{kline_pattern_prefix}DOJI_{tf}'] = np.where(is_green[is_doji], 1, -1) # 修改行：使用获取到的前缀
+    patterns_calc.loc[is_doji, f'{kline_pattern_prefix}DOJI_{tf}'] = np.where(is_green[is_doji], 1, -1) # 使用获取到的前缀
 
     # 2. 吞没形态 (Engulfing)
     # 看涨吞没: 前阴，今阳，今日阳线实体完全吞没昨日阴线实体
     bull_engulf = is_red1 & is_green & (c > o1) & (o < c1) & (body > body1 * 1.01) # 今日实体比昨日实体大1%以上
-    patterns_calc.loc[bull_engulf, f'{kline_pattern_prefix}BULLISHENGULFING_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bull_engulf, f'{kline_pattern_prefix}BULLISHENGULFING_{tf}'] = 1 # 使用获取到的前缀
     # 看跌吞没: 前阳，今阴，今日阴线实体完全吞没昨日阳线实体
     bear_engulf = is_green1 & is_red & (o > c1) & (c < o1) & (body > body1 * 1.01)
-    patterns_calc.loc[bear_engulf, f'{kline_pattern_prefix}BEARISHENGULFING_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bear_engulf, f'{kline_pattern_prefix}BEARISHENGULFING_{tf}'] = -1 # 使用获取到的前缀
 
     # 3. 锤子线 (Hammer) / 上吊线 (Hanging Man)
     # 定义：实体小，下影线长（通常为实体的2倍以上），上影线短或无。
@@ -742,10 +742,10 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
 
     # 锤子线：出现在下跌趋势后（简化为前一根K线是阴线）
     is_hammer = hammer_like_cond & is_red1
-    patterns_calc.loc[is_hammer, f'{kline_pattern_prefix}HAMMER_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[is_hammer, f'{kline_pattern_prefix}HAMMER_{tf}'] = 1 # 使用获取到的前缀
     # 上吊线：出现在上涨趋势后（简化为前一根K线是阳线）
     is_hanging = hammer_like_cond & is_green1
-    patterns_calc.loc[is_hanging, f'{kline_pattern_prefix}HANGINGMAN_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[is_hanging, f'{kline_pattern_prefix}HANGINGMAN_{tf}'] = -1 # 使用获取到的前缀
 
     # 4. 星线形态 (Morning Star / Evening Star) - 三K线组合
     # 定义：第一根长K线，第二根小实体星线（与第一根有跳空），第三根反向长K线（与第二根有跳空，并深入第一根实体）。
@@ -760,7 +760,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                    is_star1 & \
                    is_green & (body > body2 * 0.5) & (c > (o2 + c2) / 2) & \
                    gap1_down_morning & gap2_up_morning
-    patterns_calc.loc[morning_star, f'{kline_pattern_prefix}MORNINGSTAR_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[morning_star, f'{kline_pattern_prefix}MORNINGSTAR_{tf}'] = 1 # 使用获取到的前缀
 
     # 黄昏之星 (看跌反转)
     # 条件: 前2日大阳线, 前1日星线(与前2日阳线向上跳空), 当日大阴线(与前1日星线向下跳空，收盘深入前2日阳线实体过半)
@@ -770,15 +770,15 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                    is_star1 & \
                    is_red & (body > body2 * 0.5) & (c < (o2 + c2) / 2) & \
                    gap1_up_evening & gap2_down_evening
-    patterns_calc.loc[evening_star, f'{kline_pattern_prefix}EVENINGSTAR_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[evening_star, f'{kline_pattern_prefix}EVENINGSTAR_{tf}'] = -1 # 使用获取到的前缀
 
     # 5. 刺透形态 (Piercing Line) / 乌云盖顶 (Dark Cloud Cover) - 两K线组合
     # 刺透线 (看涨反转): 前大阴，当日阳线低开（低于前阴最低价），收盘深入前阴实体一半以上但未完全吞没。
     piercing = is_red1 & (body1 > avg_body) & is_green & (o < l1) & (c > (o1 + c1) / 2) & (c < o1)
-    patterns_calc.loc[piercing, f'{kline_pattern_prefix}PIERCINGLINE_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[piercing, f'{kline_pattern_prefix}PIERCINGLINE_{tf}'] = 1 # 使用获取到的前缀
     # 乌云盖顶 (看跌反转): 前大阳，当日阴线高开（高于前阳最高价），收盘深入前阳实体一半以上但未完全吞没。
     dark_cloud = is_green1 & (body1 > avg_body) & is_red & (o > h1) & (c < (o1 + c1) / 2) & (c > o1)
-    patterns_calc.loc[dark_cloud, f'{kline_pattern_prefix}DARKCLOUDCOVER_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[dark_cloud, f'{kline_pattern_prefix}DARKCLOUDCOVER_{tf}'] = -1 # 使用获取到的前缀
 
     # 6. 三白兵 (Three White Soldiers) / 三只乌鸦 (Three Black Crows) - 三K线组合
     min_body_ratio_for_soldier_crow = 0.5 # 三兵/三鸦中每根K线实体至少是平均实体的0.5倍
@@ -786,38 +786,38 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
     soldiers = is_green2 & (body2 > avg_body * min_body_ratio_for_soldier_crow) & \
                is_green1 & (body1 > avg_body * min_body_ratio_for_soldier_crow) & (c1 > c2) & (o1 < c2) & (o1 > o2) & \
                is_green & (body > avg_body * min_body_ratio_for_soldier_crow) & (c > c1) & (o < c1) & (o > o1)
-    patterns_calc.loc[soldiers, f'{kline_pattern_prefix}THREEWHITESOLDIERS_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[soldiers, f'{kline_pattern_prefix}THREEWHITESOLDIERS_{tf}'] = 1 # 使用获取到的前缀
     # 三只乌鸦 (看跌持续): 连续三根阴线，每日开盘在前一日实体内，收盘低于前一日收盘，实体逐渐放大或相近。
     crows = is_red2 & (body2 > avg_body * min_body_ratio_for_soldier_crow) & \
             is_red1 & (body1 > avg_body * min_body_ratio_for_soldier_crow) & (c1 < c2) & (o1 > c2) & (o1 < o2) & \
             is_red & (body > avg_body * min_body_ratio_for_soldier_crow) & (c < c1) & (o > c1) & (o < o1)
-    patterns_calc.loc[crows, f'{kline_pattern_prefix}THREEBLACKCROWS_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[crows, f'{kline_pattern_prefix}THREEBLACKCROWS_{tf}'] = -1 # 使用获取到的前缀
 
     # 7. 孕线形态 (Harami) - 两K线组合
     # 定义：第二根K线的实体完全被第一根K线的实体所包含。
     is_harami_body = (np.maximum(o, c) < np.maximum(o1, c1)) & (np.minimum(o, c) > np.minimum(o1, c1))
     # 看涨孕线: 前大阴，后小阳线或十字星被包含。
     bullish_harami = is_red1 & (body1 > avg_body) & is_harami_body & (is_green | is_doji) # is_doji 是当日的十字星判断
-    patterns_calc.loc[bullish_harami, f'{kline_pattern_prefix}BULLISHHARAMI_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bullish_harami, f'{kline_pattern_prefix}BULLISHHARAMI_{tf}'] = 1 # 使用获取到的前缀
     # 看跌孕线: 前大阳，后小阴线或十字星被包含。
     bearish_harami = is_green1 & (body1 > avg_body) & is_harami_body & (is_red | is_doji)
-    patterns_calc.loc[bearish_harami, f'{kline_pattern_prefix}BEARISHHARAMI_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bearish_harami, f'{kline_pattern_prefix}BEARISHHARAMI_{tf}'] = -1 # 使用获取到的前缀
 
     # 十字孕线 (Harami Cross): 孕线形态的第二根K线是十字星。
     bullish_harami_cross = is_red1 & (body1 > avg_body) & is_harami_body & is_doji
-    patterns_calc.loc[bullish_harami_cross, f'{kline_pattern_prefix}BULLISHHARAMICROSS_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bullish_harami_cross, f'{kline_pattern_prefix}BULLISHHARAMICROSS_{tf}'] = 1 # 使用获取到的前缀
     bearish_harami_cross = is_green1 & (body1 > avg_body) & is_harami_body & is_doji
-    patterns_calc.loc[bearish_harami_cross, f'{kline_pattern_prefix}BEARISHHARAMICROSS_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bearish_harami_cross, f'{kline_pattern_prefix}BEARISHHARAMICROSS_{tf}'] = -1 # 使用获取到的前缀
 
     # 8. 镊子顶 (Tweezer Top) / 镊子底 (Tweezer Bottom) - 两K线组合
     # 定义：连续两根K线的最高价（镊子顶）或最低价（镊子底）几乎相同。
     tweezer_tolerance_ratio_of_range = 0.02 # 价格相同的容忍度：平均波幅的2%
     # 镊子底: 两根K线最低点相近，通常前一根为阴线。
     tweezer_bottom = (abs(l - l1) < avg_range * tweezer_tolerance_ratio_of_range) # is_red1 可作为可选增强条件
-    patterns_calc.loc[tweezer_bottom, f'{kline_pattern_prefix}TWEEZERBOTTOM_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[tweezer_bottom, f'{kline_pattern_prefix}TWEEZERBOTTOM_{tf}'] = 1 # 使用获取到的前缀
     # 镊子顶: 两根K线最高点相近，通常前一根为阳线。
     tweezer_top = (abs(h - h1) < avg_range * tweezer_tolerance_ratio_of_range) # is_green1 可作为可选增强条件
-    patterns_calc.loc[tweezer_top, f'{kline_pattern_prefix}TWEEZERTOP_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[tweezer_top, f'{kline_pattern_prefix}TWEEZERTOP_{tf}'] = -1 # 使用获取到的前缀
 
     # 9. 光头光脚K线 (Marubozu) - 单K线形态
     # 定义：实体非常饱满，几乎没有上下影线，实体占整个K线范围的比例非常高，且实体本身也较大。
@@ -827,10 +827,10 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                        (body > avg_body * marubozu_body_min_ratio_of_avg_body)
     # 看涨光头光脚 (大阳线)
     bull_marubozu = is_marubozu_cond & is_green
-    patterns_calc.loc[bull_marubozu, f'{kline_pattern_prefix}BULLISHMARUBOZU_{tf}'] = 1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bull_marubozu, f'{kline_pattern_prefix}BULLISHMARUBOZU_{tf}'] = 1 # 使用获取到的前缀
     # 看跌光头光脚 (大阴线)
     bear_marubozu = is_marubozu_cond & is_red
-    patterns_calc.loc[bear_marubozu, f'{kline_pattern_prefix}BEARISHMARUBOZU_{tf}'] = -1 # 修改行：使用获取到的前缀
+    patterns_calc.loc[bear_marubozu, f'{kline_pattern_prefix}BEARISHMARUBOZU_{tf}'] = -1 # 使用获取到的前缀
 
     # --- 多K线组合形态 (需要更多历史数据) ---
     # 10. 上升三法 (Rising Three Methods) / 下降三法 (Falling Three Methods) - 五K线组合
@@ -844,7 +844,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                        (is_red2 | (body2 < avg_body * consolidation_body_max_ratio_of_avg_body)) & (h2 < h4) & (l2 > l4) & \
                        is_red1 & (body1 < avg_body * consolidation_body_max_ratio_of_avg_body) & (h1 < h4) & (l1 > l4) & \
                        is_green & (body > avg_body * 1.5) & (c > c4) & (o > l1) # 当日阳线开盘高于前一整理K线低点 # MODIFIED: Corrected is_red1 condition
-        patterns_calc.loc[rising_three, f'{kline_pattern_prefix}RISINGTHREEMETHODS_{tf}'] = 1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[rising_three, f'{kline_pattern_prefix}RISINGTHREEMETHODS_{tf}'] = 1 # 使用获取到的前缀
 
         # 下降三法 (Falling Three Methods) - 看跌持续
         # 条件: 前4日长阴, 中间三日小K线整理且在前4日长阴实体内, 当日长阴收盘低于前4日收盘。
@@ -853,7 +853,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                         (is_green2 | (body2 < avg_body * consolidation_body_max_ratio_of_avg_body)) & (h2 < h4) & (l2 > l4) & \
                         is_green1 & (body1 < avg_body * consolidation_body_max_ratio_of_avg_body) & (h1 < h4) & (l1 > l4) & \
                         is_red & (body > avg_body * 1.5) & (c < c4) & (o < h1) # 当日阴线开盘低于前一整理K线高点 # MODIFIED: Corrected is_green1 condition
-        patterns_calc.loc[falling_three, f'{kline_pattern_prefix}FALLINGTHREEMETHODS_{tf}'] = -1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[falling_three, f'{kline_pattern_prefix}FALLINGTHREEMETHODS_{tf}'] = -1 # 使用获取到的前缀
 
     # 11. 其他三K线组合形态
     if len(df_calc_idx) >= 3: # 确保有足够数据
@@ -862,7 +862,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
         upside_gap_two_crows = is_green2 & (body2 > avg_body) & \
                               is_red1 & (body1 < avg_body * 0.7) & (o1 > h2) & \
                               is_red & (o > o1) & (c < c1) & (c < h2) # 当日阴线实体吞没前小阴，收盘低于第一天高点
-        patterns_calc.loc[upside_gap_two_crows, f'{kline_pattern_prefix}UPSIDEGAPTWOCROWS_{tf}'] = -1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[upside_gap_two_crows, f'{kline_pattern_prefix}UPSIDEGAPTWOCROWS_{tf}'] = -1 # 使用获取到的前缀
 
         # 跳空并列线 (Tasuki Gap) - 持续形态
         # 向上跳空并列阳线 (Upside Tasuki Gap) - 看涨持续
@@ -870,14 +870,14 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
         upside_tasuki_gap = is_green2 & \
                            is_green1 & (o1 > h2) & \
                            is_red & (o > o1) & (o < c1) & (c < o1) & (c > h2)
-        patterns_calc.loc[upside_tasuki_gap, f'{kline_pattern_prefix}UPSIDETASUKIGAP_{tf}'] = 1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[upside_tasuki_gap, f'{kline_pattern_prefix}UPSIDETASUKIGAP_{tf}'] = 1 # 使用获取到的前缀
 
         # 向下跳空并列阴线 (Downside Tasuki Gap) - 看跌持续
         # 条件: 前2日阴线, 前1日向下跳空收阴, 当日阳线开盘于前1日阴线实体内，收盘于缺口之内但未完全封闭缺口。
         downside_tasuki_gap = is_red2 & \
                              is_red1 & (o1 < l2) & \
                              is_green & (o < o1) & (o > c1) & (c > o1) & (c < l2)
-        patterns_calc.loc[downside_tasuki_gap, f'{kline_pattern_prefix}DOWNSIDETASUKIGAP_{tf}'] = -1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[downside_tasuki_gap, f'{kline_pattern_prefix}DOWNSIDETASUKIGAP_{tf}'] = -1 # 使用获取到的前缀
 
     # 12. 其他两K线组合形态
     if len(df_calc_idx) >= 2: # 确保有足够数据
@@ -886,20 +886,20 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
         same_open_cond = abs(o - o1) < avg_range * 0.02 # 开盘价几乎相同
         # 看涨分离线: 下降趋势中（前阴），前阴后阳，开盘相同。
         bullish_sep_lines = is_red1 & is_green & same_open_cond
-        patterns_calc.loc[bullish_sep_lines, f'{kline_pattern_prefix}BULLISHSEPARATINGLINES_{tf}'] = 1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[bullish_sep_lines, f'{kline_pattern_prefix}BULLISHSEPARATINGLINES_{tf}'] = 1 # 使用获取到的前缀
         # 看跌分离线: 上升趋势中（前阳），前阳后阴，开盘相同。
         bearish_sep_lines = is_green1 & is_red & same_open_cond
-        patterns_calc.loc[bearish_sep_lines, f'{kline_pattern_prefix}BEARISHSEPARATINGLINES_{tf}'] = -1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[bearish_sep_lines, f'{kline_pattern_prefix}BEARISHSEPARATINGLINES_{tf}'] = -1 # 使用获取到的前缀
 
         # 反击线 (Counterattack Lines) - 反转形态
         # 条件：两根K线颜色相反，收盘价相同，且第二根K线大幅跳空开盘。
         same_close_cond = abs(c - c1) < avg_range * 0.02 # 收盘价几乎相同
         # 看涨反击线: 下降趋势中（前长阴），当日长阳大幅跳空低开，但收盘价与前一日相同。
         bullish_counter = is_red1 & (body1 > avg_body) & is_green & (body > avg_body) & same_close_cond & (o < l1)
-        patterns_calc.loc[bullish_counter, f'{kline_pattern_prefix}BULLISHCOUNTERATTACK_{tf}'] = 1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[bullish_counter, f'{kline_pattern_prefix}BULLISHCOUNTERATTACK_{tf}'] = 1 # 使用获取到的前缀
         # 看跌反击线: 上升趋势中（前长阳），当日长阴大幅跳空高开，但收盘价与前一日相同。
         bearish_counter = is_green1 & (body1 > avg_body) & is_red & (body > avg_body) & same_close_cond & (o > h1)
-        patterns_calc.loc[bearish_counter, f'{kline_pattern_prefix}BEARISHCOUNTERATTACK_{tf}'] = -1 # 修改行：使用获取到的前缀
+        patterns_calc.loc[bearish_counter, f'{kline_pattern_prefix}BEARISHCOUNTERATTACK_{tf}'] = -1 # 使用获取到的前缀
 
     # --- 结果合并与返回 ---
     # 将在有效数据上计算得到的形态结果 (patterns_calc) 更新到完整索引的默认结果DataFrame (default_pattern_df) 中
@@ -2371,11 +2371,9 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
 def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicator_configs: List[Dict], naming_config: Dict) -> pd.DataFrame:
     """
     根据配置计算所有指定指标在不同时间框架下的评分 (0-100)。
-
     函数会遍历 base_scoring 参数中指定的需要评分的指标和时间框架，
     根据 naming_config 和 indicator_configs 在输入的 DataFrame 中查找对应的指标数据列，
     然后调用相应的评分计算函数来得到评分。
-
     :param data: 包含所有原始 OHLCV 数据和已计算指标的 DataFrame。
                  列名应包含时间级别后缀和可能的计算参数，例如 'close_15', 'MACD_12_26_9_30'。
     :param bs_params: base_scoring 参数字典，包含 'score_indicators' (需要评分的指标键列表),
@@ -2388,93 +2386,86 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
     """
     # 初始化用于存储所有评分结果的 DataFrame
     scoring_results = pd.DataFrame(index=data.index)
-
     # 如果输入 DataFrame 是空的，直接返回空结果
     if data.empty:
          logger.warning("输入 DataFrame 为空，无法计算指标评分。")
          return scoring_results
-
     # 获取需要评分的指标键列表和时间框架列表
     score_indicators_keys = bs_params.get('score_indicators', [])
     score_timeframes = bs_params.get('timeframes', [])
-
     # 如果未配置需要评分的指标或时间框架，返回空结果 DataFrame
     if not score_indicators_keys or not score_timeframes:
         logger.warning("未配置需要评分的指标或时间框架 (base_scoring.score_indicators 或 base_scoring.timeframes)。")
         return scoring_results
-
-    print(f"开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}") # 调试输出
-
+    # 调试输出：开始计算指标评分的信息
+    print(f"DEBUG: 开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}") # 修改行：中文调试输出
     # 从 naming_config 中获取命名规范字典
     indicator_naming_conv = naming_config.get('indicator_naming_conventions', {})
     ohlcv_naming_conv = naming_config.get('ohlcv_naming_convention', {})
     timeframe_naming_conv = naming_config.get('timeframe_naming_convention', {})
-
-    # 增加类型检查
+    # 增加类型检查，确保获取到的是字典
     if not isinstance(indicator_naming_conv, dict): indicator_naming_conv = {}
     if not isinstance(ohlcv_naming_conv, dict): ohlcv_naming_conv = {}
     if not isinstance(timeframe_naming_conv, dict): timeframe_naming_conv = {}
-
     # --- 构建从 indicator_configs 到实际列名的映射 ---
     # 映射结构: { (indicator_key, internal_key, tf_str): actual_col_name }
     # 对于 Pivot levels，结构是 { (indicator_key, 'pivot_levels', tf_str): {level_key: actual_col_name} }
     config_to_actual_col_map: Dict[Tuple[str, str, str], Union[str, Dict[str, str]]] = {}
+    # 遍历 indicator_configs 列表
     if isinstance(indicator_configs, list):
         for config in indicator_configs:
             indicator_name = config.get('name', '').lower()
             timeframes_list = config.get('timeframes', [])
+            # 确保 timeframes_list 是列表
             if isinstance(timeframes_list, str): timeframes_list = [timeframes_list]
-            if not isinstance(timeframes_list, list): continue # Skip if timeframes is not a list
-
-            # Get the naming configuration for this indicator from naming_config
+            if not isinstance(timeframes_list, list): continue # 如果 timeframes 不是列表，跳过此配置
+            # 从 naming_config 中获取当前指标的命名配置
             indi_naming_conf = indicator_naming_conv.get(indicator_name.upper(), {})
             output_cols_patterns = indi_naming_conf.get('output_columns', [])
             if not isinstance(output_cols_patterns, list): output_cols_patterns = []
-
-            # Special handling for Pivot levels
+            # 特殊处理 Pivot levels 指标
             if indicator_name == 'pivot':
-                 pivot_levels_data = config.get('pivot_levels_data') # Assuming IndicatorService might return this
+                 pivot_levels_data = config.get('pivot_levels_data') # 假设 IndicatorService 可能返回此数据
                  if isinstance(pivot_levels_data, dict):
                       for tf_conf in timeframes_list:
                            tf_str = str(tf_conf)
                            if tf_str in pivot_levels_data:
                                 level_data_for_tf = pivot_levels_data[tf_str]
                                 if isinstance(level_data_for_tf, dict):
-                                     # Store the dictionary of level_key to actual_col_name
+                                     # 存储 level_key 到实际列名的字典映射
                                      config_to_actual_col_map[(indicator_name, 'pivot_levels', tf_str)] = level_data_for_tf
-                                     print(f"DEBUG: Added Pivot levels config for TF {tf_str}: {level_data_for_tf.keys()}") # 调试输出
-                 continue # Move to the next config item
-
-            # Handle other indicators
-            actual_output_columns = config.get('output_columns', []) # This should be the list of actual column names generated by IndicatorService
+                                     # 调试输出：添加 Pivot levels 配置映射
+                                     print(f"DEBUG: 添加 Pivot levels 配置映射，时间框架 {tf_str}，键: {level_data_for_tf.keys()}") # 修改行：中文调试输出
+                 continue # 处理完 Pivot levels 后跳到下一个配置项
+            # 处理其他指标
+            actual_output_columns = config.get('output_columns', []) # 这是 IndicatorService 生成的实际列名列表
+            # 确保 actual_output_columns 是列表
             if isinstance(actual_output_columns, str): actual_output_columns = [actual_output_columns]
-            if not isinstance(actual_output_columns, list): continue # Skip if actual_output_columns is not a list
-
-            # Try to map actual column names back to internal_keys based on naming patterns
+            if not isinstance(actual_output_columns, list): continue # 如果 actual_output_columns 不是列表，跳过
+            # 尝试根据命名模式将实际列名映射回内部键
             for actual_col_name in actual_output_columns:
                  if not isinstance(actual_col_name, str): continue
-
-                 # Try to parse the time frame suffix from the actual column name
+                 # 尝试从实际列名中解析时间框架后缀
                  found_tf_suffix = None
                  for tf_conf in timeframes_list:
                       tf_str = str(tf_conf)
+                      # 获取当前时间框架可能的后缀模式
                       possible_suffixes = timeframe_naming_conv.get('patterns', {}).get(tf_str.lower(), [tf_str])
                       if isinstance(possible_suffixes, str): possible_suffixes = [possible_suffixes]
                       if not isinstance(possible_suffixes, list): continue
                       possible_suffixes = [str(s) for s in possible_suffixes]
-
+                      # 检查实际列名是否以任一可能的后缀结尾
                       for suffix in possible_suffixes:
                            if actual_col_name.endswith(f"_{suffix}"):
                                 found_tf_suffix = suffix
                                 break
-                      if found_tf_suffix: break # Found suffix for this TF
-
+                      if found_tf_suffix: break # 找到后缀，跳出时间框架循环
                  if not found_tf_suffix:
-                      # If suffix not found based on configured timeframes, try to guess from the end
+                      # 如果基于配置的时间框架后缀未找到，尝试从列名末尾猜测
                       parts = actual_col_name.split('_')
                       if len(parts) > 1:
                            found_tf_suffix = parts[-1]
-                           # Check if this guessed suffix corresponds to any of the configured timeframes
+                           # 检查猜测的后缀是否对应配置中的任一时间框架
                            is_valid_guessed_suffix = False
                            for tf_conf in timeframes_list:
                                 tf_str = str(tf_conf)
@@ -2486,131 +2477,144 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                                      is_valid_guessed_suffix = True
                                      break
                            if not is_valid_guessed_suffix:
-                                found_tf_suffix = None # Guessed suffix is not valid
-
+                                found_tf_suffix = None # 猜测的后缀无效
                  if not found_tf_suffix:
-                      print(f"WARNING: Could not determine time frame suffix for column '{actual_col_name}' from indicator config.") # 调试输出
-                      continue # Cannot map this column without a valid suffix
-
-                 # Try to parse parameters from the column name
+                      # 调试输出：无法确定时间框架后缀
+                      print(f"WARNING: 无法从指标配置中确定列 '{actual_col_name}' 的时间框架后缀。") # 修改行：中文调试输出
+                      continue # 没有有效后缀，无法映射此列
+                 # 尝试解析列名中的参数
+                 # 假设 parse_col_params 已定义并能工作
                  params = parse_col_params(actual_col_name, indicator_name, found_tf_suffix)
                  if params is None:
-                      print(f"WARNING: Could not parse parameters from column '{actual_col_name}' for indicator '{indicator_name}'.") # 调试输出
-                      continue # Cannot map this column without parsing parameters
-
-                 # Try to match the actual column name back to an internal_key using naming patterns
+                      # 调试输出：无法解析参数
+                      print(f"WARNING: 无法从列 '{actual_col_name}' 中解析指标 '{indicator_name}' 的参数。") # 修改行：中文调试输出
+                      continue # 无法解析参数，无法映射此列
+                 # 尝试使用命名模式将实际列名映射回内部键
                  matched_internal_key = None
                  for col_conf in output_cols_patterns:
                       if isinstance(col_conf, dict) and 'name_pattern' in col_conf and 'internal_key' in col_conf:
                            pattern = col_conf['name_pattern']
                            internal_key = col_conf['internal_key']
-                           # Try to build the expected column name using this pattern and the parsed parameters/suffix
-                           # This requires reversing the logic in build_expected_col_name
-                           # A simpler heuristic: check if the actual column name starts with the pattern's base name
-                           pattern_base_name = pattern.split('_')[0]
-                           if actual_col_name.startswith(f"{pattern_base_name}_") or actual_col_name == pattern_base_name: # Handle cases without params
+                           # 尝试根据模式和解析的参数/后缀构建预期的列名
+                           # 这需要反向构建逻辑，比较复杂。简化方法：检查实际列名是否以模式的基础名称开头
+                           pattern_base_name = pattern.split('_')[0] # 获取模式的第一部分
+                           if actual_col_name.startswith(f"{pattern_base_name}_") or actual_col_name == pattern_base_name: # 处理没有参数的情况
                                 matched_internal_key = internal_key
-                                break # Found a potential match
-
+                                break # 找到潜在匹配
                  if matched_internal_key:
-                      # Store the mapping: (indicator_key, internal_key, tf_str) -> actual_col_name
-                      # Use the original tf_str from config, not the parsed suffix, for consistency with score_timeframes
+                      # 存储映射: (indicator_key, internal_key, tf_str) -> actual_col_name
+                      # 使用配置中的原始 tf_str，而不是解析出的后缀，以与 score_timeframes 保持一致
                       original_tf_str = next((str(tf) for tf in timeframes_list if found_tf_suffix in timeframe_naming_conv.get('patterns', {}).get(str(tf).lower(), [str(tf)])), found_tf_suffix)
                       config_to_actual_col_map[(indicator_name, matched_internal_key, original_tf_str)] = actual_col_name
-                      print(f"DEBUG: Mapped config column: ({indicator_name}, {matched_internal_key}, {original_tf_str}) -> '{actual_col_name}'") # 调试输出
+                      # 调试输出：映射配置列
+                      print(f"DEBUG: 映射配置列: ({indicator_name}, {matched_internal_key}, {original_tf_str}) -> '{actual_col_name}'") # 修改行：中文调试输出
                  else:
-                      print(f"WARNING: Could not map actual column '{actual_col_name}' back to an internal_key for indicator '{indicator_name}'.") # 调试输出
-
-    # --- End building config mapping ---
-
+                      # 调试输出：无法将实际列名映射回内部键
+                      print(f"WARNING: 无法将实际列 '{actual_col_name}' 映射回指标 '{indicator_name}' 的内部键。") # 修改行：中文调试输出
+    # --- 结束构建配置映射 ---
     # 遍历需要评分的每个指标键
     for indicator_key in score_indicators_keys:
         # 从 indicator_scoring_info 获取该指标的配置信息
+        # 假设 indicator_scoring_info 已定义
         info = indicator_scoring_info.get(indicator_key)
         # 如果指标配置信息不存在，跳过此指标
         if not info:
              logger.warning(f"指标 '{indicator_key}' 未找到对应的评分函数定义或配置，跳过评分计算。")
              continue
-
         # 获取评分函数、所需内部键、参数传递风格、参数映射和默认值
         score_func = info.get('func')
         required_score_keys = info['required_keys']
         param_passing_style = info['param_passing_style']
         bs_param_key_to_score_func_arg = info['bs_param_key_to_score_func_arg']
         defaults = info['defaults']
-
         # 如果评分函数不存在，跳过此指标
         if score_func is None:
              logger.warning(f"指标 '{indicator_key}' 没有关联的评分函数，跳过评分计算。")
              continue
-
         # 遍历需要计算评分的每个时间框架
         for tf_score in score_timeframes:
             indicator_cols_for_score: Dict[str, str | Dict[str, pd.Series]] = {} # 存储找到的内部键对应的实际列名或 Series 字典
             found = False # 标记是否成功找到当前指标和时间框架所需的所有数据列
             tf_score_str = str(tf_score) # 确保时间框架是字符串
-
-            print(f"\nDEBUG: Searching for columns for indicator '{indicator_key}' in TF {tf_score_str}...") # 调试输出
-
+            # 调试输出：搜索当前指标和时间框架的列
+            print(f"\nDEBUG: 正在搜索指标 '{indicator_key}' 在时间框架 {tf_score_str} 的列...") # 修改行：中文调试输出
             # --- 优先尝试使用 indicator_configs 中提供的列名映射 ---
             temp_cols_from_config: Dict[str, str | Dict[str, pd.Series]] = {}
             all_required_found_via_config = True
-
             for internal_key in required_score_keys:
-                 # Check if this (indicator_key, internal_key, tf_score_str) combination exists in the config_to_actual_col_map
+                 # 检查 config_to_actual_col_map 中是否存在此 (indicator_key, internal_key, tf_score_str) 组合
                  config_key = (indicator_key, internal_key, tf_score_str)
                  if config_key in config_to_actual_col_map:
                       actual_data_source = config_to_actual_col_map[config_key]
-                      # For Pivot levels, the source is a dict of column names
+                      # 对于 Pivot levels，数据源是一个列名字典
                       if indicator_key == 'pivot' and internal_key == 'pivot_levels':
                            if isinstance(actual_data_source, dict):
-                                # Check if all column names in the dict exist in data
+                                # 检查字典中的所有列名是否存在于 data 中
                                 all_pivot_cols_exist = all(col_name in data.columns for col_name in actual_data_source.values())
                                 if all_pivot_cols_exist:
-                                     # Store the dict of level_key to actual Series
+                                     # 存储 level_key 到实际 Series 的字典
                                      temp_cols_from_config[internal_key] = {level_key: data[col_name] for level_key, col_name in actual_data_source.items()}
-                                     print(f"DEBUG: Found Pivot levels via config for TF {tf_score_str}. Keys: {actual_data_source.keys()}") # 调试输出
+                                     # 调试输出：通过配置找到 Pivot levels
+                                     print(f"DEBUG: 通过配置找到 Pivot levels，时间框架 {tf_score_str}。键: {actual_data_source.keys()}") # 修改行：中文调试输出
                                 else:
                                      all_required_found_via_config = False
-                                     print(f"DEBUG: Pivot levels columns from config not found in data for TF {tf_score_str}. Config: {actual_data_source}") # 调试输出
-                                     break # If Pivot levels are required but not found, config lookup fails
+                                     # 调试输出：配置中的 Pivot levels 列未在数据中找到
+                                     print(f"DEBUG: 配置中的 Pivot levels 列未在数据中找到，时间框架 {tf_score_str}。配置: {actual_data_source}") # 修改行：中文调试输出
+                                     break # 如果必需的 Pivot levels 未找到，配置查找失败
                            else:
                                 all_required_found_via_config = False
-                                print(f"DEBUG: Config mapping for Pivot levels in TF {tf_score_str} is not a dict.") # 调试输出
-                                break # Config mapping for Pivot levels is invalid
-                      # For other standard columns, the source is the actual column name string
+                                # 调试输出：Pivot levels 的配置映射不是字典
+                                print(f"DEBUG: 时间框架 {tf_score_str} 的 Pivot levels 配置映射不是字典。") # 修改行：中文调试输出
+                                break # Pivot levels 的配置映射无效
+                      # 对于其他标准列，数据源是实际列名字符串
                       elif isinstance(actual_data_source, str) and actual_data_source in data.columns:
                            temp_cols_from_config[internal_key] = actual_data_source
-                           print(f"DEBUG: Found column via config for ({indicator_key}, {internal_key}, {tf_score_str}): '{actual_data_source}'") # 调试输出
+                           # 调试输出：通过配置找到列
+                           print(f"DEBUG: 通过配置找到列 ({indicator_key}, {internal_key}, {tf_score_str}): '{actual_data_source}'") # 修改行：中文调试输出
                       else:
                            all_required_found_via_config = False
-                           print(f"DEBUG: Column '{actual_data_source}' from config not found in data for ({indicator_key}, {internal_key}, {tf_score_str}).") # 调试输出
-                           break # Required column from config not found
-
-                 elif internal_key != 'obv_ma' and internal_key != 'pivot_levels': # OBV_MA and Pivot levels are handled specially
-                      # If a required key (that's not OBV_MA or Pivot levels) is not in the config map, config lookup fails
+                           # 调试输出：配置中的列未在数据中找到
+                           print(f"DEBUG: 配置中的列 '{actual_data_source}' 未在数据中找到 ({indicator_key}, {internal_key}, {tf_score_str})。") # 修改行：中文调试输出
+                           break # 必需的配置列未找到
+                 # 如果必需的键（非 OBV_MA 或 Pivot levels）不在配置映射中，配置查找失败
+                 elif internal_key != 'obv_ma' and internal_key != 'pivot_levels': # OBV_MA 和 Pivot levels 特殊处理
                       all_required_found_via_config = False
-                      print(f"DEBUG: Required key '{internal_key}' not found in config map for ({indicator_key}, {tf_score_str}).") # 调试输出
-                      break # Required key not in config map
-
-            # If config lookup successfully found all required data sources
+                      # 调试输出：必需的键未在配置映射中找到
+                      print(f"DEBUG: 必需的键 '{internal_key}' 未在配置映射中找到 ({indicator_key}, {tf_score_str})。") # 修改行：中文调试输出
+                      break # 必需的键不在配置映射中
+            # 如果通过配置查找成功找到所有必需的数据源
             if all_required_found_via_config:
                  indicator_cols_for_score = temp_cols_from_config
                  found = True
-                 print(f"DEBUG: Successfully found all required columns via config for '{indicator_key}' in TF {tf_score_str}.") # 调试输出
+                 # 调试输出：通过配置成功找到所有必需列
+                 print(f"DEBUG: 通过配置成功找到指标 '{indicator_key}' 在时间框架 {tf_score_str} 的所有必需列。") # 修改行：中文调试输出
             else:
-                 print(f"DEBUG: Config lookup failed for '{indicator_key}' in TF {tf_score_str}. Attempting fallback lookup.") # 调试输出
-
-            # --- If config lookup failed, attempt fallback lookup using naming_config and parsing ---
+                 # 调试输出：配置查找失败，尝试回退查找
+                 print(f"DEBUG: 指标 '{indicator_key}' 在时间框架 {tf_score_str} 的配置查找失败。尝试回退查找。") # 修改行：中文调试输出
+            # --- 如果配置查找失败，尝试使用 naming_config 和解析进行回退查找 ---
             if not found:
-                # Iterate through possible suffixes and try to find all required columns
-                for tf_suffix in possible_tf_suffixes:
-                    temp_cols_found: Dict[str, str | Dict[str, pd.Series]] = {} # Temporarily store found columns for this suffix
-                    all_required_found_for_suffix = True # Flag if all required columns are found for this suffix
-
-                    # Iterate through required internal keys for scoring
+                # 根据当前 tf_score 和命名规范定义可能的时框架后缀
+                current_tf_possible_suffixes = [] # 定义当前时间框架的可能后缀列表
+                tf_score_str_lower = tf_score_str.lower() # 获取当前时间框架字符串的小写形式
+                timeframe_patterns = timeframe_naming_conv.get('patterns', {}) # 获取时间框架命名模式配置
+                if isinstance(timeframe_patterns, dict): # 检查模式配置是否为字典
+                    # 获取当前时间框架对应的模式，如果未找到则默认为 [tf_score_str]
+                    patterns_for_tf = timeframe_patterns.get(tf_score_str_lower, [tf_score_str]) # 获取当前时间框架对应的模式列表
+                    if isinstance(patterns_for_tf, str): patterns_for_tf = [patterns_for_tf] # 如果模式是字符串，转换为列表
+                    if isinstance(patterns_for_tf, list): # 如果模式是列表
+                        current_tf_possible_suffixes = [str(p) for p in patterns_for_tf] # 将模式转换为字符串列表
+                # 确保原始的 tf_score_str 始终是回退检查的可能后缀之一
+                if tf_score_str not in current_tf_possible_suffixes: # 确保原始时间框架字符串也在可能后缀列表中
+                     current_tf_possible_suffixes.append(tf_score_str) # 添加原始时间框架字符串
+                # 调试输出：尝试回退查找使用的可能后缀
+                print(f"DEBUG: 尝试对时间框架 {tf_score_str} 进行回退查找，可能后缀: {current_tf_possible_suffixes}") # 修改行：中文调试输出
+                # 遍历当前 tf_score 的可能后缀
+                for tf_suffix in current_tf_possible_suffixes: # 遍历当前时间框架的可能后缀
+                    temp_cols_found: Dict[str, str | Dict[str, pd.Series]] = {} # 临时存储为此后缀找到的列
+                    all_required_found_for_suffix = True # 标记是否为此后缀找到所有必需列
+                    # 遍历评分所需的内部键
                     for internal_key in required_score_keys:
-                        # Special handling for 'close' column (part of OHLCV)
+                        # 特殊处理 'close' 列 (OHLCV 的一部分)
                         if internal_key == 'close':
                             close_pattern = None
                             ohlcv_output_cols_conf = ohlcv_naming_conv.get('output_columns', [])
@@ -2625,77 +2629,72 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                                     temp_cols_found[internal_key] = expected_col_name
                                 else:
                                     all_required_found_for_suffix = False
-                                    print(f"DEBUG: Required 'close' column '{expected_col_name}' not found for suffix '{tf_suffix}'.") # 调试输出
-                                    break # Required 'close' column not found for this suffix
+                                    # 调试输出：必需的 'close' 列未找到
+                                    print(f"DEBUG: 必需的 'close' 列 '{expected_col_name}' 未找到，后缀 '{tf_suffix}'。") # 修改行：中文调试输出
+                                    break # 此后缀未找到必需的 'close' 列
                             else:
-                                logger.warning(f"Naming convention for 'close' not found. Cannot find close column for TF {tf_score}.")
+                                logger.warning(f"未找到 'close' 的命名规范。无法为时间框架 {tf_score} 找到 close 列。")
                                 all_required_found_for_suffix = False
-                                break # Cannot find close pattern
-
-                        # Special handling for 'pivot_levels' (Pivot Points)
+                                break # 无法找到 close 模式
+                        # 特殊处理 'pivot_levels' (枢轴点)
                         elif indicator_key == 'pivot' and internal_key == 'pivot_levels':
-                             # Pivot levels are a dictionary of Series, not single columns
+                             # Pivot levels 是一个 Series 字典，而不是单个列
                              pivot_naming_convention = indicator_naming_conv.get('PIVOT', {})
                              pivot_cols_base = pivot_naming_convention.get('levels', ["PP", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4", "F_R1", "F_R2", "F_R3", "F_S1", "F_S2", "F_S3"])
                              pivot_level_pattern = pivot_naming_convention.get('pattern', "{level}_{timeframe}")
-
                              pivot_levels_series_dict_for_score: Dict[str, pd.Series] = {}
                              all_pivot_levels_found_as_series = True
                              for p_base in pivot_cols_base:
-                                 # Build pivot level column name using pattern and current suffix
+                                 # 使用模式和当前后缀构建枢轴点级别列名
                                  col_name = pivot_level_pattern.format(level=p_base, timeframe=tf_suffix)
-
                                  if col_name in data.columns:
-                                     # Use base level name (PP, R1, S1 etc.) as dictionary key
+                                     # 使用基础级别名称 (PP, R1, S1 等) 作为字典键
                                      pivot_levels_series_dict_for_score[p_base] = data[col_name]
                                  else:
                                      all_pivot_levels_found_as_series = False
-                                     print(f"DEBUG: Pivot level column '{col_name}' not found for suffix '{tf_suffix}'.") # 调试输出
-                                     break # If any required Pivot level is missing, this suffix fails
-
+                                     # 调试输出：枢轴点级别列未找到
+                                     print(f"DEBUG: 枢轴点级别列 '{col_name}' 未找到，后缀 '{tf_suffix}'。") # 修改行：中文调试输出
+                                     break # 如果任一必需的枢轴点级别缺失，此后缀失败
                              if all_pivot_levels_found_as_series:
                                  temp_cols_found[internal_key] = pivot_levels_series_dict_for_score
-                                 print(f"DEBUG: Found all Pivot levels for suffix '{tf_suffix}'.") # 调试输出
+                                 # 调试输出：找到所有枢轴点级别
+                                 print(f"DEBUG: 找到后缀 '{tf_suffix}' 的所有枢轴点级别。") # 修改行：中文调试输出
                              else:
                                  all_required_found_for_suffix = False
-                                 break # Pivot levels not fully found for this suffix
-
-                        # Special handling for 'obv_ma' (optional for OBV score)
+                                 break # 此后缀未完全找到枢轴点级别
+                        # 特殊处理 'obv_ma' (OBV 评分可选)
                         elif indicator_key == 'obv' and internal_key == 'obv_ma':
-                             # OBV_MA is optional, don't break if not found
+                             # OBV_MA 是可选的，如果未找到则不中断
                              obv_naming_conf = indicator_naming_conv.get('OBV', {})
                              obv_ma_pattern = obv_naming_conf.get('ma_pattern')
-                             obv_ma_prefix = obv_naming_conf.get('prefixes', {}).get('obv_ma', 'OBV_MA') # Get prefix for OBV_MA
-
-                             # Get OBV_MA period from bs_params or defaults
+                             obv_ma_prefix = obv_naming_conf.get('prefixes', {}).get('obv_ma', 'OBV_MA') # 获取 OBV_MA 的前缀
+                             # 从 bs_params 或 defaults 获取 OBV_MA 周期
                              obv_ma_period = bs_params.get('obv_ma_period', defaults.get('obv_ma_period', 10))
                              obv_ma_params_list = [obv_ma_period]
-
                              expected_col_name = None
                              if obv_ma_pattern:
-                                  # Format pattern with prefix, params, and suffix
+                                  # 使用前缀、参数和后缀格式化模式
                                   params_str_part = '_'.join(map(str, obv_ma_params_list)) if obv_ma_params_list else ''
                                   expected_col_name = obv_ma_pattern.format(prefix=obv_ma_prefix, params=params_str_part, timeframe=tf_suffix)
                                   expected_col_name = expected_col_name.replace('__', '_').strip('_')
                              else:
-                                  # Fallback to default pattern if no specific pattern in naming_config
+                                  # 如果 naming_config 中没有特定模式，回退到默认模式
                                   expected_col_name = f"{obv_ma_prefix}_{obv_ma_period}_{tf_suffix}"
-
                              if expected_col_name and expected_col_name in data.columns:
                                  temp_cols_found[internal_key] = expected_col_name
-                                 print(f"DEBUG: Found optional 'obv_ma' column '{expected_col_name}' for suffix '{tf_suffix}'.") # 调试输出
+                                 # 调试输出：找到可选的 'obv_ma' 列
+                                 print(f"DEBUG: 找到可选的 'obv_ma' 列 '{expected_col_name}'，后缀 '{tf_suffix}'。") # 修改行：中文调试输出
                              else:
-                                 print(f"DEBUG: Optional 'obv_ma' column '{expected_col_name}' not found for suffix '{tf_suffix}'.") # 调试输出
-                                 # If not found, it's okay, it's optional. Don't set all_required_found_for_suffix to False.
-
-                        # Handle other standard indicator components (e.g., MACDh, RSI, K, BBU)
+                                 # 调试输出：可选的 'obv_ma' 列未找到
+                                 print(f"DEBUG: 可选的 'obv_ma' 列 '{expected_col_name}' 未找到，后缀 '{tf_suffix}'。") # 修改行：中文调试输出
+                                 # 如果未找到，没关系，它是可选的。不将 all_required_found_for_suffix 设置为 False。
+                        # 处理其他标准指标组件 (例如 MACDh, RSI, K, BBU)
                         else:
-                            # Get the naming configuration for this indicator
+                            # 获取当前指标的命名配置
                             indi_naming_conf = indicator_naming_conv.get(indicator_key.upper(), {})
-                            # Get the output column patterns for this indicator
+                            # 获取当前指标的输出列模式
                             output_cols_patterns = indi_naming_conf.get('output_columns', [])
-
-                            # Find the pattern corresponding to the current internal_key
+                            # 查找与当前 internal_key 对应的模式
                             pattern = None
                             if isinstance(output_cols_patterns, list):
                                  for col_conf in output_cols_patterns:
@@ -2703,88 +2702,85 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                                           if col_conf['internal_key'] == internal_key:
                                                pattern = col_conf['name_pattern']
                                                break
-                                 # Fallback: If internal_key not explicitly in output_columns, try matching pattern start
+                                 # 回退：如果 internal_key 未明确在 output_columns 中，尝试匹配模式开头
                                  if not pattern:
                                       for col_conf in output_cols_patterns:
                                            if isinstance(col_conf, dict) and col_conf.get('name_pattern', '').lower().startswith(internal_key.lower()):
                                                 pattern = col_conf.get('name_pattern')
                                                 break
-
                             if not pattern:
-                                 logger.warning(f"Naming pattern for internal key '{internal_key}' of indicator '{indicator_key}' not found in naming_config.")
+                                 logger.warning(f"未在 naming_config 中找到指标 '{indicator_key}' 的内部键 '{internal_key}' 的命名模式。")
                                  all_required_found_for_suffix = False
-                                 break # Cannot find pattern for a required key
-
-                            # Get parameters for this indicator from bs_params or defaults
-                            # This requires mapping bs_params keys to the parameter names used in the pattern
-                            # This mapping is in bs_param_key_to_score_func_arg, but those are score func arg names, not pattern param names
-                            # This is a complex mapping issue. Let's simplify: try to get parameters from bs_params based on common names
-                            # Or, assume the parameters are already encoded in the column name and try to parse them.
-                            # Let's try parsing parameters from potential columns first.
-
-                            # Find potential columns matching prefix and suffix
-                            # Get possible prefixes for this internal key from naming_config or indicator_scoring_info
+                                 break # 必需键的模式未找到
+                            # 从 bs_params 或 defaults 获取此指标的参数
+                            # 这需要将 bs_params 键映射到模式中使用的参数名称
+                            # 此映射在 bs_param_key_to_score_func_arg 中，但那些是评分函数参数名，不是模式参数名
+                            # 这是一个复杂的映射问题。简化处理：尝试根据常见名称从 bs_params 获取参数
+                            # 或者，假设参数已编码在列名中并尝试解析它们。
+                            # 先尝试从潜在列中解析参数。
+                            # 查找匹配前缀和后缀的潜在列
+                            # 从 naming_config 和 scoring_info 获取此内部键的可能前缀
                             prefixes = []
                             indi_prefixes_config = indi_naming_conf.get('prefixes', {})
                             if isinstance(indi_prefixes_config, dict):
-                                 prefix_from_config = indi_prefixes_config.get(internal_key)
-                                 if prefix_from_config: prefixes.append(prefix_from_config)
-                            elif isinstance(indi_prefixes_config, list): # Some configs might list prefixes directly
-                                 for p in indi_prefixes_config: prefixes.append(p)
-                            # Also check prefixes from indicator_scoring_info if available
+                                 all_prefixes.extend(list(indi_prefixes_config.values()))
+                            elif isinstance(indi_prefixes_config, list): # 某些配置可能直接列出前缀
+                                 all_prefixes.extend(indi_prefixes_config)
                             score_info_prefixes = info.get('prefixes', [])
                             for p in score_info_prefixes:
                                  if p not in prefixes: prefixes.append(p)
-
+                            # 如果需要，也将 indicator_key 本身作为潜在前缀添加（如果尚未包含）
+                            if indicator_key.upper() not in [p.upper() for p in prefixes]:
+                                prefixes.append(indicator_key.upper())
+                            # 过滤 DataFrame 列，查找以前缀开头并以后缀结尾的列
                             potential_cols = [c for c in data.columns if any(c.startswith(p) for p in prefixes) and c.endswith(f"_{tf_suffix}")]
-
                             found_col_for_key = None
                             if potential_cols:
-                                 # Try to match potential columns against the pattern for this internal_key
+                                 # 尝试将潜在列与此 internal_key 的模式进行匹配
                                  for p_col in potential_cols:
-                                      # Remove suffix
+                                      # 移除后缀
                                       base_name_with_params = p_col[:-len(f"_{tf_suffix}")]
-                                      # Try to match against the pattern
-                                      # This requires reversing the formatting logic, which is complex.
-                                      # A simpler heuristic: check if the actual column name starts with the pattern's base name
-                                      pattern_base_name = pattern.split('_')[0] # Get the first part of the pattern
-                                      if base_name_with_params.startswith(f"{pattern_base_name}_") or base_name_with_params == pattern_base_name: # Handle cases without params
+                                      # 尝试与模式匹配
+                                      # 这需要反向格式化逻辑，比较复杂。
+                                      # 简化启发式：检查实际列名是否以模式的基础名称开头
+                                      pattern_base_name = pattern.split('_')[0] # 获取模式的第一部分
+                                      if base_name_with_params.startswith(f"{pattern_base_name}_") or base_name_with_params == pattern_base_name: # 处理没有参数的情况
                                            found_col_for_key = p_col
-                                           break # Found a column matching the pattern's base name
-
+                                           break # 找到匹配模式基础名称的列
                             if found_col_for_key and found_col_for_key in data.columns:
                                 temp_cols_found[internal_key] = found_col_for_key
-                                print(f"DEBUG: Found column via fallback for '{internal_key}' with suffix '{tf_suffix}': '{found_col_for_key}'") # 调试输出
+                                # 调试输出：通过回退找到列
+                                print(f"DEBUG: 通过回退找到内部键 '{internal_key}' 的列，后缀 '{tf_suffix}': '{found_col_for_key}'") # 修改行：中文调试输出
                             else:
                                 all_required_found_for_suffix = False
-                                print(f"DEBUG: Required column for '{internal_key}' with suffix '{tf_suffix}' not found via fallback.") # 调试输出
-                                break # Required column not found for this suffix
-
-                    # If all required columns for this suffix were found (excluding optional obv_ma)
+                                # 调试输出：通过回退未找到必需列
+                                print(f"DEBUG: 通过回退未找到内部键 '{internal_key}' 的必需列，后缀 '{tf_suffix}'。") # 修改行：中文调试输出
+                                break # 此后缀未找到必需列
+                    # 如果为此后缀找到所有必需列（不包括可选的 obv_ma）
                     required_keys_base = [k for k in required_score_keys if k != 'obv_ma' and k != 'pivot_levels']
                     if all_required_found_for_suffix and all(k in temp_cols_found for k in required_keys_base):
-                        # If 'pivot_levels' is required, check if it was successfully found as a dict
+                        # 如果需要 'pivot_levels'，检查它是否成功找到并是字典
                         if 'pivot_levels' in required_score_keys:
                              if not (isinstance(temp_cols_found.get('pivot_levels'), dict) and temp_cols_found.get('pivot_levels')):
-                                  all_required_found_for_suffix = False # Pivot levels not found as a valid dict
-                        # If all checks pass for this suffix
+                                  all_required_found_for_suffix = False # Pivot levels 未找到有效的字典
+                        # 如果所有检查都通过此后缀
                         if all_required_found_for_suffix:
                              indicator_cols_for_score = temp_cols_found
                              found = True
-                             print(f"DEBUG: Successfully found all required columns via fallback for '{indicator_key}' in TF {tf_score_str} with suffix '{tf_suffix}'.") # 调试输出
-                             break # Found a match, break suffix loop
-
-            # --- End fallback lookup ---
-
-            # After trying all lookup methods, if required data columns are still not found
+                             # 调试输出：通过回退成功找到所有必需列
+                             print(f"DEBUG: 通过回退成功找到指标 '{indicator_key}' 在时间框架 {tf_score_str} 的所有必需列，后缀 '{tf_suffix}'。") # 修改行：中文调试输出
+                             break # 为此 tf_score 使用此后缀找到了匹配项，跳出后缀循环
+            # --- 结束回退查找 ---
+            # 尝试所有查找方法后，如果仍然未找到必需的数据列
             if not found:
                 logger.warning(f"未能为指标 '{indicator_key}' 在时间框架 {tf_score} 找到所有必要的数据列进行评分。")
                 logger.info(f"尝试查找所需的内部键: {required_score_keys}.")
-                logger.info(f"尝试的后缀列表: {possible_tf_suffixes}.")
-                # Try to list columns in DataFrame relevant to this indicator/timeframe for debugging
+                # 记录当前时间框架尝试的实际后缀
+                logger.info(f"尝试的后缀列表: {current_tf_possible_suffixes}.") # 修改行：日志输出当前时间框架的可能后缀列表
+                # 尝试列出 DataFrame 中与此指标/时间框架相关的列以进行调试
                 relevant_cols_for_tf = []
                 all_prefixes = []
-                # Collect all possible prefixes for this indicator from naming_config and scoring_info
+                # 从 naming_config 和 scoring_info 收集此指标的所有可能前缀
                 indi_naming_conf = indicator_naming_conv.get(indicator_key.upper(), {})
                 indi_prefixes_config = indi_naming_conf.get('prefixes', {})
                 if isinstance(indi_prefixes_config, dict):
@@ -2794,103 +2790,95 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                 score_info_prefixes = info.get('prefixes', [])
                 for p in score_info_prefixes:
                      if p not in all_prefixes: all_prefixes.append(p)
-                # Add 'close' prefix if needed
+                # 如果需要，添加 'close' 前缀
                 if 'close' in required_score_keys and 'close' not in all_prefixes:
                      all_prefixes.append('close')
-                # Add Pivot level prefixes if needed
+                # 如果需要，添加 Pivot level 前缀
                 if indicator_key == 'pivot':
                      pivot_naming_convention = indicator_naming_conv.get('PIVOT', {})
                      pivot_cols_base = pivot_naming_convention.get('levels', [])
-                     all_prefixes.extend(pivot_cols_base) # Add base names as prefixes
-
-                # Filter DataFrame columns by prefix and possible suffix
+                     all_prefixes.extend(pivot_cols_base) # 添加基础名称作为前缀
+                # 如果尚未包含，将 indicator_key 本身作为潜在前缀添加
+                if indicator_key.upper() not in [p.upper() for p in all_prefixes]:
+                    all_prefixes.append(indicator_key.upper())
+                # 根据前缀和可能的后缀过滤 DataFrame 列
                 cols_to_check = []
                 for col in data.columns:
-                     if any(col.startswith(prefix) for prefix in all_prefixes) and any(col.endswith(f"_{s}") for s in possible_tf_suffixes):
+                     # 使用当前时间框架的可能后缀进行过滤
+                     if any(col.startswith(prefix) for prefix in all_prefixes) and any(col.endswith(f"_{s}") for s in current_tf_possible_suffixes): # 修改行：使用当前时间框架的可能后缀过滤列
                           cols_to_check.append(col)
-
-                relevant_cols_for_tf = [c for c in cols_to_check if c in data.columns] # Filter out actual existing columns
+                relevant_cols_for_tf = [c for c in cols_to_check if c in data.columns] # 过滤出实际存在的列
                 logger.info(f"DataFrame 中与时间框架 {tf_score} 匹配的 '{indicator_key}' 相关列列表: {sorted(relevant_cols_for_tf)}.")
-
-            # --- Call scoring function and store results ---
+            # --- 调用评分函数并存储结果 ---
             if found:
                 try:
-                    # Prepare parameters for the scoring function
-                    positional_series_args: List[pd.Series] = [] # For Series passed as positional arguments
-                    keyword_score_func_args: Dict[str, Any] = {} # For data passed as keyword arguments (parameter dict or specific Series)
-
-                    # Iterate through required_score_keys, prepare parameters based on found data sources
+                    # 准备评分函数的参数
+                    positional_series_args: List[pd.Series] = [] # 用于作为位置参数传递的 Series
+                    keyword_score_func_args: Dict[str, Any] = {} # 用于作为关键字参数传递的数据 (参数字典或特定 Series)
+                    # 遍历 required_score_keys，根据找到的数据源准备参数
                     for internal_key in required_score_keys:
                          actual_data_source = indicator_cols_for_score.get(internal_key)
-
-                         # Special handling for data structures passed as keyword arguments (e.g., pivot_levels)
+                         # 特殊处理作为关键字参数传递的数据结构 (例如 pivot_levels)
                          if indicator_key == 'pivot' and internal_key == 'pivot_levels':
                               if isinstance(actual_data_source, dict):
                                   keyword_score_func_args['pivot_levels'] = actual_data_source
                               else:
                                   logger.error(f"内部错误: 指标 'pivot' 在时间框架 {tf_score}: 'pivot_levels' 期望是字典，但找到 {type(actual_data_source)} (内部 key: '{internal_key}')。")
                                   raise TypeError(f"Pivot 'pivot_levels' expected dict for internal key '{internal_key}'")
-                         # Special handling for optional Series passed as keyword arguments (e.g., obv_ma)
+                         # 特殊处理作为关键字参数传递的可选 Series (例如 obv_ma)
                          elif indicator_key == 'obv' and internal_key == 'obv_ma':
                               if isinstance(actual_data_source, str) and actual_data_source in data.columns:
                                    keyword_score_func_args['obv_ma'] = data[actual_data_source]
-                              # If not found, actual_data_source is None, handled by scoring function's default value
-
-                         # All other cases, assume it's a Series that should be passed as a positional argument, add in order of required_score_keys
+                              # 如果未找到，actual_data_source 为 None，由评分函数的默认值处理
+                         # 所有其他情况，假定它是应作为位置参数传递的 Series，按 required_score_keys 的顺序添加
                          elif isinstance(actual_data_source, str) and actual_data_source in data.columns:
                             positional_series_args.append(data[actual_data_source])
                          else:
-                              # If a required Series does not have a corresponding column name
+                              # 如果必需的 Series 没有对应的列名
                               if internal_key != 'obv_ma' and internal_key != 'pivot_levels':
                                    logger.error(f"内部错误: 必需的 Series (内部 key: '{internal_key}') 在 indicator_cols_for_score 中没有对应的列名或数据源。")
                                    raise KeyError(f"Missing required data source for internal key '{internal_key}'")
-
-                    # Pass scoring logic parameters (based on param_passing_style), these are keyword arguments
+                    # 根据 param_passing_style 传递评分逻辑参数，这些是关键字参数
                     if param_passing_style == 'dict':
                         params_dict = {}
                         for bs_key, score_arg_name in bs_param_key_to_score_func_arg.items():
-                            # Get value from bs_params, use default from defaults if not found
+                            # 从 bs_params 获取值，如果未找到则使用 defaults 中的默认值
                             param_value = bs_params.get(bs_key, defaults.get(score_arg_name, None))
                             params_dict[score_arg_name] = param_value
-                        keyword_score_func_args['params'] = params_dict # Assign parameter dictionary to key named 'params'
-
+                        keyword_score_func_args['params'] = params_dict # 将参数字典赋值给名为 'params' 的键
                     elif param_passing_style == 'individual':
                         for bs_key, score_arg_name in bs_param_key_to_score_func_arg.items():
-                            # Get value from bs_params, use default from defaults if not found
+                            # 从 bs_params 获取值，如果未找到则使用 defaults 中的默认值
                             param_value = bs_params.get(bs_key, defaults.get(score_arg_name, None))
-                            keyword_score_func_args[score_arg_name] = param_value # Pass parameter directly as keyword argument
-
-                    # Special handling for Pivot, needs tf parameter as keyword argument
+                            keyword_score_func_args[score_arg_name] = param_value # 直接将参数作为关键字参数传递
+                    # 特殊处理 Pivot，需要将 tf 参数作为关键字参数
                     if indicator_key == 'pivot':
                         keyword_score_func_args['tf'] = tf_score_str
-
-                    # Call scoring function, unpack positional argument list with *, unpack keyword argument dictionary with **
+                    # 调用评分函数，使用 * 解包位置参数列表，使用 ** 解包关键字参数字典
+                    # 假设 score_func 已定义
                     scores: pd.Series = score_func(*positional_series_args, **keyword_score_func_args)
-
-                    # Ensure scoring result is a Series and has the same index as input data
+                    # 确保评分结果是 Series 并且索引与输入数据相同
                     if not isinstance(scores, pd.Series) or not scores.index.equals(data.index):
                         logger.error(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的评分函数返回结果格式不正确或索引不匹配。")
-                        scores = pd.Series(50.0, index=data.index) # Return default neutral score
-                    # Store scoring result column, column name format is SCORE_IndicatorName_Timeframe
+                        scores = pd.Series(50.0, index=data.index) # 返回默认中性分
+                    # 存储评分结果列，列名格式为 SCORE_IndicatorName_Timeframe
                     score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}"
                     scoring_results[score_col_name] = scores
                 except Exception as e:
-                    # If an error occurs during scoring calculation, log error and fill with default neutral score
+                    # 如果评分计算过程中发生错误，记录错误并填充默认中性分
                     score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}"
-                    scoring_results[score_col_name] = 50.0 # Fill with default neutral score on error
-                    # Print detailed error information and passed parameter information
+                    scoring_results[score_col_name] = 50.0 # 错误时填充默认中性分
+                    # 打印详细错误信息和传递的参数信息
                     logger.error(f"计算指标 '{indicator_key}' 在时间框架 {tf_score} 的评分时发生错误。"
-                                f"传入 positional args 数量: {len(positional_series_args)}. "
-                                f"传入 keyword args 键: {list(keyword_score_func_args.keys())}. "
+                                f"传入位置参数数量: {len(positional_series_args)}. " # 修改行：中文错误信息
+                                f"传入关键字参数键: {list(keyword_score_func_args.keys())}. " # 修改行：中文错误信息
                                 f"错误信息: {e}", exc_info=True)
             else:
-                # If required columns were not found, add a column filled with default neutral score for this indicator and timeframe
+                # 如果未找到必需列，为此指标和时间框架添加一个填充默认中性分的列
                 score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str.replace('.', '_').replace('-', '_')}"
-                scoring_results[score_col_name] = 50.0 # Fill with default neutral score when column not found
-
-    # Fill any remaining NaN values in the final result DataFrame with the default neutral score 50.0
+                scoring_results[score_col_name] = 50.0 # 列未找到时填充默认中性分
+    # 用默认中性分 50.0 填充最终结果 DataFrame 中的任何剩余 NaN 值
     scoring_results = scoring_results.fillna(50.0)
-
     logger.info("指标评分计算完成。")
     return scoring_results
 
