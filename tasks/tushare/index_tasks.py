@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import datetime
+from django.forms.models import model_to_dict
 from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from celery.utils.log import get_task_logger
@@ -158,7 +159,13 @@ def save_index_daily_history_task(self):
         for i in range(0, len(all_indexs), slice_size): # 修改：循环遍历指数代码切片
             indexs_slice = all_indexs[i:i + slice_size] # 修改：获取当前指数代码切片
             # 新增：将 IndexInfo 对象转为 dict
-            indexs_slice_dict = [index_info.__dict__ for index_info in indexs_slice]
+            indexs_slice_dict = [
+                model_to_dict(index_info, fields=[
+                    "index_code", "name", "fullname", "market", "publisher", "index_type",
+                    "category", "base_date", "base_point", "list_date", "weight_rule", "desc", "exp_date"
+                ])
+                for index_info in indexs_slice
+            ]
             print(f"调度任务 - 分配第 {i // slice_size + 1} 个切片任务 (索引 {i} 到 {min(i + slice_size, len(all_indexs)) - 1})，包含 {len(indexs_slice)} 个指数代码...") # 修改：打印切片分配信息
             # 分配执行任务
             save_index_daily_history_slice.delay(indexs_slice=indexs_slice_dict) # 修改：调用执行任务并传递切片参数
