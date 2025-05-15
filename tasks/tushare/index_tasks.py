@@ -147,8 +147,6 @@ def save_index_daily_history_slice(self, index_codes_slice: List[str]):
     except Exception as e:
         logger.error(f"执行 指数切片任务时发生意外错误 (切片: {index_codes_slice[:5]}...): {e}", exc_info=True) # 修改：记录切片任务错误
 
-# ================ 指数历史指标调度任务 ================
-# 修改：原有的任务现在作为调度任务
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery')
 def save_index_daily_history_task(self):
     """

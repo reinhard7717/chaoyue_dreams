@@ -454,7 +454,7 @@ class IndexBasicDAO(BaseDAO):
                         )
                         print(f"批量保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
                         index_daily_dicts.clear()  # 清空缓存，继续累计
-                time.sleep(0.5)
+                time.sleep(0.7)
                 if len(df) < limit:
                     break
                 offset += limit
