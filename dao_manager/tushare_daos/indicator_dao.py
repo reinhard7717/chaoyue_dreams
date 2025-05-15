@@ -955,7 +955,7 @@ class IndicatorDAO(BaseDAO):
                 ).select_related('ths_index') # 优化查询
             ))()
             if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺板块 {ths_codes} 的资金流向统计数据")
+                # logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺板块 {ths_codes} 的资金流向统计数据")
                 return None
             data = []
             for item in data_list:
@@ -1009,7 +1009,7 @@ class IndicatorDAO(BaseDAO):
                 ).select_related('ths_index') # 优化查询
             ))()
             if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺行业 {ths_codes} 的资金流向统计数据")
+                # logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺行业 {ths_codes} 的资金流向统计数据")
                 return None
             data = []
             for item in data_list:

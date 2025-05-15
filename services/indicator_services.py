@@ -508,8 +508,8 @@ class IndicatorService:
                   logger.info(f"已处理同花顺板块资金流向统计数据，数据量: {len(fund_flow_cnt_ths_df_processed)} 条，列数: {len(fund_flow_cnt_ths_df_processed.columns)}")
              else:
                   logger.warning(f"处理同花顺板块资金流向统计数据后 DataFrame 为空 for {ths_codes}")
-        else:
-             logger.warning(f"未获取到同花顺板块资金流向统计数据 for {ths_codes}")
+        # else:
+            #  logger.warning(f"未获取到同花顺板块资金流向统计数据 for {ths_codes}")
 
         fund_flow_industry_ths_df_processed = pd.DataFrame() # 用于存放处理后的行业资金流向数据
         if fund_flow_industry_ths_df_raw is not None and not fund_flow_industry_ths_df_raw.empty:
@@ -533,8 +533,8 @@ class IndicatorService:
                   logger.info(f"已处理同花顺行业资金流向统计数据，数据量: {len(fund_flow_industry_ths_df_processed)} 条，列数: {len(fund_flow_industry_ths_df_processed.columns)}")
              else:
                   logger.warning(f"处理同花顺行业资金流向统计数据后 DataFrame 为空 for {ths_codes}")
-        else:
-             logger.warning(f"未获取到同花顺行业资金流向统计数据 for {ths_codes}")
+        # else:
+        #      logger.warning(f"未获取到同花顺行业资金流向统计数据 for {ths_codes}")
 
         # 合并所有外部特征 DataFrame
         external_features_dfs = [
@@ -1956,7 +1956,7 @@ class IndicatorService:
             # 构建基准收盘价列名，保持与原始代码一致，不加 time_level 后缀
             benchmark_close_col = f'{benchmark_col_prefix}close'
 
-            print(f"查找基准 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
+            # print(f"查找基准 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
 
             if benchmark_close_col in df_processed.columns:
                 # 计算基准的对数收益率 (每日/每周期)
@@ -1992,10 +1992,10 @@ class IndicatorService:
                     # 沿用原始的列名格式，但计算方法已改为对数收益差
                     rs_col_name = f'RS_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'
                     df_processed[rs_col_name] = excess_log_return
-                    print(f"已计算并添加列: {rs_col_name} (周期: {period})") # 调试信息
+                    # print(f"已计算并添加列: {rs_col_name} (周期: {period})") # 调试信息
 
-            else:
-                logger.warning(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}")
+            # else:
+                # logger.warning(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}")
                 # print(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
 
         print("相对强度计算完成。") # 调试信息
