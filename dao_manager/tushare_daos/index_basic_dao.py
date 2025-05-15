@@ -197,9 +197,11 @@ class IndexBasicDAO(BaseDAO):
         Args
         """
         # 先从缓存中获取
-        index_info = await self.index_cache_get.index_data_by_code(index_code)
-        if index_info:
-            return index_info
+        index_info_dict = await self.index_cache_get.index_data_by_code(index_code)
+        if index_info_dict:
+            # 从 dict 恢复 IndexInfo 实例（只读用）
+            index_info_obj = IndexInfo(**index_info_dict)
+            return index_info_obj
         else:
             # 从数据库获取
             index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
@@ -410,7 +412,8 @@ class IndexBasicDAO(BaseDAO):
         数据来源：Tushare社区统计计算
         """
         if index_codes is None:
-            index_codes = await self.get_index_list()
+            index_list = await self.get_index_list()  # index_list 是 List[IndexInfo]
+            index_codes = [index.index_code for index in index_list]
         else:
             index_codes = index_codes
         today = datetime.datetime.today()
