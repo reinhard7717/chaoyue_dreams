@@ -196,19 +196,12 @@ class IndexBasicDAO(BaseDAO):
         获得指数信息
         Args
         """
-        # 先从缓存中获取
-        index_info_dict = await self.index_cache_get.index_data_by_code(index_code)
-        if index_info_dict:
-            # 从 dict 恢复 IndexInfo 实例（只读用）
-            index_info_obj = IndexInfo(**index_info_dict)
-            return index_info_obj
-        else:
-            # 从数据库获取
-            index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
-            if index_info:
-                index_data_dict = self.data_format_process.set_index_info_data(index_info)
-                await self.index_cache_set.index_info(index_code, index_info)
-                return index_data_dict
+        # 从数据库获取
+        index_info = await sync_to_async(lambda: IndexInfo.objects.filter(index_code=index_code).first())()
+        if index_info:
+            index_data_dict = self.data_format_process.set_index_info_data(index_info)
+            await self.index_cache_set.index_info(index_code, index_info)
+            return index_data_dict
         return None
 
     async def get_indexs_by_publisher(self, publisher: str="中证指数有限公司") -> Optional[list]:
