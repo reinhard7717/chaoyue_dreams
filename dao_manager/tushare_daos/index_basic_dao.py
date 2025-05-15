@@ -426,7 +426,7 @@ class IndexBasicDAO(BaseDAO):
             limit = 8000
             while True:
                 if offset >= 100000:
-                    logger.warning(f"offset已达10万，停止拉取。{index_codes_str} 指数日线行情, freq=Day")
+                    logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
                     break
                 df = self.ts_pro.index_dailybasic(**{
                     "trade_date": today_str, "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
@@ -435,6 +435,7 @@ class IndexBasicDAO(BaseDAO):
                     "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
                 ])
                 if not df.empty:
+                    print(f"获取指数日线行情: {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
                     df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                     df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                     for row in df.itertuples():
