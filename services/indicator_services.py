@@ -696,45 +696,70 @@ class IndicatorService:
         for indi_key in bs_params.get('score_indicators', []):
             # 为每个启用的指标调用 _add_indicator_config辅助函数
             if indi_key == 'macd':
-                macd_calc_params = _get_indicator_params(bs_params, default_macd_p)
+                # macd_calc_params = _get_indicator_params(bs_params, default_macd_p)
+                macd_calc_params = {
+                    'period_fast': bs_params.get('macd_fast', default_macd_p['period_fast']),
+                    'period_slow': bs_params.get('macd_slow', default_macd_p['period_slow']),
+                    'signal_period': bs_params.get('macd_signal', default_macd_p['signal_period'])
+                }
                 _add_indicator_config('MACD', self.calculate_macd, 'base_scoring', macd_calc_params, bs_timeframes)
             elif indi_key == 'rsi':
-                rsi_calc_params = _get_indicator_params(bs_params, default_rsi_p)
-                _add_indicator_config('RSI', self.calculate_rsi, 'base_scoring', rsi_calc_params, bs_timeframes)
+                # JSON中的 'rsi_period' 对应计算函数期望的 'period'
+                calc_params = {
+                    'period': bs_params.get('rsi_period', default_rsi_p['period'])
+                    # 其他如 rsi_oversold 等参数主要用于评分逻辑，而非RSI基础值的计算
+                }
+                _add_indicator_config('RSI', self.calculate_rsi, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'kdj':
-                # KDJ 的周期参数在 JSON 中可能有特定的键名，这里从 bs_params 中提取并覆盖默认值
-                kdj_calc_params = {
+                # JSON中的 'kdj_period_k' 等对应计算函数期望的 'period' 等
+                # 此处的键名已在 default_kdj_p 中与计算函数参数名对齐
+                calc_params = {
                     'period': bs_params.get('kdj_period_k', default_kdj_p['period']),
                     'signal_period': bs_params.get('kdj_period_d', default_kdj_p['signal_period']),
                     'smooth_k_period': bs_params.get('kdj_period_j', default_kdj_p['smooth_k_period'])
                 }
-                _add_indicator_config(
-                    'KDJ', # 注册的配置名称是 'KDJ'
-                    self.calculate_kdj, # 指向 KDJ 的计算函数
-                    'base_scoring',
-                    kdj_calc_params, # 传递已经根据 JSON 配置好的参数字典
-                    bs_timeframes
-                )
+                _add_indicator_config('KDJ', self.calculate_kdj, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'boll':
-                boll_calc_params = _get_indicator_params(bs_params, default_boll_p)
-                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {boll_calc_params} 应用于时间框架: {bs_timeframes}") # 调试输出：打印BOLL参数
-                _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', boll_calc_params, bs_timeframes)
+                # JSON中的 'boll_period'/'boll_std_dev' 对应计算函数期望的 'period'/'std_dev'
+                calc_params = {
+                    'period': bs_params.get('boll_period', default_boll_p['period']),
+                    'std_dev': bs_params.get('boll_std_dev', default_boll_p['std_dev'])
+                }
+                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {calc_params} 应用于时间框架: {bs_timeframes}")
+                _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'cci':
-                cci_calc_params = _get_indicator_params(bs_params, default_cci_p)
-                _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', cci_calc_params, bs_timeframes)
+                calc_params = {
+                    'period': bs_params.get('cci_period', default_cci_p['period'])
+                }
+                _add_indicator_config('CCI', self.calculate_cci, 'base_scoring', calc_params, bs_timeframes)
+
             elif indi_key == 'mfi':
-                mfi_calc_params = _get_indicator_params(bs_params, default_mfi_p)
-                _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', mfi_calc_params, bs_timeframes)
+                calc_params = {
+                    'period': bs_params.get('mfi_period', default_mfi_p['period'])
+                }
+                _add_indicator_config('MFI', self.calculate_mfi, 'base_scoring', calc_params, bs_timeframes)
+
             elif indi_key == 'roc':
-                roc_calc_params = _get_indicator_params(bs_params, default_roc_p)
-                _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', roc_calc_params, bs_timeframes)
+                calc_params = {
+                    'period': bs_params.get('roc_period', default_roc_p['period'])
+                }
+                _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', calc_params, bs_timeframes)
+
             elif indi_key == 'dmi':
-                print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}") # 调试输出：注册DMI配置
-                dmi_calc_params = _get_indicator_params(bs_params, default_dmi_p)
-                _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', dmi_calc_params, bs_timeframes) # 注册的配置名称是 'DMI'
+                print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}")
+                # JSON中的 'dmi_period' 对应计算函数期望的 'period'
+                calc_params = {
+                    'period': bs_params.get('dmi_period', default_dmi_p['period'])
+                }
+                _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', calc_params, bs_timeframes)
+            
             elif indi_key == 'sar':
-                sar_calc_params = _get_indicator_params(bs_params, default_sar_p)
-                _add_indicator_config('SAR', self.calculate_sar, 'base_scoring', sar_calc_params, bs_timeframes)
+                # JSON中的 'sar_step'/'sar_max' 对应计算函数期望的 'af_step'/'max_af'
+                calc_params = {
+                    'af_step': bs_params.get('sar_step', default_sar_p['af_step']),
+                    'max_af': bs_params.get('sar_max', default_sar_p['max_af'])
+                }
+                _add_indicator_config('SAR', self.calculate_sar, 'base_scoring', calc_params, bs_timeframes)
             # EMA 和 SMA 通常不在 score_indicators 里，而是作为独立特征或趋势分析的一部分
             # 如果参数中明确要计算EMA/SMA作为评分指标 (这种情况较少，通常在 feature_engineering)
             elif indi_key == 'ema':
