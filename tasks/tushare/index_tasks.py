@@ -28,6 +28,15 @@ def is_trading_time():
         return True
     return False
 
+# 获取本周一和本周五的日期
+def get_this_monday_and_friday():
+    """获取本周一和本周五的日期"""
+    today = datetime.date.today()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    this_friday = this_monday + datetime.timedelta(days=4)
+    return this_monday, this_friday
+
+
 #  ================ 交易日历数据 ================
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_trade_cal', queue='SaveData_TimeTrade')
 def save_trade_cal(self):
@@ -67,8 +76,8 @@ def save_index_infos(self):
         logger.error(f"执行 指数基本信息 任务时发生意外错误: {e}", exc_info=True)
 
 #  ================ 指数每日指标 ================
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_today', queue='SaveData_TimeTrade')
-def save_index_daily_today(self):
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_today_task', queue='SaveData_TimeTrade')
+def save_index_daily_today_task(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     Args:
@@ -82,8 +91,25 @@ def save_index_daily_today(self):
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
 
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_this_week', queue='SaveData_TimeTrade')
+def save_index_daily_this_week_task(self):
+    """
+    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    index_basic_dao = IndexBasicDAO()
+    this_monday, this_friday = get_this_monday_and_friday()
+    try:
+        asyncio.run(index_basic_dao.save_index_daily_history(start_date=this_monday, end_date=this_friday))
+        print("任务完成 - 大盘指数每日指标")
+    except Exception as e:
+        logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
+
+
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history', queue='SaveData_TimeTrade')
-def save_index_daily_history(self, slice_size: int = 500):# 定义切片大小，每500个指数一个切片
+def save_index_daily_history_task(self, slice_size: int = 500):# 定义切片大小，每500个指数一个切片
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     修改为每500个index切片分配任务。
