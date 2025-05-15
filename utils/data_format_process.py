@@ -90,7 +90,7 @@ class IndexDataFormatProcess(BaseDAO):
     def set_index_daily_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
         data_dict = {
             "index": index_info,  # 指数代码
-            "trade_date": self._parse_datetime(
+            "trade_time": self._parse_datetime(
                 getattr(api_data, "trade_date", getattr(api_data, "trade_time", None))
             ),  # 交易日期
             "close": self._parse_number(getattr(api_data, "close", None)),  # 收盘
