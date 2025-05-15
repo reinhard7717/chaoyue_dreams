@@ -420,8 +420,9 @@ class IndexBasicDAO(BaseDAO):
         if end_date is not None:
             end_date_str = end_date.strftime('%Y%m%d')
         indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        print(f"指数数量: {len(indexs)}")
+        index_dailybasic_dicts = []
         for index_info in indexs:
-            index_dailybasic_dicts = []
             offset = 0
             limit = 8000
             while True:
@@ -431,8 +432,7 @@ class IndexBasicDAO(BaseDAO):
                 df = self.ts_pro.index_dailybasic(**{
                     "trade_date": "", "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
-                    "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-                    "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+                    "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
                 ])
                 if not df.empty:
                     print(f"获取指数日线行情: {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
@@ -445,14 +445,14 @@ class IndexBasicDAO(BaseDAO):
                 if len(df) < limit:
                     break
                 offset += limit
-            if index_dailybasic_dicts:
-                # 保存到数据库
-                result =  await self._save_all_to_db_native_upsert(
-                    model_class=IndexDaily,
-                    data_list=index_dailybasic_dicts,
-                    unique_fields=['index_code', 'trade_time']
-                )
-                print(f"保存指数日线行情到数据库，{index_info}, start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
+        if index_dailybasic_dicts:
+            # 保存到数据库
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=IndexDaily,
+                data_list=index_dailybasic_dicts,
+                unique_fields=['index_code', 'trade_time']
+            )
+            print(f"保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
         return result        
 
 
