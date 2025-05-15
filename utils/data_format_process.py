@@ -12,7 +12,7 @@ from stock_models.industry import DcIndex, DcIndexDaily, DcIndexMember, KplConce
 from stock_models.market import HmDetail, HmList, LimitCptList, LimitListD, LimitListThs, LimitStep, MarketDailyInfo
 from stock_models.stock_basic import StockInfo
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
-from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
+from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData, IndexDaily
 from users.models import FavoriteStock
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,25 @@ class IndexDataFormatProcess(BaseDAO):
             "stock": getattr(api_data, "stock", getattr(api_data, "stock_code", None)),  # 股票代码
             "trade_date": self._parse_datetime(getattr(api_data, "trade_date", None)),  # 交易日期
             "weight": self._parse_number(getattr(api_data, "weight", None)),  # 权重
+        }
+        return {k: safe_value(v) for k, v in data_dict.items()}
+
+    # 指数每日指标
+    def set_index_daily_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
+        data_dict = {
+            "index": index_info,  # 指数代码
+            "trade_date": self._parse_datetime(
+                getattr(api_data, "trade_date", getattr(api_data, "trade_time", None))
+            ),  # 交易日期
+            "close": self._parse_number(getattr(api_data, "close", None)),  # 收盘
+            "open": self._parse_number(getattr(api_data, "open", None)),  # 开盘
+            "high": self._parse_number(getattr(api_data, "high", None)),  # 最高
+            "low": self._parse_number(getattr(api_data, "low", None)),  # 最低
+            "pre_close": self._parse_number(getattr(api_data, "pre_close", None)),  # 昨收
+            "change": self._parse_number(getattr(api_data, "change", None)),  # 涨跌额
+            "pct_chg": self._parse_number(getattr(api_data, "pct_chg", None)),  # 涨跌幅
+            "vol": self._parse_number(getattr(api_data, "vol", None)),  # 成交量
+            "amount": self._parse_number(getattr(api_data, "amount", None)),  # 成交额
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 

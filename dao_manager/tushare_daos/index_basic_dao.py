@@ -9,6 +9,7 @@ import numpy as np
 from typing import TYPE_CHECKING, Dict, List, Any, Optional
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar
+from stock_models.time_trade import IndexDaily
 from utils.cache_get import IndexCacheGet
 from utils.cache_set import IndexCacheSet
 from utils.data_format_process import IndexDataFormatProcess
@@ -327,6 +328,131 @@ class IndexBasicDAO(BaseDAO):
                 index_weight_dict = self.data_format_process.set_index_weight_data(row)
                 index_weight_dicts.append(index_weight_dict)
 
+    # ============== 指数日线行情 ==============
+    async def get_index_daily(self, index_code: str, start_date: str, end_date: str) -> List['IndexDaily']:
+        """
+        获得指数每日指标
+        Args:
+            index_code: 指数代码
+        """
+        # 从数据库获取
+        index_daily_basic = await sync_to_async(lambda: IndexDaily.objects.filter(index__index_code=index_code, trade_time__range=[start_date, end_date]).all())()
+        if index_daily_basic:
+            return index_daily_basic
+        else:
+            return None
+    
+    async def get_index_daily_by_limit(self, index_code: str, limit: int) -> List['IndexDaily']:
+        """
+        获得指数每日指标
+        Args:
+            index_code: 指数代码
+        """
+        # 从数据库获取
+        index_daily_basic = await sync_to_async(lambda: IndexDaily.objects.filter(index__index_code=index_code).order_by('-trade_time')[:limit])()
+        return index_daily_basic
+    
+    async def save_index_daily_today(self) -> Dict:
+        """
+        保存指数每日指标到数据库
+        接口：index_daily，可以通过数据工具调试和查看数据。
+        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
+        数据来源：Tushare社区统计计算
+        """
+        # 获取当前日期
+        today = datetime.datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
+        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        all_index_codes = [index.index_code for index in indexs]
+        index_dailybasic_dicts = []
+        # 切片每50个一组，合成逗号分隔字符串
+        batch_size = 50
+        for i in range(0, len(all_index_codes), batch_size):
+            index_batch = all_index_codes[i:i+batch_size]
+            index_codes_str = ",".join(index_batch)
+            offset = 0
+            limit = 8000
+            while True:
+                if offset >= 100000:
+                    logger.warning(f"offset已达10万，停止拉取。{index_codes_str} 指数日线行情, freq=Day")
+                    break
+                df = self.ts_pro.index_dailybasic(**{
+                    "trade_date": today_str, "ts_code": index_codes_str, "start_date": "", "end_date": "", "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+                    "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+                ])
+                if not df.empty:
+                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                    for row in df.itertuples():
+                        index_info = await self.get_index_by_code(row.ts_code)
+                        index_dailybasic_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
+                        index_dailybasic_dicts.append(index_dailybasic_dict)
+                if len(df) < limit:
+                    break
+                offset += limit
+        if index_dailybasic_dicts:
+            # 保存到数据库
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=IndexDaily,
+                data_list=index_dailybasic_dicts,
+                unique_fields=['index_code', 'trade_time']
+            )
+        return result        
+
+    async def save_index_daily_history(self, start_date: date = None, end_date: date = None) -> Dict:
+        """
+        保存指数每日指标到数据库
+        接口：index_daily，可以通过数据工具调试和查看数据。
+        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
+        数据来源：Tushare社区统计计算
+        """
+        # 获取当前日期
+        today = datetime.datetime.today()
+        # 转换为YYYYMMDD格式
+        today_str = today.strftime('%Y%m%d')
+        start_date_str = "20220101"
+        end_date_str = today_str
+        if start_date is not None:
+            start_date_str = start_date.strftime('%Y%m%d')
+        if end_date is not None:
+            end_date_str = end_date.strftime('%Y%m%d')
+        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+        index_dailybasic_dicts = []
+        for index_info in indexs:
+            offset = 0
+            limit = 8000
+            while True:
+                if offset >= 100000:
+                    logger.warning(f"offset已达10万，停止拉取。{index_codes_str} 指数日线行情, freq=Day")
+                    break
+                df = self.ts_pro.index_dailybasic(**{
+                    "trade_date": today_str, "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+                    "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+                ])
+                if not df.empty:
+                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                    for row in df.itertuples():
+                        index_dailybasic_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
+                        index_dailybasic_dicts.append(index_dailybasic_dict)
+                if len(df) < limit:
+                    break
+                offset += limit
+        if index_dailybasic_dicts:
+            # 保存到数据库
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=IndexDaily,
+                data_list=index_dailybasic_dicts,
+                unique_fields=['index_code', 'trade_time']
+            )
+        return result        
+
+
     # ============== 大盘指数每日指标 ==============
     async def get_index_daily_basic_by_limit(self, index_code: str, limit: int) -> List['IndexDailyBasic']:
         """
@@ -386,7 +512,7 @@ class IndexBasicDAO(BaseDAO):
             result =  await self._save_all_to_db_native_upsert(
                 model_class=IndexDailyBasic,
                 data_list=index_dailybasic_dicts,
-                unique_fields=['index_code', 'trade_date']
+                unique_fields=['index_code', 'trade_time']
             )
         return result
 
@@ -413,7 +539,7 @@ class IndexBasicDAO(BaseDAO):
                     logger.warning(f"每日筹码及胜率 offset已达10万，停止拉取。")
                     break
                 # 拉取数据
-                df = self.ts_pro.index_dailybasic(**{
+                df = self.ts_pro.index_daily(**{
                     "trade_date": index.index_code, "ts_code": "", "start_date": "20220101", "end_date": today_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
@@ -426,6 +552,7 @@ class IndexBasicDAO(BaseDAO):
                         index_info = await self.get_index_by_code(row.ts_code)
                         index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
                         index_dailybasic_dicts.append(index_dailybasic_dict)
+                print(f"index: {index.index_code}, len: {len(index_dailybasic_dicts)}")
                 time.sleep(0.3)
                 if len(df) < limit:
                     break
@@ -437,7 +564,7 @@ class IndexBasicDAO(BaseDAO):
                     data_list=index_dailybasic_dicts,
                     unique_fields=['index_code', 'trade_time']
                 )
-                print(f"保存 {index.index_code} 指数日线行情, freq=Day")
+                print(f"保存 {index.index_code} 大盘指数每日指标, freq=Day")
         return result
 
 
