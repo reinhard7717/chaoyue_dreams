@@ -3508,12 +3508,17 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
 
                     final_keyword_args = keyword_score_func_args.copy()
                     if param_passing_style == 'dict':
-                         final_keyword_args.update(score_func_params)
+                         # 对于 'dict' 风格，bs_params 中的参数 (已收集到 score_func_params 中)
+                         # 应该作为一个名为 'params' 的字典传递给评分函数。
+                         final_keyword_args['params'] = score_func_params # 将配置参数字典赋值给 'params' 键
                          print(f"DEBUG: 合并后的关键字参数 (dict 风格): {final_keyword_args.keys()}")
+                         # 例如，对于RSI，final_keyword_args 将是 {'rsi': rsi_series, 'params': {'period': 14, ...}}
                          score = score_func(**final_keyword_args)
                     elif param_passing_style == 'individual':
-                         final_keyword_args.update(score_func_params)
+                         # 对于 'individual' 风格，bs_params 中的参数直接作为独立的关键字参数传递。
+                         final_keyword_args.update(score_func_params) # 将配置参数直接合并到顶层
                          print(f"DEBUG: 合并后的关键字参数 (individual 风格): {final_keyword_args.keys()}")
+                         # 例如，对于OBV，final_keyword_args 将是 {'obv': obv_series, 'obv_ma': obv_ma_series, 'obv_ma_period': 10}
                          score = score_func(**final_keyword_args)
                     elif param_passing_style == 'none':
                          if score_func_params:
