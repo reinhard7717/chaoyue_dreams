@@ -172,12 +172,12 @@ class IndexBasicDAO(BaseDAO):
             List[StockInfo]: 指数基本信息列表
         """
         return_data = []
-        # 先从缓存中获取
-        index_list = await self.index_cache_get.all_indexes()
-        if index_list:
-            for index_dict in index_list:
-                return_data.append(index_dict)
-            return return_data
+        # # 先从缓存中获取
+        # index_list = await self.index_cache_get.all_indexes()
+        # if index_list:
+        #     for index_dict in index_list:
+        #         return_data.append(index_dict)
+        #     return return_data
         # 从数据库获取
         # logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
         index_list = await sync_to_async(lambda: list(IndexInfo.objects.all()))()
@@ -410,7 +410,7 @@ class IndexBasicDAO(BaseDAO):
         数据来源：Tushare社区统计计算
         """
         if indexs is None:
-            indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+            indexs = await self.get_index_list()
         else:
             indexs = indexs
         today = datetime.datetime.today()

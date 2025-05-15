@@ -162,7 +162,7 @@ def save_index_daily_history_task(self):
         print("正在获取所有指数代码列表...")
         # 注意：这里需要在同步任务中运行异步方法获取所有指数
         async def get_all_index_codes_async():
-             all_indices = await index_basic_dao.get_indexs_by_publisher(publisher="中证指数有限公司") # 假设这个方法是异步的
+             all_indices = await index_basic_dao.get_index_list() # 假设这个方法是异步的
              return [idx.index_code for idx in all_indices]
 
         # 在同步任务中运行异步代码获取所有指数代码
