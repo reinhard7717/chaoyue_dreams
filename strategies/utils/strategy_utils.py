@@ -1739,9 +1739,7 @@ def calculate_aroc_score(aroc: pd.Series) -> pd.Series:
 
     return score.clip(0, 100)
 
-def calculate_pivot_score(close: pd.Series, pivot_levels: Dict[str, pd.Series],
-                          tf: str, # 增加时间框架参数，用于构建标准列名
-                          params: Optional[Dict] = None) -> pd.Series:
+def calculate_pivot_score(close: pd.Series, pivot_levels: Dict[str, pd.Series], tf: str, params: Optional[Dict] = None) -> pd.Series:
     """
     Pivot Points 评分 (0-100)。
     评分逻辑基于收盘价相对于 Pivot Point (PP) 和各支撑/阻力水平的位置。
@@ -3574,450 +3572,339 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
 # 这个映射将用于回退查找逻辑中构建期望列名。
 indicator_scoring_info: Dict[str, Dict[str, Any]] = {
     'macd': {
-        'func': calculate_macd_score,
-        'param_passing_style': 'none',
-        'bs_param_key_to_score_func_arg': {},
-        'defaults': {},
-        'required_keys': ['macd_series', 'macd_d', 'macd_h'],
-        'prefixes': ['MACD_', 'MACDh_', 'MACDs_'],
-        # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-        'key_patterns': {
-            'macd_series': {
-                'pattern': 'MACD_{period_fast}_{period_slow}_{signal_period}', # 添加模式
-                'params_map': {'period_fast': 'macd_fast', 'period_slow': 'macd_slow', 'signal_period': 'macd_signal'}
-            },
-            'macd_d': {
-                'pattern': 'MACDs_{period_fast}_{period_slow}_{signal_period}', # 添加模式
-                'params_map': {'period_fast': 'macd_fast', 'period_slow': 'macd_slow', 'signal_period': 'macd_signal'}
-            },
-            'macd_h': {
-                 'pattern': 'MACDh_{period_fast}_{period_slow}_{signal_period}', # 添加模式
-                 'params_map': {'period_fast': 'macd_fast', 'period_slow': 'macd_slow', 'signal_period': 'macd_signal'}
-            }
+        'func': calculate_macd_score,  # MACD评分函数引用
+        'param_passing_style': 'none',  # 评分函数只接受Series，不接受额外配置参数
+        'bs_param_key_to_score_func_arg': {},  # 无需从bs_params向评分函数传递参数
+        'defaults': {  # bs_params中MACD参数的默认值，主要供key_patterns使用
+            'macd_fast': 12, 
+            'macd_slow': 26, 
+            'macd_signal': 9
+        },
+        'required_keys': ['macd_series', 'macd_d', 'macd_h'],  # 评分函数必需的内部数据键
+        'prefixes': ['MACD_', 'MACDh_', 'MACDs_'],  # 列查找失败时的调试前缀
+        'key_patterns': {  # 如何从bs_params构建列名模式 (用于回退查找)
+            'macd_series': {'pattern': 'MACD_{period_fast}_{period_slow}_{signal_period}_{timeframe}', 'params_map': {'period_fast': 'macd_fast', 'period_slow': 'macd_slow', 'signal_period': 'macd_signal'}},
+            'macd_d': {'pattern': 'MACDs_{period_fast}_{period_slow}_{signal_period}_{timeframe}', 'params_map': {'period_fast': 'macd_fast', 'period_slow': 'macd_slow', 'signal_period': 'macd_signal'}},
+            'macd_h': {'pattern': 'MACDh_{period_fast}_{period_slow}_{signal_period}_{timeframe}', 'params_map': {'period_fast': 'macd_fast', 'period_slow': 'macd_slow', 'signal_period': 'macd_signal'}}
         }
     },
     'rsi': {
-        'func': calculate_rsi_score,
-        'param_passing_style': 'dict',
-        'bs_param_key_to_score_func_arg': {'rsi_period': 'period', 'rsi_oversold': 'oversold', 'rsi_overbought': 'overbought', 'rsi_extreme_oversold': 'extreme_oversold', 'rsi_extreme_overbought': 'extreme_overbought'},
-        'defaults': {'period': 14, 'oversold': 30, 'overbought': 70, 'extreme_oversold': 20, 'extreme_overbought': 80},
-        'required_keys': ['rsi'],
+        'func': calculate_rsi_score,  # RSI评分函数引用
+        'param_passing_style': 'dict',  # 评分函数接受Series及来自bs_params的配置参数
+        'bs_param_key_to_score_func_arg': {  # 将bs_params键映射到评分函数参数名
+            'rsi_period': 'period',  # JSON 'rsi_period' -> 评分函数 'period'
+            'rsi_oversold': 'oversold',
+            'rsi_overbought': 'overbought',
+            'rsi_extreme_oversold': 'extreme_oversold',
+            'rsi_extreme_overbought': 'extreme_overbought'
+        },
+        'defaults': {  # bs_params中RSI参数的默认值
+            'rsi_period': 14, 
+            'rsi_oversold': 30, 
+            'rsi_overbought': 70, 
+            'rsi_extreme_oversold': 20, 
+            'rsi_extreme_overbought': 80
+        },
+        'required_keys': ['rsi'],  # 必需的RSI数据列
         'prefixes': ['RSI_'],
-        # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
         'key_patterns': {
-            'rsi': {
-                'pattern': 'RSI_{period}', # 添加模式
-                'params_map': {'period': 'rsi_period'}
-            },
+            'rsi': {'pattern': 'RSI_{period}_{timeframe}', 'params_map': {'period': 'rsi_period'}}
         }
     },
     'kdj': {
-        'func': calculate_kdj_score,
+        'func': calculate_kdj_score,  # KDJ评分函数引用
         'param_passing_style': 'dict',
-        'bs_param_key_to_score_func_arg': {'kdj_period_k': 'period', 'kdj_period_d': 'signal_period', 'kdj_period_j': 'smooth_k_period', 'kdj_oversold': 'oversold', 'kdj_overbought': 'overbought', 'kdj_extreme_oversold': 'extreme_oversold', 'kdj_extreme_overbought': 'extreme_overbought'}, # 修正 bs_param_key_to_score_func_arg 映射，根据 pattern 参数名调整
-        'defaults': {'k_period': 9, 'd_period': 3, 'smooth_k_period': 3, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90}, # 修正 defaults 键名，与 pattern 参数名一致
+        'bs_param_key_to_score_func_arg': {  # KDJ评分函数直接需要的参数 (通常是阈值)
+            'kdj_oversold': 'oversold',
+            'kdj_overbought': 'overbought',
+            'kdj_extreme_oversold': 'extreme_oversold',
+            'kdj_extreme_overbought': 'extreme_overbought'
+            # KDJ周期参数 (kdj_period_k等) 用于key_patterns构建列名，不直接传给评分函数
+        },
+        'defaults': {
+            'kdj_period_k': 9, 
+            'kdj_period_d': 3, 
+            'kdj_period_j': 3, 
+            'kdj_oversold': 20, 
+            'kdj_overbought': 80, 
+            'kdj_extreme_oversold': 10, 
+            'kdj_extreme_overbought': 90
+        },
         'required_keys': ['k', 'd', 'j'],
         'prefixes': ['K_', 'D_', 'J_'],
-        # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
         'key_patterns': {
-            'k': {
-                'pattern': 'K_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', # 添加模式，使用与 pattern 参数名一致的占位符
-                'params_map': {'k_period': 'kdj_period_k', 'd_period': 'kdj_period_d', 'smooth_k_period': 'kdj_period_j'}, # 修正 params_map，从 bs_params 中取值
-            },
-            'd': {
-                'pattern': 'D_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', # 添加模式
-                 'params_map': {'k_period': 'kdj_period_k', 'd_period': 'kdj_period_d', 'smooth_k_period': 'kdj_period_j'},
-            },
-            'j': {
-                'pattern': 'J_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', # 添加模式
-                 'params_map': {'k_period': 'kdj_period_k', 'd_period': 'kdj_period_d', 'smooth_k_period': 'kdj_period_j'},
-            },
+            'k': {'pattern': 'K_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', 'params_map': {'k_period': 'kdj_period_k', 'd_period': 'kdj_period_d', 'smooth_k_period': 'kdj_period_j'}},
+            'd': {'pattern': 'D_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', 'params_map': {'k_period': 'kdj_period_k', 'd_period': 'kdj_period_d', 'smooth_k_period': 'kdj_period_j'}},
+            'j': {'pattern': 'J_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', 'params_map': {'k_period': 'kdj_period_k', 'd_period': 'kdj_period_d', 'smooth_k_period': 'kdj_period_j'}},
         }
     },
     'boll': {
-       'func': calculate_boll_score,
-       'param_passing_style': 'none',
+       'func': calculate_boll_score,  # BOLL评分函数引用
+       'param_passing_style': 'none', # 只接受Series
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'boll_period': 20, 'boll_std_dev': 2.0}, # 周期和标准差用于key_patterns
        'required_keys': ['close', 'upper', 'mid', 'lower'],
-       'prefixes': ['BBL_', 'BBM_', 'BBU_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'upper': {
-                'pattern': 'BBU_{period}_{std_dev:.1f}', # 添加模式
-                'params_map': {'period': 'boll_period', 'std_dev': 'boll_std_dev'},
-            },
-            'mid': {
-                'pattern': 'BBM_{period}_{std_dev:.1f}', # 添加模式
-                'params_map': {'period': 'boll_period', 'std_dev': 'boll_std_dev'},
-            },
-            'lower': {
-                'pattern': 'BBL_{period}_{std_dev:.1f}', # 添加模式
-                'params_map': {'period': 'boll_period', 'std_dev': 'boll_std_dev'},
-            },
+       'prefixes': ['BBL_', 'BBM_', 'BBU_'], # 布林带各线的前缀
+       'key_patterns': { # 'close'列由OHLCV配置处理
+            'upper': {'pattern': 'BBU_{period}_{std_dev:.1f}_{timeframe}', 'params_map': {'period': 'boll_period', 'std_dev': 'boll_std_dev'}},
+            'mid': {'pattern': 'BBM_{period}_{std_dev:.1f}_{timeframe}', 'params_map': {'period': 'boll_period', 'std_dev': 'boll_std_dev'}},
+            'lower': {'pattern': 'BBL_{period}_{std_dev:.1f}_{timeframe}', 'params_map': {'period': 'boll_period', 'std_dev': 'boll_std_dev'}},
        }
     },
     'cci': {
-       'func': calculate_cci_score,
+       'func': calculate_cci_score,  # CCI评分函数引用
        'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'cci_period': 'period', 'cci_threshold': 'threshold', 'cci_extreme_threshold': 'extreme_threshold'},
-       'defaults': {'period': 14, 'threshold': 100, 'extreme_threshold': 200},
+       'bs_param_key_to_score_func_arg': {
+            'cci_period': 'period',
+            'cci_threshold': 'threshold',
+            'cci_extreme_threshold': 'extreme_threshold'
+       },
+       'defaults': {'cci_period': 14, 'cci_threshold': 100, 'cci_extreme_threshold': 200},
        'required_keys': ['cci'],
        'prefixes': ['CCI_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
        'key_patterns': {
-            'cci': {
-                'pattern': 'CCI_{period}', # 添加模式
-                'params_map': {'period': 'cci_period'},
+            'cci': {'pattern': 'CCI_{period}_{timeframe}', 'params_map': {'period': 'cci_period'}}
             }
-       }
     },
     'mfi': {
-       'func': calculate_mfi_score,
+       'func': calculate_mfi_score,  # MFI评分函数引用
        'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'mfi_period': 'period', 'mfi_oversold': 'oversold', 'mfi_overbought': 'overbought', 'mfi_extreme_oversold': 'extreme_oversold', 'mfi_extreme_overbought': 'extreme_overbought'},
-       'defaults': {'period': 14, 'oversold': 20, 'overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90},
+       'bs_param_key_to_score_func_arg': {
+            'mfi_period': 'period',
+            'mfi_oversold': 'oversold',
+            'mfi_overbought': 'overbought',
+            'mfi_extreme_oversold': 'extreme_oversold',
+            'mfi_extreme_overbought': 'extreme_overbought'
+       },
+       'defaults': {'mfi_period': 14, 'mfi_oversold': 20, 'mfi_overbought': 80, 'mfi_extreme_oversold': 10, 'mfi_extreme_overbought': 90},
        'required_keys': ['mfi'],
        'prefixes': ['MFI_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
        'key_patterns': {
-            'mfi': {
-                'pattern': 'MFI_{period}', # 添加模式
-                'params_map': {'period': 'mfi_period'},
+            'mfi': {'pattern': 'MFI_{period}_{timeframe}', 'params_map': {'period': 'mfi_period'}}
             }
-       }
     },
     'roc': {
-       'func': calculate_roc_score,
+       'func': calculate_roc_score,  # ROC评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'roc_period': 12}, # 周期用于key_patterns
        'required_keys': ['roc'],
        'prefixes': ['ROC_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
        'key_patterns': {
-            'roc': {
-                'pattern': 'ROC_{period}', # 添加模式
-                'params_map': {'period': 'roc_period'},
+            'roc': {'pattern': 'ROC_{period}_{timeframe}', 'params_map': {'period': 'roc_period'}}
             }
-       }
     },
     'dmi': {
-       'func': calculate_dmi_score,
+       'func': calculate_dmi_score,  # DMI评分函数引用
        'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'dmi_period': 'period', 'adx_threshold': 'adx_threshold', 'adx_strong_threshold': 'adx_strong_threshold'},
-       'defaults': {'period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
-       'required_keys': ['pdi', 'ndi', 'adx'],
+       'bs_param_key_to_score_func_arg': { # DMI评分函数直接需要的参数
+            'dmi_period': 'period', # 假设评分函数也用这个周期参数进行某些判断
+            'adx_threshold': 'adx_threshold',
+            'adx_strong_threshold': 'adx_strong_threshold'
+       },
+       'defaults': {'dmi_period': 14, 'adx_threshold': 25, 'adx_strong_threshold': 40},
+       'required_keys': ['pdi', 'ndi', 'adx'], # PDI, NDI, ADX三条线
        'prefixes': ['PDI_', 'NDI_', 'ADX_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'pdi': {
-                 'pattern': 'PDI_{period}', # 添加模式
-                 'params_map': {'period': 'dmi_period'},
-            },
-            'ndi': {
-                 'pattern': 'NDI_{period}', # 添加模式
-                 'params_map': {'period': 'dmi_period'},
-            },
-            'adx': {
-                 'pattern': 'ADX_{period}', # 添加模式
-                 'params_map': {'period': 'dmi_period'},
-            },
+       'key_patterns': { # DMI各线的周期参数与dmi_period一致
+            'pdi': {'pattern': 'PDI_{period}_{timeframe}', 'params_map': {'period': 'dmi_period'}},
+            'ndi': {'pattern': 'NDI_{period}_{timeframe}', 'params_map': {'period': 'dmi_period'}},
+            'adx': {'pattern': 'ADX_{period}_{timeframe}', 'params_map': {'period': 'dmi_period'}},
        }
     },
     'sar': {
-       'func': calculate_sar_score,
+       'func': calculate_sar_score,  # SAR评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'sar_step': 0.02, 'sar_max': 0.2}, # af_step和max_af用于key_patterns
        'required_keys': ['close', 'sar'],
        'prefixes': ['SAR_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'sar': {
-                'pattern': 'SAR_{af_step}_{max_af:.2f}', # 添加模式，使用 .2f 格式化以匹配日志中的 0.2
-                'params_map': {'af_step': 'sar_step', 'max_af': 'sar_max'},
-            },
-       }
+       'key_patterns': { # 'close'列由OHLCV配置处理
+            'sar': {'pattern': 'SAR_{af_step}_{max_af:.2f}_{timeframe}', 'params_map': {'af_step': 'sar_step', 'max_af': 'sar_max'}}
+            }
     },
     'stoch': {
-       'func': calculate_stoch_score,
+       'func': calculate_stoch_score,  # STOCH评分函数引用
        'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'stoch_k': 'k_period', 'stoch_d': 'd_period', 'stoch_smooth_k': 'smooth_k_period', 'stoch_oversold': 'stoch_oversold', 'stoch_overbought': 'stoch_overbought', 'stoch_extreme_oversold': 'stoch_extreme_oversold', 'stoch_extreme_overbought': 'stoch_extreme_overbought'}, # 修正 bs_param_key_to_score_func_arg 映射
-       'defaults': {'k_period': 14, 'd_period': 3, 'smooth_k_period': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'extreme_oversold': 10, 'extreme_overbought': 90}, # 修正 defaults 键名
-       'required_keys': ['k', 'd'],
+       'bs_param_key_to_score_func_arg': { # STOCH评分函数直接需要的参数
+            'stoch_k': 'k_period', # 假设评分函数也用这些周期参数
+            'stoch_d': 'd_period',
+            'stoch_smooth_k': 'smooth_k_period',
+            'stoch_oversold': 'stoch_oversold',
+            'stoch_overbought': 'stoch_overbought',
+            'stoch_extreme_oversold': 'stoch_extreme_oversold',
+            'stoch_extreme_overbought': 'stoch_extreme_overbought'
+       },
+       'defaults': {'stoch_k': 14, 'stoch_d': 3, 'stoch_smooth_k': 3, 'stoch_oversold': 20, 'stoch_overbought': 80, 'stoch_extreme_oversold': 10, 'stoch_extreme_overbought': 90},
+       'required_keys': ['k', 'd'], # STOCH K线和D线
        'prefixes': ['STOCHk_', 'STOCHd_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
        'key_patterns': {
-            'k': {
-                'pattern': 'STOCHk_{k_period}_{d_period}_{smooth_k_period}', # 添加模式
-                'params_map': {'k_period': 'stoch_k', 'd_period': 'stoch_d', 'smooth_k_period': 'stoch_smooth_k'}, # 修正 params_map，从 bs_params 中取值
-            },
-            'd': {
-                'pattern': 'STOCHd_{k_period}_{d_period}_{smooth_k_period}', # 添加模式
-                'params_map': {'k_period': 'stoch_k', 'd_period': 'stoch_d', 'smooth_k_period': 'stoch_smooth_k'},
-            },
+            'k': {'pattern': 'STOCHk_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', 'params_map': {'k_period': 'stoch_k', 'd_period': 'stoch_d', 'smooth_k_period': 'stoch_smooth_k'}},
+            'd': {'pattern': 'STOCHd_{k_period}_{d_period}_{smooth_k_period}_{timeframe}', 'params_map': {'k_period': 'stoch_k', 'd_period': 'stoch_d', 'smooth_k_period': 'stoch_smooth_k'}},
        }
     },
-    'ema': {
+    'ema': { # 使用通用的MA评分函数
        'func': calculate_ma_score,
        'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'ema_period': 'period'},
-       'defaults': {'period': 20},
-       'required_keys': ['close', 'ma'], # MA评分函数通常只需要MA线本身和close
+       'bs_param_key_to_score_func_arg': {'ema_period': 'period'}, # 将JSON的'ema_period'作为'period'参数传给评分函数
+       'defaults': {'ema_period': 20},
+       'required_keys': ['close', 'ma'], # MA评分函数需要收盘价和MA线本身
        'prefixes': ['EMA_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'ma': {
-                'pattern': 'EMA_{period}', # 添加模式
-                'params_map': {'period': 'ema_period'},
-            },
-       }
+       'key_patterns': { # 'close'由OHLCV处理
+            'ma': {'pattern': 'EMA_{period}_{timeframe}', 'params_map': {'period': 'ema_period'}} # 'ma'这个内部键代表EMA线
+            }
     },
-    'sma': {
+    'sma': { # 使用通用的MA评分函数
        'func': calculate_ma_score,
        'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {'sma_period': 'period'},
-       'defaults': {'period': 20},
-       'required_keys': ['close', 'ma'], # MA评分函数通常只需要MA线本身和close
+       'bs_param_key_to_score_func_arg': {'sma_period': 'period'}, # 将JSON的'sma_period'作为'period'参数传给评分函数
+       'defaults': {'sma_period': 20},
+       'required_keys': ['close', 'ma'],
        'prefixes': ['SMA_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'ma': {
-                'pattern': 'SMA_{period}', # 添加模式
-                'params_map': {'period': 'sma_period'},
-            },
-       }
+       'key_patterns': { # 'close'由OHLCV处理
+            'ma': {'pattern': 'SMA_{period}_{timeframe}', 'params_map': {'period': 'sma_period'}} # 'ma'这个内部键代表SMA线
+            }
     },
     'atr': {
-       'func': calculate_atr_score,
+       'func': calculate_atr_score,  # ATR评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'atr_period':14}, # 周期用于key_patterns
        'required_keys': ['atr'],
-       'prefixes': ['ATR_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'atr': {
-                'pattern': 'ATR_{period}', # 添加模式
-                'params_map': {'period': 'atr_period'},
-            },
-       }
+       'prefixes':['ATR_'],
+       'key_patterns':{'atr':{'pattern':'ATR_{period}_{timeframe}', 'params_map':{'period':'atr_period'}}}
     },
     'adl': {
-       'func': calculate_adl_score,
+       'func': calculate_adl_score,  # ADL评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {}, # ADL通常无参数
        'required_keys': ['adl'],
-       'prefixes': ['ADL_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'adl': {
-                'pattern': 'ADL', # ADL 通常没有参数
-                'params_map': {},
-            },
-       }
+       'prefixes':['ADL'], # 注意：ADL 列名可能不包含下划线，若原始列名为ADL_5，则此前缀应为ADL_
+       'key_patterns':{'adl':{'pattern':'ADL_{timeframe}', 'params_map':{}}} # 假设ADL列名为 ADL_{timeframe}
     },
     'vwap': {
-       'func': calculate_vwap_score,
+       'func': calculate_vwap_score,  # VWAP评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {}, # VWAP计算参数（如anchor）在指标计算服务中处理
        'required_keys': ['close', 'vwap'],
-       'prefixes': ['VWAP_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'vwap': {
-                'pattern': 'VWAP', # VWAP 可能有 anchor 参数，但日志中的列名 VWAP_5 表明模式可能只是 VWAP + 后缀
-                'params_map': {}, # 如果 VWAP_day 有参数，这里需要定义
-            },
-       }
+       'prefixes':['VWAP_'],
+       'key_patterns':{ # 'close'由OHLCV处理
+           'vwap':{'pattern':'VWAP_{timeframe}', 'params_map':{}}} # 假设VWAP列名为 VWAP_{timeframe}
     },
     'ichimoku': {
-       'func': calculate_ichimoku_score,
+       'func': calculate_ichimoku_score,  # Ichimoku评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': { # Ichimoku各线的周期参数，用于key_patterns
+           'ichimoku_tenkan_period':9,
+           'ichimoku_kijun_period':26,
+           'ichimoku_senkou_b_period':52, # Senkou Span B 周期
+           'ichimoku_chikou_period':26  # Chikou Span 的位移周期，也可能影响Senkou A的计算
+           # senkou_a 通常由 tenkan 和 kijun 决定，其本身的独立周期参数较少见，但如果pandas_ta用不同方式，需调整
+       },
        'required_keys': ['close', 'tenkan', 'kijun', 'senkou_a', 'senkou_b', 'chikou'],
-       'prefixes': ['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'tenkan': {
-                'pattern': 'TENKAN_{period}', # 添加模式
-                'params_map': {'period': 'ichimoku_tenkan_period'},
-            },
-            'kijun': {
-                'pattern': 'KIJUN_{period}', # 添加模式
-                'params_map': {'period': 'ichimoku_kijun_period'},
-            },
-            'chikou': {
-                'pattern': 'CHIKOU_{period}', # 添加模式
-                'params_map': {'period': 'ichimoku_chikou_period'},
-            },
-            'senkou_a': {
-                'pattern': 'SENKOU_A_{tenkan_period}_{kijun_period}', # 添加模式
-                'params_map': {'tenkan_period': 'ichimoku_tenkan_period', 'kijun_period': 'ichimoku_kijun_period'},
-            },
-            'senkou_b': {
-                'pattern': 'SENKOU_B_{period}', # 添加模式
-                'params_map': {'period': 'ichimoku_senkou_b_period'},
-            },
-       }
+       'prefixes':['TENKAN_', 'KIJUN_', 'CHIKOU_', 'SENKOU_A_', 'SENKOU_B_', 'ITS_', 'IKS_', 'ISA_', 'ISB_', 'ICS_'], # 包含可能的pandas_ta前缀
+       'key_patterns': { # 'close'由OHLCV处理. 这些模式需要精确匹配指标计算服务生成的列名（在加_{timeframe}后缀之前的基础部分）
+            'tenkan': {'pattern': 'ITS_{period}_{timeframe}', 'params_map': {'period': 'ichimoku_tenkan_period'}}, # pandas_ta默认: ITS_9
+            'kijun': {'pattern': 'IKS_{period}_{timeframe}', 'params_map': {'period': 'ichimoku_kijun_period'}},   # pandas_ta默认: IKS_26
+            'senkou_a': {'pattern': 'ISA_{tenkan_period}_{kijun_period}_{timeframe}', 'params_map': {'tenkan_period': 'ichimoku_tenkan_period', 'kijun_period': 'ichimoku_kijun_period'}}, # pandas_ta默认: ISA_9_26
+            'senkou_b': {'pattern': 'ISB_{period}_{timeframe}', 'params_map': {'period': 'ichimoku_senkou_b_period'}}, # pandas_ta默认: ISB_52
+            'chikou': {'pattern': 'ICS_{period}_{timeframe}', 'params_map': {'period': 'ichimoku_chikou_period'}},   # pandas_ta默认: ICS_26 (Chikou Span是收盘价向过去位移，其周期是位移量)
+        }
     },
     'mom': {
-       'func': calculate_mom_score,
+       'func': calculate_mom_score,  # MOM评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'mom_period':10}, # 周期用于key_patterns
        'required_keys': ['mom'],
-       'prefixes': ['MOM_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'mom': {
-                'pattern': 'MOM_{period}', # 添加模式
-                'params_map': {'period': 'mom_period'},
-            },
-       }
+       'prefixes':['MOM_'],
+       'key_patterns':{'mom':{'pattern':'MOM_{period}_{timeframe}', 'params_map':{'period':'mom_period'}}}
     },
     'willr': {
-       'func': calculate_willr_score,
+       'func': calculate_willr_score,  # WILLR评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'willr_period':14}, # 周期用于key_patterns
        'required_keys': ['willr'],
-       'prefixes': ['WILLR_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'willr': {
-                'pattern': 'WILLR_{period}', # 添加模式
-                'params_map': {'period': 'willr_period'},
-            },
-       }
+       'prefixes':['WILLR_'],
+       'key_patterns':{'willr':{'pattern':'WILLR_{period}_{timeframe}', 'params_map':{'period':'willr_period'}}}
     },
     'cmf': {
-       'func': calculate_cmf_score,
+       'func': calculate_cmf_score,  # CMF评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'cmf_period':20}, # 周期用于key_patterns
        'required_keys': ['cmf'],
-       'prefixes': ['CMF_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'cmf': {
-                'pattern': 'CMF_{period}', # 添加模式
-                'params_map': {'period': 'cmf_period'},
-            },
-       }
+       'prefixes':['CMF_'],
+       'key_patterns':{'cmf':{'pattern':'CMF_{period}_{timeframe}', 'params_map':{'period':'cmf_period'}}}
     },
     'obv': {
-       'func': calculate_obv_score,
-       'param_passing_style': 'individual',
-       'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'},
-       'defaults': {'obv_ma_period': 10},
-       'required_keys': ['obv', 'obv_ma'], # OBV 评分函数需要 OBV 线和其均线 (可选)
+       'func': calculate_obv_score,  # OBV评分函数引用
+       'param_passing_style': 'individual', # OBV_MA_PERIOD是独立关键字参数
+       'bs_param_key_to_score_func_arg': {'obv_ma_period': 'obv_ma_period'}, # 将JSON的'obv_ma_period'映射到评分函数同名参数
+       'defaults': {'obv_ma_period': 10}, # OBV MA的周期
+       'required_keys': ['obv', 'obv_ma'], # OBV线, OBV的移动平均线 (obv_ma是可选的)
        'prefixes': ['OBV_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
        'key_patterns': {
-            'obv': {
-                'pattern': 'OBV', # OBV 本身没有参数
-                'params_map': {},
-            },
-            'obv_ma': {
-                'pattern': 'OBV_MA_{period}', # OBV_MA 的模式参数映射
-                'params_map': {'period': 'obv_ma_period'},
-            },
+            'obv': {'pattern': 'OBV_{timeframe}', 'params_map': {}}, # OBV本身通常无参数
+            'obv_ma': {'pattern': 'OBV_MA_{period}_{timeframe}', 'params_map': {'period': 'obv_ma_period'}}, # OBV均线的模式
        }
     },
     'kc': {
-       'func': calculate_kc_score,
+       'func': calculate_kc_score,  # Keltner Channels评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
-       'required_keys': ['close', 'upper', 'mid', 'lower'],
-       'prefixes': ['KCL_', 'KCM_', 'KCU_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            'upper': {
-                 'pattern': 'KCU_{ema_period}_{atr_period}', # 添加模式
-                 'params_map': {'ema_period': 'kc_ema_period', 'atr_period': 'kc_atr_period'},
-            },
-            'mid': {
-                 'pattern': 'KCM_{ema_period}_{atr_period}', # 添加模式
-                 'params_map': {'ema_period': 'kc_ema_period', 'atr_period': 'kc_atr_period'},
-            },
-            'lower': {
-                 'pattern': 'KCL_{ema_period}_{atr_period}', # 添加模式
-                 'params_map': {'ema_period': 'kc_ema_period', 'atr_period': 'kc_atr_period'},
-            },
-       }
+       'defaults': {'kc_ema_period':20, 'kc_atr_period':10, 'kc_atr_multiplier': 2.0}, # 参数用于key_patterns
+       'required_keys': ['close', 'upper', 'mid', 'lower'], # Keltner三条线和收盘价
+       'prefixes':['KCL_', 'KCM_', 'KCU_'], # Keltner各线的前缀
+       'key_patterns': { # 'close'列由OHLCV配置处理
+            # 注意：KC的列名通常包含EMA周期和ATR周期/乘数，模式需精确匹配
+            'upper': {'pattern': 'KCU_{ema_period}_{atr_period}_{atr_multiplier:.1f}_{timeframe}', 'params_map': {'ema_period': 'kc_ema_period', 'atr_period': 'kc_atr_period', 'atr_multiplier': 'kc_atr_multiplier'}},
+            'mid': {'pattern': 'KCM_{ema_period}_{atr_period}_{atr_multiplier:.1f}_{timeframe}', 'params_map': {'ema_period': 'kc_ema_period', 'atr_period': 'kc_atr_period', 'atr_multiplier': 'kc_atr_multiplier'}},
+            'lower': {'pattern': 'KCL_{ema_period}_{atr_period}_{atr_multiplier:.1f}_{timeframe}', 'params_map': {'ema_period': 'kc_ema_period', 'atr_period': 'kc_atr_period', 'atr_multiplier': 'kc_atr_multiplier'}},
+        }
     },
     'hv': {
-       'func': calculate_hv_score,
+       'func': calculate_hv_score,  # Historical Volatility评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'hv_period':20, 'hv_annual_factor': 252}, # 参数用于key_patterns
        'required_keys': ['hv'],
-       'prefixes': ['HV_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'hv': {
-                'pattern': 'HV_{period}', # 添加模式
-                'params_map': {'period': 'hv_period'},
-            },
-       }
+       'prefixes':['HV_'],
+       'key_patterns':{'hv':{'pattern':'HV_{period}_{annual_factor}_{timeframe}', 'params_map':{'period':'hv_period', 'annual_factor': 'hv_annual_factor'}}}
     },
     'vroc': {
-       'func': calculate_vroc_score,
+       'func': calculate_vroc_score,  # Volume ROC评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'vroc_period':10}, # 周期用于key_patterns
        'required_keys': ['vroc'],
-       'prefixes': ['VROC_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'vroc': {
-                'pattern': 'VROC_{period}', # 添加模式
-                'params_map': {'period': 'vroc_period'},
-            },
-       }
+       'prefixes':['VROC_'],
+       'key_patterns':{'vroc':{'pattern':'VROC_{period}_{timeframe}', 'params_map':{'period':'vroc_period'}}}
     },
     'aroc': {
-       'func': calculate_aroc_score,
+       'func': calculate_aroc_score,  # Amount ROC评分函数引用
        'param_passing_style': 'none',
        'bs_param_key_to_score_func_arg': {},
-       'defaults': {},
+       'defaults': {'aroc_period':10}, # 周期用于key_patterns
        'required_keys': ['aroc'],
-       'prefixes': ['AROC_'],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            'aroc': {
-                'pattern': 'AROC_{period}', # 添加模式
-                'params_map': {'period': 'aroc_period'},
-            },
-       }
+       'prefixes':['AROC_'],
+       'key_patterns':{'aroc':{'pattern':'AROC_{period}_{timeframe}', 'params_map':{'period':'aroc_period'}}}
     },
     'pivot': {
-       'func': calculate_pivot_score,
-       'param_passing_style': 'dict',
-       'bs_param_key_to_score_func_arg': {},
+       'func': calculate_pivot_score,  # Pivot Points评分函数引用
+       'param_passing_style': 'dict', # 主要是为了pivot_levels (Dict) 和 close. 'tf' 由调用者处理.
+       'bs_param_key_to_score_func_arg': {}, # 假设 'params: Optional[Dict]' 不从bs_params填充，或calculate_pivot_score不依赖它
        'defaults': {},
-       'required_keys': ['close', 'pivot_levels'],
-       'prefixes': [],
-       # 修改: 将 pattern_params_map 改为 key_patterns，并加入 pattern
-       'key_patterns': {
-            # 'close' 是 OHLCV，在回退查找时需要特殊处理，不在这里定义 pattern
-            # 'pivot_levels' 是特殊结构，在回退查找时需要特殊处理，不在这里定义 pattern
+       'required_keys': ['close', 'pivot_levels'], # 'tf' 参数由调用逻辑特殊处理并传递，不在此处定义
+       'prefixes': [], # Pivot levels列名在回退查找时有特殊处理逻辑，不依赖简单前缀
+       'key_patterns': { # 'close'由OHLCV处理. 'pivot_levels'是特殊结构，回退查找时会查找naming_config中PIVOT的levels和pattern
+            # 无需为 pivot_levels 的每个子键（R1, S1等）在此处定义 pattern，
+            # 回退查找逻辑会使用 naming_config['indicator_naming_conventions']['PIVOT']['levels'] 和 ['pattern']
        }
     }
 }
-
 
 
