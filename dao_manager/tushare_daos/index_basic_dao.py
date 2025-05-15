@@ -180,11 +180,11 @@ class IndexBasicDAO(BaseDAO):
         #     return return_data
         # 从数据库获取
         # logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
-        index_list = await sync_to_async(lambda: list(IndexInfo.objects.all()))()
+        return_data = await sync_to_async(lambda: list(IndexInfo.objects.all()))()
         # 如果数据库中有数据，缓存并返回
-        if index_list:
+        if return_data:
             data_to_cache = []
-            for index in index_list:
+            for index in return_data:
                 index_dict = self.data_format_process.set_index_info_data(index)
                 data_to_cache.append(index_dict)
                 await self.index_cache_set.index_info(index.index_code, index_dict)
