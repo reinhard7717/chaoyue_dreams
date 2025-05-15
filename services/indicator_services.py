@@ -376,7 +376,7 @@ class IndicatorService:
              logger.warning(f"无法获取用于确定外部特征起始日期的交易日历数据 for {stock_code} (请求 {external_data_history_days} 天，基准日期 {end_date})。跳过外部特征获取。")
              return df # 无法获取交易日历，跳过外部特征
         # external_fetch_start_date 是获取到的交易日历中的最早日期
-        external_fetch_start_date = trade_days_for_external[0]
+        external_fetch_start_date = trade_days_for_external[-1]
         logger.info(f"对股票 {stock_code} 在日期范围 {start_date} 到 {end_date} 进行特征工程，外部特征获取范围: {external_fetch_start_date} 到 {end_date}") # 日志信息
 
         # --- 获取相关数据 ---
@@ -1195,7 +1195,7 @@ class IndicatorService:
         logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
         # 调用 Service自身的 enrich_features 方法，并传递 main_index_codes 和 external_data_history_days
         # enrich_features 内部会使用传入的 main_indices 和根据 stock_code 获取的 ths_codes 来获取数据
-        final_df = await self.enrich_features(final_df, stock_code, main_index_codes, external_data_history_days)
+        final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
         logger.info(f"[{stock_code}] 外部特征补充完成。最终 DataFrame Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
         # *** 调试点：检查补充外部特征后的 DataFrame 列名 ***
         # print(f"[{stock_code}] Debug: 补充外部特征后的列名 (部分): {final_df.columns.tolist()[:30]}...") # 调试输出

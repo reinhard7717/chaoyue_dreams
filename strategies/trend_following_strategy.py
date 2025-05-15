@@ -16,11 +16,7 @@ from torch.utils.data import DataLoader
 from services.indicator_services import IndicatorService # 确保导入 IndicatorService
 from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas_ta as ta
-
 from dao_manager.tushare_daos.industry_dao import IndustryDao
-
-# 假设 BaseStrategy 在 .base 模块中定义 (根据您的文件结构)
-# from .base import BaseStrategy # 原文件中被注释，为了代码独立性暂不保留，但请注意可能需要引入 BaseStrategy
 from .utils import strategy_utils
 from .utils.deep_learning_utils import (
     build_transformer_model,
@@ -37,7 +33,6 @@ def load_naming_config():
     if not hasattr(settings, 'INDICATOR_NAMING_CONFIG_PATH') or not settings.INDICATOR_NAMING_CONFIG_PATH:
          logger.error("CRITICAL: Django settings.INDICATOR_NAMING_CONFIG_PATH 未配置!")
          return {} # 返回空字典避免后续错误
-
     if not os.path.exists(settings.INDICATOR_NAMING_CONFIG_PATH):
         logger.error(f"命名规范文件未找到: {settings.INDICATOR_NAMING_CONFIG_PATH}")
         return {} # 返回空字典避免后续错误
@@ -47,9 +42,7 @@ def load_naming_config():
     except Exception as e:
         logger.error(f"加载命名规范文件出错: {e}", exc_info=True)
         return {} # 加载失败返回空字典
-
 NAMING_CONFIG = load_naming_config()
-
 logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
 
 class TrendFollowingStrategy:
@@ -62,7 +55,6 @@ class TrendFollowingStrategy:
     - 适应A股 T+1 交易制度，增强假信号过滤，动态调整参数。
     - 集成 Transformer 模型进行信号预测增强。
     """
-    # 类属性，作为最终的备用默认值，如果JSON和实例都未能提供名称
     strategy_name_class_default = "TrendFollowingStrategy_ClassDefault" # 改个名字以区分
     default_focus_timeframe = '30' # 默认主要关注的时间框架
 
@@ -317,7 +309,6 @@ class TrendFollowingStrategy:
 
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
 
-    # 在 __init__ 方法之后，其他方法之前添加
     async def prepare_data(self, stock_code: str, base_needed_count: int = 10000) -> Optional[pd.DataFrame]:
         """
         使用 IndicatorService 准备包含所有时间级别数据和计算指标的 DataFrame。
@@ -351,12 +342,11 @@ class TrendFollowingStrategy:
             # logger.debug(f"{log_prefix} 准备好的数据列 (部分): {data_df.columns.tolist()[:30]}...") # 调试输出
             # IndicatorService 已经处理了缺失值填充，这里不再需要额外的填充步骤
             return data_df
-
         except Exception as e:
             logger.error(f"{log_prefix} 调用 IndicatorService.prepare_strategy_dataframe 时出错: {e}", exc_info=True)
             return None
 
-    @staticmethod # 设为静态方法
+    @staticmethod
     def _format_indicator_name(template_or_list: Union[str, List[str]], **kwargs) -> List[str]:
         """
         格式化指标名称模板或模板列表。
@@ -1342,9 +1332,6 @@ class TrendFollowingStrategy:
         # logger.debug(f"[{log_prefix}] 请求的列包括: {sorted(list(required))}") # 可能非常冗长
         return list(sorted(list(required))) # 返回排序后的列表
 
-    # --- 移除重复的 _calculate_rule_based_signal 方法，只保留一个 ---
-    # 原代码中有两段完全相同的 _calculate_rule_based_signal 定义，删除其中一个
-    # 保留以下这个版本的实现，因为它包含了对中间数据的返回逻辑
     def _calculate_rule_based_signal(self, data: pd.DataFrame, stock_code: str, indicator_configs: List[Dict]) -> Tuple[pd.Series, Dict]:
         """
         计算基于规则的信号。
@@ -2652,10 +2639,6 @@ class TrendFollowingStrategy:
         self.feature_scaler = None
         self.target_scaler = None
         self.selected_feature_names_for_transformer = []
-
-    # prepare_data_and_train, save_prepared_data, load_prepared_data 方法的逻辑与之前基本一致，
-    # 只是在 load_prepared_data 返回时，确保返回的是 np.ndarray 而不是 None，以保持返回类型一致性。
-    # 并在加载失败或数据不足时返回空 numpy 数组和 None。
 
     def save_prepared_data(self, stock_code: str,
                         features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,

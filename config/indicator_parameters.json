@@ -230,6 +230,10 @@
      "signal_combination_weights": {
         "rule_weight": 0.6,
         "lstm_weight": 0.4
+    },
+    "boll_breakout_params": {
+        "period": 20,
+        "std_dev": 2.0
     }
   },
 
