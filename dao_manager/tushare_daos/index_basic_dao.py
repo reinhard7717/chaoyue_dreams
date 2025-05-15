@@ -440,6 +440,7 @@ class IndexBasicDAO(BaseDAO):
                     for row in df.itertuples():
                         index_dailybasic_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
                         index_dailybasic_dicts.append(index_dailybasic_dict)
+                time.sleep(0.3)
                 if len(df) < limit:
                     break
                 offset += limit
