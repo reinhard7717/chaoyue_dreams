@@ -94,6 +94,7 @@ def save_index_daily_basic_history(self):
     # 在任务开始时创建一次 DAO 实例
     index_basic_dao = IndexBasicDAO()
     try:
+        print(f"开始处理 指数每日指标...")
         asyncio.run(index_basic_dao.save_index_daily_basic_history())
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
