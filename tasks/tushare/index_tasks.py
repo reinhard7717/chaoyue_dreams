@@ -174,9 +174,10 @@ def save_index_daily_basic_history(self):
     """
     # 在任务开始时创建一次 DAO 实例
     index_basic_dao = IndexBasicDAO()
+    this_monday, this_friday = get_this_monday_and_friday()
     try:
         print(f"开始处理 指数每日指标...")
-        asyncio.run(index_basic_dao.save_index_daily_basic_history())
+        asyncio.run(index_basic_dao.save_index_daily_basic_history(start_date=this_monday, end_date=this_friday))
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)

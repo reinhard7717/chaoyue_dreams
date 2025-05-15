@@ -518,7 +518,7 @@ class IndexBasicDAO(BaseDAO):
             )
         return result
 
-    async def save_index_daily_basic_history(self) -> Dict:
+    async def save_index_daily_basic_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
         """
         接口：index_dailybasic，可以通过数据工具调试和查看数据。
         描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日指标数据
@@ -533,6 +533,13 @@ class IndexBasicDAO(BaseDAO):
         indexs = await self.get_index_list()
         for index in indexs:
             index_dailybasic_dicts = []
+            index_info = await self.get_index_by_code(index_code)
+            start_date_str = index_info.list_date
+            end_date_str = today_str
+            if start_date is not None:
+                start_date_str = start_date.strftime('%Y%m%d')
+            if end_date is not None:
+                end_date_str = end_date.strftime('%Y%m%d')
             # 拉取数据
             offset = 0
             limit = 6000  # tushare pro接口最大limit一般为8000
@@ -542,7 +549,7 @@ class IndexBasicDAO(BaseDAO):
                     break
                 # 拉取数据
                 df = self.ts_pro.index_daily(**{
-                    "trade_date": index.index_code, "ts_code": "", "start_date": "20220101", "end_date": today_str, "limit": limit, "offset": offset
+                    "trade_date": "", "ts_code": index.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
                     "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
