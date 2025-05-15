@@ -402,58 +402,70 @@ class IndexBasicDAO(BaseDAO):
             )
         return result        
 
-    async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
-        """
-        保存指数每日指标到数据库
-        接口：index_daily，可以通过数据工具调试和查看数据。
-        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
-        数据来源：Tushare社区统计计算
-        """
-        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
-        # 获取当前日期
-        today = datetime.datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        print(f"指数数量: {len(indexs)}")
-        index_daily_dicts = []
-        for index_info in indexs:
-            start_date_str = index_info.list_date
-            end_date_str = today_str
-            if start_date is not None:
-                start_date_str = start_date.strftime('%Y%m%d')
-            if end_date is not None:
-                end_date_str = end_date.strftime('%Y%m%d')
-            offset = 0
-            limit = 8000
-            while True:
-                if offset >= 100000:
-                    logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
-                    break
-                df = self.ts_pro.index_daily(**{
-                    "trade_date": "", "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-                }, fields=[
-                    "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
-                ])
+async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
+    """
+    保存指数每日指标到数据库
+    接口：index_daily，可以通过数据工具调试和查看数据。
+    描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
+    数据来源：Tushare社区统计计算
+    """
+    indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
+    today = datetime.datetime.today()
+    today_str = today.strftime('%Y%m%d')
+    print(f"指数数量: {len(indexs)}")
+    index_daily_dicts = []
+    batch_size = 100000  # 每10万条保存一次
+    result = None  # 初始化result，防止未保存时未定义
+
+    for index_info in indexs:
+        start_date_str = index_info.list_date
+        end_date_str = today_str
+        if start_date is not None:
+            start_date_str = start_date.strftime('%Y%m%d')
+        if end_date is not None:
+            end_date_str = end_date.strftime('%Y%m%d')
+        offset = 0
+        limit = 8000
+        while True:
+            if offset >= batch_size:
+                logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
+                break
+            df = self.ts_pro.index_daily(**{
+                "trade_date": "", "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+            }, fields=[
+                "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
+            ])
+            if not df.empty:
                 print(f"获取指数日线行情: {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
-                if not df.empty:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                    for row in df.itertuples():
-                        index_daily_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
-                        index_daily_dicts.append(index_daily_dict)
-                time.sleep(0.3)
-                if len(df) < limit:
-                    break
-                offset += limit
-        if index_daily_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDaily,
-                data_list=index_daily_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
-            print(f"保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
-        return result        
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in df.itertuples():
+                    index_daily_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
+                    index_daily_dicts.append(index_daily_dict)
+                # 每累计10万条数据就保存一次
+                if len(index_daily_dicts) >= batch_size:
+                    print(f"已累计{len(index_daily_dicts)}条数据，开始批量保存到数据库。")
+                    result = await self._save_all_to_db_native_upsert(
+                        model_class=IndexDaily,
+                        data_list=index_daily_dicts,
+                        unique_fields=['index_code', 'trade_time']
+                    )
+                    print(f"批量保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
+                    index_daily_dicts.clear()  # 清空缓存，继续累计
+            time.sleep(0.3)
+            if len(df) < limit:
+                break
+            offset += limit
+    # 循环结束后，若还有未保存的数据，最后再保存一次
+    if index_daily_dicts:
+        print(f"最后剩余{len(index_daily_dicts)}条数据，开始批量保存到数据库。")
+        result = await self._save_all_to_db_native_upsert(
+            model_class=IndexDaily,
+            data_list=index_daily_dicts,
+            unique_fields=['index_code', 'trade_time']
+        )
+        print(f"保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
+    return result
 
 
     # ============== 大盘指数每日指标 ==============
