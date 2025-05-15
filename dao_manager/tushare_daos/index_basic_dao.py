@@ -429,7 +429,7 @@ class IndexBasicDAO(BaseDAO):
                     logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
                     break
                 df = self.ts_pro.index_dailybasic(**{
-                    "trade_date": today_str, "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+                    "trade_date": "", "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
                     "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
