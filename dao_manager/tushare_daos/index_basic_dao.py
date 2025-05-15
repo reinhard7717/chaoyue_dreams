@@ -421,7 +421,7 @@ class IndexBasicDAO(BaseDAO):
             end_date_str = end_date.strftime('%Y%m%d')
         indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
         print(f"指数数量: {len(indexs)}")
-        index_dailybasic_dicts = []
+        index_daily_dicts = []
         for index_info in indexs:
             offset = 0
             limit = 8000
@@ -429,7 +429,7 @@ class IndexBasicDAO(BaseDAO):
                 if offset >= 100000:
                     logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
                     break
-                df = self.ts_pro.index_dailybasic(**{
+                df = self.ts_pro.index_daily(**{
                     "trade_date": "", "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
@@ -439,17 +439,17 @@ class IndexBasicDAO(BaseDAO):
                     df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                     df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                     for row in df.itertuples():
-                        index_dailybasic_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
-                        index_dailybasic_dicts.append(index_dailybasic_dict)
+                        index_daily_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
+                        index_daily_dicts.append(index_daily_dict)
                 time.sleep(0.3)
                 if len(df) < limit:
                     break
                 offset += limit
-        if index_dailybasic_dicts:
+        if index_daily_dicts:
             # 保存到数据库
             result =  await self._save_all_to_db_native_upsert(
                 model_class=IndexDaily,
-                data_list=index_dailybasic_dicts,
+                data_list=index_daily_dicts,
                 unique_fields=['index_code', 'trade_time']
             )
             print(f"保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
