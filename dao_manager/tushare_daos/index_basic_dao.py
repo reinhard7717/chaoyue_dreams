@@ -417,7 +417,7 @@ class IndexBasicDAO(BaseDAO):
         print(f"指数数量: {len(indexs)}")
         index_daily_dicts = []
         for index_info in indexs:
-            start_date_str = index_info.list_date.strftime('%Y%m%d')
+            start_date_str = index_info.list_date
             end_date_str = today_str
             if start_date is not None:
                 start_date_str = start_date.strftime('%Y%m%d')
