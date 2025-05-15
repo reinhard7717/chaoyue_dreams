@@ -435,7 +435,7 @@ class IndexBasicDAO(BaseDAO):
                     "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
                 ])
                 if not df.empty:
-                    print(f"获取指数日线行情: {i+1}/{len(indexs)} {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
+                    print(f"获取指数日线行情: {i+1}/{len(index_codes)} {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
                     df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                     df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                     for row in df.itertuples():
