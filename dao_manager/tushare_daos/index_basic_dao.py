@@ -402,24 +402,25 @@ class IndexBasicDAO(BaseDAO):
             )
         return result        
 
-    async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, indexs: List[IndexInfo] = None) -> Dict:
+    async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, index_codes: list = None) -> Dict:
         """
         保存指数每日指标到数据库
         接口：index_daily，可以通过数据工具调试和查看数据。
         描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
         数据来源：Tushare社区统计计算
         """
-        if indexs is None:
-            indexs = await self.get_index_list()
+        if index_codes is None:
+            index_codes = await self.get_index_list()
         else:
-            indexs = indexs
+            index_codes = index_codes
         today = datetime.datetime.today()
         today_str = today.strftime('%Y%m%d')
         print(f"指数数量: {len(indexs)}")
         index_daily_dicts = []
         batch_size = 100000  # 每10万条保存一次
         result = None  # 初始化result，防止未保存时未定义
-        for i,index_info in enumerate(indexs):
+        for i,index_code in enumerate(index_codes):
+            index_info = await self.get_index_by_code(index_code)
             start_date_str = index_info.list_date
             end_date_str = today_str
             if start_date is not None:
@@ -433,7 +434,7 @@ class IndexBasicDAO(BaseDAO):
                     logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
                     break
                 df = self.ts_pro.index_daily(**{
-                    "trade_date": "", "ts_code": index_info.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+                    "trade_date": "", "ts_code": index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
                 ])
