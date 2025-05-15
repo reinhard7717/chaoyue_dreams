@@ -109,22 +109,24 @@ def save_index_daily_this_week_task(self):
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
 
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_slice', queue='SaveData_TimeTrade')
-def save_index_daily_history_slice(self, indexs_slice: List[IndexInfo]): # 修改：接受IndexInfo列表作为参数
+def save_index_daily_history_slice(self, indexs_slice: list): # 修改：接受IndexInfo列表作为参数
     ""
     """
     执行保存单个指数切片的历史日级指标数据到数据库
     Args:
         index_codes_slice: 指数代码列表切片
     """
+    # 新增：将 dict 恢复为 IndexInfo 对象
+    indexs_obj_list = [IndexInfo(**d) for d in indexs_slice]
     # 在任务开始时创建 DAO 实例
     index_basic_dao = IndexBasicDAO() # 修改：在执行任务内部创建DAO实例
     try:
-        print(f"执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个指数代码: {index_codes_slice[:5]}...") # 修改：打印正在处理的切片信息
-        asyncio.run(index_basic_dao.save_index_daily_history(indexs=indexs_slice)) # 修改：调用DAO方法处理获取到的IndexInfo列表
+        print(f"执行任务 - 处理指数切片，包含 {len(indexs_obj_list)} 个指数代码: {indexs_obj_list[:5]}...") # 修改：打印正在处理的切片信息
+        asyncio.run(index_basic_dao.save_index_daily_history(indexs=indexs_obj_list)) # 修改：调用DAO方法处理获取到的IndexInfo列表
 
-        print(f"任务完成 - 指数切片处理完成，包含 {len(index_codes_slice)} 个指数代码。") # 修改：打印切片处理完成信息
+        print(f"任务完成 - 指数切片处理完成，包含 {len(indexs_obj_list)} 个指数代码。") # 修改：打印切片处理完成信息
     except Exception as e:
-        logger.error(f"执行 指数切片任务时发生意外错误 (切片: {index_codes_slice[:5]}...): {e}", exc_info=True) # 修改：记录切片任务错误
+        logger.error(f"执行 指数切片任务时发生意外错误 (切片: {indexs_obj_list[:5]}...): {e}", exc_info=True) # 修改：记录切片任务错误
 
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery')
 def save_index_daily_history_task(self):
@@ -155,9 +157,11 @@ def save_index_daily_history_task(self):
         # from . import save_index_basic_daily_slice # 假设执行任务函数在同一个文件或可导入路径
         for i in range(0, len(all_indexs), slice_size): # 修改：循环遍历指数代码切片
             indexs_slice = all_indexs[i:i + slice_size] # 修改：获取当前指数代码切片
+            # 新增：将 IndexInfo 对象转为 dict
+            indexs_slice_dict = [index_info.__dict__ for index_info in indexs_slice]
             print(f"调度任务 - 分配第 {i // slice_size + 1} 个切片任务 (索引 {i} 到 {min(i + slice_size, len(all_indexs)) - 1})，包含 {len(indexs_slice)} 个指数代码...") # 修改：打印切片分配信息
             # 分配执行任务
-            save_index_daily_history_slice.delay(indexs_slice=indexs_slice) # 修改：调用执行任务并传递切片参数
+            save_index_daily_history_slice.delay(indexs_slice=indexs_slice_dict) # 修改：调用执行任务并传递切片参数
 
         print("调度任务完成 - 所有指数切片任务已分配。") # 修改：打印调度任务完成信息
     except Exception as e:
