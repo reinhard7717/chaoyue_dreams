@@ -425,6 +425,7 @@ class IndexBasicDAO(BaseDAO):
                         index_info = await self.get_index_by_code(row.ts_code)
                         index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
                         index_dailybasic_dicts.append(index_dailybasic_dict)
+                time.sleep(0.3)
                 if len(df) < limit:
                     break
                 offset += limit
