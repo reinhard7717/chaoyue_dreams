@@ -402,7 +402,7 @@ class IndexBasicDAO(BaseDAO):
             )
         return result        
 
-    async def save_index_daily_history(self, start_date: date = None, end_date: date = None) -> Dict:
+    async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
         """
         保存指数每日指标到数据库
         接口：index_daily，可以通过数据工具调试和查看数据。
@@ -420,8 +420,8 @@ class IndexBasicDAO(BaseDAO):
         if end_date is not None:
             end_date_str = end_date.strftime('%Y%m%d')
         indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
-        index_dailybasic_dicts = []
         for index_info in indexs:
+            index_dailybasic_dicts = []
             offset = 0
             limit = 8000
             while True:
@@ -443,13 +443,14 @@ class IndexBasicDAO(BaseDAO):
                 if len(df) < limit:
                     break
                 offset += limit
-        if index_dailybasic_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDaily,
-                data_list=index_dailybasic_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
+            if index_dailybasic_dicts:
+                # 保存到数据库
+                result =  await self._save_all_to_db_native_upsert(
+                    model_class=IndexDaily,
+                    data_list=index_dailybasic_dicts,
+                    unique_fields=['index_code', 'trade_time']
+                )
+                print(f"保存指数日线行情到数据库，{index_info}, start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
         return result        
 
 
