@@ -409,20 +409,20 @@ class IndexBasicDAO(BaseDAO):
         描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
         数据来源：Tushare社区统计计算
         """
+        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
         # 获取当前日期
         today = datetime.datetime.today()
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
-        start_date_str = "20220101"
-        end_date_str = today_str
-        if start_date is not None:
-            start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        indexs = await self.get_indexs_by_publisher(publisher="中证指数有限公司")
         print(f"指数数量: {len(indexs)}")
         index_daily_dicts = []
         for index_info in indexs:
+            start_date_str = index_info.list_date.strftime('%Y%m%d')
+            end_date_str = today_str
+            if start_date is not None:
+                start_date_str = start_date.strftime('%Y%m%d')
+            if end_date is not None:
+                end_date_str = end_date.strftime('%Y%m%d')
             offset = 0
             limit = 8000
             while True:
