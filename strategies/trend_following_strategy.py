@@ -93,10 +93,8 @@ class TrendFollowingStrategy:
         loaded_params: Dict[str, Any] = {} # 用于存储从文件加载的参数
         resolved_params_file_path = params_file # 初始化解析后的路径为传入的路径
         file_load_success = False # 标记参数文件是否成功加载并解析
-        
         # 将解析后的参数文件路径存储为实例属性
         self.params_file_path = resolved_params_file_path # 存储解析后的参数文件路径
-
         # 使用类名作为临时的日志前缀，直到实例的 strategy_name 被最终确定
         temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]"
 

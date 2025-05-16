@@ -49,7 +49,7 @@
 
   "volume_confirmation": {
     "enabled": true,
-    "tf": "15",
+    "timeframes": "15",
     "amount_ma_period": 15,
     "cmf_period": 20,
     "obv_ma_period": 10,
@@ -80,7 +80,7 @@
 
   "kline_pattern_detection": {
     "enabled": true,
-    "tf": ["5", "15", "30", "60", "D"]
+    "timeframes": ["5", "15", "30", "60", "D"]
   },
 
   "trend_analysis": {
