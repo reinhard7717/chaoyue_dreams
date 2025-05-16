@@ -434,15 +434,12 @@ class IndicatorDAO(BaseDAO):
             time_level_val = time_level.value
         else:
             time_level_val = str(time_level)
-
         # 2. 调用：根据 time_level_str 获取对应模型数据 (模型实例列表)
         # get_history_time_trades_by_limit 会处理 time_level 字符串到内部模型的映射
         history_trades = await self.get_history_time_trades_by_limit(stock_code, time_level_val, limit)
-
         if not history_trades:
             logger.warning(f"get_history_time_trades_by_limit 未返回数据 for {stock_code} {time_level_val}")
             return None
-
         try:
             # 3. 模型实例列表转换成字典列表
             data = []
@@ -462,7 +459,6 @@ class IndicatorDAO(BaseDAO):
                 # 'pct_chg': lambda x: self._safe_float(x),
                 # ... 添加其他相关字段
             }
-
             for trade in history_trades:
                 row_data = {}
                 for field_name, converter in fields_to_include.items():
@@ -626,7 +622,6 @@ class IndicatorDAO(BaseDAO):
             df.sort_index(ascending=True, inplace=True)
             logger.info(f"成功获取并处理指数 {index_codes} 的日线数据，数据量: {len(df)} 条")
             return df
-
         except Exception as e:
             logger.error(f"获取指数日线数据失败 for {index_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
             return None
