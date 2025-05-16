@@ -222,13 +222,11 @@ class IndicatorService:
             # 进行重采样。 label='right', closed='right' 表示时间戳代表 K 线结束时间点
             # origin='start_day' 或 'end_day' 根据需要调整，或者使用默认行为
             resampled_df = df.resample(freq, label='right', closed='right').agg(agg_rules, min_periods=min_periods)
-
             # 重采样后可能会引入 NaN，特别是对于在某个时间周期内没有原始数据点的情况
             # 检查重采样后的数据量和质量
             if resampled_df.empty:
                 logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后 DataFrame 为空。")
                 return None
-
             # 检查必要列（open, high, low, close, volume）是否在重采样后全为 NaN
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             # 确保必要列在 agg_rules 中被聚合了
@@ -242,7 +240,6 @@ class IndicatorService:
                 resampled_df.ffill(inplace=True)
             elif fill_method == 'bfill':
                 resampled_df.bfill(inplace=True)
-
             # 记录重采样后的数据量和缺失情况 (初步填充后)
             missing_after_resample_fill = resampled_df.isnull().sum().sum()
             if missing_after_resample_fill > 0:
@@ -252,19 +249,12 @@ class IndicatorService:
                  missing_cols_detail = missing_cols_detail[missing_cols_detail > 0].sort_values(ascending=False).head()
                  if not missing_cols_detail.empty:
                      logger.warning(f"[{df.index.name}] 时间级别 {tf} 重采样后缺失比例较高的列 (初步填充后): {missing_cols_detail.to_dict()}")
-
             # 关键步骤：给所有 OHLCV 和 Amount 列名添加时间周期后缀
             # 例如，将 'close' 列重命名为 'close_30'
             cols_to_suffix = ['open', 'high', 'low', 'close', 'volume', 'amount']
             rename_map_with_suffix = {col: f"{col}_{tf}" for col in cols_to_suffix if col in resampled_df.columns}
-
             # 应用重命名。如果 rename_map_with_suffix 为空，rename 方法会返回一个副本。
-            # 修正：移除对未定义变量 rename_map 的检查，直接使用 rename_map_with_suffix
             resampled_df_renamed = resampled_df.rename(columns=rename_map_with_suffix) # 修改行
-
-            # *** 调试点：检查重采样并添加后缀后的列名 ***
-            # print(f"[{df.index.name}] Debug: TF {tf} 重采样并重命名后的列: {resampled_df_renamed.columns.tolist()[:20]}...") # 调试输出：检查重采样和重命名后的列
-
             return resampled_df_renamed
         except Exception as e:
             logger.error(f"[{df.index.name}] 时间级别 {tf} 重采样和清理数据时出错: {e}", exc_info=True)
@@ -1772,80 +1762,41 @@ class IndicatorService:
         Returns:
             pd.DataFrame: 补充了相对强度特征的 DataFrame。
         """
-        # print(f"开始计算相对强度，股票列: {stock_close_col}, 基准: {benchmark_codes}, 周期: {periods}, 时间级别: {time_level}") # 调试信息
-
         if df is None or df.empty or stock_close_col not in df.columns:
             logger.warning(f"计算相对强度失败，输入 DataFrame 无效或缺少股票收盘价列 {stock_close_col}。")
             print(f"计算相对强度失败，输入 DataFrame 无效或缺少股票收盘价列 {stock_close_col}。") # 调试信息
             return df
-
         # 创建 DataFrame 的副本，避免修改原始数据并防止 SettingWithCopyWarning
         df_processed = df.copy()
-
         # 计算股票的对数收益率 (每日/每周期)
-        # 避免除以零或log(0)的情况
         stock_close_shifted = df_processed[stock_close_col].shift(1)
         # 仅在 shift(1) 不为零时计算对数收益率，否则为 NaN
         stock_returns = np.log(df_processed[stock_close_col] / stock_close_shifted)
         # 替换 inf/-inf 为 NaN，以防万一出现极端值
         stock_returns = stock_returns.replace([np.inf, -np.inf], np.nan)
-        # print(f"已计算股票 {stock_close_col} 的对数收益率。") # 调试信息
-
         for benchmark_code in benchmark_codes:
             # 查找基准指数/板块的收盘价列名 (已带前缀，日线数据无时间级别后缀)
-            # 根据代码格式判断是普通指数还是同花顺板块
-            # 假设包含 '.' 是普通指数代码 (如 000001.SH)
             if '.' in benchmark_code:
                 benchmark_col_prefix = f'index_{benchmark_code.replace(".", "_").lower()}_'
             # 假设不包含 '.' 是同花顺板块代码 (如 881121.TI -> ths_881121_ti_)
             else:
                 benchmark_col_prefix = f'ths_{benchmark_code.replace(".", "_").lower()}_'
-
             # 构建基准收盘价列名，保持与原始代码一致，不加 time_level 后缀
             benchmark_close_col = f'{benchmark_col_prefix}close'
-
-            # print(f"查找基准 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
-
             if benchmark_close_col in df_processed.columns:
                 # 计算基准的对数收益率 (每日/每周期)
-                # 避免除以零或log(0)的情况
                 benchmark_close_shifted = df_processed[benchmark_close_col].shift(1)
-                # 仅在 shift(1) 不为零时计算对数收益率，否则为 NaN
                 benchmark_returns = np.log(df_processed[benchmark_close_col] / benchmark_close_shifted)
-                # 替换 inf/-inf 为 NaN
                 benchmark_returns = benchmark_returns.replace([np.inf, -np.inf], np.nan)
-                # print(f"已计算基准 {benchmark_close_col} 的对数收益率。") # 调试信息
-
                 for period in periods:
                     # 计算股票在指定周期内的累积对数收益率 (滚动求和)
-                    # rolling(window=period) 包含当前行和前面 period-1 行
-                    # sum() 对这 period 行的对数收益率求和
-                    # 结果是 log(Price_t / Price_{t-period})
-                    # 修改点：使用 rolling().sum() 计算累积对数收益率
                     cumulative_stock_log_return = stock_returns.rolling(window=period).sum()
-
                     # 计算基准在指定周期内的累积对数收益率 (滚动求和)
-                    # 修改点：使用 rolling().sum() 计算累积对数收益率
                     cumulative_benchmark_log_return = benchmark_returns.rolling(window=period).sum()
-
-                    # 计算超额对数收益 (股票累积对数收益 - 基准累积对数收益)
-                    # 这等价于 log(Price_t_stock / Price_{t-period}_stock) - log(Price_t_benchmark / Price_{t-period}_benchmark)
-                    # = log( (Price_t_stock / Price_{t-period}_stock) / (Price_t_benchmark / Price_{t-period}_benchmark) )
-                    # = log( (Price_t_stock / Price_t_benchmark) / (Price_{t-period}_stock / Price_{t-period}_benchmark) )
-                    # 这是相对强度比率在 period 周期内的对数变化
-                    # 修改点：计算累积对数收益率的差值
                     excess_log_return = cumulative_stock_log_return - cumulative_benchmark_log_return
-
                     # 列名格式：RS_基准代码(下划线)_周期_时间级别
-                    # 沿用原始的列名格式，但计算方法已改为对数收益差
                     rs_col_name = f'RS_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'
                     df_processed[rs_col_name] = excess_log_return
-                    # print(f"已计算并添加列: {rs_col_name} (周期: {period})") # 调试信息
-
-            # else:
-                # logger.warning(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}")
-                # print(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
-
         # print("相对强度计算完成。") # 调试信息
         return df_processed
 
@@ -1862,7 +1813,6 @@ class IndicatorService:
         if df is None or df.empty or not columns_to_lag_with_suffix or not lags:
             logger.warning("添加滞后特征失败，输入 DataFrame 无效或配置不完整。")
             return df
-
         for col in columns_to_lag_with_suffix:
             if col in df.columns:
                 for lag in lags:
@@ -1876,7 +1826,6 @@ class IndicatorService:
                          logger.debug(f"列 {new_col_name} 已存在，跳过添加。")
             else:
                 logger.warning(f"添加滞后特征失败，未找到列: {col}")
-
         return df
 
     def add_rolling_features(self, df: pd.DataFrame, columns_to_roll_with_suffix: List[str], windows: List[int], stats: List[str]) -> pd.DataFrame:
@@ -1893,14 +1842,11 @@ class IndicatorService:
         if df is None or df.empty or not columns_to_roll_with_suffix or not windows or not stats:
             logger.warning("添加滚动统计特征失败，输入 DataFrame 无效或配置不完整。")
             return df
-
         valid_stats = ['mean', 'std', 'min', 'max', 'sum', 'median', 'count', 'var', 'skew', 'kurt']
         stats_to_apply = [s for s in stats if s in valid_stats]
-
         if not stats_to_apply:
              logger.warning(f"未指定有效的滚动统计类型。支持类型: {valid_stats}")
              return df
-
         for col in columns_to_roll_with_suffix:
             if col in df.columns:
                 for window in windows:
@@ -1908,31 +1854,20 @@ class IndicatorService:
                          logger.warning(f"无效的滚动窗口大小: {window}，跳过。")
                          continue
                     rolling_obj = df[col].rolling(window=window, min_periods=max(1, int(window*0.5))) # min_periods至少为1或窗口的一半
-
                     for stat in stats_to_apply:
                         new_col_name = f'{col}_rolling_{stat}_{window}'
                         if new_col_name not in df.columns: # 避免重复添加
                             try:
-                                if stat == 'mean':
-                                    df[new_col_name] = rolling_obj.mean()
-                                elif stat == 'std':
-                                    df[new_col_name] = rolling_obj.std()
-                                elif stat == 'min':
-                                    df[new_col_name] = rolling_obj.min()
-                                elif stat == 'max':
-                                    df[new_col_name] = rolling_obj.max()
-                                elif stat == 'sum':
-                                    df[new_col_name] = rolling_obj.sum()
-                                elif stat == 'median':
-                                    df[new_col_name] = rolling_obj.median()
-                                elif stat == 'count':
-                                    df[new_col_name] = rolling_obj.count()
-                                elif stat == 'var':
-                                    df[new_col_name] = rolling_obj.var()
-                                elif stat == 'skew':
-                                    df[new_col_name] = rolling_obj.skew()
-                                elif stat == 'kurt':
-                                    df[new_col_name] = rolling_obj.kurt()
+                                if stat == 'mean': df[new_col_name] = rolling_obj.mean()
+                                elif stat == 'std': df[new_col_name] = rolling_obj.std()
+                                elif stat == 'min': df[new_col_name] = rolling_obj.min()
+                                elif stat == 'max': df[new_col_name] = rolling_obj.max()
+                                elif stat == 'sum': df[new_col_name] = rolling_obj.sum()
+                                elif stat == 'median': df[new_col_name] = rolling_obj.median()
+                                elif stat == 'count': df[new_col_name] = rolling_obj.count()
+                                elif stat == 'var': df[new_col_name] = rolling_obj.var()
+                                elif stat == 'skew': df[new_col_name] = rolling_obj.skew()
+                                elif stat == 'kurt': df[new_col_name] = rolling_obj.kurt()
                             except Exception as e:
                                 logger.error(f"计算滚动统计 {stat} for 列 {col} (窗口 {window}) 出错: {e}", exc_info=True)
                                 df[new_col_name] = np.nan # 计算失败则填充 NaN

@@ -3283,7 +3283,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                          # 如果所有必需的键和必需的特殊结构都通过此后缀找到了数据源
                          indicator_cols_for_score = temp_cols_found
                          found = True
-                         print(f"DEBUG: 通过回退成功找到指标 '{indicator_key}' 在时间框架 {tf_score_str} 的所有必需列和结构，后缀 '{tf_suffix}'。")
+                        #  print(f"DEBUG: 通过回退成功找到指标 '{indicator_key}' 在时间框架 {tf_score_str} 的所有必需列和结构，后缀 '{tf_suffix}'。")
                          break # 为此 tf_score 使用此后缀找到了匹配项，跳出后缀循环
                     else:
                          print(f"DEBUG: 回退查找，后缀 '{tf_suffix}' 未找到所有必需列或必需特殊结构。")
@@ -3481,7 +3481,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                     score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str}"
                     scoring_results[score_col_name] = score
                     # 调试输出：评分计算成功
-                    print(f"DEBUG: 成功计算指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分，列名为 '{score_col_name}'。")
+                    # print(f"DEBUG: 成功计算指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分，列名为 '{score_col_name}'。")
 
                 except Exception as e:
                     # 如果计算评分过程中发生错误
