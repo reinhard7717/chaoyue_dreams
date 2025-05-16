@@ -21,7 +21,7 @@ logger = logging.getLogger("tasks")
 
 # 任务：准备 Transformer 训练数据并保存
 # 修改任务名称以更准确地反映其功能：处理股票数据以进行 Transformer 训练
-# @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_for_transformer_training') # 修改行：修改任务名称
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_for_transformer_training')
 def process_stock_data_for_transformer_training(self, stock_code: str, params_file: str = None, model_dir: str = None, base_bars: int = 10000):
     # 构建任务ID字符串用于日志记录
     task_id_str = f"任务 {self.request.id if self.request else 'UnknownID'}"

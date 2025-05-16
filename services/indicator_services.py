@@ -738,7 +738,7 @@ class IndicatorService:
         # --- 注册成交量和 indicator_analysis 相关指标的计算配置 ---
         vc_params = params.get('volume_confirmation', {}) # 获取成交量确认参数
         ia_params = params.get('indicator_analysis_params', {}) # 获取指标分析参数
-        vol_ana_tf_cfg = vc_params.get('tf', bs_timeframes) # 获取成交量分析的时间级别配置
+        vol_ana_tf_cfg = vc_params.get('timeframes', bs_timeframes) # 获取成交量分析的时间级别配置
         vol_ana_tfs_vc = [vol_ana_tf_cfg] if isinstance(vol_ana_tf_cfg, str) else vol_ana_tf_cfg if vc_params.get('enabled', False) else []
         ia_tfs_cfg = ia_params.get('timeframes', bs_timeframes) # 获取指标分析的时间级别配置
         ia_tfs = [ia_tfs_cfg] if isinstance(ia_tfs_cfg, str) else ia_tfs_cfg if ia_params else []

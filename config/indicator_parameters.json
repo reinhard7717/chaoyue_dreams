@@ -62,7 +62,7 @@
     "check_regular_bullish": true,
     "check_hidden_bullish": true,
     "check_hidden_bearish": true,
-    "tf": "15",
+    "timeframes": "15",
     "price_period": 5,
     "lookback": 10,
     "indicators": {

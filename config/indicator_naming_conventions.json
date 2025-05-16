@@ -33,7 +33,7 @@
     },
     "CMF": {
        "description": "Chaikin Money Flow (乔金资金流向指数)",
-       "output_columns": [{"name_pattern": "CMF_{period}", "description": "乔金资金流向指数值"}]
+       "output_columns": [{"name_pattern": "CMF_{period}", "internal_key": "cmf", "description": "乔金资金流向指数值"}]
     },
     "DMI": {
        "description": "Directional Movement Index (趋向指标) - PDI (+DI), NDI (-DI), ADX",

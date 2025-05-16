@@ -233,7 +233,7 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict) 
         logger.info("参数中已禁用背离检测。")
         return all_divergence_signals
 
-    timeframes_to_check = dd_params.get('timeframes', [])
+    timeframes_to_check = dd_params.get('timeframes', []) # timeframes
     price_type = dd_params.get('price_type', 'close')
     lookback = dd_params.get('lookback', 14)
     safe_lookback = max(1, lookback) # 确保 lookback > 0
@@ -2245,7 +2245,7 @@ def adjust_score_with_volume(
     vol_tf_list_to_process = vc_tf_list
     if vol_tf_list_to_process is None or not isinstance(vol_tf_list_to_process, list) or not vol_tf_list_to_process:
         # 如果 vc_tf_list 无效或为空，则尝试从 vc_params['tf'] 获取
-        tf_from_params = vc_params.get('tf', 'D') # 默认日线
+        tf_from_params = vc_params.get('timeframes', 'D') # 默认日线
         if isinstance(tf_from_params, str):
             vol_tf_list_to_process = [tf_from_params]
         elif isinstance(tf_from_params, list) and tf_from_params:
