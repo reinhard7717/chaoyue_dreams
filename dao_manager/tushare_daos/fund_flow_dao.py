@@ -244,6 +244,7 @@ class FundFlowDao(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
+                print(f"{trade_date} 历史日级资金流向数据 - 同花顺，len(df): {len(df)}, len(data_dicts): {len(data_dicts)}")
             time.sleep(0.2)
             if len(df) < limit:
                 break
@@ -370,25 +371,32 @@ class FundFlowDao(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"板块资金流向数据 - 同花顺 offset已达10万，停止拉取。")
                 break
-        df = self.ts_pro.moneyflow_dc(**{
-            "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
-            "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyDC,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
+            df = self.ts_pro.moneyflow_dc(**{
+                "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+            }, fields=[
+                "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
+                "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
+            ])
+            if df.empty:
+                break
+            else:
+                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+                for row in df.itertuples():
+                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                    if stock:
+                        data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                        data_dicts.append(data_dict)
+                print(f"{trade_date} 历史日级资金流向数据 - 东方财富，len(df): {len(df)}, len(data_dicts): {len(data_dicts)}")
+            time.sleep(0.2)
+            if len(df) < limit:
+                break
+            offset += limit
+        result =  await self._save_all_to_db_native_upsert(
+            model_class=FundFlowDailyDC,
+            data_list=data_dicts,
+            unique_fields=['stock', 'trade_time']
+        )
         return result
 
     async def save_history_fund_flow_daily_dc_data_stock_code(self, stock_code: str) -> Dict:
