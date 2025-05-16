@@ -118,7 +118,7 @@
     },
      "SAR": {
        "description": "Parabolic SAR (抛物线停损转向指标)",
-       "output_columns": [{"name_pattern": "SAR_{af_step}_{max_af}", "description": "抛物线停损转向点位"}]
+       "output_columns": [{"name_pattern": "SAR_{af_step:.2f}_{max_af:.2f}", "description": "抛物线停损转向点位"}]
     },
     "ADL": {
        "description": "Accumulation/Distribution Line (累积/派发线)",

@@ -2415,7 +2415,7 @@ class TrendFollowingStrategy:
                      processed_data[series_col_name] = df_or_series
                  # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
                  elif not series_col_name and key not in processed_data.columns:
-                      processed_data[key] = df_oried_data[key] = df_or_series
+                      processed_data[key] = df_or_series
                  else:
                      logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
 

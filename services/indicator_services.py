@@ -1788,7 +1788,7 @@ class IndicatorService:
         stock_returns = np.log(df_processed[stock_close_col] / stock_close_shifted)
         # 替换 inf/-inf 为 NaN，以防万一出现极端值
         stock_returns = stock_returns.replace([np.inf, -np.inf], np.nan)
-        print(f"已计算股票 {stock_close_col} 的对数收益率。") # 调试信息
+        # print(f"已计算股票 {stock_close_col} 的对数收益率。") # 调试信息
 
         for benchmark_code in benchmark_codes:
             # 查找基准指数/板块的收盘价列名 (已带前缀，日线数据无时间级别后缀)
@@ -1813,7 +1813,7 @@ class IndicatorService:
                 benchmark_returns = np.log(df_processed[benchmark_close_col] / benchmark_close_shifted)
                 # 替换 inf/-inf 为 NaN
                 benchmark_returns = benchmark_returns.replace([np.inf, -np.inf], np.nan)
-                print(f"已计算基准 {benchmark_close_col} 的对数收益率。") # 调试信息
+                # print(f"已计算基准 {benchmark_close_col} 的对数收益率。") # 调试信息
 
                 for period in periods:
                     # 计算股票在指定周期内的累积对数收益率 (滚动求和)

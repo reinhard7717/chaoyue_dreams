@@ -3724,7 +3724,7 @@ indicator_scoring_info: Dict[str, Dict[str, Any]] = {
        'required_keys': ['close', 'sar'],
        'prefixes': ['SAR_'],
        'key_patterns': { # 'close'列由OHLCV配置处理
-            'sar': {'pattern': 'SAR_{af_step}_{max_af:.2f}_{timeframe}', 'params_map': {'af_step': 'sar_step', 'max_af': 'sar_max'}}
+            'sar': {'pattern': 'SAR_{af_step:.2f}_{max_af:.2f}_{timeframe}', 'params_map': {'af_step': 'sar_step', 'max_af': 'sar_max'}}
             }
     },
     'stoch': {
