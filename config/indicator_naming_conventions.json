@@ -2,12 +2,12 @@
   "ohlcv_naming_convention": {
     "description": "原始OHLCV数据及其重采样后的基础列命名 (在添加时间级别后缀前)",
     "output_columns": [
-      {"name_pattern": "open", "description": "开盘价"},
-      {"name_pattern": "high", "description": "最高价"},
-      {"name_pattern": "low", "description": "最低价"},
-      {"name_pattern": "close", "description": "收盘价"},
-      {"name_pattern": "volume", "description": "成交量"},
-      {"name_pattern": "amount", "description": "成交额"}
+      {"name_pattern": "open", "internal_key": "open", "description": "开盘价"},
+      {"name_pattern": "high", "internal_key": "high", "description": "最高价"},
+      {"name_pattern": "low", "internal_key": "low", "description": "最低价"},
+      {"name_pattern": "close", "internal_key": "close", "description": "收盘价"},
+      {"name_pattern": "volume", "internal_key": "volume", "description": "成交量"},
+      {"name_pattern": "amount", "internal_key": "amount", "description": "成交额"}
     ]
   },
   "indicator_naming_conventions": {
