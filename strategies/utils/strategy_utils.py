@@ -3060,8 +3060,8 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                  indicator_cols_for_score = temp_cols_from_config
                  found = True
                 #  print(f"DEBUG: 通过配置成功找到指标 '{indicator_key}' 在时间框架 {tf_score_str} 的所有必需列和结构。") # 修改日志
-            else:
-                 print(f"DEBUG: 指标 '{indicator_key}' 在时间框架 {tf_score_str} 的配置查找失败 (必需键或必需特殊结构缺失)。尝试回退查找。") # 修改日志
+            # else:
+                #  print(f"DEBUG: 指标 '{indicator_key}' 在时间框架 {tf_score_str} 的配置查找失败 (必需键或必需特殊结构缺失)。尝试回退查找。") # 修改日志
 
             # --- 如果配置查找失败，尝试使用 indicator_scoring_info 的 key_patterns 构建列名进行回退查找 ---
             if not found:
@@ -3077,7 +3077,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                 # 确保原始的 tf_score_str 始终是回退检查的可能后缀之一
                 if tf_score_str not in current_tf_possible_suffixes:
                      current_tf_possible_suffixes.append(tf_score_str)
-                print(f"DEBUG: 尝试对时间框架 {tf_score_str} 进行回退查找，可能后缀: {current_tf_possible_suffixes}")
+                # print(f"DEBUG: 尝试对时间框架 {tf_score_str} 进行回退查找，可能后缀: {current_tf_possible_suffixes}")
                 # 遍历当前 tf_score 的可能后缀
                 for tf_suffix in current_tf_possible_suffixes:
                     # 临时存储为此后缀找到的列
@@ -3246,7 +3246,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                                   # 如果期望列名成功构建且存在于 DataFrame 中
                                   if expected_col_name and expected_col_name in data.columns:
                                       temp_cols_found[internal_key] = expected_col_name
-                                      print(f"DEBUG: 通过回退找到内部键 '{internal_key}' 的列，后缀 '{tf_suffix}': '{expected_col_name}'")
+                                    #   print(f"DEBUG: 通过回退找到内部键 '{internal_key}' 的列，后缀 '{tf_suffix}': '{expected_col_name}'")
                                   else:
                                       # 如果期望列名未找到，标记此后缀查找失败
                                       # 检查是否为可选键 (如 obv_ma)，如果是则不标记失败
@@ -3367,8 +3367,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                     # 准备评分函数的参数
                     positional_series_args: List[pd.Series] = []
                     keyword_score_func_args: Dict[str, Any] = {}
-
-                    print(f"DEBUG: 准备调用评分函数，所需键: {required_score_keys}")
+                    # print(f"DEBUG: 准备调用评分函数，所需键: {required_score_keys}")
                     for internal_key in required_score_keys:
                          actual_data_source = indicator_cols_for_score.get(internal_key)
                          # 检查数据源是否已找到，如果未找到，记录错误并跳过此时间框架的评分计算
@@ -3376,7 +3375,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                               # 这不应该发生如果 'found' 是 True，但作为双重检查
                               if not (indicator_key == 'obv' and internal_key == 'obv_ma'): # obv_ma 是可选的，可以为 None
                                    logger.error(f"内部错误: 指标 '{indicator_key}' 在时间框架 {tf_score} 必需的内部键 '{internal_key}' 没有找到对应的数据源 (在 found=True 的情况下)。")
-                                   print(f"DEBUG: 内部错误: 指标 '{indicator_key}' 在时间框架 {tf_score} 必需的内部键 '{internal_key}' 没有找到对应的数据源 (在 found=True 的情况下)。")
                                    # 由于是内部错误，中断当前时间框架的评分计算，并填充默认值
                                    raise ValueError(f"Internal error: Required internal key '{internal_key}' data source not found for {indicator_key}@{tf_score_str} despite found=True")
                                    # break # Break from internal_key loop if a required key is missing
@@ -3443,13 +3441,13 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                          # 对于 'dict' 风格，bs_params 中的参数 (已收集到 score_func_params 中)
                          # 应该作为一个名为 'params' 的字典传递给评分函数。
                          final_keyword_args['params'] = score_func_params # 将配置参数字典赋值给 'params' 键
-                         print(f"DEBUG: 合并后的关键字参数 (dict 风格): {final_keyword_args.keys()}")
+                        #  print(f"DEBUG: 合并后的关键字参数 (dict 风格): {final_keyword_args.keys()}")
                          # 例如，对于RSI，final_keyword_args 将是 {'rsi': rsi_series, 'params': {'period': 14, ...}}
                          score = score_func(**final_keyword_args)
                     elif param_passing_style == 'individual':
                          # 对于 'individual' 风格，bs_params 中的参数直接作为独立的关键字参数传递。
                          final_keyword_args.update(score_func_params) # 将配置参数直接合并到顶层
-                         print(f"DEBUG: 合并后的关键字参数 (individual 风格): {final_keyword_args.keys()}")
+                        #  print(f"DEBUG: 合并后的关键字参数 (individual 风格): {final_keyword_args.keys()}")
                          # 例如，对于OBV，final_keyword_args 将是 {'obv': obv_series, 'obv_ma': obv_ma_series, 'obv_ma_period': 10}
                          score = score_func(**final_keyword_args)
                     elif param_passing_style == 'none':

@@ -42,7 +42,26 @@ def load_naming_config():
     except Exception as e:
         logger.error(f"加载命名规范文件出错: {e}", exc_info=True)
         return {} # 加载失败返回空字典
+
 NAMING_CONFIG = load_naming_config()
+
+def load_indicator_parameters():
+    # 检查文件是否存在再尝试打开，更健壮
+    if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH') or not settings.INDICATOR_PARAMETERS_CONFIG_PATH:
+         logger.error("CRITICAL: Django settings.INDICATOR_PARAMETERS_CONFIG_PATH 未配置!")
+         return {} # 返回空字典避免后续错误
+    if not os.path.exists(settings.INDICATOR_PARAMETERS_CONFIG_PATH):
+        logger.error(f"策略指标配置文件未找到: {settings.INDICATOR_PARAMETERS_CONFIG_PATH}")
+        return {} # 返回空字典避免后续错误
+    try:
+        with open(settings.INDICATOR_PARAMETERS_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"加载策略指标配置文件出错: {e}", exc_info=True)
+        return {} # 加载失败返回空字典
+
+INDICATOR_PARAMETERS = load_indicator_parameters()
+
 logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
 
 class TrendFollowingStrategy:
@@ -1537,7 +1556,6 @@ class TrendFollowingStrategy:
              for tf in ([self.focus_timeframe] if not vc_tf_list else vc_tf_list):
                  vol_spike_col_name = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=tf)[0]
                  volume_adjusted_results_df[vol_spike_col_name] = 0.0
-
         else:
              try:
                  # strategy_utils.adjust_score_with_volume 需要知道如何找到带后缀的 OHLCV, OBV, AMT_MA, VOL_MA 列
@@ -1571,9 +1589,75 @@ class TrendFollowingStrategy:
         logger.info(f"[{self.strategy_name}][{stock_code}] 执行量价背离检测...")
         divergence_signals_df = pd.DataFrame(index=data.index)
         if isinstance(dd_params, dict) and dd_params.get('enabled', True):
+            div_indicator_scoring_info = {}
+            # 使用全局加载的 INDICATOR_PARAMETERS 和 NAMING_CONFIG
+            glob_base_scoring_params = INDICATOR_PARAMETERS.get('base_scoring', {})
+            glob_ia_params = INDICATOR_PARAMETERS.get('indicator_analysis_params', {}) # 例如 STOCH 参数
+            glob_indicator_naming_conventions = NAMING_CONFIG.get('indicator_naming_conventions', {})
+            configured_div_indicators = dd_params.get('indicators', {}) # 来自 self.params.divergence_detection.indicators
+            for indi_key_from_dd, is_enabled_in_dd in configured_div_indicators.items():
+                if not is_enabled_in_dd:
+                    continue
+                indi_key_lower = indi_key_from_dd.lower()
+                current_defaults = {}
+                current_prefixes = []
+                if indi_key_lower == 'rsi':
+                    current_defaults['period'] = glob_base_scoring_params.get('rsi_period', 14)
+                    rsi_conf = glob_indicator_naming_conventions.get('RSI', {})
+                    if rsi_conf.get('output_columns'):
+                        pattern_base = rsi_conf['output_columns'][0].get('name_pattern', '').split('_')[0]
+                        if pattern_base: current_prefixes.append(pattern_base)
+                elif indi_key_lower == 'macd_hist':
+                    current_defaults['period_fast'] = glob_base_scoring_params.get('macd_fast', 12)
+                    current_defaults['period_slow'] = glob_base_scoring_params.get('macd_slow', 26)
+                    current_defaults['signal_period'] = glob_base_scoring_params.get('macd_signal', 9)
+                    macd_conf = glob_indicator_naming_conventions.get('MACD', {})
+                    if macd_conf.get('output_columns'):
+                        for col_spec in macd_conf['output_columns']:
+                            if col_spec.get('name_pattern', '').startswith('MACDh'):
+                                current_prefixes.append('MACDh') # 通常 MACD Histogram 的 DataFrame 列会包含 MACDh
+                                break
+                elif indi_key_lower == 'mfi':
+                    current_defaults['period'] = glob_base_scoring_params.get('mfi_period', 14)
+                    mfi_conf = glob_indicator_naming_conventions.get('MFI', {})
+                    if mfi_conf.get('output_columns'):
+                        pattern_base = mfi_conf['output_columns'][0].get('name_pattern', '').split('_')[0]
+                        if pattern_base: current_prefixes.append(pattern_base)
+                elif indi_key_lower == 'obv':
+                    current_defaults = {} # OBV 通常没有可配置的默认周期参数
+                    obv_conf = glob_indicator_naming_conventions.get('OBV', {})
+                    if obv_conf.get('output_columns'): # OBV的模式通常就是 "OBV"
+                        pattern_base = obv_conf['output_columns'][0].get('name_pattern', '').split('_')[0]
+                        if pattern_base: current_prefixes.append(pattern_base)
+                elif indi_key_lower in ['stoch_k', 'stoch_d']:
+                    # STOCH 参数来自 indicator_analysis_params
+                    current_defaults['k_period'] = glob_ia_params.get('stoch_k', 14)
+                    current_defaults['d_period'] = glob_ia_params.get('stoch_d', 3)
+                    current_defaults['smooth_k_period'] = glob_ia_params.get('stoch_smooth_k', 3)
+                    stoch_conf = glob_indicator_naming_conventions.get('STOCH', {})
+                    if stoch_conf.get('output_columns'):
+                        target_pattern_start = 'STOCHK' if indi_key_lower == 'stoch_k' else 'STOCHD'
+                        for col_spec in stoch_conf['output_columns']:
+                            pattern = col_spec.get('name_pattern', '')
+                            if pattern.upper().startswith(target_pattern_start):
+                                current_prefixes.append(pattern.split('_')[0]) # 如 STOCHk
+                                break
+                # 可以为 KDJ, DMI 等其他指标添加类似的默认参数和前缀获取逻辑
+
+                # 为没有找到特定前缀的指标提供一个通用回退前缀
+                if not current_prefixes:
+                    if indi_key_lower == 'macd_hist': current_prefixes.append('MACDH')
+                    elif indi_key_lower == 'stoch_k': current_prefixes.append('STOCHK')
+                    elif indi_key_lower == 'stoch_d': current_prefixes.append('STOCHD')
+                    # 对于其他如 'rsi', 'mfi', 'obv'，如果上面未能从命名规范获取，则使用大写键名
+                    else: current_prefixes.append(indi_key_from_dd.upper())
+                div_indicator_scoring_info[indi_key_lower] = {
+                    'defaults': current_defaults,
+                    'prefixes': list(set(p for p in current_prefixes if p)) # 确保前缀唯一且非空
+                }
             try:
                 # strategy_utils.detect_divergence 需要知道如何找到带后缀的指标列
-                divergence_signals_df = strategy_utils.detect_divergence(data=data, dd_params=dd_params, naming_config=NAMING_CONFIG)
+                divergence_signals_df = strategy_utils.detect_divergence(data=data, dd_params=dd_params, naming_config=NAMING_CONFIG, indicator_scoring_info=div_indicator_scoring_info)
                 if not divergence_signals_df.empty:
                      internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
                      has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
@@ -1782,7 +1866,7 @@ class TrendFollowingStrategy:
                 if isinstance(period, (int, float)) and period > 0:
                     ema_result = ta.ema(score_series_filled, length=int(period))
                     analysis_df[f'ema_score_{period}'] = ema_result
-                    print(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score {period} 计算完成。结果后10行:\n{ema_result.tail(10)}") # 将 .head() 修改为 .tail(10) 以显示最后10个值
+                    # print(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score {period} 计算完成。结果后10行:\n{ema_result.tail(10)}") # 将 .head() 修改为 .tail(10) 以显示最后10个值
                 else:
                     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score 周期参数无效: {period}. 跳过计算。")
                     analysis_df[f'ema_score_{period}'] = np.nan # 原始逻辑: 无效周期设为 NaN
