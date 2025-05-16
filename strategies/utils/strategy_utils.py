@@ -3400,23 +3400,22 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                          elif isinstance(actual_data_source, str) and actual_data_source in data.columns:
                              if param_passing_style == 'none':
                                   positional_series_args.append(data[actual_data_source])
-                                  print(f"DEBUG: 将列 '{actual_data_source}' 作为位置参数添加到评分函数。")
+                                #   print(f"DEBUG: 将列 '{actual_data_source}' 作为位置参数添加到评分函数。")
                              elif param_passing_style == 'dict':
                                   keyword_score_func_args[internal_key] = data[actual_data_source]
-                                  print(f"DEBUG: 将列 '{actual_data_source}' (内部键 '{internal_key}') 作为关键字参数添加到评分函数字典。")
+                                #   print(f"DEBUG: 将列 '{actual_data_source}' (内部键 '{internal_key}') 作为关键字参数添加到评分函数字典。")
                              elif param_passing_style == 'individual':
                                   keyword_score_func_args[internal_key] = data[actual_data_source]
-                                  print(f"DEBUG: 将列 '{actual_data_source}' (内部键 '{internal_key}') 作为独立关键字参数添加到评分函数。")
+                                #   print(f"DEBUG: 将列 '{actual_data_source}' (内部键 '{internal_key}') 作为独立关键字参数添加到评分函数。")
                              else:
                                   logger.error(f"指标 '{indicator_key}' 配置了未知的参数传递风格: '{param_passing_style}'.")
-                                  print(f"DEBUG: 指标 '{indicator_key}' 配置了未知的参数传递风格: '{param_passing_style}'.")
                                   raise ValueError(f"Unknown param_passing_style: {param_passing_style} for indicator {indicator_key}")
                          # 处理可选的 obv_ma，如果它被找到了
                          elif indicator_key == 'obv' and internal_key == 'obv_ma':
                               if actual_data_source and actual_data_source in data.columns:
                                    # obv_ma 作为可选参数传递，如果找到则添加到关键字参数中
                                    keyword_score_func_args['obv_ma'] = data[actual_data_source] # 注意这里的参数名 'obv_ma' 需要与评分函数接收的参数名一致
-                                   print(f"DEBUG: 找到并添加可选列 '{actual_data_source}' (内部键 '{internal_key}') 作为关键字参数。")
+                                #    print(f"DEBUG: 找到并添加可选列 '{actual_data_source}' (内部键 '{internal_key}') 作为关键字参数。")
                               else:
                                    # obv_ma 是可选的，未找到是允许的，不添加到参数列表
                                    print(f"DEBUG: 可选键 '{internal_key}' 未找到对应的数据源，跳过添加。")
@@ -3424,8 +3423,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                               # 必需的 internal_key 未找到对应的数据源 (不应该发生，因为 found 标记已经检查过)
                               # 对于非可选、非特殊处理但又没有找到数据源的键，这里应该已经通过上面的 None 检查抛出错误
                               pass # Should not reach here for required keys if check above is correct
-
-
                     # 准备评分函数的参数 (从 bs_params 中获取评分函数需要的参数值)
                     score_func_params: Dict[str, Any] = {}
                     for bs_key, func_arg_name in bs_param_key_to_score_func_arg.items():
@@ -3433,8 +3430,8 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                          if param_value is not None:
                               score_func_params[func_arg_name] = param_value
 
-                    print(f"DEBUG: 调用指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分函数 '{score_func.__name__}'...")
-                    print(f"DEBUG: 位置参数数量: {len(positional_series_args)}, 关键字参数 (数据+参数): {keyword_score_func_args.keys()}, 仅参数: {score_func_params.keys()}")
+                    # print(f"DEBUG: 调用指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分函数 '{score_func.__name__}'...")
+                    # print(f"DEBUG: 位置参数数量: {len(positional_series_args)}, 关键字参数 (数据+参数): {keyword_score_func_args.keys()}, 仅参数: {score_func_params.keys()}")
 
                     final_keyword_args = keyword_score_func_args.copy()
                     if param_passing_style == 'dict':

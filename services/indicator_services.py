@@ -1772,7 +1772,7 @@ class IndicatorService:
         Returns:
             pd.DataFrame: 补充了相对强度特征的 DataFrame。
         """
-        print(f"开始计算相对强度，股票列: {stock_close_col}, 基准: {benchmark_codes}, 周期: {periods}, 时间级别: {time_level}") # 调试信息
+        # print(f"开始计算相对强度，股票列: {stock_close_col}, 基准: {benchmark_codes}, 周期: {periods}, 时间级别: {time_level}") # 调试信息
 
         if df is None or df.empty or stock_close_col not in df.columns:
             logger.warning(f"计算相对强度失败，输入 DataFrame 无效或缺少股票收盘价列 {stock_close_col}。")
@@ -1846,7 +1846,7 @@ class IndicatorService:
                 # logger.warning(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}")
                 # print(f"计算相对强度失败，未找到基准指数/板块 {benchmark_code} 的收盘价列: {benchmark_close_col}") # 调试信息
 
-        print("相对强度计算完成。") # 调试信息
+        # print("相对强度计算完成。") # 调试信息
         return df_processed
 
     def add_lagged_features(self, df: pd.DataFrame, columns_to_lag_with_suffix: List[str], lags: List[int]) -> pd.DataFrame:
