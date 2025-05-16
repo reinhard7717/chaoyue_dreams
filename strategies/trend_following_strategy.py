@@ -3472,3 +3472,144 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存 StockScoreAnalysis 记录出错: {e}", exc_info=True)
 
+    def _get_intermediate_file_path(self, stock_code: str):
+        """
+        生成中间数据文件的基础路径 (不含扩展名)，使用股票专属目录结构。
+        """
+        if not self.base_data_dir:
+             raise ValueError("base_data_dir 未设置，无法生成中间文件路径。")
+
+        # 使用 set_model_paths 的逻辑来确定股票根目录
+        stock_root_dir = os.path.join(self.base_data_dir, stock_code)
+        # 在股票根目录下创建中间数据子目录
+        intermediate_dir = os.path.join(stock_root_dir, "intermediate_processing")
+        os.makedirs(intermediate_dir, exist_ok=True)
+
+        # 使用 stock_code 命名，确保唯一性
+        return os.path.join(intermediate_dir, f"{stock_code}_intermediate")
+
+    # --- 保存中间数据 ---
+    def save_intermediate_data(self, stock_code: str, data_df: pd.DataFrame, target_column: str, tf_params: dict, window_size: int, required_columns: list):
+        """
+        保存阶段1和阶段2生成的中间数据到文件。
+        保存 DataFrame 到 Parquet，元数据到 Pickle。
+        """
+        base_path = self._get_intermediate_file_path(stock_code)
+        dataframe_path = f"{base_path}.parquet"
+        metadata_path = f"{base_path}.pkl"
+
+        try:
+            # 保存 DataFrame 到 Parquet
+            data_df.to_parquet(dataframe_path, index=True) # 保存索引 (日期)
+            logger.info(f"DataFrame 已保存到 {dataframe_path}")
+
+            # 保存元数据到 Pickle
+            metadata = {
+                'transformer_target_column': target_column,
+                'tf_params': tf_params,
+                'transformer_window_size': window_size,
+                'required_columns_for_transformer': required_columns,
+                # 可以根据需要添加其他元数据
+            }
+            with open(metadata_path, 'wb') as f:
+                pickle.dump(metadata, f)
+            logger.info(f"元数据已保存到 {metadata_path}")
+
+            return dataframe_path, metadata_path # 返回保存的文件路径
+        except Exception as e:
+            logger.error(f"保存 {stock_code} 的中间数据失败: {e}", exc_info=True)
+            raise # 重新抛出异常
+
+    # --- 加载中间数据 ---
+    def load_intermediate_data(self, dataframe_path: str, metadata_path: str):
+        """
+        从文件加载阶段1和阶段2保存的中间数据。
+        """
+        try:
+            # 加载 DataFrame
+            data_df = pd.read_parquet(dataframe_path)
+            # 确保索引是 datetime 类型
+            data_df.index = pd.to_datetime(data_df.index)
+            logger.info(f"DataFrame 已从 {dataframe_path} 加载，{len(data_df)}行。")
+
+            # 加载元数据
+            with open(metadata_path, 'rb') as f:
+                metadata = pickle.load(f)
+            logger.info(f"元数据已从 {metadata_path} 加载。")
+
+            target_column = metadata.get('transformer_target_column')
+            tf_params = metadata.get('tf_params')
+            window_size = metadata.get('transformer_window_size')
+            required_columns = metadata.get('required_columns_for_transformer')
+
+            # 检查关键数据是否存在
+            if not all([data_df is not None, target_column, tf_params, window_size is not None, required_columns]):
+                 raise ValueError("加载的中间数据不完整。")
+
+            return data_df, target_column, tf_params, window_size, required_columns
+        except FileNotFoundError:
+            logger.error(f"中间数据文件未找到: {dataframe_path} 或 {metadata_path}")
+            raise
+        except Exception as e:
+            logger.error(f"加载中间数据失败: {e}", exc_info=True)
+            raise # 重新抛出异常
+
+    # --- 处理加载后的中间数据并调用 prepare_data_for_transformer ---
+    def process_loaded_intermediate_data(self, data_for_prep: pd.DataFrame, transformer_target_column: str, tf_params: dict, required_columns_for_transformer: list):
+        """
+        接收加载后的中间数据，提取参数，并调用 prepare_data_for_transformer。
+        """
+        # print("DEBUG: process_loaded_intermediate_data called") # 调试信息
+        logger.info("开始处理加载后的中间数据并准备 Transformer 数据...")
+        # 从加载的 tf_params 中提取数据准备配置
+        data_prep_config = tf_params.get('transformer_data_prep_config', {})
+        # 从 data_prep_config 中提取参数，并为 prepare_data_for_transformer 提供默认值
+        scaler_type = data_prep_config.get('scaler_type', 'minmax')
+        train_split = data_prep_config.get('train_split', 0.7)
+        val_split = data_prep_config.get('val_split', 0.15)
+        apply_variance_threshold = data_prep_config.get('apply_variance_threshold', False)
+        variance_threshold_value = data_prep_config.get('variance_threshold_value', 0.01)
+        use_pca = data_prep_config.get('use_pca', False)
+        pca_n_components = data_prep_config.get('pca_n_components', 0.99)
+        pca_solver = data_prep_config.get('pca_solver', 'auto')
+        use_feature_selection = data_prep_config.get('use_feature_selection', True)
+        feature_selector_model_type = data_prep_config.get('feature_selector_model_type', 'rf')
+        fs_model_n_estimators = data_prep_config.get('fs_model_n_estimators', 100)
+        fs_model_max_depth = data_prep_config.get('fs_model_max_depth', None)
+        fs_max_features = data_prep_config.get('fs_max_features', 50)
+        fs_selection_threshold = data_prep_config.get('fs_selection_threshold', 'median')
+        target_scaler_type = data_prep_config.get('target_scaler_type', 'minmax')
+
+        # 调用 prepare_data_for_transformer 函数
+        # print("DEBUG: Calling prepare_data_for_transformer from process_loaded_intermediate_data") # 调试信息
+        return prepare_data_for_transformer(
+            data=data_for_prep,
+            required_columns=required_columns_for_transformer,
+            target_column=transformer_target_column,
+            scaler_type=scaler_type,
+            train_split=train_split,
+            val_split=val_split,
+            apply_variance_threshold=apply_variance_threshold,
+            variance_threshold_value=variance_threshold_value,
+            use_pca=use_pca,
+            pca_n_components=pca_n_components,
+            pca_solver=pca_solver,
+            use_feature_selection=use_feature_selection,
+            feature_selector_model_type=feature_selector_model_type,
+            fs_model_n_estimators=fs_model_n_estimators,
+            fs_model_max_depth=fs_model_max_depth,
+            fs_max_features=fs_max_features,
+            fs_selection_threshold=fs_selection_threshold,
+            target_scaler_type=target_scaler_type
+        )
+
+
+
+
+
+
+
+
+
+
+
