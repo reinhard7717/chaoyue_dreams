@@ -2557,7 +2557,6 @@ def adjust_score_with_volume(
     logger.info(f"量能调整和分析模块处理完成。成功处理的时间框架: {processed_tfs}。")
     return result_df
 
-
 # 注意：在修改后的回退查找逻辑中，此函数不再用于匹配模式，但保留以防其他地方使用或用于调试。
 def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:
     """
@@ -2746,24 +2745,17 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
         print(f"从列名 '{col_name}' 解析参数失败 (indicator: {indicator_key}, suffix: {tf_suffix}). 错误: {e}", exc_info=True)
         return None # Parameter conversion failed or index out of bounds
 
-def calculate_all_indicator_scores(
-    data: pd.DataFrame,
-    bs_params: Dict,
-    indicator_configs: List[Dict],
-    naming_config: Dict,
-    indicator_scoring_info: Dict # 新增参数，包含评分函数、所需键和 key_patterns
-) -> pd.DataFrame:
+def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicator_configs: List[Dict], naming_config: Dict) -> pd.DataFrame:
     """
     根据配置计算所有指定指标在不同时间框架下的评分 (0-100)。
-    新的查找顺序:
-    1. 首选查找: 使用 indicator_scoring_info 的 key_patterns 构建列名。
+    查找顺序调整:
+    1. 首选查找: 使用 indicator_scoring_info (全局/模块级) 的 key_patterns 构建列名。
     2. 次选查找: 使用 indicator_configs 生成的 config_to_actual_col_map。
 
     :param data: 包含所有原始 OHLCV 数据和已计算指标的 DataFrame。
     :param bs_params: base_scoring 参数字典。
-    :param indicator_configs: 由指标服务生成的配置列表。
+    :param indicator_configs: 由指标服务生成的配置列表 (用于次选)。
     :param naming_config: 包含列命名规范的字典。
-    :param indicator_scoring_info: 包含评分函数、所需键和 key_patterns 的字典。
     :return: 返回一个 DataFrame，其列名为 SCORE_{指标名}_{时间级别} 的评分列。
     """
     scoring_results = pd.DataFrame(index=data.index)
@@ -2789,100 +2781,91 @@ def calculate_all_indicator_scores(
 
     config_to_actual_col_map: Dict[Tuple[str, str, str], Union[str, Dict[str, str]]] = {}
     if isinstance(indicator_configs, list):
-        print(f"DEBUG: 正在处理 indicator_configs ({len(indicator_configs)} 项) 以构建 config_to_actual_col_map...") # 修改日志
+        # print(f"DEBUG: 正在处理 indicator_configs ({len(indicator_configs)} 项) 以构建 config_to_actual_col_map...") # 此日志可能过于冗长，可按需保留
         for config in indicator_configs:
             if not isinstance(config, dict): continue
-            indicator_name = config.get('name', '').lower()
-            timeframes_list = config.get('timeframes', [])
-            if isinstance(timeframes_list, str): timeframes_list = [timeframes_list]
-            if not isinstance(timeframes_list, list): continue
-            indi_naming_conf = indicator_naming_conv.get(indicator_name.upper(), {})
-            output_cols_patterns_conf = indi_naming_conf.get('output_columns', []) # 重命名以避免与外部变量冲突
-            if not isinstance(output_cols_patterns_conf, list): output_cols_patterns_conf = []
+            indicator_name_cfg = config.get('name', '').lower()
+            timeframes_list_cfg = config.get('timeframes', [])
+            if isinstance(timeframes_list_cfg, str): timeframes_list_cfg = [timeframes_list_cfg]
+            if not isinstance(timeframes_list_cfg, list): continue
+            indi_naming_conf = indicator_naming_conv.get(indicator_name_cfg.upper(), {})
+            output_cols_patterns_cfg = indi_naming_conf.get('output_columns', [])
+            if not isinstance(output_cols_patterns_cfg, list): output_cols_patterns_cfg = []
 
-            if indicator_name == 'pivot':
+            if indicator_name_cfg == 'pivot':
                  pivot_levels_data = config.get('pivot_levels_data')
                  if isinstance(pivot_levels_data, dict):
-                      for tf_conf in timeframes_list:
-                           tf_str_map = str(tf_conf) # 修改变量名
+                      for tf_conf in timeframes_list_cfg:
+                           tf_str_map = str(tf_conf)
                            if tf_str_map in pivot_levels_data:
                                 level_data_for_tf = pivot_levels_data[tf_str_map]
                                 if isinstance(level_data_for_tf, dict):
-                                     config_to_actual_col_map[(indicator_name, 'pivot_levels', tf_str_map)] = level_data_for_tf
-                                     # print(f"DEBUG: [ConfigMapBuild] 添加 Pivot levels 配置映射: ({indicator_name}, 'pivot_levels', {tf_str_map}) -> {level_data_for_tf.keys()}")
+                                     config_to_actual_col_map[(indicator_name_cfg, 'pivot_levels', tf_str_map)] = level_data_for_tf
                  continue
-
             actual_output_columns = config.get('output_columns', [])
             if isinstance(actual_output_columns, str): actual_output_columns = [actual_output_columns]
             if not isinstance(actual_output_columns, list): continue
-
             for actual_col_name in actual_output_columns:
                  if not isinstance(actual_col_name, str): continue
-                 found_tf_suffix = None
-                 original_tf_str_matched = None
-                 for tf_conf in timeframes_list:
-                      tf_str_map_find = str(tf_conf) # 修改变量名
+                 found_tf_suffix_cfg = None
+                 original_tf_str_matched_cfg = None
+                 for tf_conf in timeframes_list_cfg:
+                      tf_str_map_find = str(tf_conf)
                       possible_suffixes = timeframe_naming_conv.get('patterns', {}).get(tf_str_map_find.lower(), [tf_str_map_find])
                       if isinstance(possible_suffixes, str): possible_suffixes = [possible_suffixes]
                       if not isinstance(possible_suffixes, list): continue
-                      possible_suffixes = [str(s) for s in possible_suffixes]
-                      for suffix in possible_suffixes:
-                           if actual_col_name.endswith(f"_{suffix}"):
-                                found_tf_suffix = suffix
-                                original_tf_str_matched = tf_str_map_find
+                      possible_suffixes_str = [str(s) for s in possible_suffixes] # 确保是字符串
+                      for suffix_cfg in possible_suffixes_str:
+                           if actual_col_name.endswith(f"_{suffix_cfg}"):
+                                found_tf_suffix_cfg = suffix_cfg
+                                original_tf_str_matched_cfg = tf_str_map_find
                                 break
-                      if found_tf_suffix: break
-                 if not found_tf_suffix:
+                      if found_tf_suffix_cfg: break
+                 if not found_tf_suffix_cfg:
                       parts = actual_col_name.split('_')
                       if len(parts) > 1:
                            guessed_suffix = parts[-1]
                            is_valid_guessed_suffix = False
-                           for tf_conf in timeframes_list:
-                                tf_str_map_guess = str(tf_conf) # 修改变量名
+                           for tf_conf in timeframes_list_cfg:
+                                tf_str_map_guess = str(tf_conf)
                                 possible_suffixes_guess = timeframe_naming_conv.get('patterns', {}).get(tf_str_map_guess.lower(), [tf_str_map_guess])
                                 if isinstance(possible_suffixes_guess, str): possible_suffixes_guess = [possible_suffixes_guess]
                                 if not isinstance(possible_suffixes_guess, list): continue
-                                possible_suffixes_guess = [str(s) for s in possible_suffixes_guess]
-                                if guessed_suffix in possible_suffixes_guess:
+                                possible_suffixes_guess_str = [str(s) for s in possible_suffixes_guess] # 确保是字符串
+                                if guessed_suffix in possible_suffixes_guess_str:
                                      is_valid_guessed_suffix = True
-                                     found_tf_suffix = guessed_suffix
-                                     original_tf_str_matched = tf_str_map_guess
+                                     found_tf_suffix_cfg = guessed_suffix
+                                     original_tf_str_matched_cfg = tf_str_map_guess
                                      break
                            if not is_valid_guessed_suffix:
-                                found_tf_suffix = None
-                                original_tf_str_matched = None
-                 if not found_tf_suffix:
-                      # print(f"DEBUG: [ConfigMapBuild] 无法从指标配置确定列 '{actual_col_name}' 的时间框架后缀。")
-                      continue
-                 matched_internal_key = None
-                 for col_conf in output_cols_patterns_conf: # 使用重命名的变量
-                      if isinstance(col_conf, dict) and 'name_pattern' in col_conf and 'internal_key' in col_conf:
-                           pattern = col_conf['name_pattern']
-                           internal_key_from_naming = col_conf['internal_key']
+                                found_tf_suffix_cfg = None; original_tf_str_matched_cfg = None
+                 if not found_tf_suffix_cfg: continue
+                 matched_internal_key_cfg = None
+                 for col_conf_cfg in output_cols_patterns_cfg:
+                      if isinstance(col_conf_cfg, dict) and 'name_pattern' in col_conf_cfg and 'internal_key' in col_conf_cfg:
+                           pattern_cfg = col_conf_cfg['name_pattern']
+                           internal_key_from_naming_cfg = col_conf_cfg['internal_key']
                            try:
-                                params_parsed = parse_col_params(actual_col_name, indicator_name, found_tf_suffix, pattern)
-                                if params_parsed is not None:
+                                params_parsed = parse_col_params(actual_col_name, indicator_name_cfg, found_tf_suffix_cfg, pattern_cfg)
+                                if params_parsed is not None: # parse_col_params 应该能处理这种情况
                                      temp_format_params = params_parsed.copy()
-                                     temp_format_params['timeframe'] = found_tf_suffix
-                                     expected_col_from_pattern = pattern.format(**temp_format_params).replace('__', '_').strip('_')
+                                     temp_format_params['timeframe'] = found_tf_suffix_cfg # 添加时间框架以供格式化
+                                     # 确保模式中的所有占位符都能在 temp_format_params 中找到
+                                     # 这需要 parse_col_params 和 pattern_cfg 之间的紧密协调
+                                     expected_col_from_pattern = pattern_cfg.format(**temp_format_params).replace('__', '_').strip('_')
                                      if expected_col_from_pattern == actual_col_name:
-                                          matched_internal_key = internal_key_from_naming
-                                          # print(f"DEBUG: [ConfigMapBuild] 列 '{actual_col_name}' 匹配模式 '{pattern}', 映射到内部键 '{matched_internal_key}'")
+                                          matched_internal_key_cfg = internal_key_from_naming_cfg
                                           break
-                           except KeyError: pass
-                           except Exception: pass
-                 if matched_internal_key:
-                      if original_tf_str_matched:
-                           config_to_actual_col_map[(indicator_name, matched_internal_key, original_tf_str_matched)] = actual_col_name
-                           # print(f"DEBUG: [ConfigMapBuild] 映射配置列: ({indicator_name}, {matched_internal_key}, {original_tf_str_matched}) -> '{actual_col_name}'")
-    else:
-        print("DEBUG: indicator_configs 不是列表或为空，无法构建 config_to_actual_col_map。")
-    print(f"DEBUG: config_to_actual_col_map 构建完成，包含 {len(config_to_actual_col_map)} 个条目。") # 修改日志
+                           except KeyError: pass # 格式化失败（缺少键）
+                           except Exception: pass # 其他解析或格式化错误
+                 if matched_internal_key_cfg and original_tf_str_matched_cfg:
+                      config_to_actual_col_map[(indicator_name_cfg, matched_internal_key_cfg, original_tf_str_matched_cfg)] = actual_col_name
+    # print(f"DEBUG: config_to_actual_col_map 构建完成，包含 {len(config_to_actual_col_map)} 个条目。")
 
     for indicator_key in score_indicators_keys:
         info = indicator_scoring_info.get(indicator_key)
         if not info:
-             logger.warning(f"指标 '{indicator_key}' 未找到对应的评分函数定义或配置，跳过评分计算。")
+             logger.warning(f"指标 '{indicator_key}' 未找到评分配置，跳过。")
              print(f"DEBUG: 指标 '{indicator_key}' 未找到评分配置，跳过。")
              continue
         score_func = info.get('func')
@@ -2893,279 +2876,197 @@ def calculate_all_indicator_scores(
         key_patterns_info = info.get('key_patterns', {})
 
         if score_func is None:
-             logger.warning(f"指标 '{indicator_key}' 没有关联的评分函数，跳过评分计算。")
+             logger.warning(f"指标 '{indicator_key}' 没有评分函数，跳过。")
              print(f"DEBUG: 指标 '{indicator_key}' 没有评分函数，跳过。")
              continue
         if not required_score_keys:
-             logger.warning(f"指标 '{indicator_key}' 未配置所需的内部键 (required_keys)，跳过评分计算。")
+             logger.warning(f"指标 '{indicator_key}' 未配置 required_keys，跳过。")
              print(f"DEBUG: 指标 '{indicator_key}' 未配置 required_keys，跳过。")
              continue
 
         for tf_score in score_timeframes:
-            indicator_cols_for_score: Dict[str, Union[str, Dict[str, pd.Series]]] = {} # 修改类型注解
-            found_all_keys = False # 修改变量名以反映其含义
+            indicator_cols_for_score: Dict[str, Union[str, Dict[str, pd.Series]]] = {}
+            found_all_keys = False
             tf_score_str = str(tf_score)
             print(f"\nDEBUG: 正在处理指标 '{indicator_key}' 时间框架 {tf_score_str}...")
 
-            # --- MODIFICATION START: 调整查找顺序 ---
-            # --- 首选查找：尝试使用 indicator_scoring_info 的 key_patterns 构建列名 ---
-            print(f"DEBUG: 指标 '{indicator_key}' 时间框架 {tf_score_str}: 开始首选查找 (基于 key_patterns)...")
-            temp_cols_from_patterns: Dict[str, Union[str, Dict[str, pd.Series]]] = {} # 修改类型注解
-            # 根据当前 tf_score 和命名规范定义可能的时框架后缀列表
+            # --- 首选查找：使用 indicator_scoring_info 的 key_patterns ---
+            print(f"DEBUG: 指标 '{indicator_key}' TF {tf_score_str}: 首选查找 (基于 key_patterns)...")
             current_tf_possible_suffixes = []
             tf_score_str_lower = tf_score_str.lower()
-            timeframe_patterns_map = timeframe_naming_conv.get('patterns', {}) # 修改变量名
+            timeframe_patterns_map = timeframe_naming_conv.get('patterns', {})
             if isinstance(timeframe_patterns_map, dict):
                 patterns_for_tf = timeframe_patterns_map.get(tf_score_str_lower, [tf_score_str])
                 if isinstance(patterns_for_tf, str): patterns_for_tf = [patterns_for_tf]
                 if isinstance(patterns_for_tf, list):
                     current_tf_possible_suffixes = [str(p) for p in patterns_for_tf]
-            if tf_score_str not in current_tf_possible_suffixes: # 确保原始 tf_score_str 存在
+            if tf_score_str not in current_tf_possible_suffixes:
                  current_tf_possible_suffixes.append(tf_score_str)
-            print(f"DEBUG: 首选查找: 可能的时间框架后缀: {current_tf_possible_suffixes} for tf {tf_score_str}")
 
-            for tf_suffix_pattern_attempt in current_tf_possible_suffixes:
-                # print(f"DEBUG: 首选查找: 尝试后缀 '{tf_suffix_pattern_attempt}'...")
-                temp_cols_for_this_suffix: Dict[str, Union[str, Dict[str, pd.Series]]] = {} # 修改类型注解
-                all_required_found_for_this_suffix = True
+            for tf_suffix_attempt in current_tf_possible_suffixes:
+                temp_cols_found_patterns: Dict[str, Union[str, Dict[str, pd.Series]]] = {}
+                all_required_found_for_suffix = True
+                # print(f"DEBUG: 首选查找: TF {tf_score_str}, 尝试后缀 '{tf_suffix_attempt}'")
                 for internal_key in required_score_keys:
-                    # print(f"DEBUG: 首选查找: 后缀 '{tf_suffix_pattern_attempt}', 搜索内部键 '{internal_key}'")
-                    is_optional_key = (indicator_key == 'obv' and internal_key == 'obv_ma') # 示例：标记可选键
-
+                    is_optional_key = (indicator_key == 'obv' and internal_key == 'obv_ma')
                     if internal_key == 'close':
                         close_pattern_name = None
                         ohlcv_output_cols_conf = ohlcv_naming_conv.get('output_columns', [])
                         if isinstance(ohlcv_output_cols_conf, list):
-                            for col_conf in ohlcv_output_cols_conf:
-                                if isinstance(col_conf, dict) and col_conf.get('internal_key') == 'close':
-                                    close_pattern_name = col_conf.get('name_pattern')
-                                    break
+                             for col_conf in ohlcv_output_cols_conf:
+                                 if isinstance(col_conf, dict) and col_conf.get('internal_key') == 'close':
+                                      close_pattern_name = col_conf.get('name_pattern'); break
                         if close_pattern_name:
-                            expected_col_name = f"{close_pattern_name}_{tf_suffix_pattern_attempt}"
-                            if expected_col_name in data.columns:
-                                temp_cols_for_this_suffix[internal_key] = expected_col_name
-                                # print(f"DEBUG: 首选查找: 找到 'close' 列 '{expected_col_name}' (后缀 '{tf_suffix_pattern_attempt}')")
-                            else:
-                                all_required_found_for_this_suffix = False; break
-                        else:
-                            all_required_found_for_this_suffix = False; break
+                            expected_col_name = f"{close_pattern_name}_{tf_suffix_attempt}"
+                            if expected_col_name in data.columns: temp_cols_found_patterns[internal_key] = expected_col_name
+                            else: all_required_found_for_suffix = False; break
+                        else: all_required_found_for_suffix = False; break
                     elif indicator_key == 'pivot' and internal_key == 'pivot_levels':
-                        pivot_naming_convention = indicator_naming_conv.get('PIVOT', {})
-                        pivot_cols_base = pivot_naming_convention.get('levels', [])
-                        pivot_level_pattern_fmt = pivot_naming_convention.get('pattern', "{level}_{timeframe}")
-                        pivot_levels_series_dict: Dict[str, pd.Series] = {}
-                        all_pivot_levels_found = True
-                        for p_base in pivot_cols_base:
-                            try:
-                                col_name = pivot_level_pattern_fmt.format(level=p_base, timeframe=tf_suffix_pattern_attempt).replace('__', '_').strip('_')
-                                if col_name in data.columns:
-                                    pivot_levels_series_dict[p_base] = data[col_name]
-                                else:
-                                    all_pivot_levels_found = False; break
-                            except Exception: all_pivot_levels_found = False; break
-                        if all_pivot_levels_found and pivot_levels_series_dict: # 确保字典非空
-                            temp_cols_for_this_suffix[internal_key] = pivot_levels_series_dict
-                            # print(f"DEBUG: 首选查找: 找到所有 Pivot levels (后缀 '{tf_suffix_pattern_attempt}')")
-                        else:
-                            all_required_found_for_this_suffix = False; break
-                    else: # 标准指标组件
-                        key_pattern_detail = key_patterns_info.get(internal_key)
-                        if not key_pattern_detail or not isinstance(key_pattern_detail, dict):
-                            if not is_optional_key: all_required_found_for_this_suffix = False; break
-                            else: continue # 跳过可选键
-                        pattern_fmt = key_pattern_detail.get('pattern')
-                        params_map_cfg = key_pattern_detail.get('params_map', {})
-                        if not pattern_fmt or not isinstance(pattern_fmt, str):
-                            if not is_optional_key: all_required_found_for_this_suffix = False; break
-                            else: continue # 跳过可选键
-
-                        format_params: Dict[str, Any] = {'timeframe': tf_suffix_pattern_attempt}
-                        params_found_for_pattern = True
-                        for pattern_param_name, bs_param_key_cfg in params_map_cfg.items(): # 修改变量名
-                            param_value = bs_params.get(bs_param_key_cfg, defaults.get(bs_param_key_cfg))
-                            if param_value is not None:
-                                format_params[pattern_param_name] = param_value
-                            elif '{' + pattern_param_name + '}' in pattern_fmt: # 如果占位符存在则参数是必需的
-                                params_found_for_pattern = False; break
-                        if not params_found_for_pattern:
-                            if not is_optional_key: all_required_found_for_this_suffix = False; break
-                            else: continue # 跳过可选键
-                        try:
-                            expected_col_name = pattern_fmt.format(**format_params).replace('__', '_').strip('_')
-                            if expected_col_name in data.columns:
-                                temp_cols_for_this_suffix[internal_key] = expected_col_name
-                                # print(f"DEBUG: 首选查找: 找到内部键 '{internal_key}' 列 '{expected_col_name}' (后缀 '{tf_suffix_pattern_attempt}')")
-                            else:
-                                if not is_optional_key: all_required_found_for_this_suffix = False; break
-                        except Exception:
-                            if not is_optional_key: all_required_found_for_this_suffix = False; break
-                
-                if all_required_found_for_this_suffix:
-                    # 再次确认所有 *非可选* 必需键都已找到
-                    all_truly_required_found_final_check = True
-                    for r_key in required_score_keys:
-                        is_opt = (indicator_key == 'obv' and r_key == 'obv_ma')
-                        if r_key not in temp_cols_for_this_suffix and not is_opt:
-                            all_truly_required_found_final_check = False
-                            break
-                    if all_truly_required_found_final_check:
-                        indicator_cols_for_score = temp_cols_for_this_suffix
+                         pivot_naming_convention = indicator_naming_conv.get('PIVOT', {})
+                         pivot_cols_base = pivot_naming_convention.get('levels', []) # 您可能需要从更具体的配置中获取这些
+                         pivot_level_pattern_fmt = pivot_naming_convention.get('pattern', "{level}_{timeframe}")
+                         pivot_levels_series_dict: Dict[str, pd.Series] = {}
+                         all_pivot_levels_found = True
+                         if not pivot_cols_base: # 如果未定义 levels，则此路径查找失败
+                             all_pivot_levels_found = False
+                         for p_base in pivot_cols_base:
+                             try:
+                                 col_name = pivot_level_pattern_fmt.format(level=p_base, timeframe=tf_suffix_attempt).replace('__', '_').strip('_')
+                                 if col_name in data.columns: pivot_levels_series_dict[p_base] = data[col_name]
+                                 else: all_pivot_levels_found = False; break
+                             except Exception: all_pivot_levels_found = False; break
+                         if all_pivot_levels_found and pivot_levels_series_dict: temp_cols_found_patterns[internal_key] = pivot_levels_series_dict
+                         else: all_required_found_for_suffix = False; break
+                    else:
+                         key_pattern_detail = key_patterns_info.get(internal_key)
+                         if not key_pattern_detail or not isinstance(key_pattern_detail, dict):
+                              if not is_optional_key: all_required_found_for_suffix = False; break
+                              else: continue
+                         pattern_fmt = key_pattern_detail.get('pattern')
+                         params_map_cfg = key_pattern_detail.get('params_map', {})
+                         if not pattern_fmt or not isinstance(pattern_fmt, str):
+                              if not is_optional_key: all_required_found_for_suffix = False; break
+                              else: continue
+                         format_params: Dict[str, Any] = {'timeframe': tf_suffix_attempt}
+                         params_found_for_pattern = True
+                         for p_name, bs_key in params_map_cfg.items():
+                              val = bs_params.get(bs_key, defaults.get(bs_key))
+                              if val is not None: format_params[p_name] = val
+                              elif '{' + p_name + '}' in pattern_fmt: params_found_for_pattern = False; break # 参数必需但未找到
+                         if not params_found_for_pattern:
+                              if not is_optional_key: all_required_found_for_suffix = False; break
+                              else: continue
+                         try:
+                              expected_col_name = pattern_fmt.format(**format_params).replace('__', '_').strip('_')
+                              if expected_col_name in data.columns: temp_cols_found_patterns[internal_key] = expected_col_name
+                              else:
+                                  if not is_optional_key: all_required_found_for_suffix = False; break
+                         except Exception:
+                              if not is_optional_key: all_required_found_for_suffix = False; break
+                if all_required_found_for_suffix:
+                    final_check_ok = True
+                    for req_k in required_score_keys:
+                        is_opt_k = (indicator_key == 'obv' and req_k == 'obv_ma')
+                        if req_k not in temp_cols_found_patterns and not is_opt_k: final_check_ok = False; break
+                    if final_check_ok:
+                        indicator_cols_for_score = temp_cols_found_patterns
                         found_all_keys = True
-                        print(f"DEBUG: 首选查找成功 (基于 key_patterns)，指标 '{indicator_key}' 时间框架 {tf_score_str} (使用后缀 '{tf_suffix_pattern_attempt}')。")
-                        break # 从 current_tf_possible_suffixes 循环中跳出，因为已找到一组有效的列
-
+                        print(f"DEBUG: 首选查找成功 (key_patterns): 指标 '{indicator_key}' TF {tf_score_str} (后缀 '{tf_suffix_attempt}')。")
+                        break
             if found_all_keys:
-                print(f"DEBUG: 指标 '{indicator_key}' 时间框架 {tf_score_str}: 首选查找 (基于 key_patterns) 成功。")
+                print(f"DEBUG: 指标 '{indicator_key}' TF {tf_score_str}: 首选查找成功。")
             else:
-                print(f"DEBUG: 指标 '{indicator_key}' 时间框架 {tf_score_str}: 首选查找 (基于 key_patterns) 失败。尝试次选查找 (基于 config_map)...")
-
-            # --- 次选查找：如果首选查找失败，尝试使用 config_to_actual_col_map ---
-            if not found_all_keys:
-                print(f"DEBUG: 指标 '{indicator_key}' 时间框架 {tf_score_str}: 开始次选查找 (基于 config_to_actual_col_map)...")
-                temp_cols_from_config: Dict[str, Union[str, Dict[str, pd.Series]]] = {} # 修改类型注解
-                
-                all_required_via_config_found = True # 标记此路径是否成功
-                for internal_key in required_score_keys:
-                    # print(f"DEBUG: 次选查找: 搜索内部键 '{internal_key}'")
-                    is_optional_key = (indicator_key == 'obv' and internal_key == 'obv_ma') or \
-                                      (indicator_key == 'pivot' and internal_key == 'pivot_levels' and internal_key not in required_score_keys) # pivot_levels 可能通过其他方式获得
-
-                    config_key_tuple = (indicator_key, internal_key, tf_score_str)
-                    
-                    if internal_key == 'pivot_levels' and indicator_key == 'pivot': # 特殊处理 pivot_levels
+                print(f"DEBUG: 指标 '{indicator_key}' TF {tf_score_str}: 首选查找失败。尝试次选查找 (config_map)...")
+                temp_cols_from_config: Dict[str, Union[str, Dict[str, pd.Series]]] = {}
+                all_required_via_config_found = True
+                for internal_key_cfg_map in required_score_keys:
+                    is_optional_key_cfg = (indicator_key == 'obv' and internal_key_cfg_map == 'obv_ma')
+                    config_key_tuple = (indicator_key, internal_key_cfg_map, tf_score_str)
+                    # print(f"DEBUG: 次选查找: 检查 config_map: {config_key_tuple}")
+                    if internal_key_cfg_map == 'pivot_levels' and indicator_key == 'pivot':
                         if config_key_tuple in config_to_actual_col_map:
                             actual_data_source = config_to_actual_col_map[config_key_tuple]
                             if isinstance(actual_data_source, dict):
                                 all_pivot_cols_exist = all(col_name in data.columns for col_name in actual_data_source.values())
-                                if all_pivot_cols_exist and actual_data_source: # 确保字典非空
-                                    temp_cols_from_config[internal_key] = {level_key: data[col_name] for level_key, col_name in actual_data_source.items()}
-                                    # print(f"DEBUG: 次选查找: 通过配置找到 Pivot levels (时间框架 {tf_score_str})。")
-                                else:
-                                    if not is_optional_key: all_required_via_config_found = False; break
-                            else: # 不是字典
-                                if not is_optional_key: all_required_via_config_found = False; break
-                        else: #不在config_map中
-                             if not is_optional_key: all_required_via_config_found = False; break
-                    elif config_key_tuple in config_to_actual_col_map: # 标准键或其他特殊键
-                        actual_data_source = config_to_actual_col_map[config_key_tuple]
-                        if isinstance(actual_data_source, str) and actual_data_source in data.columns:
-                            temp_cols_from_config[internal_key] = actual_data_source
-                            # print(f"DEBUG: 次选查找: 通过配置找到列 '{actual_data_source}' for ({indicator_key}, {internal_key}, {tf_score_str})")
-                        else: # 列不在数据中或类型错误
-                            if not is_optional_key: all_required_via_config_found = False; break
-                    else: # 键不在config_map中
-                        if not is_optional_key: all_required_via_config_found = False; break
-                
+                                if all_pivot_cols_exist and actual_data_source:
+                                    temp_cols_from_config[internal_key_cfg_map] = {lvl_k: data[col_n] for lvl_k, col_n in actual_data_source.items()}
+                                else: all_required_via_config_found = False; break
+                            else: all_required_via_config_found = False; break
+                        else: all_required_via_config_found = False; break # pivot_levels 必需时，必须在 map 中
+                    elif config_key_tuple in config_to_actual_col_map:
+                         actual_data_source = config_to_actual_col_map[config_key_tuple]
+                         if isinstance(actual_data_source, str) and actual_data_source in data.columns:
+                              temp_cols_from_config[internal_key_cfg_map] = actual_data_source
+                         # elif isinstance(actual_data_source, dict) # 这种情况应该由 pivot_levels 处理
+                         else:
+                              if not is_optional_key_cfg: all_required_via_config_found = False; break
+                    else: # 不在 map 中
+                         if not is_optional_key_cfg: all_required_via_config_found = False; break
                 if all_required_via_config_found:
-                    # 再次确认所有 *非可选* 必需键都已找到
-                    all_truly_required_found_final_check_config = True
-                    for r_key in required_score_keys:
-                        is_opt = (indicator_key == 'obv' and r_key == 'obv_ma')
-                        if r_key not in temp_cols_from_config and not is_opt:
-                            all_truly_required_found_final_check_config = False
-                            break
-                    if all_truly_required_found_final_check_config:
+                    final_check_config_ok = True
+                    for req_k_cfg in required_score_keys:
+                        is_opt_k_cfg = (indicator_key == 'obv' and req_k_cfg == 'obv_ma')
+                        if req_k_cfg not in temp_cols_from_config and not is_opt_k_cfg: final_check_config_ok = False; break
+                    if final_check_config_ok:
                         indicator_cols_for_score = temp_cols_from_config
                         found_all_keys = True
-                        print(f"DEBUG: 次选查找成功 (基于 config_to_actual_col_map)，指标 '{indicator_key}' 时间框架 {tf_score_str}。")
-                    else:
-                         print(f"DEBUG: 次选查找 (基于 config_to_actual_col_map) 失败，指标 '{indicator_key}' 时间框架 {tf_score_str} (最终检查必需键缺失)。")
-                else:
-                    print(f"DEBUG: 次选查找 (基于 config_to_actual_col_map) 失败，指标 '{indicator_key}' 时间框架 {tf_score_str} (初始循环中必需键或结构缺失)。")
-            # --- MODIFICATION END ---
+                        print(f"DEBUG: 次选查找成功 (config_map): 指标 '{indicator_key}' TF {tf_score_str}。")
+                    else: print(f"DEBUG: 次选查找 (config_map) 最终检查失败: 指标 '{indicator_key}' TF {tf_score_str}。")
+                else: print(f"DEBUG: 次选查找 (config_map) 初始检查失败: 指标 '{indicator_key}' TF {tf_score_str}。")
 
             if not found_all_keys:
                 logger.warning(f"无法为指标 '{indicator_key}' 在时间框架 '{tf_score_str}' 找到所有必需的列。将使用默认评分。")
-                print(f"DEBUG: 指标 '{indicator_key}' 时间框架 {tf_score_str}: 所有查找方法均失败。使用默认评分。")
+                print(f"DEBUG: 指标 '{indicator_key}' TF {tf_score_str}: 所有查找方法均失败。使用默认评分。")
                 score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str}"
                 scoring_results[score_col_name] = 50.0
-                continue # 跳到下一个时间框架或指标
+                continue
 
-            # --- 调用评分函数 (这部分逻辑基本不变) ---
             args_for_score_func = []
-            kwargs_for_score_func_data = {} # 用于存储数据列的关键字参数
-            kwargs_for_score_func_params_only = {} # 用于存储纯参数的关键字参数
+            kwargs_for_score_func_data = {}
+            kwargs_for_score_func_params_only = {}
 
-            # print(f"DEBUG: 准备调用评分函数，所需键: {required_score_keys}")
+            # print(f"DEBUG: TF {tf_score_str}, 指标 '{indicator_key}', 准备调用评分函数 '{score_func.__name__}'")
             if param_passing_style == 'args':
                 for key in required_score_keys:
                     col_or_dict = indicator_cols_for_score.get(key)
-                    if isinstance(col_or_dict, str): # 列名
-                        args_for_score_func.append(data[col_or_dict])
-                        # print(f"DEBUG: 将列 '{col_or_dict}' 作为位置参数添加到评分函数。")
-                    elif isinstance(col_or_dict, dict) and key == 'pivot_levels': # Pivot levels 的 Series 字典
-                         # 假设评分函数期望一个包含 Series 的字典作为单个参数
-                         args_for_score_func.append(col_or_dict)
-                         # print(f"DEBUG: 将 Pivot levels 字典作为位置参数添加到评分函数。")
-                    elif col_or_dict is None and not (indicator_key == 'obv' and key == 'obv_ma'): # 允许 obv_ma 为 None
-                         logger.error(f"严重错误: 必需键 '{key}' 在 indicator_cols_for_score 中未找到，但 found_all_keys 为 True。指标: {indicator_key}, TF: {tf_score_str}")
-                         # 此处应有更强的错误处理或断言
-                         # 为了继续，可能会导致后续评分函数调用失败
+                    if isinstance(col_or_dict, str): args_for_score_func.append(data[col_or_dict])
+                    elif isinstance(col_or_dict, dict) and key == 'pivot_levels': args_for_score_func.append(col_or_dict)
+                    elif col_or_dict is None and not (indicator_key == 'obv' and key == 'obv_ma'):
+                         logger.error(f"严重错误(args): 键 '{key}' 在 indicator_cols_for_score 中为 None。指标: {indicator_key}, TF: {tf_score_str}")
+                         args_for_score_func.append(pd.Series(dtype=float, index=data.index)) # 避免解包错误
             elif param_passing_style == 'dict':
                 for key in required_score_keys:
                     col_or_dict = indicator_cols_for_score.get(key)
-                    if isinstance(col_or_dict, str): # 列名
-                        kwargs_for_score_func_data[key] = data[col_or_dict]
-                        # print(f"DEBUG: 将列 '{col_or_dict}' (内部键 '{key}') 作为关键字参数添加到评分函数字典。")
-                    elif isinstance(col_or_dict, dict) and key == 'pivot_levels': # Pivot levels 的 Series 字典
-                         kwargs_for_score_func_data[key] = col_or_dict # 整个字典作为值
-                         # print(f"DEBUG: 将 Pivot levels 字典 (内部键 '{key}') 作为关键字参数添加到评分函数字典。")
-                    elif col_or_dict is None and (indicator_key == 'obv' and key == 'obv_ma'):
-                         kwargs_for_score_func_data[key] = None # 传递 None 给可选参数
-                         # print(f"DEBUG: 可选键 '{key}' 未找到，作为 None 传递给评分函数。")
-                    elif col_or_dict is None:
-                         logger.error(f"严重错误: 必需键 '{key}' 在 indicator_cols_for_score 中未找到 (dict style)，但 found_all_keys 为 True。指标: {indicator_key}, TF: {tf_score_str}")
+                    if isinstance(col_or_dict, str): kwargs_for_score_func_data[key] = data[col_or_dict]
+                    elif isinstance(col_or_dict, dict) and key == 'pivot_levels': kwargs_for_score_func_data[key] = col_or_dict
+                    elif col_or_dict is None and (indicator_key == 'obv' and key == 'obv_ma'): kwargs_for_score_func_data[key] = None
+                    elif col_or_dict is None: # 必需键为 None
+                         logger.error(f"严重错误(dict): 键 '{key}' 在 indicator_cols_for_score 中为 None。指标: {indicator_key}, TF: {tf_score_str}")
+                         kwargs_for_score_func_data[key] = pd.Series(dtype=float, index=data.index) # 避免属性错误
 
-
-            # 收集评分函数的其他参数 (非数据列参数)
             for bs_key, score_func_arg_name in bs_param_key_to_score_func_arg.items():
-                param_val = bs_params.get(bs_key, defaults.get(bs_key))
-                if param_val is not None:
-                    kwargs_for_score_func_params_only[score_func_arg_name] = param_val
+                param_val = bs_params.get(bs_key, defaults.get(bs_key)) # 优先bs_params，然后是defaults
+                if param_val is not None: kwargs_for_score_func_params_only[score_func_arg_name] = param_val
             
-            # print(f"DEBUG: 调用指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分函数 '{score_func.__name__}'...")
-            # print(f"DEBUG: 位置参数数量: {len(args_for_score_func)}, 关键字参数 (数据+参数): {list(kwargs_for_score_func_data.keys())}, 仅参数: {list(kwargs_for_score_func_params_only.keys())}")
-
+            # print(f"DEBUG: 调用参数 - args: {len(args_for_score_func)}, data_kwargs: {list(kwargs_for_score_func_data.keys())}, param_kwargs: {list(kwargs_for_score_func_params_only.keys())}")
             try:
+                calculated_scores = pd.Series(dtype=float) # 初始化
                 if param_passing_style == 'args':
-                    # 如果有纯参数，也需要通过某种方式传递，这里假设它们可以通过 kwargs 传递
-                    # 或者评分函数签名需要调整。目前假设 args 风格只传递数据。
-                    # 如果评分函数需要额外的非数据参数，且是args风格，这个逻辑需要细化。
-                    # 通常，args 风格用于数据，kwargs 用于配置参数。
-                    # 为了安全，如果存在 params_only，而又是 args 风格，这里可能需要警告或不同的处理。
-                    # 暂定：如果 param_passing_style == 'args' 并且 kwargs_for_score_func_params_only 非空，
-                    # 这表示一个潜在的配置问题或未明确的处理方式。
-                    # 但许多指标的评分函数可能同时接受位置参数（数据）和关键字参数（配置）。
-                    # 例如 calculate_rsi_score(rsi_series, period=14, ...)
-                    # 因此，即使是 'args' 风格声明（可能指主要数据流），也可能接受额外的 kwargs。
-                    # 我们将同时传递 args 和 kwargs_for_score_func_params_only
-                    if kwargs_for_score_func_params_only:
-                         # print(f"DEBUG: Args style, but also passing param kwargs: {kwargs_for_score_func_params_only.keys()}")
-                         pass # 允许这种情况
                     calculated_scores = score_func(*args_for_score_func, **kwargs_for_score_func_params_only)
                 elif param_passing_style == 'dict':
-                    # 合并数据和纯参数到 'params' 字典 (如果评分函数期望这种结构)
-                    # 或者直接将它们作为独立的 kwargs 传递
-                    # 检查评分函数是否期望一个名为 'params' 的字典
-                    # 这里的实现假设如果 'params' 在 kwargs_for_score_func_params_only 或 bs_param_key_to_score_func_arg 中被映射，
-                    # 那么它应该是一个字典。
-                    # 更通用的方法是直接合并 kwargs_for_score_func_data 和 kwargs_for_score_func_params_only
                     merged_kwargs = {**kwargs_for_score_func_data, **kwargs_for_score_func_params_only}
-                    # print(f"DEBUG: Dict style, merged kwargs: {merged_kwargs.keys()}")
                     calculated_scores = score_func(**merged_kwargs)
                 else: # 默认为 dict 风格
                     merged_kwargs = {**kwargs_for_score_func_data, **kwargs_for_score_func_params_only}
                     calculated_scores = score_func(**merged_kwargs)
-
                 score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str}"
                 scoring_results[score_col_name] = calculated_scores
-                print(f"DEBUG: 成功计算指标 '{indicator_key}' 在时间框架 {tf_score_str} 的评分，列名为 '{score_col_name}'。")
+                print(f"DEBUG: 成功计算指标 '{indicator_key}' TF {tf_score_str} 评分，列名 '{score_col_name}'。")
             except Exception as e:
-                logger.error(f"计算指标 '{indicator_key}' 在时间框架 '{tf_score_str}' 的评分时出错: {e}", exc_info=True)
-                print(f"ERROR: 计算指标 '{indicator_key}' 在时间框架 '{tf_score_str}' 的评分时出错: {e}")
+                logger.error(f"计算指标 '{indicator_key}' TF '{tf_score_str}' 评分时出错: {e}", exc_info=True)
+                print(f"ERROR: 计算指标 '{indicator_key}' TF '{tf_score_str}' 评分时出错: {e}")
                 score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str}"
-                scoring_results[score_col_name] = 50.0 # 出错时使用默认分
-
+                scoring_results[score_col_name] = 50.0
     return scoring_results
 
 # 添加了 pattern_params_map 字段，用于描述内部键对应的列名模式中的参数如何映射到 bs_params 中的键

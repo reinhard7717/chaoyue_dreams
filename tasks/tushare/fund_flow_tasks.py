@@ -180,13 +180,10 @@ def save_fund_flow_daily_data_history_batch(self, trade_date: datetime.date):
     try:
         # 异步获取数据并保存
         result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_data_by_trade_date(trade_date=trade_date))
-        print(f"{trade_date} 日级资金流向数据 保存完成。{result}")
         # 同花顺
         result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_ths_data_by_trade_date(trade_date=trade_date))
-        print(f"{trade_date} 日级资金流向数据(同花顺) 保存完成。{result}")
         # 东方财富
         result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_dc_data_trade_date(trade_date=trade_date))
-        print(f"{trade_date} 日级资金流向数据(东方财富) 保存完成。{result}")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
