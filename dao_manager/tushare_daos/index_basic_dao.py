@@ -480,7 +480,7 @@ class IndexBasicDAO(BaseDAO):
         today_str = today.strftime('%Y%m%d')
         index_dailybasic_dicts = []
         df = self.ts_pro.index_dailybasic(**{
-            "trade_date": today_str, "ts_code": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
+            "trade_date": today_str, "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
         }, fields=[
             "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
             "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
