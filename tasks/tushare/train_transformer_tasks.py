@@ -21,7 +21,7 @@ logger = logging.getLogger("tasks")
 
 # 任务：准备 Transformer 训练数据并保存
 # 修改任务名称以更准确地反映其功能：处理股票数据以进行 Transformer 训练
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_for_transformer_training') # 修改行：修改任务名称
+# @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_for_transformer_training') # 修改行：修改任务名称
 def process_stock_data_for_transformer_training(self, stock_code: str, params_file: str = None, model_dir: str = None, base_bars: int = 10000):
     # 构建任务ID字符串用于日志记录
     task_id_str = f"任务 {self.request.id if self.request else 'UnknownID'}"
@@ -45,8 +45,8 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         return {"status": "error", "message": "'trend_following_params' 缺失或为空，任务终止。"}
     # 记录参数检查通过信息
     logger.info(f"{task_id_str} [{stock_code}]：策略参数检查通过 (params 和 tf_params 非空)。")
-    # 打印 Transformer 窗口大小关键参数
-    logger.info(f"{task_id_str} [{stock_code}]：确认使用的 transformer_window_size: {strategy.transformer_window_size}")
+    # 打印 Transformer 窗口大小关键参数 (注意：window_size 用于 TimeSeriesDataset，不直接用于 prepare_data_for_transformer)
+    logger.info(f"{task_id_str} [{stock_code}]：确认 Transformer 窗口大小 (用于后续的TimeSeriesDataset): {strategy.transformer_window_size}")
     # 阶段 1: 使用 IndicatorService 准备数据
     try:
         # 记录数据准备开始信息
@@ -93,7 +93,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 记录信号生成或后续检查错误信息并重新抛出异常
         logger.error(f"{task_id_str} [{stock_code}]：策略 generate_signals 或后续检查时出错: {signal_err}", exc_info=True)
         raise signal_err
-    # 阶段 3: 准备 Transformer 训练数据 (特征选择、标准化、窗口化、分割)
+    # 阶段 3: 准备 Transformer 训练数据 (特征选择、标准化、分割)
     # 使用包含所有信号的 DataFrame 作为 prepare_data_for_transformer 的输入
     data_for_prep = data_with_all_signals
     try:
@@ -102,16 +102,58 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 获取 Transformer 参数和数据准备配置
         tf_params = strategy.tf_params
         data_prep_config = tf_params.get('transformer_data_prep_config', {})
-        # 调用 prepare_data_for_transformer 函数准备数据
+        # 从 strategy.params 中获取 required_columns，如果 Transformer 参数中有特定定义，则优先使用
+        # 假设 strategy.params['indicator_params']['all_feature_columns'] 包含所有可用特征名
+        # 或 strategy.params['external_feature_params']['feature_columns'] 等
+        # 这里需要根据您的具体实现确定 'required_columns' 的来源
+        # 示例：假设所有生成信号的列（除了目标列本身）都可以作为初始特征
+        all_columns = data_for_prep.columns.tolist()
+        required_columns_for_transformer = [col for col in all_columns if col != transformer_target_column]
+        # 如果有更精确的特征列表，应使用那个列表
+        # 例如，如果 actual_indicator_configs 包含了所有生成的特征名，也可以从中提取
+        # 或者从 strategy.params 中读取一个预定义的特征列表
+        logger.info(f"{task_id_str} [{stock_code}]：用于 prepare_data_for_transformer 的初始特征列数: {len(required_columns_for_transformer)}")
+        # --- 修改开始 ---
+        # 从 data_prep_config 中提取参数，并为 prepare_data_for_transformer 提供默认值（如果config中没有）
+        # 这些默认值应该与 prepare_data_for_transformer 函数定义中的默认值一致或根据需求调整
+        scaler_type = data_prep_config.get('scaler_type', 'minmax')
+        train_split = data_prep_config.get('train_split', 0.7)
+        val_split = data_prep_config.get('val_split', 0.15)
+        apply_variance_threshold = data_prep_config.get('apply_variance_threshold', False)
+        variance_threshold_value = data_prep_config.get('variance_threshold_value', 0.01)
+        use_pca = data_prep_config.get('use_pca', False)
+        pca_n_components = data_prep_config.get('pca_n_components', 0.99)
+        pca_solver = data_prep_config.get('pca_solver', 'auto')
+        use_feature_selection = data_prep_config.get('use_feature_selection', True)
+        feature_selector_model_type = data_prep_config.get('feature_selector_model_type', 'rf')
+        fs_model_n_estimators = data_prep_config.get('fs_model_n_estimators', 100)
+        fs_model_max_depth = data_prep_config.get('fs_model_max_depth', None)
+        fs_max_features = data_prep_config.get('fs_max_features', 50)
+        fs_selection_threshold = data_prep_config.get('fs_selection_threshold', 'median')
+        target_scaler_type = data_prep_config.get('target_scaler_type', 'minmax')
         features_scaled_train, targets_scaled_train, \
         features_scaled_val, targets_scaled_val, \
         features_scaled_test, targets_scaled_test, \
         feature_scaler, target_scaler, \
         selected_feature_names = prepare_data_for_transformer(
             data=data_for_prep,
+            required_columns=required_columns_for_transformer,
             target_column=transformer_target_column,
-            window_size=strategy.transformer_window_size,
-            data_prep_config=data_prep_config,
+            scaler_type=scaler_type,
+            train_split=train_split,
+            val_split=val_split,
+            apply_variance_threshold=apply_variance_threshold,
+            variance_threshold_value=variance_threshold_value,
+            use_pca=use_pca,
+            pca_n_components=pca_n_components,
+            pca_solver=pca_solver,
+            use_feature_selection=use_feature_selection,
+            feature_selector_model_type=feature_selector_model_type,
+            fs_model_n_estimators=fs_model_n_estimators,
+            fs_model_max_depth=fs_model_max_depth,
+            fs_max_features=fs_max_features,
+            fs_selection_threshold=fs_selection_threshold,
+            target_scaler_type=target_scaler_type
         )
         # 记录 prepare_data_for_transformer 调用成功信息
         logger.info(f"{task_id_str} [{stock_code}]：prepare_data_for_transformer 调用成功。")
