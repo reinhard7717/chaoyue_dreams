@@ -105,7 +105,7 @@ def save_fund_flow_daily_data_today(self):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 #  ================ （本周）日级资金流向数据（三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_this_week_batch')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_this_week_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_this_week_batch(self, trade_date: datetime.date):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -151,7 +151,7 @@ def save_fund_flow_daily_data_this_week_task(self):
         for trade_date in trade_days_list:
             logger.info(f"创建自选股批次任务 (抓取日期: {trade_date})...")
             # 使用新的批量任务，并指定队列
-            save_fund_flow_daily_data_this_week_batch.s(trade_date).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+            save_fund_flow_daily_data_this_week_batch.s(trade_date).set().apply_async()
             total_dispatched_batches += 1
         logger.info(f"已分派了 {total_dispatched_batches} 个批次任务。")
         logger.info(f"任务结束: save_fund_flow_daily_data_this_week_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
@@ -162,7 +162,7 @@ def save_fund_flow_daily_data_this_week_task(self):
 
 
 #  ================ （历史）日级资金流向数据（三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_history_batch(self, trade_date: datetime.date):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -208,7 +208,7 @@ def save_fund_flow_daily_data_history_task(self):
         for trade_date in trade_days_list:
             logger.info(f"创建自选股批次任务 (抓取日期: {trade_date})...")
             # 使用新的批量任务，并指定队列
-            save_fund_flow_daily_data_history_batch.s(trade_date=trade_date).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+            save_fund_flow_daily_data_history_batch.s(trade_date=trade_date).set().apply_async()
             total_dispatched_batches += 1
         logger.info(f"已分派了 {total_dispatched_batches} 个批次任务。")
         logger.info(f"任务结束: save_fund_flow_daily_data_history_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
@@ -235,7 +235,7 @@ def save_fund_flow_daily_data_ths_today(self):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # ================ （本周）板块、行业资金流向数据 - 同花顺 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_this_week_batch')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_this_week_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_ths_this_week_batch(self, this_monday: datetime.date, this_friday: datetime.date):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -270,7 +270,7 @@ def save_fund_flow_daily_data_ths_this_week_task(self):
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 # ================ （历史）板块、行业资金流向数据 - 同花顺 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_batch')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_ths_history_batch(self, trade_date: datetime.date):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）

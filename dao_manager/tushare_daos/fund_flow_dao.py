@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
+from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyDC, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
 from utils.data_format_process import FundFlowFormatProcess
 
@@ -21,6 +22,7 @@ class FundFlowDao(BaseDAO):
         from utils.cash_key import StockCashKey
 
         self.data_format_process = FundFlowFormatProcess()
+        self.index_dao = IndexBasicDAO()
         self.industry_dao = IndustryDao()
         self.stock_cache_key = StockCashKey()
         self.stock_cache_set = StockInfoCacheSet()
@@ -69,7 +71,7 @@ class FundFlowDao(BaseDAO):
         """
         保存历史日级资金流向数据
         """
-        trade_date_str = ""
+        trade_date_str = "20240101"
         start_date_str = ""
         end_date_str = ""
         if trade_date is not None:
@@ -104,6 +106,7 @@ class FundFlowDao(BaseDAO):
                         data_dict = self.data_format_process.set_fund_flow_data(stock=stock, df_data=row)
                         # print(f"日级资金流向数据。trade_date_str: {trade_date_str}, stock: {stock}, dict: {data_dict}")
                         data_dicts.append(data_dict)
+                print(f"{trade_date} 历史日级资金流向数据，len(df): {len(df)}, len(data_dicts): {len(data_dicts)}")
             time.sleep(0.2)
             if len(df) < limit:
                 break
