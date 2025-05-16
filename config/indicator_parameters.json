@@ -37,7 +37,7 @@
     "adx_threshold": 20,
     "adx_strong_threshold": 30,
     "sar_step": 0.02,
-    "sar_max": 0.2,
+    "sar_max": 0.20,
     "weights": {
       "5": 0.15,
       "15": 0.45,

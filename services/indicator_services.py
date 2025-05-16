@@ -1164,6 +1164,7 @@ class IndicatorService:
              logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
         # 10. 返回最终的 DataFrame 和指标配置列表
         return final_df, indicator_configs
+
     # --- 周期对齐函数 ---
     # 这个函数在引入重采样后，不再用于主要的时间序列标准化，
     # 但可以在重采样后用于额外的验证或在特定情况下使用。
