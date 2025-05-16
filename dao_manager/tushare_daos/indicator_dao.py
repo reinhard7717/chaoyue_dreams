@@ -620,7 +620,7 @@ class IndicatorDAO(BaseDAO):
             df.drop(columns=['trade_time'], inplace=True)
             # 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
-            logger.info(f"成功获取并处理指数 {index_codes} 的日线数据，数据量: {len(df)} 条")
+            # logger.info(f"成功获取并处理指数 {index_codes} 的日线数据，数据量: {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"获取指数日线数据失败 for {index_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
@@ -690,7 +690,7 @@ class IndicatorDAO(BaseDAO):
             df.drop(columns=['trade_time'], inplace=True)
             # 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
-            logger.info(f"成功获取并处理同花顺指数 {ths_codes} 的日线数据，数据量: {len(df)} 条")
+            # logger.info(f"成功获取并处理同花顺指数 {ths_codes} 的日线数据，数据量: {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"获取同花顺指数日线数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)

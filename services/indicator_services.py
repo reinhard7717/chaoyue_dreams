@@ -323,7 +323,7 @@ class IndicatorService:
             logger.warning(f"get_stock_ths_indices 返回 None for stock_code={stock_code},无法获取同花顺板块信息。")
             ths_member_objects = []
         ths_codes = [m.ths_index.ts_code for m in ths_member_objects if m.ths_index]
-        logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
+        # logger.info(f"股票 {stock_code} 所属同花顺板块代码: {ths_codes}")
         tasks = []
         if main_indices:
              tasks.append(self.indicator_dao.get_index_daily_df(main_indices, external_fetch_start_date, end_date))
