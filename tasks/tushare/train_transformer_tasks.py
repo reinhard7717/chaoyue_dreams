@@ -242,7 +242,7 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
         return {"status": "error", "message": str(e), "dispatched_tasks": total_dispatched_tasks}
 
 # 任务1：使用 IndicatorService 准备数据、使用策略生成规则信号 (包括 Transformer 目标列)，之后保存进文件
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_stage1')
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_stage1', queue='Train_Transformer_Prepare_Data')
 def process_stock_data_stage1(self, stock_code: str, params_file: str = None, model_dir: str = None, base_bars: int = 10000):
     """
     任务 1: 为 Transformer 训练准备数据和生成规则信号 (阶段 1 和 2)。
@@ -318,7 +318,7 @@ def process_stock_data_stage1(self, stock_code: str, params_file: str = None, mo
         return {"status": "error", "stock_code": stock_code, "message": f"阶段 1 或 2 执行失败: {e}"}
 
 # 任务2：从文件读取数据，准备 Transformer 训练数据并保存 (阶段 3 和 4)
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_stage2')
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_stage2', queue='Train_Transformer_Prepare_Data')
 def process_stock_data_stage2(self, stock_code: str, dataframe_path: str, metadata_path: str, params_file: str = None, model_dir: str = None):
     """
     任务 2: 从文件读取数据，准备 Transformer 训练数据并保存 (阶段 3 和 4)。
@@ -395,7 +395,7 @@ def process_stock_data_stage2(self, stock_code: str, dataframe_path: str, metada
         return {"status": "error", "stock_code": stock_code, "message": f"阶段 3 或 4 执行失败: {e}"}
 
 # 任务1的调度器任务
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_stage1_tasks')
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_stage1_tasks', queue="celery")
 def schedule_stage1_tasks(self, stock_codes: list, params_file: str = None, model_dir: str = None, base_bars: int = 10000):
     """
     任务 3: 调度并行执行 process_stock_data_stage1 任务。
@@ -414,7 +414,7 @@ def schedule_stage1_tasks(self, stock_codes: list, params_file: str = None, mode
     return {"status": "submitted", "task_group_id": result.id, "stock_count": len(stock_codes)}
 
 # 任务2的调度器任务
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_stage2_tasks')
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_stage2_tasks', queue="celery")
 def schedule_stage2_tasks(self, stage1_results: list, params_file: str = None, model_dir: str = None):
     """
     任务 4: 调度并行执行 process_stock_data_stage2 任务。
@@ -462,7 +462,7 @@ def schedule_stage2_tasks(self, stage1_results: list, params_file: str = None, m
 
 
 # 任务：训练 Transformer 模型 (从已准备数据加载)
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_train_following_strategy_transformer')
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_train_following_strategy_transformer', queue="Train_Transformer_Model")
 def batch_train_following_strategy_transformer(self, stock_code: str, params_file: str = "strategies/indicator_parameters.json", model_dir="models"):
     logger.info(f"开始执行 {stock_code} 的 Transformer 模型训练任务...")
     # 实例化策略，传递参数文件和模型目录
@@ -482,67 +482,34 @@ def batch_train_following_strategy_transformer(self, stock_code: str, params_fil
         logger.error(f"执行股票 {stock_code} 的 Transformer 模型训练任务时发生意外错误: {e}", exc_info=True)
         raise e # 重新抛出异常
 
-# 修改调度器任务，创建任务链 (prepare -> train)
-# 任务名和函数名都反映改为 Transformer
-@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_transformer_training_chain') # 修改行：修改任务名称
-def schedule_transformer_training_chain(self, params_file: str = None, base_data_dir: str = None, base_bars_to_request: int = 10000): # 参数名一致性
+# 调度器任务: 训练 Transformer 模型
+@celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_transformer_training_chain')
+def schedule_transformer_training_chain(self): # 参数名一致性
     """
-    调度器任务：
-    1. 获取股票代码列表。
-    2. 为每个股票创建一个任务链：先准备数据，然后训练模型。
-    3. 将任务链分派到指定队列。
+    调度器任务：训练 Transformer 模型
     这个任务由 Celery Beat 调度。
-    :param params_file: 策略参数文件路径
-    :param model_dir: 模型和数据保存目录
-    :param base_bars_to_request: 请求的基础 K 线数据量 (用于数据准备任务)
     """
-    logger.info(f"任务启动: schedule_transformer_training_chain (调度器模式) - 获取股票列表并分派任务链") # 修改行：日志信息
+    logger.info(f"任务启动: schedule_transformer_training_chain (调度器模式) - 获取股票列表并分派任务")
     try:
         total_dispatched_chains = 0
         stock_basic_dao = StockBasicInfoDao()
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
-
         if not all_stocks:
              logger.warning("未获取到股票列表，跳过任务链分派。")
              return {"status": "warning", "message": "未获取到股票列表", "dispatched_chains": 0}
-
-        # 从参数获取或固定
-        if params_file is None:
-            params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
-        if base_data_dir is None:
-            base_data_dir = settings.STRATEGY_DATA_DIR
-
-
         for stock in all_stocks:
             stock_code = stock.stock_code
             logger.info(f"创建 {stock_code} 的 Transformer 数据处理和模型训练任务链...") # 修改行：日志信息
-
-            # 定义数据处理任务签名 (调用 process_stock_data_for_transformer_training)
-            prepare_task_signature = process_stock_data_for_transformer_training.s( # 修改行：调用新的任务函数名
-                stock_code=stock_code,
-                params_file=params_file,
-                model_dir=base_data_dir,
-                base_bars=base_bars_to_request
-            ).set(queue="Train_Transformer_Prepare_Data") # 指定数据准备队列
-
             # 定义模型训练任务签名 (调用 batch_train_following_strategy_transformer)
             train_task_signature = batch_train_following_strategy_transformer.s(
                 stock_code=stock_code,
-                params_file=params_file,
-                model_dir=base_data_dir # 修改行：传递 base_data_dir 作为 model_dir
-            ).set(queue="Train_Transformer_Model") # 指定模型训练队列 (新的队列名建议)
-
-            # 创建任务链: prepare_task_signature | train_task_signature
-            # Chain 的第一个任务通常不指定队列，让 Celery 自动处理。或者为 chain 指定一个默认队列。
-            # 更好的做法是每个子任务指定自己的队列。
-            task_chain = prepare_task_signature | train_task_signature
-
-            # 分派任务链异步执行
-            task_chain.apply_async()
+                params_file=settings.INDICATOR_PARAMETERS_CONFIG_PATH,
+                model_dir=settings.STRATEGY_DATA_DIR
+            ).set().apply_async() # 指定模型训练队列 (新的队列名建议)
 
             total_dispatched_chains += 1
 
-        logger.info(f"任务结束: schedule_transformer_training_chain (调度器模式) - 共分派 {total_dispatched_chains} 个任务链") # 修改行：日志信息
+        logger.info(f"任务结束: schedule_transformer_training_chain (调度器模式) - 共分派 {total_dispatched_chains} 个任务") # 修改行：日志信息
         return {"status": "success", "dispatched_chains": total_dispatched_chains}
 
     except Exception as e:
