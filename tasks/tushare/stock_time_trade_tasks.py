@@ -168,7 +168,7 @@ def save_day_data_today_task(self):
         print("开始保存 日线数据任务（当日）...")
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_today())
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_chips())
+        save_cyq_data_today_task.delay()
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
         result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf())
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
