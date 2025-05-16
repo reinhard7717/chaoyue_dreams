@@ -1782,13 +1782,15 @@ class TrendFollowingStrategy:
         for period in all_ema_periods:
             try:
                 if isinstance(period, (int, float)) and period > 0:
-                    analysis_df[f'ema_score_{period}'] = ta.EMA(score_series_filled, timeperiod=int(period)) # pandas_ta 使用 EMA, talib 使用 EMA
+                    ema_result = ta.ema(score_series_filled, length=int(period))
+                    analysis_df[f'ema_score_{period}'] = ema_result
+                    print(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score {period} 计算完成。结果前5行:\n{ema_result.head()}")
                 else:
                     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score 周期参数无效: {period}. 跳过计算。")
-                    analysis_df[f'ema_score_{period}'] = np.nan # 修改: 无效周期设为 NaN
+                    analysis_df[f'ema_score_{period}'] = np.nan # 原始逻辑: 无效周期设为 NaN
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] _perform_trend_analysis: 计算 EMA Score {period} 时出错: {e}", exc_info=True)
-                analysis_df[f'ema_score_{period}'] = np.nan
+                analysis_df[f'ema_score_{period}'] = np.nan # 原始逻辑: 出错时设为 NaN
         # 2. 计算 EMA 排列信号
         # 修改: 使用 trend_following_config 获取 ema_alignment_periods
         ema_periods_align = trend_following_config.get('ema_alignment_periods', all_ema_periods[:4] if len(all_ema_periods) >=4 else [])
