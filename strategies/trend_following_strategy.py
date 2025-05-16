@@ -1782,7 +1782,7 @@ class TrendFollowingStrategy:
                 if isinstance(period, (int, float)) and period > 0:
                     ema_result = ta.ema(score_series_filled, length=int(period))
                     analysis_df[f'ema_score_{period}'] = ema_result
-                    print(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score {period} 计算完成。结果前5行:\n{ema_result.head()}")
+                    print(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score {period} 计算完成。结果后10行:\n{ema_result.tail(10)}") # 将 .head() 修改为 .tail(10) 以显示最后10个值
                 else:
                     logger.warning(f"[{self.strategy_name}] _perform_trend_analysis: EMA Score 周期参数无效: {period}. 跳过计算。")
                     analysis_df[f'ema_score_{period}'] = np.nan # 原始逻辑: 无效周期设为 NaN

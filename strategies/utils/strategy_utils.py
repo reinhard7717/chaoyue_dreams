@@ -2179,439 +2179,384 @@ def adjust_score_with_volume(
     preliminary_score: pd.Series,
     data: pd.DataFrame,
     vc_params: Dict,
-    # 新增参数以支持调用时传递的额外参数，设置为可选参数
     vc_tf_list: Optional[List[str]] = None,
-    vol_ma_period: Optional[int] = None, # <-- 接收成交量均线周期参数
+    vol_ma_period: Optional[int] = None,
     obv_ma_period: Optional[int] = None,
-    naming_config: Optional[Dict] = None # 虽然不再用于格式化，但保留参数以兼容调用方
+    naming_config: Optional[Dict] = None
 ) -> pd.DataFrame:
     """
     使用量能相关指标（成交量、OBV、CMF等）对初步的策略评分 (0-100) 进行调整和确认。
     同时，此函数会计算并输出相关的量能分析信号。
-
-    主要优化和深化点：
-    1. 能够处理多个时间框架的量能分析。
-    2. 更健壮的量价背离检测逻辑（启发式，寻找价格与OBV的趋势不一致）。
-    3. 改进了分数调整机制，使其按比例向目标值（0, 50, 100）移动。
-    4. 清晰的参数配置和默认值。
-    5. 加强了数据对齐、缺失值处理的鲁棒性。
-    6. 详细的中文注释。
-
-    Args:
-        preliminary_score (pd.Series): 经过基础指标计算得到的初步分数 (0-100)，索引为时间。
-        data (pd.DataFrame): 包含OHLCV价格数据以及计算好的CMF、OBV等指标的DataFrame。
-                             列名需要与配置中构建的名称一致。
-        vc_params (Dict): 量能确认与调整相关的参数字典，包含：
-            'enabled': bool, 是否启用基于量能的分数调整 (True/False)。
-            'volume_analysis_enabled': bool, 是否启用量能分析信号的计算（即使不调整分数）。
-            'tf': str or List[str], 进行量能分析所使用的数据时间级别 (例如 'D', '60', '15')。
-                   如果 vc_tf_list 参数被传递，则优先使用 vc_tf_list。
-            'boost_factor': float, 量能确认趋势时，分数向极值（0或100）移动的比例 (0.0-1.0)。
-            'penalty_factor': float, 量能与趋势矛盾时，分数向中性值（50）移动的比例 (0.0-1.0)。
-            'volume_spike_threshold': float, 成交量突增的判断阈值（当前量 / 均量的倍数）。
-            'volume_analysis_lookback': int, 计算成交量均线、寻找量价背离等的回看窗口期。
-            'cmf_period': int, CMF指标的计算周期 (应与指标服务中的计算一致)。
-            'cmf_confirmation_threshold': float, CMF确认趋势的阈值 (例如 0.05)。
-            'obv_ma_period': int, OBV移动平均线的计算周期 (应与指标服务中的计算一致)。
-            'volume_ma_period': int, 成交量移动平均线的计算周期 (应与指标服务中的计算一致)。
-            'vp_divergence_lookback': int, 量价背离检测的回看窗口期。
-            'vp_divergence_peak_offset': int, 在量价背离中，比较当前极值点与之前第N个极值点。(此参数在当前实现中可能不直接使用，但保留)
-            'vp_divergence_price_threshold': float, 价格创出新高/新低的最小幅度（相对于前一极值）。
-            'vp_divergence_obv_threshold': float, OBV未能同步创出新高/新低的最小幅度（相对于前一极值对应的OBV）。
-            'vp_divergence_penalty_factor': float, 量价背离惩罚分数调整的比例。
-            'volume_spike_adj_factor': float, 成交量突增时调整分数的比例。
-        vc_tf_list (Optional[List[str]]): 量能分析的时间框架列表，如果提供，则覆盖 vc_params['tf']。
-        vol_ma_period (Optional[int]): 成交量移动平均线的周期，如果提供，则覆盖 vc_params['volume_ma_period']。
-        obv_ma_period (Optional[int]): OBV移动平均线的周期，如果提供，则覆盖 vc_params['obv_ma_period']。
-        naming_config (Optional[Dict]): 命名规范配置字典，如果提供，则覆盖默认配置。
-
-    Returns:
-        pd.DataFrame: 返回一个DataFrame，索引与 preliminary_score 一致，包含以下列:
-            - 'ADJUSTED_SCORE': 经过量能调整后的最终分数 (0-100)。
-            - 'VOL_CONFIRM_SIGNAL_{TF}': 量能确认信号 (1: 量能支持当前趋势, -1: 量能与当前趋势矛盾, 0: 中性). (为每个处理的时间框架生成)
-            - 'VOL_SPIKE_SIGNAL_{TF}': 成交量突增信号 (1: 检测到突增, 0: 正常). (为每个处理的时间框架生成)
-            - 'VOL_PRICE_DIV_SIGNAL_{TF}': 量价背离信号 (1: 看涨背离, -1: 看跌背离, 0: 无明显背离). (为每个处理的时间框架生成)
     """
     # --- 0. 初始化和参数准备 ---
     result_df = pd.DataFrame(index=preliminary_score.index)
-    # 初始调整后分数等于原始分数，后续会修改
-    result_df['ADJUSTED_SCORE'] = preliminary_score.copy().fillna(50.0) # 初始化时填充NaN为50
+    result_df['ADJUSTED_SCORE'] = preliminary_score.copy().fillna(50.0)
 
-    # 使用传入的 naming_config，如果未传入则使用默认
     current_naming_config = naming_config if naming_config is not None else {}
 
-    # 确定要处理的时间框架列表
-    # 优先使用传入的 vc_tf_list 参数
     vol_tf_list_to_process = vc_tf_list
     if vol_tf_list_to_process is None or not isinstance(vol_tf_list_to_process, list) or not vol_tf_list_to_process:
-        # 如果 vc_tf_list 无效或为空，则尝试从 vc_params['tf'] 获取
-        tf_from_params = vc_params.get('timeframes', 'D') # 默认日线
+        tf_from_params = vc_params.get('timeframes', 'D') # 修改: 使用 'timeframes' 键
         if isinstance(tf_from_params, str):
             vol_tf_list_to_process = [tf_from_params]
         elif isinstance(tf_from_params, list) and tf_from_params:
             vol_tf_list_to_process = tf_from_params
         else:
-            # 如果 vc_params['tf'] 也无效，则使用默认日线并警告
             vol_tf_list_to_process = ['D']
-            logger.warning("量能调整/分析模块：vc_tf_list 参数和 vc_params['tf'] 配置均无效或为空，使用默认时间框架: 'D'。")
-    # 确保列表中的元素是字符串
+            logger.warning("量能调整/分析模块：vc_tf_list 参数和 vc_params['timeframes'] 配置均无效或为空，使用默认时间框架: 'D'。")
     vol_tf_list_to_process = [str(tf) for tf in vol_tf_list_to_process]
 
-    # 检查是否启用了量能分析或分数调整
     score_adjustment_enabled = vc_params.get('enabled', False)
     volume_analysis_enabled = vc_params.get('volume_analysis_enabled', False)
     if not score_adjustment_enabled and not volume_analysis_enabled:
         logger.info("量能分数调整和量能分析均未启用。")
-        # 即使不启用，也返回包含原始分数和默认0信号列的DataFrame
-        # 预先创建所有可能的信号列，并用0填充，确保它们总是存在于返回的DataFrame中
-        # internal_cols_conf = current_naming_config.get('strategy_internal_columns', {}).get('output_columns', []) # 删除此行
-        # signal_patterns = { ... } # 删除此字典创建
-        for tf in vol_tf_list_to_process:
-             # 直接使用字符串拼接构建信号列名 # 修改行
-             result_df[f'VOL_CONFIRM_SIGNAL_{tf}'] = 0 # 修改行
-             result_df[f'VOL_SPIKE_SIGNAL_{tf}'] = 0 # 修改行
-             result_df[f'VOL_PRICE_DIV_SIGNAL_{tf}'] = 0 # 修改行
+        for tf_str in vol_tf_list_to_process:
+             result_df[f'VOL_CONFIRM_SIGNAL_{tf_str}'] = 0
+             result_df[f'VOL_SPIKE_SIGNAL_{tf_str}'] = 0
+             result_df[f'VOL_PRICE_DIV_SIGNAL_{tf_str}'] = 0
+        return result_df
 
-        return result_df # 返回包含默认0信号和原始（或填充后）分数的DataFrame
-
-    # 提取各项配置参数
     boost_factor = vc_params.get('boost_factor', 0.20)
     penalty_factor = vc_params.get('penalty_factor', 0.30)
     vol_spike_threshold = vc_params.get('volume_spike_threshold', 2.5)
-    vol_analysis_lookback = vc_params.get('volume_analysis_lookback', 20)
-    cmf_period = vc_params.get('cmf_period', 20)
+    cmf_period_param = vc_params.get('cmf_period', 20) # CMF周期从vc_params获取
     cmf_confirm_thresh = vc_params.get('cmf_confirmation_threshold', 0.05)
 
-    # 使用传入的周期参数，如果未传入则使用 vc_params 中的配置
-    current_vol_ma_period = vol_ma_period if vol_ma_period is not None else vc_params.get('volume_ma_period', 20) # 优先使用传入参数
-    current_obv_ma_period = obv_ma_period if obv_ma_period is not None else vc_params.get('obv_ma_period', 10) # 优先使用传入参数
+    # 成交量均线周期 (用于计算成交量突增)
+    current_vol_ma_period = vol_ma_period if vol_ma_period is not None else vc_params.get('volume_ma_period', vc_params.get('amount_ma_period', 20))
+    # OBV均线周期 (用于查找OBV_MA列或调整)
+    current_obv_ma_period_param = obv_ma_period if obv_ma_period is not None else vc_params.get('obv_ma_period', 10)
 
-    # 量价背离相关参数
     vp_div_lookback = vc_params.get('vp_divergence_lookback', 21)
     vp_price_thresh = vc_params.get('vp_divergence_price_threshold', 0.005)
     vp_obv_thresh = vc_params.get('vp_divergence_obv_threshold', 0.005)
     vp_div_penalty_factor = vc_params.get('vp_divergence_penalty_factor', 0.25)
     vol_spike_adj_factor = vc_params.get('volume_spike_adj_factor', 0.10)
 
-    # 变量用于存储第一个成功处理的时间框架的信号，用于分数调整
     adjustment_confirm_signal = pd.Series(0, index=result_df.index)
     adjustment_spike_signal = pd.Series(0, index=result_df.index)
     adjustment_div_signal = pd.Series(0, index=result_df.index)
-    first_tf_processed = False # 标记是否已成功处理至少一个时间框架
+    first_tf_processed = False
+    processed_tfs = []
 
-    # --- 循环处理每个时间框架 ---
-    processed_tfs = [] # 记录成功处理的时间框架
     for current_vol_tf in vol_tf_list_to_process:
-        print(f"\n--- DEBUG PRINT: 处理量能时间框架: {current_vol_tf} ---") # 保留调试输出
+        print(f"\n--- DEBUG PRINT: 处理量能时间框架: {current_vol_tf} ---")
 
-        # 1. 数据列名构建和有效性检查 (针对当前时间框架)
-        # 使用 naming_config 查找列名模式并构建实际列名
-        ohlcv_naming_conv = current_naming_config.get('ohlcv_naming_convention', {})
-        indicator_naming_conv = current_naming_config.get('indicator_naming_conventions', {})
         timeframe_naming_conv = current_naming_config.get('timeframe_naming_convention', {})
-
-        # Get possible suffixes for the current timeframe
         tf_score_str = str(current_vol_tf)
         possible_tf_suffixes_raw = timeframe_naming_conv.get('patterns', {}).get(tf_score_str.lower(), [tf_score_str])
         if not isinstance(possible_tf_suffixes_raw, list): possible_tf_suffixes = [str(possible_tf_suffixes_raw)]
         else: possible_tf_suffixes = [str(p) for p in possible_tf_suffixes_raw]
-        if tf_score_str in possible_tf_suffixes: possible_tf_suffixes.remove(tf_score_str); possible_tf_suffixes.insert(0, tf_score_str)
-        elif tf_score_str.upper() in possible_tf_suffixes: possible_tf_suffixes.remove(tf_score_str.upper()); possible_tf_suffixes.insert(0, tf_score_str.upper())
-        else: possible_tf_suffixes.insert(0, tf_score_str)
-        seen = set(); possible_tf_suffixes_unique = [];
+        # 确保原始tf字符串（如'15', 'D'）优先被尝试作为后缀
+        if tf_score_str not in possible_tf_suffixes: possible_tf_suffixes.insert(0, tf_score_str)
+        seen = set(); unique_suffixes = []
         for suffix in possible_tf_suffixes:
-            if suffix not in seen: seen.add(suffix); possible_tf_suffixes_unique.append(suffix)
-        possible_tf_suffixes = possible_tf_suffixes_unique
+            if suffix not in seen: seen.add(suffix); unique_suffixes.append(suffix)
+        possible_tf_suffixes = unique_suffixes if unique_suffixes else [tf_score_str]
 
-        # Find OHLCV columns
+        # --- 修改开始: OHLCV 列名查找逻辑 ---
         ohlcv_cols_found: Dict[str, str] = {}
         ohlcv_base_names = ['open', 'high', 'low', 'close', 'volume']
-        ohlcv_patterns = ohlcv_naming_conv.get('output_columns', [])
-        if isinstance(ohlcv_patterns, list):
-             for base_name in ohlcv_base_names:
-                  pattern = next((p.get('name_pattern') for p in ohlcv_patterns if isinstance(p, dict) and p.get('name_pattern') == base_name), None)
-                  if pattern:
-                       found_col = None
-                       for suffix in possible_tf_suffixes:
-                            expected_col = f"{pattern}_{suffix}"
-                            if expected_col in data.columns:
-                                 found_col = expected_col
-                                 break
-                       if found_col: ohlcv_cols_found[base_name] = found_col
-                  else:
-                       logger.warning(f"OHLCV naming pattern for '{base_name}' not found.")
+        ohlcv_naming_conv_from_config = current_naming_config.get('ohlcv_naming_convention', {})
+        ohlcv_config_entries = ohlcv_naming_conv_from_config.get('output_columns', [])
 
-        # Find CMF, OBV, OBV_MA columns
+        for base_name_key in ohlcv_base_names:
+            pattern_entry = next((p for p in ohlcv_config_entries if isinstance(p, dict) and p.get('internal_key') == base_name_key), None)
+            actual_ohlcv_base_pattern = base_name_key # 默认使用内部键名
+            if pattern_entry and pattern_entry.get('name_pattern'):
+                actual_ohlcv_base_pattern = pattern_entry['name_pattern']
+                # logger.debug(f"OHLCV: 使用来自配置的模式 '{actual_ohlcv_base_pattern}' (内部键: '{base_name_key}')。")
+            # else:
+                # logger.debug(f"OHLCV: 未在 naming_config 中找到键 '{base_name_key}' (基于 internal_key) 的特定模式。使用默认基础模式: '{base_name_key}'。")
+
+            found_ohlcv_col = None
+            for suffix in possible_tf_suffixes:
+                expected_ohlcv_col = f"{actual_ohlcv_base_pattern}_{suffix}".replace('__', '_').strip('_')
+                if expected_ohlcv_col in data.columns:
+                    found_ohlcv_col = expected_ohlcv_col
+                    break
+            if not found_ohlcv_col and actual_ohlcv_base_pattern in data.columns: # 尝试不带后缀
+                found_ohlcv_col = actual_ohlcv_base_pattern
+            
+            if found_ohlcv_col:
+                ohlcv_cols_found[base_name_key] = found_ohlcv_col
+            # else:
+                # logger.warning(f"OHLCV数据列查找：对于内部键 '{base_name_key}' (尝试基础模式 '{actual_ohlcv_base_pattern}')，在尝试后缀 {possible_tf_suffixes} 和无后缀后未在data.columns中找到对应列。")
+        # --- 修改结束: OHLCV 列名查找逻辑 ---
+
+        # --- 修改开始: 指标 (CMF, OBV, OBV_MA) 列名查找逻辑 ---
         indicator_cols_found: Dict[str, str] = {}
-        indicators_to_find = {'cmf': cmf_period, 'obv': None, 'obv_ma': current_obv_ma_period} # internal_key: period (or None)
+        indicator_naming_root = current_naming_config.get('indicator_naming_conventions', {})
+        derivative_naming_root = current_naming_config.get('derivative_feature_naming_conventions', {})
 
-        for internal_key, period_val in indicators_to_find.items():
-             indi_naming_conf = indicator_naming_conv.get(internal_key.upper(), {})
-             output_cols_patterns = indi_naming_conf.get('output_columns', [])
-             ma_pattern = indi_naming_conf.get('ma_pattern') # For OBV_MA
+        # 定义如何查找每个所需指标的模式
+        # 'path_to_pattern' 是一个列表，表示在获取到 'key_in_source' 对应的字典后，如何进一步导航到模式字符串
+        # 例如 ['output_columns', 0, 'name_pattern'] 表示 dict[key_in_source]['output_columns'][0]['name_pattern']
+        indicators_config_map = {
+            'cmf': {'period': cmf_period_param, 'source_dict_obj': indicator_naming_root, 'key_in_source': 'CMF', 'path_to_pattern': ['output_columns', 0, 'name_pattern']},
+            'obv': {'period': None, 'source_dict_obj': indicator_naming_root, 'key_in_source': 'OBV', 'path_to_pattern': ['output_columns', 0, 'name_pattern']},
+            'obv_ma': {'period': current_obv_ma_period_param, 'source_dict_obj': derivative_naming_root, 'key_in_source': 'OBV_MA', 'path_to_pattern': ['output_column_pattern']}
+        }
 
-             pattern = None
-             if internal_key == 'obv_ma' and ma_pattern: pattern = ma_pattern
-             elif isinstance(output_cols_patterns, list):
-                  for col_conf in output_cols_patterns:
-                       if isinstance(col_conf, dict) and col_conf.get('name_pattern', '').lower().startswith(internal_key):
-                            pattern = col_conf.get('name_pattern')
-                            break
+        for internal_key, config_details in indicators_config_map.items():
+            period_value = config_details['period']
+            source_dict = config_details['source_dict_obj']
+            key_in_config_source = config_details['key_in_source']
+            path_to_pattern_list = config_details['path_to_pattern']
 
-             if pattern:
-                  found_col = None
-                  for suffix in possible_tf_suffixes:
-                       expected_col = None
-                       if period_val is not None: # Pattern with period
-                            # Need to format period correctly, similar to build_expected_col_name
-                            param_str = str(period_val) # Simplified param formatting
-                            expected_col = f"{pattern}_{param_str}_{suffix}"
-                            expected_col = expected_col.replace('__', '_').strip('_')
-                       else: # Pattern without period (like OBV)
-                            expected_col = f"{pattern}_{suffix}"
-                            expected_col = expected_col.replace('__', '_').strip('_')
+            raw_pattern_str_from_config = None
+            if source_dict and key_in_config_source in source_dict:
+                current_level_dict = source_dict[key_in_config_source]
+                is_valid_path = True
+                for path_segment in path_to_pattern_list:
+                    if isinstance(current_level_dict, dict) and path_segment in current_level_dict:
+                        current_level_dict = current_level_dict[path_segment]
+                    elif isinstance(current_level_dict, list) and isinstance(path_segment, int) and 0 <= path_segment < len(current_level_dict):
+                        current_level_dict = current_level_dict[path_segment]
+                    else:
+                        is_valid_path = False
+                        break
+                if is_valid_path and isinstance(current_level_dict, str):
+                    raw_pattern_str_from_config = current_level_dict
+            
+            # 根据是否从配置中获取到模式，确定基础列名（可能包含参数占位符）
+            base_pattern_for_col_name = internal_key # 默认使用内部键名
+            if raw_pattern_str_from_config:
+                # logger.debug(f"指标: 使用来自配置的原始模式 '{raw_pattern_str_from_config}' (内部键: '{internal_key}')。")
+                base_pattern_for_col_name = raw_pattern_str_from_config # 例如 "CMF_{period}" 或 "OBV_MA_{period}" 或 "OBV"
+                # 替换参数占位符
+                if period_value is not None and '{period}' in base_pattern_for_col_name:
+                    base_pattern_for_col_name = base_pattern_for_col_name.replace('{period}', str(period_value))
+                # 此时 base_pattern_for_col_name 类似于 "CMF_20", "OBV_MA_10", "OBV"
+            else:
+                # logger.debug(f"指标: 未在 naming_config 中找到内部键 '{internal_key}' 的模式。将使用默认规则 '{internal_key}' 或 '{internal_key}_{{period}}'。")
+                # 默认构建: 如果有周期，则为 internal_key_period，否则为 internal_key
+                if period_value is not None:
+                    base_pattern_for_col_name = f"{internal_key}_{str(period_value)}" # 例如 "cmf_20", "obv_ma_10"
+                # else base_pattern_for_col_name 保持为 "obv"
 
-                       if expected_col and expected_col in data.columns:
-                            found_col = expected_col
-                            break
-                  if found_col: indicator_cols_found[internal_key] = found_col
-             else:
-                  logger.warning(f"Indicator naming pattern for '{internal_key}' not found.")
+            # 尝试组合基础模式和时间后缀来查找列
+            found_indicator_col = None
+            for suffix in possible_tf_suffixes:
+                expected_indicator_col = f"{base_pattern_for_col_name}_{suffix}".replace('__', '_').strip('_')
+                if expected_indicator_col in data.columns:
+                    found_indicator_col = expected_indicator_col
+                    break
+            
+            # 如果带后缀未找到，尝试不带后缀的（可能数据未按时间框架区分，或后缀已在模式中）
+            if not found_indicator_col and base_pattern_for_col_name in data.columns:
+                found_indicator_col = base_pattern_for_col_name
+            
+            if found_indicator_col:
+                indicator_cols_found[internal_key] = found_indicator_col
+            # else:
+                # logger.warning(f"指标数据列查找：对于内部键 '{internal_key}' (尝试的基础模式 '{base_pattern_for_col_name}', 原始配置模式: '{raw_pattern_str_from_config}', 周期: {period_value}), 在尝试后缀 {possible_tf_suffixes} 和无后缀后未在data.columns中找到对应列。")
+        # --- 修改结束: 指标列名查找逻辑 ---
 
 
-        # Check if all required columns are found and have non-NaN data
-        required_keys_for_tf = ['close', 'high', 'low', 'volume', 'cmf', 'obv'] # OBV_MA is optional for basic analysis
+        # 检查必需列是否都已找到
+        required_keys_for_tf = ['close', 'high', 'low', 'volume', 'cmf', 'obv'] # OBV_MA 是可选的
         all_required_found = True
+        missing_details = []
         for key in required_keys_for_tf:
-             col_name = ohlcv_cols_found.get(key) if key in ohlcv_base_names else indicator_cols_found.get(key)
-             if col_name is None or col_name not in data.columns or data[col_name].isnull().all():
-                  logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 缺少必需的数据列或数据全为 NaN: '{col_name}' (internal key: '{key}')。跳过此时间框架的分析。")
-                  all_required_found = False
-                  break
+            col_name_to_check = ohlcv_cols_found.get(key) if key in ohlcv_base_names else indicator_cols_found.get(key)
+            if col_name_to_check is None:
+                all_required_found = False; missing_details.append(f"列名未找到 (internal key: '{key}')")
+            elif col_name_to_check not in data.columns:
+                all_required_found = False; missing_details.append(f"列 '{col_name_to_check}' 不在数据中 (internal key: '{key}')")
+            elif data[col_name_to_check].isnull().all():
+                all_required_found = False; missing_details.append(f"列 '{col_name_to_check}' 数据全为 NaN (internal key: '{key}')")
+            if not all_required_found: break
 
         if not all_required_found:
-             # 预先创建当前时间框架的信号列，并用0填充，即使数据缺失也要确保列存在
-             confirm_signal_col = f'VOL_CONFIRM_SIGNAL_{current_vol_tf}'
-             spike_signal_col = f'VOL_SPIKE_SIGNAL_{current_vol_tf}'
-             div_signal_col = f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}'
-             result_df[confirm_signal_col] = 0
-             result_df[spike_signal_col] = 0
-             result_df[div_signal_col] = 0
-             continue # Skip current timeframe, continue to next
+            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 因以下原因跳过分析: {'; '.join(missing_details)}。")
+            result_df[f'VOL_CONFIRM_SIGNAL_{current_vol_tf}'] = 0
+            result_df[f'VOL_SPIKE_SIGNAL_{current_vol_tf}'] = 0
+            result_df[f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}'] = 0
+            continue
 
-        # 2. 数据提取, 对齐和填充 (针对当前时间框架)
-        # 合并 preliminary_score 和所需数据列，确保索引对齐
-        # 使用 outer join 避免丢失任一方的索引，然后 reindex 回 preliminary_score 的索引
-        cols_to_merge = [close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name]
-        if obv_ma_col_name: cols_to_merge.append(obv_ma_col_name)
+        # 获取实际列名 (此时，必需的列名保证存在于 *_cols_found 且在 data.columns 中)
+        close_col = ohlcv_cols_found['close']
+        high_col = ohlcv_cols_found['high']
+        low_col = ohlcv_cols_found['low']
+        volume_col = ohlcv_cols_found['volume']
+        cmf_col_name = indicator_cols_found['cmf']
+        obv_col_name = indicator_cols_found['obv']
+        obv_ma_col_name = indicator_cols_found.get('obv_ma') # 可选
 
-        data_subset = data[cols_to_merge].copy() # 操作副本
-        merged_df_tf = pd.concat([preliminary_score.rename("PRELIM_SCORE_TEMP_COL"), data_subset], axis=1, join='outer')
-        merged_df_tf = merged_df_tf.reindex(preliminary_score.index) # 确保最终索引与输入分数一致
+        # 2. 数据提取, 对齐和填充
+        cols_to_merge = [ohlcv_cols_found[k] for k in ohlcv_base_names if k in ohlcv_cols_found] # OHLCV
+        cols_to_merge.extend([indicator_cols_found[k] for k in ['cmf', 'obv'] if k in indicator_cols_found]) # CMF, OBV
+        if obv_ma_col_name and obv_ma_col_name in data.columns : cols_to_merge.append(obv_ma_col_name) # OBV_MA if found
 
-        # 对提取的序列进行填充
-        close = merged_df_tf[close_col].ffill().bfill() # 价格用前后值填充
-        high = merged_df_tf[high_col].ffill().bfill()
-        low = merged_df_tf[low_col].ffill().bfill()
-        volume = merged_df_tf[volume_col].fillna(0) # 成交量NaN填充为0
-        cmf = merged_df_tf[cmf_col_name].fillna(0) # CMF NaN填充为0 (代表中性资金流)
-        obv = merged_df_tf[obv_col_name].ffill().bfill() # OBV是累积值，用前后值填充可能更合理
-        obv_ma = merged_df_tf[obv_ma_col_name].ffill().bfill() if obv_ma_col_name else pd.Series(np.nan, index=merged_df_tf.index) # OBV均线也用前后值填充，处理如果列未找到的情况
+        valid_cols_to_merge = [col for col in cols_to_merge if col in data.columns]
+        data_subset = data[valid_cols_to_merge].copy()
+        aligned_data_subset = data_subset.reindex(preliminary_score.index)
 
-        # 再次检查关键数据是否在填充后仍然无效
-        if close.isnull().all() or obv.isnull().all() or volume.isnull().all():
-            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 的关键数据 (收盘价/OBV/成交量) 在填充后仍无效。跳过此时间框架的分析。")
-            continue # 跳过当前时间框架，继续处理下一个
+        close = aligned_data_subset[close_col].ffill().bfill()
+        high = aligned_data_subset[high_col].ffill().bfill()
+        low = aligned_data_subset[low_col].ffill().bfill()
+        volume = aligned_data_subset[volume_col].fillna(0)
+        cmf = aligned_data_subset[cmf_col_name].fillna(0)
+        obv = aligned_data_subset[obv_col_name].ffill().bfill()
+        
+        obv_ma_series = pd.Series(np.nan, index=preliminary_score.index) # 默认全NaN
+        if obv_ma_col_name and obv_ma_col_name in aligned_data_subset.columns:
+            obv_ma_series = aligned_data_subset[obv_ma_col_name].ffill().bfill()
 
-        # --- 3. 计算量能分析信号 (针对当前时间框架) ---
+        if close.isnull().all() or obv.isnull().all() or volume.isnull().all() or cmf.isnull().all():
+            logger.warning(f"量能调整/分析模块：时间框架 '{current_vol_tf}' 的关键数据在填充后仍无效。跳过。")
+            result_df[f'VOL_CONFIRM_SIGNAL_{current_vol_tf}'] = 0
+            result_df[f'VOL_SPIKE_SIGNAL_{current_vol_tf}'] = 0
+            result_df[f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}'] = 0
+            continue
+        
+        # --- 3. 计算量能分析信号 ---
+        # 3.1. 量能确认信号
+        bullish_vol_confirm = (cmf > cmf_confirm_thresh)
+        bearish_vol_confirm = (cmf < -cmf_confirm_thresh)
+        if not obv_ma_series.isnull().all(): # 只有当OBV_MA有效时，才加入比较
+            bullish_vol_confirm &= (obv > obv_ma_series)
+            bearish_vol_confirm &= (obv < obv_ma_series)
+        elif obv_ma_col_name: # OBV_MA列应存在但数据无效
+             logger.debug(f"时间框架 '{current_vol_tf}': OBV_MA ('{obv_ma_col_name}') 数据无效或全NaN，量能确认将不使用OBV与OBV_MA的比较。")
+        # else: OBV_MA列未找到，不使用OBV_MA是正常的
 
-        # 3.1. 量能确认信号 (VOL_CONFIRM_SIGNAL_{TF})
-        # 定义：CMF 和 OBV 相对于其均线的方向是否支持当前价格趋势的初步判断
-        # 看涨量能确认: CMF 为正且高于阈值，并且 OBV 在其均线上方
-        bullish_volume_confirmation = (cmf > cmf_confirm_thresh) & (obv > obv_ma)
-        # 看跌量能确认: CMF 为负且低于负阈值，并且 OBV 在其均线下方
-        bearish_volume_confirmation = (cmf < -cmf_confirm_thresh) & (obv < obv_ma)
-
-        # 将信号存储到 result_df 中对应的列
         confirm_signal_col = f'VOL_CONFIRM_SIGNAL_{current_vol_tf}'
-        result_df[confirm_signal_col] = 0 # 在赋值前重置为0
-        result_df.loc[bullish_volume_confirmation, confirm_signal_col] = 1
-        result_df.loc[bearish_volume_confirmation, confirm_signal_col] = -1
+        result_df[confirm_signal_col] = 0
+        result_df.loc[bullish_vol_confirm, confirm_signal_col] = 1
+        result_df.loc[bearish_vol_confirm, confirm_signal_col] = -1
 
-        # 3.2. 成交量突增信号 (VOL_SPIKE_SIGNAL_{TF})
-        # 定义：当前成交量显著高于其近期移动平均值
+        # 3.2. 成交量突增信号
         spike_signal_col = f'VOL_SPIKE_SIGNAL_{current_vol_tf}'
-        result_df[spike_signal_col] = 0 # 在赋值前重置为0
-        if vol_analysis_lookback > 0 and not volume.empty:
-            # 计算成交量均线，替换0值为NaN以避免除零错误
-            # 使用 current_vol_ma_period 作为成交量均线周期
-            vol_mean_period = current_vol_ma_period
-            volume_mean = volume.rolling(window=vol_mean_period, min_periods=max(1, vol_mean_period // 2)).mean().replace(0, np.nan)
-            # 仅在volume_mean有效时进行比较
-            valid_mean_mask = volume_mean.notna()
-            is_spike = pd.Series(False, index=volume.index) # 初始化为全False
-            is_spike.loc[valid_mean_mask] = (volume.loc[valid_mean_mask] / volume_mean.loc[valid_mean_mask]) > vol_spike_threshold
-            result_df[spike_signal_col] = is_spike.astype(int)
+        result_df[spike_signal_col] = 0
+        if current_vol_ma_period > 0 and not volume.empty:
+            vol_mean_win = min(current_vol_ma_period, len(volume))
+            min_p = max(1, vol_mean_win // 2)
+            if vol_mean_win > 0:
+                volume_mean = volume.rolling(window=vol_mean_win, min_periods=min_p).mean().replace(0, np.nan)
+                valid_mean_mask = volume_mean.notna()
+                is_spike = pd.Series(False, index=volume.index)
+                if valid_mean_mask.any():
+                    is_spike.loc[valid_mean_mask] = (volume.loc[valid_mean_mask] / volume_mean.loc[valid_mean_mask]) > vol_spike_threshold
+                result_df[spike_signal_col] = is_spike.astype(int)
 
-        # 3.3. 量价背离信号 (VOL_PRICE_DIV_SIGNAL_{TF}) - 深化版检测
-        # 目标：检测价格创出新高/新低时，OBV是否未能同步创出新高/新低
-        # 我们通过回溯窗口，寻找窗口内的最高价/最低价及其对应的OBV值，并与当前价/OBV进行比较。
-
-        # 初始化背离信号 Series (针对当前时间框架)
+        # 3.3. 量价背离信号
         div_signal_col = f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}'
-        result_df[div_signal_col] = 0 # 在赋值前重置为0
+        result_df[div_signal_col] = 0
         divergence_signals = pd.Series(0, index=result_df.index)
+        if vp_div_lookback > 1 and not obv.isnull().all() and not high.isnull().all() and not low.isnull().all():
+            temp_df_divergence = pd.DataFrame({'high': high, 'low': low, 'obv': obv}, index=preliminary_score.index)
+            for i in range(vp_div_lookback - 1, len(temp_df_divergence)):
+                current_idx = temp_df_divergence.index[i]
+                # 回溯窗口不包含当前点i, 所以是到 i-1 (exclusive of i)
+                # Lookback window for previous N-1 points: from i-(vp_div_lookback-1) to i-1
+                # iloc slice: [i - (vp_div_lookback-1), i)
+                lookback_start_iloc = max(0, i - (vp_div_lookback -1) )
+                lookback_end_iloc = i # current point i is not included
+                if lookback_start_iloc >= lookback_end_iloc: continue
 
-        if vp_div_lookback > 1 and not obv.isnull().all(): # 需要至少2个点进行比较，且OBV数据有效
-            # 遍历每个数据点，从可以形成完整回溯窗口的点开始
-            # iloc 索引用于迭代，loc 索引用于基于日期/时间查找
-            # 使用 merged_df_tf 来确保索引与 preliminary_score 对齐
-            for i in range(vp_div_lookback - 1, len(merged_df_tf)): # 确保至少有 lookback 数量的数据可以回溯
-                current_date_idx = merged_df_tf.index[i] # 当前日期索引
+                lookback_slice = temp_df_divergence.iloc[lookback_start_iloc:lookback_end_iloc]
 
-                # 获取回溯窗口数据 (不包含当前日期)
-                lookback_slice = merged_df_tf.iloc[max(0, i - vp_div_lookback + 1): i].copy() # 过去 vp_div_lookback-1 天的数据
-
-                if lookback_slice.empty:
-                    continue # 窗口为空，跳过
-
-                # 确保回溯窗口内有有效数据
-                if lookback_slice[high_col].isnull().all() or lookback_slice[low_col].isnull().all() or lookback_slice[obv_col_name].isnull().all():
-                    continue # 窗口内关键数据无效，跳过
-
-                # --- 寻找回溯窗口内的价格极值点及其对应的OBV值 ---
-                # 找到窗口内的最高价及其索引 (P1)
-                p1_val = lookback_slice[high_col].max()
-                p1_date_idx = lookback_slice[high_col].idxmax() # 最高价对应的日期索引
-
-                # 找到窗口内的最低价及其索引 (T1)
-                t1_val = lookback_slice[low_col].min()
-                t1_date_idx = lookback_slice[low_col].idxmin() # 最低价对应的日期索引
-
-                # 获取 P1 和 T1 日期对应的 OBV 值 (I1_at_P1, I1_at_T1)
-                i1_obv_at_p1 = lookback_slice.loc[p1_date_idx, obv_col_name] if p1_date_idx in lookback_slice.index else np.nan # 确保索引存在
-                i1_obv_at_t1 = lookback_slice.loc[t1_date_idx, obv_col_name] if t1_date_idx in lookback_slice.index else np.nan # 确保索引存在
-
-                # --- 获取当前日期的价格和OBV值 (P2, I2) ---
-                p2_val_high = high.iloc[i] # 当前最高价
-                p2_val_low = low.iloc[i] # 当前最低价
-                i2_obv = obv.iloc[i] # 当前OBV
-
-                # 检查当前数据是否有效
-                if pd.isna(p2_val_high) or pd.isna(p2_val_low) or pd.isna(i2_obv):
+                if lookback_slice.empty or lookback_slice['high'].isnull().all() or \
+                   lookback_slice['low'].isnull().all() or lookback_slice['obv'].isnull().all():
                     continue
 
-                # --- 判断量价背离 ---
-                # 看跌背离条件: 价格创出更高的高点 (P2 > P1) 且 OBV 未能创出更高的高点 (I2 <= I1_at_P1)
-                # 同时考虑阈值，避免微小波动引起的误判
-                if p2_val_high > p1_val * (1 + vp_price_thresh): # 价格明显创新高
-                    # OBV 未能同步创新高：OBV 当前值低于或等于之前高点对应的OBV值 (考虑OBV阈值)
-                    # 使用 OBV 的相对变化，避免 OBV 绝对值大小的影响
-                    if not pd.isna(i1_obv_at_p1) and (i2_obv <= i1_obv_at_p1 or (i1_obv_at_p1 != 0 and (i2_obv - i1_obv_at_p1) / abs(i1_obv_at_p1) < -vp_obv_thresh)):
-                        divergence_signals.loc[current_date_idx] = -1 # 标记为看跌背离
+                p1_val = lookback_slice['high'].max()
+                p1_idx_series = lookback_slice['high'].idxmax()
+                p1_idx = p1_idx_series if not isinstance(p1_idx_series, pd.Series) else p1_idx_series.iloc[0]
 
-                # 看涨背离条件: 价格创出更低的低点 (P2 < T1) 且 OBV 未能创出更低的低点 (I2 >= I1_at_T1)
-                # 同时考虑阈值，避免微小波动引起的误判
-                # 只有当前点没有被标记为看跌背离时才检查看涨背离
-                if divergence_signals.loc[current_date_idx] == 0 and p2_val_low < t1_val * (1 - vp_price_thresh): # 价格明显创新低
-                    # OBV 未能同步创新低：OBV 当前值高于或等于之前低点对应的OBV值 (考虑OBV阈值)
-                    if not pd.isna(i1_obv_at_t1) and (i2_obv >= i1_obv_at_t1 or (i1_obv_at_t1 != 0 and (i2_obv - i1_obv_at_t1) / abs(i1_obv_at_t1) > vp_obv_thresh)):
-                        divergence_signals.loc[current_date_idx] = 1 # 标记为看涨背离
+                t1_val = lookback_slice['low'].min()
+                t1_idx_series = lookback_slice['low'].idxmin()
+                t1_idx = t1_idx_series if not isinstance(t1_idx_series, pd.Series) else t1_idx_series.iloc[0]
 
-        result_df[div_signal_col] = divergence_signals.astype(int) # 确保信号为整数类型
+                i1_obv_at_p1 = lookback_slice.loc[p1_idx, 'obv'] if pd.notna(p1_val) and p1_idx in lookback_slice.index else np.nan
+                i1_obv_at_t1 = lookback_slice.loc[t1_idx, 'obv'] if pd.notna(t1_val) and t1_idx in lookback_slice.index else np.nan
+                
+                p2_high = temp_df_divergence.loc[current_idx, 'high']
+                p2_low = temp_df_divergence.loc[current_idx, 'low']
+                i2_obv = temp_df_divergence.loc[current_idx, 'obv']
 
-        # 如果这是第一个成功处理的时间框架，则将其信号用于后续的分数调整
+                if pd.isna(p2_high) or pd.isna(p2_low) or pd.isna(i2_obv) or pd.isna(p1_val) or pd.isna(t1_val):
+                    continue
+                
+                # 看跌背离: P2 > P1 significantly, I2 not > I1 (or significantly lower)
+                if p2_high > p1_val * (1 + vp_price_thresh):
+                    if not pd.isna(i1_obv_at_p1) and \
+                       (i2_obv <= i1_obv_at_p1 or (abs(i1_obv_at_p1) > 1e-9 and (i2_obv - i1_obv_at_p1) / abs(i1_obv_at_p1) < -vp_obv_thresh)):
+                        divergence_signals.loc[current_idx] = -1
+                
+                # 看涨背离: P2 < T1 significantly, I2 not < I1 (or significantly higher)
+                if divergence_signals.loc[current_idx] == 0 and p2_low < t1_val * (1 - vp_price_thresh):
+                    if not pd.isna(i1_obv_at_t1) and \
+                       (i2_obv >= i1_obv_at_t1 or (abs(i1_obv_at_t1) > 1e-9 and (i2_obv - i1_obv_at_t1) / abs(i1_obv_at_t1) > vp_obv_thresh)):
+                        divergence_signals.loc[current_idx] = 1
+            result_df[div_signal_col] = divergence_signals.astype(int)
+
         if not first_tf_processed:
             adjustment_confirm_signal = result_df[confirm_signal_col].copy()
             adjustment_spike_signal = result_df[spike_signal_col].copy()
             adjustment_div_signal = result_df[div_signal_col].copy()
             first_tf_processed = True
             logger.debug(f"使用时间框架 '{current_vol_tf}' 的信号进行分数调整。")
+        processed_tfs.append(current_vol_tf)
 
-        processed_tfs.append(current_vol_tf) # 记录成功处理的时间框架
-
-    # --- 4. 应用量能调整到初步分数 (在循环结束后，仅当 score_adjustment_enabled 为 True 且至少处理了一个时间框架) ---
+    # --- 4. 应用量能调整到初步分数 ---
     if score_adjustment_enabled and first_tf_processed:
         logger.info("应用量能调整到初步分数...")
-        current_score = result_df['ADJUSTED_SCORE'].copy() # 获取当前待调整的分数副本
+        # 直接修改 'ADJUSTED_SCORE'
+        is_bullish_prelim = preliminary_score.fillna(50.0) > 55
+        is_bearish_prelim = preliminary_score.fillna(50.0) < 45
+        is_neutral_prelim = (~is_bullish_prelim) & (~is_bearish_prelim)
 
-        # 判断初步分数的趋势方向 (基于原始初步分数)
-        is_bullish_prelim_score = preliminary_score.fillna(50.0) > 55 # 初步看涨 (可根据实际策略调整阈值)
-        is_bearish_prelim_score = preliminary_score.fillna(50.0) < 45 # 初步看跌 (可根据实际策略调整阈值)
-        is_neutral_prelim_score = (~is_bullish_prelim_score) & (~is_bearish_prelim_score) # 初步中性
+        # 4.1 基于量能确认
+        cond_bull_confirm = is_bullish_prelim & (adjustment_confirm_signal == 1)
+        result_df.loc[cond_bull_confirm, 'ADJUSTED_SCORE'] += (100 - result_df.loc[cond_bull_confirm, 'ADJUSTED_SCORE']) * boost_factor
+        
+        cond_bull_contradict = is_bullish_prelim & (adjustment_confirm_signal == -1)
+        result_df.loc[cond_bull_contradict, 'ADJUSTED_SCORE'] -= (result_df.loc[cond_bull_contradict, 'ADJUSTED_SCORE'] - 50) * penalty_factor
 
-        # 4.1. 基于量能确认信号调整 (使用第一个成功处理的时间框架的信号)
-        # a) 初步看涨
-        #    - 量能支持 (adjustment_confirm_signal == 1): 分数向100移动
-        bull_confirmed_cond = is_bullish_prelim_score & (adjustment_confirm_signal == 1)
-        current_score.loc[bull_confirmed_cond] = current_score + (100 - current_score) * boost_factor
-        #    - 量能矛盾 (adjustment_confirm_signal == -1): 分数向50移动
-        bull_contradict_cond = is_bullish_prelim_score & (adjustment_confirm_signal == -1)
-        current_score.loc[bull_contradict_cond] = current_score - (current_score - 50) * penalty_factor
+        cond_bear_confirm = is_bearish_prelim & (adjustment_confirm_signal == -1)
+        result_df.loc[cond_bear_confirm, 'ADJUSTED_SCORE'] -= result_df.loc[cond_bear_confirm, 'ADJUSTED_SCORE'] * boost_factor
+        
+        cond_bear_contradict = is_bearish_prelim & (adjustment_confirm_signal == 1)
+        result_df.loc[cond_bear_contradict, 'ADJUSTED_SCORE'] += (50 - result_df.loc[cond_bear_contradict, 'ADJUSTED_SCORE']) * penalty_factor
+        
+        cond_neutral_bull = is_neutral_prelim & (adjustment_confirm_signal == 1)
+        result_df.loc[cond_neutral_bull, 'ADJUSTED_SCORE'] += (60 - result_df.loc[cond_neutral_bull, 'ADJUSTED_SCORE']) * boost_factor * 0.5
+        
+        cond_neutral_bear = is_neutral_prelim & (adjustment_confirm_signal == -1)
+        result_df.loc[cond_neutral_bear, 'ADJUSTED_SCORE'] -= (result_df.loc[cond_neutral_bear, 'ADJUSTED_SCORE'] - 40) * boost_factor * 0.5
 
-        # b) 初步看跌
-        #    - 量能支持 (adjustment_confirm_signal == -1): 分数向0移动
-        bear_confirmed_cond = is_bearish_prelim_score & (adjustment_confirm_signal == -1)
-        current_score.loc[bear_confirmed_cond] = current_score - current_score * boost_factor
-        #    - 量能矛盾 (adjustment_confirm_signal == 1): 分数向50移动
-        bear_contradict_cond = is_bearish_prelim_score & (adjustment_confirm_signal == 1)
-        current_score.loc[bear_contradict_cond] = current_score + (50 - current_score) * penalty_factor
+        # 4.2 基于量价背离
+        cond_bull_bear_div = is_bullish_prelim & (adjustment_div_signal == -1)
+        result_df.loc[cond_bull_bear_div, 'ADJUSTED_SCORE'] -= (result_df.loc[cond_bull_bear_div, 'ADJUSTED_SCORE'] - 50) * vp_div_penalty_factor
 
-        # c) 初步中性 (分数在45-55之间)
-        #    - 量能看涨 (adjustment_confirm_signal == 1): 分数向看涨区域轻微移动 (例如60)
-        neutral_to_bull_cond = is_neutral_prelim_score & (adjustment_confirm_signal == 1)
-        current_score.loc[neutral_to_bull_cond] = current_score + (60 - current_score) * boost_factor * 0.5 # 调整幅度减半
-        #    - 量能看跌 (adjustment_confirm_signal == -1): 分数向看跌区域轻微移动 (例如40)
-        neutral_to_bear_cond = is_neutral_prelim_score & (adjustment_confirm_signal == -1)
-        current_score.loc[neutral_to_bear_cond] = current_score - (current_score - 40) * boost_factor * 0.5 # 调整幅度减半
+        cond_bear_bull_div = is_bearish_prelim & (adjustment_div_signal == 1)
+        result_df.loc[cond_bear_bull_div, 'ADJUSTED_SCORE'] += (50 - result_df.loc[cond_bear_bull_div, 'ADJUSTED_SCORE']) * vp_div_penalty_factor
 
-        # 4.2. 基于量价背离信号调整 (通常是惩罚性或警示性) (使用信号从第一个成功处理的时间框架)
-        # a) 初步看涨，但出现看跌量价背离 (adjustment_div_signal == -1) -> 分数向50回调
-        bull_score_with_bear_div = is_bullish_prelim_score & (adjustment_div_signal == -1)
-        result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] = \
-            result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] - \
-            (result_df.loc[bull_score_with_bear_div, 'ADJUSTED_SCORE'] - 50) * vp_div_penalty_factor
-
-        # b) 初步看跌，但出现看涨量价背离 (adjustment_div_signal == 1) -> 分数向50回调
-        bear_score_with_bull_div = is_bearish_prelim_score & (adjustment_div_signal == 1)
-        result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE'] = \
-            result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE'] + \
-            (50 - result_df.loc[bear_score_with_bull_div, 'ADJUSTED_SCORE']) * vp_div_penalty_factor
-
-        # 4.3. 基于成交量突增信号调整 (可选，可能加强趋势或预示反转) (使用信号从第一个成功处理的时间框架)
-        # 简化处理：如果趋势与突增方向一致，则轻微加强分数；如果矛盾，则轻微拉回。
-        # a) 初步看涨 + 成交量突增: 轻微加强看涨分数
-        bull_score_with_spike = is_bullish_prelim_score & (adjustment_spike_signal == 1)
-        result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE'] = \
-            result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE'] + \
-            (100 - result_df.loc[bull_score_with_spike, 'ADJUSTED_SCORE']) * vol_spike_adj_factor
-
-        # b) 初步看跌 + 成交量突增: 轻微加强看跌分数
-        bear_score_with_spike = is_bearish_prelim_score & (adjustment_spike_signal == 1)
-        result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] = \
-            result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] - \
-            result_df.loc[bear_score_with_spike, 'ADJUSTED_SCORE'] * vol_spike_adj_factor
-
-        # 确保最终分数在0-100范围内
+        # 4.3 基于成交量突增
+        cond_bull_spike = is_bullish_prelim & (adjustment_spike_signal == 1)
+        result_df.loc[cond_bull_spike, 'ADJUSTED_SCORE'] += (100 - result_df.loc[cond_bull_spike, 'ADJUSTED_SCORE']) * vol_spike_adj_factor
+        
+        cond_bear_spike = is_bearish_prelim & (adjustment_spike_signal == 1)
+        result_df.loc[cond_bear_spike, 'ADJUSTED_SCORE'] -= result_df.loc[cond_bear_spike, 'ADJUSTED_SCORE'] * vol_spike_adj_factor
+        
         result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].clip(0, 100)
 
     elif score_adjustment_enabled and not first_tf_processed:
          logger.warning("量能分数调整已启用，但没有成功处理任何时间框架的量能数据。分数将不会被调整。")
 
-
     # --- 5. 最终填充和返回 ---
-    # 确保 ADJUSTED_SCORE 列的 NaN 被填充为中性值 50 (再次确认)
     result_df['ADJUSTED_SCORE'] = result_df['ADJUSTED_SCORE'].fillna(50.0)
-    # 其他信号列的 NaN (理论上在初始化时已处理) 再次确保填充为0并转换为整数
-    # 遍历所有以信号模式开头的列 # 修改行
-    # 手动构建信号列名前缀列表 # 新增行
-    signal_prefixes = ['VOL_CONFIRM_SIGNAL_', 'VOL_SPIKE_SIGNAL_', 'VOL_PRICE_DIV_SIGNAL_'] # 新增行
-    all_signal_cols = [col for col in result_df.columns if any(col.startswith(prefix) for prefix in signal_prefixes)] # 修改行: Complete the list comprehension
-    for col in all_signal_cols:
-        result_df[col] = result_df[col].fillna(0).astype(int)
+    signal_prefixes = ['VOL_CONFIRM_SIGNAL_', 'VOL_SPIKE_SIGNAL_', 'VOL_PRICE_DIV_SIGNAL_']
+    all_signal_cols = [col for col in result_df.columns if any(col.startswith(prefix) for prefix in signal_prefixes)]
+    for col_name in all_signal_cols:
+        result_df[col_name] = result_df[col_name].fillna(0).astype(int)
 
     logger.info(f"量能调整和分析模块处理完成。成功处理的时间框架: {processed_tfs}。")
     return result_df
+
 
 # 注意：在修改后的回退查找逻辑中，此函数不再用于匹配模式，但保留以防其他地方使用或用于调试。
 def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:
