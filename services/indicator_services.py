@@ -1654,16 +1654,16 @@ class IndicatorService:
 
             if long_sar_col and short_sar_col:
                 sar_values = psar_df[long_sar_col].fillna(psar_df[short_sar_col])
-                return pd.DataFrame({f'SAR_{af_step}_{max_af}': sar_values}) # 在列名中包含参数
+                return pd.DataFrame({f'SAR_{af_step:.2f}_{max_af:.2f}': sar_values}) # 在列名中包含参数
             elif long_sar_col: # 只有 long
-                return pd.DataFrame({f'SAR_{af_step}_{max_af}': psar_df[long_sar_col]})
+                return pd.DataFrame({f'SAR_{af_step:.2f}_{max_af:.2f}': psar_df[long_sar_col]})
             elif short_sar_col: # 只有 short
-                return pd.DataFrame({f'SAR_{af_step}_{max_af}': psar_df[short_sar_col]})
+                return pd.DataFrame({f'SAR_{af_step:.2f}_{max_af:.2f}': psar_df[short_sar_col]})
             else:
                 logger.warning(f"计算 SAR 未找到 PSARl 或 PSARs 列。返回列: {psar_df.columns.tolist()}")
                 return None
         except Exception as e:
-            logger.error(f"计算 SAR (af={af_step}, max_af={max_af}) 出错: {e}", exc_info=True)
+            logger.error(f"计算 SAR (af={af_step:.2f}, max_af={max_af:.2f}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_stoch(self, df: pd.DataFrame, k_period: int = 14, d_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
