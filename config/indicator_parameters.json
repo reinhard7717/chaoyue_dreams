@@ -1,6 +1,6 @@
 {
-  "strategy_name": "融合策略 v1.0",
-  "description": "融合 MACD/RSI/KDJ/BOLL 多时间框架评分与趋势/背离/K线形态分析，并集成 Transformer 模型预测的综合策略",
+  "strategy_name": "融合策略 v1.0 (A股优化版)",
+  "description": "融合 MACD/RSI/KDJ/BOLL 多时间框架评分与趋势/背离/K线形态分析，并集成 Transformer 模型预测的综合策略 (已针对A股市场优化)",
   "trend_following_strategy_name": "趋势跟踪v1.0",
   "trend_reversal_strategy_name": "趋势反转v1.0",
   "t_plus_0_strategy_name": "T+0(VWAP)v1.0",
@@ -19,7 +19,7 @@
     "kdj_period_j": 3,
     "kdj_oversold": 25,
     "kdj_overbought": 75,
-    "boll_period": 15,
+    "boll_period": 20,
     "boll_std_dev": 2.2,
     "macd_fast": 8,
     "macd_slow": 26,
@@ -38,19 +38,19 @@
     "adx_strong_threshold": 30,
     "sar_step": 0.02,
     "sar_max": 0.20,
-    "weights": {
+    "weights": { 
       "5": 0.15,
-      "15": 0.45,
+      "15": 0.35,
       "30": 0.25,
       "60": 0.15,
-      "D": 0.0
+      "D": 0.10
     }
   },
 
   "volume_confirmation": {
     "enabled": true,
     "timeframes": "15",
-    "amount_ma_period": 15,
+    "amount_ma_period": 20,
     "cmf_period": 20,
     "obv_ma_period": 10,
     "boost_factor": 1.3,
@@ -62,7 +62,7 @@
     "check_regular_bullish": true,
     "check_hidden_bullish": true,
     "check_hidden_bearish": true,
-    "timeframes": "15",
+    "timeframes": ["15", "30"],
     "price_period": 5,
     "lookback": 10,
     "indicators": {
@@ -94,7 +94,7 @@
     "focus_timeframe": "5",
     "buy_dev_threshold": -0.004,
     "sell_dev_threshold": 0.004,
-    "use_long_term_filter": false
+    "use_long_term_filter": true
   },
 
   "feature_engineering_params": {
@@ -120,11 +120,11 @@
     "ema_periods_for_relation": [5, 20, 60],
     "sma_periods_for_relation": [5, 20, 60],
     "indicators_for_difference": [
-        {"base_name": "RSI", "params_key": ["rsi_period"], "default_period": [14]},
-        {"base_name": "MACD", "params_key": ["macd_fast", "macd_slow", "macd_signal"], "default_period": [12, 26, 9]},
-        {"base_name": "K", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
-        {"base_name": "D", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
-        {"base_name": "J", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [9, 3, 3]},
+        {"base_name": "RSI", "params_key": ["rsi_period"], "default_period": [9]},
+        {"base_name": "MACD", "params_key": ["macd_fast", "macd_slow", "macd_signal"], "default_period": [8, 26, 7]},
+        {"base_name": "K", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [7, 3, 3]},
+        {"base_name": "D", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [7, 3, 3]},
+        {"base_name": "J", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [7, 3, 3]},
         {"base_name": "ADX", "params_key": ["dmi_period"], "default_period": [14]}
     ],
     "difference_periods": [1, 5],
@@ -132,13 +132,13 @@
     "use_chip_data": true,
     "lagged_features": {
       "enabled": true,
-      "columns_to_lag": ["close", "volume", "RSI_14", "MACD_12_26_9_30"],
+      "columns_to_lag": ["close", "volume", "RSI_9", "MACD_8_26_7"],
       "lags": [1, 2, 3, 5]
     },
     "rolling_features": {
       "enabled": true,
-      "columns_to_roll": ["close", "volume", "MACDh_12_26_9_30"], 
-      "windows": [5, 10, 20], 
+      "columns_to_roll": ["close", "volume", "MACDh_8_26_7"],
+      "windows": [5, 10, 20],
       "stats": ["mean", "std", "min", "max"]
     },
     "relative_strength": {
@@ -229,11 +229,11 @@
     },
      "signal_combination_weights": {
         "rule_weight": 0.6,
-        "lstm_weight": 0.4
+        "transformer_weight": 0.4
     },
     "boll_breakout_params": {
         "period": 20,
-        "std_dev": 2.0
+        "std_dev": 2.2
     }
   },
 
@@ -254,8 +254,8 @@
           "anticipation_weight": 0.1
       },
       "market_sentiment_filter": {
-          "enabled": false,
-          "turnover_threshold": 0.5,
+          "enabled": true,
+          "turnover_threshold": 5,
           "fund_flow_threshold": 0.0,
           "sentiment_penalty": 0.2
       },
@@ -281,11 +281,11 @@
           "weight": 0.15
       },
       "turnover_filter": {
-          "enabled": false,
+          "enabled": true,
           "timeframe": "30",
           "period": 5,
-          "high_turnover_threshold": 2.0,
-          "low_turnover_threshold": 0.5,
+          "high_turnover_threshold": 20,
+          "low_turnover_threshold": 3,
           "high_turnover_boost": 0.15,
           "low_turnover_penalty": 0.2
       },
