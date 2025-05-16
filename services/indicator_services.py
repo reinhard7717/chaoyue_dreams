@@ -1060,12 +1060,12 @@ class IndicatorService:
              all_benchmark_codes_for_rs = list(set(main_index_codes + ths_codes_for_rs)) # 合并主要指数和板块指数
              periods = rs_config.get('periods', [5, 10, 20]) # 获取相对强度计算周期
              if all_benchmark_codes_for_rs and periods: # 如果有基准和周期
-                  logger.info(f"[{stock_code}] 开始计算相对强度/超额收益特征，基准代码: {all_benchmark_codes_for_rs}...")
+                #   logger.info(f"[{stock_code}] 开始计算相对强度/超额收益特征，基准代码: {all_benchmark_codes_for_rs}...")
                   for tf_apply in apply_on_tfs: # 在每个适用时间级别上计算
                        stock_close_col = f'close_{tf_apply}' # 股票收盘价列名
                        if stock_close_col in final_df.columns: # 如果列存在
                             final_df = self.calculate_relative_strength(df=final_df, stock_close_col=stock_close_col, benchmark_codes=all_benchmark_codes_for_rs, periods=periods, time_level=tf_apply)
-                            logger.debug(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 完成。")
+                            # logger.debug(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 完成。")
                        else: # 列不存在
                             logger.warning(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 失败，未找到股票收盘价列: {stock_close_col}")
                   logger.info(f"[{stock_code}] 相对强度/超额收益特征计算完成。")
