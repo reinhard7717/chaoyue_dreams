@@ -463,9 +463,12 @@ def schedule_stage2_tasks(self, stage1_results: list, params_file: str = None, m
 
 # 任务：训练 Transformer 模型 (从已准备数据加载)
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_train_following_strategy_transformer', queue="Train_Transformer_Model")
-def batch_train_following_strategy_transformer(self, stock_code: str, params_file: str = "strategies/indicator_parameters.json", model_dir="models"):
+def batch_train_following_strategy_transformer(self, stock_code: str, params_file: str = "", model_dir=""):
+    print(f"DEBUG: !!!!! Celery task ENTRY for {stock_code} !!!!!") # 修改：增加一个醒目的print语句
     logger.info(f"开始执行 {stock_code} 的 Transformer 模型训练任务...")
     # 实例化策略，传递参数文件和模型目录
+    params_file=settings.INDICATOR_PARAMETERS_CONFIG_PATH
+    model_dir = settings.STRATEGY_DATA_DIR # 修改行：使用设置的模型目录
     strategy = TrendFollowingStrategy(params_file=params_file, base_data_dir=model_dir)
     try:
         # strategy.train_transformer_model_from_prepared_data 内部会加载数据并训练
@@ -502,9 +505,7 @@ def schedule_transformer_training_chain(self): # 参数名一致性
             logger.info(f"创建 {stock_code} 的 Transformer 数据处理和模型训练任务链...") # 修改行：日志信息
             # 定义模型训练任务签名 (调用 batch_train_following_strategy_transformer)
             train_task_signature = batch_train_following_strategy_transformer.s(
-                stock_code=stock_code,
-                params_file=settings.INDICATOR_PARAMETERS_CONFIG_PATH,
-                model_dir=settings.STRATEGY_DATA_DIR
+                stock_code=stock_code
             ).set().apply_async() # 指定模型训练队列 (新的队列名建议)
 
             total_dispatched_chains += 1

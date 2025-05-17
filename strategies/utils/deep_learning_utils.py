@@ -793,15 +793,9 @@ def prepare_data_for_transformer(
 
 @log_execution_time
 @handle_exceptions
-def build_transformer_model(
-    num_features: int,
-    model_config: Dict[str, Any],
-    summary: bool = True,
-    window_size: int = 60
-) -> TransformerModel:
+def build_transformer_model( num_features: int, model_config: Dict[str, Any], summary: bool = True, window_size: int = 60 ) -> TransformerModel:
     """
     构建并初始化一个 TransformerEncoder 模型。
-
     Args:
         num_features (int): 输入特征的维度 (经过特征工程后，送入模型的特征数量)。
         model_config (Dict[str, Any]): 包含模型超参数的字典。
@@ -814,17 +808,14 @@ def build_transformer_model(
             - (其他参数如 'learning_rate', 'weight_decay' 主要用于训练配置，此处不直接使用)
         summary (bool): 是否打印模型结构摘要。
         window_size (int): 输入序列的长度（窗口大小），用于位置编码的 `max_len`。
-
     Returns:
         TransformerModel: 构建好的 PyTorch Transformer 模型实例。
-
     Raises:
         ValueError: 如果 `num_features` 或 `window_size` 小于等于0，
                     或者 `d_model` 不是 `nhead` 的整数倍。
     """
     logger.info("开始构建 Transformer 模型...")
     logger.info(f"模型配置: num_features={num_features}, window_size={window_size}, config={model_config}")
-
     if num_features <= 0:
         raise ValueError(f"输入特征数量 (num_features) 必须大于0，当前为: {num_features}")
     if window_size <= 0:
@@ -977,11 +968,12 @@ def train_transformer_model(
              mode=scheduler_mode,
              factor=reduce_lr_factor,
              patience=reduce_lr_patience,
-             verbose=True, # ReduceLROnPlateau 自带打印信息
+            #  verbose=True, # ReduceLROnPlateau 自带打印信息
              min_lr=1e-7 # 学习率下限
          )
          logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', "
-                     f"factor={reduce_lr_factor}, patience={reduce_lr_patience}")
+                     f"factor={reduce_lr_factor}, patience={reduce_lr_patience}. "
+                     f"(ReduceLROnPlateau 的内置 verbose 参数已移除，学习率变化将通过优化器状态记录)")
     elif reduce_lr_patience > 0 : # 即使配置了patience，若无验证集也无法使用
          logger.warning("验证集 (val_loader) 为空或未提供，ReduceLROnPlateau 将被禁用，即使 patience > 0。")
 
@@ -1041,7 +1033,7 @@ def train_transformer_model(
 
             # (可选) 梯度裁剪，防止梯度爆炸
             if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
-                 torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
 
             optimizer.step() # 更新模型权重
 
@@ -1051,7 +1043,7 @@ def train_transformer_model(
 
             # 详细日志 (通常不每批打印，除非调试)
             if verbose_level == 2: # verbose_level=2 表示每批打印 (可能过于频繁)
-                 logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
+                logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
                              f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
         
         # 计算平均训练损失和MAE
@@ -1115,9 +1107,24 @@ def train_transformer_model(
 
             # --- 学习率调度器 step (基于验证集指标) ---
             # 确定监控的验证集指标的值
-            monitored_value_for_scheduler = avg_val_loss if monitor_metric == 'val_loss' else avg_val_mae
-            if scheduler:
+            monitored_value_for_scheduler = np.nan # 初始化
+            if monitor_metric == 'val_loss':
+                monitored_value_for_scheduler = avg_val_loss
+            elif monitor_metric == 'val_mae': # 通常指 scaled mae
+                monitored_value_for_scheduler = avg_val_mae
+            elif monitor_metric == 'val_true_mae':
+                 monitored_value_for_scheduler = avg_val_true_mae
+            else: # 默认或未知指标，使用 val_loss
+                logger.warning(f"未知的 monitor_metric '{monitor_metric}' 用于学习率调度和早停，将默认使用 'val_loss'。")
+                monitored_value_for_scheduler = avg_val_loss
+                monitor_metric = 'val_loss' # 纠正 monitor_metric 以便后续使用
+
+            if scheduler and not np.isnan(monitored_value_for_scheduler):
                 scheduler.step(monitored_value_for_scheduler)
+                # 【代码修改】手动记录学习率变化，因为 ReduceLROnPlateau 的 verbose 已移除
+                new_lr = optimizer.param_groups[0]['lr']
+                if new_lr < current_lr: # 学习率确实发生了变化
+                    logger.info(f"Epoch {epoch+1}: 学习率从 {current_lr:.2e} 降低到 {new_lr:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler:.4f})")
 
             # --- 早停判断 ---
             if early_stopping_patience > 0:
@@ -1150,12 +1157,14 @@ def train_transformer_model(
 
         epoch_duration = time.time() - epoch_start_time
         # 每轮日志输出
-        if verbose_level >= 1:
+        if verbose_level >= 1: # 【修改说明】此处的 verbose_level 控制日志输出
+             # 【代码修改】修正 val_true_mae 的格式化输出
+             val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
              log_message = (f"Epoch {epoch+1}/{epochs} - {epoch_duration:.2f}s - "
                             f"loss: {avg_train_loss:.4f} - mae: {avg_train_mae:.4f} - lr: {current_lr:.2e}")
              if val_loader is not None and len(val_loader) > 0:
                  log_message += (f" - val_loss: {avg_val_loss:.4f} - val_mae: {avg_val_mae:.4f}"
-                                 f" - val_true_mae: {avg_val_true_mae:.4f}")
+                                 f" - val_true_mae: {val_true_mae_str}") # 使用预先格式化好的字符串
              logger.info(log_message)
 
         # --- TensorBoard 记录 ---
@@ -1383,20 +1392,20 @@ def evaluate_transformer_model(
     model: TransformerModel,
     test_loader: DataLoader,
     criterion: nn.Module,
-    target_scaler: Union[MinMaxScaler, StandardScaler], # mae_metric 可以直接用 L1Loss，这里主要需要 target_scaler
+    target_scaler: Union[MinMaxScaler, StandardScaler],
+    mae_metric: nn.Module, # 【代码修改】新增 mae_metric 参数，用于计算 MAE
     device: Optional[torch.device] = None
 ) -> Dict[str, float]:
     """
     在测试集上评估 Transformer 模型性能。
-
     Args:
         model (TransformerModel): 已加载权重的 PyTorch Transformer 模型。
         test_loader (DataLoader): 测试数据加载器。
-        criterion (nn.Module): 损失函数实例 (例如 MSELoss, L1Loss)。
+        criterion (nn.Module): 损失函数实例 (例如 MSELoss)。
         target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的已拟合缩放器，
                                                              用于计算反标准化后的真实 MAE。
+        mae_metric (nn.Module): 用于计算 MAE 的度量实例 (例如 nn.L1Loss())。 # 【代码修改】更新了参数描述
         device (Optional[torch.device]): 评估设备 (CPU 或 GPU)。如果为 None，则自动检测。
-
     Returns:
         Dict[str, float]: 包含评估指标的字典:
             - 'loss': 测试集上的平均损失值 (例如 MSE)。
@@ -1404,79 +1413,63 @@ def evaluate_transformer_model(
             - 'mae_true': 测试集上反标准化 (真实尺度) 数据的平均绝对误差 (MAE)。
     """
     logger.info("开始在测试集上评估 Transformer 模型...")
-
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"自动选择评估设备: {device}")
-
     if len(test_loader) == 0:
         logger.warning("测试 DataLoader 为空，无法进行评估。返回 NaN 指标。")
         return {'loss': np.nan, 'mae_scaled': np.nan, 'mae_true': np.nan}
     if target_scaler is None:
         logger.warning("目标缩放器 (target_scaler) 未提供，无法计算真实 MAE。'mae_true' 将为 NaN。")
-
-
     model.to(device) # 确保模型在设备上
     model.eval()     # 设置模型为评估模式
-
     total_test_loss = 0.0
     total_test_mae_scaled = 0.0
     total_test_mae_true = 0.0
     total_samples = 0
-
     # MAE 评估指标
-    mae_eval_metric = nn.L1Loss(reduction='sum') # 先求和，最后除以总样本数
-
+    # mae_eval_metric = nn.L1Loss(reduction='sum') # 【代码修改】移除内部定义，使用传入的 mae_metric
     with torch.no_grad(): # 在评估阶段不计算梯度
         for inputs, targets_scaled in test_loader:
             inputs, targets_scaled = inputs.to(device), targets_scaled.to(device)
             batch_size = inputs.size(0)
-
             outputs_scaled = model(inputs) # 模型输出的是缩放后的值
-
             # 1. 计算损失 (基于缩放后的值)
             loss_batch = criterion(outputs_scaled, targets_scaled)
             total_test_loss += loss_batch.item() * batch_size # 累加批次总损失
-
             # 2. 计算缩放后的 MAE
-            mae_scaled_batch = mae_eval_metric(outputs_scaled, targets_scaled) # L1Loss(reduction='sum')
-            total_test_mae_scaled += mae_scaled_batch.item()
-
+            # 【代码修改】使用传入的 mae_metric。
+            # 假设 mae_metric 可能返回批次的平均MAE (如 nn.L1Loss() 默认)，
+            # 乘以 batch_size 来得到批次的总MAE，以与原始累加逻辑保持一致。
+            mae_scaled_batch_val = mae_metric(outputs_scaled, targets_scaled)
+            total_test_mae_scaled += mae_scaled_batch_val.item() * batch_size
             # 3. 计算反标准化后的真实 MAE
             if target_scaler:
                 try:
                     outputs_np_scaled = outputs_scaled.cpu().numpy()
                     targets_np_scaled = targets_scaled.cpu().numpy()
-
                     outputs_original = target_scaler.inverse_transform(outputs_np_scaled)
                     targets_original = target_scaler.inverse_transform(targets_np_scaled)
-
                     # 计算这个批次的真实 MAE (逐元素绝对差后求和)
                     mae_true_batch = np.sum(np.abs(outputs_original - targets_original))
                     total_test_mae_true += mae_true_batch
                 except Exception as e_inv_transform_eval:
                     logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
                     # 如果一个批次失败，可以考虑如何处理，例如该批次的 mae_true 贡献为0或NaN
-            
             total_samples += batch_size
-
     if total_samples == 0: # 避免除以零
         logger.warning("测试集中总样本数为零，无法计算平均指标。返回 NaN。")
         return {'loss': np.nan, 'mae_scaled': np.nan, 'mae_true': np.nan}
-
     avg_test_loss = total_test_loss / total_samples
     avg_test_mae_scaled = total_test_mae_scaled / total_samples
-    avg_test_mae_true = total_test_mae_true / total_samples if target_scaler else np.nan
-
-
+    avg_test_mae_true = total_test_mae_true / total_samples if target_scaler and total_samples > 0 else np.nan # 确保 total_samples > 0
+    mae_true_str = f"{avg_test_mae_true:.4f}" if not np.isnan(avg_test_mae_true) else "N/A"
     logger.info(f"测试集评估完成: "
                 f"平均损失 (Loss) = {avg_test_loss:.4f}, "
                 f"平均MAE (缩放后, Scaled MAE) = {avg_test_mae_scaled:.4f}, "
-                f"平均MAE (真实值, True MAE) = {avg_test_mae_true:.4f if not np.isnan(avg_test_mae_true) else 'N/A'}")
-
+                f"平均MAE (真实值, True MAE) = {mae_true_str}") # 使用预先格式化好的字符串
     return {
         'loss': avg_test_loss,
         'mae_scaled': avg_test_mae_scaled,
         'mae_true': avg_test_mae_true
     }
-

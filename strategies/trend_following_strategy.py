@@ -126,6 +126,7 @@ class TrendFollowingStrategy:
                 logger.warning(f"使用默认备用策略数据目录: {base_data_dir}")
             else:
                 base_data_dir = settings.STRATEGY_DATA_DIR
+        logger.info(f"初始化基础路径和依赖 -  params_file: {params_file}, base_data_dir: {base_data_dir}")
         return params_file, base_data_dir
 
     #辅助方法 - 解析参数文件路径
@@ -2730,13 +2731,14 @@ class TrendFollowingStrategy:
         """
         self.set_model_paths(stock_code)
         empty_array = np.array([])
+        print(f"[load_prepared_data {self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 路径: {self.all_prepared_data_npz_path}, {self.feature_scaler_path}, {self.target_scaler_path}, {self.selected_features_path}")
 
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 加载准备数据：部分或全部路径未设置。")
             self.selected_feature_names_for_transformer = [] # 重置列表
             # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
-
+        print(f"[{self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 路径: {self.all_prepared_data_npz_path}, {self.feature_scaler_path}, {self.target_scaler_path}, {self.selected_features_path}")
         required_files_exist = all([
             os.path.exists(self.all_prepared_data_npz_path),
             os.path.exists(self.feature_scaler_path),

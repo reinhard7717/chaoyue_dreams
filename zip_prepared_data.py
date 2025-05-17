@@ -3,6 +3,7 @@ import re
 import py7zr
 import argparse
 import numpy as np
+from django.conf import settings
 import joblib # 虽然这里不加载，但为了完整性，如果以后需要处理scaler文件内容，可能需要
 from datetime import datetime
 
@@ -112,7 +113,7 @@ def seven_zip_all_prepared_data(base_model_dir, since_time_str):
         for stock_code in os.listdir(base_model_dir):
             stock_dir = os.path.join(base_model_dir, stock_code)
             if os.path.isdir(stock_dir) and is_stock_code_dir(stock_code):
-                prepared_data_dir = os.path.join(stock_dir, "prepared_data")
+                prepared_data_dir = str(settings.STRATEGY_DATA_DIR / stock_dir / 'prepared_data')
                 if os.path.isdir(prepared_data_dir):
                     processed_stock_count += 1
                     print(f"\n--- 正在处理股票: {stock_code} ---")

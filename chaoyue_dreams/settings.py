@@ -39,6 +39,7 @@ SERVER_IP = get_local_ip()
 TARGET_SERVER_IP = "39.101.65.133"
 REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
 REDIS_PORT = '6379'
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.156':
     REDIS_HOST_DYNAMIC = '127.0.0.1'
@@ -48,11 +49,10 @@ if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.156':
 else:
     REDIS_HOST_DYNAMIC = TARGET_SERVER_IP
     MYSQL_HOST_DYNAMIC = TARGET_SERVER_IP
-    STRATEGY_DATA_DIR = 'models'
+    STRATEGY_DATA_DIR = str(BASE_DIR / 'models')
     print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}，STRATEGY_DATA_DIR：{STRATEGY_DATA_DIR}")
 
 # --- 结束: 动态获取本机IP并设置Redis主机 ---
-
 
 # Application definition
 INSTALLED_APPS = [
@@ -206,8 +206,6 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'), # 使用 os.path.join 拼接字符串路径
 ]
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 # 配置 indicator_naming.json 的路径
 INDICATOR_NAMING_CONFIG_PATH = str(BASE_DIR / 'config' / 'indicator_naming_conventions.json')
