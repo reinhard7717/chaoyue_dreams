@@ -42,8 +42,8 @@ app.conf.update(
     ],
     worker_concurrency=5,                 # Worker并发数
     worker_prefetch_multiplier=1,          # Worker预取因子 (设置为1，结合acks_late=True，确保worker完成当前任务后再取下一个)
-    task_time_limit=7200,                  # 任务硬超时时间 (秒)，当前为30分钟。
-    task_acks_late=True,                   # 新增配置：设置为True，任务执行成功完成后才向Broker发送确认信号。
+    task_time_limit=14400,                  # 任务硬超时时间 (秒)，当前为30分钟。
+    task_acks_late=False,                   # 新增配置：设置为True，任务执行成功完成后才向Broker发送确认信号。
     broker_transport_options={             # 新增配置：配置Broker（Redis）的传输选项。
         'visibility_timeout': 14400         # 新增配置：任务可见性超时时间 (秒)，当前设置为1小时 (3600秒)。
     },

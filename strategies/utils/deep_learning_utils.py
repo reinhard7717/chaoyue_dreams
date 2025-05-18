@@ -31,6 +31,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau # PyTorch 的学习率调
 import logging
 import time
 import datetime
+import matplotlib
+# 使用 'Agg' 后端，这是一个非交互式的后端，不依赖于任何 GUI 库
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import seaborn as sns
 # 导入类型提示
