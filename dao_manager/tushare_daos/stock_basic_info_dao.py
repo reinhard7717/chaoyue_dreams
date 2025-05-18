@@ -39,6 +39,8 @@ class StockBasicInfoDao(BaseDAO):
             # 尝试从缓存获取
             cached_data = await self.stock_cache_get.all_stocks()
             if cached_data:
+                # 按stock_code排序
+                cached_data.sort(key=lambda x: x.get('stock_code', ''))
                 # 将缓存数据转换为模型实例列表            
                 for stock_dict in cached_data:
                     # logger.info(f"get_stock_list: {stock_dict}")

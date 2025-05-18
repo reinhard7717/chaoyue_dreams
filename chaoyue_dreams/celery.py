@@ -39,22 +39,16 @@ app.conf.update(
         
         # 如果还有其他文件包含 Celery 任务，也一并添加到这里
         # 例如: 'tasks.other_tasks'
-    ]
-)
-
-# 设置worker进程数（根据服务器CPU核心数调整）
-app.conf.worker_concurrency = 16  # 或更多，取决于您的服务器资源
-
-# 启用预取限制，避免任务分配不均
-app.conf.worker_prefetch_multiplier = 1
-
-# 为任务设置超时
-app.conf.task_time_limit = 1800  # 30分钟
-
-# 配置Celery日志
-app.conf.update(
-    worker_hijack_root_logger=False,
-    worker_log_color=False,
+    ],
+    worker_concurrency=5,                 # Worker并发数
+    worker_prefetch_multiplier=1,          # Worker预取因子 (设置为1，结合acks_late=True，确保worker完成当前任务后再取下一个)
+    task_time_limit=7200,                  # 任务硬超时时间 (秒)，当前为30分钟。
+    task_acks_late=True,                   # 新增配置：设置为True，任务执行成功完成后才向Broker发送确认信号。
+    broker_transport_options={             # 新增配置：配置Broker（Redis）的传输选项。
+        'visibility_timeout': 14400         # 新增配置：任务可见性超时时间 (秒)，当前设置为1小时 (3600秒)。
+    },
+    worker_hijack_root_logger=False,       # 避免Celery劫持根日志记录器
+    worker_log_color=True,                # 在Windows上或不需要颜色日志时可以禁用
 )
 
 # 导入Django设置后手动配置Celery日志
