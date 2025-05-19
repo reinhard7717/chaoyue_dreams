@@ -1096,18 +1096,13 @@ def train_transformer_model(
                             # 可以选择累加 NaN 或 0，或跳过这个批次的真实MAE计算
                     else: # 如果没有 target_scaler，无法计算真实 MAE
                         epoch_val_true_mae = np.nan # 保持为 NaN
-
             avg_val_loss = epoch_val_loss / len(val_loader.dataset)
             avg_val_mae = epoch_val_mae / len(val_loader.dataset)
             if not np.isnan(epoch_val_true_mae): # 仅当成功计算时更新
                  avg_val_true_mae = epoch_val_true_mae / len(val_loader.dataset)
-
-
             history['val_loss'].append(avg_val_loss)
             history['val_mae'].append(avg_val_mae)
             history['val_true_mae'].append(avg_val_true_mae)
-
-
             # --- 学习率调度器 step (基于验证集指标) ---
             # 确定监控的验证集指标的值
             monitored_value_for_scheduler = np.nan # 初始化
@@ -1121,24 +1116,20 @@ def train_transformer_model(
                 logger.warning(f"未知的 monitor_metric '{monitor_metric}' 用于学习率调度和早停，将默认使用 'val_loss'。")
                 monitored_value_for_scheduler = avg_val_loss
                 monitor_metric = 'val_loss' # 纠正 monitor_metric 以便后续使用
-
             if scheduler and not np.isnan(monitored_value_for_scheduler):
                 scheduler.step(monitored_value_for_scheduler)
                 # 【代码修改】手动记录学习率变化，因为 ReduceLROnPlateau 的 verbose 已移除
                 new_lr = optimizer.param_groups[0]['lr']
                 if new_lr < current_lr: # 学习率确实发生了变化
                     logger.info(f"Epoch {epoch+1}: 学习率从 {current_lr:.2e} 降低到 {new_lr:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler:.4f})")
-
             # --- 早停判断 ---
             if early_stopping_patience > 0:
                 current_best_monitored_value = monitored_value_for_scheduler # 使用与调度器相同的指标
-                
                 improved = False
                 if scheduler_mode == 'min' and current_best_monitored_value < best_monitored_value:
                     improved = True
                 elif scheduler_mode == 'max' and current_best_monitored_value > best_monitored_value:
                     improved = True
-
                 if improved:
                     best_monitored_value = current_best_monitored_value
                     epochs_no_improve = 0
@@ -1156,8 +1147,6 @@ def train_transformer_model(
             history['val_mae'].append(np.nan)
             history['val_true_mae'].append(np.nan)
             logger.info(f"Epoch {epoch+1}: 无验证集，跳过验证、早停和学习率调度。")
-
-
         epoch_duration = time.time() - epoch_start_time
         # 每轮日志输出
         if verbose_level >= 1: # 【修改说明】此处的 verbose_level 控制日志输出
@@ -1169,7 +1158,6 @@ def train_transformer_model(
                  log_message += (f" - val_loss: {avg_val_loss:.4f} - val_mae: {avg_val_mae:.4f}"
                                  f" - val_true_mae: {val_true_mae_str}") # 使用预先格式化好的字符串
              logger.info(log_message)
-
         # --- TensorBoard 记录 ---
         if writer:
             writer.add_scalar('Loss/train', avg_train_loss, epoch + 1)
@@ -1180,13 +1168,10 @@ def train_transformer_model(
                 if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE/val (true)', avg_val_true_mae, epoch + 1)
             writer.add_scalar('Learning Rate', current_lr, epoch + 1)
             writer.flush() # 确保写入磁盘
-
         if early_stop_triggered:
             break # 跳出训练循环
-
     # --- 训练结束 ---
     logger.info("模型训练过程结束。")
-
     # 加载在训练过程中保存的最佳模型权重 (如果早停或正常结束且有保存)
     if os.path.exists(best_model_filepath) and (early_stop_triggered or (val_loader is not None and len(val_loader) > 0)):
         try:
@@ -1201,15 +1186,12 @@ def train_transformer_model(
     else: # 文件不存在但应该存在的情况
         logger.warning(f"未找到预期的最佳模型权重文件: '{best_model_filepath}'。"
                        f"将使用训练结束时的模型权重。这可能发生在训练初期或所有轮次验证指标都未改善的情况。")
-
     # 将训练历史转换为 DataFrame
     history_df = pd.DataFrame(history)
     if not history_df.empty:
         logger.debug(f"最终训练历史记录 (后5条):\n{history_df.tail()}")
     else:
         logger.warning("训练历史记录为空。")
-
-
     # --- (可选) 绘制训练历史 ---
     if plot_training_history and not history_df.empty:
         try:
@@ -1223,7 +1205,6 @@ def train_transformer_model(
             axes[0].set_ylabel('损失 (Loss)')
             axes[0].legend()
             axes[0].grid(True)
-
             # 绘制评估指标曲线 (例如 MAE)
             axes[1].plot(history_df['epoch'], history_df['mae'], label='训练 MAE (scaled)', marker='o', linestyle='-')
             if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
@@ -1239,13 +1220,10 @@ def train_transformer_model(
                 axes[1].legend(lines + lines2, labels + labels2, loc='best')
             else:
                  axes[1].legend(loc='best')
-
             axes[1].set_title(f'{stock_code} - 模型训练评估指标 (MAE)')
             axes[1].set_xlabel('轮次 (Epoch)')
             axes[1].set_ylabel('MAE (缩放后)')
             axes[1].grid(True)
-
-
             plt.tight_layout() # 调整子图布局
             plot_save_path = os.path.join(checkpoint_dir, f"training_history_transformer_{stock_code}.png")
             plt.savefig(plot_save_path)
@@ -1253,10 +1231,8 @@ def train_transformer_model(
             plt.close(fig) # 关闭图像，释放内存
         except Exception as e_plot:
             logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
-
     if writer:
         writer.close() # 关闭 TensorBoard writer
-
     return model, history_df
 
 @log_execution_time
@@ -1272,13 +1248,11 @@ def predict_with_transformer_model(
 ) -> float:
     """
     使用训练好的 Transformer 模型对最新数据进行单步预测。
-
     重要提示:
     传入的 `data` DataFrame 应该包含模型训练时最终使用的特征列 (由 `selected_feature_names` 指定)。
     如果训练时应用了 PCA 或复杂的特征选择，`data` 应该已经经过了这些转换，
     `selected_feature_names` 应该是这些转换后特征的名称 (例如 'pca_comp_0', ...)。
     此函数仅负责对这些选定特征进行缩放、窗口化和模型预测。
-
     Args:
         model (TransformerModel): 已加载权重的 PyTorch Transformer 模型。
         data (pd.DataFrame): 包含模型所需特征列的最新数据 DataFrame。
@@ -1288,16 +1262,13 @@ def predict_with_transformer_model(
         selected_feature_names (List[str]): 模型训练时最终使用的特征名列表。
         window_size (int): 模型期望的输入窗口大小。
         device (Optional[torch.device]): 预测设备 (CPU 或 GPU)。如果为 None，则自动检测。
-
     Returns:
         float: 预测的信号值 (原始尺度)。如果无法预测，则返回一个中性值 (例如 50.0)。
     """
     logger.info("开始使用 Transformer 模型进行预测...")
-
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"自动选择预测设备: {device}")
-
     # --- 0. 输入数据校验 ---
     if data is None or data.empty:
         logger.warning("输入数据 (data) 为空，无法进行预测。返回默认值 50.0。")
@@ -1314,7 +1285,6 @@ def predict_with_transformer_model(
     if not selected_feature_names:
         logger.error("选定特征列表 (selected_feature_names) 为空。无法进行预测。返回默认值 50.0。")
         return 50.0
-
     # --- 1. 准备预测数据 ---
     # 1.1. 选择用于预测的特征列 (必须与训练时使用的特征一致)
     try:
@@ -1324,7 +1294,6 @@ def predict_with_transformer_model(
         missing_cols = set(selected_feature_names) - set(data.columns)
         logger.error(f"部分选定特征列在输入数据中缺失: {missing_cols}。原始错误: {e}。无法进行预测。返回默认值 50.0。")
         return 50.0
-
     # 1.2. 处理 NaN 值 (与数据准备时一致，例如 ffill().bfill().fillna(0) )
     # 假设预测时拿到的数据已经是相对干净的，或者上游已处理。这里做一个基本保障。
     if features_for_prediction_df.isnull().any().any():
@@ -1333,31 +1302,25 @@ def predict_with_transformer_model(
         if features_for_prediction_df.isnull().any().any(): # 再次检查
              logger.error("填充后，预测数据中仍存在无法处理的 NaN 值。无法进行预测。返回默认值 50.0。")
              return 50.0
-
     # 1.3. 应用特征缩放 (使用训练时拟合好的 scaler)
     try:
         features_scaled_np = feature_scaler.transform(features_for_prediction_df.values)
     except Exception as e_scale:
         logger.error(f"应用特征缩放器 (feature_scaler) 时出错: {e_scale}。无法进行预测。返回默认值 50.0。", exc_info=True)
         return 50.0
-
     # 1.4. 构建预测所需的窗口数据 (只取最后一个窗口进行最新预测)
     # PyTorch Transformer 期望输入形状 (batch_size, sequence_length, num_features)
     # 我们需要最后 window_size 行数据构成一个序列。
     if features_scaled_np.shape[0] < window_size: # 再次确认，虽然前面已检查原始数据长度
         logger.warning(f"缩放后的数据长度 ({features_scaled_np.shape[0]}) 小于窗口大小 ({window_size})，无法构建预测窗口。返回默认值 50.0。")
         return 50.0
-
     # 取最后 window_size 个时间步的数据，形状 (window_size, num_features)
     X_predict_window_np = features_scaled_np[-window_size:, :]
-
     # 转换为 PyTorch Tensor 并添加 batch dimension (1, window_size, num_features)
     X_predict_tensor = torch.tensor(X_predict_window_np, dtype=torch.float32).unsqueeze(0)
-
     # --- 2. 进行预测 ---
     model.to(device) # 确保模型在指定设备
     X_predict_tensor = X_predict_tensor.to(device) # 数据也移至相同设备
-
     model.eval() # 设置模型为评估模式 (禁用 dropout, batchnorm更新 等)
     with torch.no_grad(): # 在预测阶段不计算梯度，节省内存和计算
         try:
@@ -1366,11 +1329,9 @@ def predict_with_transformer_model(
         except Exception as e_predict:
             logger.error(f"Transformer 模型前向传播 (预测) 出错: {e_predict}。返回默认值 50.0。", exc_info=True)
             return 50.0
-
     # --- 3. 逆缩放预测结果 ---
     # 将预测结果 tensor 转移回 CPU 并转换为 numpy
     predicted_scaled_np = predicted_scaled_tensor.cpu().numpy() # Shape: (1, 1)
-
     try:
         # target_scaler.inverse_transform 期望二维数组
         predicted_original_scale_np = target_scaler.inverse_transform(predicted_scaled_np) # Shape: (1, 1)
@@ -1378,13 +1339,11 @@ def predict_with_transformer_model(
     except Exception as e_inv_scale:
         logger.error(f"应用目标缩放器 (target_scaler) 逆缩放时出错: {e_inv_scale}。返回默认值 50.0。", exc_info=True)
         return 50.0
-
     # --- 4. 后处理预测值 ---
     # 将预测分数限制在合理范围内 (例如 0-100) 并四舍五入
     # 这个范围取决于具体业务场景中 final_signal 的定义
     final_predicted_signal = np.clip(predicted_signal_score, 0, 100)
     final_predicted_signal = round(float(final_predicted_signal), 2) # 四舍五入到两位小数
-
     logger.info(f"Transformer 模型预测完成。预测信号 (原始尺度, 0-100范围, 保留2位小数): {final_predicted_signal:.2f}")
     return final_predicted_signal
 

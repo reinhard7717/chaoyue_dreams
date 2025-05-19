@@ -1,187 +1,190 @@
 import os
-import re
-import py7zr
+import sys
 import argparse
-import numpy as np
-from django.conf import settings
-import joblib # 虽然这里不加载，但为了完整性，如果以后需要处理scaler文件内容，可能需要
-from datetime import datetime
+import datetime
+import subprocess
+import json
+import pickle
 
-# 定义需要合并到 all_prepared_data.npz 的文件及其对应的键名
-# 左边是实际的文件名，右边是 npz 中保存的键名 (与 load_prepared_data 对应)
-NPZ_DATA_MAP = {
-    'lstm_features_scaled_train.npy': 'features_scaled_train',
-    'lstm_targets_scaled_train.npy': 'targets_scaled_train',
-    'lstm_features_scaled_val.npy': 'features_scaled_val',
-    'lstm_targets_scaled_val.npy': 'targets_scaled_val',
-    'lstm_features_scaled_test.npy': 'features_scaled_test',
-    'lstm_targets_scaled_test.npy': 'targets_scaled_test',
+# --- 配置设置 ---
+# 策略数据根目录
+STRATEGY_DATA_DIR = '/data/chaoyue_dreams/models'
+# 需要检查的子文件夹名称
+PREPARED_DATA_SUBDIR = 'prepared_data'
+# 输出的压缩包名称
+ARCHIVE_NAME = '/data/chaoyue_dreams/prepared_data_archive.7z'
+# 7z 命令基础 (a: 添加到压缩包, -mx=9: 最高压缩率)
+SEVEN_ZIP_COMMAND_BASE = ['7z', 'a', '-mx=9']
+# 必需的特定文件名集合
+REQUIRED_FILENAMES = {
+    'all_prepared_data_transformer.npz',
+    'trend_following_transformer_feature_scaler.save',
+    'trend_following_transformer_selected_features.json',
+    'trend_following_transformer_target_scaler.save'
 }
 
-# 定义可能的 Scaler 文件名 (包含你实际使用的前缀)
-SCALER_FILENAMES = ['trend_following_lstm_feature_scaler.save', 'trend_following_lstm_feature_scaler.save.gz', 'scaler.save', 'scaler.save.gz']
-TARGET_SCALER_FILENAMES = ['trend_following_lstm_target_scaler.save', 'trend_following_lstm_target_scaler.save.gz', 'target_scaler.save', 'target_scaler.save.gz']
+# --- 函数定义 ---
 
-def is_stock_code_dir(name):
-    """检查目录名是否符合股票代码格式"""
-    return re.match(r'^\d{6}\.(SZ|SH)$', name, re.IGNORECASE) is not None
-
-def find_existing_file(directory, possible_filenames):
-    """在目录中查找存在的第一个文件"""
-    for filename in possible_filenames:
-        filepath = os.path.join(directory, filename)
-        if os.path.exists(filepath):
-            return filepath
-    return None
-
-def create_combined_npz(prepared_data_dir):
+def is_file_within_date_range(filepath, start_date, end_date):
     """
-    加载单个 .npy 文件 (根据 NPZ_DATA_MAP 定义)，合并并保存为 all_prepared_data.npz
-    返回创建的 npz 文件路径，如果失败则返回 None
+    检查文件的最后修改日期是否在指定的日期范围内。
+
+    Args:
+        filepath (str): 文件的完整路径。
+        start_date (datetime.date): 起始日期 (包含)。
+        end_date (datetime.date): 截止日期 (包含)。
+
+    Returns:
+        bool: 如果文件修改日期在范围内则返回 True，否则返回 False。
     """
-    all_data_npz_path = os.path.join(prepared_data_dir, "all_prepared_data.npz")
-    data_to_save = {}
-    npy_files_exist = True
-    total_original_npy_size = 0
-
-    print(f"正在处理目录: {prepared_data_dir}")
-
-    # 检查并加载所有必需的 .npy 文件
-    for npy_filename, npz_key in NPZ_DATA_MAP.items():
-        npy_path = os.path.join(prepared_data_dir, npy_filename)
-        if not os.path.exists(npy_path):
-            print(f"  警告: 缺少文件 {npy_filename}，跳过此目录的合并。")
-            npy_files_exist = False
-            break
-        try:
-            arr = np.load(npy_path)
-            if arr.dtype == np.float64:
-                arr = arr.astype(np.float32)
-            data_to_save[npz_key] = arr # 使用 npz_key 作为保存的键名
-            total_original_npy_size += os.path.getsize(npy_path)
-        except Exception as e:
-            print(f"  错误: 加载文件 {npy_filename} 时出错: {e}")
-            npy_files_exist = False
-            break
-
-    if not npy_files_exist or not data_to_save:
-        # 如果有文件缺失或加载失败，删除可能已创建的不完整 npz 文件
-        if os.path.exists(all_data_npz_path):
-             os.remove(all_data_npz_path)
-             print(f"  已删除不完整的合并文件: {os.path.basename(all_data_npz_path)}")
-        return None, 0, 0 # 返回 None 和 0 大小
-
-    # 保存合并后的 npz 文件
     try:
-        np.savez_compressed(all_data_npz_path, **data_to_save)
-        combined_npz_size = os.path.getsize(all_data_npz_path)
-        print(f"  成功创建合并文件: {os.path.basename(all_data_npz_path)}")
-        print(f"  合并前 .npy 总体积: {total_original_npy_size/1024/1024:.2f} MB， 合并后 .npz 体积: {combined_npz_size/1024/1024:.2f} MB")
-        if total_original_npy_size > 0:
-             print(f"  压缩率: {combined_npz_size/total_original_npy_size:.2%}")
-        return all_data_npz_path, total_original_npy_size, combined_npz_size
+        # 获取文件的最后修改时间戳
+        mod_timestamp = os.stat(filepath).st_mtime
+        # 将时间戳转换为datetime对象
+        mod_datetime = datetime.datetime.fromtimestamp(mod_timestamp)
+        # 提取日期部分
+        mod_date = mod_datetime.date()
+
+        # 检查日期是否在范围内
+        is_within = start_date <= mod_date <= end_date
+        # print(f"DEBUG: Checking file {filepath}, modified date: {mod_date}, within range [{start_date} to {end_date}]? {is_within}") # 调试信息
+        return is_within
+    except FileNotFoundError:
+        # 如果文件不存在，则肯定不在日期范围内
+        print(f"WARNING: Required file not found during date check: {filepath}") # 警告信息
+        return False
     except Exception as e:
-        print(f"  错误: 保存合并文件 {os.path.basename(all_data_npz_path)} 时出错: {e}")
-        # 保存失败也删除可能已创建的不完整文件
-        if os.path.exists(all_data_npz_path):
-             os.remove(all_data_npz_path)
-             print(f"  已删除保存失败的合并文件: {os.path.basename(all_data_npz_path)}")
-        return None, 0, 0
+        print(f"ERROR: Could not get modification date for {filepath}: {e}") # 错误信息
+        return False
 
-def seven_zip_all_prepared_data(base_model_dir, since_time_str):
+def main():
     """
-    遍历股票目录，创建合并的 npz 文件，并打包 npz 和 scaler 文件到 7z
+    主函数，解析参数，遍历目录，打包文件。
     """
-    try:
-        since_time = datetime.strptime(since_time_str, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        print(f"错误: 无效的时间格式 '{since_time_str}'。请使用 YYYY-MM-DD HH:MM:SS 格式。")
-        return
+    # --- 参数解析 ---
+    parser = argparse.ArgumentParser(description='根据文件修改日期打包股票策略准备数据。')
+    parser.add_argument('start_date', type=str, help='起始日期 (YYYY-MM-DD)')
+    parser.add_argument('end_date', type=str, help='截止日期 (YYYY-MM-DD)')
 
-    time_suffix = since_time.strftime("%Y%m%d_%H%M%S")
-    seven_zip_path = os.path.join(base_model_dir, f"all_prepared_data_{time_suffix}.7z")
-    print(f"只打包最后修改时间大于 {since_time_str} 的文件。")
-
-    filters = [{'id': py7zr.FILTER_LZMA2, 'preset': 9}]
-    total_original_npy_size_all = 0
-    total_combined_npz_size_all = 0
-    files_added_count = 0
-    processed_stock_count = 0
-    added_stock_count = 0
-
-    with py7zr.SevenZipFile(seven_zip_path, 'w', filters=filters) as archive:
-        for stock_code in os.listdir(base_model_dir):
-            stock_dir = os.path.join(base_model_dir, stock_code)
-            if os.path.isdir(stock_dir) and is_stock_code_dir(stock_code):
-                prepared_data_dir = str(settings.STRATEGY_DATA_DIR / stock_dir / 'prepared_data')
-                if os.path.isdir(prepared_data_dir):
-                    processed_stock_count += 1
-                    print(f"\n--- 正在处理股票: {stock_code} ---")
-
-                    # 1. 创建合并的 all_prepared_data.npz 文件
-                    combined_npz_path, original_npy_size, combined_npz_size = create_combined_npz(prepared_data_dir)
-
-                    if combined_npz_path:
-                        total_original_npy_size_all += original_npy_size
-                        total_combined_npz_size_all += combined_npz_size
-
-                        # 2. 查找 Scaler 文件
-                        scaler_path = find_existing_file(prepared_data_dir, SCALER_FILENAMES)
-                        target_scaler_path = find_existing_file(prepared_data_dir, TARGET_SCALER_FILENAMES)
-
-                        # 3. 确定需要打包的文件列表
-                        files_to_archive = []
-                        if combined_npz_path:
-                            files_to_archive.append(combined_npz_path)
-                        if scaler_path:
-                            files_to_archive.append(scaler_path)
-                        if target_scaler_path:
-                            files_to_archive.append(target_scaler_path)
-
-                        # 4. 检查修改时间并添加到压缩包
-                        stock_added_to_archive = False
-                        print(f"  检查 {stock_code} 的文件是否需要打包...")
-                        for file_path in files_to_archive:
-                            if os.path.exists(file_path):
-                                file_mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
-                                if file_mtime > since_time:
-                                    # 构建在压缩包内的相对路径
-                                    # 注意：这里将 prepared_data 也包含在路径中，与 load_prepared_data 的逻辑一致
-                                    arcname = os.path.join(stock_code, os.path.basename(prepared_data_dir), os.path.basename(file_path))
-                                    try:
-                                        archive.write(file_path, arcname)
-                                        print(f"    已添加: {arcname} (修改时间: {file_mtime})")
-                                        files_added_count += 1
-                                        stock_added_to_archive = True
-                                    except Exception as e:
-                                        print(f"    错误: 添加文件 {file_path} 到压缩包时出错: {e}")
-                                else:
-                                     print(f"    跳过文件: {os.path.basename(file_path)} (修改时间: {file_mtime} <= {since_time_str})")
-                            else:
-                                print(f"    警告: 文件 {file_path} 不存在，跳过。")
-                        if stock_added_to_archive:
-                            added_stock_count += 1
-                    else:
-                        print(f"--- 股票 {stock_code} 跳过打包，因为合并 NPZ 文件失败 ---")
-
-
-    print(f"\n==== 打包完成 ====")
-    print(f"总共处理了 {processed_stock_count} 个股票目录。")
-    print(f"总共打包了 {added_stock_count} 个股票的数据 (至少有一个文件符合时间条件)。")
-    print(f"总共添加了 {files_added_count} 个文件到压缩包。")
-    print(f"所有符合条件的数据已打包到: {seven_zip_path}")
-    print(f"\n==== 总体积统计 (针对成功合并 NPZ 的目录) ====")
-    print(f"合并前 .npy 总体积: {total_original_npy_size_all/1024/1024:.2f} MB")
-    print(f"合并后 .npz 总体积: {total_combined_npz_size_all/1024/1024:.2f} MB")
-    if total_original_npy_size_all > 0:
-        print(f"总体压缩率 (仅 .npy -> .npz): {total_combined_npz_size_all/total_original_npy_size_all:.2%}")
-    else:
-        print("无 .npy 文件被成功合并。")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="批量合并股票准备数据到 all_prepared_data.npz，并打包 npz 和 scaler 文件到 7z，只打包指定时间之后修改的文件。")
-    parser.add_argument("base_model_dir", help="模型根目录")
-    parser.add_argument("since_time", help="只打包修改时间大于此时间的文件，格式: YYYY-MM-DD HH:MM:SS")
     args = parser.parse_args()
-    seven_zip_all_prepared_data(args.base_model_dir, args.since_time)
+
+    try:
+        # 将输入的日期字符串转换为 datetime.date 对象
+        start_date_obj = datetime.datetime.strptime(args.start_date, '%Y-%m-%d').date()
+        end_date_obj = datetime.datetime.strptime(args.end_date, '%Y-%m-%d').date()
+        print(f"INFO: Processing data modified between {start_date_obj} and {end_date_obj}") # 提示信息
+    except ValueError:
+        print("ERROR: Invalid date format. Please use YYYY-MM-DD.") # 错误信息
+        sys.exit(1)
+
+    # 存储需要打包的 prepared_data 文件夹的相对路径 (相对于 STRATEGY_DATA_DIR)
+    dirs_to_archive_relative = []
+
+    # 存储脚本执行时的当前工作目录
+    original_cwd = os.getcwd()
+    # 构建输出压缩包的完整路径，确保它在脚本执行的当前目录下创建
+    archive_full_path = os.path.join(original_cwd, ARCHIVE_NAME)
+
+    # --- 遍历目录 ---
+    print(f"INFO: Scanning directory: {STRATEGY_DATA_DIR}") # 提示信息
+    if not os.path.isdir(STRATEGY_DATA_DIR):
+        print(f"ERROR: Strategy data directory not found: {STRATEGY_DATA_DIR}") # 错误信息
+        sys.exit(1)
+
+    # 遍历 STRATEGY_DATA_DIR 下的所有子项 (期望是 stock_code 文件夹)
+    for item_name in os.listdir(STRATEGY_DATA_DIR):
+        stock_code_path = os.path.join(STRATEGY_DATA_DIR, item_name)
+
+        # 检查是否是目录
+        if os.path.isdir(stock_code_path):
+            prepared_data_path = os.path.join(stock_code_path, PREPARED_DATA_SUBDIR)
+
+            # 检查是否存在 prepared_data 子目录
+            if os.path.isdir(prepared_data_path):
+                print(f"INFO: Checking {prepared_data_path}") # 提示信息
+
+                # --- 检查必需的特定文件是否存在 ---
+                files_in_prepared_data = set(os.listdir(prepared_data_path))
+
+                # 检查是否所有必需的特定文件名都存在
+                if not REQUIRED_FILENAMES.issubset(files_in_prepared_data):
+                    missing_files = REQUIRED_FILENAMES - files_in_prepared_data
+                    print(f"INFO: Skipping {prepared_data_path}: Missing required specific files: {missing_files}") # 提示信息
+                    continue # 跳过当前 prepared_data 目录
+
+                print(f"INFO: All required specific files found in {prepared_data_path}. Checking dates.") # 提示信息
+
+                # --- 检查必需文件的修改日期 ---
+                found_file_in_range = False
+                # 只检查必需的特定文件的日期
+                for required_file_name in REQUIRED_FILENAMES:
+                    file_path = os.path.join(prepared_data_path, required_file_name)
+                    # 确保是文件 (虽然前面已经检查过文件名存在，但再次确认是文件类型)
+                    if os.path.isfile(file_path):
+                        # 检查文件修改日期是否在范围内
+                        if is_file_within_date_range(file_path, start_date_obj, end_date_obj):
+                            print(f"INFO: Required file {file_path} is within the date range.") # 提示信息
+                            found_file_in_range = True
+                            # 找到一个符合条件的必需文件即可，将整个目录添加到打包列表
+                            break # 跳出必需文件遍历循环
+
+                # 如果在该 prepared_data 目录中找到了符合条件的必需文件，则将整个目录的相对路径添加到打包列表
+                if found_file_in_range:
+                    relative_prepared_data_path = os.path.join(item_name, PREPARED_DATA_SUBDIR)
+                    print(f"INFO: Adding relative path {relative_prepared_data_path} to archive list.") # 提示信息
+                    dirs_to_archive_relative.append(relative_prepared_data_path)
+            # else:
+                # print(f"DEBUG: {prepared_data_path} does not exist or is not a directory.") # 调试信息
+
+    # --- 执行打包 ---
+    if not dirs_to_archive_relative:
+        print("INFO: No prepared_data directories found with all required specific files and at least one of these files modified within the specified date range. No archive will be created.") # 提示信息
+        sys.exit(0)
+
+    # 构建 7z 命令
+    # 命令格式: 7z a -mx=9 <archive_full_path> <dir1_relative> <dir2_relative> ...
+    # 注意：这里将 archive_full_path 作为第一个参数，后面是相对路径列表
+    seven_zip_command = SEVEN_ZIP_COMMAND_BASE + [archive_full_path] + dirs_to_archive_relative
+    print(f"INFO: Executing command from {STRATEGY_DATA_DIR}: {' '.join(seven_zip_command)}") # 提示信息
+
+    # 使用 try...finally 确保无论是否发生错误都能切换回原始目录
+    try:
+        # 切换到 STRATEGY_DATA_DIR 目录，以便 7z 使用相对路径
+        os.chdir(STRATEGY_DATA_DIR)
+        print(f"INFO: Changed current directory to {os.getcwd()}") # 提示信息
+
+        # 执行 7z 命令
+        # 修改点：使用 subprocess.run 替代 os.system，更安全且能捕获输出
+        # 修改点：capture_output=True, text=True 用于捕获标准输出和标准错误
+        # 修改点：check=True 会在命令返回非零退出码时抛出 CalledProcessError
+        # 修改点：cwd 参数不再需要，因为我们已经手动 chdir
+        result = subprocess.run(seven_zip_command, capture_output=True, text=True, check=True)
+        print("INFO: 7z command executed successfully.") # 提示信息
+        print("--- 7z STDOUT ---") # 提示信息
+        print(result.stdout) # 输出 7z 的标准输出
+        print("--- 7z STDERR ---") # 提示信息
+        print(result.stderr) # 输出 7z 的标准错误
+        print(f"INFO: Archive created: {archive_full_path}") # 提示信息
+
+    except FileNotFoundError:
+        print("ERROR: 7z command not found. Please ensure 7z is installed and in your system's PATH.") # 错误信息
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: 7z command failed with exit code {e.returncode}") # 错误信息
+        print("--- 7z STDOUT ---") # 提示信息
+        print(e.stdout) # 输出 7z 的标准输出
+        print("--- 7z STDERR ---") # 提示信息
+        print(e.stderr) # 输出 7z 的标准错误
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred during archiving: {e}") # 错误信息
+        sys.exit(1)
+    finally:
+        # 切换回原始工作目录
+        os.chdir(original_cwd)
+        print(f"INFO: Changed back to original directory {os.getcwd()}") # 提示信息
+
+
+# --- 脚本入口 ---
+if __name__ == "__main__":
+    main()
