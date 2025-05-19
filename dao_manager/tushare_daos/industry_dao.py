@@ -220,7 +220,7 @@ class IndustryDao(BaseDAO):
             ThsIndex: 同花顺概念和行业指数基本信息
         """
         # 从数据库获取
-        industry = await sync_to_async(lambda: list(ThsIndex.objects.filter(ts_code=index_code)))()
+        industry = await sync_to_async(lambda: ThsIndex.objects.filter(ts_code=index_code).first())()
         if industry:
             return industry
         return None
