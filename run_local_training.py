@@ -131,8 +131,8 @@ def run_local_transformer_training_batch(
 
         prepared_data_path = item_path / "prepared_data"
         trained_model_path = item_path / "trained_model"
-        print(f"DEBUG: [{stock_code}] 预处理数据路径: '{prepared_data_path}'") # 调试信息
-        print(f"DEBUG: [{stock_code}] 已训练模型路径: '{trained_model_path}'") # 调试信息
+        # print(f"DEBUG: [{stock_code}] 预处理数据路径: '{prepared_data_path}'") # 调试信息
+        # print(f"DEBUG: [{stock_code}] 已训练模型路径: '{trained_model_path}'") # 调试信息
 
         if not prepared_data_path.is_dir():
             logger.warning(f"[{stock_code}] 预处理数据目录 '{prepared_data_path}' 不存在，跳过。")

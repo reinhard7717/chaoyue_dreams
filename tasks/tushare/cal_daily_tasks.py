@@ -5,6 +5,8 @@ from chaoyue_dreams.celery import app as celery_app
 from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_this_week_task, save_fund_flow_daily_data_ths_this_week_task, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_today
 from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task
 from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_day_data_this_week_batch, save_day_data_today_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
+from tasks.tushare.industry_tasks import save_ths_index_today_task
+
 
 logger = logging.getLogger('tasks')
 
@@ -47,7 +49,11 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
         logger.info("开始执行: 个股日级资金流向数据...")
         save_fund_flow_daily_data_today.delay()
         logger.info(f"已分派个股日级资金流向数据任务。")
-
+        
+        # 每日任务：同花顺板块 & 指数行情
+        logger.info("开始执行: 同花顺板块 & 指数行情")
+        save_ths_index_today_task.delay()
+        
         # 步骤5：板块、行业资金流向数据 - 同花顺
         logger.info("开始执行: 板块、行业资金流向数据 - 同花顺...")
         save_fund_flow_daily_data_ths_today.delay()
