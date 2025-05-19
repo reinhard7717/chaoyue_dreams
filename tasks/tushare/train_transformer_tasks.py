@@ -135,7 +135,8 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         features_scaled_val, targets_scaled_val, \
         features_scaled_test, targets_scaled_test, \
         feature_scaler, target_scaler, \
-        selected_feature_names = prepare_data_for_transformer(
+        selected_feature_names, \
+        pca_model, scaler_for_pca, feature_selector_model = prepare_data_for_transformer(
             data=data_for_prep,
             required_columns=required_columns_for_transformer,
             target_column=transformer_target_column,
@@ -154,6 +155,9 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             fs_max_features=fs_max_features,
             fs_selection_threshold=fs_selection_threshold,
             target_scaler_type=target_scaler_type
+            # random_state_seed 参数在 prepare_data_for_transformer 中已添加，
+            # 如果需要从配置中传递，也应在此处添加，否则会使用函数内的默认值 42
+            # 例如: random_state_seed=data_prep_config.get('random_state_seed', 42)
         )
         # 记录 prepare_data_for_transformer 调用成功信息
         logger.info(f"{task_id_str} [{stock_code}]：prepare_data_for_transformer 调用成功。")
