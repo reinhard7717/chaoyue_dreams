@@ -6,9 +6,30 @@
   "t_plus_0_strategy_name": "T+0(VWAP)v1.0",
 
   "base_scoring": {
-    "main_index_codes": ["000001.SH", "399001.SZ", "000300.SH", "000905.SH", "399006.SZ", "000688.SH", "000016.SH", "399005.SZ", "000015.SH", "000852.SH"],
+    "main_index_codes": [
+      "000001.SH",
+      "399001.SZ",
+      "000300.SH",
+      "000905.SH",
+      "399006.SZ",
+      "000688.SH",
+      "000016.SH",
+      "399005.SZ",
+      "000015.SH",
+      "000852.SH"
+    ],
     "timeframes": ["5", "15", "30", "60", "D"],
-    "score_indicators": ["macd", "rsi", "kdj", "boll", "cci", "mfi", "roc", "dmi", "sar"],
+    "score_indicators": [
+      "macd",
+      "rsi",
+      "kdj",
+      "boll",
+      "cci",
+      "mfi",
+      "roc",
+      "dmi",
+      "sar"
+    ],
     "rsi_period": 9,
     "rsi_oversold": 30,
     "rsi_overbought": 70,
@@ -37,13 +58,13 @@
     "adx_threshold": 20,
     "adx_strong_threshold": 30,
     "sar_step": 0.02,
-    "sar_max": 0.20,
-    "weights": { 
+    "sar_max": 0.2,
+    "weights": {
       "5": 0.15,
       "15": 0.35,
       "30": 0.25,
       "60": 0.15,
-      "D": 0.10
+      "D": 0.1
     }
   },
 
@@ -72,8 +93,8 @@
       "obv": false
     },
     "thresholds": {
-        "cmf": -0.05,
-        "mfi": 40
+      "cmf": -0.05,
+      "mfi": 40
     },
     "divergence_penalty_factor": 0.45
   },
@@ -102,30 +123,54 @@
     "external_data_history_days": 500,
     "apply_on_timeframes": ["5", "15", "30", "60", "D"],
     "calculate_atr": true,
-    "atr_params": {"period": 14},
+    "atr_params": { "period": 14 },
     "calculate_hv": true,
-    "hv_params": {"period": 20},
+    "hv_params": { "period": 20 },
     "calculate_kc": true,
-    "kc_params": {"ema_period": 20, "atr_period": 10},
+    "kc_params": { "ema_period": 20, "atr_period": 10 },
     "calculate_mom": true,
-    "mom_params": {"period": 10},
+    "mom_params": { "period": 10 },
     "calculate_willr": true,
-    "willr_params": {"period": 14},
+    "willr_params": { "period": 14 },
     "calculate_vroc": true,
-    "vroc_params": {"period": 10},
+    "vroc_params": { "period": 10 },
     "calculate_aroc": true,
-    "aroc_params": {"period": 10},
+    "aroc_params": { "period": 10 },
     "ema_periods": [5, 10, 20, 60],
     "sma_periods": [5, 10, 20, 60],
     "ema_periods_for_relation": [5, 20, 60],
     "sma_periods_for_relation": [5, 20, 60],
     "indicators_for_difference": [
-        {"base_name": "RSI", "params_key": ["rsi_period"], "default_period": [9]},
-        {"base_name": "MACD", "params_key": ["macd_fast", "macd_slow", "macd_signal"], "default_period": [8, 26, 7]},
-        {"base_name": "K", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [7, 3, 3]},
-        {"base_name": "D", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [7, 3, 3]},
-        {"base_name": "J", "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"], "default_period": [7, 3, 3]},
-        {"base_name": "ADX", "params_key": ["dmi_period"], "default_period": [14]}
+      {
+        "base_name": "RSI",
+        "params_key": ["rsi_period"],
+        "default_period": [9]
+      },
+      {
+        "base_name": "MACD",
+        "params_key": ["macd_fast", "macd_slow", "macd_signal"],
+        "default_period": [8, 26, 7]
+      },
+      {
+        "base_name": "K",
+        "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"],
+        "default_period": [7, 3, 3]
+      },
+      {
+        "base_name": "D",
+        "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"],
+        "default_period": [7, 3, 3]
+      },
+      {
+        "base_name": "J",
+        "params_key": ["kdj_period_k", "kdj_period_d", "kdj_period_j"],
+        "default_period": [7, 3, 3]
+      },
+      {
+        "base_name": "ADX",
+        "params_key": ["dmi_period"],
+        "default_period": [14]
+      }
     ],
     "difference_periods": [1, 5],
     "calculate_vwap": true,
@@ -152,23 +197,23 @@
     "trend_confirmation_periods": 3,
     "focus_weight": 0.45,
     "timeframe_weights": {
-        "5": 0.1,
-        "15": 0.3,
-        "30": 0.4,
-        "60": 0.15,
-        "D": 0.05
+      "5": 0.1,
+      "15": 0.3,
+      "30": 0.4,
+      "60": 0.15,
+      "D": 0.05
     },
     "trend_indicators": ["dmi", "sar", "macd", "ema_alignment", "obv", "rsi"],
     "rule_signal_weights": {
-        "base_score": 0.4,
-        "alignment": 0.2,
-        "long_context": 0.1,
-        "momentum": 0.1,
-        "ema_cross": 0.05,
-        "boll_breakout": 0.05,
-        "adx_strength": 0.05,
-        "vwap_deviation": 0.025,
-        "volume_spike": 0.025
+      "base_score": 0.4,
+      "alignment": 0.2,
+      "long_context": 0.1,
+      "momentum": 0.1,
+      "ema_cross": 0.05,
+      "boll_breakout": 0.05,
+      "adx_strength": 0.05,
+      "vwap_deviation": 0.025,
+      "volume_spike": 0.025
     },
     "volume_boost_factor": 1.3,
     "volume_penalty_factor": 0.7,
@@ -188,21 +233,21 @@
     "transformer_target_column": "final_rule_signal",
     "transformer_plot_history": true,
     "transformer_data_prep_config": {
-        "scaler_type": "standard",
-        "train_split": 0.7,
-        "val_split": 0.15,
-        "apply_variance_threshold": false,
-        "variance_threshold_value": 0.01,
-        "use_pca": false,
-        "pca_n_components": 0.99,
-        "pca_solver": "auto",
-        "use_feature_selection": true,
-        "feature_selector_model_type": "rf",
-        "fs_model_n_estimators": 200,
-        "fs_model_max_depth": 10,
-        "fs_max_features": 80,
-        "fs_selection_threshold": "median",
-        "target_scaler_type": "minmax"
+      "scaler_type": "standard",
+      "train_split": 0.7,
+      "val_split": 0.15,
+      "apply_variance_threshold": false,
+      "variance_threshold_value": 0.01,
+      "use_pca": false,
+      "pca_n_components": 0.99,
+      "pca_solver": "auto",
+      "use_feature_selection": true,
+      "feature_selector_model_type": "rf",
+      "fs_model_n_estimators": 200,
+      "fs_model_max_depth": 10,
+      "fs_max_features": 80,
+      "fs_selection_threshold": "median",
+      "target_scaler_type": "minmax"
     },
     "transformer_model_config": {
       "d_model": 128,
@@ -227,98 +272,108 @@
       "tensorboard_log_dir": "logs/tensorboard",
       "clip_grad_norm": 1.0
     },
-     "signal_combination_weights": {
-        "rule_weight": 0.6,
-        "transformer_weight": 0.4
+    "signal_combination_weights": {
+      "rule_weight": 0.6,
+      "transformer_weight": 0.4
     },
     "boll_breakout_params": {
-        "period": 20,
-        "std_dev": 2.2
+      "period": 20,
+      "std_dev": 2.2
     }
   },
 
   "trend_reversal_params": {
-      "focus_timeframe": "30",
-      "focus_weight": 0.5,
-      "reversal_indicators": ["rsi", "kdj", "cci", "boll", "divergence", "kline", "willr", "atr", "hv"],
-      "long_term_trend_filter": {
-          "enabled": true,
-          "timeframe": "D",
-          "adx_threshold": 30,
-          "ema_period": 233,
-          "filter_strength": 0.3
-      },
-      "signal_anticipation": {
-          "enabled": true,
-          "bb_proximity_factor": 0.95,
-          "anticipation_weight": 0.1
-      },
-      "market_sentiment_filter": {
-          "enabled": true,
-          "turnover_threshold": 5,
-          "fund_flow_threshold": 0.0,
-          "sentiment_penalty": 0.2
-      },
-      "volatility_filter": {
-          "enabled": true,
-          "indicator": "atr",
-          "timeframe": "30",
-          "period": 14,
-          "high_vol_threshold": 1.5,
-          "low_vol_threshold": 0.5,
-          "high_vol_boost": 0.2,
-          "low_vol_penalty": 0.3
-      },
-      "momentum_reversal": {
-          "enabled": true,
-          "indicator": "willr",
-          "timeframe": "30",
-          "period": 14,
-          "overbought": -20,
-          "oversold": -80,
-          "extreme_overbought": -10,
-          "extreme_oversold": -90,
-          "weight": 0.15
-      },
-      "turnover_filter": {
-          "enabled": true,
-          "timeframe": "30",
-          "period": 5,
-          "high_turnover_threshold": 20,
-          "low_turnover_threshold": 3,
-          "high_turnover_boost": 0.15,
-          "low_turnover_penalty": 0.2
-      },
-      "historical_volatility": {
-          "enabled": true,
-          "timeframe": "30",
-          "period": 20,
-          "high_hv_threshold": 1.5,
-          "low_hv_threshold": 0.5,
-          "high_hv_weight": 0.1,
-          "low_hv_penalty": 0.1
-      },
-      "signal_weights": {
-          "regular_div": 0.3,
-          "hidden_div": 0.05,
-          "obos_reversal": 0.18,
-          "bb_reversal": 0.12,
-          "kline_reversal_strong": 0.22,
-          "kline_reversal_weak": 0.08,
-          "kline_continuation": -0.05,
-          "kline_marubozu": -0.1,
-          "kline_doji": 0.0,
-          "volume_spike": 0.08,
-          "willr_reversal": 0.1,
-          "atr_volatility": 0.07,
-          "hv_environment": 0.05,
-          "max_abs_signal": 1.0
-      },
-      "final_signal_weights": {
-          "base_score": 0.6,
-          "reversal_confirm": 0.4
-      },
-      "confirmation_threshold": 0.7
+    "focus_timeframe": "30",
+    "focus_weight": 0.5,
+    "reversal_indicators": [
+      "rsi",
+      "kdj",
+      "cci",
+      "boll",
+      "divergence",
+      "kline",
+      "willr",
+      "atr",
+      "hv"
+    ],
+    "long_term_trend_filter": {
+      "enabled": true,
+      "timeframe": "D",
+      "adx_threshold": 30,
+      "ema_period": 233,
+      "filter_strength": 0.3
+    },
+    "signal_anticipation": {
+      "enabled": true,
+      "bb_proximity_factor": 0.95,
+      "anticipation_weight": 0.1
+    },
+    "market_sentiment_filter": {
+      "enabled": true,
+      "turnover_threshold": 5,
+      "fund_flow_threshold": 0.0,
+      "sentiment_penalty": 0.2
+    },
+    "volatility_filter": {
+      "enabled": true,
+      "indicator": "atr",
+      "timeframe": "30",
+      "period": 14,
+      "high_vol_threshold": 1.5,
+      "low_vol_threshold": 0.5,
+      "high_vol_boost": 0.2,
+      "low_vol_penalty": 0.3
+    },
+    "momentum_reversal": {
+      "enabled": true,
+      "indicator": "willr",
+      "timeframe": "30",
+      "period": 14,
+      "overbought": -20,
+      "oversold": -80,
+      "extreme_overbought": -10,
+      "extreme_oversold": -90,
+      "weight": 0.15
+    },
+    "turnover_filter": {
+      "enabled": true,
+      "timeframe": "30",
+      "period": 5,
+      "high_turnover_threshold": 20,
+      "low_turnover_threshold": 3,
+      "high_turnover_boost": 0.15,
+      "low_turnover_penalty": 0.2
+    },
+    "historical_volatility": {
+      "enabled": true,
+      "timeframe": "30",
+      "period": 20,
+      "high_hv_threshold": 1.5,
+      "low_hv_threshold": 0.5,
+      "high_hv_weight": 0.1,
+      "low_hv_penalty": 0.1
+    },
+    "signal_weights": {
+      "regular_div": 0.3,
+      "hidden_div": 0.05,
+      "obos_reversal": 0.18,
+      "bb_reversal": 0.12,
+      "kline_reversal_strong": 0.22,
+      "kline_reversal_weak": 0.08,
+      "kline_continuation": -0.05,
+      "kline_marubozu": -0.1,
+      "kline_doji": 0.0,
+      "volume_spike": 0.08,
+      "willr_reversal": 0.1,
+      "atr_volatility": 0.07,
+      "hv_environment": 0.05,
+      "max_abs_signal": 1.0
+    },
+    "final_signal_weights": {
+      "base_score": 0.6,
+      "reversal_confirm": 0.4
+    },
+    "confirmation_threshold": 0.7
   },
 
   "final_signal_generation": {
@@ -363,5 +418,5 @@
     "stoch_os": 20,
     "volume_ma_period": 20,
     "volume_spike_factor": 2.3
-}
+  }
 }

@@ -227,7 +227,7 @@ def save_fund_flow_daily_data_ths_today(self):
     fund_flow_dao = FundFlowDao()
     try:
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_today_fund_flow_daily_ths_data())
+        asyncio.run(fund_flow_dao.save_today_fund_flow_cnt_ths_data())
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 

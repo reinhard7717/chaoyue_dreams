@@ -146,15 +146,15 @@ def run_local_transformer_training_batch(
             print(f"DEBUG: [{stock_code}] 在 '{prepared_data_path}' 中未找到 NPZ 文件。跳过。") # 调试信息
             skipped_due_to_no_npz += 1
             continue
-        print(f"DEBUG: [{stock_code}] 找到 NPZ 文件: {[f.name for f in npz_files]}") # 调试信息
+        # print(f"DEBUG: [{stock_code}] 找到 NPZ 文件: {[f.name for f in npz_files]}") # 调试信息
 
         pth_files = []
         if trained_model_path.is_dir():
             pth_files = list(trained_model_path.glob("*.pth"))
 
         if pth_files:
-            logger.info(f"[{stock_code}] 在 '{trained_model_path}' 中已找到 PTH 模型文件 (例如: '{pth_files[0].name}'), 跳过训练。")
-            print(f"DEBUG: [{stock_code}] 在 '{trained_model_path}' 中找到 PTH 文件: {[f.name for f in pth_files]}。跳过。") # 调试信息
+            # logger.info(f"[{stock_code}] 在 '{trained_model_path}' 中已找到 PTH 模型文件 (例如: '{pth_files[0].name}'), 跳过训练。")
+            # print(f"DEBUG: [{stock_code}] 在 '{trained_model_path}' 中找到 PTH 文件: {[f.name for f in pth_files]}。跳过。") # 调试信息
             skipped_due_to_existing_pth += 1
             continue
         print(f"DEBUG: [{stock_code}] 在 '{trained_model_path}' 中未找到 PTH 文件 (或目录不存在)。准备训练。") # 调试信息

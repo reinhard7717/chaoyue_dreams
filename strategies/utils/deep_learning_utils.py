@@ -35,6 +35,8 @@ import matplotlib
 # 使用 'Agg' 后端，这是一个非交互式的后端，不依赖于任何 GUI 库
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置中文字体为黑体
+plt.rcParams['axes.unicode_minus'] = False    # 正常显示负号
 import seaborn as sns
 # 导入类型提示
 from typing import Any, Tuple, List, Dict, Optional, Union, Callable

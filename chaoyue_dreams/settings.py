@@ -224,65 +224,6 @@ API_RATE_LIMIT = {
     'professional': {'times': 50, 'seconds': 1},  # 专业版每秒50次
 }
 
-# API错误处理设置
-API_ERROR_SETTINGS = {
-    'error_threshold': 100,           # 总错误次数阈值
-    'consecutive_error_threshold': 10, # 连续错误次数阈值
-    'base_cooldown': 60,              # 基础冷却时间（秒）
-    'max_cooldown': 3600,             # 最大冷却时间（秒）
-    'error_backoff': 1.5,             # 错误退避系数
-    'success_threshold': 50,          # 成功请求次数阈值（用于重置错误计数）
-    'error_types': {                  # 错误类型配置
-        'rate_limit': {
-            'max_retries': 5,
-            'base_delay': 5.0,
-            'delay_factor': 2.0,
-            'max_delay': 60.0
-        },
-        'network': {
-            'max_retries': 3,
-            'base_delay': 2.0,
-            'delay_factor': 1.5,
-            'max_delay': 10.0
-        },
-        'timeout': {
-            'max_retries': 3,
-            'base_delay': 2.0,
-            'delay_factor': 1.5,
-            'max_delay': 10.0
-        },
-        'server_error': {
-            'max_retries': 3,
-            'base_delay': 2.0,
-            'delay_factor': 1.5,
-            'max_delay': 10.0
-        }
-    }
-}
-
-API_MAX_RETRY_COUNT = 5 # 最大重试次数，默认为5
-API_RETRY_DELAY = 2 # 初始重试延迟（秒），默认为2秒
-API_RETRY_DELAY_FACTOR = 1.5 # 重试延迟增长因子，默认为1.5
-API_MAX_RETRY_DELAY = 30 # 最大重试延迟（秒），默认为30秒
-
-# API自动更新时间设置（秒）
-API_UPDATE_INTERVALS = {
-    'realtime': 60,  # 实时数据每60秒更新一次
-    'basic': 86400,  # 基础数据每24小时更新一次
-    'index': 60,  # 指数数据每1分钟更新一次
-    'market': 60,  # 市场数据每1分钟更新一次
-    'fund_flow': 60,  # 资金流向每1分钟更新一次
-    'technical': 60,  # 技术指标每1分钟更新一次
-    'default': 300,  # 默认每5分钟更新一次
-}
-
-# API数据更新时间范围
-API_UPDATE_TIME_RANGE = {
-    'start_time': '09:15:00',  # 开始更新时间
-    'end_time': '15:30:00',  # 结束更新时间
-    'trading_days': [0, 1, 2, 3, 4],  # 周一到周五
-}
-
 # 日志配置
 LOGGING = {
     'version': 1,
@@ -384,6 +325,13 @@ LOGGING = {
             'formatter': 'verbose', # 使用verbose格式
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
+        'evaluation_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'evaluation_results.log',  # 日志文件路径
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
     },
     'loggers': {
         'django': {
@@ -438,6 +386,12 @@ LOGGING = {
         },
         'strategy_deep_learning_utils': {
             'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # 专门用于evaluation_results日志的logger
+        'evaluation_results': {
+            'handlers': ['evaluation_file'],
             'level': 'INFO',
             'propagate': False,
         },
