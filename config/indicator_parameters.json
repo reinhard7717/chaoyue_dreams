@@ -236,7 +236,7 @@
       "scaler_type": "standard",
       "train_split": 0.7,
       "val_split": 0.15,
-      "apply_variance_threshold": false,
+      "apply_variance_threshold": true,
       "variance_threshold_value": 0.01,
       "use_pca": false,
       "pca_n_components": 0.99,
@@ -245,7 +245,7 @@
       "feature_selector_model_type": "rf",
       "fs_model_n_estimators": 200,
       "fs_model_max_depth": 10,
-      "fs_max_features": 80,
+      "fs_max_features": null,
       "fs_selection_threshold": "median",
       "target_scaler_type": "minmax"
     },
@@ -254,7 +254,7 @@
       "nhead": 8,
       "dim_feedforward": 512,
       "nlayers": 4,
-      "dropout": 0.1,
+      "dropout": 0.2,
       "activation": "gelu"
     },
     "transformer_training_config": {
@@ -264,7 +264,7 @@
       "weight_decay": 0.001,
       "optimizer": "adamw",
       "loss": "mse",
-      "early_stopping_patience": 40,
+      "early_stopping_patience": 25,
       "reduce_lr_patience": 15,
       "reduce_lr_factor": 0.5,
       "monitor_metric": "val_mae",

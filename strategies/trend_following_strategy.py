@@ -2920,7 +2920,7 @@ class TrendFollowingStrategy:
                     feature_selector_model_type=self.transformer_data_prep_config.get('feature_selector_model_type', 'rf'),
                     fs_model_n_estimators=self.transformer_data_prep_config.get('fs_model_n_estimators', 100),
                     fs_model_max_depth=self.transformer_data_prep_config.get('fs_model_max_depth'), # None is allowed
-                    fs_max_features=self.transformer_data_prep_config.get('fs_max_features', 50),
+                    fs_max_features=self.transformer_data_prep_config.get('fs_max_features', 120),
                     fs_selection_threshold=self.transformer_data_prep_config.get('fs_selection_threshold', 'median'),
                     target_scaler_type=self.transformer_data_prep_config.get('target_scaler_type', 'minmax')
                 )
@@ -3577,7 +3577,7 @@ class TrendFollowingStrategy:
         feature_selector_model_type = data_prep_config.get('feature_selector_model_type', 'rf')
         fs_model_n_estimators = data_prep_config.get('fs_model_n_estimators', 100)
         fs_model_max_depth = data_prep_config.get('fs_model_max_depth', None)
-        fs_max_features = data_prep_config.get('fs_max_features', 50)
+        fs_max_features = data_prep_config.get('fs_max_features', 120)
         fs_selection_threshold = data_prep_config.get('fs_selection_threshold', 'median')
         target_scaler_type = data_prep_config.get('target_scaler_type', 'minmax')
 

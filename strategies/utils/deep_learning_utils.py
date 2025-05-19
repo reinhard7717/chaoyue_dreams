@@ -12,7 +12,7 @@ import os
 import pandas as pd
 import numpy as np
 # 导入数据预处理和特征工程相关的模块 (Scikit-learn 部分保持不变，因为它处理 NumPy 数组)
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.feature_selection import SelectFromModel
 from sklearn.ensemble import RandomForestRegressor
 try:
@@ -370,7 +370,7 @@ def prepare_data_for_transformer(
     data: pd.DataFrame,
     required_columns: List[str],
     target_column: str = 'final_signal',
-    scaler_type: str = 'minmax',
+    scaler_type: str = 'minmax', # 可选: 'minmax', 'standard', 'robust'
     train_split: float = 0.7,
     val_split: float = 0.15,
     apply_variance_threshold: bool = False,
@@ -379,19 +379,23 @@ def prepare_data_for_transformer(
     pca_n_components: Union[int, float] = 0.99,
     pca_solver: str = 'auto',
     use_feature_selection: bool = True,
-    feature_selector_model_type: str = 'rf',
+    feature_selector_model_type: str = 'rf', # 可选: 'rf', 'xgb'
     fs_model_n_estimators: int = 100,
     fs_model_max_depth: Optional[int] = None,
     fs_max_features: Optional[int] = 50,
     fs_selection_threshold: Union[str, float] = 'median',
-    target_scaler_type: str = 'minmax'
+    target_scaler_type: str = 'minmax', # 可选: 'minmax', 'standard', 'robust'
+    random_state_seed: Optional[int] = 42 # 新增: 随机种子参数
 ) -> Tuple[
     np.ndarray, np.ndarray, # train_features, train_targets
     np.ndarray, np.ndarray, # val_features, val_targets
     np.ndarray, np.ndarray, # test_features, test_targets
-    Union[MinMaxScaler, StandardScaler, None], # feature_scaler
-    Union[MinMaxScaler, StandardScaler, None], # target_scaler
-    List[str] # selected_feature_names
+    Union[MinMaxScaler, StandardScaler, RobustScaler, None], # feature_scaler  # 修改类型提示
+    Union[MinMaxScaler, StandardScaler, RobustScaler, None], # target_scaler   # 修改类型提
+    List[str], # selected_feature_names
+    Optional[PCA], # pca_model                                                # 新增返回
+    Optional[StandardScaler], # scaler_for_pca                               # 新增返回
+    Optional[SelectFromModel] # feature_selector_model                       # 新增返回
 ]:
     """
     为 Transformer 模型准备平坦化、经过缩放的时间序列数据 (NumPy 数组)。
@@ -446,15 +450,15 @@ def prepare_data_for_transformer(
         logger.error(f"目标列 '{target_column}' 不存在于输入数据中。可用列: {data_processed.columns.tolist()}")
         # 返回空数组和 None 对象，保持返回类型一致性
         empty_np_array = np.array([], dtype=np.float32)
-        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
 
     # --- 2. 初始特征列选择 ---
     # 从 required_columns 中筛选出实际存在于数据中且不是目标列的列名
     initial_feature_names = [col for col in required_columns if col in data_processed.columns and col != target_column]
     if not initial_feature_names:
-         logger.error("根据 `required_columns` 筛选后，没有可用的特征列。请检查 `required_columns` 的内容和数据列名。")
-         empty_np_array = np.array([], dtype=np.float32)
-         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+        logger.error("根据 `required_columns` 筛选后，没有可用的特征列。请检查 `required_columns` 的内容和数据列名。")
+        empty_np_array = np.array([], dtype=np.float32)
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
     logger.info(f"初始筛选后，特征列数量: {len(initial_feature_names)}。部分列名 (最多10个): {initial_feature_names[:10]}...")
 
     # --- 3. 处理 NaN 值 ---
@@ -516,24 +520,23 @@ def prepare_data_for_transformer(
 
     # 如果经过处理后没有特征了，则无法继续
     if current_features_np.shape[1] == 0:
-         logger.error("经过初始处理和方差过滤后，特征数量为零。无法继续进行数据准备。")
-         empty_np_array = np.array([], dtype=np.float32)
-         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
-
+        logger.error("经过初始处理和方差过滤后，特征数量为零。无法继续进行数据准备。")
+        empty_np_array = np.array([], dtype=np.float32)
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
     # --- 5. 按时间顺序分割数据集 ---
     # 确保数据分割的正确性对于时间序列至关重要，以防数据泄露
     n_samples_total = current_features_np.shape[0]
     if n_samples_total == 0:
         logger.error("数据为空，无法进行分割。")
         empty_np_array = np.array([], dtype=np.float32)
-        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
 
     # 校验分割比例
-    if not (0 < train_split < 1 and 0 <= val_split < 1 and train_split + val_split <= 1):
+    if not (0 < train_split < 1 and 0 <= val_split < 1 and train_split + val_split <= 1.000001): # 增加浮点容差
         logger.error(f"无效的数据集分割比例: train_split={train_split}, val_split={val_split}。"
                      f"比例应在 (0,1) (训练集) 或 [0,1) (验证集) 范围内，且总和 <= 1。")
         empty_np_array = np.array([], dtype=np.float32)
-        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
 
     n_train = int(n_samples_total * train_split)
     n_val = int(n_samples_total * val_split)
@@ -543,7 +546,7 @@ def prepare_data_for_transformer(
         logger.error(f"计算得到的训练集样本数为零 (总样本数: {n_samples_total}, 训练比例: {train_split})。"
                      f"请增加数据量或调整训练集比例。")
         empty_np_array = np.array([], dtype=np.float32)
-        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+        return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
 
     # 分割特征
     features_train_raw = current_features_np[:n_train]
@@ -568,14 +571,19 @@ def prepare_data_for_transformer(
     # --- 6. (可选) PCA 降维 ---
     # PCA 应在数据分割后，且仅在训练集上拟合，然后应用到验证集和测试集
     pca_applied = False
-    pca_model = None # 用于可能需要保存或后续使用的PCA模型
+    pca_model: Optional[PCA] = None # 修改: 类型提示
+    scaler_for_pca: Optional[StandardScaler] = None # 新增: PCA前的缩放器
     if use_pca:
-        if features_eng_train.shape[1] <= 1: # PCA 对单特征无意义
+        if features_eng_train.shape[1] <= 1:
             logger.warning(f"训练集特征维度 ({features_eng_train.shape[1]}) 过低 (<=1)，跳过PCA。")
-        elif features_eng_train.shape[0] < features_eng_train.shape[1] and isinstance(pca_n_components, float) and pca_n_components >= 1.0:
+        # 稍微调整PCA n_components的检查逻辑和日志
+        elif isinstance(pca_n_components, float) and not (0 < pca_n_components < 1.0) and pca_n_components != 1.0: # 允许 pca_n_components=1.0 代表所有方差
+             logger.warning(f"PCA n_components 作为浮点数 ({pca_n_components}) 通常应在 (0,1) 表示解释方差比例。当前值可能导致意外行为或错误。")
+        elif isinstance(pca_n_components, int) and pca_n_components <= 0:
+             logger.warning(f"PCA n_components 作为整数 ({pca_n_components}) 应为正数。")
+        elif features_eng_train.shape[0] < features_eng_train.shape[1] and isinstance(pca_n_components, float) and pca_n_components >= 1.0 : # 原有检查
              logger.warning(f"训练集样本数 ({features_eng_train.shape[0]}) 小于特征数 ({features_eng_train.shape[1]})，"
-                            f"PCA解释方差比例 ({pca_n_components}) 可能不可靠或导致保留过多成分。"
-                            f"建议使用固定数量的主成分或增加样本。")
+                            f"PCA解释方差比例 ({pca_n_components}) 可能不可靠。")
         else:
             logger.info(f"启用 PCA 降维 (n_components={pca_n_components}, solver='{pca_solver}')。在训练集上拟合...")
             # PCA 对数据尺度敏感，通常在 PCA 前进行标准化
@@ -583,15 +591,16 @@ def prepare_data_for_transformer(
             try:
                 features_train_scaled_for_pca = scaler_for_pca.fit_transform(features_eng_train)
 
-                pca_model = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=42)
+                pca_model = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=random_state_seed) # 修改: 使用random_state_seed
                 pca_model.fit(features_train_scaled_for_pca)
                 num_components_retained = pca_model.n_components_
                 explained_variance_ratio = sum(pca_model.explained_variance_ratio_)
                 logger.info(f"PCA 拟合完成。保留主成分数: {num_components_retained}, "
                             f"累计解释方差比: {explained_variance_ratio:.4f}")
-
                 if num_components_retained == 0:
                     logger.error("PCA 降维后特征维度为零。PCA失败，将使用原始特征。")
+                    pca_model = None # 重置
+                    scaler_for_pca = None # 重置
                 else:
                     # 应用 PCA 转换
                     features_eng_train = pca_model.transform(features_train_scaled_for_pca)
@@ -612,7 +621,7 @@ def prepare_data_for_transformer(
 
     # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用或PCA后仍希望进一步选择时) ---
     # 通常 PCA 和基于模型的特征选择是互斥的，或按特定顺序进行。这里假设 PCA 优先。
-    feature_selector_model = None # 用于可能保存或后续使用的选择器模型
+    feature_selector_model: Optional[SelectFromModel] = None # 用于可能保存或后续使用的选择器模型
     if use_feature_selection and not pca_applied: # 如果PCA已应用，通常跳过此步骤
         if features_eng_train.shape[1] <= 1: # 对单特征或无特征无意义
             logger.warning(f"训练集特征维度 ({features_eng_train.shape[1]}) 过低 (<=1)，跳过基于模型的特征选择。")
@@ -630,7 +639,7 @@ def prepare_data_for_transformer(
                 selector_model_instance = RandomForestRegressor(
                     n_estimators=fs_model_n_estimators,
                     max_depth=fs_model_max_depth,
-                    random_state=42,
+                    random_state=random_state_seed,
                     n_jobs=-1 # 使用所有可用核心
                 )
             elif model_type_lower == 'xgb':
@@ -638,22 +647,19 @@ def prepare_data_for_transformer(
                     logger.warning("XGBoost 未安装，无法使用 XGBoost 进行特征选择。将回退到 RandomForest。")
                     selector_model_instance = RandomForestRegressor(
                         n_estimators=fs_model_n_estimators, max_depth=fs_model_max_depth,
-                        random_state=42, n_jobs=-1
+                        random_state=random_state_seed, n_jobs=-1
                     )
-                else:
+                else: # pragma: no cover (依赖外部XGBoost)
                     selector_model_instance = xgb.XGBRegressor(
-                        objective='reg:squarederror', # 回归任务常用目标
-                        n_estimators=fs_model_n_estimators,
-                        max_depth=fs_model_max_depth,
-                        random_state=42,
-                        n_jobs=-1,
-                        # verbosity=0 # XGBoost 1.6+ use verbosity, older versions might use silent
+                        objective='reg:squarederror', n_estimators=fs_model_n_estimators,
+                        max_depth=fs_model_max_depth, random_state=random_state_seed, # 修改: 使用random_state_seed
+                        n_jobs=-1, verbosity=0 # XGBoost 1.6+ use verbosity
                     )
             else:
                 logger.warning(f"不支持的特征选择模型类型: {feature_selector_model_type}。将使用 RandomForest。")
                 selector_model_instance = RandomForestRegressor(
                     n_estimators=fs_model_n_estimators, max_depth=fs_model_max_depth,
-                    random_state=42, n_jobs=-1
+                    random_state=random_state_seed, n_jobs=-1 # 修改: 使用random_state_seed
                 )
 
             try:
@@ -675,7 +681,7 @@ def prepare_data_for_transformer(
                     logger.info(f"特征选择方式: 使用阈值 '{fs_selection_threshold}'。")
 
                 # 在训练数据上拟合选择器模型
-                feature_selector_model.fit(features_eng_train, targets_train_raw)
+                feature_selector_model.fit(features_eng_train, targets_train_raw) # 修改: 拟合模型
                 selected_indices_fs = feature_selector_model.get_support(indices=True)
                 num_selected_fs = len(selected_indices_fs)
 
@@ -727,6 +733,8 @@ def prepare_data_for_transformer(
         feature_scaler = MinMaxScaler()
     elif scaler_type.lower() == 'standard':
         feature_scaler = StandardScaler()
+    elif scaler_type.lower() == 'robust': # 新增: RobustScaler 选项
+        feature_scaler = RobustScaler()
     else:
         logger.warning(f"不支持的特征缩放器类型: '{scaler_type}'。将默认使用 MinMaxScaler。")
         feature_scaler = MinMaxScaler()
@@ -755,11 +763,13 @@ def prepare_data_for_transformer(
 
     # --- 9. 目标变量缩放 (Target Scaling) ---
     # 目标变量缩放器在原始训练集目标上拟合
-    target_scaler: Union[MinMaxScaler, StandardScaler, None] = None
+    target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None # 修改: 类型提示
     if target_scaler_type.lower() == 'minmax':
         target_scaler = MinMaxScaler()
     elif target_scaler_type.lower() == 'standard':
         target_scaler = StandardScaler()
+    elif target_scaler_type.lower() == 'robust': # 新增: RobustScaler 选项
+        target_scaler = RobustScaler()
     else:
         logger.warning(f"不支持的目标变量缩放器类型: '{target_scaler_type}'。将默认使用 MinMaxScaler。")
         target_scaler = MinMaxScaler()
@@ -792,7 +802,10 @@ def prepare_data_for_transformer(
         features_scaled_val.astype(np.float32), targets_scaled_val.astype(np.float32),
         features_scaled_test.astype(np.float32), targets_scaled_test.astype(np.float32),
         feature_scaler, target_scaler,
-        final_selected_feature_names
+        final_selected_feature_names,
+        pca_model,                # 新增返回
+        scaler_for_pca,           # 新增返回
+        feature_selector_model    # 新增返回
     )
 
 
