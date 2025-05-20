@@ -245,7 +245,7 @@
       "feature_selector_model_type": "rf",
       "fs_model_n_estimators": 200,
       "fs_model_max_depth": 10,
-      "fs_max_features": null,
+      "fs_max_features": 150,
       "fs_selection_threshold": "median",
       "target_scaler_type": "minmax"
     },
@@ -264,7 +264,7 @@
       "weight_decay": 0.001,
       "optimizer": "adamw",
       "loss": "mse",
-      "early_stopping_patience": 25,
+      "early_stopping_patience": 40,
       "reduce_lr_patience": 15,
       "reduce_lr_factor": 0.5,
       "monitor_metric": "val_mae",
