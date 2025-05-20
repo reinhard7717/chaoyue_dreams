@@ -245,7 +245,7 @@
       "feature_selector_model_type": "rf",
       "fs_model_n_estimators": 200,
       "fs_model_max_depth": 10,
-      "fs_max_features": 150,
+      "fs_max_features": 100,
       "fs_selection_threshold": "median",
       "target_scaler_type": "minmax"
     },
@@ -254,7 +254,7 @@
       "nhead": 8,
       "dim_feedforward": 512,
       "nlayers": 4,
-      "dropout": 0.2,
+      "dropout": 0.15,
       "activation": "gelu"
     },
     "transformer_training_config": {
