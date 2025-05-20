@@ -24,8 +24,10 @@ except ImportError:
     # logger.warning("XGBoost 未安装，如果选择使用 XGBoost 进行特征选择将会失败。请运行 'pip install xgboost'")
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import VarianceThreshold
+import torch.optim as optim
 # 导入 PyTorch 回调函数 (手动实现或使用库)
 from torch.optim.lr_scheduler import ReduceLROnPlateau # PyTorch 的学习率调度器
+
 
 # 导入日志、时间、绘图等辅助库
 import logging
@@ -886,7 +888,6 @@ def train_transformer_model(
 ) -> Tuple[TransformerModel, pd.DataFrame]:
     """
     训练 Transformer 模型，并支持早停、学习率调度、TensorBoard记录和模型检查点。
-
     Args:
         model (TransformerModel): 已构建的 PyTorch Transformer 模型。
         train_loader (DataLoader): 训练数据加载器。
@@ -910,7 +911,6 @@ def train_transformer_model(
         checkpoint_dir (str): 用于保存最佳模型检查点和 TensorBoard 日志的目录。
         stock_code (Optional[str]): 股票代码或标识符，用于 TensorBoard 日志命名和模型文件名。
         plot_training_history (bool): 是否在训练结束后绘制并保存训练历史曲线图。
-
     Returns:
         Tuple[TransformerModel, pd.DataFrame]:
             - model (TransformerModel): 训练完成（或从最佳检查点加载）的模型。
@@ -973,6 +973,8 @@ def train_transformer_model(
     monitor_metric = training_config.get('monitor_metric', 'val_loss').lower() # 监控指标，如 'val_loss' 或 'val_mae'
     verbose_level = training_config.get('verbose', 1)
     clip_grad_norm_value = training_config.get('clip_grad_norm', None)
+    use_amp = training_config.get('use_amp', False) # 新增：是否启用混合精度
+    lr_scheduler_type = training_config.get('lr_scheduler', 'ReduceLROnPlateau').lower() # 新增：学习率调度器类型
 
     # --- 6. 学习率调度器 (ReduceLROnPlateau) ---
     scheduler = None
@@ -1030,6 +1032,8 @@ def train_transformer_model(
         logger.error("训练 DataLoader 为空，无法进行模型训练。请检查数据准备和 DataLoader 配置。")
         if writer: writer.close()
         return model, pd.DataFrame(history) # 返回未训练的模型和空历史
+    
+    scaler = torch.cuda.amp.GradScaler() if use_amp and device.type == "cuda" else None # 新增：AMP scaler
 
     for epoch in range(epochs):
         epoch_start_time = time.time()
@@ -1042,18 +1046,25 @@ def train_transformer_model(
         # 训练阶段
         for batch_idx, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(device), targets.to(device) # 数据移至设备
-
             optimizer.zero_grad()  # 清除上一批的梯度
-            outputs = model(inputs) # 前向传播
-            loss = criterion(outputs, targets) # 计算损失
-
-            loss.backward() # 反向传播，计算梯度
-
-            # (可选) 梯度裁剪，防止梯度爆炸
-            if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
-
-            optimizer.step() # 更新模型权重
+            # --- 混合精度训练 ---
+            if use_amp and device.type == "cuda":
+                with torch.cuda.amp.autocast():
+                    outputs = model(inputs)
+                    loss = criterion(outputs, targets)
+                scaler.scale(loss).backward()
+                if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
+                optimizer.step()
 
             epoch_train_loss += loss.item() * inputs.size(0) # 乘以批大小，得到总损失
             with torch.no_grad(): # MAE计算不影响梯度
@@ -1062,7 +1073,7 @@ def train_transformer_model(
             # 详细日志 (通常不每批打印，除非调试)
             if verbose_level == 2: # verbose_level=2 表示每批打印 (可能过于频繁)
                 logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
-                             f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
+                    f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
         
         # 计算平均训练损失和MAE
         avg_train_loss = epoch_train_loss / len(train_loader.dataset)
@@ -1131,6 +1142,16 @@ def train_transformer_model(
                 logger.warning(f"未知的 monitor_metric '{monitor_metric}' 用于学习率调度和早停，将默认使用 'val_loss'。")
                 monitored_value_for_scheduler = avg_val_loss
                 monitor_metric = 'val_loss' # 纠正 monitor_metric 以便后续使用
+            # --- 学习率调度器 step ---
+            if lr_scheduler_type == 'reducelronplateau':
+                if scheduler and not np.isnan(monitored_value_for_scheduler):
+                    scheduler.step(monitored_value_for_scheduler)
+                    new_lr = optimizer.param_groups[0]['lr']
+                    if new_lr < current_lr:
+                        logger.info(f"Epoch {epoch+1}: 学习率从 {current_lr:.2e} 降低到 {new_lr:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler:.4f})")
+            elif lr_scheduler_type in ['cosineannealinglr', 'onecyclelr']:
+                if scheduler:
+                    scheduler.step()
             if scheduler and not np.isnan(monitored_value_for_scheduler):
                 scheduler.step(monitored_value_for_scheduler)
                 # 【代码修改】手动记录学习率变化，因为 ReduceLROnPlateau 的 verbose 已移除

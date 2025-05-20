@@ -1,5 +1,6 @@
 # 此策略侧重于识别和跟随趋势，主要使用 EMA 排列、DMI、SAR 等指标，并以 30 分钟级别为主要权重。
 # strategies/trend_following_strategy.py
+import pickle
 import pandas as pd
 import numpy as np
 import json
@@ -205,6 +206,14 @@ class TrendFollowingStrategy:
             logger.warning(f"{log_prefix_temp} {file_description}文件加载失败或内容无效，策略将使用默认{file_description}。")
             loaded_data = {}
         return loaded_data, load_success
+
+    # 提取参数的辅助函数 (保留原有的，因为它从多个源查找参数)
+    def _get_param_val(self, sources: List[Dict], key: str, default: Any = None) -> Any:
+        """从参数源列表中按顺序查找键的值，返回第一个找到的值或默认值。"""
+        for source_dict in sources:
+            if isinstance(source_dict, dict) and key in source_dict:
+                return source_dict[key]
+        return default
 
     #辅助方法 - 整合阶段1和2
     def _resolve_and_load_params_file(self, params_file_input: str, temp_log_prefix: str) -> Tuple[Optional[str], Dict[str, Any], bool]:
@@ -712,13 +721,6 @@ class TrendFollowingStrategy:
         if not timeframes:
             logger.error(f"{log_prefix} 无法获取所需列，因为 'base_scoring.timeframes' 未定义或为空。")
             return []
-        # 提取参数的辅助函数 (保留原有的，因为它从多个源查找参数)
-        def _get_param_val(sources: List[Dict], key: str, default: Any = None) -> Any:
-            """从参数源列表中按顺序查找键的值，返回第一个找到的值或默认值。"""
-            for source_dict in sources:
-                if isinstance(source_dict, dict) and key in source_dict:
-                    return source_dict[key]
-            return default
         # 准备参数源列表，优先级从高到低 (策略特定参数通常优先级高)
         param_sources = [
             self.tf_params, # trend_following_params (策略特定参数)
@@ -757,32 +759,32 @@ class TrendFollowingStrategy:
             score_indicators_config_keys = []
         # 获取指标参数，这些值将用于填充命名模板 (使用 _get_param_val 从 param_sources 中获取参数)
         # MACD参数
-        macd_fast = _get_param_val(param_sources, 'period_fast', 12) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period_fast
-        macd_slow = _get_param_val(param_sources, 'period_slow', 26) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period_slow
-        macd_sig = _get_param_val(param_sources, 'signal_period', 9) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 signal_period
+        macd_fast = self._get_param_val(param_sources, 'period_fast', 12) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period_fast
+        macd_slow = self._get_param_val(param_sources, 'period_slow', 26) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period_slow
+        macd_sig = self._get_param_val(param_sources, 'signal_period', 9) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 signal_period
         # RSI参数
-        rsi_period = _get_param_val(param_sources, 'period', 14) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period
+        rsi_period = self._get_param_val(param_sources, 'period', 14) # 优先从 tf_params, ia_params, fe_params, bs_params 查找 period
         # KDJ参数 (注意JSON和策略中参数名的对应)
-        kdj_k_period = _get_param_val(param_sources, 'kdj_period_k', _get_param_val(param_sources, 'period', 9)) # 优先 kdj_period_k，其次 period
-        kdj_d_period = _get_param_val(param_sources, 'kdj_period_d', _get_param_val(param_sources, 'signal_period', 3)) # 优先 kdj_period_d，其次 signal_period
-        kdj_j_smooth_k = _get_param_val(param_sources, 'kdj_period_j', _get_param_val(param_sources, 'smooth_k_period', 3)) # 优先 kdj_period_j，其次 smooth_k_period
+        kdj_k_period = self._get_param_val(param_sources, 'kdj_period_k', self._get_param_val(param_sources, 'period', 9)) # 优先 kdj_period_k，其次 period
+        kdj_d_period = self._get_param_val(param_sources, 'kdj_period_d', self._get_param_val(param_sources, 'signal_period', 3)) # 优先 kdj_period_d，其次 signal_period
+        kdj_j_smooth_k = self._get_param_val(param_sources, 'kdj_period_j', self._get_param_val(param_sources, 'smooth_k_period', 3)) # 优先 kdj_period_j，其次 smooth_k_period
         # BOLL参数 (基础评分用的BOLL)
-        boll_period = _get_param_val(param_sources, 'boll_period', _get_param_val(param_sources, 'period', 20)) # 优先 boll_period，其次 period
-        boll_std_dev = _get_param_val(param_sources, 'boll_std_dev', _get_param_val(param_sources, 'std_dev', 2.0)) # 优先 boll_std_dev，其次 std_dev
+        boll_period = self._get_param_val(param_sources, 'boll_period', self._get_param_val(param_sources, 'period', 20)) # 优先 boll_period，其次 period
+        boll_std_dev = self._get_param_val(param_sources, 'boll_std_dev', self._get_param_val(param_sources, 'std_dev', 2.0)) # 优先 boll_std_dev，其次 std_dev
         # CCI参数
-        cci_period = _get_param_val(param_sources, 'period', 14)
+        cci_period = self._get_param_val(param_sources, 'period', 14)
         # MFI参数
-        mfi_period = _get_param_val(param_sources, 'period', 14)
+        mfi_period = self._get_param_val(param_sources, 'period', 14)
         # ROC参数
-        roc_period = _get_param_val(param_sources, 'period', 12)
+        roc_period = self._get_param_val(param_sources, 'period', 12)
         # DMI参数
-        dmi_period = _get_param_val(param_sources, 'period', 14)
+        dmi_period = self._get_param_val(param_sources, 'period', 14)
         # SAR参数
-        sar_step = _get_param_val(param_sources, 'af_step', 0.02)
-        sar_max_af = _get_param_val(param_sources, 'max_af', 0.2)
+        sar_step = self._get_param_val(param_sources, 'af_step', 0.02)
+        sar_max_af = self._get_param_val(param_sources, 'max_af', 0.2)
         # EMA/SMA 基础参数 (如果 score_indicators 中包含它们，通常是某个默认周期)
-        ema_base_period = _get_param_val(param_sources, 'ema_base_period', _get_param_val(param_sources, 'period', 20)) # 优先 ema_base_period，其次 period
-        sma_base_period = _get_param_val(param_sources, 'sma_base_period', _get_param_val(param_sources, 'period', 20)) # 优先 sma_base_period，其次 period
+        ema_base_period = self._get_param_val(param_sources, 'ema_base_period', self._get_param_val(param_sources, 'period', 20)) # 优先 ema_base_period，其次 period
+        sma_base_period = self._get_param_val(param_sources, 'sma_base_period', self._get_param_val(param_sources, 'period', 20)) # 优先 sma_base_period，其次 period
         for indi_key_upper in [str(key).upper() for key in score_indicators_config_keys]:
             if indi_key_upper not in indicator_naming_conv:
                 logger.warning(f"{log_prefix} 评分指标 '{indi_key_upper}' 在命名规范中未定义或加载失败，跳过。")
@@ -832,7 +834,7 @@ class TrendFollowingStrategy:
                 else: continue
             # 其他无参数或固定参数的指标如 OBV, ADL 不需要特别处理 params_for_format
             for tf_str in timeframes:
-                for col_conf in indi_naming_conv['output_columns']:
+                for col_conf in indi_naming_conf['output_columns']:
                     if isinstance(col_conf, dict) and 'name_pattern' in col_conf:
                         base_names = TrendFollowingStrategy._format_indicator_name(col_conf['name_pattern'], **params_for_format)
                         for base_name in base_names:
@@ -847,9 +849,9 @@ class TrendFollowingStrategy:
                 logger.error(f"{log_prefix} 'volume_confirmation.tf' 参数类型不正确 (应为字符串或列表)，但得到的是: {type(vc_tf_list)}！量能指标请求可能不完整。")
                 vc_tf_list = []
             # 获取量能指标参数
-            amt_ma_period_vc = _get_param_val(param_sources, 'amount_ma_period', 15)
-            cmf_period_vc = _get_param_val(param_sources, 'cmf_period', 20)
-            obv_ma_period_vc = _get_param_val(param_sources, 'obv_ma_period', 10)
+            amt_ma_period_vc = self._get_param_val(param_sources, 'amount_ma_period', 15)
+            cmf_period_vc = self._get_param_val(param_sources, 'cmf_period', 20)
+            obv_ma_period_vc = self._get_param_val(param_sources, 'obv_ma_period', 10)
             for vc_tf_str in vc_tf_list:
                 if vc_tf_str not in timeframes: continue # 只请求在基础时间框架中定义的级别
                 # AMT_MA
@@ -898,9 +900,9 @@ class TrendFollowingStrategy:
         for analyze_tf_str in analysis_timeframes:
             if analyze_tf_str not in timeframes: continue # 只请求在基础时间框架中定义的级别
             # STOCH
-            stoch_k_ia = _get_param_val(param_sources, 'stoch_k', _get_param_val(param_sources, 'k_period', 14))
-            stoch_d_ia = _get_param_val(param_sources, 'stoch_d', _get_param_val(param_sources, 'd_period', 3))
-            stoch_smooth_k_ia = _get_param_val(param_sources, 'stoch_smooth_k', _get_param_val(param_sources, 'smooth_k_period', 3))
+            stoch_k_ia = self._get_param_val(param_sources, 'stoch_k', self._get_param_val(param_sources, 'k_period', 14))
+            stoch_d_ia = self._get_param_val(param_sources, 'stoch_d', self._get_param_val(param_sources, 'd_period', 3))
+            stoch_smooth_k_ia = self._get_param_val(param_sources, 'stoch_smooth_k', self._get_param_val(param_sources, 'smooth_k_period', 3))
             if ia_params_global.get('calculate_stoch', False) and 'STOCH' in indicator_naming_conv:
                 stoch_naming_conf = indicator_naming_conv['STOCH']
                 if isinstance(stoch_naming_conf, dict) and 'output_columns' in stoch_naming_conf and isinstance(stoch_naming_conf['output_columns'], list):
@@ -911,7 +913,7 @@ class TrendFollowingStrategy:
                     else:
                         logger.warning(f"{log_prefix} STOCH 指标参数无效: k={stoch_k_ia}, d={stoch_d_ia}, smooth_k={stoch_smooth_k_ia}. 跳过 STOCH 列请求 ({analyze_tf_str})。")
             # VOL_MA
-            vol_ma_period_ia = _get_param_val(param_sources, 'volume_ma_period', _get_param_val(param_sources, 'period', 20))
+            vol_ma_period_ia = self._get_param_val(param_sources, 'volume_ma_period', self._get_param_val(param_sources, 'period', 20))
             if ia_params_global.get('calculate_vol_ma', False) and 'VOL_MA' in indicator_naming_conv:
                 vol_ma_naming_conf = indicator_naming_conv['VOL_MA']
                 if isinstance(vol_ma_naming_conf, dict) and 'output_columns' in vol_ma_naming_conf and isinstance(vol_ma_naming_conf['output_columns'], list):
@@ -920,7 +922,7 @@ class TrendFollowingStrategy:
                         for name in TrendFollowingStrategy._format_indicator_name(vol_ma_name_patterns, period=vol_ma_period_ia):
                             required.add(f"{name}_{analyze_tf_str}")
             # VWAP
-            vwap_anchor_ia = _get_param_val(param_sources, 'vwap_anchor', None)
+            vwap_anchor_ia = self._get_param_val(param_sources, 'vwap_anchor', None)
             if ia_params_global.get('calculate_vwap', False) and 'VWAP' in indicator_naming_conv:
                 vwap_configs = indicator_naming_conv['VWAP'].get('output_columns', [])
                 if isinstance(vwap_configs, list):
@@ -949,9 +951,9 @@ class TrendFollowingStrategy:
                         required.add(f"{name}_{analyze_tf_str}")
             # ICHIMOKU
             if ia_params_global.get('calculate_ichimoku', False) and 'ICHIMOKU' in indicator_naming_conv:
-                ichimoku_tenkan_ia = _get_param_val(param_sources, 'ichimoku_tenkan', _get_param_val(param_sources, 'tenkan_period', 9))
-                ichimoku_kijun_ia = _get_param_val(param_sources, 'ichimoku_kijun', _get_param_val(param_sources, 'kijun_period', 26))
-                ichimoku_senkou_ia = _get_param_val(param_sources, 'ichimoku_senkou', _get_param_val(param_sources, 'senkou_period', 52))
+                ichimoku_tenkan_ia = self._get_param_val(param_sources, 'ichimoku_tenkan', self._get_param_val(param_sources, 'tenkan_period', 9))
+                ichimoku_kijun_ia = self._get_param_val(param_sources, 'ichimoku_kijun', self._get_param_val(param_sources, 'kijun_period', 26))
+                ichimoku_senkou_ia = self._get_param_val(param_sources, 'ichimoku_senkou', self._get_param_val(param_sources, 'senkou_period', 52))
                 ichimoku_conf = indicator_naming_conv['ICHIMOKU'].get('output_columns', [])
                 if isinstance(ichimoku_conf, list):
                     if isinstance(ichimoku_tenkan_ia, (int, float)) and isinstance(ichimoku_kijun_ia, (int, float)) and isinstance(ichimoku_senkou_ia, (int, float)):
@@ -978,7 +980,7 @@ class TrendFollowingStrategy:
                 else:
                     logger.warning(f"{log_prefix} PIVOT_POINTS 命名规范 output_columns 类型不正确 (应为列表)。")
             # ATR
-            atr_period_fe = _get_param_val(param_sources, 'atr_period', _get_param_val(param_sources, 'period', 14))
+            atr_period_fe = self._get_param_val(param_sources, 'atr_period', self._get_param_val(param_sources, 'period', 14))
             if fe_params_global.get('calculate_atr', False) and 'ATR' in indicator_naming_conv:
                 atr_naming_conf = indicator_naming_conv['ATR']
                 if isinstance(atr_naming_conf, dict) and 'output_columns' in atr_naming_conf and isinstance(atr_naming_conf['output_columns'], list):
@@ -987,7 +989,7 @@ class TrendFollowingStrategy:
                         for name in TrendFollowingStrategy._format_indicator_name(atr_patterns, period=atr_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
             # HV (Historical Volatility)
-            hv_period_fe = _get_param_val(param_sources, 'hv_period', _get_param_val(param_sources, 'period', 20))
+            hv_period_fe = self._get_param_val(param_sources, 'hv_period', self._get_param_val(param_sources, 'period', 20))
             if fe_params_global.get('calculate_hv', False) and 'HV' in indicator_naming_conv:
                 hv_naming_conf = indicator_naming_conv['HV']
                 if isinstance(hv_naming_conf, dict) and 'output_columns' in hv_naming_conf and isinstance(hv_naming_conf['output_columns'], list):
@@ -996,8 +998,8 @@ class TrendFollowingStrategy:
                         for name in TrendFollowingStrategy._format_indicator_name(hv_patterns, period=hv_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
             # KC (Keltner Channels)
-            kc_ema_period_fe = _get_param_val(param_sources, 'kc_ema_period', _get_param_val(param_sources, 'ema_period', 20))
-            kc_atr_period_fe = _get_param_val(param_sources, 'kc_atr_period', _get_param_val(param_sources, 'atr_period', 10))
+            kc_ema_period_fe = self._get_param_val(param_sources, 'kc_ema_period', self._get_param_val(param_sources, 'ema_period', 20))
+            kc_atr_period_fe = self._get_param_val(param_sources, 'kc_atr_period', self._get_param_val(param_sources, 'atr_period', 10))
             if fe_params_global.get('calculate_kc', False) and 'KC' in indicator_naming_conv:
                 kc_naming_conf = indicator_naming_conv['KC']
                 if isinstance(kc_naming_conf, dict) and 'output_columns' in kc_naming_conf and isinstance(kc_naming_conf['output_columns'], list):
@@ -1008,7 +1010,7 @@ class TrendFollowingStrategy:
                     else:
                         logger.warning(f"{log_prefix} KC 指标参数无效: ema_period={kc_ema_period_fe}, atr_period={kc_atr_period_fe}. 跳过 KC 列请求 ({analyze_tf_str})。")
             # MOM
-            mom_period_fe = _get_param_val(param_sources, 'mom_period', _get_param_val(param_sources, 'period', 10))
+            mom_period_fe = self._get_param_val(param_sources, 'mom_period', self._get_param_val(param_sources, 'period', 10))
             if fe_params_global.get('calculate_mom', False) and 'MOM' in indicator_naming_conv:
                 mom_naming_conf = indicator_naming_conv['MOM']
                 if isinstance(mom_naming_conf, dict) and 'output_columns' in mom_naming_conf and isinstance(mom_naming_conf['output_columns'], list):
@@ -1017,7 +1019,7 @@ class TrendFollowingStrategy:
                         for name in TrendFollowingStrategy._format_indicator_name(mom_patterns, period=mom_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
             # WILLR
-            willr_period_fe = _get_param_val(param_sources, 'willr_period', _get_param_val(param_sources, 'period', 14))
+            willr_period_fe = self._get_param_val(param_sources, 'willr_period', self._get_param_val(param_sources, 'period', 14))
             if fe_params_global.get('calculate_willr', False) and 'WILLR' in indicator_naming_conv:
                 willr_naming_conf = indicator_naming_conv['WILLR']
                 if isinstance(willr_naming_conf, dict) and 'output_columns' in willr_naming_conf and isinstance(willr_naming_conf['output_columns'], list):
@@ -1026,7 +1028,7 @@ class TrendFollowingStrategy:
                         for name in TrendFollowingStrategy._format_indicator_name(willr_patterns, period=willr_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
             # VROC
-            vroc_period_fe = _get_param_val(param_sources, 'vroc_period', _get_param_val(param_sources, 'period', 10))
+            vroc_period_fe = self._get_param_val(param_sources, 'vroc_period', self._get_param_val(param_sources, 'period', 10))
             if fe_params_global.get('calculate_vroc', False) and 'VROC' in indicator_naming_conv:
                 vroc_naming_conf = indicator_naming_conv['VROC']
                 if isinstance(vroc_naming_conf, dict) and 'output_columns' in vroc_naming_conf and isinstance(vroc_naming_conf['output_columns'], list):
@@ -1035,7 +1037,7 @@ class TrendFollowingStrategy:
                         for name in TrendFollowingStrategy._format_indicator_name(vroc_patterns, period=vroc_period_fe):
                             required.add(f"{name}_{analyze_tf_str}")
             # AROC
-            aroc_period_fe = _get_param_val(param_sources, 'aroc_period', _get_param_val(param_sources, 'period', 10))
+            aroc_period_fe = self._get_param_val(param_sources, 'aroc_period', self._get_param_val(param_sources, 'period', 10))
             if fe_params_global.get('calculate_aroc', False) and 'AROC' in indicator_naming_conv:
                 aroc_naming_conf = indicator_naming_conv['AROC']
                 if isinstance(aroc_naming_conf, dict) and 'output_columns' in aroc_naming_conf and isinstance(aroc_naming_conf['output_columns'], list):
@@ -2970,27 +2972,57 @@ class TrendFollowingStrategy:
         final_signal_series = data_with_signals[final_rule_signal_col].dropna()
         if final_signal_series.empty: return trend_duration_info
 
-        # 趋势判断阈值来自 trend_following_params
+         # --- 获取并校验趋势判断阈值 ---
+        # 【代码修改】增加对所有阈值参数的获取和校验
         trend_threshold_upper = self.tf_params.get('trend_confirmation_threshold_upper', 55)
         trend_threshold_lower = self.tf_params.get('trend_confirmation_threshold_lower', 45)
         strong_bullish_threshold = self.tf_params.get('strong_bullish_threshold', 75)
         strong_bearish_threshold = self.tf_params.get('strong_bearish_threshold', 25)
         moderate_bullish_threshold = self.tf_params.get('moderate_bullish_threshold', 60)
         moderate_bearish_threshold = self.tf_params.get('moderate_bearish_threshold', 40)
+        trend_duration_threshold_strong = self.tf_params.get('trend_duration_threshold_strong', 10) # 【代码修改】默认值与JSON修改后一致
+        trend_duration_threshold_moderate = self.tf_params.get('trend_duration_threshold_moderate', 5) # 【代码修改】默认值与JSON修改后一致
+        trading_day_minutes = self.tf_params.get('trading_day_minutes', 240) # 【代码修改】获取 trading_day_minutes
 
-        # 确保阈值是有效数字
-        if not isinstance(trend_threshold_upper, (int, float)): trend_threshold_upper = 55.0
-        if not isinstance(trend_threshold_lower, (int, float)): trend_threshold_lower = 45.0
-        if not isinstance(strong_bullish_threshold, (int, float)): strong_bullish_threshold = 75.0
-        if not isinstance(strong_bearish_threshold, (int, float)): strong_bearish_threshold = 25.0
-        if not isinstance(moderate_bullish_threshold, (int, float)): moderate_bullish_threshold = 60.0
-        if not isinstance(moderate_bearish_threshold, (int, float)): moderate_bearish_threshold = 40.0
+        # 【代码修改】统一校验所有阈值是否为有效数字，并检查信号阈值范围
+        thresholds_to_check = {
+            'trend_confirmation_threshold_upper': trend_threshold_upper,
+            'trend_confirmation_threshold_lower': trend_threshold_lower,
+            'strong_bullish_threshold': strong_bullish_threshold,
+            'strong_bearish_threshold': strong_bearish_threshold,
+            'moderate_bullish_threshold': moderate_bullish_threshold,
+            'moderate_bearish_threshold': moderate_bearish_threshold
+        }
+        for name, value in thresholds_to_check.items():
+            if not isinstance(value, (int, float)):
+                logger.warning(f"[{self.strategy_name}] 趋势判断阈值 '{name}' 参数无效 ({value})，应为数字。")
+                # 可以选择赋一个默认值，这里暂时只警告
+            # 检查信号阈值是否在合理范围 (例如 0-100)
+            # if not (0 <= value <= 100): # 如果需要严格限制在0-100
+            #      logger.warning(f"[{self.strategy_name}] 趋势判断阈值 '{name}' ({value}) 超出合理范围 (0-100)。")
 
+        # 【代码修改】校验持续时间阈值和交易日分钟数
+        if not isinstance(trend_duration_threshold_strong, (int, float)) or trend_duration_threshold_strong <= 0:
+             logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：'trend_duration_threshold_strong' 参数无效 ({trend_duration_threshold_strong})，使用默认值 10。")
+             trend_duration_threshold_strong = 10
+        if not isinstance(trend_duration_threshold_moderate, (int, float)) or trend_duration_threshold_moderate <= 0:
+             logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：'trend_duration_threshold_moderate' 参数无效 ({trend_duration_threshold_moderate})，使用默认值 5。")
+             trend_duration_threshold_moderate = 5
+        # 【代码修改】确保 strong >= moderate
+        if trend_duration_threshold_strong < trend_duration_threshold_moderate:
+             logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：strong ({trend_duration_threshold_strong}) < moderate ({trend_duration_threshold_moderate}) 阈值，请检查配置。将使用 moderate={trend_duration_threshold_moderate}, strong={trend_duration_threshold_moderate + 1} 进行判断。")
+             # 为了避免逻辑错误，这里强制调整 strong 阈值
+             trend_duration_threshold_strong = trend_duration_threshold_moderate + 1
+
+        if not isinstance(trading_day_minutes, (int, float)) or trading_day_minutes <= 0:
+             logger.warning(f"[{self.strategy_name}] 趋势持续时间计算：'trading_day_minutes' 参数无效 ({trading_day_minutes})，使用默认值 240。")
+             trading_day_minutes = 240
 
         current_bullish_streak = 0
         current_bearish_streak = 0
         # 从最新数据向前计算连续周期数
         for signal_val in final_signal_series.iloc[::-1]:
+            # 【代码修改】使用校验后的阈值
             if signal_val >= trend_threshold_upper:
                 current_bullish_streak += 1
                 current_bearish_streak = 0
@@ -3002,7 +3034,7 @@ class TrendFollowingStrategy:
 
         trend_duration_info['bullish_duration'] = current_bullish_streak
         trend_duration_info['bearish_duration'] = current_bearish_streak
-
+        
         # 将周期数转换为时间文本
         try:
             # 假设 focus_timeframe 是数字分钟数 (例如 '5', '15', '30', '60')
@@ -3018,16 +3050,19 @@ class TrendFollowingStrategy:
                  logger.warning(f"[{self.strategy_name}] 趋势持续时间计算：'trading_day_minutes' 参数无效 ({trading_day_minutes})，使用简单天/小时/分钟格式。")
                  # 定义简单格式化函数
                  def format_duration_simple(minutes):
-                     if minutes == 0: return "0分钟"
-                     if minutes < 60: return f"{minutes}分钟"
-                     hours, rem_minutes = divmod(minutes, 60)
-                     if hours < 24:
-                         return f"{hours}小时{rem_minutes}分钟" if rem_minutes else f"{hours}小时"
-                     else:
-                         days, rem_hours = divmod(hours, 24)
-                         # 确保分钟部分也包含
-                         return f"{days}天{rem_hours}小时{rem_minutes}分钟" if rem_hours or rem_minutes else f"{days}天"
-
+                    if minutes == 0: return "0分钟"
+                    if minutes < 60: return f"{minutes}分钟"
+                    hours, rem_minutes = divmod(minutes, 60)
+                    if hours < 24:
+                        return f"{hours}小时{rem_minutes}分钟" if rem_minutes else f"{hours}小时"
+                    else:
+                        days, rem_hours = divmod(hours, 24)
+                        parts = []
+                        if days > 0: parts.append(f"{days}天")
+                        if rem_hours > 0: parts.append(f"{rem_hours}小时")
+                        if rem_minutes > 0 or (minutes > 0 and not parts): # 如果有剩余分钟，或者总分钟大于0但天和小时都为0，显示分钟
+                            parts.append(f"{rem_minutes}分钟")
+                        return "".join(parts)
                  # 使用简单格式化函数
                  trend_duration_info['bullish_duration_text'] = format_duration_simple(bullish_total_minutes)
                  trend_duration_info['bearish_duration_text'] = format_duration_simple(bearish_total_minutes)
@@ -3046,23 +3081,19 @@ class TrendFollowingStrategy:
 
                     # 格式化剩余分钟为小时和分钟
                     if remaining_minutes_after_days > 0:
-                         rem_hours, rem_minutes = divmod(remaining_minutes_after_days, 60)
-                         if rem_hours > 0:
-                             parts.append(f"{rem_hours}小时")
-                         if rem_minutes > 0 or (rem_hours == 0 and full_trading_days == 0): # 如果没有小时部分，或者总时间不足一天但有分钟，显示分钟
-                             parts.append(f"{rem_minutes}分钟")
+                        rem_hours, rem_minutes = divmod(remaining_minutes_after_days, 60)
+                        if rem_hours > 0:
+                            parts.append(f"{rem_hours}小时")
+                        if rem_minutes > 0:
+                            parts.append(f"{rem_minutes}分钟")
 
                     # 如果总分钟数非常小，不足一个完整的“小时”但大于0分钟，需要确保显示分钟数
                     if not parts and total_minutes > 0:
                          parts.append(f"{total_minutes}分钟")
-
                     return "".join(parts)
-
                 # 使用按交易日格式化函数
                 trend_duration_info['bullish_duration_text'] = format_duration_with_trading_day(bullish_total_minutes, trading_day_minutes)
                 trend_duration_info['bearish_duration_text'] = format_duration_with_trading_day(bearish_total_minutes, trading_day_minutes)
-
-
         except ValueError:
             logger.warning(f"[{self.strategy_name}] 趋势持续时间计算：无法将 focus_timeframe '{self.focus_timeframe}' 转换为分钟数 (非数字)。持续时间将以周期数显示。")
             trend_duration_info['bullish_duration_text'] = f"{current_bullish_streak}个周期"
@@ -3071,8 +3102,6 @@ class TrendFollowingStrategy:
              logger.error(f"[{self.strategy_name}] 趋势持续时间计算：格式化持续时间时出错: {e}", exc_info=True)
              trend_duration_info['bullish_duration_text'] = f"{current_bullish_streak}个周期 (格式化错误)"
              trend_duration_info['bearish_duration_text'] = f"{current_bearish_streak}个周期 (格式化错误)"
-
-
         # 判断当前趋势方向和强度
         latest_rule_signal_val = final_signal_series.iloc[-1]
         # 趋势强度阈值来自 trend_following_params
@@ -3103,25 +3132,10 @@ class TrendFollowingStrategy:
         else: # 信号在中性区域
              trend_duration_info.update({'current_trend': '中性', 'trend_strength': '不明'})
 
-
         # 判断趋势持续状态（短、中、长）
         current_duration_periods = max(current_bullish_streak, current_bearish_streak)
-        # 趋势持续时间阈值来自 trend_following_params
-        trend_duration_threshold_strong = self.tf_params.get('trend_duration_threshold_strong', 5)
-        trend_duration_threshold_moderate = self.tf_params.get('trend_duration_threshold_moderate', 10)
-
-        # 确保阈值是有效数字
-        if not isinstance(trend_duration_threshold_strong, (int, float)) or trend_duration_threshold_strong <= 0:
-             logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：'trend_duration_threshold_strong' 参数无效 ({trend_duration_threshold_strong})，使用默认值 5。")
-             trend_duration_threshold_strong = 5
-        if not isinstance(trend_duration_threshold_moderate, (int, float)) or trend_duration_threshold_moderate <= 0:
-             logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：'trend_duration_threshold_moderate' 参数无效 ({trend_duration_threshold_moderate})，使用默认值 10。")
-             trend_duration_threshold_moderate = 10
-
-        # 确保 strong 阈值不低于 moderate 阈值
-        if trend_duration_threshold_strong < trend_duration_threshold_moderate:
-             logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：strong ({trend_duration_threshold_strong}) < moderate ({trend_duration_threshold_moderate}) 阈值，调整 strong 阈值。")
-             trend_duration_threshold_strong = trend_duration_threshold_moderate + 1 # 确保至少相差 1
+        # 【代码修改】使用校验后的持续时间阈值
+        # trend_duration_threshold_strong, trend_duration_threshold_moderate 已在前面获取并校验
 
         if current_duration_periods >= trend_duration_threshold_strong:
              trend_duration_info['duration_status'] = '长'
@@ -3131,6 +3145,7 @@ class TrendFollowingStrategy:
              trend_duration_info['duration_status'] = '短'
 
         logger.debug(f"[{self.strategy_name}] 趋势持续时间计算完成。持续信息: {trend_duration_info}")
+
 
         return trend_duration_info
 
@@ -3258,7 +3273,7 @@ class TrendFollowingStrategy:
             # 使用原始 ADX 阈值进行判断，而不是归一化后的信号
             # DMI 周期来自全局 base_scoring.dmi_period 或 indicator_analysis_params.dmi_period
             param_sources = [self.tf_params, self.params.get('volume_confirmation', {}), self.params.get('indicator_analysis_params', {}), self.fe_params, self.params.get('base_scoring', {})]
-            dmi_period_bs = next((_get_param_val(param_sources, 'dmi_period', 14) for _ in [None]), 14) # 使用辅助函数获取 DMI 周期
+            dmi_period_bs = next((self._get_param_val(param_sources, 'dmi_period', 14) for _ in [None]), 14) # 使用辅助函数获取 DMI 周期
             adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}' # 使用带后缀的原始 ADX 列名
             adx_val = latest_data_row.get(adx_col, np.nan) # 获取原始 ADX 值
 
