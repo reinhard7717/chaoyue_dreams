@@ -243,7 +243,7 @@
       "pca_n_components": 0.99,
       "pca_solver": "auto",
       "use_feature_selection": true,
-      "feature_selector_model_type": "rf",
+      "feature_selector_model_type": "xgb",
       "fs_model_n_estimators": 200,
       "fs_model_max_depth": 10,
       "fs_max_features": 120,

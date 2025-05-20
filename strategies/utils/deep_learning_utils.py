@@ -381,7 +381,7 @@ def prepare_data_for_transformer(
     pca_n_components: Union[int, float] = 0.99,
     pca_solver: str = 'auto',
     use_feature_selection: bool = True,
-    feature_selector_model_type: str = 'rf', # 可选: 'rf', 'xgb'
+    feature_selector_model_type: str = 'xgb', # 可选: 'rf', 'xgb'
     fs_model_n_estimators: int = 100,
     fs_model_max_depth: Optional[int] = None,
     fs_max_features: Optional[int] = 50,
