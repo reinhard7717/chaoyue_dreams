@@ -179,7 +179,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
     # 阶段 4: 保存准备好的数据和 Scaler
     try:
         # 记录保存数据开始信息
-        logger.info(f"{task_id_str} [{stock_code}]：开始保存准备好的数据和 Scaler...")
+        # logger.info(f"{task_id_str} [{stock_code}]：开始保存准备好的数据和 Scaler...")
         # 调用策略的 save_prepared_data 方法保存数据和 Scaler
         strategy.save_prepared_data(
             stock_code,
@@ -372,7 +372,7 @@ def process_stock_data_stage2(self, stock_code: str, dataframe_path: str, metada
              raise ValueError("Transformer 数据准备后，训练集为空或 Scaler/特征列表未成功生成。")
         logger.info(f"{task_id_str} [{stock_code}]：Transformer 数据准备完成 (阶段 3)。训练集 shape: {features_scaled_train.shape}, 最终特征数: {len(selected_feature_names)}")
         # 阶段 4: 保存准备好的数据和 Scaler
-        logger.info(f"{task_id_str} [{stock_code}]：开始保存准备好的数据和 Scaler (阶段 4)...")
+        # logger.info(f"{task_id_str} [{stock_code}]：开始保存准备好的数据和 Scaler (阶段 4)...")
         strategy.save_prepared_data(
             stock_code,
             features_scaled_train, targets_scaled_train,

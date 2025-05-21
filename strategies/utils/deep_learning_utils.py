@@ -33,6 +33,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau # PyTorch 的学习率调
 import logging
 import time
 import datetime
+import math
 import matplotlib
 # 使用 'Agg' 后端，这是一个非交互式的后端，不依赖于任何 GUI 库
 matplotlib.use('Agg')
@@ -45,7 +46,7 @@ from typing import Any, Tuple, List, Dict, Optional, Union, Callable
 from functools import wraps
 import joblib # 用于加载/保存 scaler
 
-# 【代码修改】导入 tqdm 库用于显示进度条
+# 导入 tqdm 库用于显示进度条
 from tqdm.auto import tqdm
 
 # 设置日志记录器
@@ -136,8 +137,8 @@ class TimeSeriesDataset(Dataset):
             # 可生成的窗口数量 = 总样本数 - 窗口大小 + 1
             # 例如：数据 [0,1,2,3,4], window_size=3. 窗口起始索引 0, 1, 2. Num windows = 5 - 3 + 1 = 3.
             self.num_windows = self.num_samples - window_size + 1
-        logger.info(f"TimeSeriesDataset 初始化: 原始样本数={self.num_samples}, 窗口大小={self.window_size}, "
-                    f"特征维度={self.num_original_features}, 可生成窗口数={self.num_windows}")
+        # logger.info(f"TimeSeriesDataset 初始化: 原始样本数={self.num_samples}, 窗口大小={self.window_size}, "
+        #             f"特征维度={self.num_original_features}, 可生成窗口数={self.num_windows}")
 
     def __len__(self) -> int:
         """
@@ -537,7 +538,7 @@ def prepare_data_for_transformer(
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
 
     # 校验分割比例
-    if not (0 < train_split < 1 and 0 <= val_split < 1 and train_split + val_split <= 1.000001): # 增加浮点容差
+    if not (0 < train_split < 1 and 0 <= val_split < 1 and train_split + val_split <= 1.00001): # 增加浮点容差
         logger.error(f"无效的数据集分割比例: train_split={train_split}, val_split={val_split}。"
                      f"比例应在 (0,1) (训练集) 或 [0,1) (验证集) 范围内，且总和 <= 1。")
         empty_np_array = np.array([], dtype=np.float32)
@@ -576,7 +577,7 @@ def prepare_data_for_transformer(
     # --- 6. (可选) PCA 降维 ---
     # PCA 应在数据分割后，且仅在训练集上拟合，然后应用到验证集和测试集
     pca_applied = False
-    pca_model: Optional[PCA] = None # 修改: 类型提示
+    pca_model: Optional[PCA] = None #  类型提示
     scaler_for_pca: Optional[StandardScaler] = None # 新增: PCA前的缩放器
     if use_pca:
         if features_eng_train.shape[1] <= 1:
@@ -596,7 +597,7 @@ def prepare_data_for_transformer(
             try:
                 features_train_scaled_for_pca = scaler_for_pca.fit_transform(features_eng_train)
 
-                pca_model = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=random_state_seed) # 修改: 使用random_state_seed
+                pca_model = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=random_state_seed) #  使用random_state_seed
                 pca_model.fit(features_train_scaled_for_pca)
                 num_components_retained = pca_model.n_components_
                 explained_variance_ratio = sum(pca_model.explained_variance_ratio_)
@@ -657,14 +658,14 @@ def prepare_data_for_transformer(
                 else: # pragma: no cover (依赖外部XGBoost)
                     selector_model_instance = xgb.XGBRegressor(
                         objective='reg:squarederror', n_estimators=fs_model_n_estimators,
-                        max_depth=fs_model_max_depth, random_state=random_state_seed, # 修改: 使用random_state_seed
+                        max_depth=fs_model_max_depth, random_state=random_state_seed, #  使用random_state_seed
                         n_jobs=-1, verbosity=0 # XGBoost 1.6+ use verbosity
                     )
             else:
                 logger.warning(f"不支持的特征选择模型类型: {feature_selector_model_type}。将使用 RandomForest。")
                 selector_model_instance = RandomForestRegressor(
                     n_estimators=fs_model_n_estimators, max_depth=fs_model_max_depth,
-                    random_state=random_state_seed, n_jobs=-1 # 修改: 使用random_state_seed
+                    random_state=random_state_seed, n_jobs=-1 #  使用random_state_seed
                 )
 
             try:
@@ -686,7 +687,7 @@ def prepare_data_for_transformer(
                     logger.info(f"特征选择方式: 使用阈值 '{fs_selection_threshold}'。")
 
                 # 在训练数据上拟合选择器模型
-                feature_selector_model.fit(features_eng_train, targets_train_raw) # 修改: 拟合模型
+                feature_selector_model.fit(features_eng_train, targets_train_raw) #  拟合模型
                 selected_indices_fs = feature_selector_model.get_support(indices=True)
                 num_selected_fs = len(selected_indices_fs)
 
@@ -768,7 +769,7 @@ def prepare_data_for_transformer(
 
     # --- 9. 目标变量缩放 (Target Scaling) ---
     # 目标变量缩放器在原始训练集目标上拟合
-    target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None # 修改: 类型提示
+    target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None #  类型提示
     if target_scaler_type.lower() == 'minmax':
         target_scaler = MinMaxScaler()
     elif target_scaler_type.lower() == 'standard':
@@ -867,11 +868,11 @@ def build_transformer_model( num_features: int, model_config: Dict[str, Any], su
         window_size=window_size # 传递窗口大小给模型，主要用于 PositionalEncoding
     )
 
-    if summary:
-        logger.info("Transformer 模型结构:")
-        logger.info(str(model)) # 打印模型对象会显示其模块结构
-        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        logger.info(f"模型可训练参数总量: {total_params:,}")
+    # if summary:
+    #     logger.info("Transformer 模型结构:")
+    #     logger.info(str(model)) # 打印模型对象会显示其模块结构
+    #     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    #     logger.info(f"模型可训练参数总量: {total_params:,}")
 
     logger.info("Transformer 模型构建完成。")
     return model
@@ -883,36 +884,71 @@ def train_transformer_model(
     model: TransformerModel,
     train_loader: DataLoader,
     val_loader: Optional[DataLoader],
-    target_scaler: Union[MinMaxScaler, StandardScaler],
+    target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler],
     training_config: Dict[str, Any],
     checkpoint_dir: str,
     stock_code: Optional[str] = "STOCK",
-    plot_training_history: bool = False
+    plot_training_history: bool = False,
+    enable_anomaly_detection: bool = False # 新增参数控制异常检测
 ) -> Tuple[TransformerModel, pd.DataFrame]:
     """
-    训练 Transformer 模型，并支持早停、学习率调度、TensorBoard记录、模型检查点以及自动混合精度训练。
-    # ... (其他参数文档保持不变) ...
+    训练 Transformer 模型。
+
     Args:
-        # ...
-        training_config (Dict[str, Any]): 包含训练超参数的字典。
-            # ...
-            - 'use_amp' (bool, optional): 是否启用自动混合精度训练 (AMP)。默认为 False。
-            # ...
-    # ...
+        model (TransformerModel): 要训练的 PyTorch Transformer 模型实例。
+        train_loader (DataLoader): 训练数据加载器。
+        val_loader (Optional[DataLoader]): 验证数据加载器。如果为 None，则不进行验证。
+        target_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler]):
+            用于目标变量反向缩放以计算真实 MAE 的缩放器。
+        training_config (Dict[str, Any]): 包含训练超参数的字典，例如：
+            - 'optimizer' (str): 优化器名称 ('adam', 'adamw', 'rmsprop', 'sgd')。
+            - 'learning_rate' (float): 学习率。
+            - 'weight_decay' (float): 权重衰减。
+            - 'momentum' (float): SGD 或 RMSprop 的动量。
+            - 'loss' (str): 损失函数名称 ('mse', 'mae', 'huber')。
+            - 'huber_delta' (float): HuberLoss 的 delta 参数 (如果使用)。
+            - 'epochs' (int): 训练轮数。
+            - 'early_stopping_patience' (int): 早停的耐心轮数 (基于监控指标)。
+            - 'nan_metric_patience' (int): 监控指标连续为 NaN 时触发早停的耐心轮数。
+            - 'reduce_lr_patience' (int): ReduceLROnPlateau 调度器的耐心轮数。
+            - 'reduce_lr_factor' (float): ReduceLROnPlateau 调度器的学习率衰减因子。
+            - 'monitor_metric' (str): 用于早停和学习率调度的监控指标
+                                      ('val_loss', 'val_mae', 'val_true_mae')。
+            - 'clip_grad_norm' (Optional[float]): 梯度裁剪范数值。若为 None 或 <=0，则不裁剪。
+            - 'use_amp' (bool): 是否使用自动混合精度 (AMP) 训练 (仅限 CUDA)。
+            - 'tensorboard_log_dir' (Optional[str]): TensorBoard 日志的根目录。
+                                                     若为 None，则不使用 TensorBoard。
+        checkpoint_dir (str): 保存最佳模型检查点的目录。
+        stock_code (Optional[str]): 用于日志记录和文件命名的股票代码或标识符。
+        plot_training_history (bool): 是否在训练结束后绘制训练历史图表。
+        enable_anomaly_detection (bool): 是否启用 PyTorch 的异常检测 (torch.autograd.set_detect_anomaly(True))。
+                                         用于调试 NaN/Inf 问题，但会显著降低训练速度。默认为 False。
+    Returns:
+        Tuple[TransformerModel, pd.DataFrame]:
+            - model (TransformerModel): 训练完成或从最佳检查点加载的模型。
+            - history_df (pd.DataFrame): 包含训练历史（损失、MAE、学习率等）的 DataFrame。
     """
     logger.info(f"开始训练 Transformer 模型 (股票/标识: {stock_code})...")
     logger.info(f"训练配置: {training_config}")
 
-    # --- 1. 设备设置 (GPU 或 CPU) ---
+    # 根据参数启用 PyTorch 异常检测
+    if enable_anomaly_detection:
+        torch.autograd.set_detect_anomaly(True)
+        logger.warning("PyTorch 异常检测已启用 (torch.autograd.set_detect_anomaly(True))。这将显著降低训练速度，请仅用于调试目的。")
+    else:
+        # 确保如果之前在其他地方被打开，这里可以明确关闭 (虽然通常不需要这么做，除非有全局状态管理问题)
+        # torch.autograd.set_detect_anomaly(False) # 一般不需要显式关闭，除非要覆盖之前的全局设置
+        pass
+
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"使用设备: {device}")
-    model.to(device) # 将模型移动到指定设备
+    model.to(device)
 
-    # --- 2. 优化器设置 ---
     optimizer_name = training_config.get('optimizer', 'adam').lower()
     learning_rate = training_config.get('learning_rate', 0.001)
     weight_decay = training_config.get('weight_decay', 0.0)
-    momentum = training_config.get('momentum', 0.0) # 主要用于 SGD, RMSprop
+    momentum = training_config.get('momentum', 0.0)
 
     optimizer: optim.Optimizer
     if optimizer_name == 'adam':
@@ -924,11 +960,10 @@ def train_transformer_model(
     elif optimizer_name == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
     else:
-        logger.warning(f"未知的优化器名称: '{optimizer_name}'。将默认使用 Adam (lr={learning_rate}, weight_decay={weight_decay})。")
+        logger.warning(f"未知的优化器名称: '{optimizer_name}'。将默认使用 Adam.")
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     logger.info(f"优化器: {optimizer_name}, 学习率: {learning_rate}, 权重衰减: {weight_decay}")
 
-    # --- 3. 损失函数设置 ---
     loss_name = training_config.get('loss', 'mse').lower()
     criterion: nn.Module
     if loss_name == 'mse':
@@ -940,62 +975,55 @@ def train_transformer_model(
         criterion = nn.HuberLoss(delta=huber_delta)
         logger.info(f"使用 HuberLoss (delta={huber_delta:.2f})")
     else:
-        logger.warning(f"未知的损失函数名称: '{loss_name}'。将默认使用 MSELoss。")
+        logger.warning(f"未知的损失函数名称: '{loss_name}'。将默认使用 MSELoss.")
         criterion = nn.MSELoss()
     logger.info(f"损失函数: {loss_name}")
 
-    # --- 4. 评估指标 ---
-    mae_eval_metric = nn.L1Loss()
+    mae_eval_metric = nn.L1Loss() # 用于评估 MAE (scaled)
 
-    # --- 5. 训练过程控制参数 ---
     epochs = training_config.get('epochs', 100)
     early_stopping_patience = training_config.get('early_stopping_patience', 30)
+    nan_metric_patience = training_config.get('nan_metric_patience', 5) # NaN 指标的耐心
     reduce_lr_patience = training_config.get('reduce_lr_patience', 10)
     reduce_lr_factor = training_config.get('reduce_lr_factor', 0.5)
     monitor_metric = training_config.get('monitor_metric', 'val_loss').lower()
-    verbose_level = training_config.get('verbose', 1)
-    clip_grad_norm_value = training_config.get('clip_grad_norm', None)
-    use_amp_config = training_config.get('use_amp', False)
-    scaler = None
-    if use_amp_config:
-        if device.type == 'cuda':
-            scaler = torch.amp.GradScaler('cuda') # GradScaler 的导入和使用方式保持不变
-            logger.info("自动混合精度训练 (AMP) 已配置启用，并将在 CUDA 设备上使用 GradScaler。")
-        else:
-            logger.warning(f"自动混合精度训练 (AMP) 配置为启用，但当前设备是 '{device.type}' 而不是 'cuda'。AMP 将被禁用。")
-    else:
-        logger.info("自动混合精度训练 (AMP) 未启用。")
-    lr_scheduler_type = training_config.get('lr_scheduler', 'ReduceLROnPlateau').lower()
+    clip_grad_norm_value = training_config.get('clip_grad_norm', None) # 梯度裁剪值
+    use_amp_config = training_config.get('use_amp', False) # 是否使用AMP
 
-    # --- 6. 学习率调度器 ---
+    grad_scaler = None # 初始化梯度缩放器为 None
+    if use_amp_config and device.type == 'cuda':
+        grad_scaler = torch.amp.GradScaler('cuda') # pylint: disable=not-callable
+        logger.info("自动混合精度训练 (AMP) 已启用 (CUDA)。")
+    elif use_amp_config: # device.type != 'cuda'
+        logger.warning(f"AMP 配置为启用但设备为 '{device.type}'。AMP 将被禁用。")
+    else: # use_amp_config is False
+        logger.info("自动混合精度训练 (AMP) 未启用。")
+
+    # 初始化学习率调度器
+    lr_scheduler_type = training_config.get('lr_scheduler', 'ReduceLROnPlateau').lower()
     scheduler = None
-    scheduler_mode = 'min'
-    if 'acc' in monitor_metric or 'r2' in monitor_metric:
-        scheduler_mode = 'max'
+    scheduler_mode = 'min' if 'loss' in monitor_metric or 'mae' in monitor_metric else 'max'
 
     if val_loader is not None and len(val_loader) > 0 and reduce_lr_patience > 0:
          scheduler = ReduceLROnPlateau(
-             optimizer,
-             mode=scheduler_mode,
-             factor=reduce_lr_factor,
-             patience=reduce_lr_patience,
-             min_lr=1e-7
+             optimizer, mode=scheduler_mode, factor=reduce_lr_factor,
+             patience=reduce_lr_patience, min_lr=1e-7 # 学习率下限
          )
-         logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', "
-                     f"factor={reduce_lr_factor}, patience={reduce_lr_patience}.")
-    elif reduce_lr_patience > 0 :
-         logger.warning("验证集 (val_loader) 为空或未提供，ReduceLROnPlateau 将被禁用，即使 patience > 0。")
+         logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', factor={reduce_lr_factor}, patience={reduce_lr_patience}.")
+    elif reduce_lr_patience > 0: # 有耐心设置但无验证集
+         logger.warning("验证集 (val_loader) 为空或未提供，ReduceLROnPlateau 将被禁用。")
 
-    # --- 7. 早停逻辑初始化 ---
+    # 早停和最佳模型保存相关变量
     best_monitored_value = float('inf') if scheduler_mode == 'min' else float('-inf')
     epochs_no_improve = 0
+    consecutive_nan_metric_epochs = 0 # 连续出现 NaN 监控指标的轮数
     early_stop_triggered = False
+    training_halted_due_to_nan_params = False # 标记因参数NaN导致训练停止
 
-    # --- 8. 模型检查点路径 ---
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True) # 确保检查点目录存在
     best_model_filepath = os.path.join(checkpoint_dir, f"best_transformer_model_{stock_code}.pth")
 
-    # --- 9. TensorBoard 设置 ---
+    # TensorBoard writer
     writer = None
     tensorboard_log_dir_base = training_config.get('tensorboard_log_dir', None)
     if tensorboard_log_dir_base:
@@ -1005,274 +1033,443 @@ def train_transformer_model(
         writer = SummaryWriter(log_dir=run_log_dir)
         logger.info(f"启用 TensorBoard: 日志将保存到 '{run_log_dir}'")
 
-    # --- 10. 训练历史记录 ---
-    history = {
-        'epoch': [], 'loss': [], 'mae': [], 'lr': [],
-        'val_loss': [], 'val_mae': [], 'val_true_mae': []
-    }
+    # 存储训练历史
+    history = {'epoch': [], 'loss': [], 'mae': [], 'lr': [], 'val_loss': [], 'val_mae': [], 'val_true_mae': []}
 
-    # --- 11. 训练循环 ---
-    logger.info(f"开始训练，共 {epochs} 轮。每轮训练批次数: {len(train_loader)}, "
-                f"验证批次数: {len(val_loader) if val_loader else 0}。")
-
+    logger.info(f"开始训练，共 {epochs} 轮。每轮训练批次数: {len(train_loader)}, 验证批次数: {len(val_loader) if val_loader else 0}.")
     if len(train_loader) == 0:
-        logger.error("训练 DataLoader 为空，无法进行模型训练。请检查数据准备和 DataLoader 配置。")
+        logger.error("训练 DataLoader 为空，无法进行模型训练。")
         if writer: writer.close()
-        return model, pd.DataFrame(history)
+        # 如果异常检测开启，在函数退出前尝试恢复其默认状态
+        if enable_anomaly_detection:
+            torch.autograd.set_detect_anomaly(False) # pylint: disable=not-callable
+            logger.info("PyTorch 异常检测已禁用。")
+        return model, pd.DataFrame(history) # 返回空的 history
 
-    for epoch in range(epochs):
-        epoch_start_time = time.time()
-        model.train()
-        epoch_train_loss = 0
-        epoch_train_mae = 0
+    # --- 训练循环 ---
+    try: # 将整个训练循环包裹在try...finally中，以确保异常检测被关闭
+        for epoch in range(epochs):
+            epoch_start_time = time.time()
+            model.train() # 设置为训练模式
+            epoch_train_loss_sum = 0.0
+            epoch_train_mae_sum = 0.0 # 存储缩放后的 MAE
+            num_train_samples = 0
+            nan_batches_in_train_epoch = 0 # 记录训练中出现 NaN 的批次数
 
-        # 【代码修改】使用 tqdm 包装 train_loader，显示训练进度条
-        train_loop = tqdm(train_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Train]")
-        for batch_idx, (inputs, targets) in enumerate(train_loop):
-            inputs, targets = inputs.to(device), targets.to(device)
-            optimizer.zero_grad(set_to_none=True)
+            # 使用 tqdm 创建训练进度条
+            train_loop = tqdm(train_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Train]")
+            for batch_idx, (inputs, targets) in enumerate(train_loop):
+                inputs, targets = inputs.to(device), targets.to(device)
+                current_batch_size = inputs.size(0)
 
-            # --- 【代码修改】混合精度训练逻辑更新 ---
-            if scaler: # 如果 scaler 存在，意味着 AMP 在 CUDA 上已启用并配置
-                # 【代码修改】将 torch.cuda.amp.autocast() 替换为 torch.autocast(device_type=device.type)
-                with torch.autocast(device_type=device.type): # 自动判断设备类型 ('cuda' 或 'cpu')
-                    outputs = model(inputs)
-                    loss = criterion(outputs, targets)
-                # 【代码修改结束】
-                scaler.scale(loss).backward()
-                if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
-                scaler.step(optimizer)
-                scaler.update()
-            else: # 普通 FP32 训练路径
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
-                loss.backward()
-                if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
-                optimizer.step()
-            # --- 【代码修改结束】---
+                # 检查输入和目标中是否有 NaN/Inf (可选，但有助于早期发现问题)
+                if torch.isnan(inputs).any() or torch.isinf(inputs).any():
+                    logger.error(f"检测到 NaN/Inf 在输入数据中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                    # 可以选择跳过此批次或引发错误
+                if torch.isnan(targets).any() or torch.isinf(targets).any():
+                    logger.error(f"检测到 NaN/Inf 在目标数据中！Epoch {epoch+1}, Batch {batch_idx+1}.")
 
-            epoch_train_loss += loss.item() * inputs.size(0)
-            with torch.no_grad():
-                epoch_train_mae += mae_eval_metric(outputs, targets).item() * inputs.size(0)
+                optimizer.zero_grad(set_to_none=True) # 更高效地清零梯度
 
-            # 【代码修改】更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
-            train_loop.set_postfix(loss=loss.item(), mae=mae_eval_metric(outputs, targets).item())
+                batch_loss_train = torch.tensor(np.nan, device=device) # 初始化为 NaN
+                batch_mae_train = torch.tensor(np.nan, device=device)  # 初始化为 NaN
+                outputs = None # 初始化 outputs
+                performed_optimizer_step = False # 标记是否成功执行了 optimizer.step()
 
-            # 【代码修改】移除或注释掉冗余的每批次日志，依赖 tqdm 显示
-            # if verbose_level == 2:
-            #     logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
-            #         f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
+                try:
+                    if grad_scaler: # 使用 AMP
+                        with torch.autocast(device_type=device.type): # pylint: disable=not-callable
+                            outputs = model(inputs)
+                            # 检查模型输出
+                            if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                                logger.error(f"AMP: 检测到 NaN/Inf 在模型输出中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                                raise ValueError("AMP model output is NaN/Inf") # 触发批次级异常处理
+                            batch_loss_train = criterion(outputs, targets)
+                            # 检查损失值
+                            if torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train):
+                                 logger.error(f"AMP: 检测到 NaN/Inf 在损失值中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                                 raise ValueError("AMP loss is NaN/Inf") # 触发批次级异常处理
 
-        avg_train_loss = epoch_train_loss / len(train_loader.dataset)
-        avg_train_mae = epoch_train_mae / len(train_loader.dataset)
-        current_lr = optimizer.param_groups[0]['lr']
+                        grad_scaler.scale(batch_loss_train).backward() # backward() 可能触发 set_detect_anomaly
+                        # 梯度裁剪 (在 unscale 之后，step 之前)
+                        if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
+                            grad_scaler.unscale_(optimizer) # Unscale 梯度以便裁剪
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
+                        grad_scaler.step(optimizer)
+                        grad_scaler.update()
+                        performed_optimizer_step = True
+                    else: # 不使用 AMP
+                        outputs = model(inputs)
+                        # 检查模型输出
+                        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                            logger.error(f"检测到 NaN/Inf 在模型输出中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                            raise ValueError("Model output is NaN/Inf") # 触发批次级异常处理
 
-        history['epoch'].append(epoch + 1)
-        history['loss'].append(avg_train_loss)
-        history['mae'].append(avg_train_mae)
-        history['lr'].append(current_lr)
+                        batch_loss_train = criterion(outputs, targets)
+                        # 检查损失值
+                        if torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train):
+                            logger.error(f"检测到 NaN/Inf 在损失值中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                            raise ValueError("Loss is NaN/Inf") # 触发批次级异常处理
 
-        avg_val_loss = np.nan
-        avg_val_mae = np.nan
-        avg_val_true_mae = np.nan
+                        batch_loss_train.backward() # backward() 可能触发 set_detect_anomaly
+                        
+                        # 在 optimizer.step() 之前检查梯度是否有 NaN/Inf (可选，但对调试有用)
+                        found_nan_grad = False
+                        for name, param in model.named_parameters():
+                            if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
+                                logger.error(f"检测到 NaN/Inf 在参数 '{name}' 的梯度中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                                found_nan_grad = True
+                                break
+                        
+                        if found_nan_grad:
+                            logger.error(f"由于梯度中存在NaN/Inf，已跳过 optimizer.step()。Epoch {epoch+1}, Batch {batch_idx+1}")
+                            raise ValueError("Gradient is NaN/Inf") # 触发批次级异常处理，避免更新参数
 
-        if val_loader is not None and len(val_loader) > 0:
-            model.eval()
-            epoch_val_loss = 0
-            epoch_val_mae = 0
-            epoch_val_true_mae = 0
+                        # 梯度裁剪
+                        if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
+                        
+                        optimizer.step()
+                        performed_optimizer_step = True
 
-            # 【代码修改】使用 tqdm 包装 val_loader，显示验证进度条
-            val_loop = tqdm(val_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Validate]")
-            with torch.no_grad(): # 在评估阶段不计算梯度
-                for val_inputs, val_targets in val_loop:
-                    val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                    # 【代码修改】在验证阶段也应使用 autocast，如果模型训练时使用了 AMP，确保推理与训练行为一致性
-                    if scaler: # 同样，如果训练时用了 AMP，验证时也用
-                        with torch.autocast(device_type=device.type):
-                            val_outputs = model(val_inputs)
-                            val_loss_batch = criterion(val_outputs, val_targets)
-                            val_mae_batch = mae_eval_metric(val_outputs, val_targets)
-                    else:
-                        val_outputs = model(val_inputs)
-                        val_loss_batch = criterion(val_outputs, val_targets)
-                        val_mae_batch = mae_eval_metric(val_outputs, val_targets)
-                    # 【代码修改结束】
-                    epoch_val_loss += val_loss_batch.item() * val_inputs.size(0)
-                    epoch_val_mae += val_mae_batch.item() * val_inputs.size(0)
+                    # 如果成功计算了损失和输出了，计算 MAE
+                    with torch.no_grad(): # 不计算梯度
+                        batch_mae_train = mae_eval_metric(outputs, targets)
 
-                    if target_scaler:
-                        val_outputs_np = val_outputs.cpu().numpy()
-                        val_targets_np = val_targets.cpu().numpy()
-                        try:
-                            val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
-                            val_targets_original = target_scaler.inverse_transform(val_targets_np)
-                            true_mae_batch_val = np.mean(np.abs(val_outputs_original - val_targets_original))
-                            epoch_val_true_mae += true_mae_batch_val * val_inputs.size(0)
-                        except Exception as e_inv_transform:
-                            # 【代码修改】将警告级别降低，避免频繁打印
-                            # logger.warning(f"Epoch {epoch+1}: 反标准化验证集预测/目标时出错: {e_inv_transform}。真实MAE可能不准确。")
-                            pass # 忽略单个批次的转换警告，总体的 nan 检查在后面
-                    else:
-                        epoch_val_true_mae = np.nan
+                except ValueError as e_nan_inf: # 捕获由 NaN/Inf 引发的 ValueError
+                    logger.warning(f"Epoch {epoch+1}, Batch {batch_idx+1}: 训练中因 '{e_nan_inf}' 提前中止此批次。")
+                    nan_batches_in_train_epoch +=1
+                    # 此处不 break 或 continue，让循环自然结束，后续会检查 nan_batches_in_train_epoch
+                except Exception as e_batch: # 其他所有在批次级别捕获的错误
+                    logger.error(f"训练批次 Epoch {epoch+1}, Batch {batch_idx+1} 发生未知错误: {e_batch}", exc_info=True)
+                    nan_batches_in_train_epoch +=1 # 也视为NaN批次
+                    # 如果启用了异常检测，并且错误与autograd相关，它会打印堆栈跟踪
+                    if enable_anomaly_detection and isinstance(e_batch, RuntimeError) and "Traceback of forward call that caused the error" in str(e_batch):
+                        logger.error("PyTorch anomaly detection pinpointed an error in the forward pass. Check logs above for details.")
+                        # 可以在这里决定是否立即停止训练
+                        # training_halted_due_to_nan_params = True # 或者一个更通用的标志
+                        break
 
-                    # 【代码修改】更新 tqdm 进度条的 postfix 信息，显示当前批次的验证损失和 MAE
-                    val_loop.set_postfix(val_loss=val_loss_batch.item(), val_mae=val_mae_batch.item())
+                # 在 optimizer.step() 之后检查模型参数是否有 NaN/Inf (关键检查点)
+                if performed_optimizer_step: # 仅当 optimizer.step() 被执行后才检查
+                    for name, param in model.named_parameters():
+                        if torch.isnan(param.data).any() or torch.isinf(param.data).any():
+                            logger.error(f"严重错误: 模型参数 '{name}' 在 optimizer.step() 后包含 NaN/Inf！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                            training_halted_due_to_nan_params = True # 设置标志，终止训练
+                            break # 跳出参数检查循环
+                    if training_halted_due_to_nan_params: # 如果在参数检查中发现NaN
+                        break # 跳出当前批次循环 (for batch_idx)
 
-            avg_val_loss = epoch_val_loss / len(val_loader.dataset)
-            avg_val_mae = epoch_val_mae / len(val_loader.dataset)
-            if not np.isnan(epoch_val_true_mae) and len(val_loader.dataset) > 0: # 确保分母不为0
-                 avg_val_true_mae = epoch_val_true_mae / len(val_loader.dataset)
-            else:
-                 avg_val_true_mae = np.nan
+                # 累加有效的损失和 MAE
+                if not (torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train)):
+                    epoch_train_loss_sum += batch_loss_train.item() * current_batch_size
+                # 只有当 outputs 不是 None 且不含 NaN/Inf 时才计算 MAE
+                if outputs is not None and not (torch.isnan(outputs).any() or torch.isinf(outputs).any()):
+                    if not (torch.isnan(batch_mae_train) or torch.isinf(batch_mae_train)):
+                        epoch_train_mae_sum += batch_mae_train.item() * current_batch_size
+                num_train_samples += current_batch_size
+                train_loop.set_postfix(loss=batch_loss_train.item(), mae=batch_mae_train.item()) # 更新进度条显示
+            
+            # 在批次循环 (train_loop) 结束后，检查 training_halted_due_to_nan_params
+            # 这个标志可能在批次循环内部被设置为 True
+            if training_halted_due_to_nan_params:
+                # 日志信息更清晰地指明是在训练批次中出现问题导致整个训练中止
+                logger.error(f"Epoch {epoch+1} 因模型参数在训练批次中出现NaN/Inf而提前终止整个训练。")
+                early_stop_triggered = True # 标记早停
+                # 确保在因 NaN 参数中止训练时，所有 history 列表长度一致
+                # 为当前失败的 epoch 记录所有相关的 history 指标为 NaN 或已知值
+                # 关键是确保每个列表都增加了一个元素
+                history['epoch'].append(epoch + 1)  # 记录当前失败的 epoch 编号
+                history['loss'].append(np.nan)      # 记录训练损失为 NaN
+                history['mae'].append(np.nan)       # 记录训练 MAE 为 NaN
+                # 此处 current_lr 可能尚未在当前 epoch 中被赋值 (如果训练批次循环一开始就出问题)
+                # 使用 optimizer.param_groups[0]['lr'] 获取当前学习率是更稳妥的做法
+                history['lr'].append(optimizer.param_groups[0]['lr']) # 记录当前学习率
+                history['val_loss'].append(np.nan)  # 记录验证损失为 NaN
+                history['val_mae'].append(np.nan)   # 记录验证 MAE 为 NaN
+                history['val_true_mae'].append(np.nan) # 记录真实验证 MAE 为 NaN
+                break # 正式跳出 epoch 循环 (for epoch)
 
-            history['val_loss'].append(avg_val_loss)
-            history['val_mae'].append(avg_val_mae)
-            history['val_true_mae'].append(avg_val_true_mae)
+            # 计算平均训练损失和 MAE
+            if nan_batches_in_train_epoch > 0: # 如果训练中有 NaN 批次
+                 logger.warning(f"Epoch {epoch+1}: 训练中有 {nan_batches_in_train_epoch}/{len(train_loader)} 个批次出现NaN/Inf问题。")
+            # 仅当有效样本数大于0且损失和不为0时计算平均值，否则为NaN
+            avg_train_loss = epoch_train_loss_sum / num_train_samples if num_train_samples > 0 and epoch_train_loss_sum != 0 else np.nan
+            avg_train_mae = epoch_train_mae_sum / num_train_samples if num_train_samples > 0 and epoch_train_mae_sum != 0 else np.nan
+            current_lr = optimizer.param_groups[0]['lr']
 
-            monitored_value_for_scheduler = np.nan
-            if monitor_metric == 'val_loss':
-                monitored_value_for_scheduler = avg_val_loss
-            elif monitor_metric == 'val_mae':
-                monitored_value_for_scheduler = avg_val_mae
-            elif monitor_metric == 'val_true_mae':
-                 monitored_value_for_scheduler = avg_val_true_mae
-            else:
-                logger.warning(f"未知的 monitor_metric '{monitor_metric}' 用于学习率调度和早停，将默认使用 'val_loss'。")
-                monitored_value_for_scheduler = avg_val_loss
-                monitor_metric = 'val_loss'
+            # 记录训练指标
+            history['epoch'].append(epoch + 1)
+            history['loss'].append(avg_train_loss)
+            history['mae'].append(avg_train_mae) # 记录缩放后的 MAE
+            history['lr'].append(current_lr)
 
-            if lr_scheduler_type == 'reducelronplateau':
-                if scheduler and not np.isnan(monitored_value_for_scheduler):
-                    scheduler.step(monitored_value_for_scheduler)
-                    new_lr = optimizer.param_groups[0]['lr']
-                    if new_lr < current_lr:
-                        logger.info(f"Epoch {epoch+1}: 学习率从 {current_lr:.2e} 降低到 {new_lr:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler:.4f})")
-            elif lr_scheduler_type in ['cosineannealinglr', 'onecyclelr']: # 假设未来可能添加这些
-                if scheduler:
-                    scheduler.step() # 这些调度器可能不需要指标
+            # 初始化验证指标为 NaN
+            avg_val_loss, avg_val_mae, avg_val_true_mae = np.nan, np.nan, np.nan
 
-            if early_stopping_patience > 0:
-                current_monitored_value_for_early_stop = monitored_value_for_scheduler # 使用与调度器相同的指标
-                improved = False
-                if not np.isnan(current_monitored_value_for_early_stop): # 只有在监控指标有效时才进行比较
-                    if scheduler_mode == 'min' and current_monitored_value_for_early_stop < best_monitored_value:
-                        improved = True
-                    elif scheduler_mode == 'max' and current_monitored_value_for_early_stop > best_monitored_value:
-                        improved = True
-
-                if improved:
-                    best_monitored_value = current_monitored_value_for_early_stop
-                    epochs_no_improve = 0
-                    torch.save(model.state_dict(), best_model_filepath)
-                    logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 提升 ({best_monitored_value:.4f})。保存最佳模型到 '{best_model_filepath}'")
-                else:
-                    epochs_no_improve += 1
-                    # 【代码修改】将未提升的日志级别降低，避免频繁打印
-                    # logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 未提升。已连续 {epochs_no_improve} 轮未提升。")
-                    if epochs_no_improve >= early_stopping_patience:
-                        logger.info(f"验证集 {monitor_metric} 连续 {early_stopping_patience} 轮未提升，触发早停。")
-                        early_stop_triggered = True
-        else:
-            history['val_loss'].append(np.nan)
-            history['val_mae'].append(np.nan)
-            history['val_true_mae'].append(np.nan)
-            logger.info(f"Epoch {epoch+1}: 无验证集，跳过验证、早停和学习率调度。")
-
-        epoch_duration = time.time() - epoch_start_time
-        # 【代码修改】调整 epoch 结束时的日志，包含训练和验证的汇总信息
-        val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
-        log_message = (f"Epoch {epoch+1}/{epochs} 结束 - 耗时: {epoch_duration:.2f}s - "
-                       f"训练损失: {avg_train_loss:.4f} - 训练MAE: {avg_train_mae:.4f} - 当前学习率: {current_lr:.2e}")
-        if val_loader is not None and len(val_loader) > 0:
-            log_message += (f" - 验证损失: {avg_val_loss:.4f} - 验证MAE(缩放后): {avg_val_mae:.4f}"
-                            f" - 验证MAE(真实值): {val_true_mae_str}")
-        logger.info(log_message)
-
-        if writer:
-            writer.add_scalar('Loss/train', avg_train_loss, epoch + 1)
-            writer.add_scalar('MAE/train (scaled)', avg_train_mae, epoch + 1)
+            # --- 验证阶段 ---
             if val_loader is not None and len(val_loader) > 0:
-                if not np.isnan(avg_val_loss): writer.add_scalar('Loss/val', avg_val_loss, epoch + 1)
-                if not np.isnan(avg_val_mae): writer.add_scalar('MAE/val (scaled)', avg_val_mae, epoch + 1)
-                if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE/val (true)', avg_val_true_mae, epoch + 1)
-            writer.add_scalar('Learning Rate', current_lr, epoch + 1)
-            writer.flush()
+                model.eval() # 设置为评估模式
+                epoch_loss_sum_val, epoch_mae_sum_val, epoch_true_mae_sum_val = 0.0, 0.0, 0.0
+                num_valid_samples_for_loss, num_valid_samples_for_mae, num_valid_samples_for_true_mae = 0, 0, 0
+                nan_batches_in_val_epoch = 0 # 记录验证中出现 NaN 的批次数
 
+                val_loop = tqdm(val_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Validate]")
+                with torch.no_grad(): # 禁用梯度计算
+                    for val_batch_idx, (val_inputs, val_targets) in enumerate(val_loop):
+                        val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
+                        current_batch_size_val = val_inputs.size(0)
+                        val_outputs, val_loss_batch, val_mae_batch = None, torch.tensor(np.nan), torch.tensor(np.nan)
+
+                        try:
+                            # 检查验证输入和目标 (可选)
+                            if torch.isnan(val_inputs).any() or torch.isinf(val_inputs).any():
+                                logger.error(f"检测到 NaN/Inf 在验证输入数据中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
+                                raise ValueError("Validation input is NaN/Inf")
+                            if torch.isnan(val_targets).any() or torch.isinf(val_targets).any():
+                                logger.error(f"检测到 NaN/Inf 在验证目标数据中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
+                                raise ValueError("Validation target is NaN/Inf")
+
+                            val_outputs = model(val_inputs)
+                            if torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any():
+                                logger.error(f"检测到 NaN/Inf 在验证模型输出中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
+                                raise ValueError("Validation model output is NaN/Inf")
+
+                            val_loss_batch = criterion(val_outputs, val_targets)
+                            if torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch):
+                                logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次损失为 NaN/Inf。")
+                                raise ValueError("Validation loss is NaN/Inf") # 标记此批次指标无效
+                            
+                            val_mae_batch = mae_eval_metric(val_outputs, val_targets) # 计算缩放后的 MAE
+                            if torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch):
+                                logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次MAE(scaled)为 NaN/Inf。")
+                                # 不 raise，允许继续计算 true_mae (如果可能)
+
+                        except ValueError as e_val_nan_inf: # 捕获由 NaN/Inf 引发的 ValueError
+                            logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证中因 '{e_val_nan_inf}' 中止此批次指标计算。")
+                            nan_batches_in_val_epoch += 1
+                            # 不累加此批次的指标
+                        except Exception as e_val_batch: # 其他未知错误
+                            logger.error(f"验证批次 Epoch {epoch+1}, Val_Batch {val_batch_idx+1} 发生未知错误: {e_val_batch}", exc_info=True)
+                            nan_batches_in_val_epoch += 1
+                            # 不累加此批次的指标
+
+                        # 累加有效的验证损失
+                        if not (torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch)):
+                            epoch_loss_sum_val += val_loss_batch.item() * current_batch_size_val
+                            num_valid_samples_for_loss += current_batch_size_val
+                        
+                        # 累加有效的验证 MAE (scaled)
+                        # 仅当 val_outputs 有效且 val_mae_batch 有效时
+                        if val_outputs is not None and not (torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any()):
+                            if not (torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch)):
+                                 epoch_mae_sum_val += val_mae_batch.item() * current_batch_size_val
+                                 num_valid_samples_for_mae += current_batch_size_val
+                            
+                            # 计算真实 MAE (反向缩放后)
+                            if target_scaler: # 确保提供了目标缩放器
+                                val_outputs_np = val_outputs.cpu().numpy()
+                                val_targets_np = val_targets.cpu().numpy()
+                                true_mae_batch_val = np.nan # 初始化为 NaN
+                                # 仅当反向缩放的输入不含 NaN/Inf 时尝试计算
+                                can_compute_true_mae = not (np.isnan(val_outputs_np).any() or np.isinf(val_outputs_np).any() or \
+                                                            np.isnan(val_targets_np).any() or np.isinf(val_targets_np).any())
+                                if can_compute_true_mae:
+                                    try:
+                                        val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
+                                        val_targets_original = target_scaler.inverse_transform(val_targets_np)
+                                        # 再次检查反向缩放后的结果
+                                        if not (np.isnan(val_outputs_original).any() or np.isinf(val_outputs_original).any() or \
+                                                np.isnan(val_targets_original).any() or np.isinf(val_targets_original).any()):
+                                            true_mae_batch_val = np.mean(np.abs(val_outputs_original - val_targets_original))
+                                    except Exception: # pylint: disable=broad-except
+                                        # logger.debug(f"反向缩放或计算真实MAE时出错 (Epoch {epoch+1}, Val_Batch {val_batch_idx+1})", exc_info=True)
+                                        pass # 保持 true_mae_batch_val 为 NaN
+                                if not np.isnan(true_mae_batch_val): # 如果成功计算
+                                    epoch_true_mae_sum_val += true_mae_batch_val * current_batch_size_val
+                                    num_valid_samples_for_true_mae += current_batch_size_val
+                        val_loop.set_postfix(val_loss=val_loss_batch.item(), val_mae=val_mae_batch.item())
+                
+                if nan_batches_in_val_epoch > 0: # 如果验证中有 NaN 批次
+                    logger.warning(f"Epoch {epoch+1}: 验证中有 {nan_batches_in_val_epoch}/{len(val_loader)} 个批次出现NaN/Inf问题。")
+
+                # 计算平均验证指标
+                avg_val_loss = epoch_loss_sum_val / num_valid_samples_for_loss if num_valid_samples_for_loss > 0 else np.nan
+                avg_val_mae = epoch_mae_sum_val / num_valid_samples_for_mae if num_valid_samples_for_mae > 0 else np.nan
+                avg_val_true_mae = epoch_true_mae_sum_val / num_valid_samples_for_true_mae if num_valid_samples_for_true_mae > 0 else np.nan
+
+                history['val_loss'].append(avg_val_loss)
+                history['val_mae'].append(avg_val_mae)
+                history['val_true_mae'].append(avg_val_true_mae)
+
+                # --- 学习率调度与早停逻辑 ---
+                # 获取用于调度器和早停的监控值
+                monitored_value_for_scheduler = np.nan
+                if monitor_metric == 'val_loss': monitored_value_for_scheduler = avg_val_loss
+                elif monitor_metric == 'val_mae': monitored_value_for_scheduler = avg_val_mae
+                elif monitor_metric == 'val_true_mae': monitored_value_for_scheduler = avg_val_true_mae
+                
+                # monitored_value_for_scheduler_for_lr_es 是实际用于学习率和早停决策的值
+                monitored_value_for_scheduler_for_lr_es = np.nan
+                if np.isnan(monitored_value_for_scheduler):
+                    logger.warning(f"监控指标 '{monitor_metric}' 在 Epoch {epoch+1} 为 NaN。")
+                    consecutive_nan_metric_epochs += 1 # 累加连续 NaN 轮数
+                    # 如果主要监控指标是NaN，但val_loss不是NaN，则尝试用val_loss
+                    if monitor_metric != 'val_loss' and not np.isnan(avg_val_loss):
+                         logger.info(f"回退到使用 'val_loss' ({avg_val_loss:.4f}) 进行学习率调度/早停决策。")
+                         monitored_value_for_scheduler_for_lr_es = avg_val_loss
+                    # else: monitored_value_for_scheduler_for_lr_es remains np.nan
+                else: # 监控指标有效
+                    consecutive_nan_metric_epochs = 0 # 重置连续 NaN 轮数
+                    monitored_value_for_scheduler_for_lr_es = monitored_value_for_scheduler
+
+                # 学习率调度器步骤 (仅当监控值有效时)
+                if lr_scheduler_type == 'reducelronplateau' and scheduler and not np.isnan(monitored_value_for_scheduler_for_lr_es):
+                    scheduler.step(monitored_value_for_scheduler_for_lr_es)
+                    new_lr = optimizer.param_groups[0]['lr']
+                    if new_lr < current_lr: # 如果学习率真的降低了
+                        logger.info(f"Epoch {epoch+1}: 学习率从 {current_lr:.2e} 降低到 {new_lr:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler_for_lr_es:.4f})")
+                elif lr_scheduler_type in ['cosineannealinglr', 'onecyclelr'] and scheduler : scheduler.step() # 其他类型的调度器
+
+                # 早停逻辑
+                if early_stopping_patience > 0: # 如果启用了早停
+                    if consecutive_nan_metric_epochs >= nan_metric_patience:
+                        logger.info(f"监控指标 '{monitor_metric}' 连续 {consecutive_nan_metric_epochs} 轮为 NaN，触发早停。")
+                        early_stop_triggered = True
+                    elif not np.isnan(monitored_value_for_scheduler_for_lr_es): # 监控指标有效
+                        improved = False
+                        if scheduler_mode == 'min' and monitored_value_for_scheduler_for_lr_es < best_monitored_value:
+                            improved = True
+                        elif scheduler_mode == 'max' and monitored_value_for_scheduler_for_lr_es > best_monitored_value:
+                            improved = True
+                        
+                        if improved:
+                            best_monitored_value = monitored_value_for_scheduler_for_lr_es
+                            epochs_no_improve = 0 # 重置未提升轮数
+                            torch.save(model.state_dict(), best_model_filepath) # 保存最佳模型
+                            logger.info(f"Epoch {epoch+1}: {monitor_metric} 提升 ({best_monitored_value:.4f})。保存最佳模型。 {stock_code}")
+                        else: # 未提升
+                            epochs_no_improve += 1
+                            logger.info(f"Epoch {epoch+1}: {monitor_metric} ({monitored_value_for_scheduler_for_lr_es:.4f}) 未能超越最佳 ({best_monitored_value:.4f})。连续未提升: {epochs_no_improve}/{early_stopping_patience}")
+                            if epochs_no_improve >= early_stopping_patience:
+                                logger.info(f"{monitor_metric} 连续 {early_stopping_patience} 轮未提升，触发早停。")
+                                early_stop_triggered = True
+                    else: # monitored_value_for_scheduler_for_lr_es is NaN, but consecutive_nan_metric_epochs < nan_metric_patience
+                        epochs_no_improve +=1 # 仍然视为未提升
+                        logger.warning(f"Epoch {epoch+1}: 监控指标 '{monitor_metric}' 为 NaN，视为未提升。连续未提升轮次: {epochs_no_improve}/{early_stopping_patience}")
+                        # 此条件可能在 nan_metric_patience 大于 early_stopping_patience 时，或在 nan_metric_patience 触发前达到 early_stopping_patience
+                        if epochs_no_improve >= early_stopping_patience: 
+                            logger.info(f"监控指标连续 {early_stopping_patience} 轮为 NaN 或未提升，触发早停。")
+                            early_stop_triggered = True
+            else: # 无验证集 (val_loader is None or empty)
+                # 如果没有验证集，则无法进行基于验证指标的早停或学习率调度
+                # 可以选择不记录 val_* 指标，或者记录为 NaN
+                history['val_loss'].append(np.nan)
+                history['val_mae'].append(np.nan)
+                history['val_true_mae'].append(np.nan)
+                # 如果没有验证集，早停可以基于训练损失 (如果需要)
+                # 这里我们简单地继续训练，或者如果训练损失持续为NaN，则停止
+                if np.isnan(avg_train_loss) or np.isinf(avg_train_loss) :
+                    consecutive_nan_metric_epochs +=1 # 使用训练损失作为监控
+                    if consecutive_nan_metric_epochs >= nan_metric_patience:
+                        logger.error(f"训练损失连续 {consecutive_nan_metric_epochs} 轮为NaN，且无验证集，触发早停。")
+                        early_stop_triggered = True
+                else:
+                    consecutive_nan_metric_epochs = 0 # 重置
+
+            # --- Epoch 结束日志与 TensorBoard ---
+            epoch_duration = time.time() - epoch_start_time
+            train_loss_str = f"{avg_train_loss:.4f}" if not np.isnan(avg_train_loss) else "N/A"
+            train_mae_str = f"{avg_train_mae:.4f}" if not np.isnan(avg_train_mae) else "N/A"
+            val_loss_str = f"{avg_val_loss:.4f}" if not np.isnan(avg_val_loss) else "N/A"
+            val_mae_str = f"{avg_val_mae:.4f}" if not np.isnan(avg_val_mae) else "N/A"
+            val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
+
+            log_msg = (
+                f"轮次 {epoch+1}/{epochs} [{epoch_duration:.2f}秒] - "
+                f"学习率: {current_lr:.2e} - "
+                f"训练损失: {train_loss_str}, 训练MAE(缩放): {train_mae_str}"
+            )
+            if val_loader is not None and len(val_loader) > 0:
+                log_msg += f" - 验证损失: {val_loss_str}, 验证MAE(缩放): {val_mae_str}, 验证MAE(真实): {val_true_mae_str}"
+            logger.info(log_msg)
+
+            # 写入 TensorBoard (键名通常保持英文以便兼容工具)
+            if writer:
+                if not np.isnan(avg_train_loss): writer.add_scalar('Loss/train', avg_train_loss, epoch + 1)
+                if not np.isnan(avg_train_mae): writer.add_scalar('MAE_scaled/train', avg_train_mae, epoch + 1)
+                writer.add_scalar('LearningRate', current_lr, epoch + 1)
+                if val_loader is not None and len(val_loader) > 0:
+                    if not np.isnan(avg_val_loss): writer.add_scalar('Loss/validation', avg_val_loss, epoch + 1)
+                    if not np.isnan(avg_val_mae): writer.add_scalar('MAE_scaled/validation', avg_val_mae, epoch + 1)
+                    if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE_true/validation', avg_val_true_mae, epoch + 1)
+
+            if early_stop_triggered: # 如果触发了早停
+                break # 跳出训练循环
+
+        # --- 训练循环结束 ---
         if early_stop_triggered:
-            break
+            logger.info(f"早停在 Epoch {epoch+1} 被触发。")
+            if os.path.exists(best_model_filepath): # 尝试加载最佳模型
+                try:
+                    model.load_state_dict(torch.load(best_model_filepath, map_location=device))
+                    logger.info(f"已从 '{best_model_filepath}' 加载最佳模型 (基于 {monitor_metric}={best_monitored_value:.4f})。")
+                except Exception as e_load: # pylint: disable=broad-except
+                    logger.error(f"加载最佳模型 '{best_model_filepath}' 失败: {e_load}。将返回当前模型状态。", exc_info=True)
+            else: # 如果早停了但没有最佳模型文件 (例如，一开始就 NaN)
+                logger.warning(f"早停已触发，但未找到最佳模型文件 '{best_model_filepath}'。将返回当前模型状态。")
+        else: # 自然结束训练
+            logger.info(f"训练完成 {epochs} 轮。")
+            # 如果没有早停，且有验证集，也应该保存/加载最后一次认为是最佳的模型 (如果 monitor_metric 持续改善到最后)
+            # 或者简单地认为当前模型就是最终模型。这里我们假设，如果没早停，当前模型就是结果。
+            # 如果需要，可以在这里添加逻辑，若 epochs_no_improve=0 且未早停，也保存一下。
 
-    logger.info("模型训练过程结束。")
+    finally: # 确保在函数退出前（无论正常或异常）关闭异常检测
+        if enable_anomaly_detection:
+            torch.autograd.set_detect_anomaly(False) # pylint: disable=not-callable
+            logger.info("PyTorch 异常检测已禁用。")
+        if writer: # 关闭 TensorBoard writer
+            writer.close()
 
-    if os.path.exists(best_model_filepath) and (early_stop_triggered or (val_loader is not None and len(val_loader) > 0)):
-        try:
-            logger.info(f"训练结束，从 '{best_model_filepath}' 加载训练过程中的最佳模型权重...")
-            model.load_state_dict(torch.load(best_model_filepath, map_location=device))
-            logger.info("最佳模型权重加载成功。")
-        except Exception as e_load:
-            logger.error(f"加载最佳模型权重 '{best_model_filepath}' 失败: {e_load}。"
-                         f"将使用训练结束时的模型权重。", exc_info=True)
-    elif val_loader is None or len(val_loader) == 0 :
-        logger.info("由于没有验证集，模型未进行基于验证指标的保存，将使用训练结束时的模型权重。")
-    else:
-        logger.warning(f"未找到预期的最佳模型权重文件: '{best_model_filepath}'。"
-                       f"将使用训练结束时的模型权重。这可能发生在训练初期或所有轮次验证指标都未改善的情况。")
-
+    # 将 history 字典转换为 DataFrame
     history_df = pd.DataFrame(history)
-    if not history_df.empty:
-        logger.debug(f"最终训练历史记录 (后5条):\n{history_df.tail()}")
-    else:
-        logger.warning("训练历史记录为空。")
 
-    if plot_training_history and not history_df.empty:
+    # 可选：绘制训练历史
+    if plot_training_history:
         try:
             fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-            axes[0].plot(history_df['epoch'], history_df['loss'], label='训练损失 (Train Loss)', marker='o', linestyle='-')
+            # 绘制损失
+            if 'loss' in history_df.columns:
+                axes[0].plot(history_df['epoch'], history_df['loss'], label='Train Loss')
             if 'val_loss' in history_df.columns and not history_df['val_loss'].isnull().all():
-                axes[0].plot(history_df['epoch'], history_df['val_loss'], label='验证损失 (Validation Loss)', marker='x', linestyle='--')
-            axes[0].set_title(f'{stock_code} - 模型训练损失曲线 (Model Training Loss)')
-            axes[0].set_ylabel('损失 (Loss)')
+                axes[0].plot(history_df['epoch'], history_df['val_loss'], label='Validation Loss')
+            axes[0].set_ylabel('Loss')
             axes[0].legend()
-            axes[0].grid(True)
+            axes[0].set_title(f'Training and Validation Loss ({stock_code})')
 
-            axes[1].plot(history_df['epoch'], history_df['mae'], label='训练 MAE (scaled)', marker='o', linestyle='-')
-            if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
-                axes[1].plot(history_df['epoch'], history_df['val_mae'], label='验证 MAE (scaled)', marker='x', linestyle='--')
-
-            legend_handles_mae = axes[1].get_legend_handles_labels() # 获取已有的图例
-
-            if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
-                ax2_mae = axes[1].twinx()
-                line_val_true_mae, = ax2_mae.plot(history_df['epoch'], history_df['val_true_mae'], label='验证 MAE (真实值)', marker='s', linestyle=':', color='green')
-                ax2_mae.set_ylabel('真实 MAE (True MAE)')
-                # 合并图例
-                all_lines = legend_handles_mae[0] + [line_val_true_mae]
-                all_labels = legend_handles_mae[1] + [line_val_true_mae.get_label()]
-                axes[1].legend(all_lines, all_labels, loc='best')
-            else:
-                 axes[1].legend(loc='best')
-            axes[1].set_title(f'{stock_code} - 模型训练评估指标 (MAE)')
-            axes[1].set_xlabel('轮次 (Epoch)')
-            axes[1].set_ylabel('MAE (缩放后)')
-            axes[1].grid(True)
+            # 绘制 MAE (可以同时绘制 scaled 和 true MAE)
+            if 'mae' in history_df.columns: # Scaled Train MAE
+                axes[1].plot(history_df['epoch'], history_df['mae'], label='Train MAE (Scaled)')
+            if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all(): # Scaled Val MAE
+                axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
+            if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all(): # True Val MAE
+                axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
+            
+            axes[1].set_xlabel('Epoch')
+            axes[1].set_ylabel('Mean Absolute Error (MAE)')
+            axes[1].legend()
+            axes[1].set_title(f'Training and Validation MAE ({stock_code})')
 
             plt.tight_layout()
-            plot_save_path = os.path.join(checkpoint_dir, f"training_history_transformer_{stock_code}.png")
-            plt.savefig(plot_save_path)
-            logger.info(f"训练历史曲线图已保存到: {plot_save_path}")
-            plt.close(fig)
-        except Exception as e_plot:
+            plot_filename = os.path.join(checkpoint_dir, f"training_history_{stock_code}.png")
+            plt.savefig(plot_filename)
+            logger.info(f"训练历史图表已保存到: {plot_filename}")
+            plt.close(fig) # 关闭图形，释放资源
+        except Exception as e_plot: # pylint: disable=broad-except
             logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
 
-    if writer:
-        writer.close()
-
-    return model, pd.DataFrame(history)
-
-# ... (其他函数 evaluate_transformer_model, predict_with_transformer_model 等保持不变) ...
+    logger.info(f"Transformer 模型训练流程结束 (股票/标识: {stock_code})。")
+    return model, history_df
 
 @log_execution_time
 @handle_exceptions
@@ -1386,7 +1583,6 @@ def predict_with_transformer_model(
     logger.info(f"Transformer 模型预测完成。预测信号 (原始尺度, 0-100范围, 保留2位小数): {final_predicted_signal:.2f}")
     return final_predicted_signal
 
-
 @log_execution_time
 @handle_exceptions # 确保 evaluate 函数也有异常处理
 def evaluate_transformer_model(
@@ -1394,7 +1590,7 @@ def evaluate_transformer_model(
     test_loader: DataLoader,
     criterion: nn.Module,
     target_scaler: Union[MinMaxScaler, StandardScaler],
-    mae_metric: nn.Module, # 【代码修改】新增 mae_metric 参数，用于计算 MAE
+    mae_metric: nn.Module, # 新增 mae_metric 参数，用于计算 MAE
     device: Optional[torch.device] = None
 ) -> Dict[str, float]:
     """
@@ -1405,7 +1601,7 @@ def evaluate_transformer_model(
         criterion (nn.Module): 损失函数实例 (例如 MSELoss)。
         target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的已拟合缩放器，
                                                              用于计算反标准化后的真实 MAE。
-        mae_metric (nn.Module): 用于计算 MAE 的度量实例 (例如 nn.L1Loss())。 # 【代码修改】更新了参数描述
+        mae_metric (nn.Module): 用于计算 MAE 的度量实例 (例如 nn.L1Loss())。 # 更新了参数描述
         device (Optional[torch.device]): 评估设备 (CPU 或 GPU)。如果为 None，则自动检测。
     Returns:
         Dict[str, float]: 包含评估指标的字典:
@@ -1429,9 +1625,9 @@ def evaluate_transformer_model(
     total_test_mae_true = 0.0
     total_samples = 0
     # MAE 评估指标
-    # mae_eval_metric = nn.L1Loss(reduction='sum') # 【代码修改】移除内部定义，使用传入的 mae_metric
+    # mae_eval_metric = nn.L1Loss(reduction='sum') # 移除内部定义，使用传入的 mae_metric
     with torch.no_grad(): # 在评估阶段不计算梯度
-        # 【代码修改】使用 tqdm 包装 test_loader，显示测试进度条
+        # 使用 tqdm 包装 test_loader，显示测试进度条
         test_loop = tqdm(test_loader, leave=False, desc="Evaluating Test Set")
         for inputs, targets_scaled in test_loop:
             inputs, targets_scaled = inputs.to(device), targets_scaled.to(device)
@@ -1441,7 +1637,7 @@ def evaluate_transformer_model(
             loss_batch = criterion(outputs_scaled, targets_scaled)
             total_test_loss += loss_batch.item() * batch_size # 累加批次总损失
             # 2. 计算缩放后的 MAE
-            # 【代码修改】使用传入的 mae_metric。
+            # 使用传入的 mae_metric。
             # 假设 mae_metric 可能返回批次的平均MAE (如 nn.L1Loss() 默认)，
             # 乘以 batch_size 来得到批次的总MAE，以与原始累加逻辑保持一致。
             mae_scaled_batch_val = mae_metric(outputs_scaled, targets_scaled)
@@ -1457,11 +1653,11 @@ def evaluate_transformer_model(
                     mae_true_batch = np.sum(np.abs(outputs_original - targets_original))
                     total_test_mae_true += mae_true_batch
                 except Exception as e_inv_transform_eval:
-                    # 【代码修改】将警告级别降低，避免频繁打印
+                    # 将警告级别降低，避免频繁打印
                     # logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
                     pass # 忽略单个批次的转换警告
             total_samples += batch_size
-            # 【代码修改】更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
+            # 更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
             test_loop.set_postfix(loss=loss_batch.item(), mae_scaled=mae_scaled_batch_val.item())
 
     if total_samples == 0: # 避免除以零
