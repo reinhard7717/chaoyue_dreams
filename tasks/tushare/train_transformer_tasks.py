@@ -4,7 +4,9 @@ import os
 import logging
 import asyncio # 导入 asyncio
 
+from celery import group
 from django.conf import settings
+import numpy as np
 # 假设 StockBasicInfoDao 存在且可用
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 import pandas as pd

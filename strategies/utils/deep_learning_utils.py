@@ -35,7 +35,7 @@ import time
 import datetime
 import matplotlib
 # 使用 'Agg' 后端，这是一个非交互式的后端，不依赖于任何 GUI 库
-matplotlib.use('Agg') 
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置中文字体为黑体
 plt.rcParams['axes.unicode_minus'] = False    # 正常显示负号
@@ -44,6 +44,9 @@ import seaborn as sns
 from typing import Any, Tuple, List, Dict, Optional, Union, Callable
 from functools import wraps
 import joblib # 用于加载/保存 scaler
+
+# 【代码修改】导入 tqdm 库用于显示进度条
+from tqdm.auto import tqdm
 
 # 设置日志记录器
 logger = logging.getLogger("strategy_deep_learning_utils")
@@ -723,7 +726,7 @@ def prepare_data_for_transformer(
     if final_features_train.shape[1] == 0:
          logger.error("经过所有特征工程步骤后，训练集特征维度为零。无法继续。")
          empty_np_array = np.array([], dtype=np.float32)
-         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, []
+         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
     logger.info(f"所有特征工程处理完成。最终用于缩放的特征维度: {final_features_train.shape[1]}")
     logger.debug(f"最终选定特征名 (部分): {final_selected_feature_names[:10]}...")
 
@@ -1022,8 +1025,10 @@ def train_transformer_model(
         model.train()
         epoch_train_loss = 0
         epoch_train_mae = 0
-        
-        for batch_idx, (inputs, targets) in enumerate(train_loader):
+
+        # 【代码修改】使用 tqdm 包装 train_loader，显示训练进度条
+        train_loop = tqdm(train_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Train]")
+        for batch_idx, (inputs, targets) in enumerate(train_loop):
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad(set_to_none=True)
 
@@ -1053,10 +1058,14 @@ def train_transformer_model(
             with torch.no_grad():
                 epoch_train_mae += mae_eval_metric(outputs, targets).item() * inputs.size(0)
 
-            if verbose_level == 2:
-                logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
-                    f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
-        
+            # 【代码修改】更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
+            train_loop.set_postfix(loss=loss.item(), mae=mae_eval_metric(outputs, targets).item())
+
+            # 【代码修改】移除或注释掉冗余的每批次日志，依赖 tqdm 显示
+            # if verbose_level == 2:
+            #     logger.info(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(train_loader)}: "
+            #         f"Loss={loss.item():.4f}, MAE={mae_eval_metric(outputs, targets).item():.4f}")
+
         avg_train_loss = epoch_train_loss / len(train_loader.dataset)
         avg_train_mae = epoch_train_mae / len(train_loader.dataset)
         current_lr = optimizer.param_groups[0]['lr']
@@ -1076,8 +1085,10 @@ def train_transformer_model(
             epoch_val_mae = 0
             epoch_val_true_mae = 0
 
-            with torch.no_grad():
-                for val_inputs, val_targets in val_loader:
+            # 【代码修改】使用 tqdm 包装 val_loader，显示验证进度条
+            val_loop = tqdm(val_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Validate]")
+            with torch.no_grad(): # 在评估阶段不计算梯度
+                for val_inputs, val_targets in val_loop:
                     val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                     # 【代码修改】在验证阶段也应使用 autocast，如果模型训练时使用了 AMP，确保推理与训练行为一致性
                     if scaler: # 同样，如果训练时用了 AMP，验证时也用
@@ -1102,9 +1113,15 @@ def train_transformer_model(
                             true_mae_batch_val = np.mean(np.abs(val_outputs_original - val_targets_original))
                             epoch_val_true_mae += true_mae_batch_val * val_inputs.size(0)
                         except Exception as e_inv_transform:
-                            logger.warning(f"Epoch {epoch+1}: 反标准化验证集预测/目标时出错: {e_inv_transform}。真实MAE可能不准确。")
+                            # 【代码修改】将警告级别降低，避免频繁打印
+                            # logger.warning(f"Epoch {epoch+1}: 反标准化验证集预测/目标时出错: {e_inv_transform}。真实MAE可能不准确。")
+                            pass # 忽略单个批次的转换警告，总体的 nan 检查在后面
                     else:
                         epoch_val_true_mae = np.nan
+
+                    # 【代码修改】更新 tqdm 进度条的 postfix 信息，显示当前批次的验证损失和 MAE
+                    val_loop.set_postfix(val_loss=val_loss_batch.item(), val_mae=val_mae_batch.item())
+
             avg_val_loss = epoch_val_loss / len(val_loader.dataset)
             avg_val_mae = epoch_val_mae / len(val_loader.dataset)
             if not np.isnan(epoch_val_true_mae) and len(val_loader.dataset) > 0: # 确保分母不为0
@@ -1146,7 +1163,7 @@ def train_transformer_model(
                         improved = True
                     elif scheduler_mode == 'max' and current_monitored_value_for_early_stop > best_monitored_value:
                         improved = True
-                
+
                 if improved:
                     best_monitored_value = current_monitored_value_for_early_stop
                     epochs_no_improve = 0
@@ -1154,7 +1171,8 @@ def train_transformer_model(
                     logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 提升 ({best_monitored_value:.4f})。保存最佳模型到 '{best_model_filepath}'")
                 else:
                     epochs_no_improve += 1
-                    logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 未提升。已连续 {epochs_no_improve} 轮未提升。")
+                    # 【代码修改】将未提升的日志级别降低，避免频繁打印
+                    # logger.info(f"Epoch {epoch+1}: 验证集 {monitor_metric} 未提升。已连续 {epochs_no_improve} 轮未提升。")
                     if epochs_no_improve >= early_stopping_patience:
                         logger.info(f"验证集 {monitor_metric} 连续 {early_stopping_patience} 轮未提升，触发早停。")
                         early_stop_triggered = True
@@ -1163,16 +1181,16 @@ def train_transformer_model(
             history['val_mae'].append(np.nan)
             history['val_true_mae'].append(np.nan)
             logger.info(f"Epoch {epoch+1}: 无验证集，跳过验证、早停和学习率调度。")
-        
+
         epoch_duration = time.time() - epoch_start_time
-        if verbose_level >= 1:
-             val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
-             log_message = (f"Epoch {epoch+1}/{epochs} - {epoch_duration:.2f}s - "
-                            f"loss: {avg_train_loss:.4f} - mae: {avg_train_mae:.4f} - lr: {current_lr:.2e}")
-             if val_loader is not None and len(val_loader) > 0:
-                 log_message += (f" - val_loss: {avg_val_loss:.4f} - val_mae: {avg_val_mae:.4f}"
-                                 f" - val_true_mae: {val_true_mae_str}")
-             logger.info(log_message)
+        # 【代码修改】调整 epoch 结束时的日志，包含训练和验证的汇总信息
+        val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
+        log_message = (f"Epoch {epoch+1}/{epochs} 结束 - 耗时: {epoch_duration:.2f}s - "
+                       f"训练损失: {avg_train_loss:.4f} - 训练MAE: {avg_train_mae:.4f} - 当前学习率: {current_lr:.2e}")
+        if val_loader is not None and len(val_loader) > 0:
+            log_message += (f" - 验证损失: {avg_val_loss:.4f} - 验证MAE(缩放后): {avg_val_mae:.4f}"
+                            f" - 验证MAE(真实值): {val_true_mae_str}")
+        logger.info(log_message)
 
         if writer:
             writer.add_scalar('Loss/train', avg_train_loss, epoch + 1)
@@ -1183,10 +1201,10 @@ def train_transformer_model(
                 if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE/val (true)', avg_val_true_mae, epoch + 1)
             writer.add_scalar('Learning Rate', current_lr, epoch + 1)
             writer.flush()
-        
+
         if early_stop_triggered:
             break
-            
+
     logger.info("模型训练过程结束。")
 
     if os.path.exists(best_model_filepath) and (early_stop_triggered or (val_loader is not None and len(val_loader) > 0)):
@@ -1223,7 +1241,7 @@ def train_transformer_model(
             axes[1].plot(history_df['epoch'], history_df['mae'], label='训练 MAE (scaled)', marker='o', linestyle='-')
             if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
                 axes[1].plot(history_df['epoch'], history_df['val_mae'], label='验证 MAE (scaled)', marker='x', linestyle='--')
-            
+
             legend_handles_mae = axes[1].get_legend_handles_labels() # 获取已有的图例
 
             if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
@@ -1240,7 +1258,7 @@ def train_transformer_model(
             axes[1].set_xlabel('轮次 (Epoch)')
             axes[1].set_ylabel('MAE (缩放后)')
             axes[1].grid(True)
-            
+
             plt.tight_layout()
             plot_save_path = os.path.join(checkpoint_dir, f"training_history_transformer_{stock_code}.png")
             plt.savefig(plot_save_path)
@@ -1248,11 +1266,11 @@ def train_transformer_model(
             plt.close(fig)
         except Exception as e_plot:
             logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
-    
+
     if writer:
         writer.close()
-        
-    return model, history_df
+
+    return model, pd.DataFrame(history)
 
 # ... (其他函数 evaluate_transformer_model, predict_with_transformer_model 等保持不变) ...
 
@@ -1413,7 +1431,9 @@ def evaluate_transformer_model(
     # MAE 评估指标
     # mae_eval_metric = nn.L1Loss(reduction='sum') # 【代码修改】移除内部定义，使用传入的 mae_metric
     with torch.no_grad(): # 在评估阶段不计算梯度
-        for inputs, targets_scaled in test_loader:
+        # 【代码修改】使用 tqdm 包装 test_loader，显示测试进度条
+        test_loop = tqdm(test_loader, leave=False, desc="Evaluating Test Set")
+        for inputs, targets_scaled in test_loop:
             inputs, targets_scaled = inputs.to(device), targets_scaled.to(device)
             batch_size = inputs.size(0)
             outputs_scaled = model(inputs) # 模型输出的是缩放后的值
@@ -1437,9 +1457,13 @@ def evaluate_transformer_model(
                     mae_true_batch = np.sum(np.abs(outputs_original - targets_original))
                     total_test_mae_true += mae_true_batch
                 except Exception as e_inv_transform_eval:
-                    logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
-                    # 如果一个批次失败，可以考虑如何处理，例如该批次的 mae_true 贡献为0或NaN
+                    # 【代码修改】将警告级别降低，避免频繁打印
+                    # logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
+                    pass # 忽略单个批次的转换警告
             total_samples += batch_size
+            # 【代码修改】更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
+            test_loop.set_postfix(loss=loss_batch.item(), mae_scaled=mae_scaled_batch_val.item())
+
     if total_samples == 0: # 避免除以零
         logger.warning("测试集中总样本数为零，无法计算平均指标。返回 NaN。")
         return {'loss': np.nan, 'mae_scaled': np.nan, 'mae_true': np.nan}

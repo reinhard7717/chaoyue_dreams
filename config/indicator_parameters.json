@@ -261,9 +261,9 @@
     },
     "transformer_training_config": {
       "use_amp": true,
-      "epochs": 160,
+      "epochs": 120,
       "batch_size": 256,
-      "learning_rate": 0.0005,
+      "learning_rate": 0.001,
       "weight_decay": 0.0005,
       "optimizer": "adamw",
       "loss": "mse",
