@@ -5,6 +5,8 @@ from typing import Any, Dict
 import logging
 import numpy as np
 import math
+# 导入 Django 的 Model 基类，用于判断是否是模型实例
+from django.db.models import Model
 from dao_manager.base_dao import BaseDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
 from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar
@@ -19,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # 对所有字段做一次NaN/None清洗
 def safe_value(val):
+    # 修改代码行：首先检查值是否是 Django 模型实例，如果是则直接返回
+    if isinstance(val, Model):
+        return val
     # 递归处理 dict
     if isinstance(val, dict):
         return {k: safe_value(v) for k, v in val.items()}
