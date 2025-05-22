@@ -338,8 +338,8 @@ class StockRealtimeDataFormatProcess(BaseDAO):
     # ================ 数据格式 ================
     def set_realtime_tick_data(self, stock: StockInfo, df_data: Any) -> Dict:
         # 兼容不同字段名
-        date = getattr(df_data, "date", None)
-        time = getattr(df_data, "time", None)
+        date = getattr(df_data, "DATE", None)
+        time = getattr(df_data, "TIME", None)
         trade_time = None
         if date and time:
             trade_time = self._parse_datetime(str(date) + str(time))
@@ -348,13 +348,13 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         data_dict = {
             "stock": stock,
             "trade_time": trade_time,
-            "open_price": getattr(df_data, "open", getattr(df_data, "open_price", None)),
-            "prev_close_price": getattr(df_data, "pre_close", getattr(df_data, "prev_close_price", None)),
-            "current_price": getattr(df_data, "price", getattr(df_data, "current_price", None)),
-            "high_price": getattr(df_data, "high", getattr(df_data, "high_price", None)),
-            "low_price": getattr(df_data, "low", getattr(df_data, "low_price", None)),
-            "volume": getattr(df_data, "volume", None),
-            "turnover_value": getattr(df_data, "amount", getattr(df_data, "turnover_value", None)),
+            "open_price": getattr(df_data, "OPEN", getattr(df_data, "open_price", None)),
+            "prev_close_price": getattr(df_data, "PRE_CLOSE", getattr(df_data, "prev_close_price", None)),
+            "current_price": getattr(df_data, "PRICE", getattr(df_data, "current_price", None)),
+            "high_price": getattr(df_data, "HIGH", getattr(df_data, "high_price", None)),
+            "low_price": getattr(df_data, "LOW", getattr(df_data, "low_price", None)),
+            "volume": getattr(df_data, "VOLUME", None),
+            "turnover_value": getattr(df_data, "AMOUNT", getattr(df_data, "turnover_value", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
@@ -369,27 +369,27 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             trade_time = getattr(df_data, "trade_time", None)
 
         # 买卖盘数据兼容
-        b1_v = getattr(df_data, "b1_v", getattr(df_data, "buy_volume1", 0))
-        b2_v = getattr(df_data, "b2_v", getattr(df_data, "buy_volume2", 0))
-        b3_v = getattr(df_data, "b3_v", getattr(df_data, "buy_volume3", 0))
-        b4_v = getattr(df_data, "b4_v", getattr(df_data, "buy_volume4", 0))
-        b5_v = getattr(df_data, "b5_v", getattr(df_data, "buy_volume5", 0))
-        s1_v = getattr(df_data, "s1_v", getattr(df_data, "sell_volume1", 0))
-        s2_v = getattr(df_data, "s2_v", getattr(df_data, "sell_volume2", 0))
-        s3_v = getattr(df_data, "s3_v", getattr(df_data, "sell_volume3", 0))
-        s4_v = getattr(df_data, "s4_v", getattr(df_data, "sell_volume4", 0))
-        s5_v = getattr(df_data, "s5_v", getattr(df_data, "sell_volume5", 0))
+        b1_v = getattr(df_data, "B1_V", getattr(df_data, "buy_volume1", 0))
+        b2_v = getattr(df_data, "B2_V", getattr(df_data, "buy_volume2", 0))
+        b3_v = getattr(df_data, "B3_V", getattr(df_data, "buy_volume3", 0))
+        b4_v = getattr(df_data, "B4_V", getattr(df_data, "buy_volume4", 0))
+        b5_v = getattr(df_data, "B5_V", getattr(df_data, "buy_volume5", 0))
+        s1_v = getattr(df_data, "S1_V", getattr(df_data, "sell_volume1", 0))
+        s2_v = getattr(df_data, "S2_V", getattr(df_data, "sell_volume2", 0))
+        s3_v = getattr(df_data, "S3_V", getattr(df_data, "sell_volume3", 0))
+        s4_v = getattr(df_data, "S4_V", getattr(df_data, "sell_volume4", 0))
+        s5_v = getattr(df_data, "S5_V", getattr(df_data, "sell_volume5", 0))
 
-        b1_p = getattr(df_data, "b1_p", getattr(df_data, "buy_price1", 0))
-        b2_p = getattr(df_data, "b2_p", getattr(df_data, "buy_price2", 0))
-        b3_p = getattr(df_data, "b3_p", getattr(df_data, "buy_price3", 0))
-        b4_p = getattr(df_data, "b4_p", getattr(df_data, "buy_price4", 0))
-        b5_p = getattr(df_data, "b5_p", getattr(df_data, "buy_price5", 0))
-        s1_p = getattr(df_data, "s1_p", getattr(df_data, "sell_price1", 0))
-        s2_p = getattr(df_data, "s2_p", getattr(df_data, "sell_price2", 0))
-        s3_p = getattr(df_data, "s3_p", getattr(df_data, "sell_price3", 0))
-        s4_p = getattr(df_data, "s4_p", getattr(df_data, "sell_price4", 0))
-        s5_p = getattr(df_data, "s5_p", getattr(df_data, "sell_price5", 0))
+        b1_p = getattr(df_data, "B1_P", getattr(df_data, "buy_price1", 0))
+        b2_p = getattr(df_data, "B2_P", getattr(df_data, "buy_price2", 0))
+        b3_p = getattr(df_data, "B3_P", getattr(df_data, "buy_price3", 0))
+        b4_p = getattr(df_data, "B4_P", getattr(df_data, "buy_price4", 0))
+        b5_p = getattr(df_data, "B5_P", getattr(df_data, "buy_price5", 0))
+        s1_p = getattr(df_data, "S1_P", getattr(df_data, "sell_price1", 0))
+        s2_p = getattr(df_data, "S2_P", getattr(df_data, "sell_price2", 0))
+        s3_p = getattr(df_data, "S3_P", getattr(df_data, "sell_price3", 0))
+        s4_p = getattr(df_data, "S4_P", getattr(df_data, "sell_price4", 0))
+        s5_p = getattr(df_data, "S5_P", getattr(df_data, "sell_price5", 0))
 
         # 盘口差和比率
         try:
