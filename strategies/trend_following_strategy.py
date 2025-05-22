@@ -2822,22 +2822,30 @@ class TrendFollowingStrategy:
         self.selected_feature_names_for_transformer = []
 
     def save_prepared_data(self, stock_code: str,
-                        features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,
-                        features_scaled_val: np.ndarray, targets_scaled_val: np.ndarray,
-                        features_scaled_test: np.ndarray, targets_scaled_test: np.ndarray,
-                        feature_scaler: Union[MinMaxScaler, StandardScaler],
-                        target_scaler: Union[MinMaxScaler, StandardScaler],
-                        selected_feature_names: List[str]):
+                            features_scaled_train: np.ndarray, targets_scaled_train: np.ndarray,
+                            features_scaled_val: np.ndarray, targets_scaled_val: np.ndarray,
+                            features_scaled_test: np.ndarray, targets_scaled_test: np.ndarray,
+                            feature_scaler: Union[MinMaxScaler, StandardScaler],
+                            target_scaler: Union[MinMaxScaler, StandardScaler],
+                            selected_feature_names: List[str],
+                            pca_model: Any = None, # 新增参数: PCA 模型，使用 Any 类型提示，并设置默认值为 None
+                            scaler_for_pca: Any = None, # 新增参数: PCA 前使用的 Scaler，使用 Any 类型提示，并设置默认值为 None
+                            feature_selector_model: Any = None): # 新增参数: 特征选择模型，使用 Any 类型提示，并设置默认值为 None
         """
-        保存准备好的 Transformer 训练数据和 Scaler。
+        保存准备好的 Transformer 训练数据、Scaler、PCA 模型、PCA Scaler 和特征选择模型。
         """
         self.set_model_paths(stock_code)
-        if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
+        # 检查所有必要的路径是否已设置，包括新增的模型/Scaler路径
+        # 修改行: 增加对新增模型/Scaler路径的检查
+        if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path,
+                    self.selected_features_path, self.pca_model_path, self.scaler_for_pca_path,
+                    self.feature_selector_model_path]):
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备数据：部分或全部路径未设置。")
             # 不是 raise 异常，而是返回 False 表示保存失败
             return False
 
         try:
+            # 保存训练、验证、测试数据集
             np.savez_compressed(
                 self.all_prepared_data_npz_path,
                 features_scaled_train=features_scaled_train.astype(np.float32),
@@ -2849,17 +2857,42 @@ class TrendFollowingStrategy:
             )
             logger.debug(f"[{self.strategy_name}][{stock_code}] 所有准备数据已保存到 {self.all_prepared_data_npz_path}。")
 
+            # 保存特征和目标 Scaler
             joblib.dump(feature_scaler, self.feature_scaler_path)
             joblib.dump(target_scaler, self.target_scaler_path)
-            logger.debug(f"[{self.strategy_name}][{stock_code}] Scaler 已保存。")
+            # 修改行: 更新日志信息以包含更多保存的对象
+            logger.debug(f"[{self.strategy_name}][{stock_code}] Feature Scaler 和 Target Scaler 已保存。")
 
+            # 保存 PCA 模型 (如果存在)
+            # 新增行: 检查 pca_model 是否为 None，如果不为 None 则保存
+            if pca_model is not None:
+                joblib.dump(pca_model, self.pca_model_path)
+                # 新增行: 记录 PCA 模型保存日志
+                logger.debug(f"[{self.strategy_name}][{stock_code}] PCA 模型已保存到 {self.pca_model_path}。")
+
+            # 保存 PCA 前使用的 Scaler (如果存在)
+            # 新增行: 检查 scaler_for_pca 是否为 None，如果不为 None 则保存
+            if scaler_for_pca is not None:
+                 joblib.dump(scaler_for_pca, self.scaler_for_pca_path)
+                 # 新增行: 记录 PCA Scaler 保存日志
+                 logger.debug(f"[{self.strategy_name}][{stock_code}] PCA Scaler 已保存到 {self.scaler_for_pca_path}。")
+
+            # 保存特征选择模型 (如果存在)
+            # 新增行: 检查 feature_selector_model 是否为 None，如果不为 None 则保存
+            if feature_selector_model is not None:
+                 joblib.dump(feature_selector_model, self.feature_selector_model_path)
+                 # 新增行: 记录特征选择模型保存日志
+                 logger.debug(f"[{self.strategy_name}][{stock_code}] 特征选择模型已保存到 {self.feature_selector_model_path}。")
+
+            # 保存选中特征名列表
             with open(self.selected_features_path, 'w', encoding='utf-8') as f:
                  json.dump(selected_feature_names, f, ensure_ascii=False, indent=4)
             logger.debug(f"[{self.strategy_name}][{stock_code}] 选中特征名列表已保存到 {self.selected_features_path}。")
 
             return True # 返回 True 表示保存成功
         except Exception as e:
-            logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备好的数据、Scaler或特征列表时出错: {e}", exc_info=True)
+            # 修改行: 更新错误日志信息，包含新增的模型/Scaler
+            logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备好的数据、Scaler、模型或特征列表时出错: {e}", exc_info=True)
             # 返回 False 表示保存失败
             return False
 
