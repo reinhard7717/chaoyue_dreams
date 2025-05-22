@@ -181,7 +181,7 @@ class TrendFollowingStrategy:
         if resolved_file_path is None:
             logger.error(f"{log_prefix_temp} CRITICAL: {file_description}文件路径解析失败。无法加载{file_description}。")
             return loaded_data, load_success
-        logger.info(f"{log_prefix_temp} 尝试从最终路径 '{resolved_file_path}' 加载{file_description}...")
+        # logger.info(f"{log_prefix_temp} 尝试从最终路径 '{resolved_file_path}' 加载{file_description}...")
         if not (os.path.exists(resolved_file_path) and os.path.isfile(resolved_file_path)):
             logger.error(f"{log_prefix_temp} CRITICAL: 最终确认{file_description}文件 '{resolved_file_path}' 不存在或不是文件。")
             return loaded_data, load_success
@@ -617,7 +617,7 @@ class TrendFollowingStrategy:
                 val_dataset = TimeSeriesDataset(features_scaled_val_np, targets_scaled_val_np, self.transformer_window_size)
                 if len(val_dataset) > 0:
                     # 验证集 DataLoader 不需要 shuffle
-                    val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False)
+                    val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False, pin_memory=True)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。验证阶段将跳过。")
             else:
@@ -637,7 +637,7 @@ class TrendFollowingStrategy:
             if len(train_dataset) == 0:
                 logger.error(f"[{self.strategy_name}][{stock_code}] 训练集 Dataset 为空 (数据量不足 {self.transformer_window_size})。停止训练。")
                 return
-            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True)
+            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True)
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 创建 PyTorch Dataset/DataLoader 出错: {e}", exc_info=True)
             return
@@ -2732,14 +2732,13 @@ class TrendFollowingStrategy:
         """
         self.set_model_paths(stock_code)
         empty_array = np.array([])
-        print(f"[load_prepared_data {self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 路径: {self.all_prepared_data_npz_path}, {self.feature_scaler_path}, {self.target_scaler_path}, {self.selected_features_path}")
 
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
             logger.warning(f"[{self.strategy_name}][{stock_code}] 加载准备数据：部分或全部路径未设置。")
             self.selected_feature_names_for_transformer = [] # 重置列表
             # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
-        print(f"[{self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 路径: {self.all_prepared_data_npz_path}, {self.feature_scaler_path}, {self.target_scaler_path}, {self.selected_features_path}")
+        # print(f"[{self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 路径: {self.all_prepared_data_npz_path}, {self.feature_scaler_path}, {self.target_scaler_path}, {self.selected_features_path}")
         required_files_exist = all([
             os.path.exists(self.all_prepared_data_npz_path),
             os.path.exists(self.feature_scaler_path),

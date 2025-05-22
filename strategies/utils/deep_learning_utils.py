@@ -2,10 +2,13 @@
 
 # 导入必要的库 (PyTorch 相关)
 import torch
+torch.backends.cudnn.benchmark = True # 在输入尺寸不变时加速卷积操作。
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter # 用于 TensorBoard 日志
+# 导入 PyTorch AMP (自动混合精度) 相关模块
+from torch.amp import autocast, GradScaler # 新增: 导入 AMP 模块
 
 # 导入必要的库 (数据处理和特征工程)
 import os
@@ -214,8 +217,9 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term) # 偶数索引应用 sin
         pe[:, 1::2] = torch.cos(position * div_term) # 奇数索引应用 cos (如果d_model是奇数，最后一个会被截断)
         if d_model % 2 != 0: # 处理 d_model 为奇数的情况，确保 pe[:, d_model-1] 被填充
-            pe[:, d_model-1] = torch.cos(position * div_term[:-1] if div_term.shape[0] > pe[:, 1::2].shape[1] else position * div_term)
-
+            # 修正：当d_model为奇数时，pe[:, 1::2] 的最后一列可能没有对应的 div_term
+            # 应该使用与倒数第二个偶数项相同的 div_term
+            pe[:, d_model-1] = torch.cos(position * div_term[d_model//2 -1]) # 修改: 确保奇数维度的cos项使用正确的频率
 
         # pe 形状 (max_len, d_model)
         # Transformer通常期望 (seq_len, batch_size, d_model) 或 (batch_size, seq_len, d_model)
@@ -243,7 +247,10 @@ class PositionalEncoding(nn.Module):
         # x + self.pe[:x.size(1), :].unsqueeze(0) -> if pe is (1, seq_len, d_model)
         # x + self.pe[:x.size(1), :] -> if pe is (seq_len, d_model) and broadcasting works
         # PyTorch 的广播机制允许 (B, S, D) + (S, D) -> (B, S, D)
-        x = x + self.pe[:x.size(1), :]
+        # 使用切片操作获取与当前序列长度匹配的位置编码部分
+        pe_slice = self.pe[:x.size(1), :] # 形状 (seq_len, d_model)
+        # 将位置编码添加到输入张量中
+        x = x + pe_slice # PyTorch 广播机制会自动处理 batch_size 维度
         return x
 
 class TransformerModel(nn.Module):
@@ -345,7 +352,9 @@ class TransformerModel(nn.Module):
             torch.Tensor: 模型的输出预测值，形状 `(batch_size, 1)`。
         """
         # 1. 输入嵌入: (batch_size, window_size, num_features) -> (batch_size, window_size, d_model)
-        src_embedded = self.embedding(src) * np.sqrt(self.d_model) # 乘以 sqrt(d_model) 是一种常见的缩放技巧
+        # 在 AMP 模式下，嵌入层通常在 autocast 区域内执行，以利用 float16 计算
+        # 乘以 sqrt(d_model) 是一种常见的缩放技巧，有助于位置编码和后续层
+        src_embedded = self.embedding(src) * math.sqrt(self.d_model) # 修改: 使用 math.sqrt
 
         # 2. 添加位置编码: (batch_size, window_size, d_model)
         src_pos_encoded = self.pos_encoder(src_embedded)
@@ -396,12 +405,12 @@ def prepare_data_for_transformer(
     np.ndarray, np.ndarray, # train_features, train_targets
     np.ndarray, np.ndarray, # val_features, val_targets
     np.ndarray, np.ndarray, # test_features, test_targets
-    Union[MinMaxScaler, StandardScaler, RobustScaler, None], # feature_scaler  # 修改类型提示
-    Union[MinMaxScaler, StandardScaler, RobustScaler, None], # target_scaler   # 修改类型提
+    Union[MinMaxScaler, StandardScaler, RobustScaler, None], # feature_scaler
+    Union[MinMaxScaler, StandardScaler, RobustScaler, None], # target_scaler
     List[str], # selected_feature_names
-    Optional[PCA], # pca_model                                                # 新增返回
-    Optional[StandardScaler], # scaler_for_pca                               # 新增返回
-    Optional[SelectFromModel] # feature_selector_model                       # 新增返回
+    Optional[PCA], # pca_model
+    Optional[StandardScaler], # scaler_for_pca
+    Optional[SelectFromModel] # feature_selector_model
 ]:
     """
     为 Transformer 模型准备平坦化、经过缩放的时间序列数据 (NumPy 数组)。
@@ -413,7 +422,7 @@ def prepare_data_for_transformer(
         data (pd.DataFrame): 包含所有特征和目标列的原始DataFrame。
         required_columns (List[str]): 用于初始筛选的原始特征列名列表。
         target_column (str): 目标变量的列名。
-        scaler_type (str): 特征缩放器类型 ('minmax' 或 'standard')。
+        scaler_type (str): 特征缩放器类型 ('minmax', 'standard', 'robust')。
         train_split (float): 训练集在总数据中的比例。
         val_split (float): 验证集在总数据中的比例。测试集为剩余部分。
         apply_variance_threshold (bool): 是否应用方差阈值进行特征选择。
@@ -428,7 +437,8 @@ def prepare_data_for_transformer(
         fs_max_features (Optional[int]): 基于模型选择时，要保留的最大特征数量。若为 None，则使用阈值选择。
         fs_selection_threshold (Union[str, float]): 特征重要性阈值 (如 'median', 'mean', 或一个浮点数)。
                                                     仅在 `fs_max_features` 为 None 时生效。
-        target_scaler_type (str): 目标变量缩放器类型 ('minmax' 或 'standard')。
+        target_scaler_type (str): 目标变量缩放器类型 ('minmax', 'standard', 'robust')。
+        random_state_seed (Optional[int]): 用于需要随机性的步骤 (如 PCA, RandomForest, XGBoost)。
 
     Returns:
         Tuple:
@@ -438,15 +448,26 @@ def prepare_data_for_transformer(
             - targets_scaled_val (np.ndarray): 缩放后的验证集目标 (NumPy 数组)。
             - features_scaled_test (np.ndarray): 缩放后的测试集特征 (NumPy 数组)。
             - targets_scaled_test (np.ndarray): 缩放后的测试集目标 (NumPy 数组)。
-            - feature_scaler (Union[MinMaxScaler, StandardScaler, None]): 拟合好的特征缩放器。
-            - target_scaler (Union[MinMaxScaler, StandardScaler, None]): 拟合好的目标缩放器。
+            - feature_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler, None]): 拟合好的特征缩放器。
+            - target_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler, None]): 拟合好的目标缩放器。
             - final_selected_feature_names (List[str]): 最终被选入模型的特征名列表。
                                                         如果应用了PCA，这些名称将是 'pca_comp_0', 'pca_comp_1', ...
+            - pca_model (Optional[PCA]): 拟合好的 PCA 模型实例 (如果使用了 PCA)。
+            - scaler_for_pca (Optional[StandardScaler]): PCA 前使用的 StandardScaler 实例 (如果使用了 PCA)。
+            - feature_selector_model (Optional[SelectFromModel]): 拟合好的特征选择器模型实例 (如果使用了基于模型的选择)。
     """
     logger.info("开始为 Transformer 模型准备平坦化输入数据...")
     # 记录除大型数据对象外的所有参数
     log_params = {k: v for k, v in locals().items() if k not in ['data', 'required_columns']}
     logger.info(f"数据准备参数: {log_params}")
+
+    # 打印当前进程可用的CPU核心数，用于调试
+    try:
+        import multiprocessing
+        available_cores = multiprocessing.cpu_count()
+        logger.info(f"当前进程可用的CPU核心数 (multiprocessing.cpu_count()): {available_cores}") # 修改行: 添加打印可用CPU核心数
+    except Exception as e:
+        logger.warning(f"无法获取CPU核心数: {e}")
 
     # --- 0. 复制数据，避免修改原始 DataFrame ---
     data_processed = data.copy()
@@ -734,7 +755,7 @@ def prepare_data_for_transformer(
 
     # --- 8. 特征缩放 (Feature Scaling) ---
     # 缩放器应在处理后的训练集特征上拟合，然后应用到所有数据集
-    feature_scaler: Union[MinMaxScaler, StandardScaler, None] = None
+    feature_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None # 修改类型提示
     if scaler_type.lower() == 'minmax':
         feature_scaler = MinMaxScaler()
     elif scaler_type.lower() == 'standard':
@@ -802,7 +823,7 @@ def prepare_data_for_transformer(
     logger.info("Transformer 数据准备流程结束。")
     # 返回 NumPy 数组 (确保 float32 类型以匹配 PyTorch 默认) 和 scaler 对象
     # 注意：如果 PCA 或特征选择器被使用，它们也应该被返回，以便在预测新数据时能够复现相同的转换。
-    # 当前函数签名未包含这些，调用者需要自行管理这些转换器。
+    # 当前函数签名已包含这些返回。
     return (
         features_scaled_train.astype(np.float32), targets_scaled_train.astype(np.float32),
         features_scaled_val.astype(np.float32), targets_scaled_val.astype(np.float32),
@@ -896,8 +917,10 @@ def train_transformer_model(
 
     Args:
         model (TransformerModel): 要训练的 PyTorch Transformer 模型实例。
-        train_loader (DataLoader): 训练数据加载器。
+        train_loader (DataLoader): 训练数据加载器。建议设置 num_workers > 0 和 pin_memory=True
+                                   以提高数据加载效率和 GPU 利用率。
         val_loader (Optional[DataLoader]): 验证数据加载器。如果为 None，则不进行验证。
+                                           建议设置 num_workers > 0 和 pin_memory=True。
         target_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler]):
             用于目标变量反向缩放以计算真实 MAE 的缩放器。
         training_config (Dict[str, Any]): 包含训练超参数的字典，例如：
@@ -921,7 +944,7 @@ def train_transformer_model(
         checkpoint_dir (str): 保存最佳模型检查点的目录。
         stock_code (Optional[str]): 用于日志记录和文件命名的股票代码或标识符。
         plot_training_history (bool): 是否在训练结束后绘制训练历史图表。
-        enable_anomaly_detection (bool): 是否启用 PyTorch 的异常检测 (torch.autograd.set_detect_anomaly(True))。
+        enable_anomaly_detection (bool): 是否启用 PyTorch 的异常检测 (torch.autograd.set_detect_detect_anomaly(True))。
                                          用于调试 NaN/Inf 问题，但会显著降低训练速度。默认为 False。
     Returns:
         Tuple[TransformerModel, pd.DataFrame]:
@@ -990,9 +1013,10 @@ def train_transformer_model(
     clip_grad_norm_value = training_config.get('clip_grad_norm', None) # 梯度裁剪值
     use_amp_config = training_config.get('use_amp', False) # 是否使用AMP
 
-    grad_scaler = None # 初始化梯度缩放器为 None
+    # 初始化梯度缩放器 (仅在 CUDA 且启用 AMP 时创建)
+    grad_scaler = None
     if use_amp_config and device.type == 'cuda':
-        grad_scaler = torch.amp.GradScaler('cuda') # pylint: disable=not-callable
+        grad_scaler = GradScaler('cuda') # 修改: 使用导入的 GradScaler
         logger.info("自动混合精度训练 (AMP) 已启用 (CUDA)。")
     elif use_amp_config: # device.type != 'cuda'
         logger.warning(f"AMP 配置为启用但设备为 '{device.type}'。AMP 将被禁用。")
@@ -1059,6 +1083,7 @@ def train_transformer_model(
             # 使用 tqdm 创建训练进度条
             train_loop = tqdm(train_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Train]")
             for batch_idx, (inputs, targets) in enumerate(train_loop):
+                # 将数据移动到设备
                 inputs, targets = inputs.to(device), targets.to(device)
                 current_batch_size = inputs.size(0)
 
@@ -1077,20 +1102,21 @@ def train_transformer_model(
                 performed_optimizer_step = False # 标记是否成功执行了 optimizer.step()
 
                 try:
-                    if grad_scaler: # 使用 AMP
-                        with torch.autocast(device_type=device.type): # pylint: disable=not-callable
-                            outputs = model(inputs)
-                            # 检查模型输出
-                            if torch.isnan(outputs).any() or torch.isinf(outputs).any():
-                                logger.error(f"AMP: 检测到 NaN/Inf 在模型输出中！Epoch {epoch+1}, Batch {batch_idx+1}.")
-                                raise ValueError("AMP model output is NaN/Inf") # 触发批次级异常处理
-                            batch_loss_train = criterion(outputs, targets)
-                            # 检查损失值
-                            if torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train):
-                                 logger.error(f"AMP: 检测到 NaN/Inf 在损失值中！Epoch {epoch+1}, Batch {batch_idx+1}.")
-                                 raise ValueError("AMP loss is NaN/Inf") # 触发批次级异常处理
+                    # 使用 autocast 上下文管理器进行混合精度计算 (如果 AMP 启用)
+                    with autocast(device_type=device.type, enabled=grad_scaler is not None): # 修改: 使用 autocast 并根据 grad_scaler 是否存在启用
+                        outputs = model(inputs)
+                        # 检查模型输出
+                        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                            logger.error(f"检测到 NaN/Inf 在模型输出中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                            raise ValueError("Model output is NaN/Inf") # 触发批次级异常处理
+                        batch_loss_train = criterion(outputs, targets)
+                        # 检查损失值
+                        if torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train):
+                             logger.error(f"检测到 NaN/Inf 在损失值中！Epoch {epoch+1}, Batch {batch_idx+1}.")
+                             raise ValueError("Loss is NaN/Inf") # 触发批次级异常处理
 
-                        grad_scaler.scale(batch_loss_train).backward() # backward() 可能触发 set_detect_anomaly
+                    if grad_scaler: # 使用 AMP 进行反向传播和优化
+                        grad_scaler.scale(batch_loss_train).backward() # scale loss 并 backward()
                         # 梯度裁剪 (在 unscale 之后，step 之前)
                         if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
                             grad_scaler.unscale_(optimizer) # Unscale 梯度以便裁剪
@@ -1099,20 +1125,8 @@ def train_transformer_model(
                         grad_scaler.update()
                         performed_optimizer_step = True
                     else: # 不使用 AMP
-                        outputs = model(inputs)
-                        # 检查模型输出
-                        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
-                            logger.error(f"检测到 NaN/Inf 在模型输出中！Epoch {epoch+1}, Batch {batch_idx+1}.")
-                            raise ValueError("Model output is NaN/Inf") # 触发批次级异常处理
-
-                        batch_loss_train = criterion(outputs, targets)
-                        # 检查损失值
-                        if torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train):
-                            logger.error(f"检测到 NaN/Inf 在损失值中！Epoch {epoch+1}, Batch {batch_idx+1}.")
-                            raise ValueError("Loss is NaN/Inf") # 触发批次级异常处理
-
                         batch_loss_train.backward() # backward() 可能触发 set_detect_anomaly
-                        
+
                         # 在 optimizer.step() 之前检查梯度是否有 NaN/Inf (可选，但对调试有用)
                         found_nan_grad = False
                         for name, param in model.named_parameters():
@@ -1120,7 +1134,7 @@ def train_transformer_model(
                                 logger.error(f"检测到 NaN/Inf 在参数 '{name}' 的梯度中！Epoch {epoch+1}, Batch {batch_idx+1}.")
                                 found_nan_grad = True
                                 break
-                        
+
                         if found_nan_grad:
                             logger.error(f"由于梯度中存在NaN/Inf，已跳过 optimizer.step()。Epoch {epoch+1}, Batch {batch_idx+1}")
                             raise ValueError("Gradient is NaN/Inf") # 触发批次级异常处理，避免更新参数
@@ -1128,7 +1142,7 @@ def train_transformer_model(
                         # 梯度裁剪
                         if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
                             torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
-                        
+
                         optimizer.step()
                         performed_optimizer_step = True
 
@@ -1153,7 +1167,7 @@ def train_transformer_model(
                 # 在 optimizer.step() 之后检查模型参数是否有 NaN/Inf (关键检查点)
                 if performed_optimizer_step: # 仅当 optimizer.step() 被执行后才检查
                     for name, param in model.named_parameters():
-                        if torch.isnan(param.data).any() or torch.isinf(param.data).any():
+                        if param.data is not None and (torch.isnan(param.data).any() or torch.isinf(param.data).any()): # 修改: 检查 param.data 是否为 None
                             logger.error(f"严重错误: 模型参数 '{name}' 在 optimizer.step() 后包含 NaN/Inf！Epoch {epoch+1}, Batch {batch_idx+1}.")
                             training_halted_due_to_nan_params = True # 设置标志，终止训练
                             break # 跳出参数检查循环
@@ -1166,10 +1180,15 @@ def train_transformer_model(
                 # 只有当 outputs 不是 None 且不含 NaN/Inf 时才计算 MAE
                 if outputs is not None and not (torch.isnan(outputs).any() or torch.isinf(outputs).any()):
                     if not (torch.isnan(batch_mae_train) or torch.isinf(batch_mae_train)):
-                        epoch_train_mae_sum += batch_mae_train.item() * current_batch_size
+                         epoch_train_mae_sum += batch_mae_train.item() * current_batch_size
                 num_train_samples += current_batch_size
-                train_loop.set_postfix(loss=batch_loss_train.item(), mae=batch_mae_train.item()) # 更新进度条显示
-            
+                # 仅在损失和 MAE 有效时更新进度条
+                if not (torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train)) and \
+                   not (torch.isnan(batch_mae_train) or torch.isinf(batch_mae_train)):
+                    train_loop.set_postfix(loss=batch_loss_train.item(), mae=batch_mae_train.item()) # 更新进度条显示
+                else:
+                    train_loop.set_postfix(loss="NaN/Inf", mae="NaN/Inf") # 显示 NaN/Inf
+
             # 在批次循环 (train_loop) 结束后，检查 training_halted_due_to_nan_params
             # 这个标志可能在批次循环内部被设置为 True
             if training_halted_due_to_nan_params:
@@ -1193,9 +1212,9 @@ def train_transformer_model(
             # 计算平均训练损失和 MAE
             if nan_batches_in_train_epoch > 0: # 如果训练中有 NaN 批次
                  logger.warning(f"Epoch {epoch+1}: 训练中有 {nan_batches_in_train_epoch}/{len(train_loader)} 个批次出现NaN/Inf问题。")
-            # 仅当有效样本数大于0且损失和不为0时计算平均值，否则为NaN
-            avg_train_loss = epoch_train_loss_sum / num_train_samples if num_train_samples > 0 and epoch_train_loss_sum != 0 else np.nan
-            avg_train_mae = epoch_train_mae_sum / num_train_samples if num_train_samples > 0 and epoch_train_mae_sum != 0 else np.nan
+            # 仅当有效样本数大于0时计算平均值，否则为NaN
+            avg_train_loss = epoch_train_loss_sum / num_train_samples if num_train_samples > 0 else np.nan # 修改: 仅检查 num_train_samples > 0
+            avg_train_mae = epoch_train_mae_sum / num_train_samples if num_train_samples > 0 else np.nan # 修改: 仅检查 num_train_samples > 0
             current_lr = optimizer.param_groups[0]['lr']
 
             # 记录训练指标
@@ -1216,80 +1235,88 @@ def train_transformer_model(
 
                 val_loop = tqdm(val_loader, leave=False, desc=f"Epoch {epoch+1}/{epochs} [Validate]")
                 with torch.no_grad(): # 禁用梯度计算
-                    for val_batch_idx, (val_inputs, val_targets) in enumerate(val_loop):
-                        val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                        current_batch_size_val = val_inputs.size(0)
-                        val_outputs, val_loss_batch, val_mae_batch = None, torch.tensor(np.nan), torch.tensor(np.nan)
+                    # 使用 autocast 上下文管理器进行混合精度计算 (如果 AMP 启用)
+                    with autocast(device_type=device.type, enabled=grad_scaler is not None): # 修改: 验证阶段也使用 autocast
+                        for val_batch_idx, (val_inputs, val_targets) in enumerate(val_loop):
+                            val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
+                            current_batch_size_val = val_inputs.size(0)
+                            val_outputs, val_loss_batch, val_mae_batch = None, torch.tensor(np.nan), torch.tensor(np.nan)
 
-                        try:
-                            # 检查验证输入和目标 (可选)
-                            if torch.isnan(val_inputs).any() or torch.isinf(val_inputs).any():
-                                logger.error(f"检测到 NaN/Inf 在验证输入数据中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
-                                raise ValueError("Validation input is NaN/Inf")
-                            if torch.isnan(val_targets).any() or torch.isinf(val_targets).any():
-                                logger.error(f"检测到 NaN/Inf 在验证目标数据中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
-                                raise ValueError("Validation target is NaN/Inf")
+                            try:
+                                # 检查验证输入和目标 (可选)
+                                if torch.isnan(val_inputs).any() or torch.isinf(val_inputs).any():
+                                    logger.error(f"检测到 NaN/Inf 在验证输入数据中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
+                                    raise ValueError("Validation input is NaN/Inf")
+                                if torch.isnan(val_targets).any() or torch.isinf(val_targets).any():
+                                    logger.error(f"检测到 NaN/Inf 在验证目标数据中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
+                                    raise ValueError("Validation target is NaN/Inf")
 
-                            val_outputs = model(val_inputs)
-                            if torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any():
-                                logger.error(f"检测到 NaN/Inf 在验证模型输出中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
-                                raise ValueError("Validation model output is NaN/Inf")
+                                val_outputs = model(val_inputs)
+                                if torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any():
+                                    logger.error(f"检测到 NaN/Inf 在验证模型输出中！Epoch {epoch+1}, Val_Batch {val_batch_idx+1}.")
+                                    raise ValueError("Validation model output is NaN/Inf")
 
-                            val_loss_batch = criterion(val_outputs, val_targets)
-                            if torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch):
-                                logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次损失为 NaN/Inf。")
-                                raise ValueError("Validation loss is NaN/Inf") # 标记此批次指标无效
-                            
-                            val_mae_batch = mae_eval_metric(val_outputs, val_targets) # 计算缩放后的 MAE
-                            if torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch):
-                                logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次MAE(scaled)为 NaN/Inf。")
-                                # 不 raise，允许继续计算 true_mae (如果可能)
+                                val_loss_batch = criterion(val_outputs, val_targets)
+                                if torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch):
+                                    logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次损失为 NaN/Inf。")
+                                    raise ValueError("Validation loss is NaN/Inf") # 标记此批次指标无效
 
-                        except ValueError as e_val_nan_inf: # 捕获由 NaN/Inf 引发的 ValueError
-                            logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证中因 '{e_val_nan_inf}' 中止此批次指标计算。")
-                            nan_batches_in_val_epoch += 1
-                            # 不累加此批次的指标
-                        except Exception as e_val_batch: # 其他未知错误
-                            logger.error(f"验证批次 Epoch {epoch+1}, Val_Batch {val_batch_idx+1} 发生未知错误: {e_val_batch}", exc_info=True)
-                            nan_batches_in_val_epoch += 1
-                            # 不累加此批次的指标
+                                val_mae_batch = mae_eval_metric(val_outputs, val_targets) # 计算缩放后的 MAE
+                                if torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch):
+                                    logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次MAE(scaled)为 NaN/Inf。")
+                                    # 不 raise，允许继续计算 true_mae (如果可能)
 
-                        # 累加有效的验证损失
-                        if not (torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch)):
-                            epoch_loss_sum_val += val_loss_batch.item() * current_batch_size_val
-                            num_valid_samples_for_loss += current_batch_size_val
-                        
-                        # 累加有效的验证 MAE (scaled)
-                        # 仅当 val_outputs 有效且 val_mae_batch 有效时
-                        if val_outputs is not None and not (torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any()):
-                            if not (torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch)):
-                                 epoch_mae_sum_val += val_mae_batch.item() * current_batch_size_val
-                                 num_valid_samples_for_mae += current_batch_size_val
-                            
-                            # 计算真实 MAE (反向缩放后)
-                            if target_scaler: # 确保提供了目标缩放器
-                                val_outputs_np = val_outputs.cpu().numpy()
-                                val_targets_np = val_targets.cpu().numpy()
-                                true_mae_batch_val = np.nan # 初始化为 NaN
-                                # 仅当反向缩放的输入不含 NaN/Inf 时尝试计算
-                                can_compute_true_mae = not (np.isnan(val_outputs_np).any() or np.isinf(val_outputs_np).any() or \
-                                                            np.isnan(val_targets_np).any() or np.isinf(val_targets_np).any())
-                                if can_compute_true_mae:
-                                    try:
-                                        val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
-                                        val_targets_original = target_scaler.inverse_transform(val_targets_np)
-                                        # 再次检查反向缩放后的结果
-                                        if not (np.isnan(val_outputs_original).any() or np.isinf(val_outputs_original).any() or \
-                                                np.isnan(val_targets_original).any() or np.isinf(val_targets_original).any()):
-                                            true_mae_batch_val = np.mean(np.abs(val_outputs_original - val_targets_original))
-                                    except Exception: # pylint: disable=broad-except
-                                        # logger.debug(f"反向缩放或计算真实MAE时出错 (Epoch {epoch+1}, Val_Batch {val_batch_idx+1})", exc_info=True)
-                                        pass # 保持 true_mae_batch_val 为 NaN
-                                if not np.isnan(true_mae_batch_val): # 如果成功计算
-                                    epoch_true_mae_sum_val += true_mae_batch_val * current_batch_size_val
-                                    num_valid_samples_for_true_mae += current_batch_size_val
-                        val_loop.set_postfix(val_loss=val_loss_batch.item(), val_mae=val_mae_batch.item())
-                
+                            except ValueError as e_val_nan_inf: # 捕获由 NaN/Inf 引发的 ValueError
+                                logger.warning(f"Epoch {epoch+1}, Val_Batch {val_batch_idx+1}: 验证中因 '{e_val_nan_inf}' 中止此批次指标计算。")
+                                nan_batches_in_val_epoch += 1
+                                # 不累加此批次的指标
+                            except Exception as e_val_batch: # 其他未知错误
+                                logger.error(f"验证批次 Epoch {epoch+1}, Val_Batch {val_batch_idx+1} 发生未知错误: {e_val_batch}", exc_info=True)
+                                nan_batches_in_val_epoch += 1
+                                # 不累加此批次的指标
+
+                            # 累加有效的验证损失
+                            if not (torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch)):
+                                epoch_loss_sum_val += val_loss_batch.item() * current_batch_size_val
+                                num_valid_samples_for_loss += current_batch_size_val
+
+                            # 累加有效的验证 MAE (scaled)
+                            # 仅当 val_outputs 有效且 val_mae_batch 有效时
+                            if val_outputs is not None and not (torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any()):
+                                if not (torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch)):
+                                     epoch_mae_sum_val += val_mae_batch.item() * current_batch_size_val
+                                     num_valid_samples_for_mae += current_batch_size_val
+
+                                # 计算真实 MAE (反向缩放后)
+                                if target_scaler: # 确保提供了目标缩放器
+                                    # 在进行 numpy 转换和反向缩放之前，确保 tensor 在 CPU 上
+                                    val_outputs_np = val_outputs.cpu().numpy() # 修改: 确保在 CPU 上
+                                    val_targets_np = val_targets.cpu().numpy() # 修改: 确保在 CPU 上
+                                    true_mae_batch_val = np.nan # 初始化为 NaN
+                                    # 仅当反向缩放的输入不含 NaN/Inf 时尝试计算
+                                    can_compute_true_mae = not (np.isnan(val_outputs_np).any() or np.isinf(val_outputs_np).any() or \
+                                                                np.isnan(val_targets_np).any() or np.isinf(val_targets_np).any())
+                                    if can_compute_true_mae:
+                                        try:
+                                            val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
+                                            val_targets_original = target_scaler.inverse_transform(val_targets_np)
+                                            # 再次检查反向缩放后的结果
+                                            if not (np.isnan(val_outputs_original).any() or np.isinf(val_outputs_original).any() or \
+                                                    np.isnan(val_targets_original).any() or np.isinf(val_targets_original).any()):
+                                                true_mae_batch_val = np.mean(np.abs(val_outputs_original - val_targets_original))
+                                        except Exception: # pylint: disable=broad-except
+                                            # logger.debug(f"反向缩放或计算真实MAE时出错 (Epoch {epoch+1}, Val_Batch {val_batch_idx+1})", exc_info=True)
+                                            pass # 保持 true_mae_batch_val 为 NaN
+                                    if not np.isnan(true_mae_batch_val): # 如果成功计算
+                                        epoch_true_mae_sum_val += true_mae_batch_val * current_batch_size_val
+                                        num_valid_samples_for_true_mae += current_batch_size_val
+                            # 仅在损失和 MAE 有效时更新进度条
+                            if not (torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch)) and \
+                               not (torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch)):
+                                val_loop.set_postfix(val_loss=val_loss_batch.item(), val_mae=val_mae_batch.item())
+                            else:
+                                val_loop.set_postfix(val_loss="NaN/Inf", val_mae="NaN/Inf")
+
                 if nan_batches_in_val_epoch > 0: # 如果验证中有 NaN 批次
                     logger.warning(f"Epoch {epoch+1}: 验证中有 {nan_batches_in_val_epoch}/{len(val_loader)} 个批次出现NaN/Inf问题。")
 
@@ -1308,7 +1335,7 @@ def train_transformer_model(
                 if monitor_metric == 'val_loss': monitored_value_for_scheduler = avg_val_loss
                 elif monitor_metric == 'val_mae': monitored_value_for_scheduler = avg_val_mae
                 elif monitor_metric == 'val_true_mae': monitored_value_for_scheduler = avg_val_true_mae
-                
+
                 # monitored_value_for_scheduler_for_lr_es 是实际用于学习率和早停决策的值
                 monitored_value_for_scheduler_for_lr_es = np.nan
                 if np.isnan(monitored_value_for_scheduler):
@@ -1342,7 +1369,7 @@ def train_transformer_model(
                             improved = True
                         elif scheduler_mode == 'max' and monitored_value_for_scheduler_for_lr_es > best_monitored_value:
                             improved = True
-                        
+
                         if improved:
                             best_monitored_value = monitored_value_for_scheduler_for_lr_es
                             epochs_no_improve = 0 # 重置未提升轮数
@@ -1358,7 +1385,7 @@ def train_transformer_model(
                         epochs_no_improve +=1 # 仍然视为未提升
                         logger.warning(f"Epoch {epoch+1}: 监控指标 '{monitor_metric}' 为 NaN，视为未提升。连续未提升轮次: {epochs_no_improve}/{early_stopping_patience}")
                         # 此条件可能在 nan_metric_patience 大于 early_stopping_patience 时，或在 nan_metric_patience 触发前达到 early_stopping_patience
-                        if epochs_no_improve >= early_stopping_patience: 
+                        if epochs_no_improve >= early_stopping_patience:
                             logger.info(f"监控指标连续 {early_stopping_patience} 轮为 NaN 或未提升，触发早停。")
                             early_stop_triggered = True
             else: # 无验证集 (val_loader is None or empty)
@@ -1412,7 +1439,8 @@ def train_transformer_model(
             logger.info(f"早停在 Epoch {epoch+1} 被触发。")
             if os.path.exists(best_model_filepath): # 尝试加载最佳模型
                 try:
-                    model.load_state_dict(torch.load(best_model_filepath, map_location=device))
+                    # 加载模型状态字典时，指定 map_location 以确保加载到正确的设备
+                    model.load_state_dict(torch.load(best_model_filepath, map_location=device)) # 修改: 指定 map_location
                     logger.info(f"已从 '{best_model_filepath}' 加载最佳模型 (基于 {monitor_metric}={best_monitored_value:.4f})。")
                 except Exception as e_load: # pylint: disable=broad-except
                     logger.error(f"加载最佳模型 '{best_model_filepath}' 失败: {e_load}。将返回当前模型状态。", exc_info=True)
@@ -1454,7 +1482,7 @@ def train_transformer_model(
                 axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
             if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all(): # True Val MAE
                 axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
-            
+
             axes[1].set_xlabel('Epoch')
             axes[1].set_ylabel('Mean Absolute Error (MAE)')
             axes[1].legend()
@@ -1476,8 +1504,8 @@ def train_transformer_model(
 def predict_with_transformer_model(
     model: TransformerModel,
     data: pd.DataFrame,
-    feature_scaler: Union[MinMaxScaler, StandardScaler],
-    target_scaler: Union[MinMaxScaler, StandardScaler],
+    feature_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler], # 修改类型提示
+    target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler], # 修改类型提示
     selected_feature_names: List[str],
     window_size: int,
     device: Optional[torch.device] = None
@@ -1493,8 +1521,8 @@ def predict_with_transformer_model(
         model (TransformerModel): 已加载权重的 PyTorch Transformer 模型。
         data (pd.DataFrame): 包含模型所需特征列的最新数据 DataFrame。
                              应至少包含 `window_size` 行数据。
-        feature_scaler (Union[MinMaxScaler, StandardScaler]): 用于特征的已拟合缩放器。
-        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标的已拟合缩放器，用于反转预测结果。
+        feature_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler]): 用于特征的已拟合缩放器。
+        target_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler]): 用于目标的已拟合缩放器，用于反转预测结果。
         selected_feature_names (List[str]): 模型训练时最终使用的特征名列表。
         window_size (int): 模型期望的输入窗口大小。
         device (Optional[torch.device]): 预测设备 (CPU 或 GPU)。如果为 None，则自动检测。
@@ -1559,12 +1587,14 @@ def predict_with_transformer_model(
     X_predict_tensor = X_predict_tensor.to(device) # 数据也移至相同设备
     model.eval() # 设置模型为评估模式 (禁用 dropout, batchnorm更新 等)
     with torch.no_grad(): # 在预测阶段不计算梯度，节省内存和计算
-        try:
-            # 模型输出形状通常是 (batch_size, 1)，这里 batch_size 是 1
-            predicted_scaled_tensor = model(X_predict_tensor)
-        except Exception as e_predict:
-            logger.error(f"Transformer 模型前向传播 (预测) 出错: {e_predict}。返回默认值 50.0。", exc_info=True)
-            return 50.0
+        # 预测阶段也可以使用 autocast 来加速，特别是如果模型在训练时使用了 AMP
+        with autocast(device_type=device.type, enabled=device.type == 'cuda'): # 修改: 预测阶段也使用 autocast (仅限 CUDA)
+            try:
+                # 模型输出形状通常是 (batch_size, 1)，这里 batch_size 是 1
+                predicted_scaled_tensor = model(X_predict_tensor)
+            except Exception as e_predict:
+                logger.error(f"Transformer 模型前向传播 (预测) 出错: {e_predict}。返回默认值 50.0。", exc_info=True)
+                return 50.0
     # --- 3. 逆缩放预测结果 ---
     # 将预测结果 tensor 转移回 CPU 并转换为 numpy
     predicted_scaled_np = predicted_scaled_tensor.cpu().numpy() # Shape: (1, 1)
@@ -1583,13 +1613,14 @@ def predict_with_transformer_model(
     logger.info(f"Transformer 模型预测完成。预测信号 (原始尺度, 0-100范围, 保留2位小数): {final_predicted_signal:.2f}")
     return final_predicted_signal
 
+
 @log_execution_time
 @handle_exceptions # 确保 evaluate 函数也有异常处理
 def evaluate_transformer_model(
     model: TransformerModel,
     test_loader: DataLoader,
     criterion: nn.Module,
-    target_scaler: Union[MinMaxScaler, StandardScaler],
+    target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler], # 修改类型提示
     mae_metric: nn.Module, # 新增 mae_metric 参数，用于计算 MAE
     device: Optional[torch.device] = None
 ) -> Dict[str, float]:
@@ -1597,11 +1628,12 @@ def evaluate_transformer_model(
     在测试集上评估 Transformer 模型性能。
     Args:
         model (TransformerModel): 已加载权重的 PyTorch Transformer 模型。
-        test_loader (DataLoader): 测试数据加载器。
+        test_loader (DataLoader): 测试数据加载器。建议设置 num_workers > 0 和 pin_memory=True
+                                  以提高数据加载效率和 GPU 利用率。
         criterion (nn.Module): 损失函数实例 (例如 MSELoss)。
-        target_scaler (Union[MinMaxScaler, StandardScaler]): 用于目标变量的已拟合缩放器，
+        target_scaler (Union[MinMaxScaler, StandardScaler, RobustScaler]): 用于目标变量的已拟合缩放器，
                                                              用于计算反标准化后的真实 MAE。
-        mae_metric (nn.Module): 用于计算 MAE 的度量实例 (例如 nn.L1Loss())。 # 更新了参数描述
+        mae_metric (nn.Module): 用于计算 MAE 的度量实例 (例如 nn.L1Loss())。
         device (Optional[torch.device]): 评估设备 (CPU 或 GPU)。如果为 None，则自动检测。
     Returns:
         Dict[str, float]: 包含评估指标的字典:
@@ -1627,38 +1659,41 @@ def evaluate_transformer_model(
     # MAE 评估指标
     # mae_eval_metric = nn.L1Loss(reduction='sum') # 移除内部定义，使用传入的 mae_metric
     with torch.no_grad(): # 在评估阶段不计算梯度
-        # 使用 tqdm 包装 test_loader，显示测试进度条
-        test_loop = tqdm(test_loader, leave=False, desc="Evaluating Test Set")
-        for inputs, targets_scaled in test_loop:
-            inputs, targets_scaled = inputs.to(device), targets_scaled.to(device)
-            batch_size = inputs.size(0)
-            outputs_scaled = model(inputs) # 模型输出的是缩放后的值
-            # 1. 计算损失 (基于缩放后的值)
-            loss_batch = criterion(outputs_scaled, targets_scaled)
-            total_test_loss += loss_batch.item() * batch_size # 累加批次总损失
-            # 2. 计算缩放后的 MAE
-            # 使用传入的 mae_metric。
-            # 假设 mae_metric 可能返回批次的平均MAE (如 nn.L1Loss() 默认)，
-            # 乘以 batch_size 来得到批次的总MAE，以与原始累加逻辑保持一致。
-            mae_scaled_batch_val = mae_metric(outputs_scaled, targets_scaled)
-            total_test_mae_scaled += mae_scaled_batch_val.item() * batch_size
-            # 3. 计算反标准化后的真实 MAE
-            if target_scaler:
-                try:
-                    outputs_np_scaled = outputs_scaled.cpu().numpy()
-                    targets_np_scaled = targets_scaled.cpu().numpy()
-                    outputs_original = target_scaler.inverse_transform(outputs_np_scaled)
-                    targets_original = target_scaler.inverse_transform(targets_np_scaled)
-                    # 计算这个批次的真实 MAE (逐元素绝对差后求和)
-                    mae_true_batch = np.sum(np.abs(outputs_original - targets_original))
-                    total_test_mae_true += mae_true_batch
-                except Exception as e_inv_transform_eval:
-                    # 将警告级别降低，避免频繁打印
-                    # logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
-                    pass # 忽略单个批次的转换警告
-            total_samples += batch_size
-            # 更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
-            test_loop.set_postfix(loss=loss_batch.item(), mae_scaled=mae_scaled_batch_val.item())
+        # 评估阶段也可以使用 autocast 来加速，特别是如果模型在训练时使用了 AMP
+        with autocast(device_type=device.type, enabled=device.type == 'cuda'): # 修改: 评估阶段也使用 autocast (仅限 CUDA)
+            # 使用 tqdm 包装 test_loader，显示测试进度条
+            test_loop = tqdm(test_loader, leave=False, desc="Evaluating Test Set")
+            for inputs, targets_scaled in test_loop:
+                inputs, targets_scaled = inputs.to(device), targets_scaled.to(device)
+                batch_size = inputs.size(0)
+                outputs_scaled = model(inputs) # 模型输出的是缩放后的值
+                # 1. 计算损失 (基于缩放后的值)
+                loss_batch = criterion(outputs_scaled, targets_scaled)
+                total_test_loss += loss_batch.item() * batch_size # 累加批次总损失
+                # 2. 计算缩放后的 MAE
+                # 使用传入的 mae_metric。
+                # 假设 mae_metric 可能返回批次的平均MAE (如 nn.L1Loss() 默认)，
+                # 乘以 batch_size 来得到批次的总MAE，以与原始累加逻辑保持一致。
+                mae_scaled_batch_val = mae_metric(outputs_scaled, targets_scaled)
+                total_test_mae_scaled += mae_scaled_batch_val.item() * batch_size
+                # 3. 计算反标准化后的真实 MAE
+                if target_scaler:
+                    try:
+                        # 在进行 numpy 转换和反向缩放之前，确保 tensor 在 CPU 上
+                        outputs_np_scaled = outputs_scaled.cpu().numpy() # 修改: 确保在 CPU 上
+                        targets_np_scaled = targets_scaled.cpu().numpy() # 修改: 确保在 CPU 上
+                        outputs_original = target_scaler.inverse_transform(outputs_np_scaled)
+                        targets_original = target_scaler.inverse_transform(targets_np_scaled)
+                        # 计算这个批次的真实 MAE (逐元素绝对差后求和)
+                        mae_true_batch = np.sum(np.abs(outputs_original - targets_original))
+                        total_test_mae_true += mae_true_batch
+                    except Exception as e_inv_transform_eval:
+                        # 将警告级别降低，避免频繁打印
+                        # logger.warning(f"评估中反标准化预测/目标时出错: {e_inv_transform_eval}。部分真实MAE可能不准确。")
+                        pass # 忽略单个批次的转换警告
+                total_samples += batch_size
+                # 更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
+                test_loop.set_postfix(loss=loss_batch.item(), mae_scaled=mae_scaled_batch_val.item())
 
     if total_samples == 0: # 避免除以零
         logger.warning("测试集中总样本数为零，无法计算平均指标。返回 NaN。")
@@ -1676,3 +1711,4 @@ def evaluate_transformer_model(
         'mae_scaled': avg_test_mae_scaled,
         'mae_true': avg_test_mae_true
     }
+
