@@ -34,7 +34,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau # PyTorch 的学习率调
 
 # 导入日志、时间、绘图等辅助库
 import logging
-import time
+import psutil # 导入 psutil 库用于获取系统信息
+import time   # 导入 time 库用于实现等待
 import datetime
 import math
 import matplotlib
@@ -54,6 +55,11 @@ from tqdm.auto import tqdm
 
 # 设置日志记录器
 logger = logging.getLogger("strategy_deep_learning_utils")
+
+# 定义 CPU 占用率阈值（例如 90%）
+CPU_THRESHOLD = 90.0
+# 定义等待时间（秒）
+WAIT_DURATION_SECONDS = 2
 
 # 装饰器：记录执行时间
 def log_execution_time(func: Callable) -> Callable:
@@ -665,6 +671,28 @@ def prepare_data_for_transformer(
                 scaler_for_pca = None # 重置
     print(f"prepare_data_for_transformer: PCA处理后，训练集特征形状: {features_eng_train.shape}, dtype: {features_eng_train.dtype}")
 
+    # 检查 CPU 占用率，如果过高则等待
+    # 开始 CPU 占用率检查循环
+    while True:
+        # 获取当前 CPU 占用率 (percent)
+        # interval=1 表示在 1 秒内测量 CPU 占用率，提供更稳定的读数
+        current_cpu_percent = psutil.cpu_percent(interval=1)
+        # 打印当前 CPU 占用率
+        print(f"{task_id_str} [{stock_code}]：当前 CPU 占用率: {current_cpu_percent}%")
+
+        # 检查是否超过阈值
+        if current_cpu_percent >= CPU_THRESHOLD:
+            # 打印等待信息
+            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 超过阈值 ({CPU_THRESHOLD}%)，等待 {WAIT_DURATION_SECONDS} 秒...")
+            # 等待指定时间
+            time.sleep(WAIT_DURATION_SECONDS)
+        else:
+            # 打印继续执行信息
+            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 在阈值 ({CPU_THRESHOLD}%) 以下，继续执行。")
+            # CPU 占用率正常，退出等待循环
+            break
+    # 结束 CPU 占用率检查循环
+
     # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用或PCA后仍希望进一步选择时) ---
     # 通常 PCA 和基于模型的特征选择是互斥的，或按特定顺序进行。这里假设 PCA 优先。
     feature_selector_model: Optional[SelectFromModel] = None # 用于可能保存或后续使用的选择器模型
@@ -677,7 +705,6 @@ def prepare_data_for_transformer(
             logger.info(f"启用基于模型 '{feature_selector_model_type}' 的特征选择。在训练集上拟合...")
             logger.info(f"特征选择模型参数: n_estimators={fs_model_n_estimators}, max_depth={fs_model_max_depth}, "
                         f"选择方式: max_features={fs_max_features if fs_max_features is not None else 'N/A'} 或 threshold='{fs_selection_threshold if fs_max_features is None else 'N/A'}'")
-
             selector_model_instance = None # 实际用于 SelectFromModel 的模型实例
             model_type_lower = feature_selector_model_type.lower()
 
@@ -862,6 +889,7 @@ def prepare_data_for_transformer(
         scaler_for_pca,
         feature_selector_model
     )
+
 @log_execution_time
 @handle_exceptions
 def build_transformer_model( num_features: int, model_config: Dict[str, Any], summary: bool = True, window_size: int = 60 ) -> TransformerModel:

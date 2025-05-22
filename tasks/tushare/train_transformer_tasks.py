@@ -4,8 +4,6 @@ import os
 import logging
 import asyncio
 from pathlib import Path # 导入 asyncio
-import psutil # 导入 psutil 库用于获取系统信息
-import time   # 导入 time 库用于实现等待
 from celery import group
 from django.conf import settings
 import numpy as np
@@ -23,10 +21,6 @@ from strategies.utils.deep_learning_utils import prepare_data_for_transformer
 
 logger = logging.getLogger("tasks")
 
-# 定义 CPU 占用率阈值（例如 90%）
-CPU_THRESHOLD = 97.0
-# 定义等待时间（秒）
-WAIT_DURATION_SECONDS = 2
 
 # 任务：准备 Transformer 训练数据并保存
 # 修改任务名称以更准确地反映其功能：处理股票数据以进行 Transformer 训练
@@ -155,27 +149,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             del data_df
             print(f"{task_id_str} [{stock_code}]：已删除原始 data_df。")
 
-    # 检查 CPU 占用率，如果过高则等待
-    # 开始 CPU 占用率检查循环
-    while True:
-        # 获取当前 CPU 占用率 (percent)
-        # interval=1 表示在 1 秒内测量 CPU 占用率，提供更稳定的读数
-        current_cpu_percent = psutil.cpu_percent(interval=1)
-        # 打印当前 CPU 占用率
-        print(f"{task_id_str} [{stock_code}]：当前 CPU 占用率: {current_cpu_percent}%")
-
-        # 检查是否超过阈值
-        if current_cpu_percent >= CPU_THRESHOLD:
-            # 打印等待信息
-            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 超过阈值 ({CPU_THRESHOLD}%)，等待 {WAIT_DURATION_SECONDS} 秒...")
-            # 等待指定时间
-            time.sleep(WAIT_DURATION_SECONDS)
-        else:
-            # 打印继续执行信息
-            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 在阈值 ({CPU_THRESHOLD}%) 以下，继续执行。")
-            # CPU 占用率正常，退出等待循环
-            break
-    # 结束 CPU 占用率检查循环
 
     # 阶段 3: 使用 prepare_data_for_transformer 准备数据 (特征选择、标准化、分割)
     # 使用精简后的 data_for_transformer_prep 作为输入
