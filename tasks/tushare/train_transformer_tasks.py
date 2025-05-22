@@ -24,7 +24,7 @@ from strategies.utils.deep_learning_utils import prepare_data_for_transformer
 logger = logging.getLogger("tasks")
 
 # 定义 CPU 占用率阈值（例如 90%）
-CPU_THRESHOLD = 90.0
+CPU_THRESHOLD = 97.0
 # 定义等待时间（秒）
 WAIT_DURATION_SECONDS = 2
 
