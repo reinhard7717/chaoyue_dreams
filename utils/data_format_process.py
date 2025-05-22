@@ -345,6 +345,7 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             trade_time = self._parse_datetime(str(date) + str(time))
         else:
             trade_time = getattr(df_data, "trade_time", None)
+        # print(f"DATE: {date}, TIME:{time}, trade_time: {trade_time}")
         data_dict = {
             "stock": stock,
             "trade_time": trade_time,
@@ -360,8 +361,8 @@ class StockRealtimeDataFormatProcess(BaseDAO):
 
     def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
         # 兼容不同字段名
-        date = getattr(df_data, "date", None)
-        time = getattr(df_data, "time", None)
+        date = getattr(df_data, "DATE", None)
+        time = getattr(df_data, "TIME", None)
         trade_time = None
         if date and time:
             trade_time = self._parse_datetime(str(date) + str(time))
