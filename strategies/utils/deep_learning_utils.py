@@ -56,10 +56,9 @@ from tqdm.auto import tqdm
 # 设置日志记录器
 logger = logging.getLogger("strategy_deep_learning_utils")
 
-# 定义 CPU 占用率阈值（例如 90%）
-CPU_THRESHOLD = 90.0
-# 定义等待时间（秒）
-WAIT_DURATION_SECONDS = 2
+# 定义CPU检查阈值和等待间隔
+CPU_THRESHOLD = 90.0 # CPU使用率阈值 (百分比)
+CPU_CHECK_INTERVAL = 2 # 检查间隔和等待时间 (秒)
 
 # 装饰器：记录执行时间
 def log_execution_time(func: Callable) -> Callable:
@@ -671,27 +670,30 @@ def prepare_data_for_transformer(
                 scaler_for_pca = None # 重置
     print(f"prepare_data_for_transformer: PCA处理后，训练集特征形状: {features_eng_train.shape}, dtype: {features_eng_train.dtype}")
 
-    # 检查 CPU 占用率，如果过高则等待
-    # 开始 CPU 占用率检查循环
-    while True:
-        # 获取当前 CPU 占用率 (percent)
-        # interval=1 表示在 1 秒内测量 CPU 占用率，提供更稳定的读数
-        current_cpu_percent = psutil.cpu_percent(interval=1)
-        # 打印当前 CPU 占用率
-        print(f"{task_id_str} [{stock_code}]：当前 CPU 占用率: {current_cpu_percent}%")
-
-        # 检查是否超过阈值
-        if current_cpu_percent >= CPU_THRESHOLD:
-            # 打印等待信息
-            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 超过阈值 ({CPU_THRESHOLD}%)，等待 {WAIT_DURATION_SECONDS} 秒...")
-            # 等待指定时间
-            time.sleep(WAIT_DURATION_SECONDS)
-        else:
-            # 打印继续执行信息
-            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 在阈值 ({CPU_THRESHOLD}%) 以下，继续执行。")
-            # CPU 占用率正常，退出等待循环
-            break
-    # 结束 CPU 占用率检查循环
+    # --- CPU 占用度检查 ---
+    # 在进行基于模型的特征选择（可能使用多核）之前检查CPU占用
+    print(f"prepare_data_for_transformer: 准备进行基于模型的特征选择，检查CPU占用...") # 使用 print 输出调试信息
+    while True: # 循环检查直到CPU占用低于阈值
+        try:
+            # 获取系统整体CPU使用率，interval=1 表示在1秒内采样
+            cpu_usage = psutil.cpu_percent(interval=1) # 修改: 使用 psutil 获取 CPU 使用率
+            print(f"prepare_data_for_transformer: 当前系统CPU占用率: {cpu_usage:.2f}%") # 使用 print 输出调试信息
+            if cpu_usage > CPU_THRESHOLD: # 修改: 判断是否超过阈值
+                logger.warning(f"系统CPU占用率 ({cpu_usage:.2f}%) 过高，超过阈值 ({CPU_THRESHOLD}%)。等待 {CPU_CHECK_INTERVAL} 秒...") # 修改: 记录警告信息
+                print(f"prepare_data_for_transformer: 警告 - CPU占用过高 ({cpu_usage:.2f}%)，等待 {CPU_CHECK_INTERVAL} 秒...") # 使用 print 输出调试信息
+                time.sleep(CPU_CHECK_INTERVAL) # 修改: 暂停执行
+            else:
+                logger.info(f"系统CPU占用率 ({cpu_usage:.2f}%) 在可接受范围内。继续执行。") # 修改: 记录信息
+                print(f"prepare_data_for_transformer: CPU占用正常 ({cpu_usage:.2f}%)，继续。") # 使用 print 输出调试信息
+                break # 修改: CPU占用正常，退出循环
+        except ImportError: # 修改: 处理 psutil 未安装的情况
+            logger.warning("未安装 psutil 库，无法检查CPU占用。跳过CPU检查。") # 修改: 记录警告信息
+            print("prepare_data_for_transformer: 警告 - 未安装 psutil，跳过CPU检查。") # 使用 print 输出调试信息
+            break # 修改: psutil 未安装，退出循环
+        except Exception as e_cpu: # 修改: 捕获其他可能的异常
+            logger.error(f"检查CPU占用时发生错误: {e_cpu}", exc_info=True) # 修改: 记录错误信息
+            print(f"prepare_data_for_transformer: 错误 - 检查CPU占用失败: {e_cpu}") # 使用 print 输出调试信息
+            break # 修改: 发生错误，退出循环
 
     # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用或PCA后仍希望进一步选择时) ---
     # 通常 PCA 和基于模型的特征选择是互斥的，或按特定顺序进行。这里假设 PCA 优先。
