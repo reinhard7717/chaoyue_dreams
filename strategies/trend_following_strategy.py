@@ -2738,7 +2738,7 @@ class TrendFollowingStrategy:
              return pd.DataFrame()
 
         logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 训练数据子集提取完成。最终形状: {data_subset.shape}")
-        print(f"[{self.strategy_name}][{stock_code}] data_subset 数据类型:\n{data_subset.dtypes}") # 修改行: 打印数据类型
+        # print(f"[{self.strategy_name}][{stock_code}] data_subset 数据类型:\n{data_subset.dtypes}") # 修改行: 打印数据类型
         print(f"[{self.strategy_name}][{stock_code}] data_subset 内存使用 (MB): {data_subset.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印内存使用
 
 

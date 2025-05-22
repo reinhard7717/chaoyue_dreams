@@ -119,7 +119,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 记录提取完成信息
         logger.info(f"{task_id_str} [{stock_code}]：Transformer 训练数据子集提取完毕，返回DataFrame {data_for_transformer_prep.shape}。")
         # 打印数据类型和内存使用，帮助调试
-        print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 数据类型:\n{data_for_transformer_prep.dtypes}")
+        # print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 数据类型:\n{data_for_transformer_prep.dtypes}")
         print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 内存使用 (MB): {data_for_transformer_prep.memory_usage(deep=True).sum() / 1024**2:.2f}")
 
         # 获取 Transformer 目标列名 (从策略中获取，确保与 _prepare_transformer_training_data_subset 生成的目标列名一致)
