@@ -23,6 +23,11 @@ from strategies.utils.deep_learning_utils import prepare_data_for_transformer
 
 logger = logging.getLogger("tasks")
 
+# 定义 CPU 占用率阈值（例如 90%）
+CPU_THRESHOLD = 90.0
+# 定义等待时间（秒）
+WAIT_DURATION_SECONDS = 2
+
 # 任务：准备 Transformer 训练数据并保存
 # 修改任务名称以更准确地反映其功能：处理股票数据以进行 Transformer 训练
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_for_transformer_training')
@@ -72,26 +77,26 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 记录获取到的指标配置数量
         logger.info(f"{task_id_str} [{stock_code}]：获取到 {len(actual_indicator_configs)} 个实际使用的指标配置。")
         # 打印数据类型和内存使用，帮助调试
-        # print(f"{task_id_str} [{stock_code}]：data_df 原始数据类型:\n{data_df.dtypes}") # 修改行: 打印原始数据类型
-        print(f"{task_id_str} [{stock_code}]：data_df 原始内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印原始内存使用
+        # print(f"{task_id_str} [{stock_code}]：data_df 原始数据类型:\n{data_df.dtypes}") # 打印原始数据类型
+        print(f"{task_id_str} [{stock_code}]：data_df 原始内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印原始内存使用
 
         # 优化内存：尝试将所有列转换为 float32，处理潜在的 object 类型列
-        # logger.info(f"{task_id_str} [{stock_code}]：尝试将所有列转换为 float32...") # 修改行: 添加日志
-        original_dtypes = data_df.dtypes # 修改行: 保存原始数据类型用于比较
-        converted_cols_count = 0 # 修改行: 计数转换成功的列
+        # logger.info(f"{task_id_str} [{stock_code}]：尝试将所有列转换为 float32...") # 添加日志
+        original_dtypes = data_df.dtypes # 保存原始数据类型用于比较
+        converted_cols_count = 0 # 计数转换成功的列
         for col in data_df.columns:
             try:
                 # 使用 pd.to_numeric 尝试转换，errors='coerce' 将无法转换的值变为 NaN
                 # 然后转换为 float32
-                data_df[col] = pd.to_numeric(data_df[col], errors='coerce').astype(np.float32) # 修改行: 转换逻辑
-                if data_df[col].dtype == np.float32 and original_dtypes[col] != np.float32: # 修改行: 检查是否成功转换且原类型不是 float32
-                     converted_cols_count += 1 # 修改行: 计数
+                data_df[col] = pd.to_numeric(data_df[col], errors='coerce').astype(np.float32) # 转换逻辑
+                if data_df[col].dtype == np.float32 and original_dtypes[col] != np.float32: # 检查是否成功转换且原类型不是 float32
+                     converted_cols_count += 1 # 计数
             except Exception as e:
-                logger.warning(f"{task_id_str} [{stock_code}]：转换列 '{col}' 到 float32 时出错: {e}. 列将保持原样或包含 NaN。", exc_info=True) # 修改行: 记录转换错误
+                logger.warning(f"{task_id_str} [{stock_code}]：转换列 '{col}' 到 float32 时出错: {e}. 列将保持原样或包含 NaN。", exc_info=True) # 记录转换错误
 
-        # logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 修改行: 添加日志
-        # print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 修改行: 打印转换后数据类型
-        print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印转换后内存使用
+        # logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 添加日志
+        # print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 打印转换后数据类型
+        print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印转换后内存使用
 
     except Exception as prep_err:
         # 记录数据准备错误信息并重新抛出异常
@@ -150,6 +155,27 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             del data_df
             print(f"{task_id_str} [{stock_code}]：已删除原始 data_df。")
 
+    # 检查 CPU 占用率，如果过高则等待
+    # 开始 CPU 占用率检查循环
+    while True:
+        # 获取当前 CPU 占用率 (percent)
+        # interval=1 表示在 1 秒内测量 CPU 占用率，提供更稳定的读数
+        current_cpu_percent = psutil.cpu_percent(interval=1)
+        # 打印当前 CPU 占用率
+        print(f"{task_id_str} [{stock_code}]：当前 CPU 占用率: {current_cpu_percent}%")
+
+        # 检查是否超过阈值
+        if current_cpu_percent >= CPU_THRESHOLD:
+            # 打印等待信息
+            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 超过阈值 ({CPU_THRESHOLD}%)，等待 {WAIT_DURATION_SECONDS} 秒...")
+            # 等待指定时间
+            time.sleep(WAIT_DURATION_SECONDS)
+        else:
+            # 打印继续执行信息
+            print(f"{task_id_str} [{stock_code}]：CPU 占用率 ({current_cpu_percent}%) 在阈值 ({CPU_THRESHOLD}%) 以下，继续执行。")
+            # CPU 占用率正常，退出等待循环
+            break
+    # 结束 CPU 占用率检查循环
 
     # 阶段 3: 使用 prepare_data_for_transformer 准备数据 (特征选择、标准化、分割)
     # 使用精简后的 data_for_transformer_prep 作为输入
@@ -239,7 +265,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         if data_for_transformer_prep is not None:
             del data_for_transformer_prep
             print(f"{task_id_str} [{stock_code}]：已删除 data_for_transformer_prep。")
-
 
     # 阶段 4: 保存准备好的数据和 Scaler
     try:
