@@ -2607,6 +2607,144 @@ class TrendFollowingStrategy:
         # 返回包含所有中间计算和最终信号的 DataFrame
         return self.intermediate_data
 
+    # --- 为 Transformer 训练准备数据子集 ---
+    def _prepare_transformer_training_data_subset(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None) -> pd.DataFrame:
+        """
+        从完整的 OHLCV+指标数据中提取和计算用于 Transformer 训练的特征和目标列。
+        此方法旨在减少内存使用，只返回训练所需的最小数据集。
+        逻辑基于 generate_signals 方法中数据准备的前半部分。
+        """
+        logger.info(f"[{self.strategy_name}][{stock_code}] 开始提取 Transformer 训练数据子集...")
+
+        if data is None or data.empty:
+            logger.warning(f"[{self.strategy_name}][{stock_code}] _prepare_transformer_training_data_subset: 输入数据为空。")
+            return pd.DataFrame()
+
+        # 1. 计算规则信号的中间结果
+        # 这是必要的，因为 Transformer 的特征和目标可能依赖于这些结果。
+        # 假设 _calculate_rule_based_signal 返回 final_rule_signal (Series) 和 intermediate_results_dict (Dict[str, Union[pd.DataFrame, pd.Series]])
+        logger.info(f"[{self.strategy_name}][{stock_code}] 计算规则信号中间数据以确定特征和目标...")
+        try:
+            final_rule_signal, intermediate_results_dict = self._calculate_rule_based_signal(
+                data=data, stock_code=stock_code, indicator_configs=indicator_configs
+            )
+            logger.info(f"[{self.strategy_name}][{stock_code}] 规则信号中间数据计算完成。")
+        except Exception as e:
+            logger.error(f"[{self.strategy_name}][{stock_code}] 计算规则信号中间数据时出错: {e}", exc_info=True)
+            return pd.DataFrame() # 计算失败则返回空 DataFrame
+
+        # 2. 构建一个包含所有潜在特征和目标列的临时 DataFrame
+        # 这个临时 DataFrame 包含了原始数据、final_rule_signal 和所有中间结果。
+        # 这是为了方便后续根据列名选取特征和目标，模拟 generate_signals 构建 processed_data 的过程（但不包含预测和组合信号）。
+        temp_data_container = data.copy() # 修改行: 复制原始数据作为容器
+        temp_data_container['final_rule_signal'] = final_rule_signal # 添加 final_rule_signal
+
+        # 合并 intermediate_results_dict 中的 DataFrame/Series 到临时容器
+        for key, df_or_series in intermediate_results_dict.items():
+             if isinstance(df_or_series, pd.DataFrame) and not df_or_series.empty:
+                 # 合并 DataFrame 的所有列
+                 for col_join in df_or_series.columns:
+                     # 避免覆盖原始数据或已有的中间列，除非是特定的内部列需要更新
+                     # 假设 strategy_utils 返回的 DataFrame 列名是最终想要的列名（除了 ADJUSTED_SCORE）
+                     if col_join != 'ADJUSTED_SCORE' and col_join not in temp_data_container.columns:
+                          temp_data_container[col_join] = df_or_series[col_join]
+                     elif col_join == 'ADJUSTED_SCORE':
+                          # 特殊处理 ADJUSTED_SCORE，将其值赋值给 'base_score_volume_adjusted' 列 (如果还没有的话)
+                          if 'base_score_volume_adjusted' not in temp_data_container.columns:
+                               temp_data_container['base_score_volume_adjusted'] = df_or_series[col_join]
+                          else:
+                               logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 'ADJUSTED_SCORE' 已存在于 temp_data_container['base_score_volume_adjusted']，跳过合并。")
+                     else:
+                         logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 '{col_join}' 已存在于 temp_data_container，跳过合并来自 '{key}' 的同名列。")
+
+             elif isinstance(df_or_series, pd.Series) and not df_or_series.empty:
+                  # 合并 Series
+                  # 如果 Series 有 name 属性，使用 name 作为列名
+                  series_col_name = df_or_series.name
+                  if series_col_name and series_col_name not in temp_data_container.columns:
+                      temp_data_container[series_col_name] = df_or_series
+                  # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
+                  elif not series_col_name and key not in temp_data_container.columns:
+                       temp_data_container[key] = df_or_series
+                  else:
+                      logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
+
+        logger.info(f"[{self.strategy_name}][{stock_code}] 临时数据容器构建完成，形状: {temp_data_container.shape}")
+        print(f"[{self.strategy_name}][{stock_code}] temp_data_container 内存使用 (MB): {temp_data_container.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印内存使用
+
+        # 3. 确定 Transformer 的目标列
+        target_column = self.transformer_target_column # 从策略属性获取目标列名
+
+        if target_column not in temp_data_container.columns:
+            # 如果目标列不存在，可能是因为它需要在这里计算（例如，未来收益率）
+            # 或者配置错误。根据原 generate_signals 逻辑，目标列应该在规则计算后就存在。
+            # 如果目标列是未来值，它可能需要在规则计算后，但在选取特征/目标前计算。
+            # 假设目标列是基于 temp_data_container 中的列计算的，例如未来收益率。
+            # **重要：** 这里的计算逻辑需要根据您的实际策略定义 Transformer 目标的方式来实现。
+            # 示例：计算未来 N 天的收盘价变化率作为目标 (如果 target_column 是 'future_return')
+            # 如果您的目标列是 'future_return' 并且它不在 temp_data_container 中，您需要在这里计算它。
+            # 例如：
+            # if target_column == 'future_return' and 'close' in temp_data_container.columns:
+            #     future_period = self.tf_params.get('target_future_period', 5)
+            #     temp_data_container[target_column] = temp_data_container['close'].pct_change(periods=future_period).shift(-future_period)
+            #     logger.info(f"[{self.strategy_name}][{stock_code}] 计算目标列 '{target_column}' 完成 (未来 {future_period} 天收益率)。")
+            # else:
+            #     logger.error(f"[{self.strategy_name}][{stock_code}] Transformer 目标列 '{target_column}' 不存在于临时数据中，且无法计算。可用列: {temp_data_container.columns.tolist()}")
+            #     del temp_data_container # 释放内存
+            #     return pd.DataFrame() # 无法确定目标列，返回空 DataFrame
+
+            # 严格按照原 generate_signals 逻辑，它假设目标列在合并所有中间结果后就存在。
+            # 因此，如果此时目标列仍不存在，说明规则计算或配置有问题。
+            logger.error(f"[{self.strategy_name}][{stock_code}] Transformer 目标列 '{target_column}' 不存在于临时数据容器中。请检查规则计算或目标列配置。可用列: {temp_data_container.columns.tolist()}")
+            del temp_data_container # 释放内存
+            return pd.DataFrame() # 无法确定目标列，返回空 DataFrame
+
+
+        logger.info(f"[{self.strategy_name}][{stock_code}] 确定 Transformer 目标列: '{target_column}'.")
+
+        # 4. 确定 Transformer 的特征列
+        # 根据原 Celery 任务逻辑，特征列是 generate_signals 输出 DataFrame 中除了目标列之外的所有列。
+        # 在这里，这个 DataFrame 对应于我们的 temp_data_container。
+        transformer_feature_columns = [col for col in temp_data_container.columns if col != target_column]
+
+        if not transformer_feature_columns:
+            logger.error(f"[{self.strategy_name}][{stock_code}] 未找到用于 Transformer 训练的特征列 (目标列 '{target_column}' 是唯一列)。")
+            del temp_data_container # 释放内存
+            return pd.DataFrame()
+
+        logger.info(f"[{self.strategy_name}][{stock_code}] 确定 {len(transformer_feature_columns)} 个 Transformer 特征列。")
+        # logger.debug(f"[{self.strategy_name}][{stock_code}] 特征列 (部分): {transformer_feature_columns[:10]}...") # 调试时打印
+
+        # 5. 构建包含特征和目标列的精简 DataFrame
+        columns_for_transformer_prep = transformer_feature_columns + [target_column]
+
+        # 创建精简后的 DataFrame，只选取需要的列
+        data_subset = temp_data_container[columns_for_transformer_prep].copy() # 修改行: 创建一个只包含必要列的副本
+
+        # 显式删除不再需要的临时 DataFrame，释放内存
+        del temp_data_container # 修改行: 显式删除临时 DataFrame
+        print(f"[{self.strategy_name}][{stock_code}] 已删除 temp_data_container。") # 修改行: 打印删除信息
+
+        # 6. 移除包含 NaN 的行，特别是目标列中的 NaN
+        initial_rows = len(data_subset)
+        # prepare_data_for_transformer 会处理 NaN，但移除目标列为 NaN 的行是必要的，因为这些样本无法用于训练
+        data_subset.dropna(subset=[target_column], inplace=True) # 修改行: 移除目标列为 NaN 的行
+        rows_after_dropna = len(data_subset)
+        if rows_after_dropna < initial_rows:
+             logger.warning(f"[{self.strategy_name}][{stock_code}] 移除了 {initial_rows - rows_after_dropna} 行目标列为 NaN 的数据。剩余 {rows_after_dropna} 行。")
+
+        if data_subset.empty:
+             logger.error(f"[{self.strategy_name}][{stock_code}] 移除目标列 NaN 后，数据子集为空。无法进行训练。")
+             return pd.DataFrame()
+
+        logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 训练数据子集提取完成。最终形状: {data_subset.shape}")
+        print(f"[{self.strategy_name}][{stock_code}] data_subset 数据类型:\n{data_subset.dtypes}") # 修改行: 打印数据类型
+        print(f"[{self.strategy_name}][{stock_code}] data_subset 内存使用 (MB): {data_subset.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印内存使用
+
+
+        return data_subset
+
+
     # 将 load_lstm_model 更名为 load_transformer_model
     def load_transformer_model(self, stock_code: str):
         """

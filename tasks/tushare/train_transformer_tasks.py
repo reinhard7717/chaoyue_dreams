@@ -49,7 +49,11 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
     logger.info(f"{task_id_str} [{stock_code}]：策略参数检查通过 (params 和 tf_params 非空)。")
     # 打印 Transformer 窗口大小关键参数 (注意：window_size 用于 TimeSeriesDataset，不直接用于 prepare_data_for_transformer)
     logger.info(f"{task_id_str} [{stock_code}]：确认 Transformer 窗口大小 (用于后续的TimeSeriesDataset): {strategy.transformer_window_size}")
-    # 阶段 1: 使用 IndicatorService 准备数据
+
+    data_df = None # 初始化为 None
+    data_for_transformer_prep = None # 初始化为 None
+
+    # 阶段 1: 使用 IndicatorService 准备数据 (获取原始数据和指标)
     try:
         # 记录数据准备开始信息
         logger.info(f"{task_id_str} [{stock_code}]：开始使用 IndicatorService 准备数据...")
@@ -65,57 +69,78 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         logger.info(f"{task_id_str} [{stock_code}]：准备好的数据获取完成，{len(data_df)}行，{len(data_df.columns)}列。")
         # 记录获取到的指标配置数量
         logger.info(f"{task_id_str} [{stock_code}]：获取到 {len(actual_indicator_configs)} 个实际使用的指标配置。")
+        # 打印数据类型和内存使用，帮助调试
+        print(f"{task_id_str} [{stock_code}]：data_df 数据类型:\n{data_df.dtypes}")
+        print(f"{task_id_str} [{stock_code}]：data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}")
     except Exception as prep_err:
         # 记录数据准备错误信息并重新抛出异常
         logger.error(f"{task_id_str} [{stock_code}]：使用 IndicatorService 准备数据时出错: {prep_err}", exc_info=True)
         raise prep_err
-    # 阶段 2: 使用策略生成规则信号 (包括 Transformer 目标列)
+
+    # 阶段 2: 从准备好的数据中提取 Transformer 训练所需的特征和目标
+    # 这一步取代了之前调用 generate_signals 来获取数据
     try:
-        # 记录信号生成开始信息
-        logger.info(f"{task_id_str} [{stock_code}]：调用策略 generate_signals 方法生成规则信号及中间数据...")
-        # 调用策略的 generate_signals 方法，传入准备好的数据和实际使用的指标配置
-        data_with_all_signals = strategy.generate_signals(data=data_df, stock_code=stock_code, indicator_configs=actual_indicator_configs)
-        # 检查信号生成后的数据是否为空
-        if data_with_all_signals is None or data_with_all_signals.empty:
-            # 记录错误并抛出运行时异常
-            logger.error(f"{task_id_str} [{stock_code}]：策略 generate_signals 方法返回空或None DataFrame。")
-            raise RuntimeError("策略 generate_signals 方法执行失败或未返回数据。")
-        # 记录信号生成完成信息
-        logger.info(f"{task_id_str} [{stock_code}]：策略 generate_signals 方法执行完毕，返回DataFrame {data_with_all_signals.shape}。")
-        # 获取 Transformer 目标列名
-        transformer_target_column = strategy.transformer_target_column
-        # 检查返回的 DataFrame 中是否存在 Transformer 目标列
-        if transformer_target_column not in data_with_all_signals.columns:
-            # 记录错误并抛出运行时异常
-            logger.error(f"{task_id_str} [{stock_code}]：返回的 DataFrame 中缺少 Transformer 目标列 '{transformer_target_column}'。")
-            raise RuntimeError(f"策略未生成 Transformer 目标列 '{transformer_target_column}'。")
-        # 记录目标列存在信息
-        logger.info(f"{task_id_str} [{stock_code}]：Transformer 目标列 '{transformer_target_column}' 存在。")
-    except Exception as signal_err:
-        # 记录信号生成或后续检查错误信息并重新抛出异常
-        logger.error(f"{task_id_str} [{stock_code}]：策略 generate_signals 或后续检查时出错: {signal_err}", exc_info=True)
-        raise signal_err
-    # 阶段 3: 准备 Transformer 训练数据 (特征选择、标准化、分割)
-    # 使用包含所有信号的 DataFrame 作为 prepare_data_for_transformer 的输入
-    data_for_prep = data_with_all_signals
+        logger.info(f"{task_id_str} [{stock_code}]：开始提取 Transformer 训练所需的特征和目标...")
+        # 调用策略的新方法，该方法返回一个只包含 Transformer 特征和目标列的 DataFrame
+        # 这个方法内部会根据策略配置确定哪些规则信号作为特征，哪个列作为目标
+        data_for_transformer_prep = strategy._prepare_transformer_training_data_subset(
+            data=data_df, # 传入包含所有原始数据和指标的 DataFrame
+            stock_code=stock_code,
+            indicator_configs=actual_indicator_configs # 可能需要这些配置来确定哪些列是指标特征
+        )
+        # 检查返回的数据是否为空
+        if data_for_transformer_prep is None or data_for_transformer_prep.empty:
+            logger.error(f"{task_id_str} [{stock_code}]：策略 _prepare_transformer_training_data_subset 方法返回空或None DataFrame。")
+            # 根据 _prepare_transformer_training_data_subset 的逻辑，它在失败时会返回空 DataFrame
+            # 此时应该终止任务
+            return {"status": "error", "message": "提取 Transformer 训练数据子集失败或返回空数据。"}
+
+        # 记录提取完成信息
+        logger.info(f"{task_id_str} [{stock_code}]：Transformer 训练数据子集提取完毕，返回DataFrame {data_for_transformer_prep.shape}。")
+        # 打印数据类型和内存使用，帮助调试
+        print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 数据类型:\n{data_for_transformer_prep.dtypes}")
+        print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 内存使用 (MB): {data_for_transformer_prep.memory_usage(deep=True).sum() / 1024**2:.2f}")
+
+        # 获取 Transformer 目标列名 (从策略中获取，确保与 _prepare_transformer_training_data_subset 生成的目标列名一致)
+        transformer_target_column = strategy.transformer_target_column # 假设策略中定义了目标列名
+        # 检查返回的 DataFrame 中是否存在 Transformer 目标列 (在 _prepare_transformer_training_data_subset 中已检查，这里再次确认)
+        if transformer_target_column not in data_for_transformer_prep.columns:
+            logger.error(f"{task_id_str} [{stock_code}]：提取的 DataFrame 中缺少 Transformer 目标列 '{transformer_target_column}'。")
+            # 理论上 _prepare_transformer_training_data_subset 应该处理这种情况并返回空 DataFrame
+            # 但为了健壮性，这里再次检查
+            return {"status": "error", "message": f"提取的 Transformer 训练数据子集缺少目标列 '{transformer_target_column}'。"}
+
+        # 确定用于 prepare_data_for_transformer 的特征列
+        # 这些列应该是 data_for_transformer_prep 中除了目标列之外的所有列
+        required_columns_for_transformer = [col for col in data_for_transformer_prep.columns if col != transformer_target_column]
+        if not required_columns_for_transformer:
+             logger.error(f"{task_id_str} [{stock_code}]：提取的 DataFrame 中除了目标列外没有其他特征列。")
+             return {"status": "error", "message": "提取的 Transformer 训练数据子集不包含特征列。"}
+        logger.info(f"{task_id_str} [{stock_code}]：用于 prepare_data_for_transformer 的特征列数: {len(required_columns_for_transformer)}")
+
+    except Exception as subset_prep_err:
+        logger.error(f"{task_id_str} [{stock_code}]：提取 Transformer 训练数据子集时出错: {subset_prep_err}", exc_info=True)
+        raise subset_prep_err
+    finally:
+        # 显式删除不再需要的 data_df，释放内存
+        if data_df is not None:
+            del data_df
+            print(f"{task_id_str} [{stock_code}]：已删除原始 data_df。")
+
+
+    # 阶段 3: 使用 prepare_data_for_transformer 准备数据 (特征选择、标准化、分割)
+    # 使用精简后的 data_for_transformer_prep 作为输入
+    features_scaled_train = features_scaled_val = features_scaled_test = np.array([], dtype=np.float32) # 初始化为 float32 空数组
+    targets_scaled_train = targets_scaled_val = targets_scaled_test = np.array([], dtype=np.float32) # 初始化为 float32 空数组
+    feature_scaler = target_scaler = pca_model = scaler_for_pca = feature_selector_model = None # 初始化为 None
+    selected_feature_names = [] # 初始化为空列表
+
     try:
         # 记录 Transformer 数据准备开始信息
         logger.info(f"{task_id_str} [{stock_code}]：开始调用 prepare_data_for_transformer...")
         # 获取 Transformer 参数和数据准备配置
         tf_params = strategy.tf_params
         data_prep_config = tf_params.get('transformer_data_prep_config', {})
-        # 从 strategy.params 中获取 required_columns，如果 Transformer 参数中有特定定义，则优先使用
-        # 假设 strategy.params['indicator_params']['all_feature_columns'] 包含所有可用特征名
-        # 或 strategy.params['external_feature_params']['feature_columns'] 等
-        # 这里需要根据您的具体实现确定 'required_columns' 的来源
-        # 示例：假设所有生成信号的列（除了目标列本身）都可以作为初始特征
-        all_columns = data_for_prep.columns.tolist()
-        required_columns_for_transformer = [col for col in all_columns if col != transformer_target_column]
-        # 如果有更精确的特征列表，应使用那个列表
-        # 例如，如果 actual_indicator_configs 包含了所有生成的特征名，也可以从中提取
-        # 或者从 strategy.params 中读取一个预定义的特征列表
-        logger.info(f"{task_id_str} [{stock_code}]：用于 prepare_data_for_transformer 的初始特征列数: {len(required_columns_for_transformer)}")
-        # --- 修改开始 ---
         # 从 data_prep_config 中提取参数，并为 prepare_data_for_transformer 提供默认值（如果config中没有）
         # 这些默认值应该与 prepare_data_for_transformer 函数定义中的默认值一致或根据需求调整
         scaler_type = data_prep_config.get('scaler_type', 'minmax')
@@ -133,13 +158,15 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         fs_max_features = data_prep_config.get('fs_max_features', 50)
         fs_selection_threshold = data_prep_config.get('fs_selection_threshold', 'median')
         target_scaler_type = data_prep_config.get('target_scaler_type', 'minmax')
+        random_state_seed = data_prep_config.get('random_state_seed', 42)
+
         features_scaled_train, targets_scaled_train, \
         features_scaled_val, targets_scaled_val, \
         features_scaled_test, targets_scaled_test, \
         feature_scaler, target_scaler, \
         selected_feature_names, \
         pca_model, scaler_for_pca, feature_selector_model = prepare_data_for_transformer(
-            data=data_for_prep,
+            data=data_for_transformer_prep,
             required_columns=required_columns_for_transformer,
             target_column=transformer_target_column,
             scaler_type=scaler_type,
@@ -156,10 +183,8 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             fs_model_max_depth=fs_model_max_depth,
             fs_max_features=fs_max_features,
             fs_selection_threshold=fs_selection_threshold,
-            target_scaler_type=target_scaler_type
-            # random_state_seed 参数在 prepare_data_for_transformer 中已添加，
-            # 如果需要从配置中传递，也应在此处添加，否则会使用函数内的默认值 42
-            # 例如: random_state_seed=data_prep_config.get('random_state_seed', 42)
+            target_scaler_type=target_scaler_type,
+            random_state_seed=random_state_seed
         )
         # 记录 prepare_data_for_transformer 调用成功信息
         logger.info(f"{task_id_str} [{stock_code}]：prepare_data_for_transformer 调用成功。")
@@ -169,17 +194,34 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
            feature_scaler is None or target_scaler is None or not selected_feature_names:
              # 记录错误并抛出值错误异常
              logger.error(f"{task_id_str} [{stock_code}]：Transformer 数据准备后，训练集为空或 Scaler/特征列表未成功生成。")
-             raise ValueError("Transformer 数据准备后，训练集为空或 Scaler/特征列表未成功生成。")
+             # prepare_data_for_transformer 在失败时会返回空数组和 None
+             return {"status": "error", "message": "Transformer 数据准备后，训练集为空或 Scaler/特征列表未成功生成。任务终止。"}
+
         # 记录数据准备完成信息
         logger.info(f"{task_id_str} [{stock_code}]：Transformer 数据准备完成。训练集 shape: {features_scaled_train.shape}, 最终特征数: {len(selected_feature_names)}")
+        # 打印最终数组形状和类型，帮助调试
+        print(f"{task_id_str} [{stock_code}]：features_scaled_train shape: {features_scaled_train.shape}, dtype: {features_scaled_train.dtype}")
+        print(f"{task_id_str} [{stock_code}]：targets_scaled_train shape: {targets_scaled_train.shape}, dtype: {targets_scaled_train.dtype}")
+        print(f"{task_id_str} [{stock_code}]：features_scaled_val shape: {features_scaled_val.shape}, dtype: {features_scaled_val.dtype}")
+        print(f"{task_id_str} [{stock_code}]：targets_scaled_val shape: {targets_scaled_val.shape}, dtype: {targets_scaled_val.dtype}")
+        print(f"{task_id_str} [{stock_code}]：features_scaled_test shape: {features_scaled_test.shape}, dtype: {features_scaled_test.dtype}")
+        print(f"{task_id_str} [{stock_code}]：targets_scaled_test shape: {targets_scaled_test.shape}, dtype: {targets_scaled_test.dtype}")
+
     except Exception as data_prep_err:
         # 记录数据准备错误信息并重新抛出异常
         logger.error(f"{task_id_str} [{stock_code}]：准备 Transformer 数据时出错: {data_prep_err}", exc_info=True)
         raise data_prep_err
+    finally:
+        # 显式删除不再需要的 data_for_transformer_prep，释放内存
+        if data_for_transformer_prep is not None:
+            del data_for_transformer_prep
+            print(f"{task_id_str} [{stock_code}]：已删除 data_for_transformer_prep。")
+
+
     # 阶段 4: 保存准备好的数据和 Scaler
     try:
         # 记录保存数据开始信息
-        # logger.info(f"{task_id_str} [{stock_code}]：开始保存准备好的数据和 Scaler...")
+        logger.info(f"{task_id_str} [{stock_code}]：开始保存准备好的数据和 Scaler...")
         # 调用策略的 save_prepared_data 方法保存数据和 Scaler
         strategy.save_prepared_data(
             stock_code,
@@ -187,7 +229,10 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             features_scaled_val, targets_scaled_val,
             features_scaled_test, targets_scaled_test,
             feature_scaler, target_scaler,
-            selected_feature_names
+            selected_feature_names,
+            pca_model, # 修改行: 保存 PCA 模型
+            scaler_for_pca, # 修改行: 保存 PCA 前的 Scaler
+            feature_selector_model # 修改行: 保存特征选择器模型
         )
         # 记录保存成功信息
         logger.info(f"{task_id_str} [{stock_code}]：准备好的 Transformer 数据和 Scaler 已成功保存。")
