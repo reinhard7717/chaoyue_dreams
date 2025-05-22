@@ -10,7 +10,7 @@ from pathlib import Path
 from django.conf import settings
 import joblib # 用于加载/保存 scaler
 from sklearn.discriminant_analysis import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -2478,40 +2478,79 @@ class TrendFollowingStrategy:
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
 
         self.set_model_paths(stock_code)
-        # 调用加载 Transformer 模型的方法
-        self.load_transformer_model(stock_code)
+        # 调用加载 Transformer 模型和转换器的方法
+        # load_prepared_data 会加载数据、Scalers 和可选的特征工程转换器
+        # 虽然这里不需要加载训练数据本身，但调用它可以确保 Scalers 和转换器被加载到 self 属性中
+        # 更好的做法是有一个专门加载模型和转换器的方法，而不是复用 load_prepared_data
+        # 为了简化，我们假设 load_prepared_data 已经将所需的 self.transformer_model, self.feature_scaler, self.target_scaler, self.selected_feature_names_for_transformer, self.pca_model, self.scaler_for_pca, self.feature_selector_model 加载好了
+        # 如果 load_prepared_data 返回了数据，这里可以忽略它们，只关注 self 属性
+        _, _, _, _, _, _, feature_scaler_loaded, target_scaler_loaded = self.load_prepared_data(stock_code)
 
+        # 检查模型和必需的 Scaler/特征列表是否已加载
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
             try:
-                logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型已加载，开始进行预测...")
+                logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型和转换器已加载，开始进行预测...")
 
-                # 预测函数 predict_with_transformer_model 应该处理数据的选取、标准化、窗口化和预测
-                # 确保 processed_data 包含所有 selected_feature_names_for_transformer 中的列
-                # 预测函数会返回与原始数据索引对齐的预测结果 Series
-                predicted_signal_series = predict_with_transformer_model(
-                    model=self.transformer_model,
-                    data=processed_data, # 传入包含所有可能特征的 DataFrame
-                    feature_scaler=self.feature_scaler,
-                    target_scaler=self.target_scaler,
-                    selected_feature_names=self.selected_feature_names_for_transformer,
-                    window_size=self.transformer_window_size,
-                    device=self.device,
-                    # 可能需要传递 data_prep_config 中的一些参数给 predict_with_transformer_model
-                    data_prep_config=self.transformer_data_prep_config
-                )
+                # --- 应用特征工程管道到最新数据窗口 ---
+                # 提取用于预测的最新数据窗口 (最后 window_size 行)
+                latest_data_window = processed_data.tail(self.transformer_window_size).copy() # 修改行：提取最新窗口数据
 
-                if predicted_signal_series is not None and not predicted_signal_series.empty:
-                    # 将预测结果合并回 processed_data 的 transformer_signal 列
-                    # predicted_signal_series 的索引应该与原始 processed_data 对齐 (考虑 window_size 的偏移)
-                    # 预测结果对应的是窗口的最后一个时间点
-                    # predict_with_transformer_model 应该已经处理好索引对齐问题，直接赋值即可
-                    processed_data.loc[predicted_signal_series.index, 'transformer_signal'] = predicted_signal_series
+                # 应用特征工程管道
+                processed_data_for_prediction = self._apply_feature_engineering_pipeline_for_prediction(latest_data_window) # 修改行：调用新的辅助方法
 
-                    latest_pred_idx = predicted_signal_series.index[-1] if not predicted_signal_series.empty else 'N/A'
-                    latest_pred_val = predicted_signal_series.iloc[-1] if not predicted_signal_series.empty else np.nan
-                    logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测完成，最新预测信号 ({latest_pred_idx}): {latest_pred_val:.2f}")
+                if processed_data_for_prediction is None or processed_data_for_prediction.empty:
+                    logger.warning(f"[{self.strategy_name}][{stock_code}] 应用特征工程管道后数据无效或为空，无法进行 Transformer 预测。")
                 else:
-                    logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测返回空 Series 或 None。")
+                    # 预测函数 predict_with_transformer_model 期望输入 DataFrame
+                    # 它会在内部根据 selected_feature_names 选取列，然后应用 feature_scaler
+                    # 我们已经通过 _apply_feature_engineering_pipeline_for_prediction 确保了列是正确的
+                    # 所以这里直接传入处理后的 DataFrame
+                    predicted_signal_series_full = predict_with_transformer_model( # 修改行：接收完整的预测结果 Series
+                        model=self.transformer_model,
+                        data=processed_data_for_prediction, # 修改行：传入经过特征工程管道处理后的数据
+                        feature_scaler=self.feature_scaler,
+                        target_scaler=self.target_scaler,
+                        selected_feature_names=self.selected_feature_names_for_transformer, # 传递最终特征名
+                        window_size=self.transformer_window_size, # 这个参数在 predict_with_transformer_model 中可能用于校验或内部逻辑
+                        device=self.device,
+                        # 移除 data_prep_config 参数，它不在 predict_with_transformer_model 的签名中
+                    )
+
+                    # predict_with_transformer_model 返回的是一个标量预测值，不是 Series
+                    # 需要修改 predict_with_transformer_model 函数，使其能够处理一个窗口并返回一个预测值
+                    # 或者，如果 predict_with_transformer_model 确实只预测一个点，那么这里只需要获取最新的那个点的数据
+                    # 根据 deep_learning_utils.py 中的 predict_with_transformer_model 函数，它确实只对最后一个窗口进行预测并返回一个 float。
+                    # 所以上面的调用方式是错误的，它应该只接收一个窗口的数据，而不是整个 DataFrame。
+
+                    # **修正 predict_with_transformer_model 的调用方式：**
+                    # predict_with_transformer_model 应该接收一个包含 **一个窗口** 数据的 DataFrame
+                    # 并且这个 DataFrame 已经经过了 PCA 前缩放、PCA、特征选择等步骤，只待最终缩放和模型预测。
+                    # 我们的 _apply_feature_engineering_pipeline_for_prediction 已经生成了这样的 DataFrame (虽然它处理的是一个窗口的数据)
+                    # 所以，我们应该将 _apply_feature_engineering_pipeline_for_prediction 的输出直接传递给 predict_with_transformer_model。
+
+                    # 再次调用 predict_with_transformer_model，这次传入的是经过管道处理的 DataFrame
+                    # 注意：predict_with_transformer_model 内部会取这个 DataFrame 的最后 window_size 行
+                    # 但我们的 processed_data_for_prediction 已经是最后 window_size 行经过处理的结果
+                    # 所以这里传入 processed_data_for_prediction 即可
+                    predicted_signal_value = predict_with_transformer_model( # 修改行：接收单个预测值
+                        model=self.transformer_model,
+                        data=processed_data_for_prediction, # 传入经过特征工程管道处理后的数据 (一个窗口)
+                        feature_scaler=self.feature_scaler,
+                        target_scaler=self.target_scaler,
+                        selected_feature_names=self.selected_feature_names_for_transformer,
+                        window_size=self.transformer_window_size,
+                        device=self.device,
+                    )
+
+                    # 将预测的单个信号值赋给 processed_data 的最后一行
+                    if not processed_data.empty and 'transformer_signal' in processed_data.columns:
+                         # 预测值对应于输入窗口的最后一个时间步
+                         latest_index = processed_data.index[-1]
+                         processed_data.loc[latest_index, 'transformer_signal'] = predicted_signal_value
+                         logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测完成，最新预测信号 ({latest_index}): {predicted_signal_value:.2f}")
+                    else:
+                         logger.warning(f"[{self.strategy_name}][{stock_code}] processed_data 为空或缺少 'transformer_signal' 列，无法记录 Transformer 预测结果。")
+
 
             except Exception as e:
                 logger.error(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测出错: {e}", exc_info=True)
@@ -2616,6 +2655,98 @@ class TrendFollowingStrategy:
 
         # 返回包含所有中间计算和最终信号的 DataFrame
         return self.intermediate_data
+
+    # 负责在预测时对最新的数据窗口应用已拟合的转换器
+    def _apply_feature_engineering_pipeline(self, raw_data_window: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """
+        对原始数据窗口应用训练时使用的特征工程管道。
+        这是一个内部辅助方法。
+        """
+        if raw_data_window is None or raw_data_window.empty:
+            return None
+
+        processed_df = raw_data_window.copy()
+
+        # 1. 初始特征列选择 (如果需要，取决于 raw_data_window 包含哪些列)
+        # 如果 raw_data_window 已经只包含 prepare_data_for_transformer 初始筛选后的列，则跳过
+        # 否则，需要一个列表来存储 prepare_data_for_transformer 初始筛选后的列名
+        # 假设 self.initial_feature_names 存储了这个列表
+        # if hasattr(self, 'initial_feature_names') and self.initial_feature_names:
+        #     try:
+        #         processed_df = processed_df[self.initial_feature_names]
+        #     except KeyError as e:
+        #         logger.error(f"[{self.strategy_name}] 原始数据窗口缺少初始特征列: {e}")
+        #         return None
+
+        # 2. 处理 NaN (与 prepare_data_for_transformer 一致)
+        if processed_df.isnull().any().any():
+             processed_df = processed_df.ffill().bfill().fillna(0)
+             if processed_df.isnull().any().any():
+                  logger.error(f"[{self.strategy_name}] 应用特征工程管道时 NaN 填充后仍存在 NaN。")
+                  return None
+
+        current_features_np = processed_df.values.astype(np.float32)
+        current_feature_names = processed_df.columns.tolist() # 跟踪特征名
+
+        # 3. 应用 PCA 前缩放 (如果使用了)
+        if self.scaler_for_pca is not None:
+            logger.debug(f"[{self.strategy_name}] 应用 PCA 前缩放器...")
+            try:
+                current_features_np = self.scaler_for_pca.transform(current_features_np)
+            except Exception as e:
+                logger.error(f"[{self.strategy_name}] 应用 PCA 前缩放器出错: {e}", exc_info=True)
+                return None
+
+        # 4. 应用 PCA (如果使用了)
+        if self.pca_model is not None:
+            logger.debug(f"[{self.strategy_name}] 应用 PCA 模型...")
+            try:
+                current_features_np = self.pca_model.transform(current_features_np)
+                # PCA 后特征名改变
+                current_feature_names = [f"pca_comp_{i}" for i in range(current_features_np.shape[1])]
+            except Exception as e:
+                logger.error(f"[{self.strategy_name}] 应用 PCA 模型出错: {e}", exc_info=True)
+                return None
+
+        # 5. 应用特征选择 (如果使用了)
+        # 注意：SelectFromModel 在 transform 时需要原始特征名或索引来匹配 fit 时的特征
+        # 如果在 PCA 后应用特征选择，SelectFromModel 需要在 PCA 转换后的特征上 fit
+        # prepare_data_for_transformer 的逻辑是 PCA 和基于模型的选择通常互斥
+        # 如果您的 prepare_data_for_transformer 是先 PCA 再特征选择，那么这里的顺序是对的
+        # 如果是先特征选择再 PCA，那么这里的顺序需要调整
+        # 假设是 PCA 和基于模型的选择互斥，或者先 PCA 再基于模型选择
+        if self.feature_selector_model is not None:
+            logger.debug(f"[{self.strategy_name}] 应用特征选择器模型...")
+            try:
+                # SelectFromModel.transform 接收 NumPy 数组
+                current_features_np = self.feature_selector_model.transform(current_features_np)
+                # 更新特征名列表以匹配选择后的特征
+                # 这需要知道 feature_selector_model 选择了哪些原始特征的索引
+                # 如果是在 PCA 后应用，则需要知道选择了 PCA 后的哪些成分
+                # 这是一个复杂的地方，确保 selected_feature_names_for_transformer 总是与 current_features_np 的列匹配
+                # 最简单的方式是依赖 selected_feature_names_for_transformer 是最终的列名
+                # 但 SelectFromModel.transform 不直接提供新的列名
+                # 更好的方法是 SelectFromModel.get_support(indices=True) 获取索引
+                # 这里我们假设 selected_feature_names_for_transformer 已经是最终的列名
+                # 并且 transform 后的列数与 selected_feature_names_for_transformer 长度一致
+                if current_features_np.shape[1] != len(self.selected_feature_names_for_transformer):
+                     logger.error(f"[{self.strategy_name}] 特征选择器转换后的维度 ({current_features_np.shape[1]}) 与最终选定特征列表长度 ({len(self.selected_feature_names_for_transformer)}) 不匹配！")
+                     return None
+                current_feature_names = self.selected_feature_names_for_transformer # 更新为最终选定的特征名
+
+            except Exception as e:
+                logger.error(f"[{self.strategy_name}] 应用特征选择器模型出错: {e}", exc_info=True)
+                return None
+
+        # 6. 将最终处理好的 NumPy 数组转回 DataFrame，列名使用 self.selected_feature_names_for_transformer
+        # 这是为了匹配 predict_with_transformer_model 函数的输入要求
+        if current_features_np.shape[1] != len(self.selected_feature_names_for_transformer):
+             logger.error(f"[{self.strategy_name}] 最终处理后的特征维度 ({current_features_np.shape[1]}) 与最终选定特征列表长度 ({len(self.selected_feature_names_for_transformer)}) 不匹配！")
+             return None
+
+        processed_df_final = pd.DataFrame(current_features_np, columns=self.selected_feature_names_for_transformer, index=raw_data_window.index)
+
+        return processed_df_final
 
     # --- 为 Transformer 训练准备数据子集 ---
     def _prepare_transformer_training_data_subset(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None) -> pd.DataFrame:
@@ -2753,7 +2884,6 @@ class TrendFollowingStrategy:
 
 
         return data_subset
-
 
     # 将 load_lstm_model 更名为 load_transformer_model
     def load_transformer_model(self, stock_code: str):
@@ -2906,20 +3036,23 @@ class TrendFollowingStrategy:
             # 返回 False 表示保存失败
             return False
 
-    def load_prepared_data(self, stock_code: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[Union[MinMaxScaler, StandardScaler]], Optional[Union[MinMaxScaler, StandardScaler]]]:
+    def load_prepared_data(self, stock_code: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[Union[MinMaxScaler, StandardScaler, RobustScaler]], Optional[Union[MinMaxScaler, StandardScaler, RobustScaler]]]:
         """
         从文件加载特定股票准备好的 Transformer 训练数据和 Scaler。
+        同时尝试加载 PCA 模型、PCA 前缩放器和特征选择器模型（如果存在）。
         返回 NumPy 数组和 Scaler 对象。加载失败时返回空 NumPy 数组和 None。
         """
         self.set_model_paths(stock_code)
-        empty_array = np.array([])
+        empty_array = np.array([], dtype=np.float32) # 修改：指定 dtype 以匹配 prepare_data_for_transformer 的输出
 
+        # 检查必需的文件路径是否已设置
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path, self.selected_features_path]):
-            logger.warning(f"[{self.strategy_name}][{stock_code}] 加载准备数据：部分或全部路径未设置。")
+            logger.warning(f"[{self.strategy_name}][{stock_code}] 加载准备数据：部分或全部必需路径未设置。")
             self.selected_feature_names_for_transformer = [] # 重置列表
             # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
-        # print(f"[{self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 路径: {self.all_prepared_data_npz_path}, {self.feature_scaler_path}, {self.target_scaler_path}, {self.selected_features_path}")
+
+        # 检查必需的文件是否存在
         required_files_exist = all([
             os.path.exists(self.all_prepared_data_npz_path),
             os.path.exists(self.feature_scaler_path),
@@ -2933,7 +3066,13 @@ class TrendFollowingStrategy:
              # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
 
+        # 初始化可选的转换器属性为 None
+        self.pca_model = None
+        self.scaler_for_pca = None
+        self.feature_selector_model = None
+
         try:
+            # --- 加载必需的数据和 Scaler ---
             data_npz = np.load(self.all_prepared_data_npz_path)
             features_train = data_npz['features_scaled_train']
             targets_train = data_npz['targets_scaled_train']
@@ -2950,17 +3089,64 @@ class TrendFollowingStrategy:
                  self.selected_feature_names_for_transformer = json.load(f)
             logger.debug(f"[{self.strategy_name}][{stock_code}] 选中特征名列表 ({len(self.selected_feature_names_for_transformer)}个) 从 {self.selected_features_path} 加载。")
 
+            # --- 尝试加载可选的特征工程转换器 ---
+            # 加载 PCA 模型
+            # 检查路径是否存在且有效
+            if hasattr(self, 'pca_model_path') and self.pca_model_path and os.path.exists(self.pca_model_path): # 修改行：检查路径是否存在
+                try:
+                    self.pca_model = joblib.load(self.pca_model_path)
+                    logger.info(f"[{self.strategy_name}][{stock_code}] PCA 模型从 {self.pca_model_path} 加载成功。") # 修改行：日志信息
+                except Exception as e_pca_load:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] 加载 PCA 模型时出错: {e_pca_load}", exc_info=True) # 修改行：日志信息
+                    self.pca_model = None # 加载失败则设为 None
+            else:
+                logger.debug(f"[{self.strategy_name}][{stock_code}] PCA 模型文件不存在或路径未设置，跳过加载。") # 修改行：日志信息级别和内容
+
+            # 加载 PCA 前缩放器
+            if hasattr(self, 'scaler_for_pca_path') and self.scaler_for_pca_path and os.path.exists(self.scaler_for_pca_path): # 修改行：检查路径是否存在
+                try:
+                    self.scaler_for_pca = joblib.load(self.scaler_for_pca_path)
+                    logger.info(f"[{self.strategy_name}][{stock_code}] PCA 前缩放器从 {self.scaler_for_pca_path} 加载成功。") # 修改行：日志信息
+                except Exception as e_scaler_pca_load:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] 加载 PCA 前缩放器时出错: {e_scaler_pca_load}", exc_info=True) # 修改行：日志信息
+                    self.scaler_for_pca = None # 加载失败则设为 None
+            else:
+                logger.debug(f"[{self.strategy_name}][{stock_code}] PCA 前缩放器文件不存在或路径未设置，跳过加载。") # 修改行：日志信息级别和内容
+
+            # 加载特征选择器模型
+            if hasattr(self, 'feature_selector_model_path') and self.feature_selector_model_path and os.path.exists(self.feature_selector_model_path): # 修改行：检查路径是否存在
+                try:
+                    self.feature_selector_model = joblib.load(self.feature_selector_model_path)
+                    logger.info(f"[{self.strategy_name}][{stock_code}] 特征选择器模型从 {self.feature_selector_model_path} 加载成功。") # 修改行：日志信息
+                except Exception as e_fs_load:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] 加载特征选择器模型时出错: {e_fs_load}", exc_info=True) # 修改行：日志信息
+                    self.feature_selector_model = None # 加载失败则设为 None
+            else:
+                logger.debug(f"[{self.strategy_name}][{stock_code}] 特征选择器模型文件不存在或路径未设置，跳过加载。") # 修改行：日志信息级别和内容
+
+
             # 检查加载的数据和 scaler 是否匹配 (维度检查)
-            if feature_scaler is not None and features_train.shape[1] != len(self.selected_feature_names_for_transformer):
+            # 这个检查应该基于最终的特征维度，无论是否使用了可选的特征工程
+            # 选定特征列表的长度应该与加载的训练集特征的列数匹配
+            if features_train.shape[1] != len(self.selected_feature_names_for_transformer):
                  logger.error(f"[{self.strategy_name}][{stock_code}] 加载的数据特征维度 ({features_train.shape[1]}) 与选中特征列表长度 ({len(self.selected_feature_names_for_transformer)}) 不匹配！")
                  self.selected_feature_names_for_transformer = [] # 重置列表
+                 # 加载失败，重置所有加载的属性
+                 self.pca_model = None
+                 self.scaler_for_pca = None
+                 self.feature_selector_model = None
                  return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None # 返回 None 表示不匹配
 
-            logger.info(f"[{self.strategy_name}][{stock_code}] 准备好的数据和 Scaler 已成功加载。")
+            logger.info(f"[{self.strategy_name}][{stock_code}] 准备好的数据、Scaler 和可选转换器已成功加载。")
+            # 返回必需的数据和 Scaler
             return features_train, targets_train, features_val, targets_val, features_test, targets_test, feature_scaler, target_scaler
         except Exception as e:
-            logger.error(f"[{self.strategy_name}][{stock_code}] 加载准备好的数据、Scaler或特征列表时出错: {e}", exc_info=True)
+            logger.error(f"[{self.strategy_name}][{stock_code}] 加载准备好的数据、Scaler或特征列表时发生错误: {e}", exc_info=True)
             self.selected_feature_names_for_transformer = [] # 重置列表
+            # 加载失败，重置所有加载的属性
+            self.pca_model = None
+            self.scaler_for_pca = None
+            self.feature_selector_model = None
             # 返回空 NumPy 数组和 None
             return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None
 

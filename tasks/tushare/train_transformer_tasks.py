@@ -334,7 +334,7 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
                 else:
                     # 如果 prepared_data 子目录存在，检查是否有 .npz 文件
                     # 使用 glob 查找所有 .npz 文件，并用 any() 判断是否存在至少一个
-                    has_npz_files = any(prepared_data_path.glob("*.npz")) # 新增行：检查是否存在 .npz 文件
+                    has_npz_files = any(prepared_data_path.glob("*.joblib")) # 新增行：检查是否存在 .npz 文件
                     if not has_npz_files: # 新增行：如果不存在 .npz 文件
                         should_schedule = True
                         reason = f"prepared_data 子目录 '{prepared_data_path}' 中不存在 .npz 文件" # 新增行：记录原因

@@ -76,12 +76,12 @@ class StockRealtimeDAO(BaseDAO):
         real_data_dicts = []
         level5_data_dicts = []
         for row in df.itertuples():
-            stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
+            stock = await self.stock_basic_dao.get_stock_by_code(stock_codes_str)
             if stock:
                 real_dict = self.data_format_process.set_realtime_tick_data(stock, row)
                 level5_dict = self.data_format_process.set_level5_data(stock, row)
                 real_data_dicts.append(real_dict)
-                await self.cache_set.latest_realtime_data(row.ts_code, real_dict)
+                await self.cache_set.latest_realtime_data(stock_codes_str, real_dict)
                 level5_data_dicts.append(level5_dict)
         # 保存数据
         result = await self._save_all_to_db_native_upsert(
