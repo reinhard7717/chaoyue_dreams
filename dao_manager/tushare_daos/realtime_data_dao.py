@@ -81,6 +81,7 @@ class StockRealtimeDAO(BaseDAO):
             if stock:
                 real_dict = self.data_format_process.set_realtime_tick_data(stock, row)
                 level5_dict = self.data_format_process.set_level5_data(stock, row)
+                print(f"real_dict: {real_dict}")
                 real_data_dicts.append(real_dict)
                 await self.cache_set.latest_realtime_data(row.TS_CODE, real_dict)
                 level5_data_dicts.append(level5_dict)
