@@ -6,8 +6,8 @@ from chaoyue_dreams.celery import app as celery_app
 # from celery import chain # 不再需要 chain，除非有后续步骤
 from celery.utils.log import get_task_logger
 
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_save_api_data_RealTime'
@@ -17,7 +17,7 @@ logger = get_task_logger(__name__)
 # --- 辅助函数：获取需要处理的股票代码 (保持不变) ---
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
-    stock_basic_dao = StockBasicDAO()
+    stock_basic_dao = StockBasicInfoDao()
     favorite_stock_codes = set()
     all_stock_codes = set()
     # 获取自选股
