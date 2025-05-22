@@ -264,55 +264,95 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         logger.error(f"{task_id_str} [{stock_code}]：保存准备好的数据或 Scaler 时出错: {save_err}", exc_info=True)
         raise save_err
 
-
 # 调度器任务：仅调度数据准备任务
 # 修改任务名称以匹配新的 prepare 任务名称
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.schedule_transformer_data_processing') # 修改行：修改任务名称
-def schedule_transformer_data_processing(self, params_file: str = None, base_data_dir: str = None, base_bars_to_request: int = 10000):
+def schedule_transformer_data_processing(self, params_file: str = None, base_data_dir: str = None, base_bars_to_request: int = 11200):
     """
     调度器任务：
     1. 获取股票代码列表。
-    2. 为每个股票创建并分派一个 Transformer 数据处理任务到指定队列。
+    2. 检查每个股票对应的根目录 (base_data_dir / 股票代码) 是否存在。
+    3. 为不存在该目录的股票创建并分派一个 Transformer 数据处理任务到指定队列。
     这个任务由 Celery Beat 调度，用于触发数据处理的多进程处理。
     :param params_file: 策略参数文件路径
-    :param model_dir: 模型和数据保存目录
+    :param base_data_dir: 模型和数据保存的根目录 (包含各个股票子目录)
     :param base_bars_to_request: 请求的基础 K 线数据量 (用于数据准备任务)
     """
-    logger.info(f"任务启动: schedule_transformer_data_processing (调度器模式) - 获取股票列表并分派数据处理任务") # 修改行：日志信息
+    logger.info(f"任务启动: schedule_transformer_data_processing (调度器模式) - 检查股票数据根目录并分派缺失任务") # 修改行：日志信息更新
+    # 优先使用传入参数，否则使用 Django settings
     if params_file is None:
+        # 检查 settings 是否可用以及属性是否存在
+        if not DJANGO_SETTINGS_AVAILABLE or not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
+             logger.error("错误：指标参数文件路径未提供且 Django settings 中未配置 INDICATOR_PARAMETERS_CONFIG_PATH。")
+             return {"status": "error", "message": "指标参数文件路径未配置", "dispatched_tasks": 0}
         params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
+
     if base_data_dir is None:
+        # 检查 settings 是否可用以及属性是否存在
+        if not DJANGO_SETTINGS_AVAILABLE or not hasattr(settings, 'STRATEGY_DATA_DIR'):
+             logger.error("错误：基础数据目录未提供且 Django settings 中未配置 STRATEGY_DATA_DIR。")
+             return {"status": "error", "message": "基础数据目录未配置", "dispatched_tasks": 0}
         base_data_dir = settings.STRATEGY_DATA_DIR
+
+    # 确保 base_data_dir 是一个 Path 对象
+    base_data_path = Path(base_data_dir)
+    if not base_data_path.is_dir():
+         logger.error(f"错误：配置的基础数据目录 '{base_data_dir}' 不存在或不是一个目录。")
+         return {"status": "error", "message": f"基础数据目录 '{base_data_dir}' 无效", "dispatched_tasks": 0}
+
     total_dispatched_tasks = 0
+    total_skipped_tasks = 0
+    total_stocks_checked = 0
+
     try:
         stock_basic_dao = StockBasicInfoDao()
+        # 使用 asyncio.run 来执行异步方法
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
 
         if not all_stocks:
-            logger.warning("未获取到股票列表，跳过数据处理任务分派。") # 修改行：日志信息
+            logger.warning("未获取到股票列表，跳过数据处理任务分派。")
             return {"status": "warning", "message": "未获取到股票列表", "dispatched_tasks": 0}
 
+        logger.info(f"成功获取 {len(all_stocks)} 个股票代码，开始检查股票数据根目录是否存在...") # 修改行：日志信息更新
+
         for stock in all_stocks:
+            total_stocks_checked += 1
             stock_code = stock.stock_code
-            logger.info(f"分派 {stock_code} 的 Transformer 数据处理任务到 'Train_Transformer_Prepare_Data' 队列，params_file:{params_file}...") # 修改行：日志信息
+            # 构建当前股票数据根目录的预期路径 (例如: /data/strategy_models/000001)
+            expected_stock_data_root = base_data_path / stock_code # 修改行：构建股票代码根目录路径
 
-            # 调用修改后的任务名称
-            prepare_task_signature = process_stock_data_for_transformer_training.s( # 修改行：调用新的任务函数名
-                stock_code=stock_code,
-                params_file=params_file,
-                model_dir=base_data_dir,
-                base_bars=base_bars_to_request
-            ).set(queue="Train_Transformer_Prepare_Data")
+            # 检查股票数据根目录是否存在
+            if not expected_stock_data_root.is_dir(): # 修改行：检查股票代码根目录是否存在
+                # 如果目录不存在，则分派任务
+                logger.info(f"分派 {stock_code} 的 Transformer 数据处理任务到 'Train_Transformer_Prepare_Data' 队列 (目录 '{expected_stock_data_root}' 不存在)...") # 修改行：日志信息说明原因
 
-            prepare_task_signature.apply_async()
-            total_dispatched_tasks += 1
+                # 调用修改后的任务名称
+                prepare_task_signature = process_stock_data_for_transformer_training.s( # 修改行：调用新的任务函数名
+                    stock_code=stock_code,
+                    params_file=params_file,
+                    model_dir=base_data_dir, # 注意：这里传递的是基础数据目录
+                    base_bars=base_bars_to_request
+                ).set(queue="Train_Transformer_Prepare_Data")
 
-        logger.info(f"任务结束: schedule_transformer_data_processing (调度器模式) - 共分派 {total_dispatched_tasks} 个数据处理任务") # 修改行：日志信息
-        return {"status": "success", "dispatched_tasks": total_dispatched_tasks}
+                prepare_task_signature.apply_async()
+                total_dispatched_tasks += 1
+            else:
+                # 如果目录已存在，则跳过
+                logger.info(f"跳过 {stock_code} 的 Transformer 数据处理任务分派 (目录 '{expected_stock_data_root}' 已存在).") # 修改行：日志信息说明跳过原因
+                total_skipped_tasks += 1
+
+        logger.info(f"任务结束: schedule_transformer_data_processing (调度器模式) - 共检查 {total_stocks_checked} 个股票，分派 {total_dispatched_tasks} 个任务，跳过 {total_skipped_tasks} 个任务。") # 修改行：日志信息总结
+        return {
+            "status": "completed",
+            "message": f"共检查 {total_stocks_checked} 个股票，分派 {total_dispatched_tasks} 个任务，跳过 {total_skipped_tasks} 个任务。",
+            "dispatched_tasks": total_dispatched_tasks,
+            "skipped_tasks": total_skipped_tasks,
+            "total_stocks_checked": total_stocks_checked
+        }
 
     except Exception as e:
-        logger.error(f"执行 schedule_transformer_data_processing (调度器模式) 时出错: {e}", exc_info=True) # 修改行：日志信息
-        return {"status": "error", "message": str(e), "dispatched_tasks": total_dispatched_tasks}
+        logger.error(f"执行 schedule_transformer_data_processing (调度器模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": str(e), "dispatched_tasks": total_dispatched_tasks, "skipped_tasks": total_skipped_tasks, "total_stocks_checked": total_stocks_checked}
 
 # 任务1：使用 IndicatorService 准备数据、使用策略生成规则信号 (包括 Transformer 目标列)，之后保存进文件
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.process_stock_data_stage1', queue='Train_Transformer_Prepare_Data')
