@@ -344,7 +344,7 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
                         # 根目录、prepared_data 子目录都存在，且存在 .npz 文件，则跳过
                         should_schedule = False # 新增行：明确不需要调度
                         reason = f"股票根目录和 prepared_data 子目录存在且包含 .npz 文件" # 新增行：记录原因
-                        logger.info(f"跳过 {stock_code} 的 Transformer 数据处理任务分派 ({reason}).") # 修改行：日志信息说明跳过原因
+                        # logger.info(f"跳过 {stock_code} 的 Transformer 数据处理任务分派 ({reason}).") # 修改行：日志信息说明跳过原因
                         total_skipped_tasks += 1
 
             # 根据 should_schedule 标志决定是否分派任务
