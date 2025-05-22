@@ -239,7 +239,7 @@
       "val_split": 0.1,
       "apply_variance_threshold": true,
       "variance_threshold_value": 0.01,
-      "use_pca": false,
+      "use_pca": true,
       "pca_n_components": 0.99,
       "pca_solver": "auto",
       "use_feature_selection": true,

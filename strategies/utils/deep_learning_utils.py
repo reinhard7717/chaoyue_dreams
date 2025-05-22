@@ -466,14 +466,6 @@ def prepare_data_for_transformer(
     log_params = {k: v for k, v in locals().items() if k not in ['data', 'required_columns']}
     logger.info(f"数据准备参数: {log_params}")
 
-    # 打印当前进程可用的CPU核心数，用于调试
-    try:
-        import multiprocessing
-        available_cores = multiprocessing.cpu_count()
-        logger.info(f"当前进程可用的CPU核心数 (multiprocessing.cpu_count()): {available_cores}")
-    except Exception as e:
-        logger.warning(f"无法获取CPU核心数: {e}")
-
     # --- 0. 复制数据，避免修改原始 DataFrame ---
     # 复制是必要的，因为后续的 NaN 处理会修改 DataFrame
     data_processed = data.copy()
