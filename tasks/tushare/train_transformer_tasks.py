@@ -2,7 +2,8 @@
 import json
 import os
 import logging
-import asyncio # 导入 asyncio
+import asyncio
+from pathlib import Path # 导入 asyncio
 
 from celery import group
 from django.conf import settings
@@ -282,14 +283,14 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
     # 优先使用传入参数，否则使用 Django settings
     if params_file is None:
         # 检查 settings 是否可用以及属性是否存在
-        if not DJANGO_SETTINGS_AVAILABLE or not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
+        if not hasattr(settings, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
              logger.error("错误：指标参数文件路径未提供且 Django settings 中未配置 INDICATOR_PARAMETERS_CONFIG_PATH。")
              return {"status": "error", "message": "指标参数文件路径未配置", "dispatched_tasks": 0}
         params_file = settings.INDICATOR_PARAMETERS_CONFIG_PATH
 
     if base_data_dir is None:
         # 检查 settings 是否可用以及属性是否存在
-        if not DJANGO_SETTINGS_AVAILABLE or not hasattr(settings, 'STRATEGY_DATA_DIR'):
+        if not hasattr(settings, 'STRATEGY_DATA_DIR'):
              logger.error("错误：基础数据目录未提供且 Django settings 中未配置 STRATEGY_DATA_DIR。")
              return {"status": "error", "message": "基础数据目录未配置", "dispatched_tasks": 0}
         base_data_dir = settings.STRATEGY_DATA_DIR
