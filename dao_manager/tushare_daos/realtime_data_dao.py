@@ -72,6 +72,7 @@ class StockRealtimeDAO(BaseDAO):
         ts.set_token('0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c')
         stock_codes_str = ','.join(stock_codes)
         # sina数据
+        print(stock_codes_str)
         df = ts.realtime_quote(ts_code=stock_codes_str)
         real_data_dicts = []
         level5_data_dicts = []
