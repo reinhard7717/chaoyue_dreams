@@ -74,7 +74,9 @@ class StockRealtimeDAO(BaseDAO):
         stock_codes_str = ','.join(stock_codes)
         # sina数据
         df = ts.realtime_quote(ts_code=stock_codes_str)
-        if df.empty
+        if df.empty:
+            return result
+        else:
             real_data_dicts = []
             level5_data_dicts = []
             for row in df.itertuples():
