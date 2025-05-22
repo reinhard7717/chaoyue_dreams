@@ -103,6 +103,10 @@ class TrendFollowingStrategy:
         params_file, base_data_dir = self._initialize_base_paths_and_dependencies(params_file, base_data_dir) # 调用辅助方法
         self.base_data_dir = base_data_dir # 确保 self.base_data_dir 设置
         self.fe_params: Dict[str, Any] = {} # 初始化 fe_params
+        # 新增属性初始化
+        self.pca_model_path = None # 初始化 pca_model_path
+        self.scaler_for_pca_path = None # 初始化 scaler_for_pca_path
+        self.feature_selector_model_path = None # 初始化 feature_selector_model_path
         temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]" # 临时日志前缀
 
         # --- 阶段 1 & 2: 解析和加载参数文件 ---
@@ -572,6 +576,12 @@ class TrendFollowingStrategy:
         logger.debug(f"  目标Scaler: {self.target_scaler_path}")
         logger.debug(f"  准备数据NPZ: {self.all_prepared_data_npz_path}")
         logger.debug(f"  选中特征: {self.selected_features_path}")
+        # 设置 PCA 模型保存路径
+        self.pca_model_path = os.path.join(prepared_data_dir, "trend_following_transformer_pca_model.joblib")
+        # 设置 PCA 前使用的 Scaler 保存路径
+        self.scaler_for_pca_path = os.path.join(prepared_data_dir, "trend_following_transformer_scaler_for_pca.joblib")
+        # 设置特征选择模型保存路径
+        self.feature_selector_model_path = os.path.join(prepared_data_dir, "trend_following_transformer_feature_selector_model.joblib")
 
     def train_transformer_model_from_prepared_data(self, stock_code: str):
         """
@@ -2636,7 +2646,7 @@ class TrendFollowingStrategy:
         # 2. 构建一个包含所有潜在特征和目标列的临时 DataFrame
         # 这个临时 DataFrame 包含了原始数据、final_rule_signal 和所有中间结果。
         # 这是为了方便后续根据列名选取特征和目标，模拟 generate_signals 构建 processed_data 的过程（但不包含预测和组合信号）。
-        temp_data_container = data.copy() # 修改行: 复制原始数据作为容器
+        temp_data_container = data.copy() # 复制原始数据作为容器
         temp_data_container['final_rule_signal'] = final_rule_signal # 添加 final_rule_signal
 
         # 合并 intermediate_results_dict 中的 DataFrame/Series 到临时容器
@@ -2670,7 +2680,7 @@ class TrendFollowingStrategy:
                       logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
 
         logger.info(f"[{self.strategy_name}][{stock_code}] 临时数据容器构建完成，形状: {temp_data_container.shape}")
-        print(f"[{self.strategy_name}][{stock_code}] temp_data_container 内存使用 (MB): {temp_data_container.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印内存使用
+        print(f"[{self.strategy_name}][{stock_code}] temp_data_container 内存使用 (MB): {temp_data_container.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印内存使用
 
         # 3. 确定 Transformer 的目标列
         target_column = self.transformer_target_column # 从策略属性获取目标列名
@@ -2719,16 +2729,16 @@ class TrendFollowingStrategy:
         columns_for_transformer_prep = transformer_feature_columns + [target_column]
 
         # 创建精简后的 DataFrame，只选取需要的列
-        data_subset = temp_data_container[columns_for_transformer_prep].copy() # 修改行: 创建一个只包含必要列的副本
+        data_subset = temp_data_container[columns_for_transformer_prep].copy() # 创建一个只包含必要列的副本
 
         # 显式删除不再需要的临时 DataFrame，释放内存
-        del temp_data_container # 修改行: 显式删除临时 DataFrame
-        print(f"[{self.strategy_name}][{stock_code}] 已删除 temp_data_container。") # 修改行: 打印删除信息
+        del temp_data_container # 显式删除临时 DataFrame
+        print(f"[{self.strategy_name}][{stock_code}] 已删除 temp_data_container。") # 打印删除信息
 
         # 6. 移除包含 NaN 的行，特别是目标列中的 NaN
         initial_rows = len(data_subset)
         # prepare_data_for_transformer 会处理 NaN，但移除目标列为 NaN 的行是必要的，因为这些样本无法用于训练
-        data_subset.dropna(subset=[target_column], inplace=True) # 修改行: 移除目标列为 NaN 的行
+        data_subset.dropna(subset=[target_column], inplace=True) # 移除目标列为 NaN 的行
         rows_after_dropna = len(data_subset)
         if rows_after_dropna < initial_rows:
              logger.warning(f"[{self.strategy_name}][{stock_code}] 移除了 {initial_rows - rows_after_dropna} 行目标列为 NaN 的数据。剩余 {rows_after_dropna} 行。")
@@ -2738,8 +2748,8 @@ class TrendFollowingStrategy:
              return pd.DataFrame()
 
         logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 训练数据子集提取完成。最终形状: {data_subset.shape}")
-        # print(f"[{self.strategy_name}][{stock_code}] data_subset 数据类型:\n{data_subset.dtypes}") # 修改行: 打印数据类型
-        print(f"[{self.strategy_name}][{stock_code}] data_subset 内存使用 (MB): {data_subset.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印内存使用
+        # print(f"[{self.strategy_name}][{stock_code}] data_subset 数据类型:\n{data_subset.dtypes}") # 打印数据类型
+        print(f"[{self.strategy_name}][{stock_code}] data_subset 内存使用 (MB): {data_subset.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印内存使用
 
 
         return data_subset
@@ -2836,7 +2846,7 @@ class TrendFollowingStrategy:
         """
         self.set_model_paths(stock_code)
         # 检查所有必要的路径是否已设置，包括新增的模型/Scaler路径
-        # 修改行: 增加对新增模型/Scaler路径的检查
+        # 增加对新增模型/Scaler路径的检查
         if not all([self.all_prepared_data_npz_path, self.feature_scaler_path, self.target_scaler_path,
                     self.selected_features_path, self.pca_model_path, self.scaler_for_pca_path,
                     self.feature_selector_model_path]):
@@ -2860,7 +2870,7 @@ class TrendFollowingStrategy:
             # 保存特征和目标 Scaler
             joblib.dump(feature_scaler, self.feature_scaler_path)
             joblib.dump(target_scaler, self.target_scaler_path)
-            # 修改行: 更新日志信息以包含更多保存的对象
+            # 更新日志信息以包含更多保存的对象
             logger.debug(f"[{self.strategy_name}][{stock_code}] Feature Scaler 和 Target Scaler 已保存。")
 
             # 保存 PCA 模型 (如果存在)
@@ -2891,7 +2901,7 @@ class TrendFollowingStrategy:
 
             return True # 返回 True 表示保存成功
         except Exception as e:
-            # 修改行: 更新错误日志信息，包含新增的模型/Scaler
+            # 更新错误日志信息，包含新增的模型/Scaler
             logger.error(f"[{self.strategy_name}][{stock_code}] 保存准备好的数据、Scaler、模型或特征列表时出错: {e}", exc_info=True)
             # 返回 False 表示保存失败
             return False

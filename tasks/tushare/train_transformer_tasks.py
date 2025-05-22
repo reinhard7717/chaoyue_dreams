@@ -4,7 +4,8 @@ import os
 import logging
 import asyncio
 from pathlib import Path # 导入 asyncio
-
+import psutil # 导入 psutil 库用于获取系统信息
+import time   # 导入 time 库用于实现等待
 from celery import group
 from django.conf import settings
 import numpy as np
