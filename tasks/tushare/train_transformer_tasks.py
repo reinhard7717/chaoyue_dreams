@@ -71,11 +71,11 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 记录获取到的指标配置数量
         logger.info(f"{task_id_str} [{stock_code}]：获取到 {len(actual_indicator_configs)} 个实际使用的指标配置。")
         # 打印数据类型和内存使用，帮助调试
-        print(f"{task_id_str} [{stock_code}]：data_df 原始数据类型:\n{data_df.dtypes}") # 修改行: 打印原始数据类型
+        # print(f"{task_id_str} [{stock_code}]：data_df 原始数据类型:\n{data_df.dtypes}") # 修改行: 打印原始数据类型
         print(f"{task_id_str} [{stock_code}]：data_df 原始内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印原始内存使用
 
         # 优化内存：尝试将所有列转换为 float32，处理潜在的 object 类型列
-        logger.info(f"{task_id_str} [{stock_code}]：尝试将所有列转换为 float32...") # 修改行: 添加日志
+        # logger.info(f"{task_id_str} [{stock_code}]：尝试将所有列转换为 float32...") # 修改行: 添加日志
         original_dtypes = data_df.dtypes # 修改行: 保存原始数据类型用于比较
         converted_cols_count = 0 # 修改行: 计数转换成功的列
         for col in data_df.columns:
@@ -88,8 +88,8 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             except Exception as e:
                 logger.warning(f"{task_id_str} [{stock_code}]：转换列 '{col}' 到 float32 时出错: {e}. 列将保持原样或包含 NaN。", exc_info=True) # 修改行: 记录转换错误
 
-        logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 修改行: 添加日志
-        print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 修改行: 打印转换后数据类型
+        # logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 修改行: 添加日志
+        # print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 修改行: 打印转换后数据类型
         print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印转换后内存使用
 
     except Exception as prep_err:

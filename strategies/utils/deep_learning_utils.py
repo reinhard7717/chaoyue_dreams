@@ -501,7 +501,7 @@ def prepare_data_for_transformer(
     nan_cols_features = features_filled_df.isnull().sum()
     nan_cols_features = nan_cols_features[nan_cols_features > 0]
     if not nan_cols_features.empty:
-        logger.warning(f"特征数据在 ffill().bfill() 后，以下列仍包含 NaN (将被填充为0): {nan_cols_features.index.tolist()}")
+        # logger.warning(f"特征数据在 ffill().bfill() 后，以下列仍包含 NaN (将被填充为0): {nan_cols_features.index.tolist()}")
         features_filled_df.fillna(0, inplace=True) # 对剩余 NaN 用 0 填充
 
     # 同样处理目标列中的 NaN
