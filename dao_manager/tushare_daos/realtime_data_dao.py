@@ -86,6 +86,7 @@ class StockRealtimeDAO(BaseDAO):
                 await self.cache_set.latest_realtime_data(row.TS_CODE, real_dict)
                 level5_data_dicts.append(level5_dict)
         # 保存数据
+        print(f"real_data_dicts: {real_data_dicts}")
         result = await self._save_all_to_db_native_upsert(
             model_class=StockRealtimeData,
             data_list=real_data_dicts,
