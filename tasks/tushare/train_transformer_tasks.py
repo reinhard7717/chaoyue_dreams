@@ -70,27 +70,26 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 记录获取到的指标配置数量
         logger.info(f"{task_id_str} [{stock_code}]：获取到 {len(actual_indicator_configs)} 个实际使用的指标配置。")
         # 打印数据类型和内存使用，帮助调试
-        print(f"{task_id_str} [{stock_code}]：data_df 数据类型:\n{data_df.dtypes}")
-        print(f"{task_id_str} [{stock_code}]：data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}")
+        print(f"{task_id_str} [{stock_code}]：data_df 原始数据类型:\n{data_df.dtypes}") # 修改行: 打印原始数据类型
+        print(f"{task_id_str} [{stock_code}]：data_df 原始内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印原始内存使用
 
-        # 优化内存：将 float64 列转换为 float32
-        float64_cols = data_df.select_dtypes(include='float64').columns
-        if not float64_cols.empty:
-            logger.info(f"{task_id_str} [{stock_code}]：将 {len(float64_cols)} 个 float64 列转换为 float32...") # 修改行: 添加日志
-            # 使用 .loc 进行原地转换，避免创建新的 DataFrame
-            data_df.loc[:, float64_cols] = data_df.loc[:, float64_cols].astype(np.float32) # 修改行: 转换为 float32
-            logger.info(f"{task_id_str} [{stock_code}]：float64 列转换完成。") # 修改行: 添加日志
-            print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 修改行: 打印转换后数据类型
-            print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印转换后内存使用
-        # 对于 int64 列 (如 volume)，通常可以保留 int64 或转换为 float32，取决于后续计算。
-        # 如果它们会参与浮点计算，转换为 float32 是合理的。
-        int64_cols = data_df.select_dtypes(include='int64').columns
-        if not int64_cols.empty:
-             logger.info(f"{task_id_str} [{stock_code}]：将 {len(int64_cols)} 个 int64 列转换为 float32...") # 修改行: 添加日志
-             data_df.loc[:, int64_cols] = data_df.loc[:, int64_cols].astype(np.float32) # 修改行: 转换为 float32
-             logger.info(f"{task_id_str} [{stock_code}]：int64 列转换完成。") # 修改行: 添加日志
-             print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 修改行: 打印转换后数据类型
-             print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印转换后内存使用
+        # 优化内存：尝试将所有列转换为 float32，处理潜在的 object 类型列
+        logger.info(f"{task_id_str} [{stock_code}]：尝试将所有列转换为 float32...") # 修改行: 添加日志
+        original_dtypes = data_df.dtypes # 修改行: 保存原始数据类型用于比较
+        converted_cols_count = 0 # 修改行: 计数转换成功的列
+        for col in data_df.columns:
+            try:
+                # 使用 pd.to_numeric 尝试转换，errors='coerce' 将无法转换的值变为 NaN
+                # 然后转换为 float32
+                data_df[col] = pd.to_numeric(data_df[col], errors='coerce').astype(np.float32) # 修改行: 转换逻辑
+                if data_df[col].dtype == np.float32 and original_dtypes[col] != np.float32: # 修改行: 检查是否成功转换且原类型不是 float32
+                     converted_cols_count += 1 # 修改行: 计数
+            except Exception as e:
+                logger.warning(f"{task_id_str} [{stock_code}]：转换列 '{col}' 到 float32 时出错: {e}. 列将保持原样或包含 NaN。", exc_info=True) # 修改行: 记录转换错误
+
+        logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 修改行: 添加日志
+        print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 修改行: 打印转换后数据类型
+        print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 修改行: 打印转换后内存使用
 
     except Exception as prep_err:
         # 记录数据准备错误信息并重新抛出异常
@@ -103,7 +102,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         logger.info(f"{task_id_str} [{stock_code}]：开始提取 Transformer 训练所需的特征和目标...")
         # 调用策略的新方法，该方法返回一个只包含 Transformer 特征和目标列的 DataFrame
         # 这个方法内部会根据策略配置确定哪些规则信号作为特征，哪个列作为目标
-        # 注意：这里传入的 data_df 已经是 float32 类型了
+        # 注意：这里传入的 data_df 已经是尝试转换为 float32 后的 DataFrame
         data_for_transformer_prep = strategy._prepare_transformer_training_data_subset(
             data=data_df, # 传入包含所有原始数据和指标的 DataFrame
             stock_code=stock_code,
@@ -264,6 +263,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 记录保存错误信息并重新抛出异常
         logger.error(f"{task_id_str} [{stock_code}]：保存准备好的数据或 Scaler 时出错: {save_err}", exc_info=True)
         raise save_err
+
 
 # 调度器任务：仅调度数据准备任务
 # 修改任务名称以匹配新的 prepare 任务名称
