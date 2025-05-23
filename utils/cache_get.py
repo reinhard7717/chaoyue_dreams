@@ -330,7 +330,7 @@ class StockRealtimeCacheGet(CacheGet):
     async def initialize(self):
         pass
 
-    async def latest_realtime_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
+    async def latest_tick_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         # logger.info(f"尝试从缓存获取股票[{stock_code}]最新实时数据, key: {cache_key}")
         return await self._realtime_data(stock_code=stock_code, cache_key=cache_key)

@@ -1197,9 +1197,9 @@ def train_transformer_model(
                             # 确保 Warmup 期间的学习率不超过目标学习率
                             current_lr_for_step = min(current_lr_for_step, initial_optimizer_lr)
 
-                        # 将计算出的学习率应用到优化器
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = current_lr_for_step
+                            # 将计算出的学习率应用到优化器
+                            for param_group in optimizer.param_groups:
+                                param_group['lr'] = current_lr_for_step
                         # --- Warmup 逻辑结束 ---
 
                         # 检查输入和目标中是否有 NaN/Inf (可选，但有助于早期发现问题)
@@ -1339,6 +1339,7 @@ def train_transformer_model(
             if training_halted_due_to_retries:
                 # 如果因重试次数用尽而停止，记录当前 Epoch 的 NaN 指标到 history
                 logger.error(f"Epoch {current_epoch+1} 因 NaN/Inf 重试次数用尽而提前终止整个训练。")
+                # 训练因重试停止时，记录当前状态到 history
                 history['epoch'].append(current_epoch + 1)
                 history['loss'].append(np.nan)
                 history['mae'].append(np.nan)
@@ -1352,14 +1353,7 @@ def train_transformer_model(
                 # 计算平均训练损失和 MAE (仅对成功完成的尝试)
                 avg_train_loss = epoch_train_loss_sum / num_train_samples if num_train_samples > 0 else np.nan
                 avg_train_mae = epoch_train_mae_sum / num_train_samples if num_train_samples > 0 else np.nan
-                # 获取当前 Epoch 训练结束时的学习率 (可能受 Warmup 或手动降低影响)
-                current_lr_at_epoch_end = optimizer.param_groups[0]['lr']
-
-                # 记录训练指标
-                history['epoch'].append(current_epoch + 1)
-                history['loss'].append(avg_train_loss)
-                history['mae'].append(avg_train_mae) # 记录缩放后的 MAE
-                history['lr'].append(current_lr_at_epoch_end) # 记录 Epoch 结束时的学习率
+                # 原始代码在这里获取了 current_lr_at_epoch_end 并添加到 history，我们移除它
 
                 # 初始化验证指标为 NaN
                 avg_val_loss, avg_val_mae, avg_val_true_mae = np.nan, np.nan, np.nan
@@ -1476,18 +1470,21 @@ def train_transformer_model(
                     avg_val_mae = epoch_mae_sum_val / num_valid_samples_for_mae if num_valid_samples_for_mae > 0 else np.nan
                     avg_val_true_mae = epoch_true_mae_sum_val / num_valid_samples_for_true_mae if num_valid_samples_for_true_mae > 0 else np.nan
 
-                    history['val_loss'].append(avg_val_loss)
-                    history['val_mae'].append(avg_val_mae)
-                    history['val_true_mae'].append(avg_val_true_mae)
+                    # 原始代码在这里将验证指标添加到 history，我们移除它
 
                     # --- 根据 val_mae 调整早停耐心 ---
                     # 如果验证集的缩放后 MAE 小于 0.01，则将早停耐心设置为 5
                     # 检查 avg_val_mae 是否有效 (非 NaN) 且小于 0.01
-                    if not np.isnan(avg_val_mae) and avg_val_mae < 0.01: # 修改行: 检查 avg_val_mae 是否小于 0.01
+                    if not np.isnan(avg_val_mae) and avg_val_mae < 0.01: # 检查 avg_val_mae 是否小于 0.01
                         # 只有当当前的 early_stopping_patience 不是 5 时才修改并记录日志，避免重复输出
-                        if early_stopping_patience != 5: # 修改行: 避免重复设置和日志
-                            early_stopping_patience = 5 # 修改行: 将早停耐心设置为 5
-                            logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.01，早停耐心已设置为 5。") # 修改行: 添加日志
+                        if early_stopping_patience > 4: # 避免重复设置和日志
+                            early_stopping_patience = 4 # 将早停耐心设置为 5
+                            logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.01，早停耐心已设置为 5。")
+                    elif not np.isnan(avg_val_mae) and avg_val_mae < 0.02: # 检查 avg_val_mae 是否小于 0.01
+                        # 只有当当前的 early_stopping_patience 不是 10 时才修改并记录日志，避免重复输出
+                        if early_stopping_patience > 8: # 避免重复设置和日志
+                            early_stopping_patience = 8 # 将早停耐心设置为 10
+                            logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.02，早停耐心已设置为 10。")
 
                     # --- 学习率调度与早停逻辑 ---
                     # 获取用于调度器和早停的监控值
@@ -1512,13 +1509,14 @@ def train_transformer_model(
 
                     # 学习率调度器步骤 (仅当监控值有效且 Warmup 结束后)
                     # 注意：这里的 scheduler.step() 是基于验证指标的，与 NaN/Inf 重试时的手动降学习率不同
+                    # 获取 scheduler.step() 之前的学习率用于日志
+                    lr_before_scheduler_step = optimizer.param_groups[0]['lr']
                     if current_epoch >= warmup_epochs and lr_scheduler_type == 'reducelronplateau' and scheduler and not np.isnan(monitored_value_for_scheduler_for_lr_es):
-                        scheduler.step(monitored_value_for_scheduler_for_lr_es)
+                        scheduler.step(monitored_value_for_scheduler_for_lr_es) # <-- 调度器在这里调整学习率
                         new_lr_after_scheduler = optimizer.param_groups[0]['lr']
-                        # 检查学习率是否因 ReduceLROnPlateau 而降低 (排除因重试手动降低的情况)
-                        # 简单检查是否低于当前记录的学习率即可
-                        if new_lr_after_scheduler < current_lr_at_epoch_end:
-                             logger.info(f"Epoch {current_epoch+1}: ReduceLROnPlateau 学习率从 {current_lr_at_epoch_end:.2e} 降低到 {new_lr_after_scheduler:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler_for_lr_es:.4f})")
+                        # 检查学习率是否因 ReduceLROnPlateau 而降低
+                        if new_lr_after_scheduler < lr_before_scheduler_step: # 比较 scheduler 之前和之后的 LR
+                             logger.info(f"Epoch {current_epoch+1}: ReduceLROnPlateau 学习率从 {lr_before_scheduler_step:.2e} 降低到 {new_lr_after_scheduler:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler_for_lr_es:.4f})") # 使用 lr_before_scheduler_step 和 new_lr_after_scheduler
                     # 其他类型的调度器通常在每个 epoch 结束时调用 step()
                     # 同样，只在 Warmup 结束后调用
                     elif current_epoch >= warmup_epochs and lr_scheduler_type in ['cosineannealinglr', 'onecyclelr'] and scheduler :
@@ -1528,8 +1526,8 @@ def train_transformer_model(
                          # 这里假设是 epoch-wise step
                          scheduler.step()
                          new_lr_after_scheduler = optimizer.param_groups[0]['lr']
-                         if new_lr_after_scheduler != current_lr_at_epoch_end: # 学习率发生变化
-                              logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.")
+                         if new_lr_after_scheduler != lr_before_scheduler_step: # 比较 scheduler 之前和之后的 LR
+                              logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.") # 使用 new_lr_after_scheduler
 
 
                     # 早停逻辑
@@ -1566,9 +1564,7 @@ def train_transformer_model(
                 else: # 无验证集 (val_loader is None or empty)
                     # 如果没有验证集，则无法进行基于验证指标的早停或学习率调度
                     # 可以选择不记录 val_* 指标，或者记录为 NaN
-                    history['val_loss'].append(np.nan)
-                    history['val_mae'].append(np.nan)
-                    history['val_true_mae'].append(np.nan)
+                    # 原始代码在这里将验证指标添加到 history，我们移除它
                     # 如果没有验证集，早停可以基于训练损失 (如果需要)
                     # 这里我们简单地继续训练，或者如果训练损失持续为NaN，则停止
                     if np.isnan(avg_train_loss) or np.isinf(avg_train_loss) :
@@ -1587,12 +1583,12 @@ def train_transformer_model(
                 val_mae_str = f"{avg_val_mae:.4f}" if not np.isnan(avg_val_mae) else "N/A"
                 val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
 
-                # 获取当前 Epoch 结束时的学习率用于日志记录 (即 history 中记录的值)
-                lr_for_logging = history['lr'][-1]
+                # 获取当前 Epoch 结束时（所有调整后）的最终学习率用于日志和 history
+                lr_for_logging = optimizer.param_groups[0]['lr']
 
                 log_msg = (
                     f"轮次 {current_epoch+1}/{epochs} [{epoch_duration:.2f}秒] - "
-                    f"学习率: {lr_for_logging:.2e} - " # 使用 history 中记录的 LR
+                    f"学习率: {lr_for_logging:.2e} - " # 使用获取的最新 LR
                     f"训练损失: {train_loss_str}, 训练MAE(缩放): {train_mae_str}"
                 )
                 if val_loader is not None and len(val_loader) > 0:
@@ -1603,11 +1599,21 @@ def train_transformer_model(
                 if writer:
                     if not np.isnan(avg_train_loss): writer.add_scalar('Loss/train', avg_train_loss, current_epoch + 1)
                     if not np.isnan(avg_train_mae): writer.add_scalar('MAE_scaled/train', avg_train_mae, current_epoch + 1)
-                    writer.add_scalar('LearningRate', lr_for_logging, current_epoch + 1) # 使用 history 中记录的 LR
+                    writer.add_scalar('LearningRate', lr_for_logging, current_epoch + 1) # 使用获取的最新 LR
                     if val_loader is not None and len(val_loader) > 0:
                         if not np.isnan(avg_val_loss): writer.add_scalar('Loss/validation', avg_val_loss, current_epoch + 1)
                         if not np.isnan(avg_val_mae): writer.add_scalar('MAE_scaled/validation', avg_val_mae, current_epoch + 1)
                         if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE_true/validation', avg_val_true_mae, current_epoch + 1)
+
+                # 在所有指标计算和调度器步骤完成后，将所有指标和最终的学习率添加到 history
+                history['epoch'].append(current_epoch + 1) # Epoch 编号
+                history['loss'].append(avg_train_loss) # 训练损失
+                history['mae'].append(avg_train_mae) # 训练MAE (scaled)
+                history['lr'].append(lr_for_logging) # 将用于下一个 Epoch 的学习率添加到 history
+                history['val_loss'].append(avg_val_loss) # 验证损失
+                history['val_mae'].append(avg_val_mae) # 验证MAE (scaled)
+                history['val_true_mae'].append(avg_val_true_mae) # 验证MAE (true)
+
 
                 # 成功完成一个 Epoch，准备进入下一个 Epoch
                 current_epoch += 1 # 只有成功完成的 Epoch 才增加计数

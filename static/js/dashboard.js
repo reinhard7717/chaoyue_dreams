@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'strategy_message': // 通用策略消息
                     addMessage(strategyMessagesList, data.payload, MAX_STRATEGY_MESSAGES);
                     break;
-                case 'stock_update': // 单个自选股数据更新
+                case 'stock_tick_update': // 实时tick行情推送
                     updateStockRow(data.payload);
                     break;
                 case 'favorites_update': // 全量刷新自选股列表

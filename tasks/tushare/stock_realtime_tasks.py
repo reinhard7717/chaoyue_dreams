@@ -72,7 +72,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_tick_data_batch')
 def save_tick_data_batch(self, stock_codes: List[str]):
     """
-    从Tushare批量获取实时Tick交易数据并保存到数据库（异步并发处理）
+    从Tushare批量获取实时Tick交易数据并保存到数据库（异步并发处理），并推送到前台
     Args:
         stock_codes: 股票代码列表
     """
@@ -80,12 +80,49 @@ def save_tick_data_batch(self, stock_codes: List[str]):
         logger.info("收到空的股票代码列表，任务结束")
         return {"processed": 0, "success": 0, "errors": 0}
     logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(Tick)数据任务...")
-    # 在任务开始时创建一次 DAO 实例
     stock_realtime_dao = StockRealtimeDAO()
     try:
+        # 1. 保存tick数据
         asyncio.run(stock_realtime_dao.save_tick_data_by_stock_codes(stock_codes))
+        logger.info("批量tick数据保存完成，准备推送到前台")
+        from asgiref.sync import async_to_sync
+        from users.models import FavoriteStock
+        from utils.websockets import send_update_to_user_sync
+
+        for code in stock_codes:
+            # 获取所有关注该股票的用户
+            user_ids = list(FavoriteStock.objects.filter(stock__stock_code=code).values_list('user_id', flat=True))
+            if not user_ids:
+                logger.info(f"股票{code}没有关注用户，跳过推送")
+                continue
+            # 获取最新tick数据（调用异步方法，转同步）
+            latest_tick = async_to_sync(stock_realtime_dao.latest_tick_data)(code)
+            if not latest_tick:
+                logger.warning(f"未获取到股票{code}的最新tick数据，跳过推送")
+                continue
+            # --- 保证signal字段为对象 ---
+            signal = latest_tick.get('signal')
+            if not isinstance(signal, dict):
+                signal = {'type': 'hold', 'text': signal or 'N/A'}
+            # --- 构造payload，字段名与前端updateStockRow完全一致 ---
+            payload = {
+                'code': code,
+                'latest_price': latest_tick.get('price'),
+                'change_percent': latest_tick.get('change_percent'),
+                'volume': latest_tick.get('volume'),
+                'signal': signal,
+            }
+            # 推送给所有关注该股票的用户
+            for uid in user_ids:
+                send_update_to_user_sync(
+                    user_id=uid,
+                    sub_type='realtime_tick_update',
+                    payload=payload
+                )
+                print(f"已推送{code}最新tick数据到用户{uid}")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task')
