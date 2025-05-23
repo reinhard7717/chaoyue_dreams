@@ -82,6 +82,7 @@ class StockRealtimeDAO(BaseDAO):
                 level5_data_dicts = []
                 # 批量查找所有StockInfo，减少数据库连接压力
                 stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
+                print(f"stocks_dict: {stocks_dict}")
                 # print(f"stocks_dict: {stocks_dict}")
                 for row in df.itertuples():
                     # 用批量查出来的字典直接查找
