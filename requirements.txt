@@ -32,6 +32,8 @@ daphne
 tushare
 matplotlib
 seaborn
+psutil
+tensorboard
 # https://pytorch.org/get-started/locally/   pytorch从这里下载
 
 
