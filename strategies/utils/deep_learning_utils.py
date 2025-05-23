@@ -58,7 +58,7 @@ logger = logging.getLogger("strategy_deep_learning_utils")
 
 # 定义CPU检查阈值和等待间隔
 CPU_THRESHOLD = 90.0 # CPU使用率阈值 (百分比)
-CPU_CHECK_INTERVAL = 2 # 检查间隔和等待时间 (秒)
+CPU_CHECK_INTERVAL = 5 # 检查间隔和等待时间 (秒)
 
 # 装饰器：记录执行时间
 def log_execution_time(func: Callable) -> Callable:
