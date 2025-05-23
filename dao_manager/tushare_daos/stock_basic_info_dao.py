@@ -1,4 +1,5 @@
 
+import asyncio
 import logging
 from asgiref.sync import sync_to_async
 from typing import TYPE_CHECKING, Dict, List, Any, Optional
@@ -85,9 +86,25 @@ class StockBasicInfoDao(BaseDAO):
         return None
     
     async def get_stocks_by_codes(self, stock_codes: List[str]) -> Dict[str, 'StockInfo']:
-        # 批量查找，减少数据库连接压力
-        stocks = await sync_to_async(lambda: list(StockInfo.objects.filter(stock_code__in=stock_codes)))()
-        return {stock.stock_code: stock for stock in stocks}
+        """
+        批量获取股票信息，返回以stock_code为key的字典，增加数据库连接丢失重试机制
+        """
+        retry = 3
+        for i in range(retry):
+            try:
+                stocks = await sync_to_async(lambda: list(StockInfo.objects.filter(stock_code__in=stock_codes)))()
+                if stocks:
+                    return {stock.stock_code: stock for stock in stocks}
+                else:
+                    return {}  # 没查到直接返回空字典
+            except OperationalError as e:
+                print(f"数据库连接丢失，重试第{i+1}次: {e}")
+                await asyncio.sleep(0.2)  # 用异步sleep
+            except Exception as e:
+                print(f"批量查找股票信息发生其他异常: {e}")
+                break
+        return {}  # 所有重试失败，返回空字典
+        
 
     async def get_favorite_stocks_by_user(self, user: 'User') -> List['FavoriteStock']:  
         """

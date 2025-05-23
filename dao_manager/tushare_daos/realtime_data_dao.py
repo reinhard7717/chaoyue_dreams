@@ -80,8 +80,12 @@ class StockRealtimeDAO(BaseDAO):
             else:
                 real_data_dicts = []
                 level5_data_dicts = []
+                # 批量查找所有StockInfo，减少数据库连接压力
+                stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
+                # print(f"stocks_dict: {stocks_dict}")
                 for row in df.itertuples():
-                    stock = await self.stock_basic_dao.get_stock_by_code(row.TS_CODE)
+                    # 用批量查出来的字典直接查找
+                    stock = stocks_dict.get(row.TS_CODE)
                     if stock:
                         real_dict = self.data_format_process.set_realtime_tick_data(stock, row)
                         level5_dict = self.data_format_process.set_level5_data(stock, row)
@@ -101,7 +105,8 @@ class StockRealtimeDAO(BaseDAO):
                     data_list=level5_data_dicts,
                     unique_fields=['stock', 'trade_time']
                 )
-        except:
+        except Exception as e:
+            print(f"save_tick_data_by_stock_codes异常: {e}")  # 增加调试信息
             return []
         return result
 
