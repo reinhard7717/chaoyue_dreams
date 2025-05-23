@@ -155,3 +155,4 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
     # ModelViewSet 自动处理 list (GET), create (POST), retrieve (GET /id/),
     # update (PUT/PATCH /id/), destroy (DELETE /id/)
     # 我们主要用 list, create, destroy
+

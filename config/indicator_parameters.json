@@ -268,7 +268,7 @@
       "optimizer": "adamw",
       "loss": "mse",
       "early_stopping_patience": 20,
-      "reduce_lr_patience": 7,
+      "reduce_lr_patience": 6,
       "reduce_lr_factor": 0.618,
       "monitor_metric": "val_mae",
       "verbose": 1,

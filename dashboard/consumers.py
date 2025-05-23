@@ -3,7 +3,7 @@ import json
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async # 异步访问数据库
-from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from users.models import FavoriteStock
 
 class DashboardConsumer(AsyncWebsocketConsumer):
