@@ -41,10 +41,6 @@ async def _get_all_relevant_stock_codes_for_processing():
         if favorite_stocks is not None:
             for fav in favorite_stocks:
                 code = str(fav.stock_id)
-                if code.startswith('6'):
-                    code = f"{code}.SH"
-                else:
-                    code = f"{code}.SZ"
                 favorite_stock_codes.add(code)
             logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
     except Exception as e:
@@ -54,10 +50,6 @@ async def _get_all_relevant_stock_codes_for_processing():
         all_stocks = await stock_basic_dao.get_stock_list()
         for stock in all_stocks:
             code = str(stock.stock_code)
-            if code.startswith('6'):
-                code = f"{code}.SH"
-            else:
-                code = f"{code}.SZ"
             all_stock_codes.add(code)
         logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
