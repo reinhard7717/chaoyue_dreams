@@ -2,6 +2,8 @@
 import logging
 from asgiref.sync import sync_to_async
 from typing import TYPE_CHECKING, Dict, List, Any, Optional
+import time
+from django.db import OperationalError
 import numpy as np
 import pandas as pd
 from utils import cache_constants as cc
@@ -68,26 +70,24 @@ class StockBasicInfoDao(BaseDAO):
         return return_data
 
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
-        """
-        根据股票代码获取股票信息
-        Args:
-            stock_code: 股票代码
-        Returns:
-            Optional[StockInfo]: 股票信息
-        """
-        # from stock_models.stock_basic import StockInfo
-        # stock_dict = await self.stock_cache_get.stock_data_by_code(stock_code)
-        # if stock_dict is not None:
-        #     return StockInfo(**stock_dict)
-        # 从数据库获取
-        # logger.info(f"get_stock_by_code从数据库获取股票: {cache_key}, {stock_code}")
-        stock = await sync_to_async(lambda: StockInfo.objects.filter(stock_code=stock_code).first())()
-        # 如果数据库中有数据，缓存并返回
-        if stock:
-            cache_data = self.data_format_process.set_stock_info_basic_data(stock)
-            await self.stock_cache_set.stock_basic_info(stock.stock_code, cache_data)
-            # logger.info(f"get_stock_by_code,success: {success}")
-            return stock
+        retry = 3
+        for i in range(retry):
+            try:
+                stock = await sync_to_async(lambda: StockInfo.objects.filter(stock_code=stock_code).first())()
+                if stock:
+                    cache_data = self.data_format_process.set_stock_info_basic_data(stock)
+                    await self.stock_cache_set.stock_basic_info(stock.stock_code, cache_data)
+                    return stock
+                break
+            except OperationalError as e:
+                print(f"数据库连接丢失，重试第{i+1}次: {e}")
+                time.sleep(0.2)
+        return None
+    
+    async def get_stocks_by_codes(self, stock_codes: List[str]) -> Dict[str, 'StockInfo']:
+        # 批量查找，减少数据库连接压力
+        stocks = await sync_to_async(lambda: list(StockInfo.objects.filter(stock_code__in=stock_codes)))()
+        return {stock.stock_code: stock for stock in stocks}
 
     async def get_favorite_stocks_by_user(self, user: 'User') -> List['FavoriteStock']:  
         """

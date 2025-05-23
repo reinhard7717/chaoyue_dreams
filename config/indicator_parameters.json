@@ -251,10 +251,10 @@
       "target_scaler_type": "minmax"
     },
     "transformer_model_config": {
-      "d_model": 160,
-      "nhead": 5,
+      "d_model": 128,
+      "nhead": 4,
       "dim_feedforward": 640,
-      "nlayers": 4,
+      "nlayers": 6,
       "dropout": 0.1,
       "activation": "gelu",
       "lr_scheduler": "CosineAnnealingLR"
@@ -262,16 +262,19 @@
     "transformer_training_config": {
       "use_amp": true,
       "epochs": 50,
-      "batch_size": 768,
+      "batch_size": 512,
       "learning_rate": 0.0005,
+      "warmup_epochs": 5,
+      "warmup_start_lr": 0.00001,
       "weight_decay": 0.001,
       "optimizer": "adamw",
       "loss": "mse",
       "early_stopping_patience": 16,
-      "reduce_lr_patience": 6,
-      "reduce_lr_factor": 0.618,
+      "reduce_lr_patience": 5,
+      "reduce_lr_factor": 0.382,
+      "min_lr": 1e-7,
       "monitor_metric": "val_mae",
-      "verbose": 1,
+      "verbose": 2,
       "tensorboard_log_dir": "logs/tensorboard",
       "clip_grad_norm": 0.5
     },

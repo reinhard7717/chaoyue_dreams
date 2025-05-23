@@ -968,7 +968,9 @@ def train_transformer_model(
             用于目标变量反向缩放以计算真实 MAE 的缩放器。
         training_config (Dict[str, Any]): 包含训练超参数的字典，例如：
             - 'optimizer' (str): 优化器名称 ('adam', 'adamw', 'rmsprop', 'sgd')。
-            - 'learning_rate' (float): 学习率。
+            - 'learning_rate' (float): 学习率 (Warmup 后的目标学习率)。
+            - 'warmup_epochs' (int): Warmup 阶段的轮数。若 <= 0 则不启用 Warmup。
+            - 'warmup_start_lr' (float): Warmup 开始时的学习率。
             - 'weight_decay' (float): 权重衰减。
             - 'momentum' (float): SGD 或 RMSprop 的动量。
             - 'loss' (str): 损失函数名称 ('mse', 'mae', 'huber')。
@@ -1012,23 +1014,28 @@ def train_transformer_model(
     model.to(device)
 
     optimizer_name = training_config.get('optimizer', 'adam').lower()
+    # 获取 Warmup 后的目标学习率
     learning_rate = training_config.get('learning_rate', 0.001)
     weight_decay = training_config.get('weight_decay', 0.0)
     momentum = training_config.get('momentum', 0.0)
 
+    # 存储 Warmup 后的目标学习率
+    initial_optimizer_lr = learning_rate
+
     optimizer: optim.Optimizer
     if optimizer_name == 'adam':
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        # 优化器初始化时使用 Warmup 后的目标学习率，Warmup 期间会手动调整
+        optimizer = optim.Adam(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay)
     elif optimizer_name == 'adamw':
-        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        optimizer = optim.AdamW(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay)
     elif optimizer_name == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
+        optimizer = optim.RMSprop(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay, momentum=momentum)
     elif optimizer_name == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
+        optimizer = optim.SGD(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay, momentum=momentum)
     else:
         logger.warning(f"未知的优化器名称: '{optimizer_name}'。将默认使用 Adam.")
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    logger.info(f"优化器: {optimizer_name}, 学习率: {learning_rate}, 权重衰减: {weight_decay}")
+        optimizer = optim.Adam(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay)
+    logger.info(f"优化器: {optimizer_name}, 初始学习率 (Warmup后目标): {initial_optimizer_lr:.2e}, 权重衰减: {weight_decay}")
 
     loss_name = training_config.get('loss', 'mse').lower()
     criterion: nn.Module
@@ -1060,12 +1067,36 @@ def train_transformer_model(
     # 初始化梯度缩放器 (仅在 CUDA 且启用 AMP 时创建)
     grad_scaler = None
     if use_amp_config and device.type == 'cuda':
-        grad_scaler = GradScaler() # 修改: 使用导入的 GradScaler
+        grad_scaler = GradScaler()
         logger.info("自动混合精度训练 (AMP) 已启用 (CUDA)。")
     elif use_amp_config: # device.type != 'cuda'
         logger.warning(f"AMP 配置为启用但设备为 '{device.type}'。AMP 将被禁用。")
     else: # use_amp_config is False
         logger.info("自动混合精度训练 (AMP) 未启用。")
+
+    # --- Warmup Configuration ---
+    warmup_epochs = training_config.get('warmup_epochs', 0)
+    # 如果未提供 warmup_start_lr，则默认为 Warmup 后的目标学习率 (即不进行 Warmup)
+    warmup_start_lr = training_config.get('warmup_start_lr', initial_optimizer_lr)
+
+    # 初始化全局步数计数器 (用于 Warmup)
+    global_step = 0
+    total_train_batches = len(train_loader)
+    total_warmup_steps = warmup_epochs * total_train_batches
+
+    # 检查 Warmup 配置是否有效
+    if warmup_epochs > 0 and warmup_start_lr < initial_optimizer_lr:
+        logger.info(f"启用学习率 Warmup: 从 {warmup_start_lr:.2e} 线性增加到 {initial_optimizer_lr:.2e}，持续 {warmup_epochs} 轮 ({total_warmup_steps} 步).")
+        # 在第一个训练步之前，将优化器的学习率设置为 Warmup 开始的学习率
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = warmup_start_lr
+    elif warmup_epochs > 0 and warmup_start_lr >= initial_optimizer_lr:
+         logger.warning(f"Warmup 开始学习率 ({warmup_start_lr:.2e}) >= 目标学习率 ({initial_optimizer_lr:.2e})。Warmup 将被跳过。")
+         warmup_epochs = 0 # 禁用 Warmup
+         total_warmup_steps = 0
+    else:
+        logger.info("学习率 Warmup 未启用。")
+
 
     # 初始化学习率调度器
     # 注意：ReduceLROnPlateau 将在 Epoch 成功完成后根据验证指标调用
@@ -1074,12 +1105,15 @@ def train_transformer_model(
     scheduler = None
     scheduler_mode = 'min' if 'loss' in monitor_metric or 'mae' in monitor_metric else 'max'
 
+    # 只有在有验证集、设置了耐心且 Warmup 结束后才启用 ReduceLROnPlateau
+    # 调度器的 step() 调用将在 Warmup 结束后进行
     if val_loader is not None and len(val_loader) > 0 and reduce_lr_patience > 0:
+         # 调度器初始化时使用 Warmup 后的目标学习率
          scheduler = ReduceLROnPlateau(
              optimizer, mode=scheduler_mode, factor=reduce_lr_factor,
              patience=reduce_lr_patience, min_lr=min_lr # 使用配置的最小学习率
          )
-         logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', factor={reduce_lr_factor}, patience={reduce_lr_patience}, min_lr={min_lr:.2e}.")
+         logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', factor={reduce_lr_factor}, patience={reduce_lr_patience}, min_lr={min_lr:.2e}. 调度器将在 Warmup ({warmup_epochs} 轮) 后生效。")
     elif reduce_lr_patience > 0: # 有耐心设置但无验证集
          logger.warning("验证集 (val_loader) 为空或未提供，ReduceLROnPlateau 将被禁用。")
 
@@ -1088,8 +1122,8 @@ def train_transformer_model(
     epochs_no_improve = 0
     consecutive_nan_metric_epochs = 0 # 连续出现 NaN 监控指标的轮数
     early_stop_triggered = False
-    training_halted_due_to_retries = False # 修改: 标记因 NaN/Inf 重试次数用尽导致训练停止
-    best_model_saved = False # 新增: 标记是否成功保存过最佳模型
+    training_halted_due_to_retries = False # 标记因 NaN/Inf 重试次数用尽导致训练停止
+    best_model_saved = False # 标记是否成功保存过最佳模型
 
     os.makedirs(checkpoint_dir, exist_ok=True) # 确保检查点目录存在
     best_model_filepath = os.path.join(checkpoint_dir, f"best_transformer_model_{stock_code}.pth")
@@ -1118,20 +1152,19 @@ def train_transformer_model(
         return model, pd.DataFrame(history) # 返回空的 history
 
     # --- 训练循环 ---
-    current_epoch = 0 # 新增: 当前训练的 Epoch 编号 (从 0 开始)
-    max_epoch_retries = 10 # 新增: 每个 Epoch 的最大重试次数
+    current_epoch = 0 # 当前训练的 Epoch 编号 (从 0 开始)
+    max_epoch_retries = 10 # 每个 Epoch 的最大重试次数
 
     try: # 将整个训练循环包裹在try...finally中，以确保异常检测被关闭
-        # 修改: 使用 while 循环控制 Epoch 进度和早停/重试停止
+        # 使用 while 循环控制 Epoch 进度和早停/重试停止
         while current_epoch < epochs and not early_stop_triggered and not training_halted_due_to_retries:
             epoch_start_time = time.time()
-            epoch_retries = 0 # 新增: 当前 Epoch 的重试计数器
-            epoch_completed_successfully = False # 新增: 标记当前 Epoch 是否成功完成 (无 NaN/Inf)
+            epoch_retries = 0 # 当前 Epoch 的重试计数器
+            epoch_completed_successfully = False # 标记当前 Epoch 是否成功完成 (无 NaN/Inf)
 
-            # 新增: 内部 while 循环处理 Epoch 的重试尝试
+            # 内部 while 循环处理 Epoch 的重试尝试
             while epoch_retries <= max_epoch_retries:
-                # logger.info(f"开始 Epoch {current_epoch+1}/{epochs} (尝试 {epoch_retries+1}/{max_epoch_retries+1})...")
-                nan_inf_in_this_attempt = False # 新增: 标记当前重试尝试中是否出现 NaN/Inf
+                nan_inf_in_this_attempt = False # 标记当前重试尝试中是否出现 NaN/Inf
 
                 # --- 训练阶段 (当前尝试) ---
                 model.train() # 设置为训练模式
@@ -1154,6 +1187,21 @@ def train_transformer_model(
                     performed_optimizer_step = False # 标记是否成功执行了 optimizer.step()
 
                     try:
+                        # --- 学习率 Warmup 逻辑 (按步调整) ---
+                        # 计算当前全局步数对应的目标学习率
+                        current_lr_for_step = initial_optimizer_lr # 默认为 Warmup 后的目标学习率
+
+                        if warmup_epochs > 0 and global_step < total_warmup_steps:
+                            # 线性 Warmup 计算
+                            current_lr_for_step = warmup_start_lr + (initial_optimizer_lr - warmup_start_lr) * (global_step / total_warmup_steps)
+                            # 确保 Warmup 期间的学习率不超过目标学习率
+                            current_lr_for_step = min(current_lr_for_step, initial_optimizer_lr)
+
+                        # 将计算出的学习率应用到优化器
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = current_lr_for_step
+                        # --- Warmup 逻辑结束 ---
+
                         # 检查输入和目标中是否有 NaN/Inf (可选，但有助于早期发现问题)
                         if torch.isnan(inputs).any() or torch.isinf(inputs).any():
                             logger.error(f"检测到 NaN/Inf 在输入数据中！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
@@ -1165,7 +1213,7 @@ def train_transformer_model(
                             break # 跳出批次循环
 
                         # 使用 autocast 上下文管理器进行混合精度计算 (如果 AMP 启用)
-                        with autocast(device_type=device.type, enabled=grad_scaler is not None): # 修改: 使用 autocast 并根据 grad_scaler 是否存在启用
+                        with autocast(device_type=device.type, enabled=grad_scaler is not None):
                             outputs = model(inputs)
                             # 检查模型输出
                             if torch.isnan(outputs).any() or torch.isinf(outputs).any():
@@ -1194,7 +1242,7 @@ def train_transformer_model(
                             # 在 optimizer.step() 之前检查梯度是否有 NaN/Inf (可选，但对调试有用)
                             found_nan_grad = False
                             for name, param in model.named_parameters():
-                                if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()): # 修改: 检查 param.grad 是否为 None
+                                if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
                                     logger.error(f"检测到 NaN/Inf 在参数 '{name}' 的梯度中！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
                                     found_nan_grad = True
                                     break
@@ -1214,12 +1262,16 @@ def train_transformer_model(
                         # 在 optimizer.step() 之后检查模型参数是否有 NaN/Inf (关键检查点)
                         if performed_optimizer_step: # 仅当 optimizer.step() 被执行后才检查
                             for name, param in model.named_parameters():
-                                if param.data is not None and (torch.isnan(param.data).any() or torch.isinf(param.data).any()): # 修改: 检查 param.data 是否为 None
+                                if param.data is not None and (torch.isnan(param.data).any() or torch.isinf(param.data).any()):
                                     logger.error(f"严重错误: 模型参数 '{name}' 在 optimizer.step() 后包含 NaN/Inf！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
                                     nan_inf_in_this_attempt = True # 标记当前尝试失败
                                     break # 跳出参数检查循环
                             if nan_inf_in_this_attempt: # 如果在参数检查中发现NaN
                                 break # 跳出当前批次循环 (for batch_idx)
+
+                        # 如果成功执行了 optimizer.step()，则全局步数加一
+                        if performed_optimizer_step:
+                            global_step += 1
 
                         # 如果成功计算了损失和输出了，计算 MAE
                         with torch.no_grad(): # 不计算梯度
@@ -1259,12 +1311,14 @@ def train_transformer_model(
                     epoch_retries += 1
                     if epoch_retries <= max_epoch_retries:
                         # 降低学习率并重试当前 Epoch
-                        current_lr = optimizer.param_groups[0]['lr']
-                        new_lr = max(current_lr * reduce_lr_factor, min_lr) # 降低学习率，但不低于最小学习率
+                        # 注意：这里的学习率降低是针对重试的，如果仍在 Warmup 阶段，
+                        # 下一个批次的 Warmup 逻辑会根据 global_step 重新计算并设置 LR
+                        current_lr_before_retry_adjust = optimizer.param_groups[0]['lr'] # 获取当前 LR
+                        new_lr = max(current_lr_before_retry_adjust * reduce_lr_factor, min_lr) # 降低学习率，但不低于最小学习率
                         for param_group in optimizer.param_groups:
                             param_group['lr'] = new_lr
                         logger.warning(f"Epoch {current_epoch+1}: 检测到 NaN/Inf，降低学习率至 {new_lr:.2e} 并重试本轮 (尝试 {epoch_retries+1}/{max_epoch_retries+1})。")
-                        # 重置累加器，准备重试
+                        # 重置累加器，准备重试。global_step 不重置。
                         epoch_train_loss_sum = 0.0
                         epoch_train_mae_sum = 0.0
                         num_train_samples = 0
@@ -1298,13 +1352,14 @@ def train_transformer_model(
                 # 计算平均训练损失和 MAE (仅对成功完成的尝试)
                 avg_train_loss = epoch_train_loss_sum / num_train_samples if num_train_samples > 0 else np.nan
                 avg_train_mae = epoch_train_mae_sum / num_train_samples if num_train_samples > 0 else np.nan
-                current_lr = optimizer.param_groups[0]['lr'] # 获取当前学习率 (可能因重试而降低过)
+                # 获取当前 Epoch 训练结束时的学习率 (可能受 Warmup 或手动降低影响)
+                current_lr_at_epoch_end = optimizer.param_groups[0]['lr']
 
                 # 记录训练指标
                 history['epoch'].append(current_epoch + 1)
                 history['loss'].append(avg_train_loss)
                 history['mae'].append(avg_train_mae) # 记录缩放后的 MAE
-                history['lr'].append(current_lr)
+                history['lr'].append(current_lr_at_epoch_end) # 记录 Epoch 结束时的学习率
 
                 # 初始化验证指标为 NaN
                 avg_val_loss, avg_val_mae, avg_val_true_mae = np.nan, np.nan, np.nan
@@ -1319,7 +1374,7 @@ def train_transformer_model(
                     val_loop = tqdm(val_loader, leave=False, desc=f"Epoch {current_epoch+1}/{epochs} [Validate]")
                     with torch.no_grad(): # 禁用梯度计算
                         # 使用 autocast 上下文管理器进行混合精度计算 (如果 AMP 启用)
-                        with autocast(device_type=device.type, enabled=grad_scaler is not None): # 修改: 验证阶段也使用 autocast
+                        with autocast(device_type=device.type, enabled=grad_scaler is not None): # 验证阶段也使用 autocast
                             for val_batch_idx, (val_inputs, val_targets) in enumerate(val_loop):
                                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                                 current_batch_size_val = val_inputs.size(0)
@@ -1373,8 +1428,8 @@ def train_transformer_model(
                                     # 计算真实 MAE (反向缩放后)
                                     if target_scaler: # 确保提供了目标缩放器
                                         # 在进行 numpy 转换和反向缩放之前，确保 tensor 在 CPU 上
-                                        val_outputs_np = val_outputs.cpu().numpy() # 修改: 确保在 CPU 上
-                                        val_targets_np = val_targets.cpu().numpy() # 修改: 确保在 CPU 上
+                                        val_outputs_np = val_outputs.cpu().numpy()
+                                        val_targets_np = val_targets.cpu().numpy()
                                         true_mae_batch_val = np.nan # 初始化为 NaN
                                         # 仅当反向缩放的输入不含 NaN/Inf 时尝试计算
                                         can_compute_true_mae = not (np.isnan(val_outputs_np).any() or np.isinf(val_outputs_np).any() or \
@@ -1446,25 +1501,26 @@ def train_transformer_model(
                         consecutive_nan_metric_epochs = 0 # 重置连续 NaN 轮数
                         monitored_value_for_scheduler_for_lr_es = monitored_value_for_scheduler
 
-                    # 学习率调度器步骤 (仅当监控值有效时)
+                    # 学习率调度器步骤 (仅当监控值有效且 Warmup 结束后)
                     # 注意：这里的 scheduler.step() 是基于验证指标的，与 NaN/Inf 重试时的手动降学习率不同
-                    if lr_scheduler_type == 'reducelronplateau' and scheduler and not np.isnan(monitored_value_for_scheduler_for_lr_es):
+                    if current_epoch >= warmup_epochs and lr_scheduler_type == 'reducelronplateau' and scheduler and not np.isnan(monitored_value_for_scheduler_for_lr_es):
                         scheduler.step(monitored_value_for_scheduler_for_lr_es)
-                        new_lr = optimizer.param_groups[0]['lr']
+                        new_lr_after_scheduler = optimizer.param_groups[0]['lr']
                         # 检查学习率是否因 ReduceLROnPlateau 而降低 (排除因重试手动降低的情况)
                         # 简单检查是否低于当前记录的学习率即可
-                        if new_lr < current_lr:
-                             logger.info(f"Epoch {current_epoch+1}: ReduceLROnPlateau 学习率从 {current_lr:.2e} 降低到 {new_lr:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler_for_lr_es:.4f})")
+                        if new_lr_after_scheduler < current_lr_at_epoch_end:
+                             logger.info(f"Epoch {current_epoch+1}: ReduceLROnPlateau 学习率从 {current_lr_at_epoch_end:.2e} 降低到 {new_lr_after_scheduler:.2e} (基于 {monitor_metric}={monitored_value_for_scheduler_for_lr_es:.4f})")
                     # 其他类型的调度器通常在每个 epoch 结束时调用 step()
-                    elif lr_scheduler_type in ['cosineannealinglr', 'onecyclelr'] and scheduler :
+                    # 同样，只在 Warmup 结束后调用
+                    elif current_epoch >= warmup_epochs and lr_scheduler_type in ['cosineannealinglr', 'onecyclelr'] and scheduler :
                          # 注意：这些调度器可能需要知道总步数或总 epoch 数
                          # 如果使用这些调度器，需要确保它们在初始化时配置正确
                          # 并且 step() 调用与它们的类型匹配 (可能需要 batch-wise step)
                          # 这里假设是 epoch-wise step
                          scheduler.step()
-                         new_lr = optimizer.param_groups[0]['lr']
-                         if new_lr != current_lr: # 学习率发生变化
-                              logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr:.2e}.")
+                         new_lr_after_scheduler = optimizer.param_groups[0]['lr']
+                         if new_lr_after_scheduler != current_lr_at_epoch_end: # 学习率发生变化
+                              logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.")
 
 
                     # 早停逻辑
@@ -1522,9 +1578,12 @@ def train_transformer_model(
                 val_mae_str = f"{avg_val_mae:.4f}" if not np.isnan(avg_val_mae) else "N/A"
                 val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
 
+                # 获取当前 Epoch 结束时的学习率用于日志记录 (即 history 中记录的值)
+                lr_for_logging = history['lr'][-1]
+
                 log_msg = (
                     f"轮次 {current_epoch+1}/{epochs} [{epoch_duration:.2f}秒] - "
-                    f"学习率: {current_lr:.2e} - "
+                    f"学习率: {lr_for_logging:.2e} - " # 使用 history 中记录的 LR
                     f"训练损失: {train_loss_str}, 训练MAE(缩放): {train_mae_str}"
                 )
                 if val_loader is not None and len(val_loader) > 0:
@@ -1535,7 +1594,7 @@ def train_transformer_model(
                 if writer:
                     if not np.isnan(avg_train_loss): writer.add_scalar('Loss/train', avg_train_loss, current_epoch + 1)
                     if not np.isnan(avg_train_mae): writer.add_scalar('MAE_scaled/train', avg_train_mae, current_epoch + 1)
-                    writer.add_scalar('LearningRate', current_lr, current_epoch + 1)
+                    writer.add_scalar('LearningRate', lr_for_logging, current_epoch + 1) # 使用 history 中记录的 LR
                     if val_loader is not None and len(val_loader) > 0:
                         if not np.isnan(avg_val_loss): writer.add_scalar('Loss/validation', avg_val_loss, current_epoch + 1)
                         if not np.isnan(avg_val_mae): writer.add_scalar('MAE_scaled/validation', avg_val_mae, current_epoch + 1)
@@ -1560,28 +1619,28 @@ def train_transformer_model(
 
     # 最终模型处理逻辑
     if training_halted_due_to_retries:
-        # 修改: 如果训练因 NaN/Inf 重试次数用尽而停止
+        # 如果训练因 NaN/Inf 重试次数用尽而停止
         if not best_model_saved:
-            # 修改: 且没有保存过最佳模型，则不加载或保存任何模型
+            # 且没有保存过最佳模型，则不加载或保存任何模型
             logger.warning("训练因 NaN/Inf 重试次数用尽而停止，且没有保存最佳模型。将返回当前模型状态，不加载或保存模型文件。")
             # 返回当前模型状态，不进行文件操作
         else:
-            # 修改: 如果因重试用尽停止，但之前有最佳模型保存过
+            # 如果因重试用尽停止，但之前有最佳模型保存过
             logger.warning(f"训练因 NaN/Inf 重试次数用尽而停止，但之前已保存最佳模型到 '{best_model_filepath}'。将尝试加载最佳模型。")
             try:
                 # 加载模型状态字典时，指定 map_location 以确保加载到正确的设备
-                model.load_state_dict(torch.load(best_model_filepath, map_location=device)) # 修改: 指定 map_location
+                model.load_state_dict(torch.load(best_model_filepath, map_location=device))
                 logger.info(f"已从 '{best_model_filepath}' 加载最佳模型。")
             except Exception as e_load: # pylint: disable=broad-except
                 logger.error(f"加载最佳模型 '{best_model_filepath}' 失败: {e_load}。将返回停止时的模型状态。", exc_info=True)
 
     elif early_stop_triggered:
-        # 修改: 如果是早停触发
+        # 如果是早停触发
         logger.info(f"早停在 Epoch {current_epoch} 被触发。尝试加载最佳模型。") # current_epoch 是下一个未开始的 Epoch 编号
         if os.path.exists(best_model_filepath): # 尝试加载最佳模型
             try:
                 # 加载模型状态字典时，指定 map_location 以确保加载到正确的设备
-                model.load_state_dict(torch.load(best_model_filepath, map_location=device)) # 修改: 指定 map_location
+                model.load_state_dict(torch.load(best_model_filepath, map_location=device))
                 logger.info(f"已从 '{best_model_filepath}' 加载最佳模型 (基于 {monitor_metric}={best_monitored_value:.4f})。")
             except Exception as e_load: # pylint: disable=broad-except
                 logger.error(f"加载最佳模型 '{best_model_filepath}' 失败: {e_load}。将返回当前模型状态。", exc_info=True)
@@ -1590,7 +1649,7 @@ def train_transformer_model(
 
     else: # 自然结束训练 (跑满了所有 Epoch)
         logger.info(f"训练完成 {epochs} 轮。")
-        # 修改: 如果训练自然完成，保存最终模型状态
+        # 如果训练自然完成，保存最终模型状态
         final_model_filepath = os.path.join(checkpoint_dir, f"final_transformer_model_{stock_code}.pth")
         try:
              torch.save(model.state_dict(), final_model_filepath)
