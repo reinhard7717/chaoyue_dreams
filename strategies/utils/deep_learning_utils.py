@@ -1480,6 +1480,15 @@ def train_transformer_model(
                     history['val_mae'].append(avg_val_mae)
                     history['val_true_mae'].append(avg_val_true_mae)
 
+                    # --- 根据 val_mae 调整早停耐心 ---
+                    # 如果验证集的缩放后 MAE 小于 0.01，则将早停耐心设置为 5
+                    # 检查 avg_val_mae 是否有效 (非 NaN) 且小于 0.01
+                    if not np.isnan(avg_val_mae) and avg_val_mae < 0.01: # 修改行: 检查 avg_val_mae 是否小于 0.01
+                        # 只有当当前的 early_stopping_patience 不是 5 时才修改并记录日志，避免重复输出
+                        if early_stopping_patience != 5: # 修改行: 避免重复设置和日志
+                            early_stopping_patience = 5 # 修改行: 将早停耐心设置为 5
+                            logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.01，早停耐心已设置为 5。") # 修改行: 添加日志
+
                     # --- 学习率调度与早停逻辑 ---
                     # 获取用于调度器和早停的监控值
                     monitored_value_for_scheduler = np.nan
