@@ -28,6 +28,20 @@ from .utils.deep_learning_utils import (
     prepare_data_for_transformer # prepare_data_for_transformer 仍然从这里导入
 )
 
+# 创建一个专门用于evaluation_results的logger
+evaluation_logger = logging.getLogger("evaluation_results")
+evaluation_logger.setLevel(logging.INFO)
+
+# 创建文件处理器，写入evaluation_results.log
+file_handler = logging.FileHandler("evaluation_results.log", encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+
+# 创建日志格式器
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
+
 # 读取指标规范命名json
 def load_naming_config():
     # 检查文件是否存在再尝试打开，更健壮
@@ -63,19 +77,7 @@ def load_indicator_parameters():
 
 INDICATOR_PARAMETERS = load_indicator_parameters()
 
-# 创建一个专门用于evaluation_results的logger
-evaluation_logger = logging.getLogger("evaluation_results")
-evaluation_logger.setLevel(logging.INFO)
 
-# 创建文件处理器，写入evaluation_results.log
-file_handler = logging.FileHandler("evaluation_results.log", encoding="utf-8")
-file_handler.setLevel(logging.INFO)
-
-# 创建日志格式器
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-
-logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
 
 class TrendFollowingStrategy:
     """
