@@ -84,7 +84,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
     try:
         # 1. 保存tick数据
         asyncio.run(stock_realtime_dao.save_tick_data_by_stock_codes(stock_codes))
-        logger.info("批量tick数据保存完成，准备推送到前台")
+        # logger.info("批量tick数据保存完成，准备推送到前台")
         from asgiref.sync import async_to_sync
         from users.models import FavoriteStock
         from utils.websockets import send_update_to_user_sync
