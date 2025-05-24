@@ -913,8 +913,8 @@ class IndicatorService:
              return None
         logger.info(f"[{stock_code}] 所有 OHLCV 和指标数据合并完成，最终 Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
         logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
-        final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
-        logger.info(f"[{stock_code}] 外部特征补充完成。最终 DataFrame Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
+        # final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
+        # logger.info(f"[{stock_code}] 外部特征补充完成。最终 DataFrame Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
         actual_rsi_period = bs_params.get('rsi_period', default_rsi_p['period'])
         actual_macd_fast = bs_params.get('macd_fast', default_macd_p['period_fast'])
         actual_macd_slow = bs_params.get('macd_slow', default_macd_p['period_slow'])

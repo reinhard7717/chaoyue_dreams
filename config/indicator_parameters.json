@@ -246,14 +246,14 @@
       "feature_selector_model_type": "xgb",
       "fs_model_n_estimators": 200,
       "fs_model_max_depth": 10,
-      "fs_max_features": 120,
+      "fs_max_features": 80,
       "fs_selection_threshold": "median",
       "target_scaler_type": "minmax"
     },
     "transformer_model_config": {
       "d_model": 128,
       "nhead": 4,
-      "dim_feedforward": 640,
+      "dim_feedforward": 256,
       "nlayers": 6,
       "dropout": 0.1,
       "activation": "gelu",
@@ -262,7 +262,7 @@
     "transformer_training_config": {
       "use_amp": true,
       "epochs": 50,
-      "batch_size": 184,
+      "batch_size": 128,
       "learning_rate": 0.0005,
       "warmup_epochs": 5,
       "warmup_start_lr": 0.00001,

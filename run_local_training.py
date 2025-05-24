@@ -128,7 +128,7 @@ def _train_single_stock_model(item_name: str, django_settings_module_name: str):
 
     npz_files = list(prepared_data_path.glob("*.npz"))
     if not npz_files:
-        stock_logger.info(f"[{item_name}] 在 '{prepared_data_path}' 中未找到 *.npz 文件，跳过训练。")
+        # stock_logger.info(f"[{item_name}] 在 '{prepared_data_path}' 中未找到 *.npz 文件，跳过训练。")
         return {"item_name": item_name, "status": "skipped", "reason": "no_npz_files", "type": "skip"}
 
     pth_files = []
@@ -136,7 +136,7 @@ def _train_single_stock_model(item_name: str, django_settings_module_name: str):
         pth_files = list(trained_model_path.glob("*.pth"))
 
     if pth_files:
-        stock_logger.info(f"[{item_name}] 已存在PTH模型，跳过。")
+        # stock_logger.info(f"[{item_name}] 已存在PTH模型，跳过。")
         return {"item_name": item_name, "status": "skipped", "reason": "existing_pth", "type": "skip"}
 
     stock_logger.info(f"开始为股票 {item_name} 执行 Transformer 模型训练...")
