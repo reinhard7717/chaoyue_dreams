@@ -93,7 +93,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
             # 获取所有关注该股票的用户
             user_ids = list(FavoriteStock.objects.filter(stock__stock_code=code).values_list('user_id', flat=True))
             if not user_ids:
-                logger.info(f"股票{code}没有关注用户，跳过推送")
+                # logger.info(f"股票{code}没有关注用户，跳过推送")
                 continue
             # 获取最新tick数据（调用异步方法，转同步）
             latest_tick = async_to_sync(stock_realtime_dao.latest_tick_data)(code)
@@ -119,7 +119,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
                     sub_type='realtime_tick_update',
                     payload=payload
                 )
-                print(f"已推送{code}最新tick数据到用户{uid}")
+                # print(f"已推送{code}最新tick数据到用户{uid}")
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
