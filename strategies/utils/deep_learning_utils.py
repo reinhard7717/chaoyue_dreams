@@ -517,6 +517,43 @@ def prepare_data_for_transformer(
     print(f"prepare_data_for_transformer: NaN处理后，特征数组形状: {current_features_np.shape}, dtype: {current_features_np.dtype}")
     print(f"prepare_data_for_transformer: NaN处理后，目标数组形状: {targets_np.shape}, dtype: {targets_np.dtype}")
 
+    # --- 3.5. 终极 NaN/Inf 处理 (确保所有数值都有限且在 float32 范围内) ---
+    # 尽管前面进行了 ffill/bfill/fillna(0)，但可能存在原始 Inf 值，或者极少数情况下 NaN 未被完全清除。
+    # np.nan_to_num 是一个非常鲁棒的函数，可以处理 NaN, Inf, -Inf
+    
+    # 记录处理前的 Inf/NaN 情况
+    if np.any(np.isinf(current_features_np)) or np.any(np.isnan(current_features_np)):
+        logger.warning(f"特征数据在转换为 NumPy 数组后发现 Inf 或 NaN 值。将使用 np.nan_to_num 进行最终清理。")
+        # 统计 Inf 和 NaN 数量
+        num_inf = np.sum(np.isinf(current_features_np))
+        num_nan = np.sum(np.isnan(current_features_np))
+        logger.warning(f"处理前特征中 Inf 数量: {num_inf}, NaN 数量: {num_nan}")
+        
+    current_features_np = np.nan_to_num(
+        current_features_np,
+        nan=0.0, # 将 NaN 替换为 0
+        posinf=np.finfo(np.float32).max, # 将正无穷替换为 float32 的最大值
+        neginf=np.finfo(np.float32).min # 将负无穷替换为 float32 的最小值
+    ).astype(np.float32) # 再次确保 dtype 为 float32，虽然 nan_to_num 会尝试保持原始dtype，但显式转换更安全
+
+    if np.any(np.isinf(targets_np)) or np.any(np.isnan(targets_np)):
+        logger.warning(f"目标数据在转换为 NumPy 数组后发现 Inf 或 NaN 值。将使用 np.nan_to_num 进行最终清理。")
+        num_inf_target = np.sum(np.isinf(targets_np))
+        num_nan_target = np.sum(np.isnan(targets_np))
+        logger.warning(f"处理前目标中 Inf 数量: {num_inf_target}, NaN 数量: {num_nan_target}")
+
+    targets_np = np.nan_to_num(
+        targets_np,
+        nan=0.0,
+        posinf=np.finfo(np.float32).max,
+        neginf=np.finfo(np.float32).min
+    ).astype(np.float32)
+
+    logger.info(f"最终 NaN/Inf 处理完成。特征矩阵形状: {current_features_np.shape}, 目标数组形状: {targets_np.shape}")
+    print(f"prepare_data_for_transformer: 最终NaN/Inf处理后，特征数组形状: {current_features_np.shape}, dtype: {current_features_np.dtype}")
+    print(f"prepare_data_for_transformer: 最终NaN/Inf处理后，目标数组形状: {targets_np.shape}, dtype: {targets_np.dtype}")
+
+
     # 显式删除不再需要的 DataFrame，释放内存
     del features_df, targets_series, features_filled_df, targets_filled_series, data_processed
     print("prepare_data_for_transformer: 已删除中间 DataFrame。")
