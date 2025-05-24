@@ -22,7 +22,7 @@ def is_trading_time():
     if now.hour in [9, 10, 11, 13, 14, 15]:
         if now.hour == 11 and now.minute >= 30:
             return False
-        if now.hour == 9 and now.minute < 30:
+        if now.hour == 9 and now.minute < 25:
             return False
         if now.hour == 15 and now.minute >= 2:
             return False

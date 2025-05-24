@@ -1,6 +1,7 @@
 # dao_manager\tushare_daos\index_basic_dao.py
 import logging
 import time
+from django.utils import timezone
 from asgiref.sync import sync_to_async
 import datetime
 import calendar
@@ -55,6 +56,22 @@ class IndexBasicDAO(BaseDAO):
         # 从数据库获取
         trade_cals = await sync_to_async(lambda: TradeCalendar.objects.filter(cal_date__range=[start_date, end_date]).all())()
         return trade_cals
+    
+    async def is_today_trade_day(self, exchange='SSE'):
+        """
+        异步判断今天是否为指定交易所的交易日
+        :param exchange: 交易所代码，默认'SSE'
+        :return: True表示是交易日，False表示休市或无数据
+        """
+        today = timezone.localdate()  # 获取当前本地日期
+        try:
+            # 异步查询当天该交易所的交易日状态
+            calendar = await TradeCalendar.objects.aget(exchange=exchange, cal_date=today)
+            print(f"查询到交易日信息: {calendar}")  # 调试输出
+            return calendar.is_open
+        except TradeCalendar.DoesNotExist:
+            print(f"未查询到{exchange}交易所{today}的交易日信息")  # 调试输出
+            return False
 
     async def get_trade_cal_open(self, start_date: str, end_date: str) -> list:
         """

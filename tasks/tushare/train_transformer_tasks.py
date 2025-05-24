@@ -305,7 +305,7 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
     try:
         stock_basic_dao = StockBasicInfoDao()
         # 使用 asyncio.run 来执行异步方法
-        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())[::-1]
         if not all_stocks:
             logger.warning("未获取到股票列表，跳过数据处理任务分派。")
             return {"status": "warning", "message": "未获取到股票列表", "dispatched_tasks": 0}
