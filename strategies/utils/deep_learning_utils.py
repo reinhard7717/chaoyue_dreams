@@ -1614,7 +1614,6 @@ def train_transformer_model(
                 history['val_mae'].append(avg_val_mae) # 验证MAE (scaled)
                 history['val_true_mae'].append(avg_val_true_mae) # 验证MAE (true)
 
-
                 # 成功完成一个 Epoch，准备进入下一个 Epoch
                 current_epoch += 1 # 只有成功完成的 Epoch 才增加计数
 
@@ -1672,43 +1671,42 @@ def train_transformer_model(
         except Exception as e_save:
              logger.error(f"保存最终模型 '{final_model_filepath}' 失败: {e_save}.", exc_info=True)
 
-
     # 将 history 字典转换为 DataFrame
     history_df = pd.DataFrame(history)
 
     # 可选：绘制训练历史
-    if plot_training_history:
-        try:
-            fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-            # 绘制损失
-            if 'loss' in history_df.columns:
-                axes[0].plot(history_df['epoch'], history_df['loss'], label='Train Loss')
-            if 'val_loss' in history_df.columns and not history_df['val_loss'].isnull().all():
-                axes[0].plot(history_df['epoch'], history_df['val_loss'], label='Validation Loss')
-            axes[0].set_ylabel('Loss')
-            axes[0].legend()
-            axes[0].set_title(f'Training and Validation Loss ({stock_code})')
+    # if plot_training_history:
+    #     try:
+    #         fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    #         # 绘制损失
+    #         if 'loss' in history_df.columns:
+    #             axes[0].plot(history_df['epoch'], history_df['loss'], label='Train Loss')
+    #         if 'val_loss' in history_df.columns and not history_df['val_loss'].isnull().all():
+    #             axes[0].plot(history_df['epoch'], history_df['val_loss'], label='Validation Loss')
+    #         axes[0].set_ylabel('Loss')
+    #         axes[0].legend()
+    #         axes[0].set_title(f'Training and Validation Loss ({stock_code})')
 
-            # 绘制 MAE (可以同时绘制 scaled 和 true MAE)
-            if 'mae' in history_df.columns: # Scaled Train MAE
-                axes[1].plot(history_df['epoch'], history_df['mae'], label='Train MAE (Scaled)')
-            if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all(): # Scaled Val MAE
-                axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
-            if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all(): # True Val MAE
-                axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
+    #         # 绘制 MAE (可以同时绘制 scaled 和 true MAE)
+    #         if 'mae' in history_df.columns: # Scaled Train MAE
+    #             axes[1].plot(history_df['epoch'], history_df['mae'], label='Train MAE (Scaled)')
+    #         if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all(): # Scaled Val MAE
+    #             axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
+    #         if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all(): # True Val MAE
+    #             axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
 
-            axes[1].set_xlabel('Epoch')
-            axes[1].set_ylabel('Mean Absolute Error (MAE)')
-            axes[1].legend()
-            axes[1].set_title(f'Training and Validation MAE ({stock_code})')
+    #         axes[1].set_xlabel('Epoch')
+    #         axes[1].set_ylabel('Mean Absolute Error (MAE)')
+    #         axes[1].legend()
+    #         axes[1].set_title(f'Training and Validation MAE ({stock_code})')
 
-            plt.tight_layout()
-            plot_filename = os.path.join(checkpoint_dir, f"training_history_{stock_code}.png")
-            plt.savefig(plot_filename)
-            logger.info(f"训练历史图表已保存到: {plot_filename}")
-            plt.close(fig) # 关闭图形，释放资源
-        except Exception as e_plot: # pylint: disable=broad-except
-            logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
+    #         plt.tight_layout()
+    #         plot_filename = os.path.join(checkpoint_dir, f"training_history_{stock_code}.png")
+    #         plt.savefig(plot_filename)
+    #         logger.info(f"训练历史图表已保存到: {plot_filename}")
+    #         plt.close(fig) # 关闭图形，释放资源
+    #     except Exception as e_plot: # pylint: disable=broad-except
+    #         logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
 
     logger.info(f"Transformer 模型训练流程结束 (股票/标识: {stock_code})。")
     return model, history_df
