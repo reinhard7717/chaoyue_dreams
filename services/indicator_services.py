@@ -912,120 +912,120 @@ class IndicatorService:
              logger.error(f"[{stock_code}] 合并所有 OHLCV 和指标数据后 DataFrame 为空。")
              return None
         logger.info(f"[{stock_code}] 所有 OHLCV 和指标数据合并完成，最终 Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
-        # logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
-        # final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
-        # logger.info(f"[{stock_code}] 外部特征补充完成。最终 DataFrame Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
-        # actual_rsi_period = bs_params.get('rsi_period', default_rsi_p['period'])
-        # actual_macd_fast = bs_params.get('macd_fast', default_macd_p['period_fast'])
-        # actual_macd_slow = bs_params.get('macd_slow', default_macd_p['period_slow'])
-        # actual_macd_signal = bs_params.get('macd_signal', default_macd_p['signal_period'])
-        # fe_config = params.get('feature_engineering_params', {})
-        # apply_on_tfs = fe_config.get('apply_on_timeframes', bs_timeframes)
-        # rs_config = fe_config.get('relative_strength', {})
-        # if rs_config.get('enabled', False):
-        #      ths_indexs_for_rs_objects = await self.industry_dao.get_stock_ths_indices(stock_code) # 修改变量名
-        #      if ths_indexs_for_rs_objects is None:
-        #           logger.warning(f"[{stock_code}] 无法获取股票 {stock_code} 的同花顺板块信息。相对强度计算将跳过。")
-        #           ths_codes_for_rs = []
-        #      else:
-        #         ths_codes_for_rs = [m.ths_index.ts_code for m in ths_indexs_for_rs_objects if m.ths_index]
-        #      all_benchmark_codes_for_rs = list(set(main_index_codes + ths_codes_for_rs))
-        #      periods = rs_config.get('periods', [5, 10, 20])
-        #      if all_benchmark_codes_for_rs and periods:
-        #           for tf_apply in apply_on_tfs:
-        #                stock_close_col = f'close_{tf_apply}'
-        #                if stock_close_col in final_df.columns:
-        #                     final_df = self.calculate_relative_strength(df=final_df, stock_close_col=stock_close_col, benchmark_codes=all_benchmark_codes_for_rs, periods=periods, time_level=tf_apply)
-        #                else:
-        #                     logger.warning(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 失败，未找到股票收盘价列: {stock_close_col}")
-        #           logger.info(f"[{stock_code}] 相对强度/超额收益特征计算完成。")
-        #      else:
-        #           logger.warning(f"[{stock_code}] 相对强度/超额收益特征未启用或配置不完整 (基准代码或周期列表为空)。")
-        # lag_config = fe_config.get('lagged_features', {})
-        # if lag_config.get('enabled', False):
-        #      columns_to_lag_from_json = lag_config.get('columns_to_lag', [])
-        #      lags = lag_config.get('lags', [1, 2, 3])
-        #      if columns_to_lag_from_json and lags:
-        #           logger.info(f"[{stock_code}] 开始添加滞后特征...")
-        #           for tf_apply in apply_on_tfs:
-        #                actual_cols_for_lagging = []
-        #                for col_template_from_json in columns_to_lag_from_json:
-        #                     effective_base_name = col_template_from_json
-        #                     if col_template_from_json.startswith("RSI"):
-        #                         effective_base_name = f"RSI_{actual_rsi_period}"
-        #                     elif col_template_from_json.startswith("MACD_") and \
-        #                          not col_template_from_json.startswith("MACDh_") and \
-        #                          not col_template_from_json.startswith("MACDs_"):
-        #                         effective_base_name = f"MACD_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
-        #                     elif col_template_from_json.startswith("MACDh_"):
-        #                         effective_base_name = f"MACDh_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
-        #                     elif col_template_from_json.startswith("MACDs_"):
-        #                         effective_base_name = f"MACDs_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
-        #                     col_with_suffix = f"{effective_base_name}_{tf_apply}"
-        #                     if col_with_suffix in final_df.columns:
-        #                          actual_cols_for_lagging.append(col_with_suffix)
-        #                     else:
-        #                          if effective_base_name in final_df.columns:
-        #                               actual_cols_for_lagging.append(effective_base_name)
-        #                               logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 进行滞后计算。")
-        #                          else:
-        #                               logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 或其带后缀形式 {col_with_suffix} 进行滞后计算。")
-        #                if actual_cols_for_lagging:
-        #                     logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滞后特征: {actual_cols_for_lagging}")
-        #                     final_df = self.add_lagged_features(final_df, actual_cols_for_lagging, lags)
-        #                     logger.debug(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 完成。")
-        #                else:
-        #                     logger.warning(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 失败，未找到任何有效列。JSON配置: {columns_to_lag_from_json}")
-        #           logger.info(f"[{stock_code}] 滞后特征添加完成。")
-        #      else:
-        #           logger.warning(f"[{stock_code}] 滞后特征未启用或配置不完整。")
-        # roll_config = fe_config.get('rolling_features', {})
-        # if roll_config.get('enabled', False):
-        #      columns_to_roll_from_json = roll_config.get('columns_to_roll', [])
-        #      windows = roll_config.get('windows', [5, 10, 20])
-        #      stats = roll_config.get('stats', ["mean", "std"])
-        #      if columns_to_roll_from_json and windows and stats:
-        #           logger.info(f"[{stock_code}] 开始添加滚动统计特征...")
-        #           for tf_apply in apply_on_tfs:
-        #                actual_cols_for_rolling = []
-        #                for col_template_from_json in columns_to_roll_from_json:
-        #                     effective_base_name = col_template_from_json
-        #                     if col_template_from_json.startswith("RSI"):
-        #                         effective_base_name = f"RSI_{actual_rsi_period}"
-        #                     elif col_template_from_json.startswith("MACD_") and \
-        #                          not col_template_from_json.startswith("MACDh_") and \
-        #                          not col_template_from_json.startswith("MACDs_"):
-        #                         effective_base_name = f"MACD_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
-        #                     elif col_template_from_json.startswith("MACDh_"):
-        #                         effective_base_name = f"MACDh_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
-        #                     elif col_template_from_json.startswith("MACDs_"):
-        #                         effective_base_name = f"MACDs_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
-        #                     col_with_suffix = f"{effective_base_name}_{tf_apply}"
-        #                     if col_with_suffix in final_df.columns:
-        #                          actual_cols_for_rolling.append(col_with_suffix)
-        #                     else:
-        #                          if effective_base_name in final_df.columns:
-        #                               actual_cols_for_rolling.append(effective_base_name)
-        #                               logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 进行滚动统计计算。")
-        #                          else:
-        #                               logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 或其带后缀形式 {col_with_suffix} 进行滚动统计计算。")
-        #                if actual_cols_for_rolling:
-        #                     logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滚动统计特征: {actual_cols_for_rolling}")
-        #                     final_df = self.add_rolling_features(final_df, actual_cols_for_rolling, windows, stats)
-        #                     logger.debug(f"[{stock_code}] 添加滚动统计特征 for TF {tf_apply} 完成。")
-        #                else:
-        #                     logger.warning(f"[{stock_code}] 滚动统计特征 for TF {tf_apply} 失败，未找到任何指定列。JSON配置: {columns_to_roll_from_json}")
-        #           logger.info(f"[{stock_code}] 滚动统计特征添加完成。")
-        #      else:
-        #           logger.warning(f"[{stock_code}] 滚动统计特征未启用或配置不完整。")
-        # original_nan_count = final_df.isnull().sum().sum()
-        # final_df.ffill(inplace=True)
-        # final_df.bfill(inplace=True)
-        # nan_count_after_fill = final_df.isnull().sum().sum()
-        # if nan_count_after_fill > 0:
-        #      logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
-        # else:
-        #      logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
+        logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
+        final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
+        logger.info(f"[{stock_code}] 外部特征补充完成。最终 DataFrame Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
+        actual_rsi_period = bs_params.get('rsi_period', default_rsi_p['period'])
+        actual_macd_fast = bs_params.get('macd_fast', default_macd_p['period_fast'])
+        actual_macd_slow = bs_params.get('macd_slow', default_macd_p['period_slow'])
+        actual_macd_signal = bs_params.get('macd_signal', default_macd_p['signal_period'])
+        fe_config = params.get('feature_engineering_params', {})
+        apply_on_tfs = fe_config.get('apply_on_timeframes', bs_timeframes)
+        rs_config = fe_config.get('relative_strength', {})
+        if rs_config.get('enabled', False):
+             ths_indexs_for_rs_objects = await self.industry_dao.get_stock_ths_indices(stock_code) # 修改变量名
+             if ths_indexs_for_rs_objects is None:
+                  logger.warning(f"[{stock_code}] 无法获取股票 {stock_code} 的同花顺板块信息。相对强度计算将跳过。")
+                  ths_codes_for_rs = []
+             else:
+                ths_codes_for_rs = [m.ths_index.ts_code for m in ths_indexs_for_rs_objects if m.ths_index]
+             all_benchmark_codes_for_rs = list(set(main_index_codes + ths_codes_for_rs))
+             periods = rs_config.get('periods', [5, 10, 20])
+             if all_benchmark_codes_for_rs and periods:
+                  for tf_apply in apply_on_tfs:
+                       stock_close_col = f'close_{tf_apply}'
+                       if stock_close_col in final_df.columns:
+                            final_df = self.calculate_relative_strength(df=final_df, stock_close_col=stock_close_col, benchmark_codes=all_benchmark_codes_for_rs, periods=periods, time_level=tf_apply)
+                       else:
+                            logger.warning(f"[{stock_code}] 计算相对强度 for TF {tf_apply} 失败，未找到股票收盘价列: {stock_close_col}")
+                  logger.info(f"[{stock_code}] 相对强度/超额收益特征计算完成。")
+             else:
+                  logger.warning(f"[{stock_code}] 相对强度/超额收益特征未启用或配置不完整 (基准代码或周期列表为空)。")
+        lag_config = fe_config.get('lagged_features', {})
+        if lag_config.get('enabled', False):
+             columns_to_lag_from_json = lag_config.get('columns_to_lag', [])
+             lags = lag_config.get('lags', [1, 2, 3])
+             if columns_to_lag_from_json and lags:
+                  logger.info(f"[{stock_code}] 开始添加滞后特征...")
+                  for tf_apply in apply_on_tfs:
+                       actual_cols_for_lagging = []
+                       for col_template_from_json in columns_to_lag_from_json:
+                            effective_base_name = col_template_from_json
+                            if col_template_from_json.startswith("RSI"):
+                                effective_base_name = f"RSI_{actual_rsi_period}"
+                            elif col_template_from_json.startswith("MACD_") and \
+                                 not col_template_from_json.startswith("MACDh_") and \
+                                 not col_template_from_json.startswith("MACDs_"):
+                                effective_base_name = f"MACD_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
+                            elif col_template_from_json.startswith("MACDh_"):
+                                effective_base_name = f"MACDh_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
+                            elif col_template_from_json.startswith("MACDs_"):
+                                effective_base_name = f"MACDs_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
+                            col_with_suffix = f"{effective_base_name}_{tf_apply}"
+                            if col_with_suffix in final_df.columns:
+                                 actual_cols_for_lagging.append(col_with_suffix)
+                            else:
+                                 if effective_base_name in final_df.columns:
+                                      actual_cols_for_lagging.append(effective_base_name)
+                                      logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 进行滞后计算。")
+                                 else:
+                                      logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 或其带后缀形式 {col_with_suffix} 进行滞后计算。")
+                       if actual_cols_for_lagging:
+                            logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滞后特征: {actual_cols_for_lagging}")
+                            final_df = self.add_lagged_features(final_df, actual_cols_for_lagging, lags)
+                            logger.debug(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 完成。")
+                       else:
+                            logger.warning(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 失败，未找到任何有效列。JSON配置: {columns_to_lag_from_json}")
+                  logger.info(f"[{stock_code}] 滞后特征添加完成。")
+             else:
+                  logger.warning(f"[{stock_code}] 滞后特征未启用或配置不完整。")
+        roll_config = fe_config.get('rolling_features', {})
+        if roll_config.get('enabled', False):
+             columns_to_roll_from_json = roll_config.get('columns_to_roll', [])
+             windows = roll_config.get('windows', [5, 10, 20])
+             stats = roll_config.get('stats', ["mean", "std"])
+             if columns_to_roll_from_json and windows and stats:
+                  logger.info(f"[{stock_code}] 开始添加滚动统计特征...")
+                  for tf_apply in apply_on_tfs:
+                       actual_cols_for_rolling = []
+                       for col_template_from_json in columns_to_roll_from_json:
+                            effective_base_name = col_template_from_json
+                            if col_template_from_json.startswith("RSI"):
+                                effective_base_name = f"RSI_{actual_rsi_period}"
+                            elif col_template_from_json.startswith("MACD_") and \
+                                 not col_template_from_json.startswith("MACDh_") and \
+                                 not col_template_from_json.startswith("MACDs_"):
+                                effective_base_name = f"MACD_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
+                            elif col_template_from_json.startswith("MACDh_"):
+                                effective_base_name = f"MACDh_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
+                            elif col_template_from_json.startswith("MACDs_"):
+                                effective_base_name = f"MACDs_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
+                            col_with_suffix = f"{effective_base_name}_{tf_apply}"
+                            if col_with_suffix in final_df.columns:
+                                 actual_cols_for_rolling.append(col_with_suffix)
+                            else:
+                                 if effective_base_name in final_df.columns:
+                                      actual_cols_for_rolling.append(effective_base_name)
+                                      logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 进行滚动统计计算。")
+                                 else:
+                                      logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 或其带后缀形式 {col_with_suffix} 进行滚动统计计算。")
+                       if actual_cols_for_rolling:
+                            logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滚动统计特征: {actual_cols_for_rolling}")
+                            final_df = self.add_rolling_features(final_df, actual_cols_for_rolling, windows, stats)
+                            logger.debug(f"[{stock_code}] 添加滚动统计特征 for TF {tf_apply} 完成。")
+                       else:
+                            logger.warning(f"[{stock_code}] 滚动统计特征 for TF {tf_apply} 失败，未找到任何指定列。JSON配置: {columns_to_roll_from_json}")
+                  logger.info(f"[{stock_code}] 滚动统计特征添加完成。")
+             else:
+                  logger.warning(f"[{stock_code}] 滚动统计特征未启用或配置不完整。")
+        original_nan_count = final_df.isnull().sum().sum()
+        final_df.ffill(inplace=True)
+        final_df.bfill(inplace=True)
+        nan_count_after_fill = final_df.isnull().sum().sum()
+        if nan_count_after_fill > 0:
+             logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
+        else:
+             logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
         return final_df, indicator_configs
 
     def filter_to_period_points(self, df: pd.DataFrame, tf: str) -> pd.DataFrame:

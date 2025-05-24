@@ -246,7 +246,7 @@
       "feature_selector_model_type": "xgb",
       "fs_model_n_estimators": 200,
       "fs_model_max_depth": 10,
-      "fs_max_features": 80,
+      "fs_max_features": 50,
       "fs_selection_threshold": "median",
       "target_scaler_type": "minmax"
     },
