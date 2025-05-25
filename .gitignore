@@ -10,6 +10,7 @@ models/
 # C extensions
 *.so
 
+
 # Distribution / packaging
 .Python
 build/
@@ -109,7 +110,9 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+
 # Environments
+
 .env
 .venv
 env/
@@ -117,6 +120,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
 
 # Spyder project settings
 .spyderproject
@@ -141,3 +145,6 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+
+config/indicator_parameters.json
