@@ -54,11 +54,11 @@ logger = logging.getLogger(__name__)
 # 1. 在文件顶部或 main 里，提前生成所有合法组合
 d_model_choices = [64, 128, 256, 512]
 nhead_choices = [2, 3, 4, 5, 6, 7, 8]
-dmodel_nhead_pairs = []
+dmodel_nhead_strs = []
 for d in d_model_choices:
     for n in nhead_choices:
         if d % n == 0:
-            dmodel_nhead_pairs.append((d, n))
+            dmodel_nhead_strs.append(f"{d}_{n}")
 
 def objective(trial, strategy, item_name, epochs):
     """
@@ -67,7 +67,8 @@ def objective(trial, strategy, item_name, epochs):
     """
     epochs_sampled = epochs
     # 1. 采样参数
-    d_model, nhead = trial.suggest_categorical("dmodel_nhead", dmodel_nhead_pairs)
+    dmodel_nhead_str = trial.suggest_categorical("dmodel_nhead", dmodel_nhead_strs)
+    d_model, nhead = map(int, dmodel_nhead_str.split("_"))
     dim_feedforward = trial.suggest_int("dim_feedforward", 128, 1024, step=8)
     nlayers = trial.suggest_int("nlayers", 2, 12)
     dropout = trial.suggest_float("dropout", 0.05, 0.5)
