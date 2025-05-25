@@ -628,6 +628,27 @@ class TrendFollowingStrategy:
             self.target_scaler = None
             self.selected_feature_names_for_transformer = []
             return None if only_return_val_metric else False
+        
+        # ----------- 合并贝叶斯优化参数 (提前到 DataLoader 创建之前) -----------
+        # 复制原始配置，避免污染全局
+        model_config = self.transformer_model_config.copy()
+        training_config = self.transformer_training_config.copy()
+        if transformer_hyperparams:
+            # 分别更新模型和训练参数
+            for k, v in transformer_hyperparams.items():
+                if k in model_config:
+                    model_config[k] = v
+                elif k in training_config:
+                    training_config[k] = v
+                else:
+                    # 兼容性：如果参数属于batch_size等，也更新self.transformer_batch_size
+                    if k == "batch_size":
+                        self.transformer_batch_size = v # <-- 确保这一行在 DataLoader 创建前执行
+                        training_config[k] = v
+        # ----------- 结束 -----------
+
+        # 现在，self.transformer_batch_size 已经更新为 Optuna 采样到的值 (例如 96)
+        # 所以接下来创建 DataLoader 时会使用正确的值
 
         try:
             train_dataset = TimeSeriesDataset(features_scaled_train_np, targets_scaled_train_np, self.transformer_window_size)
@@ -657,24 +678,6 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 创建 PyTorch Dataset/DataLoader 出错: {e}", exc_info=True)
             return None if only_return_val_metric else False
-
-        # ----------- 关键改动：合并贝叶斯优化参数 -----------
-        # 复制原始配置，避免污染全局
-        model_config = self.transformer_model_config.copy()
-        training_config = self.transformer_training_config.copy()
-        if transformer_hyperparams:
-            # 分别更新模型和训练参数
-            for k, v in transformer_hyperparams.items():
-                if k in model_config:
-                    model_config[k] = v
-                elif k in training_config:
-                    training_config[k] = v
-                else:
-                    # 兼容性：如果参数属于batch_size等，也更新self.transformer_batch_size
-                    if k == "batch_size":
-                        self.transformer_batch_size = v
-                        training_config[k] = v
-        # ----------- 关键改动结束 -----------
 
         try:
             model = build_transformer_model(
