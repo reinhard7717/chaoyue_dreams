@@ -1,6 +1,7 @@
 # 此策略侧重于识别和跟随趋势，主要使用 EMA 排列、DMI、SAR 等指标，并以 30 分钟级别为主要权重。
 # strategies/trend_following_strategy.py
 import pickle
+import optuna
 import pandas as pd
 import numpy as np
 import json
@@ -652,12 +653,10 @@ class TrendFollowingStrategy:
                 if 'batch_size' in training_config:
                     self.transformer_batch_size = training_config['batch_size']
                     logger.info(f"self.transformer_batch_size 已更新为: {self.transformer_batch_size}") # 调试日志
-
         # ----------- 结束 -----------
 
         # 现在，self.transformer_batch_size 已经更新为 Optuna 采样到的值 (例如 96)
         # 所以接下来创建 DataLoader 时会使用正确的值
-
         try:
             train_dataset = TimeSeriesDataset(features_scaled_train_np, targets_scaled_train_np, self.transformer_window_size)
             val_loader = None
@@ -686,7 +685,6 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 创建 PyTorch Dataset/DataLoader 出错: {e}", exc_info=True)
             return None if only_return_val_metric else False
-
         try:
             model = build_transformer_model(
                 num_features=num_features,
@@ -705,7 +703,6 @@ class TrendFollowingStrategy:
             if checkpoint_dir and not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
                 logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir}")
-
             # ----------- 传递动态训练参数 -----------
             print(f"DEBUG: 传递给 train_transformer_model 的 trial: {trial}")
             self.transformer_model, history_df = train_transformer_model(
@@ -721,7 +718,6 @@ class TrendFollowingStrategy:
             )
             print(f"训练完成，返回验证指标历史，长度: {len(history_df)}")
             # ----------- 结束 -----------
-
             # ----------- 只返回val_mae，不保存模型和不做测试集评估 -----------
             if only_return_val_metric:
                 if history_df is not None and 'val_mae' in history_df.columns and not history_df['val_mae'].dropna().empty:
@@ -730,7 +726,6 @@ class TrendFollowingStrategy:
                     val_mae = float('inf')
                 return val_mae
             # ----------- 结束 -----------
-
             # 训练完成后，最佳模型权重应该已经加载到 self.transformer_model
             if self.model_path:
                 logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，最佳模型权重已加载。")
@@ -754,10 +749,19 @@ class TrendFollowingStrategy:
                 logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 evaluation_logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 return True
+        # === 区分 TrialPruned 和其他异常 ===
+        except optuna.exceptions.TrialPruned:
+            # 如果是 Optuna 触发的早停，则重新抛出此异常
+            logger.info(f"[趋势跟踪v1.0][{stock_code}] Trial 被 Optuna 早停 (Pruned)，重新抛出异常。")
+            raise # 重新抛出异常，让 run_local_optuna_signal.py 中的 objective 函数捕获并正确处理
+
         except Exception as e:
+            # 捕获其他所有非 TrialPruned 的错误
             logger.error(f"[{self.strategy_name}][{stock_code}] 训练 Transformer 模型出错: {e}", exc_info=True)
             self.transformer_model = None
-            return None if only_return_val_metric else False
+            # 对于这些真正的错误，如果处于 only_return_val_metric 模式，返回 NaN 表示 Trial 失败
+            return float('nan') if only_return_val_metric else False
+        # === 结束 ===
 
     async def get_required_columns(self, stock_code: str) -> List[str]:
         """
