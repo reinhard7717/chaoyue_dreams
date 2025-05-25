@@ -65,7 +65,7 @@ def objective(trial, strategy, item_name, epochs):
     # 1. 采样参数
     dmodel_nhead_str = trial.suggest_categorical("dmodel_nhead", dmodel_nhead_strs)
     d_model, nhead = map(int, dmodel_nhead_str.split("_"))
-    dim_feedforward = trial.suggest_int("dim_feedforward", 128, 1024, step=8)
+    dim_feedforward = trial.suggest_int("dim_feedforward", 128, 512, step=32)
     nlayers = trial.suggest_int("nlayers", 2, 12)
     dropout = trial.suggest_float("dropout", 0.05, 0.5)
     activation = "gelu"
