@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from functools import partial
+import json
 import os
 import django
 import logging
@@ -268,6 +269,9 @@ def run_local_transformer_training_batch(
             strategy.selected_feature_names_for_transformer:
                 logger.info(f"[{item_name}] Transformer 贝叶斯优化+最终训练成功完成。")
                 successfully_trained_count += 1
+                with open(f"{item_name}_best_params.json", "w") as f:
+                    json.dump(best_params, f, indent=2, ensure_ascii=False)
+                print(f"[Optuna][{item_name}] 最优参数已保存到 {item_name}_best_params.json")
             else:
                 logger.error(f"[{item_name}] Transformer 贝叶斯优化+最终训练逻辑执行完毕，但未能成功标记为训练或必要组件缺失。")
                 failed_training_count += 1
