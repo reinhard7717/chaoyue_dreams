@@ -123,7 +123,8 @@ def objective(trial, strategy, item_name, epochs):
         val_mae = strategy.train_transformer_model_from_prepared_data(
             item_name,
             transformer_hyperparams=transformer_hyperparams,
-            only_return_val_metric=True
+            only_return_val_metric=True,
+            trial=trial  # 传入 trial
         )
         print(f"[Optuna][{item_name}] Trial {trial.number} 训练完成，val_mae={val_mae:.6f}")
         return val_mae
@@ -140,17 +141,14 @@ def run_local_transformer_training_batch(
     n_trials: int = 20,
     epochs: int = 10
     ):
-    print("DEBUG: !!!!! 函数入口：run_local_transformer_training_batch !!!!!")
     logger.info("开始执行本地 Transformer 模型批量训练任务...")
 
     # --- 解析和验证路径 ---
     actual_model_base_dir = None
     if model_base_dir_path_str:
         actual_model_base_dir = Path(model_base_dir_path_str)
-        print(f"DEBUG: 使用来自参数的模型根目录: '{actual_model_base_dir}'")
     elif DJANGO_SETTINGS_AVAILABLE and django_settings_module and hasattr(django_settings_module, 'STRATEGY_DATA_DIR'):
         actual_model_base_dir = Path(django_settings_module.STRATEGY_DATA_DIR)
-        print(f"DEBUG: 使用 Django settings 的模型根目录: '{actual_model_base_dir}'")
     else:
         logger.error("错误：模型根目录 (STRATEGY_DATA_DIR) 未指定。请通过命令行参数 (--strategy-data-dir) 或 Django settings 提供。")
         if not DJANGO_SETTINGS_AVAILABLE:
@@ -164,10 +162,10 @@ def run_local_transformer_training_batch(
     actual_params_file = None
     if params_file_path_str:
         actual_params_file = Path(params_file_path_str)
-        print(f"DEBUG: 使用来自参数的指标参数文件路径: '{actual_params_file}'")
+        # print(f"DEBUG: 使用来自参数的指标参数文件路径: '{actual_params_file}'")
     elif DJANGO_SETTINGS_AVAILABLE and django_settings_module and hasattr(django_settings_module, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
         actual_params_file = Path(django_settings_module.INDICATOR_PARAMETERS_CONFIG_PATH)
-        print(f"DEBUG: 使用 Django settings 的指标参数文件路径: '{actual_params_file}'")
+        # print(f"DEBUG: 使用 Django settings 的指标参数文件路径: '{actual_params_file}'")
     else:
         logger.error("错误：指标参数文件 (INDICATOR_PARAMETERS_CONFIG_PATH) 未指定。请通过命令行参数 (--params-file) 或 Django settings 提供。")
         if not DJANGO_SETTINGS_AVAILABLE:
@@ -180,12 +178,10 @@ def run_local_transformer_training_batch(
 
     if not actual_params_file.is_file():
         logger.error(f"错误：指定的指标参数文件 '{actual_params_file}' 不存在或不是一个文件。")
-        print(f"DEBUG: 验证失败: 指标参数文件 '{actual_params_file}' 不是有效文件。")
         return {"status": "error", "message": f"指标参数文件 '{actual_params_file}' 未找到。"}
 
     if not actual_model_base_dir.is_dir():
         logger.error(f"错误：指定的模型根目录 '{actual_model_base_dir}' 不存在或不是一个目录。")
-        print(f"DEBUG: 验证失败: 模型根目录 '{actual_model_base_dir}' 不是有效目录。")
         return {"status": "error", "message": f"模型根目录 '{actual_model_base_dir}' 未找到。"}
 
     successfully_trained_count = 0
@@ -211,21 +207,18 @@ def run_local_transformer_training_batch(
     for item_idx, item_name in enumerate(all_item_names):
         processed_stock_folders += 1
         item_path = actual_model_base_dir / item_name # 修改：根据 item_name 构建完整路径
-        print(f"\nDEBUG: --- 正在处理股票 [{item_name}] ({processed_stock_folders}/{total_stock_folders}) ---")
 
         prepared_data_path = item_path / "prepared_data"
         trained_model_path = item_path / "trained_model"
 
         if not prepared_data_path.is_dir():
             logger.warning(f"[{item_name}] 预处理数据目录 '{prepared_data_path}' 不存在，跳过。")
-            print(f"DEBUG: [{item_name}] 目录 '{prepared_data_path}' 未找到。跳过。")
             skipped_due_to_no_npz += 1
             continue
 
         npz_files = list(prepared_data_path.glob("*.npz"))
         if not npz_files:
             logger.info(f"[{item_name}] 在 '{prepared_data_path}' 中未找到 *.npz 文件，跳过训练。")
-            print(f"DEBUG: [{item_name}] 在 '{prepared_data_path}' 中未找到 NPZ 文件。跳过。")
             skipped_due_to_no_npz += 1
             continue
 
@@ -236,7 +229,6 @@ def run_local_transformer_training_batch(
         if pth_files:
             skipped_due_to_existing_pth += 1
             continue
-        print(f"DEBUG: [{item_name}] 在 '{trained_model_path}' 中未找到 PTH 文件 (或目录不存在)。准备训练。")
 
         logger.info(f"开始为股票 {item_name} 执行 Transformer 模型训练...")
         print(f"DEBUG: [{item_name}] 初始化 TrendFollowingStrategy (已从 'strategies.trend_following_strategy' 模块导入)...")
@@ -245,7 +237,10 @@ def run_local_transformer_training_batch(
         try:
             # 贝叶斯优化
             print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，最大试验次数: {n_trials}")
-            study = optuna.create_study(direction="minimize")
+            study = optuna.create_study(
+                direction="minimize",
+                pruner=optuna.pruners.MedianPruner(n_warmup_steps=3)
+            )
             objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
             study.optimize(objective_with_epochs, n_trials=n_trials)  # 可调整n_trials
             best_params = study.best_params
@@ -284,7 +279,6 @@ def run_local_transformer_training_batch(
         f"训练失败的数量: {failed_training_count}."
     )
     logger.info(summary_message)
-    print(f"DEBUG: {summary_message}")
     return {
         "status": "completed",
         "message": summary_message,

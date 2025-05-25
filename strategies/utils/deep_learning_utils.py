@@ -1,6 +1,7 @@
 # apps/strategies/utils/deep_learning_utils.py
 
 # 导入必要的库 (PyTorch 相关)
+import optuna
 import torch
 torch.backends.cudnn.benchmark = True # 在输入尺寸不变时加速卷积操作。
 import torch.nn as nn
@@ -990,7 +991,8 @@ def train_transformer_model(
     checkpoint_dir: str,
     stock_code: Optional[str] = "STOCK",
     plot_training_history: bool = False,
-    enable_anomaly_detection: bool = False # 新增参数控制异常检测
+    enable_anomaly_detection: bool = False,  # 新增参数控制异常检测
+    trial=None  # 新增参数，默认None
 ) -> Tuple[TransformerModel, pd.DataFrame]:
     """
     训练 Transformer 模型。
@@ -1523,6 +1525,15 @@ def train_transformer_model(
                             early_stopping_patience = 8 # 将早停耐心设置为 10
                             logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.02，早停耐心已设置为 8。")
 
+                    # --- Optuna 早停机制 ---
+                    if trial is not None:
+                        # 这里用验证集的 val_mae 作为监控指标，如果没有验证集可用，也可以用训练损失等
+                        prune_metric = avg_val_mae if not np.isnan(avg_val_mae) else avg_val_loss
+                        trial.report(prune_metric, current_epoch)
+                        if trial.should_prune():
+                            logger.info(f"Trial 被 Optuna 早停，Epoch {current_epoch+1}")
+                            raise optuna.exceptions.TrialPruned()
+
                     # --- 学习率调度与早停逻辑 ---
                     # 获取用于调度器和早停的监控值
                     monitored_value_for_scheduler = np.nan
@@ -1565,7 +1576,6 @@ def train_transformer_model(
                          new_lr_after_scheduler = optimizer.param_groups[0]['lr']
                          if new_lr_after_scheduler != lr_before_scheduler_step: # 比较 scheduler 之前和之后的 LR
                               logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.") # 使用 new_lr_after_scheduler
-
 
                     # 早停逻辑
                     if early_stopping_patience > 0: # 如果启用了早停

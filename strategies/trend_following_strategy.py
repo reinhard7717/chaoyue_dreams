@@ -589,7 +589,8 @@ class TrendFollowingStrategy:
         self, 
         stock_code: str, 
         transformer_hyperparams: dict = None, 
-        only_return_val_metric: bool = False
+        only_return_val_metric: bool = False,
+        trial=None  # 新增参数
     ):
         """
         为特定股票加载已准备好的数据，构建并训练 Transformer 模型，然后保存模型权重。
@@ -720,6 +721,7 @@ class TrendFollowingStrategy:
                 checkpoint_dir=checkpoint_dir,
                 stock_code=stock_code,
                 plot_training_history=self.tf_params.get('transformer_plot_history', False),
+                trial=trial
             )
             # ----------- 结束 -----------
 
