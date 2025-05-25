@@ -75,7 +75,7 @@ def objective(trial, strategy, item_name, epochs):
     weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
     clip_grad_norm = trial.suggest_float("clip_grad_norm", 0.1, 1.0)
     # epochs = trial.suggest_int("epochs", 5, 30)  # ← 这行要删除或注释掉
-    warmup_epochs = trial.suggest_int("warmup_epochs", 0, 10)
+    warmup_epochs = trial.suggest_int("warmup_epochs", 4, 10)
     warmup_start_lr = trial.suggest_float("warmup_start_lr", 1e-6, 1e-4, log=True)
     early_stopping_patience = trial.suggest_int("early_stopping_patience", 5, 30)
     reduce_lr_patience = trial.suggest_int("reduce_lr_patience", 2, 10)
