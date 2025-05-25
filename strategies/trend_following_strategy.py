@@ -587,17 +587,18 @@ class TrendFollowingStrategy:
         self.feature_selector_model_path = os.path.join(prepared_data_dir, "trend_following_transformer_feature_selector_model.joblib")
 
     def train_transformer_model_from_prepared_data(
-        self, 
-        stock_code: str, 
-        transformer_hyperparams: dict = None, 
+        self,
+        stock_code: str,
+        transformer_hyperparams: dict = None,
         only_return_val_metric: bool = False,
-        trial=None  # 新增参数
+        trial=None  # Optuna Trial 对象，或 None
     ):
         """
         为特定股票加载已准备好的数据，构建并训练 Transformer 模型，然后保存模型权重。
         如果提供 transformer_hyperparams，将使用这些参数来构建模型，否则使用默认参数。
         如果 only_return_val_metric=True，则只返回val_mae，不保存模型。
         """
+        # 设置模型文件路径，包括模型目录和基准文件名（非 Trial 专属）
         self.set_model_paths(stock_code)
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
 
@@ -607,6 +608,7 @@ class TrendFollowingStrategy:
             features_scaled_val_np, targets_scaled_val_np, \
             features_scaled_test_np, targets_scaled_test_np, \
             feature_scaler, target_scaler = self.load_prepared_data(stock_code)
+
             if features_scaled_train_np is None or features_scaled_train_np.shape[0] == 0 or \
             targets_scaled_train_np is None or targets_scaled_train_np.shape[0] == 0 or \
             feature_scaler is None or target_scaler is None or not self.selected_feature_names_for_transformer:
@@ -616,9 +618,13 @@ class TrendFollowingStrategy:
                 self.target_scaler = None
                 self.selected_feature_names_for_transformer = []
                 return None if only_return_val_metric else False
+            
+            # 保存 Scaler 和特征名称到实例属性，供后续使用
             self.feature_scaler = feature_scaler
             self.target_scaler = target_scaler
-            num_features = features_scaled_train_np.shape[1]
+            # num_features 应该是时间序列数据的特征维度，即 (num_samples, sequence_length, num_features) 中的最后一个维度
+            # 或者如果是平坦的 (num_samples, num_features_flat)，则直接用第二个维度
+            num_features = features_scaled_train_np.shape[-1] 
             logger.info(f"[{self.strategy_name}][{stock_code}] 最终用于训练的平坦数据集 shape: train_features={features_scaled_train_np.shape}, train_targets={targets_scaled_train_np.shape}, "
                         f"val_features={features_scaled_val_np.shape}, val_targets={targets_scaled_val_np.shape}, "
                         f"test_features={features_scaled_test_np.shape}, test_targets={targets_scaled_test_np.shape}")
@@ -633,6 +639,7 @@ class TrendFollowingStrategy:
         
         # ----------- 合并贝叶斯优化参数 -----------
         # 复制原始配置，避免污染全局
+        # 这些是模型参数和训练参数的“默认值”，Optuna采样到的会覆盖它们
         model_config = self.transformer_model_config.copy()
         training_config = self.transformer_training_config.copy()
 
@@ -641,96 +648,147 @@ class TrendFollowingStrategy:
             if 'transformer_model_config' in transformer_hyperparams and \
                isinstance(transformer_hyperparams['transformer_model_config'], dict):
                 model_config.update(transformer_hyperparams['transformer_model_config'])
-                logger.info(f"已从 Optuna 更新模型配置: {model_config}") # 调试日志
+                logger.info(f"[{self.strategy_name}][{stock_code}] 已从 Optuna 更新模型配置: {model_config}") # 调试日志
 
             # 检查并更新训练参数
             if 'transformer_training_config' in transformer_hyperparams and \
                isinstance(transformer_hyperparams['transformer_training_config'], dict):
                 training_config.update(transformer_hyperparams['transformer_training_config'])
-                logger.info(f"已从 Optuna 更新训练配置: {training_config}") # 调试日志
+                logger.info(f"[{self.strategy_name}][{stock_code}] 已从 Optuna 更新训练配置: {training_config}") # 调试日志
 
                 # 针对 batch_size 的特殊处理 (为了 DataLoader 的创建)
                 if 'batch_size' in training_config:
                     self.transformer_batch_size = training_config['batch_size']
-                    logger.info(f"self.transformer_batch_size 已更新为: {self.transformer_batch_size}") # 调试日志
-        # ----------- 结束 -----------
+                    logger.info(f"[{self.strategy_name}][{stock_code}] self.transformer_batch_size 已更新为: {self.transformer_batch_size}") # 调试日志
+        # ----------- 结束合并参数 -----------
 
         # 现在，self.transformer_batch_size 已经更新为 Optuna 采样到的值 (例如 96)
         # 所以接下来创建 DataLoader 时会使用正确的值
         try:
-            train_dataset = TimeSeriesDataset(features_scaled_train_np, targets_scaled_train_np, self.transformer_window_size)
+            # 将 NumPy 数组转换为 PyTorch Tensor
+            # 确保 features 是 (num_samples, sequence_length, num_features)
+            # 并且 targets 是 (num_samples, output_dim)
+            # 您的原始代码使用了 TimeSeriesDataset，这表示数据需要转换为序列形式
+            train_features_tensor = torch.tensor(features_scaled_train_np, dtype=torch.float32)
+            train_targets_tensor = torch.tensor(targets_scaled_train_np, dtype=torch.float32)
+            # 确保 targets 是 2D，例如 (N, 1)
+            if train_targets_tensor.ndim == 1:
+                train_targets_tensor = train_targets_tensor.unsqueeze(1)
+
+            train_dataset = TimeSeriesDataset(train_features_tensor, train_targets_tensor, self.transformer_window_size)
+            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True, num_workers=0) # num_workers 可根据系统调整
+
             val_loader = None
-            # 检查验证集数据量是否足够创建 Dataset 和 DataLoader
-            if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and targets_scaled_val_np is not None and targets_scaled_val_np.shape[0] >= self.transformer_window_size:
-                val_dataset = TimeSeriesDataset(features_scaled_val_np, targets_scaled_val_np, self.transformer_window_size)
+            if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and \
+               targets_scaled_val_np is not None and targets_scaled_val_np.shape[0] >= self.transformer_window_size:
+                val_features_tensor = torch.tensor(features_scaled_val_np, dtype=torch.float32)
+                val_targets_tensor = torch.tensor(targets_scaled_val_np, dtype=torch.float32)
+                if val_targets_tensor.ndim == 1:
+                    val_targets_tensor = val_targets_tensor.unsqueeze(1)
+                val_dataset = TimeSeriesDataset(val_features_tensor, val_targets_tensor, self.transformer_window_size)
                 if len(val_dataset) > 0:
-                    val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False, pin_memory=True)
+                    val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False, pin_memory=True, num_workers=0)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。验证阶段将跳过。")
             else:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集数据量不足 {self.transformer_window_size}。验证阶段将跳过。")
+
             test_loader = None
-            if features_scaled_test_np is not None and features_scaled_test_np.shape[0] >= self.transformer_window_size and targets_scaled_test_np is not None and targets_scaled_test_np.shape[0] >= self.transformer_window_size:
-                test_dataset = TimeSeriesDataset(features_scaled_test_np, targets_scaled_test_np, self.transformer_window_size)
+            if features_scaled_test_np is not None and features_scaled_test_np.shape[0] >= self.transformer_window_size and \
+               targets_scaled_test_np is not None and targets_scaled_test_np.shape[0] >= self.transformer_window_size:
+                test_features_tensor = torch.tensor(features_scaled_test_np, dtype=torch.float32)
+                test_targets_tensor = torch.tensor(targets_scaled_test_np, dtype=torch.float32)
+                if test_targets_tensor.ndim == 1:
+                    test_targets_tensor = test_targets_tensor.unsqueeze(1)
+                test_dataset = TimeSeriesDataset(test_features_tensor, test_targets_tensor, self.transformer_window_size)
                 if len(test_dataset) > 0:
-                    test_loader = DataLoader(test_dataset, batch_size=self.transformer_batch_size, shuffle=False)
+                    test_loader = DataLoader(test_dataset, batch_size=self.transformer_batch_size, shuffle=False, num_workers=0)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。测试评估将跳过。")
             else:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集数据量不足 {self.transformer_window_size}。测试评估将跳过。")
+            
             if len(train_dataset) == 0:
                 logger.error(f"[{self.strategy_name}][{stock_code}] 训练集 Dataset 为空 (数据量不足 {self.transformer_window_size})。停止训练。")
                 return None if only_return_val_metric else False
-            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True)
+            
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 创建 PyTorch Dataset/DataLoader 出错: {e}", exc_info=True)
             return None if only_return_val_metric else False
+        
+        # ----------- 构建 Transformer 模型 (根据合并后的 model_config) -----------
         try:
-            model = build_transformer_model(
-                num_features=num_features,
-                model_config=model_config,
+            # 确保 num_features 和 window_size 正确传递给模型构建
+            # num_features 应该是每个时间步的特征数量
+            model_instance = build_transformer_model(
+                num_features=num_features, # 从数据加载中获取的特征维度
+                model_config=model_config, # 包含 Optuna 采样的 d_model, nhead, nlayers 等
                 summary=True,
-                window_size=self.transformer_window_size
+                window_size=self.transformer_window_size # 从实例属性获取序列长度
             )
-            self.transformer_model = model
+            # 在这里将构建好的模型赋值给 self.transformer_model
+            # 如果 only_return_val_metric 为 True，此模型只用于当前 trial，不会被保存为最终模型
+            self.transformer_model = model_instance # <--- 将新实例化的模型赋值给属性
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 构建 Transformer 模型出错: {e}", exc_info=True)
-            self.transformer_model = None
+            self.transformer_model = None # 确保模型状态为 None
             return None if only_return_val_metric else False
 
         try:
-            checkpoint_dir = os.path.dirname(self.model_path) if self.model_path else None
-            if checkpoint_dir and not os.path.exists(checkpoint_dir):
-                os.makedirs(checkpoint_dir)
-                logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir}")
-            # ----------- 传递动态训练参数 -----------
-            print(f"DEBUG: 传递给 train_transformer_model 的 trial: {trial}")
-            self.transformer_model, history_df = train_transformer_model(
-                model=self.transformer_model,
+            # checkpoint_dir 是股票专属的模型保存目录
+            # `self.model_dir_path` 是由 `self.set_model_paths` 设置的，它应该包含 /trained_model 部分
+            checkpoint_dir_for_dl_utils = str(self.model_dir_path) 
+            if not os.path.exists(checkpoint_dir_for_dl_utils):
+                os.makedirs(checkpoint_dir_for_dl_utils)
+                logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir_for_dl_utils}")
+
+            # ----------- 传递动态训练参数给 deep_learning_utils.train_transformer_model -----------
+            # `deep_learning_utils.train_transformer_model` 会根据 `trial` 参数在 `checkpoint_dir` 下生成唯一的文件名
+            print(f"DEBUG: 传递给 deep_learning_utils.train_transformer_model 的 trial: {trial}")
+            
+            # 调用训练函数，传入新实例化的模型，并根据 `trial` 参数处理文件路径
+            self.transformer_model, history_df = deep_learning_utils.train_transformer_model(
+                model=self.transformer_model, # <--- 传入刚刚构建的 TransformerModel 实例
                 train_loader=train_loader,
                 val_loader=val_loader,
                 target_scaler=self.target_scaler,
                 training_config=training_config, # <-- 传递更新后的 training_config
-                checkpoint_dir=checkpoint_dir,
+                checkpoint_dir=checkpoint_dir_for_dl_utils, # <--- 传递股票专属的目录
                 stock_code=stock_code,
                 plot_training_history=self.tf_params.get('transformer_plot_history', False),
-                trial=trial
+                enable_anomaly_detection=self.tf_params.get('transformer_enable_anomaly_detection', False),
+                trial=trial # <--- 保持传递 Optuna Trial 对象
             )
-            print(f"训练完成，返回验证指标历史，长度: {len(history_df)}")
-            # ----------- 结束 -----------
+            print(f"[{self.strategy_name}][{stock_code}] 训练完成，返回验证指标历史，长度: {len(history_df)}")
+            # ----------- 结束训练调用 -----------
+
             # ----------- 只返回val_mae，不保存模型和不做测试集评估 -----------
             if only_return_val_metric:
-                if history_df is not None and 'val_mae' in history_df.columns and not history_df['val_mae'].dropna().empty:
-                    val_mae = history_df['val_mae'].dropna().values[-1]
+                # Optuna 模式下，直接返回验证指标
+                if history_df is not None and 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
+                    val_mae = history_df['val_mae'].dropna().values[-1] # 取最后一个非 NaN 的 val_mae
+                    logger.info(f"[{self.strategy_name}][{stock_code}] Optuna Trial 训练完成，返回 val_mae={val_mae:.6f}")
                 else:
+                    # 如果 val_mae 历史全是 NaN，表示训练可能失败或无效，返回极大值
                     val_mae = float('inf')
+                    logger.warning(f"[{self.strategy_name}][{stock_code}] Optuna Trial 训练未获得有效 val_mae，返回 inf。")
                 return val_mae
-            # ----------- 结束 -----------
-            # 训练完成后，最佳模型权重应该已经加载到 self.transformer_model
-            if self.model_path:
-                logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，最佳模型权重已加载。")
+            # ----------- 结束只返回val_mae -----------
+
+            # --- 非 Optuna Trial 模式 (最终训练) ---
+            # 此时 deep_learning_utils.train_transformer_model 应该已经将最佳模型保存到标准路径 (无 Trial ID)
+            # 并且已经加载回 self.transformer_model (如果成功)
+            if self.transformer_model: # 确保模型已加载
+                 logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，最佳模型权重已加载到实例。")
+                 # 可以在这里额外保存最终模型到 self.model_path（非 Trial 专属路径），
+                 # 但 train_transformer_model 函数已经处理了最终保存逻辑，所以这里不需要重复保存。
+                 # 只需确保 self.model_path 在这里被正确地引用，
+                 # 例如，如果后续有其他需要加载这个最终模型的地方，它会从这个路径加载。
             else:
-                logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，但 model_path 未设置，模型权重可能未按预期保存或加载。")
+                 logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，但模型实例为 None。模型权重可能未按预期加载。")
+                 return False # 训练未成功
+
+            # ----------- 测试集评估 -----------
             if test_loader is not None and len(test_loader) > 0 and self.transformer_model is not None:
                 logger.info(f"[{self.strategy_name}] 开始在测试集上评估股票 {stock_code} 的 Transformer 模型...")
                 loss_fn_name = training_config.get('loss', 'mse').lower()
@@ -738,8 +796,9 @@ class TrendFollowingStrategy:
                                 nn.L1Loss() if loss_fn_name == 'mae' else \
                                 nn.HuberLoss() if loss_fn_name == 'huber' else nn.MSELoss()
                 mae_metric_eval = nn.L1Loss()
+                
                 test_metrics = evaluate_transformer_model(
-                    model=self.transformer_model,
+                    model=self.transformer_model, # 使用训练完成并加载了最佳权重的模型
                     test_loader=test_loader,
                     criterion=criterion_eval,
                     mae_metric=mae_metric_eval,
@@ -749,19 +808,24 @@ class TrendFollowingStrategy:
                 logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 evaluation_logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 return True
+            else:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集 DataLoader 为空或模型实例为 None，跳过测试评估。")
+                return True # 即使没有测试集评估，如果训练成功也返回 True
+
         # === 区分 TrialPruned 和其他异常 ===
         except optuna.exceptions.TrialPruned:
             # 如果是 Optuna 触发的早停，则重新抛出此异常
-            logger.info(f"[趋势跟踪v1.0][{stock_code}] Trial 被 Optuna 早停 (Pruned)，重新抛出异常。")
-            raise # 重新抛出异常，让 run_local_optuna_signal.py 中的 objective 函数捕获并正确处理
+            logger.info(f"[{self.strategy_name}][{stock_code}] Trial 被 Optuna 早停 (Pruned)，重新抛出异常。")
+            raise # 重新抛出异常，让 run_local_optuna_multi_process.py 中的 objective 函数捕获并正确处理
 
         except Exception as e:
-            # 捕获其他所有非 TrialPruned 的错误
+            # 捕获所有其他非 TrialPruned 的错误
             logger.error(f"[{self.strategy_name}][{stock_code}] 训练 Transformer 模型出错: {e}", exc_info=True)
-            self.transformer_model = None
+            self.transformer_model = None # 确保模型状态为 None
             # 对于这些真正的错误，如果处于 only_return_val_metric 模式，返回 NaN 表示 Trial 失败
             return float('nan') if only_return_val_metric else False
         # === 结束 ===
+
 
     async def get_required_columns(self, stock_code: str) -> List[str]:
         """

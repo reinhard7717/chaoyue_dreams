@@ -138,21 +138,21 @@ def objective(trial, strategy, item_name, epochs):
     print(f"[Optuna][{item_name}] Trial {trial.number} 开始，采样参数: d_model={transformer_hyperparams['transformer_model_config']['d_model']}, "
           f"nhead={transformer_hyperparams['transformer_model_config']['nhead']}, learning_rate={transformer_hyperparams['transformer_training_config']['learning_rate']:.6e}")
 
-    # 修改开始：初始化 val_mae 为 NaN，以避免 NoneType 错误
+    # 初始化 val_mae 为 NaN，以避免 NoneType 错误
     val_mae = float('nan')
-    # 修改结束
+    
 
     try:
-        # 修改开始：将 train_transformer_model_from_prepared_data 的返回值赋给一个临时变量
+        # 将 train_transformer_model_from_prepared_data 的返回值赋给一个临时变量
         returned_val_mae = strategy.train_transformer_model_from_prepared_data(
             item_name,
             transformer_hyperparams=transformer_hyperparams,
             only_return_val_metric=True,
             trial=trial  # 传入 trial
         )
-        # 修改结束
+        
 
-        # 修改开始：检查返回值的有效性
+        # 检查返回值的有效性
         if returned_val_mae is None or (isinstance(returned_val_mae, float) and np.isnan(returned_val_mae)):
             # 如果返回值为 None 或 NaN，说明训练未完成或被内部剪枝，或者返回了无效值
             print(f"[Optuna][{item_name}] Trial {trial.number} 训练未完成或被内部剪枝，未返回有效 val_mae。")
@@ -161,7 +161,7 @@ def objective(trial, strategy, item_name, epochs):
             # 如果返回了有效值，则更新 val_mae 并打印
             val_mae = returned_val_mae
             print(f"[Optuna][{item_name}] Trial {trial.number} 训练完成，val_mae={val_mae:.6f}")
-        # 修改结束
+        
 
         return val_mae
     except optuna.exceptions.TrialPruned:
@@ -181,12 +181,12 @@ def run_local_transformer_training_batch(
     processing_order: str = 'asc',
     n_trials: int = 20,
     epochs: int = 10,
-    n_jobs: int = 1, # 修改行：新增 n_jobs 参数，默认为 1 (串行)
-    gpu_id: Optional[int] = None # 修改行：新增 gpu_id 参数，默认为 None (不指定)
+    n_jobs: int = 1, # 新增 n_jobs 参数，默认为 1 (串行)
+    gpu_id: Optional[int] = None # 新增 gpu_id 参数，默认为 None (不指定)
     ):
     logger.info("开始执行本地 Transformer 模型批量训练任务...")
 
-    # 修改开始：设置 MPS 相关的环境变量
+    # 设置 MPS 相关的环境变量
     # 确保 MPS Daemon 已经运行：sudo nvidia-cuda-mps-control -d
     # 建议将 CUDA_MPS_PIPE_DIRECTORY 设置为一个唯一的、可访问的目录
     mps_pipe_dir = os.getenv('CUDA_MPS_PIPE_DIRECTORY', '/tmp/nvidia-mps')
@@ -206,7 +206,7 @@ def run_local_transformer_training_batch(
         if 'CUDA_VISIBLE_DEVICES' in os.environ:
             del os.environ['CUDA_VISIBLE_DEVICES']
         logger.info("未指定 GPU ID，CUDA_VISIBLE_DEVICES 未设置。")
-    # 修改结束
+    
 
     # --- 解析和验证路径 ---
     actual_model_base_dir = None
@@ -255,7 +255,7 @@ def run_local_transformer_training_batch(
     failed_training_count = 0
     processed_stock_folders = 0
 
-    # 修改开始：获取所有股票文件夹名称并根据参数排序
+    # 获取所有股票文件夹名称并根据参数排序
     all_item_names = [item.name for item in actual_model_base_dir.iterdir() if item.is_dir()] # 获取所有子目录名称
     all_item_names.sort() # 默认按字典序正序排序
 
@@ -301,18 +301,18 @@ def run_local_transformer_training_batch(
 
         try:
             # 贝叶斯优化
-            print(f"[Optuna][{item_name}] 贝叶斯优化开始，启用 MedianPruner 早停策略。最大试验次数: {n_trials}，并行进程数: {n_jobs}") # 修改行：打印 n_jobs
+            print(f"[Optuna][{item_name}] 贝叶斯优化开始，启用 MedianPruner 早停策略。最大试验次数: {n_trials}，并行进程数: {n_jobs}") # 打印 n_jobs
             study = optuna.create_study(
                 direction="minimize",
                 pruner=optuna.pruners.MedianPruner(n_warmup_steps=3),
-                # 修改开始：为每个股票代码创建一个独立的 SQLite 数据库文件，避免多进程冲突
+                # 为每个股票代码创建一个独立的 SQLite 数据库文件，避免多进程冲突
                 storage=f"sqlite:///{item_path}/optuna_study_{item_name}.db",
                 study_name=f"transformer_tuning_{item_name}"
-                # 修改结束
+                
             )
             print("开始 Optuna 超参数优化。")
             objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
-            # 修改行：将 n_jobs 参数传递给 study.optimize
+            # 将 n_jobs 参数传递给 study.optimize
             study.optimize(objective_with_epochs, n_trials=n_trials, n_jobs=n_jobs)
             best_params = study.best_params
             print(f"贝叶斯优化结束，最优参数: {best_params}")
@@ -343,7 +343,6 @@ def run_local_transformer_training_batch(
         except Exception as e:
             logger.error(f"为股票 {item_name} 执行 Transformer 贝叶斯优化+最终训练时发生意外错误: {e}", exc_info=True)
             failed_training_count += 1
-    # 修改结束：排序和遍历逻辑已更新
 
     summary_message = (
         f"\n本地 Transformer 模型批量训练完成。\n"
@@ -380,7 +379,7 @@ if __name__ == '__main__':
     )
     print("--- 脚本开始执行 (run_local_optuna_signal.py) ---")
 
-    # 修改开始：添加 MPS 启动提示
+    # 添加 MPS 启动提示
     print("\n--- MPS (Multi-Process Service) 模式提示 ---")
     print("为了充分利用 V100 显卡的 MPS 模式进行并行训练，请确保您已在后台启动 MPS Daemon。")
     print("启动命令 (可能需要 sudo):")
@@ -388,7 +387,7 @@ if __name__ == '__main__':
     print("停止命令:")
     print("  echo quit | nvidia-cuda-mps-control")
     print("-------------------------------------------\n")
-    # 修改结束
+    
 
     parser = argparse.ArgumentParser(description="本地批量训练 Transformer 模型脚本。")
     parser.add_argument(
@@ -401,7 +400,7 @@ if __name__ == '__main__':
         type=str,
         help="包含各个股票代码子文件夹的模型根目录的绝对或相对路径。如果未提供，则尝试从 Django settings 获取。"
     )
-    # 修改行：添加 --order 参数
+    # 添加 --order 参数
     parser.add_argument(
         "--order",
         type=str,
@@ -421,7 +420,7 @@ if __name__ == '__main__':
         default=10,
         help="每次 trial 训练的 epoch 数，默认 10"
     )
-    # 修改开始：新增 n_jobs 和 gpu_id 参数
+    # 新增 n_jobs 和 gpu_id 参数
     parser.add_argument(
         "--n-jobs",
         type=int,
@@ -434,10 +433,10 @@ if __name__ == '__main__':
         default=None,
         help="指定用于训练的 GPU ID (例如 0, 1)。如果未指定，则不设置 CUDA_VISIBLE_DEVICES。"
     )
-    # 修改结束
+    
     args = parser.parse_args()
 
-    print(f"INFO: 命令行参数已解析。Params File: '{args.params_file}', Strategy Data Dir: '{args.strategy_data_dir}', Order: '{args.order}', N_Trials: {args.n_trials}, Epochs: {args.epochs}, N_Jobs: {args.n_jobs}, GPU_ID: {args.gpu_id}") # 修改行：打印新的参数值
+    print(f"INFO: 命令行参数已解析。Params File: '{args.params_file}', Strategy Data Dir: '{args.strategy_data_dir}', Order: '{args.order}', N_Trials: {args.n_trials}, Epochs: {args.epochs}, N_Jobs: {args.n_jobs}, GPU_ID: {args.gpu_id}") # 打印新的参数值
 
     results = run_local_transformer_training_batch(
         model_base_dir_path_str=args.strategy_data_dir,
@@ -445,8 +444,8 @@ if __name__ == '__main__':
         processing_order=args.order,
         n_trials=args.n_trials,
         epochs=args.epochs,
-        n_jobs=args.n_jobs, # 修改行：传递 n_jobs 参数
-        gpu_id=args.gpu_id # 修改行：传递 gpu_id 参数
+        n_jobs=args.n_jobs, # 传递 n_jobs 参数
+        gpu_id=args.gpu_id # 传递 gpu_id 参数
     )
 
     print(f"\n--- 执行结果摘要 ---")
