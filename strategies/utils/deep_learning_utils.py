@@ -185,16 +185,14 @@ class TimeSeriesDataset(Dataset):
         X_window_np = self.features[window_start_flat_idx:window_end_flat_idx, :]
         y_target_np = self.targets[target_flat_idx]
 
-        # 修改：判断是否为Tensor，避免重复包装
+        # 保证 X_tensor 是 float32
         if isinstance(X_window_np, torch.Tensor):
-            X_tensor = X_window_np.clone().detach().float()  # 保证类型一致
+            X_tensor = X_window_np.clone().detach().float()
         else:
             X_tensor = torch.tensor(X_window_np, dtype=torch.float32)
 
-        if isinstance(y_target_np, torch.Tensor):
-            y_tensor = y_target_np.clone().detach().float().unsqueeze(0)  # 保证形状为(1,)
-        else:
-            y_tensor = torch.tensor([y_target_np], dtype=torch.float32)
+        # 保证 y_tensor 形状为 (1,)
+        y_tensor = torch.as_tensor(y_target_np, dtype=torch.float32).view(1)  # <--- 只用 view(1)
 
         return X_tensor, y_tensor
     
