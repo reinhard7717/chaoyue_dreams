@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from functools import partial
 import os
 import django
 import logging
@@ -50,15 +51,23 @@ except ImportError as e:
 # 配置日志记录器
 logger = logging.getLogger(__name__)
 
-def objective(trial, strategy, item_name):
+# 1. 在文件顶部或 main 里，提前生成所有合法组合
+d_model_choices = [64, 128, 256, 512]
+nhead_choices = [2, 3, 4, 5, 6, 7, 8]
+dmodel_nhead_pairs = []
+for d in d_model_choices:
+    for n in nhead_choices:
+        if d % n == 0:
+            dmodel_nhead_pairs.append((d, n))
+
+def objective(trial, strategy, item_name, epochs):
     """
     Optuna 贝叶斯优化目标函数。
     只采样合法的 d_model 和 nhead 组合，返回 val_mae。
     """
+    epochs_sampled = epochs
     # 1. 采样参数
-    d_model = trial.suggest_int("d_model", 32, 256, step=8)
-    possible_nhead = [i for i in range(2, 9) if d_model % i == 0]
-    nhead = trial.suggest_categorical("nhead", possible_nhead)
+    d_model, nhead = trial.suggest_categorical("dmodel_nhead", dmodel_nhead_pairs)
     dim_feedforward = trial.suggest_int("dim_feedforward", 128, 1024, step=8)
     nlayers = trial.suggest_int("nlayers", 2, 12)
     dropout = trial.suggest_float("dropout", 0.05, 0.5)
@@ -87,7 +96,7 @@ def objective(trial, strategy, item_name):
             "lr_scheduler": lr_scheduler
         },
         "transformer_training_config": {
-            "epochs": epochs,
+            "epochs": epochs_sampled,
             "batch_size": batch_size,
             "learning_rate": learning_rate,
             "warmup_epochs": warmup_epochs,
@@ -130,7 +139,9 @@ def objective(trial, strategy, item_name):
 def run_local_transformer_training_batch(
     model_base_dir_path_str: str = None,
     params_file_path_str: str = None,
-    processing_order: str = 'asc' # 修改行：添加处理顺序参数，默认为正序
+    processing_order: str = 'asc',
+    n_trials: int = 20,
+    epochs: int = 10
     ):
     print("DEBUG: !!!!! 函数入口：run_local_transformer_training_batch !!!!!")
     logger.info("开始执行本地 Transformer 模型批量训练任务...")
@@ -238,7 +249,8 @@ def run_local_transformer_training_batch(
             # 贝叶斯优化
             print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，最大试验次数: 20")
             study = optuna.create_study(direction="minimize")
-            study.optimize(lambda trial: objective(trial, strategy, item_name), n_trials=20)  # 可调整n_trials
+            objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
+            study.optimize(objective_with_epochs, n_trials=n_trials)  # 可调整n_trials
             best_params = study.best_params
             print(f"[Optuna][{item_name}] try之前， 贝叶斯优化结束。最优参数: {study.best_params}")
 
@@ -317,6 +329,18 @@ if __name__ == '__main__':
         choices=['asc', 'desc'], # 限制输入为 'asc' 或 'desc'
         default='asc', # 默认值为 'asc' (正序)
         help="处理股票文件夹的顺序。'asc' 为正序 (默认)，'desc' 为倒序。" # 帮助信息
+    )
+    parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=20,
+        help="Optuna 贝叶斯优化的 trial 次数，默认 20"
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        help="每次 trial 训练的 epoch 数，默认 10"
     )
     args = parser.parse_args()
 
