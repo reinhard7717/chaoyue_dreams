@@ -600,11 +600,6 @@ class TrendFollowingStrategy:
         self.set_model_paths(stock_code)
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
 
-        print(f"DEBUG: Initial self.transformer_model_config: {self.transformer_model_config}")
-        print(f"DEBUG: Initial self.transformer_training_config: {self.transformer_training_config}")
-        print(f"DEBUG: Received transformer_hyperparams: {transformer_hyperparams}")
-
-
         # 增加错误处理，确保 load_prepared_data 返回有效数据
         try:
             features_scaled_train_np, targets_scaled_train_np, \

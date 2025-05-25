@@ -70,7 +70,7 @@ def objective(trial, strategy, item_name, epochs):
     dropout = trial.suggest_float("dropout", 0.05, 0.5)
     activation = "gelu"
     lr_scheduler = "CosineAnnealingLR"
-    batch_size = trial.suggest_int("batch_size", 32, 512, step=32)
+    batch_size = trial.suggest_int("batch_size", 128, 512, step=32)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
     clip_grad_norm = trial.suggest_float("clip_grad_norm", 0.1, 1.0)
