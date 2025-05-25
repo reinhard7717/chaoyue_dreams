@@ -28,6 +28,7 @@ from .utils.deep_learning_utils import (
     TimeSeriesDataset,
     prepare_data_for_transformer # prepare_data_for_transformer 仍然从这里导入
 )
+from strategies.utils import deep_learning_utils
 
 # 创建一个专门用于evaluation_results的logger
 evaluation_logger = logging.getLogger("evaluation_results")
@@ -737,7 +738,7 @@ class TrendFollowingStrategy:
         try:
             # checkpoint_dir 是股票专属的模型保存目录
             # `self.model_dir_path` 是由 `self.set_model_paths` 设置的，它应该包含 /trained_model 部分
-            checkpoint_dir_for_dl_utils = str(self.model_dir_path) 
+            checkpoint_dir_for_dl_utils = str(self.model_path) 
             if not os.path.exists(checkpoint_dir_for_dl_utils):
                 os.makedirs(checkpoint_dir_for_dl_utils)
                 logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir_for_dl_utils}")
