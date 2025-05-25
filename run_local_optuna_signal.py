@@ -349,7 +349,9 @@ if __name__ == '__main__':
     results = run_local_transformer_training_batch(
         model_base_dir_path_str=args.strategy_data_dir,
         params_file_path_str=args.params_file,
-        processing_order=args.order # 修改行：将 order 参数传递给函数
+        processing_order=args.order,
+        n_trials=args.n_trials,
+        epochs=args.epochs
     )
 
     print(f"\n--- 执行结果摘要 ---")
