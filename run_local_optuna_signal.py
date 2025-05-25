@@ -62,11 +62,6 @@ for d in d_model_choices:
             dmodel_nhead_strs.append(f"{d}_{n}")
 
 def objective(trial, strategy, item_name, epochs):
-    """
-    Optuna 贝叶斯优化目标函数。
-    只采样合法的 d_model 和 nhead 组合，返回 val_mae。
-    """
-    epochs_sampled = epochs
     # 1. 采样参数
     dmodel_nhead_str = trial.suggest_categorical("dmodel_nhead", dmodel_nhead_strs)
     d_model, nhead = map(int, dmodel_nhead_str.split("_"))
@@ -79,7 +74,7 @@ def objective(trial, strategy, item_name, epochs):
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
     clip_grad_norm = trial.suggest_float("clip_grad_norm", 0.1, 1.0)
-    epochs = trial.suggest_int("epochs", 5, 30)
+    # epochs = trial.suggest_int("epochs", 5, 30)  # ← 这行要删除或注释掉
     warmup_epochs = trial.suggest_int("warmup_epochs", 0, 10)
     warmup_start_lr = trial.suggest_float("warmup_start_lr", 1e-6, 1e-4, log=True)
     early_stopping_patience = trial.suggest_int("early_stopping_patience", 5, 30)
@@ -98,7 +93,7 @@ def objective(trial, strategy, item_name, epochs):
             "lr_scheduler": lr_scheduler
         },
         "transformer_training_config": {
-            "epochs": epochs_sampled,
+            "epochs": epochs,  # 只用外部传入的 epochs
             "batch_size": batch_size,
             "learning_rate": learning_rate,
             "warmup_epochs": warmup_epochs,
