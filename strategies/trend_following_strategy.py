@@ -711,7 +711,8 @@ class TrendFollowingStrategy:
                 os.makedirs(checkpoint_dir)
                 logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir}")
 
-           # ----------- 传递动态训练参数 -----------
+            # ----------- 传递动态训练参数 -----------
+            print(f"DEBUG: 传递给 train_transformer_model 的 trial: {trial}")
             self.transformer_model, history_df = train_transformer_model(
                 model=self.transformer_model,
                 train_loader=train_loader,
@@ -723,6 +724,7 @@ class TrendFollowingStrategy:
                 plot_training_history=self.tf_params.get('transformer_plot_history', False),
                 trial=trial
             )
+            print(f"训练完成，返回验证指标历史，长度: {len(history_df)}")
             # ----------- 结束 -----------
 
             # ----------- 只返回val_mae，不保存模型和不做测试集评估 -----------

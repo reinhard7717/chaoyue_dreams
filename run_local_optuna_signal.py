@@ -119,6 +119,9 @@ def objective(trial, strategy, item_name, epochs):
     for k, v in transformer_hyperparams["transformer_training_config"].items():
         print(f"  [Train] {k}: {v}")
 
+    print(f"[Optuna][{item_name}] Trial {trial.number} 开始，采样参数: d_model={transformer_hyperparams['transformer_model_config']['d_model']}, "
+          f"nhead={transformer_hyperparams['transformer_model_config']['nhead']}, learning_rate={transformer_hyperparams['transformer_training_config']['learning_rate']:.6e}")
+
     try:
         val_mae = strategy.train_transformer_model_from_prepared_data(
             item_name,
@@ -128,6 +131,9 @@ def objective(trial, strategy, item_name, epochs):
         )
         print(f"[Optuna][{item_name}] Trial {trial.number} 训练完成，val_mae={val_mae:.6f}")
         return val_mae
+    except optuna.exceptions.TrialPruned:
+        print(f"[Optuna][{item_name}] Trial {trial.number} 被早停 (Pruned)。")
+        raise
     except Exception as e:
         print(f"[Optuna][{item_name}] Trial {trial.number} 发生异常: {e}")
         import traceback
@@ -236,15 +242,16 @@ def run_local_transformer_training_batch(
 
         try:
             # 贝叶斯优化
-            print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，最大试验次数: {n_trials}")
+            print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，启用 MedianPruner 早停策略。，最大试验次数: {n_trials}")
             study = optuna.create_study(
                 direction="minimize",
                 pruner=optuna.pruners.MedianPruner(n_warmup_steps=3)
             )
+            print("开始 Optuna 超参数优化。")
             objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
             study.optimize(objective_with_epochs, n_trials=n_trials)  # 可调整n_trials
             best_params = study.best_params
-            print(f"[Optuna][{item_name}] try之前， 贝叶斯优化结束。最优参数: {study.best_params}")
+            
 
             # 用最优参数做最终训练
             training_successful = strategy.train_transformer_model_from_prepared_data(
@@ -262,6 +269,7 @@ def run_local_transformer_training_batch(
                 with open(f"{item_name}_best_params.json", "w") as f:
                     json.dump(best_params, f, indent=2, ensure_ascii=False)
                 print(f"[Optuna][{item_name}] 最优参数已保存到 {item_name}_best_params.json")
+                print(f"[Optuna][{item_name}] try之后， 贝叶斯优化结束。最优参数: {study.best_params}")
             else:
                 logger.error(f"[{item_name}] Transformer 贝叶斯优化+最终训练逻辑执行完毕，但未能成功标记为训练或必要组件缺失。")
                 failed_training_count += 1

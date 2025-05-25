@@ -1509,8 +1509,6 @@ def train_transformer_model(
                     avg_val_mae = epoch_mae_sum_val / num_valid_samples_for_mae if num_valid_samples_for_mae > 0 else np.nan
                     avg_val_true_mae = epoch_true_mae_sum_val / num_valid_samples_for_true_mae if num_valid_samples_for_true_mae > 0 else np.nan
 
-                    # 原始代码在这里将验证指标添加到 history，我们移除它
-
                     # --- 根据 val_mae 调整早停耐心 ---
                     # 如果验证集的缩放后 MAE 小于 0.01，则将早停耐心设置为 5
                     # 检查 avg_val_mae 是否有效 (非 NaN) 且小于 0.01
@@ -1525,13 +1523,16 @@ def train_transformer_model(
                             early_stopping_patience = 8 # 将早停耐心设置为 10
                             logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.02，早停耐心已设置为 8。")
 
+                    print(f"[Epoch {current_epoch+1}] 训练完成，val_mae={avg_val_mae:.6f}, val_loss={avg_val_loss:.6f}")
+
                     # --- Optuna 早停机制 ---
                     if trial is not None:
                         # 这里用验证集的 val_mae 作为监控指标，如果没有验证集可用，也可以用训练损失等
                         prune_metric = avg_val_mae if not np.isnan(avg_val_mae) else avg_val_loss
+                        print(f"[Epoch {current_epoch+1}] 向 Optuna 报告指标: {prune_metric:.6f}")
                         trial.report(prune_metric, current_epoch)
                         if trial.should_prune():
-                            logger.info(f"Trial 被 Optuna 早停，Epoch {current_epoch+1}")
+                            print(f"[Epoch {current_epoch+1}] Optuna 触发早停，Trial 被中断。")
                             raise optuna.exceptions.TrialPruned()
 
                     # --- 学习率调度与早停逻辑 ---
@@ -1665,6 +1666,7 @@ def train_transformer_model(
                 current_epoch += 1 # 只有成功完成的 Epoch 才增加计数
 
                 if early_stop_triggered: # 如果触发了早停
+                    print(f"[Epoch {current_epoch+1}] 训练完成，早停触发。")
                     break # 跳出外部训练循环
 
             # 如果 Epoch 未成功完成 (因重试次数用尽)，外部循环会在下一次条件检查时停止
