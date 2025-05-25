@@ -585,9 +585,16 @@ class TrendFollowingStrategy:
         # 设置特征选择模型保存路径
         self.feature_selector_model_path = os.path.join(prepared_data_dir, "trend_following_transformer_feature_selector_model.joblib")
 
-    def train_transformer_model_from_prepared_data(self, stock_code: str):
+    def train_transformer_model_from_prepared_data(
+        self, 
+        stock_code: str, 
+        transformer_hyperparams: dict = None, 
+        only_return_val_metric: bool = False
+    ):
         """
         为特定股票加载已准备好的数据，构建并训练 Transformer 模型，然后保存模型权重。
+        如果提供 transformer_hyperparams，将使用这些参数来构建模型，否则使用默认参数。
+        如果 only_return_val_metric=True，则只返回val_mae，不保存模型。
         """
         self.set_model_paths(stock_code)
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
@@ -599,14 +606,14 @@ class TrendFollowingStrategy:
             features_scaled_test_np, targets_scaled_test_np, \
             feature_scaler, target_scaler = self.load_prepared_data(stock_code)
             if features_scaled_train_np is None or features_scaled_train_np.shape[0] == 0 or \
-               targets_scaled_train_np is None or targets_scaled_train_np.shape[0] == 0 or \
-               feature_scaler is None or target_scaler is None or not self.selected_feature_names_for_transformer:
+            targets_scaled_train_np is None or targets_scaled_train_np.shape[0] == 0 or \
+            feature_scaler is None or target_scaler is None or not self.selected_feature_names_for_transformer:
                 logger.error(f"[{self.strategy_name}] 股票 {stock_code} 加载已准备好的数据/Scaler/特征列表失败或数据无效，无法继续训练。")
                 self.transformer_model = None
                 self.feature_scaler = None
                 self.target_scaler = None
                 self.selected_feature_names_for_transformer = []
-                return
+                return None if only_return_val_metric else False
             self.feature_scaler = feature_scaler
             self.target_scaler = target_scaler
             num_features = features_scaled_train_np.shape[1]
@@ -615,12 +622,13 @@ class TrendFollowingStrategy:
                         f"test_features={features_scaled_test_np.shape}, test_targets={targets_scaled_test_np.shape}")
             logger.info(f"[{self.strategy_name}][{stock_code}] 实际用于训练的特征维度: {num_features}")
         except Exception as e:
-             logger.error(f"[{self.strategy_name}][{stock_code}] 加载已准备好的数据时发生错误: {e}", exc_info=True)
-             self.transformer_model = None
-             self.feature_scaler = None
-             self.target_scaler = None
-             self.selected_feature_names_for_transformer = []
-             return
+            logger.error(f"[{self.strategy_name}][{stock_code}] 加载已准备好的数据时发生错误: {e}", exc_info=True)
+            self.transformer_model = None
+            self.feature_scaler = None
+            self.target_scaler = None
+            self.selected_feature_names_for_transformer = []
+            return None if only_return_val_metric else False
+
         try:
             train_dataset = TimeSeriesDataset(features_scaled_train_np, targets_scaled_train_np, self.transformer_window_size)
             val_loader = None
@@ -628,78 +636,106 @@ class TrendFollowingStrategy:
             if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and targets_scaled_val_np is not None and targets_scaled_val_np.shape[0] >= self.transformer_window_size:
                 val_dataset = TimeSeriesDataset(features_scaled_val_np, targets_scaled_val_np, self.transformer_window_size)
                 if len(val_dataset) > 0:
-                    # 验证集 DataLoader 不需要 shuffle
                     val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False, pin_memory=True)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。验证阶段将跳过。")
             else:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集数据量不足 {self.transformer_window_size}。验证阶段将跳过。")
             test_loader = None
-            # 检查测试集数据量是否足够创建 Dataset 和 DataLoader
             if features_scaled_test_np is not None and features_scaled_test_np.shape[0] >= self.transformer_window_size and targets_scaled_test_np is not None and targets_scaled_test_np.shape[0] >= self.transformer_window_size:
                 test_dataset = TimeSeriesDataset(features_scaled_test_np, targets_scaled_test_np, self.transformer_window_size)
                 if len(test_dataset) > 0:
-                    # 测试集 DataLoader 不需要 shuffle
                     test_loader = DataLoader(test_dataset, batch_size=self.transformer_batch_size, shuffle=False)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。测试评估将跳过。")
             else:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 测试集数据量不足 {self.transformer_window_size}。测试评估将跳过。")
-            # 检查训练集数据量是否足够创建 Dataset 和 DataLoader
             if len(train_dataset) == 0:
                 logger.error(f"[{self.strategy_name}][{stock_code}] 训练集 Dataset 为空 (数据量不足 {self.transformer_window_size})。停止训练。")
-                return
+                return None if only_return_val_metric else False
             train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True)
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 创建 PyTorch Dataset/DataLoader 出错: {e}", exc_info=True)
-            return
+            return None if only_return_val_metric else False
+
+        # ----------- 关键改动：合并贝叶斯优化参数 -----------
+        # 复制原始配置，避免污染全局
+        model_config = self.transformer_model_config.copy()
+        training_config = self.transformer_training_config.copy()
+        if transformer_hyperparams:
+            # 分别更新模型和训练参数
+            for k, v in transformer_hyperparams.items():
+                if k in model_config:
+                    model_config[k] = v
+                elif k in training_config:
+                    training_config[k] = v
+                else:
+                    # 兼容性：如果参数属于batch_size等，也更新self.transformer_batch_size
+                    if k == "batch_size":
+                        self.transformer_batch_size = v
+                        training_config[k] = v
+        # ----------- 关键改动结束 -----------
+
         try:
             model = build_transformer_model(
                 num_features=num_features,
-                model_config=self.transformer_model_config,
+                model_config=model_config,
                 summary=True,
-                window_size=self.transformer_window_size # 传递 window_size 给 build_transformer_model
+                window_size=self.transformer_window_size
             )
             self.transformer_model = model
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 构建 Transformer 模型出错: {e}", exc_info=True)
             self.transformer_model = None
-            return
+            return None if only_return_val_metric else False
+
         try:
             checkpoint_dir = os.path.dirname(self.model_path) if self.model_path else None
             if checkpoint_dir and not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
                 logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir}")
+
+            # ----------- 关键改动：传递动态训练参数 -----------
             self.transformer_model, history_df = train_transformer_model(
                 model=self.transformer_model,
                 train_loader=train_loader,
                 val_loader=val_loader,
                 target_scaler=self.target_scaler,
-                training_config=self.transformer_training_config,
+                training_config=training_config,
                 checkpoint_dir=checkpoint_dir,
                 stock_code=stock_code,
                 plot_training_history=self.tf_params.get('transformer_plot_history', False),
             )
+            # ----------- 关键改动结束 -----------
+
+            # ----------- 关键改动：只返回val_mae，不保存模型和不做测试集评估 -----------
+            if only_return_val_metric:
+                if history_df is not None and 'val_mae' in history_df.columns and not history_df['val_mae'].dropna().empty:
+                    val_mae = history_df['val_mae'].dropna().values[-1]
+                else:
+                    val_mae = float('inf')
+                return val_mae
+            # ----------- 关键改动结束 -----------
+
             # 训练完成后，最佳模型权重应该已经加载到 self.transformer_model
             if self.model_path:
-                 logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，最佳模型权重已加载。")
+                logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，最佳模型权重已加载。")
             else:
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，但 model_path 未设置，模型权重可能未按预期保存或加载。")
+                logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型训练完成，但 model_path 未设置，模型权重可能未按预期保存或加载。")
             if test_loader is not None and len(test_loader) > 0 and self.transformer_model is not None:
                 logger.info(f"[{self.strategy_name}] 开始在测试集上评估股票 {stock_code} 的 Transformer 模型...")
-                # 评估时使用训练配置中指定的损失函数名称来创建损失函数对象
-                loss_fn_name = self.transformer_training_config.get('loss', 'mse').lower()
+                loss_fn_name = training_config.get('loss', 'mse').lower()
                 criterion_eval = nn.MSELoss() if loss_fn_name == 'mse' else \
-                                 nn.L1Loss() if loss_fn_name == 'mae' else \
-                                 nn.HuberLoss() if loss_fn_name == 'huber' else nn.MSELoss()
-                mae_metric_eval = nn.L1Loss() # 通常评估也会关注 MAE
+                                nn.L1Loss() if loss_fn_name == 'mae' else \
+                                nn.HuberLoss() if loss_fn_name == 'huber' else nn.MSELoss()
+                mae_metric_eval = nn.L1Loss()
                 test_metrics = evaluate_transformer_model(
                     model=self.transformer_model,
                     test_loader=test_loader,
                     criterion=criterion_eval,
-                    mae_metric=mae_metric_eval, # 传递 MAE metric
+                    mae_metric=mae_metric_eval,
                     target_scaler=self.target_scaler,
-                    device=self.device # 传递 device
+                    device=self.device
                 )
                 logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 evaluation_logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
@@ -707,7 +743,7 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 训练 Transformer 模型出错: {e}", exc_info=True)
             self.transformer_model = None
-            return None
+            return None if only_return_val_metric else False
 
     async def get_required_columns(self, stock_code: str) -> List[str]:
         """
