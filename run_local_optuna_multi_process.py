@@ -64,39 +64,40 @@ for d in d_model_choices:
 
 def objective(trial, strategy, item_name, epochs):
     # 1. 采样参数
-    dmodel_nhead_str = '64_8'  # 固定
+    dmodel_nhead_str = trial.suggest_categorical("dmodel_nhead", dmodel_nhead_strs)
     # 将字符串分割为整数 d_model 和 nhead
     d_model, nhead = map(int, dmodel_nhead_str.split("_"))
     # 采样 dim_feedforward，范围 128 到 512，步长 32
-    dim_feedforward = trial.suggest_int("dim_feedforward", 256, 384, step=16)
+    dim_feedforward = trial.suggest_int("dim_feedforward", 128, 512, step=32)
     # 采样 nlayers，范围 2 到 12
-    nlayers = trial.suggest_int("nlayers", 7, 11)
+    nlayers = trial.suggest_int("nlayers", 2, 12)
     # 采样 dropout，范围 0.05 到 0.5
-    dropout = trial.suggest_float("dropout", 0.10, 0.20)
+    dropout = trial.suggest_float("dropout", 0.05, 0.5)
     # 固定激活函数为 gelu
     activation = "gelu"
     # 固定学习率调度器为 CosineAnnealingLR
     lr_scheduler = "CosineAnnealingLR"
     # 采样 batch_size，范围 128 到 512，步长 32
-    batch_size = trial.suggest_int("batch_size", 96, 160, step=8)
+    batch_size = trial.suggest_int("batch_size", 128, 512, step=32)
     # 采样 learning_rate，范围 1e-5 到 1e-3，对数尺度
-    learning_rate = trial.suggest_float("learning_rate", 1e-4, 4e-4, log=True)
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     # 采样 weight_decay，范围 1e-5 到 1e-2，对数尺度
-    weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-3, log=True)  # 原1e-5-1e-2
+    weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
     # 采样 clip_grad_norm，范围 0.1 到 1.0
-    clip_grad_norm = trial.suggest_float("clip_grad_norm", 0.3, 0.6)  # 原0.1-1.0
+    clip_grad_norm = trial.suggest_float("clip_grad_norm", 0.1, 1.0)
     # 采样 warmup_epochs，范围 4 到 10
-    warmup_epochs = trial.suggest_int("warmup_epochs", 4, 7)  # 原4-10
+    warmup_epochs = trial.suggest_int("warmup_epochs", 4, 10)
     # 采样 warmup_start_lr，范围 1e-6 到 1e-4，对数尺度
-    warmup_start_lr = trial.suggest_float("warmup_start_lr", 5e-5, 1e-4, log=True)  # 原1e-6-1e-4
+    warmup_start_lr = trial.suggest_float("warmup_start_lr", 1e-6, 1e-4, log=True)
     # 采样 early_stopping_patience，范围 5 到 30
-    early_stopping_patience = trial.suggest_int("early_stopping_patience", 10, 20)  # 原5-30
+    early_stopping_patience = trial.suggest_int("early_stopping_patience", 5, 30)
     # 采样 reduce_lr_patience，范围 2 到 10
-    reduce_lr_patience = trial.suggest_int("reduce_lr_patience", 8, 12)  # 原2-10
+    reduce_lr_patience = trial.suggest_int("reduce_lr_patience", 2, 10)
     # 采样 reduce_lr_factor，范围 0.1 到 0.5
-    reduce_lr_factor = trial.suggest_float("reduce_lr_factor", 0.3, 0.4)  # 原0.1-0.5
+    reduce_lr_factor = trial.suggest_float("reduce_lr_factor", 0.1, 0.5)
     # 采样 min_lr，范围 1e-7 到 1e-5，对数尺度
-    min_lr = trial.suggest_float("min_lr", 1e-7, 5e-7, log=True)  # 原1e-7-1e-5
+    min_lr = trial.suggest_float("min_lr", 1e-7, 1e-5, log=True)
+
 
     transformer_hyperparams = {
         "transformer_model_config": {
