@@ -599,6 +599,11 @@ class TrendFollowingStrategy:
         self.set_model_paths(stock_code)
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
 
+        print(f"DEBUG: Initial self.transformer_model_config: {self.transformer_model_config}")
+        print(f"DEBUG: Initial self.transformer_training_config: {self.transformer_training_config}")
+        print(f"DEBUG: Received transformer_hyperparams: {transformer_hyperparams}")
+
+
         # 增加错误处理，确保 load_prepared_data 返回有效数据
         try:
             features_scaled_train_np, targets_scaled_train_np, \
@@ -629,22 +634,29 @@ class TrendFollowingStrategy:
             self.selected_feature_names_for_transformer = []
             return None if only_return_val_metric else False
         
-        # ----------- 合并贝叶斯优化参数 (提前到 DataLoader 创建之前) -----------
+        # ----------- 合并贝叶斯优化参数 -----------
         # 复制原始配置，避免污染全局
         model_config = self.transformer_model_config.copy()
         training_config = self.transformer_training_config.copy()
+
         if transformer_hyperparams:
-            # 分别更新模型和训练参数
-            for k, v in transformer_hyperparams.items():
-                if k in model_config:
-                    model_config[k] = v
-                elif k in training_config:
-                    training_config[k] = v
-                else:
-                    # 兼容性：如果参数属于batch_size等，也更新self.transformer_batch_size
-                    if k == "batch_size":
-                        self.transformer_batch_size = v # <-- 确保这一行在 DataLoader 创建前执行
-                        training_config[k] = v
+            # 检查并更新模型参数
+            if 'transformer_model_config' in transformer_hyperparams and \
+               isinstance(transformer_hyperparams['transformer_model_config'], dict):
+                model_config.update(transformer_hyperparams['transformer_model_config'])
+                logger.info(f"已从 Optuna 更新模型配置: {model_config}") # 调试日志
+
+            # 检查并更新训练参数
+            if 'transformer_training_config' in transformer_hyperparams and \
+               isinstance(transformer_hyperparams['transformer_training_config'], dict):
+                training_config.update(transformer_hyperparams['transformer_training_config'])
+                logger.info(f"已从 Optuna 更新训练配置: {training_config}") # 调试日志
+
+                # 针对 batch_size 的特殊处理 (为了 DataLoader 的创建)
+                if 'batch_size' in training_config:
+                    self.transformer_batch_size = training_config['batch_size']
+                    logger.info(f"self.transformer_batch_size 已更新为: {self.transformer_batch_size}") # 调试日志
+
         # ----------- 结束 -----------
 
         # 现在，self.transformer_batch_size 已经更新为 Optuna 采样到的值 (例如 96)
@@ -698,27 +710,27 @@ class TrendFollowingStrategy:
                 os.makedirs(checkpoint_dir)
                 logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir}")
 
-            # ----------- 关键改动：传递动态训练参数 -----------
+           # ----------- 传递动态训练参数 -----------
             self.transformer_model, history_df = train_transformer_model(
                 model=self.transformer_model,
                 train_loader=train_loader,
                 val_loader=val_loader,
                 target_scaler=self.target_scaler,
-                training_config=training_config,
+                training_config=training_config, # <-- 传递更新后的 training_config
                 checkpoint_dir=checkpoint_dir,
                 stock_code=stock_code,
                 plot_training_history=self.tf_params.get('transformer_plot_history', False),
             )
-            # ----------- 关键改动结束 -----------
+            # ----------- 结束 -----------
 
-            # ----------- 关键改动：只返回val_mae，不保存模型和不做测试集评估 -----------
+            # ----------- 只返回val_mae，不保存模型和不做测试集评估 -----------
             if only_return_val_metric:
                 if history_df is not None and 'val_mae' in history_df.columns and not history_df['val_mae'].dropna().empty:
                     val_mae = history_df['val_mae'].dropna().values[-1]
                 else:
                     val_mae = float('inf')
                 return val_mae
-            # ----------- 关键改动结束 -----------
+            # ----------- 结束 -----------
 
             # 训练完成后，最佳模型权重应该已经加载到 self.transformer_model
             if self.model_path:
