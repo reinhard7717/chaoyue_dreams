@@ -78,7 +78,7 @@ def objective(trial, strategy, item_name, epochs):
     # 固定学习率调度器为 CosineAnnealingLR
     lr_scheduler = "CosineAnnealingLR"
     # 采样 batch_size，范围 128 到 512，步长 32
-    batch_size = trial.suggest_int("batch_size", 128, 512, step=32)
+    batch_size = trial.suggest_int("batch_size", 256, 768, step=32)
     # 采样 learning_rate，范围 1e-5 到 1e-3，对数尺度
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     # 采样 weight_decay，范围 1e-5 到 1e-2，对数尺度
