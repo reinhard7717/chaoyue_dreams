@@ -164,11 +164,11 @@ class TimeSeriesDataset(Dataset):
         """
         获取指定索引的窗口数据和目标值。
         目标是：使用时间步 `[idx, idx+1, ..., idx+window_size-1]` 的特征，
-                 来预测/拟合时间步 `idx+window_size-1` 的 `target`。
+                来预测/拟合时间步 `idx+window_size-1` 的 `target`。
 
         Args:
             idx (int): 窗口的起始索引（在可生成窗口列表中的索引，不是原始数据索引）。
-                       范围是 `0` 到 `self.num_windows - 1`。
+                    范围是 `0` 到 `self.num_windows - 1`。
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]:
@@ -178,28 +178,26 @@ class TimeSeriesDataset(Dataset):
         if not (0 <= idx < self.num_windows):
             raise IndexError(f"索引 {idx} 超出范围 (0 至 {self.num_windows - 1})。")
 
-        # 窗口的起始索引在原始平坦数据中是 idx
         window_start_flat_idx = idx
-        # 窗口的结束索引（不包含）在原始平坦数据中是 idx + window_size
         window_end_flat_idx = idx + self.window_size
-
-        # 目标 (target) 对应于窗口中最后一个时间步的信号。
-        # 窗口中最后一个时间步在原始平坦数据中的索引是: window_end_flat_idx - 1
         target_flat_idx = window_end_flat_idx - 1
 
-        # 从平坦特征中提取窗口
-        # X_window_np 包含从 window_start_flat_idx 到 window_end_flat_idx-1 的特征
         X_window_np = self.features[window_start_flat_idx:window_end_flat_idx, :]
-
-        # 从平坦目标中提取对应于窗口最后一个时间步的目标值
         y_target_np = self.targets[target_flat_idx]
 
-        # 转换为 PyTorch Tensor
-        X_tensor = torch.tensor(X_window_np, dtype=torch.float32)
-        y_tensor = torch.tensor([y_target_np], dtype=torch.float32) # 回归目标通常是单值
+        # 修改：判断是否为Tensor，避免重复包装
+        if isinstance(X_window_np, torch.Tensor):
+            X_tensor = X_window_np.clone().detach().float()  # 保证类型一致
+        else:
+            X_tensor = torch.tensor(X_window_np, dtype=torch.float32)
+
+        if isinstance(y_target_np, torch.Tensor):
+            y_tensor = y_target_np.clone().detach().float().unsqueeze(0)  # 保证形状为(1,)
+        else:
+            y_tensor = torch.tensor([y_target_np], dtype=torch.float32)
 
         return X_tensor, y_tensor
-
+    
 class PositionalEncoding(nn.Module):
     """
     标准正弦位置编码层。
