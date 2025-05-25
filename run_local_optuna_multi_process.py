@@ -307,8 +307,8 @@ def run_local_transformer_training_batch(
                 pruner=optuna.pruners.MedianPruner(n_warmup_steps=3),
                 # 为每个股票代码创建一个独立的 SQLite 数据库文件，避免多进程冲突
                 storage=f"sqlite:///{item_path}/optuna_study_{item_name}.db",
-                study_name=f"transformer_tuning_{item_name}"
-                
+                study_name=f"transformer_tuning_{item_name}",
+                load_if_exists=True  # 新增：如果已存在则直接加载
             )
             print("开始 Optuna 超参数优化。")
             objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
