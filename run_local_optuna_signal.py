@@ -70,7 +70,7 @@ def objective(trial, strategy, item_name, epochs):
     dropout = trial.suggest_float("dropout", 0.05, 0.5)
     activation = "gelu"
     lr_scheduler = "CosineAnnealingLR"
-    batch_size = trial.suggest_int("batch_size", 32, 256, step=8)
+    batch_size = trial.suggest_int("batch_size", 32, 512, step=32)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
     clip_grad_norm = trial.suggest_float("clip_grad_norm", 0.1, 1.0)
@@ -244,7 +244,7 @@ def run_local_transformer_training_batch(
 
         try:
             # 贝叶斯优化
-            print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，最大试验次数: 20")
+            print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，最大试验次数: {n_trials}")
             study = optuna.create_study(direction="minimize")
             objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
             study.optimize(objective_with_epochs, n_trials=n_trials)  # 可调整n_trials
