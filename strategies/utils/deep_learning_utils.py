@@ -1523,8 +1523,6 @@ def train_transformer_model(
                             early_stopping_patience = 8 # 将早停耐心设置为 10
                             logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.02，早停耐心已设置为 8。")
 
-                    print(f"[Epoch {current_epoch+1}] 训练完成，val_mae={avg_val_mae:.6f}, val_loss={avg_val_loss:.6f}")
-
                     # --- Optuna 早停机制 ---
                     if trial is not None:
                         # 这里用验证集的 val_mae 作为监控指标，如果没有验证集可用，也可以用训练损失等
