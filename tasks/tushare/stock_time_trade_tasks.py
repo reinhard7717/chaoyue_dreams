@@ -601,7 +601,7 @@ def save_stocks_week_data_history_task(self, batch_size: int = 5): # 限量：�
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
-        logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
+        # logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
         favorite_batches_dispatched = total_dispatched_batches
 
         # 2. 分派非自选股批量任务
@@ -680,7 +680,7 @@ def save_stocks_month_data_history_task(self, batch_size: int = 10): # 限量：
                 total_dispatched_batches += 1
                 logger.debug(f"已分派自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
 
-        logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
+        # logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
         favorite_batches_dispatched = total_dispatched_batches
 
         # 2. 分派非自选股批量任务
