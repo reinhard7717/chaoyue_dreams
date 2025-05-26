@@ -25,7 +25,7 @@ def send_update_to_user_sync(user_id: int, sub_type: str, payload: dict):
     }
     try:
         async_to_sync(channel_layer.group_send)(group_name, message_data)
-        logger.debug(f"成功发送消息到组 {group_name} (sub_type: {sub_type})")
+        print(f"dashboard推送: user_id: {user_id}, payload: {payload}")
     except Exception as e:
         # 在实际发送处也记录错误可能更有用
         logger.error(f"发送消息到组 {group_name} 失败: {e}", exc_info=True)
