@@ -326,13 +326,13 @@ class TrendFollowingStrategy:
         except Exception as e_validate:
             logger.error(f"{log_prefix} CRITICAL: 在执行 _validate_params 时发生错误: {e_validate}", exc_info=True)
         logger.info(f"策略 '{self.strategy_name}' 初始化流程完成。")
-        logger.info(f"{log_prefix} 最终确定的主要关注时间框架: {self.focus_timeframe}.")
-        logger.info(f"{log_prefix} 参数最终来源: '{resolved_params_file_path if file_load_success and resolved_params_file_path else '无或加载失败'}'.")
-        logger.info(f"{log_prefix} self.params 最终是否为空: {not params_loaded} (True表示空).")
-        logger.info(f"{log_prefix} self.tf_params 最终是否为空: {not bool(self.tf_params)} (True表示空).") # tf_params 在 _initialize_strategy_attributes 中设置
-        logger.info(f"{log_prefix} 最终使用的 transformer_window_size: {self.transformer_window_size}")
-        logger.info(f"{log_prefix} 最终使用的 transformer_target_column: '{self.transformer_target_column}'")
-        logger.info(f"{log_prefix} 最终使用的 rule_signal_weights (部分): base_score={self.rule_signal_weights.get('base_score') if isinstance(self.rule_signal_weights, dict) else 'N/A'}")
+        # logger.info(f"{log_prefix} 最终确定的主要关注时间框架: {self.focus_timeframe}.")
+        # logger.info(f"{log_prefix} 参数最终来源: '{resolved_params_file_path if file_load_success and resolved_params_file_path else '无或加载失败'}'.")
+        # logger.info(f"{log_prefix} self.params 最终是否为空: {not params_loaded} (True表示空).")
+        # logger.info(f"{log_prefix} self.tf_params 最终是否为空: {not bool(self.tf_params)} (True表示空).") # tf_params 在 _initialize_strategy_attributes 中设置
+        # logger.info(f"{log_prefix} 最终使用的 transformer_window_size: {self.transformer_window_size}")
+        # logger.info(f"{log_prefix} 最终使用的 transformer_target_column: '{self.transformer_target_column}'")
+        # logger.info(f"{log_prefix} 最终使用的 rule_signal_weights (部分): base_score={self.rule_signal_weights.get('base_score') if isinstance(self.rule_signal_weights, dict) else 'N/A'}")
         if self.params: # 检查 self.params 是否有效
             logger.debug(f"{log_prefix} 最终已加载参数的顶层键: {list(self.params.keys())}")
             if self.tf_params: # 检查 self.tf_params 是否有效

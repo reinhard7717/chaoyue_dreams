@@ -1671,43 +1671,43 @@ def train_transformer_model(
     # --- 清理结束 ---
 
     # 可选：绘制训练历史
-    if plot_training_history:
-        try:
-            import matplotlib.pyplot as plt # 确保导入 matplotlib
-            fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-            if 'loss' in history_df.columns:
-                axes[0].plot(history_df['epoch'], history_df['loss'], label='Train Loss')
-            if 'val_loss' in history_df.columns and not history_df['val_loss'].isnull().all():
-                axes[0].plot(history_df['epoch'], history_df['val_loss'], label='Validation Loss')
-            axes[0].set_ylabel('Loss')
-            axes[0].legend()
-            axes[0].set_title(f'Training and Validation Loss ({stock_code})')
+    # if plot_training_history:
+    #     try:
+    #         import matplotlib.pyplot as plt # 确保导入 matplotlib
+    #         fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    #         if 'loss' in history_df.columns:
+    #             axes[0].plot(history_df['epoch'], history_df['loss'], label='Train Loss')
+    #         if 'val_loss' in history_df.columns and not history_df['val_loss'].isnull().all():
+    #             axes[0].plot(history_df['epoch'], history_df['val_loss'], label='Validation Loss')
+    #         axes[0].set_ylabel('Loss')
+    #         axes[0].legend()
+    #         axes[0].set_title(f'Training and Validation Loss ({stock_code})')
 
-            if 'mae' in history_df.columns:
-                axes[1].plot(history_df['epoch'], history_df['mae'], label='Train MAE (Scaled)')
-            if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
-                axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
-            if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
-                axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
+    #         if 'mae' in history_df.columns:
+    #             axes[1].plot(history_df['epoch'], history_df['mae'], label='Train MAE (Scaled)')
+    #         if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
+    #             axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
+    #         if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
+    #             axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
 
-            axes[1].set_xlabel('Epoch')
-            axes[1].set_ylabel('Mean Absolute Error (MAE)')
-            axes[1].legend()
-            axes[1].set_title(f'Training and Validation MAE ({stock_code})')
+    #         axes[1].set_xlabel('Epoch')
+    #         axes[1].set_ylabel('Mean Absolute Error (MAE)')
+    #         axes[1].legend()
+    #         axes[1].set_title(f'Training and Validation MAE ({stock_code})')
 
-            plt.tight_layout()
-            # 这里的 plot_filename 也应该考虑 Optuna Trial ID，如果需要在每个 trial 结束时保存图表
-            plot_filename_suffix = ""
-            if trial is not None:
-                plot_filename_suffix = f"_trial_{trial.number}"
-            plot_filename = base_checkpoint_path / f"training_history_{stock_code}{plot_filename_suffix}.png"
-            plt.savefig(plot_filename)
-            logger.info(f"训练历史图表已保存到: {plot_filename}")
-            plt.close(fig)
-        except ImportError:
-            logger.warning("Matplotlib 未安装，无法绘制训练历史图表。")
-        except Exception as e_plot:
-            logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
+    #         plt.tight_layout()
+    #         # 这里的 plot_filename 也应该考虑 Optuna Trial ID，如果需要在每个 trial 结束时保存图表
+    #         plot_filename_suffix = ""
+    #         if trial is not None:
+    #             plot_filename_suffix = f"_trial_{trial.number}"
+    #         plot_filename = base_checkpoint_path / f"training_history_{stock_code}{plot_filename_suffix}.png"
+    #         plt.savefig(plot_filename)
+    #         logger.info(f"训练历史图表已保存到: {plot_filename}")
+    #         plt.close(fig)
+    #     except ImportError:
+    #         logger.warning("Matplotlib 未安装，无法绘制训练历史图表。")
+    #     except Exception as e_plot:
+    #         logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
 
     logger.info(f"Transformer 模型训练流程结束 (股票/标识: {stock_code})。")
     return model, history_df
