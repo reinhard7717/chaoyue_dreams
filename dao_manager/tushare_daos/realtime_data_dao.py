@@ -111,6 +111,17 @@ class StockRealtimeDAO(BaseDAO):
             return []
         return result
 
+    async def get_latest_tick_data(self, stock_code: str) -> dict:
+        """
+        获取最新价格
+        """
+        # 从Redis缓存中获取数据
+        data_dict = await self.cache_get.latest_tick_data(stock_code)
+        if data_dict:
+            return data_dict
+        else:
+            return None
+
     # ================= 实时成交快照(爬虫版) =================
     async def save_all_time_trade_data(self) -> None:
         """

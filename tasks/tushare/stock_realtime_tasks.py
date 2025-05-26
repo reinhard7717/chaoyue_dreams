@@ -96,7 +96,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
                 # logger.info(f"股票{code}没有关注用户，跳过推送")
                 continue
             # 获取最新tick数据（调用异步方法，转同步）
-            latest_tick = async_to_sync(stock_realtime_dao.latest_tick_data)(code)
+            latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(code)
             if not latest_tick:
                 logger.warning(f"未获取到股票{code}的最新tick数据，跳过推送")
                 continue
@@ -107,8 +107,13 @@ def save_tick_data_batch(self, stock_codes: List[str]):
             # --- 构造payload，字段名与前端updateStockRow完全一致 ---
             payload = {
                 'code': code,
-                'latest_price': latest_tick.get('price'),
-                'change_percent': latest_tick.get('change_percent'),
+                'current_price': latest_tick.get('current_price'),
+                'high_price': latest_tick.get('high_price'),
+                'low_price': latest_tick.get('low_price'),
+                'open_price': latest_tick.get('open_price'),
+                'prev_close_price': latest_tick.get('prev_close_price'),
+                'trade_time': latest_tick.get('trade_time'),
+                'turnover_value': latest_tick.get('turnover_value'),
                 'volume': latest_tick.get('volume'),
                 'signal': signal,
             }
