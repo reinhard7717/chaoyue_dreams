@@ -38,7 +38,7 @@ def main():
     last_item_name = args.last_item_name
     print(f"INFO: Processing data for item names from '{first_item_name}' to '{last_item_name}' (inclusive).")
 
-    # 存储需要打包的 .npz 和 .save 文件的相对路径（相对于 STRATEGY_DATA_DIR）
+    # 存储需要打包的 .npz、.save 和 .json 文件的相对路径（相对于 STRATEGY_DATA_DIR）
     files_to_archive_relative = []
 
     # 存储脚本执行时的当前工作目录
@@ -98,10 +98,10 @@ def main():
 
                 print(f"INFO: All required specific files found in {prepared_data_path}.")
 
-                # 遍历 prepared_data 目录，收集所有 .npz 和 .save 文件的相对路径
+                # 遍历 prepared_data 目录，收集所有 .npz、.save 和 .json 文件的相对路径
                 for root, _, files in os.walk(prepared_data_path):
                     for file in files:
-                        if file.endswith('.npz') or file.endswith('.save'):  # 修改：同时收集 .npz 和 .save 文件
+                        if file.endswith('.npz') or file.endswith('.save') or file.endswith('.json'):  # 修改：同时收集 .npz、.save 和 .json 文件
                             full_path = os.path.join(root, file)
                             # 计算相对于 STRATEGY_DATA_DIR 的路径，保留目录结构
                             relative_path = os.path.relpath(full_path, STRATEGY_DATA_DIR)
@@ -110,7 +110,7 @@ def main():
 
     # --- 执行打包 ---
     if not files_to_archive_relative:
-        print(f"INFO: No .npz or .save files found within the range '{first_item_name}' to '{last_item_name}' with all required specific files. No archive will be created.")
+        print(f"INFO: No .npz, .save or .json files found within the range '{first_item_name}' to '{last_item_name}' with all required specific files. No archive will be created.")
         sys.exit(0)
 
     # 构建 7z 命令
