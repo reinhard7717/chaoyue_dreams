@@ -118,6 +118,12 @@ class StockRealtimeDAO(BaseDAO):
         # 从Redis缓存中获取数据
         data_dict = await self.cache_get.latest_tick_data(stock_code)
         if data_dict:
+            change_percent = (data_dict.get('current_price') - data_dict.get('prev_close_price')) / data_dict.get('prev_close_price') * 100
+            change_percent = round(change_percent, 2)  # 保留两位小数
+            data_dict['change_percent'] = change_percent  # 计算涨跌幅（change_percent），并加入data_dict
+            volume = data_dict.get('volume')
+            volume = round(volume / 100, 2)
+            data_dict['volume'] = volume
             return data_dict
         else:
             return None

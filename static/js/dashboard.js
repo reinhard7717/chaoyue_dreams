@@ -180,7 +180,6 @@ document.addEventListener('DOMContentLoaded', function() {
          }
      });
 
-
     async function addFavoriteStock(stockCode) {
         console.log(`正在尝试添加自选股: ${stockCode}`);
         // 可以在这里加一个简单的视觉反馈，比如按钮禁用，但因为是点击结果触发，可能不需要
@@ -257,7 +256,7 @@ document.addEventListener('DOMContentLoaded', function() {
         row.innerHTML = `
             <td class="stock-code">${favData.code || 'N/A'}</td>
             <td class="stock-name">${favData.name || 'N/A'}</td>
-            <td class="price">${formatNumber(favData.latest_price, 2)}</td>
+            <td class="price">${formatNumber(favData.current_price, 2)}</td>
             <td class="change-percent ${percentClass}">${formatPercent(changePercent)}</td>
             <td class="volume">${formatVolume(favData.volume)}</td>
             <td class="strategy-signal"><span class="signal ${signalClass}">${signal.text || 'N/A'}</span></td>
@@ -314,7 +313,7 @@ document.addEventListener('DOMContentLoaded', function() {
             row.innerHTML = `
                 <td class="stock-code">${fav.code || 'N/A'}</td>
                 <td class="stock-name">${fav.name || 'N/A'}</td>
-                <td class="price">${formatNumber(fav.latest_price, 2)}</td>
+                <td class="price">${formatNumber(fav.current_price, 2)}</td>
                 <td class="change-percent ${percentClass}">${formatPercent(changePercent)}</td>
                 <td class="volume">${formatVolume(fav.volume)}</td>
                 <td class="strategy-signal"><span class="signal ${signalClass}">${signal.text || 'N/A'}</span></td>
@@ -338,7 +337,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const volumeCell = row.querySelector('.volume');
         const signalCell = row.querySelector('.strategy-signal .signal');
 
-        if (priceCell) priceCell.textContent = formatNumber(updateData.latest_price, 2);
+        if (priceCell) priceCell.textContent = formatNumber(updateData.current_price, 2);
         if (volumeCell) volumeCell.textContent = formatVolume(updateData.volume);
 
         if (percentCell) {
@@ -479,9 +478,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 id: fav.id, // <--- 确保 API 返回 ID
                 code: fav.stock.stock_code,
                 name: fav.stock.stock_name,
-                latest_price: null, // 初始设为 null
-                change_percent: null,
+                current_price: null, // 初始设为 null
+                high_price: null,
+                low_price: null,
+                open_price: null,
+                prev_close_price: null,
+                trade_time: null,
                 volume: null,
+                change_percent: null,
                 signal: null,
             }));
             renderFavoritesTable(formattedData);

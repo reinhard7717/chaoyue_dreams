@@ -56,14 +56,21 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         for fav in favorites:
             stock_code = fav.stock.stock_code
             # 用 async_to_sync 包装 DAO 的 async 方法
-            latest_data = await realtime_dao.get_latest_realtime_data(stock_code)
+            latest_data = await realtime_dao.get_latest_tick_data(stock_code)
+            print(f"latest_data: {latest_data}")
             data.append({
                 'id': fav.id,
                 'code': stock_code,
                 'name': fav.stock.stock_name,
-                'latest_price': latest_data.current_price if latest_data else None,
-                'change_percent': latest_data.turnover_rate if latest_data else None,
-                'volume': latest_data.volume if latest_data else None,
+                'current_price': latest_data.get('current_price') if latest_data else None,
+                'high_price': latest_data.get('high_price') if latest_data else None,
+                'low_price': latest_data.get('low_price') if latest_data else None,
+                'open_price': latest_data.get('open_price') if latest_data else None,
+                'prev_close_price': latest_data.get('prev_close_price') if latest_data else None,
+                'trade_time': latest_data.get('trade_time') if latest_data else None,
+                'turnover_value': latest_data.get('turnover_value') if latest_data else None,
+                'change_percent': latest_data.get('change_percent') if latest_data else None,
+                'volume': latest_data.get('volume') if latest_data else None,
                 'signal': None,  # 如有策略信号可一并查出
             })
         await self.send(text_data=json.dumps({

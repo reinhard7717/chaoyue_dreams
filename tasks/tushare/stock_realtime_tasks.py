@@ -116,6 +116,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
                 'trade_time': latest_tick.get('trade_time'),
                 'turnover_value': latest_tick.get('turnover_value'),
                 'volume': latest_tick.get('volume'),
+                'change_percent': latest_tick.get("change_percent"),
                 'signal': signal,
             }
             # 推送给所有关注该股票的用户
@@ -155,7 +156,7 @@ def save_stocks_tick_data_task(self, batch_size: int = 50): # sina数据最多�
         total_non_favorite_stocks = len(non_favorite_codes)
 
         # 1. 分派自选股批量任务
-        logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
+        # logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
         for i in range(0, total_favorite_stocks, batch_size):
             batch = favorite_codes[i:i + batch_size]
             if batch:
@@ -169,7 +170,7 @@ def save_stocks_tick_data_task(self, batch_size: int = 50): # sina数据最多�
         favorite_batches_dispatched = total_dispatched_batches
 
         # 2. 分派非自选股批量任务
-        logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
+        # logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
         non_favorite_batches_dispatched = 0
         for i in range(0, total_non_favorite_stocks, batch_size):
             batch = non_favorite_codes[i:i + batch_size]

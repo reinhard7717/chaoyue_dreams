@@ -2,6 +2,7 @@
 import asyncio
 from celery import shared_task
 from chaoyue_dreams.celery import app as celery_app
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from utils.websockets import send_update_to_user_sync # 导入推送函数
 from asgiref.sync import async_to_sync
@@ -32,12 +33,9 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
     为新添加的自选股获取实时数据和信号，并推送给用户。
     """
     logger.info(f"开始为用户 {user_id} 的新自选股 {stock_code} (Favorite ID: {favorite_id}) 获取数据...")
-    from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-    from dao_manager.daos.stock_realtime_dao import StockRealtimeDAO # 假设有获取最新数据的方法
-    from dao_manager.daos.strategies_dao import StrategiesDAO
     try:
         # 实例化 DAOs (考虑使用依赖注入或更好的方式管理实例)
-        stock_basic_dao = StockBasicDAO()
+        stock_basic_dao = StockBasicInfoDao()
         realtime_dao = StockRealtimeDAO()
         strategies_dao = StrategiesDAO()
         # 1. 获取股票基本信息 (code, name)
@@ -46,10 +44,16 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             logger.error(f"无法找到 stock_id={stock_code} 的股票信息")
             return
         # 2. 获取最新实时数据 (优先从缓存)
-        latest_data = async_to_sync(realtime_dao.get_latest_realtime_data)(stock_code)
+        latest_data = async_to_sync(realtime_dao.get_latest_tick_data)(stock_code)
         current_price = latest_data.current_price if latest_data else None
+        high_price = latest_data.high_price if latest_data else None
+        low_price = latest_data.low_price if latest_data else None
+        open_price = latest_data.open_price if latest_data else None
+        prev_close_price = latest_data.prev_close_price if latest_data else None
+        trade_time = latest_data.trade_time if latest_data else None
+        turnover_value = latest_data.turnover_value if latest_data else None
         volume = latest_data.volume if latest_data else None
-        price_change_percent = latest_data.price_change_percent if latest_data else None
+        change_percent = latest_data.change_percent if latest_data else None
         # 3. 获取最新策略信号 (优先从缓存)
         signal_data = async_to_sync(strategies_dao.get_latest_strategies)(stock_code) # 返回包含 type 和 text 的字典或对象
         signal = {
@@ -61,9 +65,15 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             'id': favorite_id, # 使用 FavoriteStock 的 ID
             'code': stock_info.stock_code,
             'name': stock_info.stock_name,
-            'latest_price': current_price,
-            'change_percent': price_change_percent,
+            'current_price': current_price,
+            'high_price': high_price,
+            'low_price': low_price,
+            'open_price': open_price,
+            'prev_close_price': prev_close_price,
+            'trade_time': trade_time,
+            'turnover_value': turnover_value,
             'volume': volume,
+            'change_percent': change_percent,
             'signal': signal,
         }
         print(f"payload_data: {payload_data}")

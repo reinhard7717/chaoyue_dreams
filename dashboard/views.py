@@ -33,9 +33,14 @@ def dashboard_view(request):
             'code': fav.stock.stock_code,
             'name': fav.stock.stock_name,
             # 初始加载时，实时数据为空，等待 WebSocket 推送
-            'latest_price': None,
-            'change_percent': None,
+            "current_price": None,
+            "high_price": None,
+            "low_price": None,
+            "open_price": None,
+            "prev_close_price": None,
+            "trade_time": None,
             'volume': None,
+            'change_percent': None,
             'signal': None,
         } 
         for fav in user_favorites if fav.stock  # 只保留有 stock 的
@@ -91,9 +96,14 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             'id': favorite.id,
             'code': favorite.stock.stock_code,
             'name': favorite.stock.stock_name,
-            'latest_price': None,
-            'change_percent': None,
+            "current_price": None,
+            "high_price": None,
+            "low_price": None,
+            "open_price": None,
+            "prev_close_price": None,
+            "trade_time": None,
             'volume': None,
+            'change_percent': None,
             'signal': None,
         }
         send_update_to_user_sync(
@@ -145,9 +155,14 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
                 'id': fav.id,
                 'code': fav.stock.stock_code,
                 'name': fav.stock.stock_name,
-                'latest_price': None, # 实时数据由其他推送处理
-                'change_percent': None,
+                "current_price": None,
+                "high_price": None,
+                "low_price": None,
+                "open_price": None,
+                "prev_close_price": None,
+                "trade_time": None,
                 'volume': None,
+                'change_percent': None,
                 'signal': None,
             } 
             for fav in favorites
