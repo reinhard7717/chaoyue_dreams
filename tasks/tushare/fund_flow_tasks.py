@@ -149,7 +149,6 @@ def save_fund_flow_daily_data_this_week_task(self):
         index_basic_dao = IndexBasicDAO()
         trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open())
         for trade_date in trade_days_list:
-            logger.info(f"创建自选股批次任务 (抓取日期: {trade_date})...")
             # 使用新的批量任务，并指定队列
             save_fund_flow_daily_data_this_week_batch.s(trade_date).set().apply_async()
             total_dispatched_batches += 1
@@ -203,11 +202,9 @@ def save_fund_flow_daily_data_history_task(self):
         index_basic_dao = IndexBasicDAO()
         trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open())
         for trade_date in trade_days_list:
-            logger.info(f"创建自选股批次任务 (抓取日期: {trade_date})...")
             # 使用新的批量任务，并指定队列
             save_fund_flow_daily_data_history_batch.s(trade_date=trade_date).set().apply_async()
             total_dispatched_batches += 1
-        logger.info(f"已分派了 {total_dispatched_batches} 个批次任务。")
         logger.info(f"任务结束: save_fund_flow_daily_data_history_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
     except Exception as e:
