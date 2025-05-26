@@ -38,8 +38,8 @@ def main():
     last_item_name = args.last_item_name
     print(f"INFO: Processing data for item names from '{first_item_name}' to '{last_item_name}' (inclusive).")
 
-    # 存储需要打包的 .npz 文件的相对路径（相对于 STRATEGY_DATA_DIR）
-    dirs_to_archive_relative = []
+    # 存储需要打包的 .npz 和 .save 文件的相对路径（相对于 STRATEGY_DATA_DIR）
+    files_to_archive_relative = []
 
     # 存储脚本执行时的当前工作目录
     original_cwd = os.getcwd()
@@ -98,32 +98,24 @@ def main():
 
                 print(f"INFO: All required specific files found in {prepared_data_path}.")
 
-                # 遍历 prepared_data 目录，收集所有 .npz 文件的相对路径
-                npz_files = []
+                # 遍历 prepared_data 目录，收集所有 .npz 和 .save 文件的相对路径
                 for root, _, files in os.walk(prepared_data_path):
                     for file in files:
-                        if file.endswith('.npz'):
+                        if file.endswith('.npz') or file.endswith('.save'):  # 修改：同时收集 .npz 和 .save 文件
                             full_path = os.path.join(root, file)
                             # 计算相对于 STRATEGY_DATA_DIR 的路径，保留目录结构
                             relative_path = os.path.relpath(full_path, STRATEGY_DATA_DIR)
-                            npz_files.append(relative_path)
-
-                if not npz_files:
-                    print(f"INFO: No .npz files found in {prepared_data_path}, skipping.")
-                    continue
-
-                for npz_file in npz_files:
-                    print(f"INFO: Adding .npz file to archive list: {npz_file}")
-                    dirs_to_archive_relative.append(npz_file)
+                            print(f"INFO: Adding file to archive list: {relative_path}")  # 新增打印，方便调试
+                            files_to_archive_relative.append(relative_path)
 
     # --- 执行打包 ---
-    if not dirs_to_archive_relative:
-        print(f"INFO: No .npz files found within the range '{first_item_name}' to '{last_item_name}' with all required specific files. No archive will be created.")
+    if not files_to_archive_relative:
+        print(f"INFO: No .npz or .save files found within the range '{first_item_name}' to '{last_item_name}' with all required specific files. No archive will be created.")
         sys.exit(0)
 
     # 构建 7z 命令
     # 命令格式: 7z a -mx=9 <archive_full_path> <file1_relative> <file2_relative> ...
-    seven_zip_command = SEVEN_ZIP_COMMAND_BASE + [archive_full_path] + dirs_to_archive_relative
+    seven_zip_command = SEVEN_ZIP_COMMAND_BASE + [archive_full_path] + files_to_archive_relative
     print(f"INFO: Executing command from {STRATEGY_DATA_DIR}: {' '.join(seven_zip_command)}")
 
     try:
