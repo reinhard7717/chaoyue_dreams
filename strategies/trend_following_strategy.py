@@ -364,11 +364,11 @@ class TrendFollowingStrategy:
             )
             if prepared_data_tuple is None:
                 logger.error(f"{log_prefix} IndicatorService.prepare_strategy_dataframe 返回 None。数据准备失败。")
-                return None
+                return None, None
             data_df, indicator_configs_from_service = prepared_data_tuple # 解包返回的元组
             if data_df is None or data_df.empty:
                 logger.error(f"{log_prefix} IndicatorService.prepare_strategy_dataframe 返回空 DataFrame。数据准备失败。")
-                return None
+                return None, None
             # 将 IndicatorService 返回的 DataFrame 存储到实例变量，可能用于调试或后续步骤
             self.intermediate_data = data_df # 存储 IndicatorService 返回的 DataFrame
             logger.info(f"{log_prefix} 数据准备完成。DataFrame Shape: {data_df.shape}, 列数: {len(data_df.columns)}")
@@ -377,7 +377,7 @@ class TrendFollowingStrategy:
             return data_df, indicator_configs_from_service # 返回 DataFrame 和 indicator_configs
         except Exception as e:
             logger.error(f"{log_prefix} 调用 IndicatorService.prepare_strategy_dataframe 时出错: {e}", exc_info=True)
-            return None
+            return None, None
 
     @staticmethod
     def _format_indicator_name(template_or_list: Union[str, List[str]], **kwargs) -> List[str]:
