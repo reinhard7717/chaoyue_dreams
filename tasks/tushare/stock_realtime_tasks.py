@@ -117,7 +117,8 @@ def save_tick_data_batch(self, stock_codes: List[str]):
                 send_update_to_user_sync(
                     user_id=uid,
                     sub_type='realtime_tick_update',
-                    payload=payload
+                    payload=payload,
+                    queue='dashboard'
                 )
                 # print(f"已推送{code}最新tick数据到用户{uid}")
     except Exception as e:
