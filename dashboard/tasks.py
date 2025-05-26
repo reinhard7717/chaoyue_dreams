@@ -1,14 +1,23 @@
 # dashboard/tasks.py
 import logging
 from django.contrib.auth import get_user_model
+from channels.layers import get_channel_layer
 from .consumers import send_update_to_user_sync, broadcast_public_message_sync # 导入同步发送函数
 from chaoyue_dreams.celery import app as celery_app
 import time
 import random
 from users.models import CustomUser, FavoriteStock
+from utils.websockets import send_update_to_user_sync
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+@celery_app.task(bind=True, name='dashboard.tasks.send_update_to_user_task_celery', queue='dashboard')
+def send_update_to_user_task_celery(user_id: int, sub_type: str, payload: dict):
+    """
+    Celery异步任务，调用WebSocketSender类的send_update_to_user_task方法推送消息。
+    """
+    send_update_to_user_sync(user_id, sub_type, payload)
 
 @celery_app.task(bind=True, name='dashboard.tasks.push_realtime_updates_for_stocks')
 def push_realtime_updates_for_stocks(updated_stock_codes: list):

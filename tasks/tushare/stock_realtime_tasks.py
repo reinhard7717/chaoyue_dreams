@@ -11,6 +11,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 
+
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
 STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
@@ -87,7 +88,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
         # logger.info("批量tick数据保存完成，准备推送到前台")
         from asgiref.sync import async_to_sync
         from users.models import FavoriteStock
-        from utils.websockets import send_update_to_user_sync
+        from dashboard.tasks import send_update_to_user_task_celery
 
         for code in stock_codes:
             # 获取所有关注该股票的用户
@@ -119,11 +120,10 @@ def save_tick_data_batch(self, stock_codes: List[str]):
             }
             # 推送给所有关注该股票的用户
             for uid in user_ids:
-                send_update_to_user_sync(
+                send_update_to_user_task_celery.apply_async(
                     user_id=uid,
                     sub_type='realtime_tick_update',
-                    payload=payload,
-                    queue='dashboard'
+                    payload=payload
                 )
                 # print(f"已推送{code}最新tick数据到用户{uid}")
     except Exception as e:
