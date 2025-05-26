@@ -2,12 +2,11 @@
 import logging
 from django.contrib.auth import get_user_model
 from channels.layers import get_channel_layer
-from .consumers import send_update_to_user_sync, broadcast_public_message_sync # 导入同步发送函数
+from utils.websockets import send_update_to_user_sync, broadcast_public_message_sync # 导入同步发送函数
 from chaoyue_dreams.celery import app as celery_app
 import time
 import random
 from users.models import CustomUser, FavoriteStock
-from utils.websockets import send_update_to_user_sync
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
