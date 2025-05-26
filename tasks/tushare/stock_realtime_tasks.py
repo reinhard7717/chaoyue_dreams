@@ -121,11 +121,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
             # 推送给所有关注该股票的用户
             for uid in user_ids:
                 send_update_to_user_task_celery.apply_async(
-                    kwargs= {
-                        'user_id': uid,
-                        'sub_type': 'realtime_tick_update',
-                        'payload': payload
-                    }
+                    args=[uid, 'realtime_tick_update', payload]
                 )
                 # print(f"已推送{code}最新tick数据到用户{uid}")
     except Exception as e:

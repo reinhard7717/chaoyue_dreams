@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 @celery_app.task(bind=True, name='dashboard.tasks.send_update_to_user_task_celery', queue='dashboard')
-def send_update_to_user_task_celery(user_id: int, sub_type: str, payload: dict):
+def send_update_to_user_task_celery(self, user_id: int, sub_type: str, payload: dict):
     """
     Celery异步任务，调用WebSocketSender类的send_update_to_user_task方法推送消息。
     """
