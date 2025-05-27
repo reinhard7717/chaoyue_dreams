@@ -137,9 +137,9 @@ DATABASES = {
         'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'; SET SESSION wait_timeout=2400;",  # 添加wait_timeout设置为2400秒
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'; SET SESSION wait_timeout=86400;",  # 添加wait_timeout设置为2400秒
         },
-        'CONN_MAX_AGE': 2400,  # 如上所述
+        'CONN_MAX_AGE': 86400,  # 如上所述
     }
 }
 
