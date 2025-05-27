@@ -534,8 +534,8 @@ class IndexBasicDAO(BaseDAO):
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
         indexs = await self.get_index_list()
+        index_dailybasic_dicts = []
         for index in indexs:
-            index_dailybasic_dicts = []
             start_date_str = index.list_date
             end_date_str = today_str
             if start_date is not None:
@@ -562,19 +562,19 @@ class IndexBasicDAO(BaseDAO):
                     for row in df.itertuples():
                         index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index, api_data=row)
                         index_dailybasic_dicts.append(index_dailybasic_dict)
-                print(f"index: {index.index_code}, len: {len(index_dailybasic_dicts)}")
+                # print(f"index: {index.index_code}, len: {len(index_dailybasic_dicts)}")
                 time.sleep(0.3)
                 if len(df) < limit:
                     break
                 offset += limit
-            if index_dailybasic_dicts:
-                # 保存到数据库
-                result =  await self._save_all_to_db_native_upsert(
-                    model_class=IndexDailyBasic,
-                    data_list=index_dailybasic_dicts,
-                    unique_fields=['index_code', 'trade_time']
-                )
-                print(f"保存 {index.index_code} 大盘指数每日指标, freq=Day")
+        if index_dailybasic_dicts:
+            # 保存到数据库
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=IndexDailyBasic,
+                data_list=index_dailybasic_dicts,
+                unique_fields=['index_code', 'trade_time']
+            )
+            print(f"保存 {index.index_code} 大盘指数每日指标, freq=Day")
         return result
 
 
