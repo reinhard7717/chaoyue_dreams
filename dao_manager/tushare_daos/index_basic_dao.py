@@ -536,8 +536,7 @@ class IndexBasicDAO(BaseDAO):
         indexs = await self.get_index_list()
         for index in indexs:
             index_dailybasic_dicts = []
-            index_info = await self.get_index_by_code(index_code)
-            start_date_str = index_info.list_date
+            start_date_str = index.list_date
             end_date_str = today_str
             if start_date is not None:
                 start_date_str = start_date.strftime('%Y%m%d')
@@ -561,8 +560,7 @@ class IndexBasicDAO(BaseDAO):
                     df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                     df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                     for row in df.itertuples():
-                        index_info = await self.get_index_by_code(row.ts_code)
-                        index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
+                        index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index, api_data=row)
                         index_dailybasic_dicts.append(index_dailybasic_dict)
                 print(f"index: {index.index_code}, len: {len(index_dailybasic_dicts)}")
                 time.sleep(0.3)
