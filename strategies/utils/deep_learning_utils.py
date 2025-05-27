@@ -1470,7 +1470,7 @@ def train_transformer_model(
                         if early_stopping_patience > 4:
                             early_stopping_patience = 4
                             logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.01，早停耐心已设置为 4。")
-                    elif not np.isnan(avg_val_mae) and avg_val_mae < 0.02:
+                    elif not np.isnan(avg_val_mae) and avg_val_mae < 0.015:
                         if early_stopping_patience > 8:
                             early_stopping_patience = 8
                             logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.02，早停耐心已设置为 8。")
