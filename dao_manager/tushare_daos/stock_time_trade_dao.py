@@ -1125,8 +1125,8 @@ class StockTimeTradeDAO(BaseDAO):
         offset = 0
         limit = 2000
         all_stocks = await self.stock_basic_dao.get_stock_list()
+        data_dicts = []
         for stock in all_stocks:
-            data_dicts = []
             while True:
                 if offset >= 100000:
                     logger.warning(f"每日筹码分布 offset已达10万，停止拉取。")
@@ -1150,13 +1150,13 @@ class StockTimeTradeDAO(BaseDAO):
                 if len(df) < limit:
                     break
                 offset += limit
-            if data_dicts is not None:
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=StockCyqChips,
-                    data_list=data_dicts,
-                    unique_fields=['stock', 'trade_time', 'price']
-                )
-                logger.info(f"完成每日筹码分布：{stock}, 结果：{result}")
+        if data_dicts is not None:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=StockCyqChips,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time', 'price']
+            )
+            logger.info(f"完成每日筹码分布，结果：{result}")
         return result
 
     async def save_cyq_chips_history(self, stock: StockInfo, start_date: date=None, end_date: date=None) -> None:
