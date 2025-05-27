@@ -806,7 +806,7 @@ class TrendFollowingStrategy:
                     target_scaler=self.target_scaler,
                     device=self.device
                 )
-                logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
+                # logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 evaluation_logger.info(f"[{self.strategy_name}][{stock_code}] 测试集评估结果: {test_metrics}")
                 return True
             else:

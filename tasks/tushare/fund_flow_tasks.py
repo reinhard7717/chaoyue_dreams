@@ -147,7 +147,7 @@ def save_fund_flow_daily_data_this_week_task(self):
     try:
         total_dispatched_batches = 0
         index_basic_dao = IndexBasicDAO()
-        trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open())
+        trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open(n=5))
         for trade_date in trade_days_list:
             # 使用新的批量任务，并指定队列
             save_fund_flow_daily_data_this_week_batch.s(trade_date).set().apply_async()

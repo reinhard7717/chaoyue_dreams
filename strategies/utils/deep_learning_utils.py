@@ -1853,7 +1853,7 @@ def evaluate_transformer_model(
             - 'mae_scaled': 测试集上缩放后数据的平均绝对误差 (MAE)。
             - 'mae_true': 测试集上反标准化 (真实尺度) 数据的平均绝对误差 (MAE)。
     """
-    logger.info("开始在测试集上评估 Transformer 模型...")
+    # logger.info("开始在测试集上评估 Transformer 模型...")
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"自动选择评估设备: {device}")
