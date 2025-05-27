@@ -420,7 +420,6 @@ CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_
 CELERY_TASK_QUEUES = (
     Queue('priority_tasks', routing_key='priority.#'), # 高优先级队列
     Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
-    Queue('stock_historical_data_cache', routing_key='stock_historical_data_cache.#'), # 股票历史数据缓存队列
     Queue('SaveData_RealTime', routing_key='save_api_data_RealTime.#'), # 保存API数据队列
     Queue('SaveData_TimeTrade', routing_key='save_api_data_TimeTrade.#'), # 保存API数据队列
     Queue('favorite_SaveData_RealTime', routing_key='favorite_save_api_data_RealTime.#'), # 保存API数据队列

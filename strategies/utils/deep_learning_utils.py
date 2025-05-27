@@ -400,7 +400,7 @@ def prepare_data_for_transformer(
     feature_selector_model_type: str = 'rf', # 修改默认值为 'rf'
     fs_model_n_estimators: int = 100,
     fs_model_max_depth: Optional[int] = None,
-    fs_max_features: Optional[int] = 50,
+    fs_max_features: Optional[int] = None,
     fs_selection_threshold: Union[str, float] = 'median',
     target_scaler_type: str = 'minmax', # 可选: 'minmax', 'standard', 'robust'
     random_state_seed: Optional[int] = 42 # 新增: 随机种子参数
