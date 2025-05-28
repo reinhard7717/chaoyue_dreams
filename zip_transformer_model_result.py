@@ -2,13 +2,13 @@ import os
 import sys
 import argparse
 import subprocess
-import shutil  # 新增：用于删除目录
+import shutil  # 用于删除目录
 
 # --- 配置设置 ---
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 STRATEGY_DATA_DIR = os.path.join(PROJECT_DIR, 'models')
 TRANSFORMER_RESULT_SUBDIR = 'trained_model'
-PREPARED_DATA_SUBDIR = 'prepared_data'  # 新增：准备数据目录名
+PREPARED_DATA_SUBDIR = 'prepared_data'
 TRANSFORMER_RESULT_NAME = 'transformer_model_result.7z'
 ARCHIVE_NAME = os.path.join(PROJECT_DIR, TRANSFORMER_RESULT_NAME)
 SEVEN_ZIP_COMMAND_BASE = ['7z', 'a', '-mx=9']
@@ -52,13 +52,12 @@ def main():
     items_to_process = all_item_names[start_index : end_index + 1]
     print(f"INFO: Found {len(items_to_process)} items within the specified range.")
 
+    # 第一步：先批量删除所有需要删除的 prepared_data 目录
     for item_name in items_to_process:
         stock_code_path = os.path.join(STRATEGY_DATA_DIR, item_name)
         if os.path.isdir(stock_code_path):
             trained_model_path = os.path.join(stock_code_path, TRANSFORMER_RESULT_SUBDIR)
             if os.path.isdir(trained_model_path):
-                print(f"INFO: Checking {trained_model_path}")
-                # 新增：如果存在trained_model目录，则删除同级的prepared_data目录
                 prepared_data_path = os.path.join(stock_code_path, PREPARED_DATA_SUBDIR)
                 if os.path.isdir(prepared_data_path):
                     try:
@@ -66,7 +65,14 @@ def main():
                         print(f"INFO: Deleted prepared_data directory: {prepared_data_path}")
                     except Exception as e:
                         print(f"ERROR: Failed to delete prepared_data directory {prepared_data_path}: {e}")
-                # 遍历 trained_model 目录，收集所有文件的相对路径
+
+    # 第二步：收集所有 trained_model 目录下的文件
+    for item_name in items_to_process:
+        stock_code_path = os.path.join(STRATEGY_DATA_DIR, item_name)
+        if os.path.isdir(stock_code_path):
+            trained_model_path = os.path.join(stock_code_path, TRANSFORMER_RESULT_SUBDIR)
+            if os.path.isdir(trained_model_path):
+                print(f"INFO: Checking {trained_model_path}")
                 for root, _, files in os.walk(trained_model_path):
                     for file in files:
                         full_path = os.path.join(root, file)
