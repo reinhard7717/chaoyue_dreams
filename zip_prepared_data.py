@@ -116,7 +116,7 @@ def main():
     # 构建 7z 命令
     # 命令格式: 7z a -mx=9 <archive_full_path> <file1_relative> <file2_relative> ...
     seven_zip_command = SEVEN_ZIP_COMMAND_BASE + [archive_full_path] + files_to_archive_relative
-    print(f"INFO: Executing command from {STRATEGY_DATA_DIR}: {' '.join(seven_zip_command)}")
+    # print(f"INFO: Executing command from {STRATEGY_DATA_DIR}: {' '.join(seven_zip_command)}")
 
     try:
         # 切换到 STRATEGY_DATA_DIR 目录，以便 7z 使用相对路径

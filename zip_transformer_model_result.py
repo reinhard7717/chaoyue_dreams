@@ -2,21 +2,18 @@ import os
 import sys
 import argparse
 import subprocess
+import shutil  # 新增：用于删除目录
 
 # --- 配置设置 ---
-# 获取项目根目录（即当前脚本所在目录）
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-STRATEGY_DATA_DIR = os.path.join(PROJECT_DIR, 'models')  # 策略数据根目录
-TRANSFORMER_RESULT_SUBDIR = 'trained_model'              # 训练完成文件的子文件夹名称
-TRANSFORMER_RESULT_NAME = 'transformer_model_result.7z'  # 压缩包名称
-ARCHIVE_NAME = os.path.join(PROJECT_DIR, TRANSFORMER_RESULT_NAME)  # 压缩包完整路径
-SEVEN_ZIP_COMMAND_BASE = ['7z', 'a', '-mx=9']            # 7z 命令基础
+STRATEGY_DATA_DIR = os.path.join(PROJECT_DIR, 'models')
+TRANSFORMER_RESULT_SUBDIR = 'trained_model'
+PREPARED_DATA_SUBDIR = 'prepared_data'  # 新增：准备数据目录名
+TRANSFORMER_RESULT_NAME = 'transformer_model_result.7z'
+ARCHIVE_NAME = os.path.join(PROJECT_DIR, TRANSFORMER_RESULT_NAME)
+SEVEN_ZIP_COMMAND_BASE = ['7z', 'a', '-mx=9']
 
 def main():
-    """
-    主函数，解析参数，遍历目录范围，打包训练完成文件。
-    """
     parser = argparse.ArgumentParser(description='根据子文件夹名称范围打包股票策略训练完成文件。')
     parser.add_argument('first_item_name', type=str, help='范围的起始子文件夹名称 (包含)')
     parser.add_argument('last_item_name', type=str, help='范围的结束子文件夹名称 (包含)')
@@ -26,10 +23,10 @@ def main():
     last_item_name = args.last_item_name
     print(f"INFO: Processing trained_model for item names from '{first_item_name}' to '{last_item_name}' (inclusive).")
 
-    files_to_archive_relative = []  # 存储需要打包的文件的相对路径
+    files_to_archive_relative = []
 
     original_cwd = os.getcwd()
-    archive_full_path = ARCHIVE_NAME  # 直接使用项目目录下的压缩包路径
+    archive_full_path = ARCHIVE_NAME
 
     print(f"INFO: Scanning directory: {STRATEGY_DATA_DIR}")
     if not os.path.isdir(STRATEGY_DATA_DIR):
@@ -61,11 +58,18 @@ def main():
             trained_model_path = os.path.join(stock_code_path, TRANSFORMER_RESULT_SUBDIR)
             if os.path.isdir(trained_model_path):
                 print(f"INFO: Checking {trained_model_path}")
+                # 新增：如果存在trained_model目录，则删除同级的prepared_data目录
+                prepared_data_path = os.path.join(stock_code_path, PREPARED_DATA_SUBDIR)
+                if os.path.isdir(prepared_data_path):
+                    try:
+                        shutil.rmtree(prepared_data_path)
+                        print(f"INFO: Deleted prepared_data directory: {prepared_data_path}")
+                    except Exception as e:
+                        print(f"ERROR: Failed to delete prepared_data directory {prepared_data_path}: {e}")
                 # 遍历 trained_model 目录，收集所有文件的相对路径
                 for root, _, files in os.walk(trained_model_path):
                     for file in files:
                         full_path = os.path.join(root, file)
-                        # 计算相对于 STRATEGY_DATA_DIR 的路径，保留目录结构
                         relative_path = os.path.relpath(full_path, STRATEGY_DATA_DIR)
                         print(f"INFO: Adding file to archive list: {relative_path}")
                         files_to_archive_relative.append(relative_path)
