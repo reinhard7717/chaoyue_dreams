@@ -827,7 +827,6 @@ class TrendFollowingStrategy:
             return float('nan') if only_return_val_metric else False
         # === 结束 ===
 
-
     async def get_required_columns(self, stock_code: str) -> List[str]:
         """
         根据策略参数和指标命名规范，动态生成并返回 IndicatorService 需要准备的所有数据列名。
@@ -2525,14 +2524,12 @@ class TrendFollowingStrategy:
             # 返回一个包含默认信号列的空DataFrame，避免下游错误
             empty_df = pd.DataFrame(columns=['final_rule_signal', 'transformer_signal', 'combined_signal', 'signal'])
             return empty_df
-
         if stock_code is None:
             logger.error(f"[{self.strategy_name}] generate_signals: 必须提供 stock_code。")
             empty_df = pd.DataFrame(index=data.index, columns=['final_rule_signal', 'transformer_signal', 'combined_signal', 'signal'])
             empty_df.fillna(50.0, inplace=True) # 信号默认中性
             empty_df['signal'] = 0 # 最终信号默认 0
             return empty_df
-
         if indicator_configs is None:
             logger.warning(f"[{self.strategy_name}][{stock_code}] generate_signals: 未提供 indicator_configs。基础评分计算可能不准确。")
             # 尝试从 self.params 中获取基础指标配置，作为备用
@@ -2544,22 +2541,17 @@ class TrendFollowingStrategy:
             indicator_configs_to_use = []
         else:
              indicator_configs_to_use = indicator_configs
-
-
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 生成信号 (Focus: {self.focus_timeframe})...")
-
         # --- 阶段 1: 计算规则信号及中间数据 ---
         logger.info(f"[{self.strategy_name}][{stock_code}] 计算规则信号及中间数据...")
         final_rule_signal, intermediate_results_dict = self._calculate_rule_based_signal(
             data=data, stock_code=stock_code, indicator_configs=indicator_configs_to_use
         )
         logger.info(f"[{self.strategy_name}][{stock_code}] 规则信号计算完成。")
-
         # 将原始数据复制，并合并规则信号和中间结果
         processed_data = data.copy()
         # 添加 final_rule_signal 列 (这是一个策略内部列)
         processed_data['final_rule_signal'] = final_rule_signal # final_rule_signal 是一个 Series
-
         # 合并 intermediate_results_dict 中的 DataFrame/Series
         # 注意：这里的键名 (如 'base_score_raw', 'trend_analysis_df' 等) 可能会与最终的列名不同
         # 需要将 dict 中的 DataFrame/Series 的列合并到 processed_data 中
@@ -2573,31 +2565,28 @@ class TrendFollowingStrategy:
                     if col_join != 'ADJUSTED_SCORE' and col_join not in processed_data.columns:
                          processed_data[col_join] = df_or_series[col_join]
                     elif col_join == 'ADJUSTED_SCORE':
-                         # 特殊处理 ADJUSTED_SCORE，将其值赋值给 'base_score_volume_adjusted' 列 (如果还没有的话)
-                         if 'base_score_volume_adjusted' not in processed_data.columns:
-                              processed_data['base_score_volume_adjusted'] = df_or_series[col_join]
-                         else:
-                              logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 'ADJUSTED_SCORE' 已存在于 processed_data['base_score_volume_adjusted']，跳过合并。")
+                        # 特殊处理 ADJUSTED_SCORE，将其值赋值给 'base_score_volume_adjusted' 列 (如果还没有的话)
+                        if 'base_score_volume_adjusted' not in processed_data.columns:
+                            processed_data['base_score_volume_adjusted'] = df_or_series[col_join]
+                        else:
+                            logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 'ADJUSTED_SCORE' 已存在于 processed_data['base_score_volume_adjusted']，跳过合并。")
                     else:
                         logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 '{col_join}' 已存在于 processed_data，跳过合并来自 '{key}' 的同名列。")
-
             elif isinstance(df_or_series, pd.Series) and not df_or_series.empty:
-                 # 合并 Series
-                 # 如果 Series 有 name 属性，使用 name 作为列名
-                 series_col_name = df_or_series.name
-                 if series_col_name and series_col_name not in processed_data.columns:
-                     processed_data[series_col_name] = df_or_series
-                 # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
-                 elif not series_col_name and key not in processed_data.columns:
-                      processed_data[key] = df_or_series
-                 else:
-                     logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
-
+                # 合并 Series
+                # 如果 Series 有 name 属性，使用 name 作为列名
+                series_col_name = df_or_series.name
+                if series_col_name and series_col_name not in processed_data.columns:
+                    processed_data[series_col_name] = df_or_series
+                # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
+                elif not series_col_name and key not in processed_data.columns:
+                    processed_data[key] = df_or_series
+                else:
+                    logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
         # --- 阶段 2: Transformer 模型预测增强 ---
         logger.info(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
         # 添加 transformer_signal 列 (内部列)，默认填充 50.0
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
-
         self.set_model_paths(stock_code)
         # 调用加载 Transformer 模型和转换器的方法
         # load_prepared_data 会加载数据、Scalers 和可选的特征工程转换器
@@ -2606,49 +2595,18 @@ class TrendFollowingStrategy:
         # 为了简化，我们假设 load_prepared_data 已经将所需的 self.transformer_model, self.feature_scaler, self.target_scaler, self.selected_feature_names_for_transformer, self.pca_model, self.scaler_for_pca, self.feature_selector_model 加载好了
         # 如果 load_prepared_data 返回了数据，这里可以忽略它们，只关注 self 属性
         _, _, _, _, _, _, feature_scaler_loaded, target_scaler_loaded = self.load_prepared_data(stock_code)
-
         # 检查模型和必需的 Scaler/特征列表是否已加载
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
             try:
                 logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型和转换器已加载，开始进行预测...")
-
                 # --- 应用特征工程管道到最新数据窗口 ---
                 # 提取用于预测的最新数据窗口 (最后 window_size 行)
                 latest_data_window = processed_data.tail(self.transformer_window_size).copy() # 修改行：提取最新窗口数据
-
                 # 应用特征工程管道
                 processed_data_for_prediction = self._apply_feature_engineering_pipeline_for_prediction(latest_data_window) # 修改行：调用新的辅助方法
-
                 if processed_data_for_prediction is None or processed_data_for_prediction.empty:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 应用特征工程管道后数据无效或为空，无法进行 Transformer 预测。")
                 else:
-                    # 预测函数 predict_with_transformer_model 期望输入 DataFrame
-                    # 它会在内部根据 selected_feature_names 选取列，然后应用 feature_scaler
-                    # 我们已经通过 _apply_feature_engineering_pipeline_for_prediction 确保了列是正确的
-                    # 所以这里直接传入处理后的 DataFrame
-                    predicted_signal_series_full = predict_with_transformer_model( # 修改行：接收完整的预测结果 Series
-                        model=self.transformer_model,
-                        data=processed_data_for_prediction, # 修改行：传入经过特征工程管道处理后的数据
-                        feature_scaler=self.feature_scaler,
-                        target_scaler=self.target_scaler,
-                        selected_feature_names=self.selected_feature_names_for_transformer, # 传递最终特征名
-                        window_size=self.transformer_window_size, # 这个参数在 predict_with_transformer_model 中可能用于校验或内部逻辑
-                        device=self.device,
-                        # 移除 data_prep_config 参数，它不在 predict_with_transformer_model 的签名中
-                    )
-
-                    # predict_with_transformer_model 返回的是一个标量预测值，不是 Series
-                    # 需要修改 predict_with_transformer_model 函数，使其能够处理一个窗口并返回一个预测值
-                    # 或者，如果 predict_with_transformer_model 确实只预测一个点，那么这里只需要获取最新的那个点的数据
-                    # 根据 deep_learning_utils.py 中的 predict_with_transformer_model 函数，它确实只对最后一个窗口进行预测并返回一个 float。
-                    # 所以上面的调用方式是错误的，它应该只接收一个窗口的数据，而不是整个 DataFrame。
-
-                    # **修正 predict_with_transformer_model 的调用方式：**
-                    # predict_with_transformer_model 应该接收一个包含 **一个窗口** 数据的 DataFrame
-                    # 并且这个 DataFrame 已经经过了 PCA 前缩放、PCA、特征选择等步骤，只待最终缩放和模型预测。
-                    # 我们的 _apply_feature_engineering_pipeline_for_prediction 已经生成了这样的 DataFrame (虽然它处理的是一个窗口的数据)
-                    # 所以，我们应该将 _apply_feature_engineering_pipeline_for_prediction 的输出直接传递给 predict_with_transformer_model。
-
                     # 再次调用 predict_with_transformer_model，这次传入的是经过管道处理的 DataFrame
                     # 注意：predict_with_transformer_model 内部会取这个 DataFrame 的最后 window_size 行
                     # 但我们的 processed_data_for_prediction 已经是最后 window_size 行经过处理的结果
@@ -2662,24 +2620,19 @@ class TrendFollowingStrategy:
                         window_size=self.transformer_window_size,
                         device=self.device,
                     )
-
                     # 将预测的单个信号值赋给 processed_data 的最后一行
                     if not processed_data.empty and 'transformer_signal' in processed_data.columns:
-                         # 预测值对应于输入窗口的最后一个时间步
-                         latest_index = processed_data.index[-1]
-                         processed_data.loc[latest_index, 'transformer_signal'] = predicted_signal_value
-                         logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测完成，最新预测信号 ({latest_index}): {predicted_signal_value:.2f}")
+                        # 预测值对应于输入窗口的最后一个时间步
+                        latest_index = processed_data.index[-1]
+                        processed_data.loc[latest_index, 'transformer_signal'] = predicted_signal_value
+                        logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测完成，最新预测信号 ({latest_index}): {predicted_signal_value:.2f}")
                     else:
-                         logger.warning(f"[{self.strategy_name}][{stock_code}] processed_data 为空或缺少 'transformer_signal' 列，无法记录 Transformer 预测结果。")
-
-
+                        logger.warning(f"[{self.strategy_name}][{stock_code}] processed_data 为空或缺少 'transformer_signal' 列，无法记录 Transformer 预测结果。")
             except Exception as e:
                 logger.error(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测出错: {e}", exc_info=True)
                 # 预测出错时，transformer_signal 列保持默认值 50.0
         else:
             logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型/Scaler/特征列表未加载，跳过 Transformer 预测。Transformer_signal 将保持默认值 50.0。")
-
-
         # --- 阶段 3: 组合规则信号和 Transformer 信号 ---
         logger.info(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号...")
         try:
@@ -2687,42 +2640,33 @@ class TrendFollowingStrategy:
             # 从 tf_params 中获取 signal_combination_weights，并确保是字典
             signal_combination_weights = self.tf_params.get('signal_combination_weights', {})
             if not isinstance(signal_combination_weights, dict) or not signal_combination_weights:
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] 'signal_combination_weights' 参数无效或为空，使用默认权重 {{'rule_weight': 0.6, 'transformer_weight': 0.4}}。")
-                 signal_combination_weights = {'rule_weight': 0.6, 'transformer_weight': 0.4}
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 'signal_combination_weights' 参数无效或为空，使用默认权重 {{'rule_weight': 0.6, 'transformer_weight': 0.4}}。")
+                signal_combination_weights = {'rule_weight': 0.6, 'transformer_weight': 0.4}
             # 确保权重归一化
             self._normalize_weights(signal_combination_weights)
-
             rule_weight = signal_combination_weights.get('rule_weight', 0)
             transformer_weight = signal_combination_weights.get('transformer_weight', 0)
-
             # 确保所需的信号列存在，如果不存在则用 50 填充 (对于 0-100 分数)
             rule_signal_col = 'final_rule_signal'
             transformer_signal_col = 'transformer_signal'
-
             if rule_signal_col not in processed_data.columns:
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] 规则信号列 ('{rule_signal_col}') 不存在，组合信号时将其视为 50。")
-                 processed_data[rule_signal_col] = 50.0
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 规则信号列 ('{rule_signal_col}') 不存在，组合信号时将其视为 50。")
+                processed_data[rule_signal_col] = 50.0
             # Transformer 信号已经在前面添加并默认填充 50.0
-
             # 计算组合信号
             # 使用 fillna(50.0) 确保计算过程中没有 NaN 影响，并且对齐索引
             processed_data['combined_signal'] = (
                 processed_data[rule_signal_col].fillna(50.0) * rule_weight +
                 processed_data[transformer_signal_col].fillna(50.0) * transformer_weight
             )
-
             # 确保组合信号在 0-100 范围内并四舍五入
             processed_data['combined_signal'] = processed_data['combined_signal'].clip(0, 100).round(2)
-
             latest_combined_signal_val = processed_data['combined_signal'].iloc[-1] if not processed_data.empty and 'combined_signal' in processed_data.columns else np.nan
             logger.info(f"[{self.strategy_name}][{stock_code}] 组合信号计算完成 (权重: 规则={rule_weight:.2f}, Transformer={transformer_weight:.2f})，最新值: {latest_combined_signal_val:.2f}.")
-
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号出错: {e}", exc_info=True)
             # 出现错误时，添加默认的组合信号列
             processed_data['combined_signal'] = 50.0 # 默认中性
-
-
         # --- 阶段 4: 生成最终交易信号 (例如，[-1, 0, 1]) ---
         # 这个最终信号通常是基于 combined_signal 的离散值
         logger.info(f"[{self.strategy_name}][{stock_code}] 生成最终交易信号...")
@@ -2730,50 +2674,39 @@ class TrendFollowingStrategy:
             # 可以基于 combined_signal 设定阈值来生成最终信号
             buy_threshold = self.tf_params.get('final_signal_buy_threshold', 55.0) # 默认值 55
             sell_threshold = self.tf_params.get('final_signal_sell_threshold', 45.0) # 默认值 45
-
              # 确保阈值是有效数字且 sell_threshold <= buy_threshold
             if not isinstance(buy_threshold, (int, float)): buy_threshold = 55.0
             if not isinstance(sell_threshold, (int, float)): sell_threshold = 45.0
             if sell_threshold > buy_threshold:
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] 最终信号阈值配置异常: sell_threshold ({sell_threshold}) > buy_threshold ({buy_threshold}). 调整 sell_threshold。")
-                 sell_threshold = buy_threshold - 10 # 确保有一个间隔
-
-
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 最终信号阈值配置异常: sell_threshold ({sell_threshold}) > buy_threshold ({buy_threshold}). 调整 sell_threshold。")
+                sell_threshold = buy_threshold - 10 # 确保有一个间隔
             processed_data['signal'] = 0 # 最终交易信号列 (内部列)，默认信号为 0 (观望)
-
             # 确保 combined_signal 列存在且不是全 NaN
             combined_signal_col = 'combined_signal'
             if combined_signal_col in processed_data.columns and not processed_data[combined_signal_col].isnull().all():
-                 # 使用填充后的组合信号进行阈值判断
-                 combined_signal_filled = processed_data[combined_signal_col].fillna(50.0)
-                 processed_data.loc[combined_signal_filled >= buy_threshold, 'signal'] = 1 # 买入信号
-                 processed_data.loc[combined_signal_filled <= sell_threshold, 'signal'] = -1 # 卖出信号
-
-                 # 考虑 A 股 T+1 交易限制，可能需要额外的逻辑来处理卖出信号
-                 # 例如，只有在持有仓位时，-1 信号才有效
-                 # 这部分逻辑通常在回测或实时交易执行模块中处理，策略只负责生成意向信号。
-                 # 如果策略需要直接输出可执行的交易指令 (如 'BUY', 'SELL', 'HOLD'), 则在这里转换
-
-                 logger.info(f"[{self.strategy_name}][{stock_code}] 最终交易信号生成完成。")
+                # 使用填充后的组合信号进行阈值判断
+                combined_signal_filled = processed_data[combined_signal_col].fillna(50.0)
+                processed_data.loc[combined_signal_filled >= buy_threshold, 'signal'] = 1 # 买入信号
+                processed_data.loc[combined_signal_filled <= sell_threshold, 'signal'] = -1 # 卖出信号
+                # 考虑 A 股 T+1 交易限制，可能需要额外的逻辑来处理卖出信号
+                # 例如，只有在持有仓位时，-1 信号才有效
+                # 这部分逻辑通常在回测或实时交易执行模块中处理，策略只负责生成意向信号。
+                # 如果策略需要直接输出可执行的交易指令 (如 'BUY', 'SELL', 'HOLD'), 则在这里转换
+                logger.info(f"[{self.strategy_name}][{stock_code}] 最终交易信号生成完成。")
             else:
-                 logger.error(f"[{self.strategy_name}][{stock_code}] 组合信号列 ('{combined_signal_col}') 不存在或全为 NaN，无法生成最终交易信号！信号列将全为 0。")
-                 # processed_data['signal'] 已经默认为 0
-
+                logger.error(f"[{self.strategy_name}][{stock_code}] 组合信号列 ('{combined_signal_col}') 不存在或全为 NaN，无法生成最终交易信号！信号列将全为 0。")
+                # processed_data['signal'] 已经默认为 0
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 生成最终交易信号出错: {e}", exc_info=True)
             # 出现错误时，也添加一个全为 0 的信号列
             processed_data['signal'] = 0
-
-
         # --- 阶段 5: 存储中间数据并返回结果 ---
         self.intermediate_data = processed_data.copy()
-
         if not self.intermediate_data.empty:
             latest_signal_val = self.intermediate_data['signal'].iloc[-1] if 'signal' in self.intermediate_data.columns else 0
             logger.info(f"[{self.strategy_name}][{stock_code}] 信号生成流程完成。最新最终信号: {latest_signal_val}.")
         else:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 信号生成流程未产生有效数据 (intermediate_data 为空)。")
-
         # 返回包含所有中间计算和最终信号的 DataFrame
         return self.intermediate_data
 
@@ -3644,22 +3577,18 @@ class TrendFollowingStrategy:
         if self.intermediate_data is None or self.intermediate_data.empty:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 中间数据为空，无法进行信号分析。")
             return None
-
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
-
         # 获取策略内部列名，使用 JSON 配置
         internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
         # 确保 internal_cols_conf 是列表
         if not isinstance(internal_cols_conf, list): internal_cols_conf = []
-
         def get_internal_col_name(pattern, default_name):
             """从配置中查找内部列名，如果找不到则返回默认名。"""
             for item in internal_cols_conf:
                 if isinstance(item, dict) and item.get('name_pattern') == pattern:
                     return item['name_pattern']
             return default_name # 如果没找到，返回默认名字
-
         # 获取内部列名
         combined_signal_col = get_internal_col_name("combined_signal", "combined_signal")
         final_rule_signal_col = get_internal_col_name("final_rule_signal", "final_rule_signal")
@@ -3676,8 +3605,6 @@ class TrendFollowingStrategy:
         vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern', '').startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
         vol_spike_signal_col_tf = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
         vol_spike_signal_col = vol_spike_signal_col_tf[0] if vol_spike_signal_col_tf else None # 使用第一个格式化结果
-
-
         # combined_signal 是内部列
         if combined_signal_col in self.intermediate_data.columns:
             combined_signal_series = self.intermediate_data[combined_signal_col].dropna()
@@ -3686,36 +3613,28 @@ class TrendFollowingStrategy:
         else:
              logger.warning(f"[{self.strategy_name}][{stock_code}] 分析：缺少组合信号列 '{combined_signal_col}'。")
              analysis_results_dict['combined_signal_mean'] = np.nan
-
-
         # 计算趋势持续时间
         trend_duration_info_dict = self._calculate_trend_duration(self.intermediate_data)
         analysis_results_dict.update(trend_duration_info_dict)
-
         signal_judgment_dict = {}
         operation_advice_str = "中性观望"
         risk_warning_str = ""
         t_plus_1_note_str = "（受 T+1 限制，建议次日操作）"
-
         # 从 latest_data_row 中安全获取信号值，如果列不存在则默认为 50.0
         final_score_val = latest_data_row.get(combined_signal_col, 50.0)
         final_rule_score_val = latest_data_row.get(final_rule_signal_col, 50.0)
         transformer_score_val = latest_data_row.get(transformer_signal_col, 50.0)
-
         # 趋势判断阈值来自 trend_following_params
         moderate_bullish_thresh = self.tf_params.get('moderate_bullish_threshold', 60)
         strong_bullish_thresh = self.tf_params.get('strong_bullish_threshold', 75)
         moderate_bearish_thresh = self.tf_params.get('moderate_bearish_threshold', 40)
         strong_bearish_thresh = self.tf_params.get('strong_bearish_threshold', 25)
-
         # 确保阈值是有效数字
         if not isinstance(moderate_bullish_thresh, (int, float)): moderate_bullish_thresh = 60.0
         if not isinstance(strong_bullish_thresh, (int, float)): strong_bullish_thresh = 75.0
         if not isinstance(moderate_bearish_thresh, (int, float)): moderate_bearish_thresh = 40.0
         if not isinstance(strong_bearish_thresh, (int, float)): strong_bearish_thresh = 25.0
-
         duration_status_rule_str = trend_duration_info_dict.get('duration_status', '短') # 默认为短
-
         # 基于 combined_signal 进行操作建议判断
         if final_score_val >= moderate_bullish_thresh:
              signal_judgment_dict['overall_signal'] = "看涨信号"
@@ -3740,7 +3659,6 @@ class TrendFollowingStrategy:
         else:
             signal_judgment_dict['overall_signal'] = "中性信号"
             operation_advice_str = f"中性观望，等待信号明朗 {t_plus_1_note_str}"
-
         # EMA 排列状态判断 (内部列)
         alignment_val = latest_data_row.get(alignment_signal_col, np.nan)
         if not np.isnan(alignment_val):
@@ -3752,8 +3670,6 @@ class TrendFollowingStrategy:
         else:
              signal_judgment_dict['alignment_status'] = "数据缺失"
              logger.warning(f"[{self.strategy_name}][{stock_code}] 分析：缺少 EMA 排列信号列 '{alignment_signal_col}'。")
-
-
         # ADX 强度判断 (内部列)
         adx_strength_signal_val = latest_data_row.get(adx_strength_signal_col, np.nan) # 获取归一化后的 ADX 强度信号
         if not np.isnan(adx_strength_signal_val):
@@ -3763,15 +3679,12 @@ class TrendFollowingStrategy:
             dmi_period_bs = next((self._get_param_val(param_sources, 'dmi_period', 14) for _ in [None]), 14) # 使用辅助函数获取 DMI 周期
             adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}' # 使用带后缀的原始 ADX 列名
             adx_val = latest_data_row.get(adx_col, np.nan) # 获取原始 ADX 值
-
             if not np.isnan(adx_val):
                  adx_strong_threshold = self.tf_params.get('adx_strong_threshold', 30)
                  adx_moderate_threshold = self.tf_params.get('adx_moderate_threshold', 20)
-
                  if adx_val >= adx_strong_threshold: signal_judgment_dict['adx_status'] = "趋势非常强劲"
                  elif adx_val >= adx_moderate_threshold: signal_judgment_dict['adx_status'] = "趋势强劲"
                  else: signal_judgment_dict['adx_status'] = "趋势较弱"
-
                  # 如果 ADX 强度不足（例如小于 moderate_threshold），且 combined_signal 偏离中性区域较远，提示风险
                  if adx_val < adx_moderate_threshold and abs(final_score_val - 50) > 10: # 阈值 10 可配置
                      risk_warning_str += f"ADX ({adx_val:.2f}) 显示趋势强度不足 ({adx_moderate_threshold})，当前信号偏离中性，注意假信号或震荡风险。 "
@@ -3781,12 +3694,9 @@ class TrendFollowingStrategy:
         else:
             signal_judgment_dict['adx_status'] = "ADX信号数据缺失"
             logger.warning(f"[{self.strategy_name}][{stock_code}] 分析：缺少 ADX 强度信号列 '{adx_strength_signal_col}'。")
-
-
         # 背离状态判断 (内部列)
         has_bearish_div_val = latest_data_row.get(has_bearish_div_col, False)
         has_bullish_div_val = latest_data_row.get(has_bullish_div_col, False)
-
         if has_bearish_div_val and final_score_val > 50:
             signal_judgment_dict['divergence_status'] = "检测到顶背离"
             risk_warning_str += "检测到顶背离，可能预示趋势衰竭或反转！ "
@@ -3795,11 +3705,95 @@ class TrendFollowingStrategy:
             risk_warning_str += "检测到底背离，可能预示趋势衰竭或反转！ "
         else:
             signal_judgment_dict['divergence_status'] = "无明显背离"
+        # ================== 多变量深化判断与智能建议 ==================
+        # 1. 趋势分与量能分配合/背离
+        base_score_raw_val = latest_data_row.get(base_score_raw_col, np.nan)
+        base_score_volume_adjusted_val = latest_data_row.get(base_score_volume_adjusted_col, np.nan)
+        if not np.isnan(base_score_raw_val) and not np.isnan(base_score_volume_adjusted_val):
+            if abs(base_score_raw_val - base_score_volume_adjusted_val) > 10:
+                risk_warning_str += "基础趋势分与量能调整分分歧，趋势信号不稳定。"
+                signal_judgment_dict['trend_volume_consistency'] = "分歧"
+            else:
+                signal_judgment_dict['trend_volume_consistency'] = "一致"
+            if base_score_volume_adjusted_val > base_score_raw_val + 8:
+                signal_judgment_dict['volume_effect'] = "量能显著强化趋势"
+            elif base_score_volume_adjusted_val < base_score_raw_val - 8:
+                signal_judgment_dict['volume_effect'] = "量能显著削弱趋势"
+            else:
+                signal_judgment_dict['volume_effect'] = "量能影响一般"
 
-        # TODO: 添加其他分析项，如量能信号状态、波动率状态等
-        # 例如：检查 latest_data_row.get('VOL_SPIKE_SIGNAL_{focus_tf}')
-        # 检查 latest_data_row.get('volatility_signal')
+        # 2. 长期趋势与当前信号配合/背离
+        long_term_context_val = latest_data_row.get(long_term_context_col, None)
+        if long_term_context_val is not None:
+            if long_term_context_val == "多头" and final_score_val < 50:
+                risk_warning_str += "长期多头但当前信号偏弱，警惕回调。"
+                signal_judgment_dict['long_term_vs_current'] = "多头背景下信号偏弱"
+            elif long_term_context_val == "空头" and final_score_val > 50:
+                risk_warning_str += "长期空头但当前信号偏强，警惕反弹结束。"
+                signal_judgment_dict['long_term_vs_current'] = "空头背景下信号偏强"
+            else:
+                signal_judgment_dict['long_term_vs_current'] = f"长期趋势：{long_term_context_val}"
 
+        # 3. 动量指标与趋势信号共振/背离
+        stoch_signal_val = latest_data_row.get(stoch_signal_col, np.nan)
+        if not np.isnan(stoch_signal_val):
+            if stoch_signal_val > 80 and final_score_val > 60:
+                risk_warning_str += "趋势强且超买，短线追高风险大。"
+                signal_judgment_dict['stoch_trend_relation'] = "趋势与超买共振"
+            elif stoch_signal_val < 20 and final_score_val < 40:
+                risk_warning_str += "趋势弱且超卖，短线反弹概率大。"
+                signal_judgment_dict['stoch_trend_relation'] = "趋势与超卖共振"
+            elif stoch_signal_val > 80 and final_score_val < 50:
+                risk_warning_str += "超买但趋势分偏弱，警惕假突破。"
+                signal_judgment_dict['stoch_trend_relation'] = "超买与趋势分背离"
+            elif stoch_signal_val < 20 and final_score_val > 50:
+                risk_warning_str += "超卖但趋势分偏强，警惕假反弹。"
+                signal_judgment_dict['stoch_trend_relation'] = "超卖与趋势分背离"
+            else:
+                signal_judgment_dict['stoch_trend_relation'] = "随机指标与趋势分无明显共振"
+
+        # 4. 量能异动与趋势信号配合/背离
+        if vol_spike_signal_col and vol_spike_signal_col in latest_data_row:
+            vol_spike_signal_val = latest_data_row.get(vol_spike_signal_col, np.nan)
+            if not np.isnan(vol_spike_signal_val):
+                if vol_spike_signal_val > 0 and final_score_val > 60:
+                    risk_warning_str += "趋势强且量能异动，短线或有加速。"
+                    signal_judgment_dict['vol_spike_trend'] = "量能异动强化趋势"
+                elif vol_spike_signal_val > 0 and final_score_val < 40:
+                    risk_warning_str += "趋势弱但量能异动，警惕反抽。"
+                    signal_judgment_dict['vol_spike_trend'] = "量能异动与弱趋势"
+                elif vol_spike_signal_val > 0:
+                    risk_warning_str += "量能异动，短线波动加剧。"
+                    signal_judgment_dict['vol_spike_trend'] = "量能异动"
+                else:
+                    signal_judgment_dict['vol_spike_trend'] = "无量能异动"
+
+        # 5. 多信号共振/分歧智能操作建议
+        if signal_judgment_dict.get('trend_volume_consistency') == "分歧" or signal_judgment_dict.get('stoch_trend_relation') == "趋势与超买共振":
+            operation_advice_str += "（信号分歧或超买共振，建议观望或减仓）"
+        if signal_judgment_dict.get('stoch_trend_relation') == "趋势与超卖共振":
+            operation_advice_str += "（弱势超卖，激进者可轻仓博弈反弹）"
+        if signal_judgment_dict.get('vol_spike_trend') == "量能异动强化趋势":
+            operation_advice_str += "（量能异动，行情或加速，注意止盈止损）"
+        if signal_judgment_dict.get('vol_spike_trend') == "量能异动与弱趋势":
+            operation_advice_str += "（量能异动但趋势弱，警惕反抽或反转）"
+
+        # 6. 风险提示更细化
+        # 你可以根据实际数据添加如波动率、回撤等风险项
+        volatility_val = latest_data_row.get('volatility', np.nan)
+        if not np.isnan(volatility_val) and volatility_val > 0.03:
+            risk_warning_str += f"波动率较高({volatility_val:.2%})，注意仓位控制。"
+            signal_judgment_dict['volatility'] = "波动率高"
+
+        # 7. 所有变量参与的信号字典，便于前端展示和后续分析
+        # 你可以将所有关键变量都加入 signal_judgment_dict 便于后续展示
+        signal_judgment_dict['final_score'] = final_score_val
+        signal_judgment_dict['base_score_raw'] = base_score_raw_val
+        signal_judgment_dict['base_score_volume_adjusted'] = base_score_volume_adjusted_val
+        signal_judgment_dict['long_term_context'] = long_term_context_val
+        signal_judgment_dict['stoch_signal'] = stoch_signal_val
+        signal_judgment_dict['vol_spike_signal'] = latest_data_row.get(vol_spike_signal_col, np.nan) if vol_spike_signal_col else np.nan
+        signal_judgment_dict['volatility_val'] = volatility_val
 
         now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
         chinese_interpretation_str = (
@@ -3819,11 +3813,9 @@ class TrendFollowingStrategy:
         analysis_results_dict['operation_advice'] = operation_advice_str
         analysis_results_dict['risk_warning'] = risk_warning_str
         analysis_results_dict['chinese_interpretation'] = chinese_interpretation_str
-
         self.analysis_results = analysis_results_dict
         logger.info(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
         logger.info(chinese_interpretation_str)
-
         return analysis_results_dict
 
     def get_analysis_results(self) -> Optional[Dict[str, Any]]:
@@ -3838,46 +3830,43 @@ class TrendFollowingStrategy:
         """
         from stock_models.stock_analytics import StockScoreAnalysis
         from stock_models.stock_basic import StockInfo
-
         if self.analysis_results is None:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 无分析结果可保存。请先运行 analyze_signals。")
             return
-
         # 尝试从 self.intermediate_data 获取最新的数据行，如果 self.intermediate_data 为 None 或空，则尝试从传入的 data 获取
         latest_intermediate_row = pd.Series(dtype=object) # 初始化一个空 Series
         if self.intermediate_data is not None and not self.intermediate_data.empty:
-             # 查找与 timestamp 最接近的索引行，或者直接使用最后一行
-             try:
-                  # 使用 asof 查找小于等于 timestamp 的最新一行
-                  latest_intermediate_row = self.intermediate_data.loc[self.intermediate_data.index.asof(timestamp)]
-                  if latest_intermediate_row.isnull().all(): # asof 可能返回全 NaN 行
-                       logger.warning(f"[{self.strategy_name}][{stock_code}] 无法通过 asof 在 intermediate_data 中找到时间戳 {timestamp} 对应的行，使用最后一行。")
-                       latest_intermediate_row = self.intermediate_data.iloc[-1]
-             except Exception as e:
-                  logger.warning(f"[{self.strategy_name}][{stock_code}] 在 intermediate_data 中查找时间戳 {timestamp} 对应的行出错: {e}，使用最后一行。")
-                  try:
-                       latest_intermediate_row = self.intermediate_data.iloc[-1]
-                  except IndexError:
-                       logger.error(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，无法获取最新数据行。")
-                       latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
+            # 查找与 timestamp 最接近的索引行，或者直接使用最后一行
+            try:
+                # 使用 asof 查找小于等于 timestamp 的最新一行
+                latest_intermediate_row = self.intermediate_data.loc[self.intermediate_data.index.asof(timestamp)]
+                if latest_intermediate_row.isnull().all(): # asof 可能返回全 NaN 行
+                    logger.warning(f"[{self.strategy_name}][{stock_code}] 无法通过 asof 在 intermediate_data 中找到时间戳 {timestamp} 对应的行，使用最后一行。")
+                    latest_intermediate_row = self.intermediate_data.iloc[-1]
+            except Exception as e:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 在 intermediate_data 中查找时间戳 {timestamp} 对应的行出错: {e}，使用最后一行。")
+                try:
+                    latest_intermediate_row = self.intermediate_data.iloc[-1]
+                except IndexError:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，无法获取最新数据行。")
+                    latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
 
         elif data is not None and not data.empty:
              # 如果 intermediate_data 为空，尝试从传入的原始数据 data 获取最后一行
-             logger.warning(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，尝试从原始输入 data 获取最新数据行。")
-             try:
-                  # 同样尝试 asof 查找
-                  latest_data_row_from_input = data.loc[data.index.asof(timestamp)]
-                  if latest_data_row_from_input.isnull().all():
-                       latest_data_row_from_input = data.iloc[-1]
-                  latest_intermediate_row = latest_data_row_from_input # 使用从输入数据获取的行
-
-             except Exception as e:
-                  logger.warning(f"[{self.strategy_name}][{stock_code}] 从原始输入 data 获取最新数据行出错: {e}。")
-                  latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
+            logger.warning(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，尝试从原始输入 data 获取最新数据行。")
+            try:
+                # 同样尝试 asof 查找
+                latest_data_row_from_input = data.loc[data.index.asof(timestamp)]
+                if latest_data_row_from_input.isnull().all():
+                    latest_data_row_from_input = data.iloc[-1]
+                latest_intermediate_row = latest_data_row_from_input # 使用从输入数据获取的行
+            except Exception as e:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 从原始输入 data 获取最新数据行出错: {e}。")
+                latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
 
         if latest_intermediate_row.empty:
-             logger.error(f"[{self.strategy_name}][{stock_code}] 无法获取最新的数据行用于保存分析结果。")
-             # 继续保存，但部分字段可能为 None
+            logger.error(f"[{self.strategy_name}][{stock_code}] 无法获取最新的数据行用于保存分析结果。")
+            # 继续保存，但部分字段可能为 None
 
         try:
             stock_obj = StockInfo.objects.get(stock_code=stock_code)
@@ -3894,10 +3883,10 @@ class TrendFollowingStrategy:
             if not isinstance(internal_cols_conf, list): internal_cols_conf = []
 
             def get_internal_col_name(pattern, default_name):
-                 for item in internal_cols_conf:
-                     if isinstance(item, dict) and item.get('name_pattern') == pattern:
-                         return item['name_pattern']
-                 return default_name
+                for item in internal_cols_conf:
+                    if isinstance(item, dict) and item.get('name_pattern') == pattern:
+                        return item['name_pattern']
+                return default_name
 
             combined_signal_col = get_internal_col_name("combined_signal", "combined_signal")
             final_rule_signal_col = get_internal_col_name("final_rule_signal", "final_rule_signal")
