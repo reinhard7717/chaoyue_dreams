@@ -97,7 +97,7 @@ def _train_single_stock_model(item_name: str, django_settings_module_name: str):
 
     if hasattr(imported_django_settings_child, 'STRATEGY_DATA_DIR'):
         actual_model_base_dir_child = Path(imported_django_settings_child.STRATEGY_DATA_DIR)
-        stock_logger.debug(f"子进程从 Django settings 获取模型根目录: '{actual_model_base_dir_child}'")
+        print(f"子进程从 Django settings 获取模型根目录: '{actual_model_base_dir_child}'")
     else:
         stock_logger.error(f"错误：子进程 Django settings 中未找到 STRATEGY_DATA_DIR。")
         return {"item_name": item_name, "status": "failed", "reason": "STRATEGY_DATA_DIR not in Django settings in child.", "type": "path_config_error"}
@@ -120,7 +120,7 @@ def _train_single_stock_model(item_name: str, django_settings_module_name: str):
     # --- 单个股票训练的核心逻辑 ---
     item_path = actual_model_base_dir_child / item_name
     prepared_data_path = item_path / "prepared_data"
-    trained_model_path = item_path / "trained_model"
+    trained_model_path = actual_model_base_dir_child / "trained_model"
 
     if not prepared_data_path.is_dir():
         stock_logger.warning(f"[{item_name}] 预处理数据目录 '{prepared_data_path}' 不存在，跳过。")

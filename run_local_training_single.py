@@ -63,7 +63,7 @@ def train_single_stock_model(item_name, django_settings_module):
 
     item_path = actual_model_base_dir / item_name
     prepared_data_path = item_path / "prepared_data"
-    trained_model_path = item_path / "trained_model"
+    trained_model_path = actual_model_base_dir / "trained_model"
 
     if not prepared_data_path.is_dir():
         logger.warning(f"[{item_name}] 预处理数据目录 '{prepared_data_path}' 不存在，跳过。")
@@ -75,7 +75,7 @@ def train_single_stock_model(item_name, django_settings_module):
 
     pth_files = []
     if trained_model_path.is_dir():
-        pth_files = list(trained_model_path.glob("*.pth"))
+        pth_files = list(trained_model_path.glob(f"best_transformer_model_{item_name}.pth"))
 
     if pth_files:
         return {"item_name": item_name, "status": "skipped", "reason": "existing_pth"}
@@ -149,7 +149,7 @@ def run_local_transformer_training_batch_single(
     for i, item_name in enumerate(all_item_names):
         result = train_single_stock_model(item_name, imported_django_settings_main)
         results_list.append(result)
-        logger.info(f"完成 {i+1}/{total_stock_folders} 个股票训练。股票 '{result.get('item_name', 'UNKNOWN')}' 状态: {result.get('status', 'N/A')}")
+        logger.info(f"完成 {i+1}/{total_stock_folders} 个股票训练。股票 '{result.get('item_name', 'UNKNOWN')}' 状态: {result.get('status', 'N/A')} 原因： {result.get('reason', 'N/A')}")
 
     # 结果汇总
     successfully_trained_count = sum(1 for r in results_list if r.get("status") == "success")

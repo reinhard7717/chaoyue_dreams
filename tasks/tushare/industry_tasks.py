@@ -48,6 +48,23 @@ def save_ths_index_today_task(self):
     result_daily = asyncio.run(industry_dao.save_ths_index_daily_by_trade_date(trade_date=today))
     logger.info(f"保存 {today} 同花顺板块指数行情， 结果：{result_daily}")
 
+@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_yesterday_task', queue='SaveData_TimeTrade')
+def save_ths_index_yesterday_task(self):
+    industry_dao = IndustryDao()
+    logger.info(f"开始获取同花顺板块指数...")
+    result_list = asyncio.run(industry_dao.save_ths_index_list())
+    logger.info(f"保存同花顺概念和行业指数， 结果：{result_list}")
+
+    logger.info(f"开始获取同花顺概念板块成分...")
+    result_member = asyncio.run(industry_dao.save_ths_index_member())
+    logger.info(f"保存同花顺概念板块成分， 结果：{result_member}")
+
+    logger.info(f"开始获取同花顺板块指数行情...")
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+    result_daily = asyncio.run(industry_dao.save_ths_index_daily_by_trade_date(trade_date=yesterday))
+    logger.info(f"保存 {today} 同花顺板块指数行情， 结果：{result_daily}")
+
 # 任务：同花顺板块 & 指数行情
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_history_task', queue='SaveData_TimeTrade')
 def save_ths_index_history_task(self):

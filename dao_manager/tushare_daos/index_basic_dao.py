@@ -521,6 +521,45 @@ class IndexBasicDAO(BaseDAO):
         else:
             return None
 
+    async def save_index_daily_basic_yesterday(self) -> Dict:
+        """
+        接口：index_dailybasic，可以通过数据工具调试和查看数据。
+        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日指标数据
+        数据来源：Tushare社区统计计算
+        数据历史：从2004年1月开始提供
+        数据权限：用户需要至少400积分才可以调取，具体请参阅积分获取办法
+        """
+        # 获取当前日期
+        today = datetime.datetime.today()
+        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        # 转换为YYYYMMDD格式
+        day_str = yesterday.strftime('%Y%m%d')
+        index_dailybasic_dicts = []
+        df = self.ts_pro.index_dailybasic(**{
+            "trade_date": day_str, "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+            "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+        ])
+        if not df.empty:
+            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
+            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+            for row in df.itertuples():
+                index_info = await self.get_index_by_code(row.ts_code)
+                # print(f"index_info: {index_info}, type {type(index_info)}")  # 添加日志输出以检查 index_info 的内容和类型
+                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
+                index_dailybasic_dicts.append(index_dailybasic_dict)
+        if index_dailybasic_dicts:
+            # 保存到数据库
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=IndexDailyBasic,
+                data_list=index_dailybasic_dicts,
+                unique_fields=['index_code', 'trade_time']
+            )
+            return result
+        else:
+            return None
+
     async def save_index_daily_basic_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
         """
         接口：index_dailybasic，可以通过数据工具调试和查看数据。

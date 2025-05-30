@@ -135,6 +135,54 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
         logger.error(f"执行 save_stocks_minute_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_yesterday_batch', queue='SaveData_TimeTrade')
+def save_stocks_minute_data_yesterday_batch(self, stock_codes):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        print("开始保存 分钟数据任务（当日）...")
+        result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_yesterday(stock_codes=stock_codes))
+        print(f"保存股票 {len(stock_codes)} 个的分钟级交易数据完成。结果: {result}")
+    except Exception as e:
+        logger.error(f"save_stocks_minute_data_yesterday_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_yesterday_task', queue='celery')
+def save_stocks_minute_data_yesterday_task(self, batch_size: int = 310): # 最大循环10万个，每310个一组循环一次是99510个
+    """
+    调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 将代码分成批次。
+    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info(f"任务启动: save_stocks_minute_data_today_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
+    try:
+        total_dispatched_batches = 0
+        stock_basic_dao = StockBasicInfoDao()
+        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        all_stock_codes = [stock.stock_code for stock in all_stocks]
+        if not all_stocks:
+            logger.warning("未找到任何股票代码，跳过任务")
+            return {"status": "skipped", "message": "未找到任何股票代码"}
+        total_codes_count = len(all_stocks)  # 用于统计总代码数量
+        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
+        for i in range(0, total_codes_count, batch_size):
+            batch_codes = all_stock_codes[i:i + batch_size]
+            if batch_codes:
+                # 使用新的批量任务，并指定队列
+                save_stocks_minute_data_yesterday_batch.s(stock_codes=batch_codes).set().apply_async()
+                total_dispatched_batches += 1
+        logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
+        return {"status": "success", "dispatched_batches": total_dispatched_batches}
+    except Exception as e:
+        logger.error(f"执行 save_stocks_minute_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
 #  ================ 今日基本信息 数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task', queue='SaveData_TimeTrade')
 def save_stocks_daily_basic_data_today_task(self):
@@ -147,6 +195,22 @@ def save_stocks_daily_basic_data_today_task(self):
     try:
         print("开始保存 今日股票重要的基本面指标...")
         result = asyncio.run(stock_time_trade_dao.save_today_stock_basic_info())
+        print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
+    except Exception as e:
+        logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+#  ================ 昨日基本信息 数据任务 ================
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task', queue='SaveData_TimeTrade')
+def save_stocks_daily_basic_data_yesterday_task(self):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    """
+    logger.info(f"开始处理今日股票重要的基本面指标...")
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        print("开始保存 今日股票重要的基本面指标...")
+        result = asyncio.run(stock_time_trade_dao.save_yesterday_stock_basic_info())
         print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
     except Exception as e:
         logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -169,6 +233,24 @@ def save_day_data_today_task(self):
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
         result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf())
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
+    except Exception as e:
+        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_yesterday_task', queue='SaveData_TimeTrade')
+def save_day_data_yesterday_task(self):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        print("开始保存 日线数据任务（当日）...")
+        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_yesterday())
+        print(f"保存 日线数据任务（当日） 完成。result: {result}")
+        save_cyq_data_yesterday_task.delay()
+        print(f"保存 每日筹码分布、每日筹码及胜率 数据完成。")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -217,6 +299,55 @@ def save_cyq_data_today_task(self):
         save_cyq_chips_today_batch.s().set().apply_async()
         save_cyq_perf_today_batch.s().set().apply_async()
         logger.info(f"任务结束: save_cyq_data_today_task (调度器模式)")
+    except Exception as e:
+        logger.error(f"执行 save_cyq_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
+# ============== 每日筹码分布任务（昨日） ==============
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_today_batch', queue='SaveData_TimeTrade')
+def save_cyq_chips_yesterday_batch(self):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        result = asyncio.run(stock_time_trade_dao.save_yesterday_cyq_chips())
+        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+    except Exception as e:
+        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_perf_yesterday_batch', queue='SaveData_TimeTrade')
+def save_cyq_perf_yesterday_batch(self):
+    """
+    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    # 在任务开始时创建一次 DAO 实例
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        result = asyncio.run(stock_time_trade_dao.save_yesterday_cyq_perf())
+        print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
+    except Exception as e:
+        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_yesterday_task', queue='celery')
+def save_cyq_data_yesterday_task(self):
+    """
+    调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 将代码分成批次。
+    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info(f"任务启动: save_cyq_data_yesterday_task (调度器模式) - 获取股票列表并分派批量任务")
+    try:
+        save_cyq_chips_yesterday_batch.s().set().apply_async()
+        save_cyq_perf_yesterday_batch.s().set().apply_async()
+        logger.info(f"任务结束: save_cyq_data_yesterday_task (调度器模式)")
     except Exception as e:
         logger.error(f"执行 save_cyq_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}

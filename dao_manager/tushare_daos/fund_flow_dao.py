@@ -1,6 +1,6 @@
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import time
 from typing import Dict, List
 
@@ -46,6 +46,43 @@ class FundFlowDao(BaseDAO):
         # 获取日级资金流向数据
         df = self.ts_pro.moneyflow(**{
             "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
+            "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
+            "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
+        ])
+        print(f"今天的日级资金流向数据 数量: {len(df)}")
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDaily,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+        return result
+
+    async def save_yesterday_fund_flow_daily_data(self) -> Dict:
+        """
+        保存今天的日级资金流向数据
+        接口：moneyflow，可以通过数据工具调试和查看数据。
+        描述：获取沪深A股票资金流向数据，分析大单小单成交情况，用于判别资金动向，数据开始于2010年。
+        限量：单次最大提取6000行记录，总量不限制
+        积分：用户需要至少2000积分才可以调取，基础积分有流量控制，积分越多权限越大，请自行提高积分，具体请参考积分获取办法
+        """
+        # 获取当前日期
+        today = datetime.today()
+        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        # 转换为YYYYMMDD格式
+        day_str = yesterday.strftime('%Y%m%d')
+        # 获取日级资金流向数据
+        df = self.ts_pro.moneyflow(**{
+            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
         }, fields=[
             "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
             "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
@@ -187,6 +224,38 @@ class FundFlowDao(BaseDAO):
         # 获取日级资金流向数据 - 同花顺
         df = self.ts_pro.moneyflow_ths(**{
             "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
+            "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
+        ])
+        print(f"今天的日级资金流向数据 - 同花顺 数量: {len(df)}")
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+        return result
+
+    async def save_yesterday_fund_flow_daily_ths_data(self) -> Dict:
+        """
+        保存今天的日级资金流向数据 - 同花顺
+        """
+        # 获取当前日期
+        today = datetime.today()
+        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        # 转换为YYYYMMDD格式
+        day_str = yesterday.strftime('%Y%m%d')
+        # 获取日级资金流向数据 - 同花顺
+        df = self.ts_pro.moneyflow_ths(**{
+            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
         }, fields=[
             "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
             "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
@@ -350,6 +419,38 @@ class FundFlowDao(BaseDAO):
             )
         return result
 
+    async def save_yesterday_fund_flow_daily_dc_data(self) -> Dict:
+        """
+        保存今天的日级资金流向数据 - 东方财富
+        """
+        # 获取当前日期
+        today = datetime.today()
+        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        # 转换为YYYYMMDD格式
+        day_str = yesterday.strftime('%Y%m%d')
+        # 获取日级资金流向数据 - 东方财富
+        df = self.ts_pro.moneyflow_dc(**{
+            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
+            "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
+        ])
+        print(f"今天的日级资金流向数据 - 东方财富 数量: {len(df)}")
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                if stock:
+                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowDailyDC,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+        return result
+
     async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         保存历史日级资金流向数据 - 东方财富
@@ -472,6 +573,38 @@ class FundFlowDao(BaseDAO):
         # 获取板块资金流向数据 - 同花顺
         df = self.ts_pro.moneyflow_cnt_ths(**{
             "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+        }, fields=[
+            "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
+            "net_buy_amount", "net_sell_amount", "net_amount"
+        ])
+        result = {}
+        if not df.empty:
+            data_dicts = []
+            for row in df.itertuples():
+                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
+                if ths_index:
+                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(ths_index=ths_index, df_data=row)
+                    data_dicts.append(data_dict)
+            result =  await self._save_all_to_db_native_upsert(
+                model_class=FundFlowCntTHS,
+                data_list=data_dicts,
+                unique_fields=['stock', 'trade_time']
+            )
+            print(f"完成 {today} 板块资金流向数据（同花顺），result: {result}")
+        return result
+
+    async def save_yesterday_fund_flow_cnt_ths_data(self) -> Dict:
+        """
+        保存今天的板块资金流向数据 - 同花顺
+        """
+        # 获取当前日期
+        today = datetime.today()
+        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        # 转换为YYYYMMDD格式
+        day_str = yesterday.strftime('%Y%m%d')
+        # 获取板块资金流向数据 - 同花顺
+        df = self.ts_pro.moneyflow_cnt_ths(**{
+            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
         }, fields=[
             "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
             "net_buy_amount", "net_sell_amount", "net_amount"

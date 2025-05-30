@@ -104,6 +104,25 @@ def save_fund_flow_daily_data_today(self):
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
+#  ================ （昨日）个股日级资金流向数据 （三种渠道） ================
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue=STOCKS_SAVE_API_DATA_QUEUE)
+def save_fund_flow_daily_data_yesterday(self):
+    """
+    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    logger.info(f"开始处理（当日）日级资金流向数据 （三种渠道）...")
+    # 在任务开始时创建一次 DAO 实例
+    fund_flow_dao = FundFlowDao()
+    try:
+        # 异步获取数据并保存
+        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_daily_data())
+        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_daily_ths_data())
+        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_daily_dc_data())
+    except Exception as e:
+        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
 #  ================ （本周）日级资金流向数据（三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_this_week_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_this_week_batch(self, trade_date: datetime.date):
@@ -225,6 +244,23 @@ def save_fund_flow_daily_data_ths_today(self):
     try:
         # 异步获取数据并保存
         asyncio.run(fund_flow_dao.save_today_fund_flow_cnt_ths_data())
+    except Exception as e:
+        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
+# ================ （昨日）板块、行业资金流向数据 - 同花顺 ================
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_yesterday', queue=STOCKS_SAVE_API_DATA_QUEUE)
+def save_fund_flow_daily_data_ths_yesterday(self):
+    """
+    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
+    Args:
+        stock_codes: 股票代码列表
+    """
+    logger.info(f"开始处理（当日）板块、行业资金流向数据 - 同花顺...")
+    # 在任务开始时创建一次 DAO 实例
+    fund_flow_dao = FundFlowDao()
+    try:
+        # 异步获取数据并保存
+        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_cnt_ths_data())
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
