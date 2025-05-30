@@ -569,7 +569,7 @@ class TrendFollowingStrategy:
         os.makedirs(prepared_data_dir, exist_ok=True)
         trained_model_dir = os.path.join(stock_root_dir, "trained_model")
         os.makedirs(trained_model_dir, exist_ok=True)
-        self.model_path = os.path.join(trained_model_dir, "trend_following_transformer_weights.pth")
+        self.model_path = os.path.join(trained_model_dir) # , "trend_following_transformer_weights.pth"
         self.feature_scaler_path = os.path.join(prepared_data_dir, "trend_following_transformer_feature_scaler.save")
         self.target_scaler_path = os.path.join(prepared_data_dir, "trend_following_transformer_target_scaler.save")
         self.selected_features_path = os.path.join(prepared_data_dir, "trend_following_transformer_selected_features.json")
