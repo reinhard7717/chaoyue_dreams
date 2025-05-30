@@ -78,7 +78,7 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
         return {"status": "error", "message": f"整体任务执行失败: {e}"}
 
 @celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.run_yesterday_data_ingestion_task', queue='celery')
-def run_yesterday_data_ingestion_task(self, trade_time_str=None):
+def run_yesterday_data_ingestion_task(self):
     """
     整体任务：按顺序执行当日收盘后的数据采集任务。
     包括：分钟数据、日线数据（含筹码）、当日基本信息。
@@ -92,7 +92,7 @@ def run_yesterday_data_ingestion_task(self, trade_time_str=None):
         logger.info("开始执行: （昨日）分钟数据采集调度任务...")
         # 使用 .delay() 或 .apply_async() 异步触发子任务
         # .delay() 是 .apply_async() 的简化版
-        minute_task_result = save_stocks_minute_data_yesterday_task.delay(trade_time_str=trade_time_str)
+        minute_task_result = save_stocks_minute_data_yesterday_task.delay()
         logger.info(f"已分派（昨日）分钟数据采集调度任务。任务ID: {minute_task_result.id}")
 
         # 步骤 2: 执行日线数据（含筹码）采集任务
