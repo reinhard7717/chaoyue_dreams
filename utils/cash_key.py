@@ -487,13 +487,13 @@ class StrategyCashKey(CashKey):
     async def initialize(self):
         self.cache_manager = await CacheManager()  # 异步初始化
 
-    def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str) -> str:
+    def analyze_signals_trend_following(self, stock_code: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STRATEGY,
             entity_type=cc.ENTITY_STOCK,
             entity_id=stock_code,
             subtype=cc.SUBTYPE_STRATEGY_MACD_RSI_KDJ_BOLL,
-            params={cc.PARAM_PERIOD: time_level}
+            # params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
 

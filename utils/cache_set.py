@@ -130,9 +130,9 @@ class CacheSet():
             logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 实时数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
-    async def _stock_strategy_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+    async def _stock_strategy_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
-            logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
+            logger.warning(f"试图缓存股票[{stock_code}] 的空时间序列数据，操作跳过。")
             return False
         try:
             cache_manager = await self.get_cache_manager()
@@ -429,7 +429,6 @@ class StockTimeTradeCacheSet(CacheSet):
         cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
         return await self._history_data(stock_code, "Day_Basic_Info", data_to_cache, cache_key)
  
-
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_stock = StockCashKey()
@@ -486,16 +485,15 @@ class StockRealtimeCacheSet(CacheSet):
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
     
-
 class StrategyCacheSet(CacheSet):
-    async def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
+    async def analyze_signals_trend_following(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
-            logger.error(f"macd_rsi_kdj_boll_data.data_to_cache转换失败。")
+            logger.error(f"analyze_signals_trend_following.data_to_cache转换失败。")
             return False
-        cache_key = self.cache_key_strategy.macd_rsi_kdj_boll_data(stock_code, time_level)
-        # logger.info(f"macd_rsi_kdj_boll_data.cache_key: {cache_key}")
-        return await self._stock_strategy_data(stock_code, time_level, data_to_cache, cache_key)
+        cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
+        # logger.info(f"analyze_signals_trend_following.cache_key: {cache_key}")
+        return await self._stock_strategy_data(stock_code=stock_code, data_to_cache=data_to_cache, cache_key=cache_key)
 
 
 

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from users.models import FavoriteStock
 from utils import cache_constants as cc
 from utils.cache_manager import CacheManager
-from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
+from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
 logger = logging.getLogger("dao")
@@ -15,6 +15,7 @@ class CacheGet():
         self.cache_key_user = UserCashKey()
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
+        self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
 
     async def get_cache_manager(self):
@@ -95,27 +96,27 @@ class CacheGet():
             logger.error(f"StockIndicatorsDAO._stock_latest_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
 
-    async def _stock_strategy_data(self, stock_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
+    async def _stock_strategy_data(self, stock_code: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
-            logger.info(f"尝试从缓存获取股票[{stock_code}] 时间级别[{time_level}] 策略数据, key: {cache_key}")
+            logger.info(f"尝试从缓存获取股票[{stock_code}] 策略数据, key: {cache_key}")
             # 2. 调用 CacheManager 获取数据
             cache_manager = await self.get_cache_manager()
             cached_data = await cache_manager.get(key=cache_key)
             if cached_data is not None:
                 if isinstance(cached_data, dict):
-                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 时间级别[{time_level}] 策略数据, key: {cache_key}")
+                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 策略数据, key: {cache_key}")
                     return cached_data
                 else:
-                    logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 时间级别[{time_level}] 的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
+                    logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
                     cache_manager.delete(cache_key) # 可选：删除错误数据
                     return None
             else:
-                logger.info(f"缓存未命中: 未找到股票[{stock_code}] 时间级别[{time_level}] 策略数据, key: {cache_key}")
+                logger.info(f"缓存未命中: 未找到股票[{stock_code}] 策略数据, key: {cache_key}")
                 return None
 
         except Exception as e:
-            logger.error(f"StockIndicatorsDAO._stock_strategy_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            logger.error(f"StockIndicatorsDAO._stock_strategy_data从缓存获取股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
 
 class UserCacheGet(CacheGet):
@@ -395,9 +396,9 @@ class StrategyCacheGet(CacheGet):
     async def initialize(self):
         pass
 
-    async def macd_rsi_kdj_boll_data(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
-        cache_key = self.cache_key_strategy.macd_rsi_kdj_boll_data(stock_code, time_level)
-        return await self._stock_strategy_data(stock_code, time_level, cache_key)
+    async def analyze_signals_trend_following(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
+        return await self._stock_strategy_data(stock_code=stock_code, cache_key=cache_key)
 
 
 

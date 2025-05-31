@@ -19,6 +19,7 @@ from services.indicator_services import IndicatorService # 确保导入 Indicato
 from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas_ta as ta
 from dao_manager.tushare_daos.industry_dao import IndustryDao
+from utils.cache_set import StrategyCacheSet
 from .utils import strategy_utils
 from .utils.deep_learning_utils import (
     build_transformer_model,
@@ -3945,14 +3946,17 @@ class TrendFollowingStrategy:
                 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x)) # 保存完整的分析结果字典 (将不可序列化的对象转为字符串)
             }
 
+            cache_set = StrategyCacheSet()
+            created = cache_set.analyze_signals_trend_following(stock_code=stock_code,data_to_cache=defaults_payload)
+
             # 使用 update_or_create 方法避免重复创建
-            obj, created = StockScoreAnalysis.objects.update_or_create(
-                stock=stock_obj,
-                strategy_name=self.strategy_name,
-                timestamp=timestamp, # 使用传入的时间戳作为唯一标识
-                timeframe=self.focus_timeframe, # 保存策略的焦点时间框架
-                defaults=defaults_payload
-            )
+            # obj, created = StockScoreAnalysis.objects.update_or_create(
+            #     stock=stock_obj,
+            #     strategy_name=self.strategy_name,
+            #     timestamp=timestamp, # 使用传入的时间戳作为唯一标识
+            #     timeframe=self.focus_timeframe, # 保存策略的焦点时间框架
+            #     defaults=defaults_payload
+            # )
 
             if created:
                 logger.info(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 创建新的 StockScoreAnalysis 记录。")
