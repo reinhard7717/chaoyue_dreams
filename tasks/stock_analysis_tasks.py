@@ -62,7 +62,11 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
         indicator_service = IndicatorService()
 
         # 2. 准备数据 (基于 params_file 准备所有策略所需数据)
-        data_df = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000))
+        result = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000))
+        if result is None or not isinstance(result, tuple) or len(result) != 2:
+            logger.warning(f"股票 {stock_code} 数据准备失败，跳过分析")
+            return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}
+        data_df, indicator_configs = result
         if data_df is None or data_df.empty:
             logger.warning(f"股票 {stock_code} 数据为空，跳过分析")
             return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}

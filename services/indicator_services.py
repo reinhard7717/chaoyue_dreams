@@ -491,19 +491,19 @@ class IndicatorService:
         if 'ta' not in globals() or ta is None:
             print(f"[{stock_code}] Debug: pandas_ta 未加载。")
             logger.error(f"[{stock_code}] pandas_ta 未加载，无法准备策略数据。")
-            return None
+            return None, None
         try:
             if not os.path.exists(params_file):
                 print(f"[{stock_code}] Debug: 策略参数文件未找到: {params_file}")
                 logger.error(f"[{stock_code}] 策略参数文件未找到: {params_file}")
-                return None
+                return None, None
             with open(params_file, 'r', encoding='utf-8') as f:
                 params = json.load(f)
             logger.info(f"[{stock_code}] 从 {params_file} 加载策略参数成功。")
         except Exception as e:
             print(f"[{stock_code}] Debug: 加载或解析参数文件失败: {e}")
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
-            return None
+            return None, None
         main_index_codes = params.get('base_scoring', {}).get('main_index_codes', [])
         if not main_index_codes:
              logger.warning(f"[{stock_code}] JSON 参数中未配置 'base_scoring.main_index_codes'，相对强度计算将仅使用股票所属板块作为基准。")
@@ -684,7 +684,7 @@ class IndicatorService:
         min_tf_minutes = float('inf')
         if not all_time_levels_needed:
             logger.error(f"[{stock_code}] 未能从参数文件中确定任何需要的时间级别。")
-            return None
+            return None, None
         for tf_str_loop in all_time_levels_needed:
             minutes = self._get_timeframe_in_minutes(tf_str_loop)
             if minutes is not None and minutes < min_tf_minutes:
@@ -695,7 +695,7 @@ class IndicatorService:
              print(f"[{stock_code}] Debug: 无法精确确定最小时间级别 (按分钟)，回退使用基础时间级别列表的第一个: {min_time_level}")
         elif min_time_level is None:
             logger.error(f"[{stock_code}] 无法确定有效的最小时间级别从所需级别: {all_time_levels_needed}")
-            return None
+            return None, None
         logger.info(f"[{stock_code}] 策略所需时间级别: {sorted(list(all_time_levels_needed))}, 最小时间级别: {min_time_level} ({min_tf_minutes if min_tf_minutes != float('inf') else 'N/A'} 分钟)")
         global_max_lookback = 0
         unique_configs_for_lookback = {}
@@ -788,7 +788,7 @@ class IndicatorService:
                 # 对最小时间级别的数据量进行硬性检查
                 if tf_resample == min_time_level and len(resampled_df_processed) < min_usable_bars:
                     logger.error(f"[{stock_code}] 最小时间级别 {tf_resample} 重采样后数据量 {len(resampled_df_processed)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。")
-                    return None # 数据量不足，终止流程
+                    return None, None # 数据量不足，终止流程
                 
                 # 检查数据量是否显著少于全局最大回看期
                 if len(resampled_df_processed) < global_max_lookback * 0.5:
@@ -802,7 +802,7 @@ class IndicatorService:
            resampled_ohlcv_dfs.get(min_time_level) is None or \
            resampled_ohlcv_dfs.get(min_time_level).empty:
              logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
-             return None
+             return None, None
         base_index = resampled_ohlcv_dfs[min_time_level].index
         logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，数量: {len(base_index)}。")
         indicator_calculation_tasks = []
@@ -813,7 +813,7 @@ class IndicatorService:
             """
             if base_df_with_suffix is None or base_df_with_suffix.empty:
                 print(f"[{stock_code}] Debug: TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}")
-                return None
+                return None, None
             df_for_ta = base_df_with_suffix.copy()
             ohlcv_map_to_std = {
                 f'open_{tf_calc}': 'open', f'high_{tf_calc}': 'high', f'low_{tf_calc}': 'low',
@@ -830,7 +830,7 @@ class IndicatorService:
                 missing_cols_str = ", ".join(list(required_cols_for_func - set(df_for_ta.columns)))
                 print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 缺少必要列 ({missing_cols_str})，跳过计算。")
                 logger.debug(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} 时，df_for_ta 缺少必要列 ({missing_cols_str})。可用: {df_for_ta.columns.tolist()}")
-                return None
+                return None, None
             try:
                 func_params_to_pass = config_item['params'].copy()
                 # --- 修改开始: 调用指标计算函数（这些函数内部已改为使用 asyncio.to_thread 执行 CPU 密集型操作）---
@@ -839,11 +839,11 @@ class IndicatorService:
                 if indicator_result_df is None:
                      print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。")
                      logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为 None。")
-                     return None
+                     return None, None
                 if indicator_result_df.empty:
                      print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 Empty DataFrame。")
                      logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为空。")
-                     return None
+                     return None, None
                 if not isinstance(indicator_result_df, pd.DataFrame):
                     logger.warning(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算函数未返回DataFrame (返回类型: {type(indicator_result_df)})。尝试转换。")
                     if isinstance(indicator_result_df, pd.Series):
@@ -853,13 +853,13 @@ class IndicatorService:
                     else:
                         print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 返回类型 {type(indicator_result_df)} 无法处理。")
                         logger.warning(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 返回类型 {type(indicator_result_df)} 无法处理。")
-                        return None
+                        return None, None
                 result_renamed_df = indicator_result_df.rename(columns=lambda x: f"{x}_{tf_calc}")
                 return (tf_calc, result_renamed_df)
             except Exception as e_calc:
                 print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}")
                 logger.error(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}", exc_info=True)
-                return None
+                return None, None
         for config_item_loop in indicator_configs:
             for tf_conf in config_item_loop['timeframes']:
                 if tf_conf in resampled_ohlcv_dfs and resampled_ohlcv_dfs[tf_conf] is not None and not resampled_ohlcv_dfs[tf_conf].empty: # 确保数据有效
@@ -886,7 +886,7 @@ class IndicatorService:
         final_df = resampled_ohlcv_dfs.get(min_time_level)
         if final_df is None or final_df.empty:
              logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
-             return None
+             return None, None
         
         dfs_to_merge = [final_df] # 修改行: 使用列表收集待合并的DF
         for tf_merge, df_to_merge in resampled_ohlcv_dfs.items():
@@ -903,14 +903,14 @@ class IndicatorService:
 
         if not dfs_to_merge: # 修改行: 如果列表为空
             logger.error(f"[{stock_code}] 没有可合并的数据。")
-            return None
+            return None, None
 
         # 修改行: 使用 reduce 进行左连接合并，以 final_df (最小时间级别) 为基础
         final_df = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='left'), dfs_to_merge)
         
         if final_df is None or final_df.empty:
              logger.error(f"[{stock_code}] 合并所有 OHLCV 和指标数据后 DataFrame 为空。")
-             return None
+             return None, None
         logger.info(f"[{stock_code}] 所有 OHLCV 和指标数据合并完成，最终 Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
         logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
         final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
