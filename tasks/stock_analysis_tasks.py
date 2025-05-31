@@ -79,8 +79,8 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
         try:
             # 按需实例化策略
             strategies_to_run['trend_following'] = TrendFollowingStrategy(params_file=params_file)
-            strategies_to_run['trend_reversal'] = TrendReversalStrategy(params_file=params_file)
-            strategies_to_run['t_plus_0'] = TPlus0Strategy(params_file=params_file)
+            # strategies_to_run['trend_reversal'] = TrendReversalStrategy(params_file=params_file)
+            # strategies_to_run['t_plus_0'] = TPlus0Strategy(params_file=params_file)
             logger.info(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
         except (FileNotFoundError, ValueError, ImportError, KeyError) as e:
             logger.error(f"初始化策略时出错: {e}", exc_info=True)
@@ -90,7 +90,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
         for strategy_name, strategy in strategies_to_run.items():
             try:
                 # 执行策略生成信号
-                signals = strategy.generate_signals(data_df, stock_code)
+                signals = strategy.generate_signals(data=data_df, stock_code=stock_code, indicator_configs=indicator_configs)
                 if signals is not None and not signals.empty:
                     # 先分析信号
                     analysis_result = strategy.analyze_signals(stock_code)
