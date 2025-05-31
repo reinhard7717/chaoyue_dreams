@@ -326,7 +326,7 @@ class TrendFollowingStrategy:
             logger.debug(f"{log_prefix} self._validate_params() 调用完成。")
         except Exception as e_validate:
             logger.error(f"{log_prefix} CRITICAL: 在执行 _validate_params 时发生错误: {e_validate}", exc_info=True)
-        logger.info(f"策略 '{self.strategy_name}' 初始化流程完成。")
+        logger.debug(f"策略 '{self.strategy_name}' 初始化流程完成。")
         # logger.info(f"{log_prefix} 最终确定的主要关注时间框架: {self.focus_timeframe}.")
         # logger.info(f"{log_prefix} 参数最终来源: '{resolved_params_file_path if file_load_success and resolved_params_file_path else '无或加载失败'}'.")
         # logger.info(f"{log_prefix} self.params 最终是否为空: {not params_loaded} (True表示空).")
@@ -1542,7 +1542,7 @@ class TrendFollowingStrategy:
         # IndicatorService 已经计算了基础指标，但策略内部可能需要根据这些指标计算一个综合评分
         # strategy_utils.calculate_all_indicator_scores 应该接收 IndicatorService 返回的 DataFrame
         # 并根据 bs_params 和 NAMING_CONFIG 找到对应的指标列（带后缀），然后计算 SCORE 列
-        logger.info(f"[{self.strategy_name}][{stock_code}] 计算基础指标评分...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 计算基础指标评分...")
         # 传递命名规范和 IndicatorService 返回的 indicator_configs (如果需要的话)
         # strategy_utils.calculate_all_indicator_scores 需要知道如何找到带后缀的指标列
         # 它可以根据 bs_params 中的 score_indicators 列表和 NAMING_CONFIG 来构建带后缀的列名
@@ -1554,7 +1554,7 @@ class TrendFollowingStrategy:
             indicator_scores_df = pd.DataFrame(50.0, index=data.index, columns=['SCORE_DEFAULT_50'])
 
         # 应用时间框架权重并合并基础评分
-        logger.info(f"[{self.strategy_name}][{stock_code}] 应用时间框架权重并合并基础评分...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 应用时间框架权重并合并基础评分...")
         # current_weights 的计算逻辑与 __init__ 中验证时基本一致
         current_weights: Dict[str, float]
         timeframes_from_config = bs_params.get('timeframes', [])
@@ -1649,7 +1649,7 @@ class TrendFollowingStrategy:
         base_score_raw = base_score_raw.clip(0, 100).fillna(50.0)
 
         # 量能调整基础评分 (假定 strategy_utils 包含此函数)
-        logger.info(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块...")
         vc_params_adjusted = vc_params.copy()
         # 确保 vc_params_adjusted 是字典
         if not isinstance(vc_params_adjusted, dict):
@@ -1691,7 +1691,7 @@ class TrendFollowingStrategy:
                  if 'ADJUSTED_SCORE' not in volume_adjusted_results_df.columns:
                       logger.error(f"[{self.strategy_name}][{stock_code}] 量能调整模块未能生成 'ADJUSTED_SCORE' 列。将使用原始基础评分。")
                       volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
-                 logger.info(f"[{self.strategy_name}][{stock_code}] 量能调整/分析完成。")
+                 logger.debug(f"[{self.strategy_name}][{stock_code}] 量能调整/分析完成。")
              except Exception as e:
                  logger.error(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块出错: {e}", exc_info=True)
                  volume_adjusted_results_df = pd.DataFrame(index=data.index)
@@ -1705,7 +1705,7 @@ class TrendFollowingStrategy:
         # 执行趋势分析 (假定 _perform_trend_analysis 已实现)
         trend_analysis_df = self._perform_trend_analysis(data, base_score_volume_adjusted)
         # 执行量价背离检测 (假定 strategy_utils 包含此函数)
-        logger.info(f"[{self.strategy_name}][{stock_code}] 执行量价背离检测...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 执行量价背离检测...")
         divergence_signals_df = pd.DataFrame(index=data.index)
         if isinstance(dd_params, dict) and dd_params.get('enabled', True):
             div_indicator_scoring_info = {}
@@ -1813,7 +1813,7 @@ class TrendFollowingStrategy:
 
 
         # 综合规则信号 (假定 strategy_utils 包含 combine_rule_signals 函数)
-        logger.info(f"[{self.strategy_name}][{stock_code}] 计算综合规则信号...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 计算综合规则信号...")
         weights = self.rule_signal_weights
 
         # 提取各种信号列，如果缺失则用 0 填充
@@ -2544,11 +2544,11 @@ class TrendFollowingStrategy:
              indicator_configs_to_use = indicator_configs
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 生成信号 (Focus: {self.focus_timeframe})...")
         # --- 阶段 1: 计算规则信号及中间数据 ---
-        logger.info(f"[{self.strategy_name}][{stock_code}] 计算规则信号及中间数据...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 计算规则信号及中间数据...")
         final_rule_signal, intermediate_results_dict = self._calculate_rule_based_signal(
             data=data, stock_code=stock_code, indicator_configs=indicator_configs_to_use
         )
-        logger.info(f"[{self.strategy_name}][{stock_code}] 规则信号计算完成。")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 规则信号计算完成。")
         # 将原始数据复制，并合并规则信号和中间结果
         processed_data = data.copy()
         # 添加 final_rule_signal 列 (这是一个策略内部列)
@@ -2585,7 +2585,7 @@ class TrendFollowingStrategy:
                 else:
                     logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
         # --- 阶段 2: Transformer 模型预测增强 ---
-        logger.info(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
         # 添加 transformer_signal 列 (内部列)，默认填充 50.0
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
         self.set_model_paths(stock_code)
@@ -2635,7 +2635,7 @@ class TrendFollowingStrategy:
         else:
             logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型/Scaler/特征列表未加载，跳过 Transformer 预测。Transformer_signal 将保持默认值 50.0。")
         # --- 阶段 3: 组合规则信号和 Transformer 信号 ---
-        logger.info(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号...")
         try:
             # 获取信号组合权重
             # 从 tf_params 中获取 signal_combination_weights，并确保是字典
@@ -2670,7 +2670,7 @@ class TrendFollowingStrategy:
             processed_data['combined_signal'] = 50.0 # 默认中性
         # --- 阶段 4: 生成最终交易信号 (例如，[-1, 0, 1]) ---
         # 这个最终信号通常是基于 combined_signal 的离散值
-        logger.info(f"[{self.strategy_name}][{stock_code}] 生成最终交易信号...")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 生成最终交易信号...")
         try:
             # 可以基于 combined_signal 设定阈值来生成最终信号
             buy_threshold = self.tf_params.get('final_signal_buy_threshold', 55.0) # 默认值 55
@@ -3192,7 +3192,7 @@ class TrendFollowingStrategy:
                  self.feature_selector_model = None
                  return empty_array, empty_array, empty_array, empty_array, empty_array, empty_array, None, None # 返回 None 表示不匹配
 
-            logger.info(f"[{self.strategy_name}][{stock_code}] 准备好的数据、Scaler 和可选转换器已成功加载。")
+            logger.debug(f"[{self.strategy_name}][{stock_code}] 准备好的数据、Scaler 和可选转换器已成功加载。")
             # 返回必需的数据和 Scaler
             return features_train, targets_train, features_val, targets_val, features_test, targets_test, feature_scaler, target_scaler
         except Exception as e:
@@ -3815,7 +3815,7 @@ class TrendFollowingStrategy:
         analysis_results_dict['risk_warning'] = risk_warning_str
         analysis_results_dict['chinese_interpretation'] = chinese_interpretation_str
         self.analysis_results = analysis_results_dict
-        logger.info(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
         logger.info(chinese_interpretation_str)
         return analysis_results_dict
 

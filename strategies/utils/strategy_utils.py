@@ -2781,7 +2781,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
         print("DEBUG: 未配置需要评分的指标或时间框架。")
         return scoring_results
     # 调试输出：开始计算指标评分的信息，显示需要评分的指标和时间框架
-    print(f"DEBUG: 开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
+    # print(f"DEBUG: 开始计算指标评分，指标: {score_indicators_keys}, 时间框架: {score_timeframes}")
     # 从 naming_config 中获取命名规范字典，包括指标、OHLCV 和时间框架的命名约定
     indicator_naming_conv = naming_config.get('indicator_naming_conventions', {})
     ohlcv_naming_conv = naming_config.get('ohlcv_naming_convention', {}) # 用于查找 close 列模式
@@ -2797,7 +2797,7 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
     config_to_actual_col_map: Dict[Tuple[str, str, str], Union[str, Dict[str, str]]] = {}
     # 遍历 indicator_configs 列表，这些配置包含了指标计算的详细信息和输出列名
     if isinstance(indicator_configs, list):
-        print(f"DEBUG: 正在处理 indicator_configs ({len(indicator_configs)} 项)...")
+        # print(f"DEBUG: 正在处理 indicator_configs ({len(indicator_configs)} 项)...")
         for config in indicator_configs:
             # 跳过非字典项的配置
             if not isinstance(config, dict): continue
