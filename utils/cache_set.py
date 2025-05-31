@@ -492,7 +492,7 @@ class StrategyCacheSet(CacheSet):
             logger.error(f"analyze_signals_trend_following.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
-        logger.info(f"analyze_signals_trend_following.cache_key: {cache_key}")
+        print(f"analyze_signals_trend_following.cache_key: {cache_key}")
         return await self._stock_strategy_data(stock_code=stock_code, data_to_cache=data_to_cache, cache_key=cache_key)
 
 
