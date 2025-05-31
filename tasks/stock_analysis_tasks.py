@@ -92,9 +92,15 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
                 # 执行策略生成信号
                 signals = strategy.generate_signals(data_df, stock_code)
                 if signals is not None and not signals.empty:
-                    # 保存分析结果
-                    strategy.save_analysis_results(stock_code, timestamp, data_df)
-                    results[strategy_name] = {"status": "success", "signal": signals.iloc[-1] if not signals.empty else None}
+                    # 先分析信号
+                    analysis_result = strategy.analyze_signals(stock_code)
+                    if analysis_result is not None:
+                        # 保存分析结果
+                        strategy.save_analysis_results(stock_code, timestamp, data_df)
+                        results[strategy_name] = {"status": "success", "signal": signals.iloc[-1] if not signals.empty else None}
+                    else:
+                        results[strategy_name] = {"status": "failed", "reason": "no analysis result"}
+                        logger.warning(f"策略 {strategy_name} 未能为 {stock_code} 生成分析结果")
                 else:
                     results[strategy_name] = {"status": "failed", "reason": "no signal generated"}
                     logger.warning(f"策略 {strategy_name} 未能为 {stock_code} 生成信号")
