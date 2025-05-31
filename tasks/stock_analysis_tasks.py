@@ -106,7 +106,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str):
 
 # --- 调度任务：获取所有股票并分配分析任务 ---
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks')
-def analyze_all_stocks(self, params_file: str = "strategies/indicator_parameters.json"):
+def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.json"):
     """
     调度任务：获取所有股票并分配分析任务
     """
