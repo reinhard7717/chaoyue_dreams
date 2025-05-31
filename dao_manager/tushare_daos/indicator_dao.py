@@ -376,7 +376,7 @@ class IndicatorDAO(BaseDAO):
 
                  # 记录调整后的预期时间点数量
                  if expected_times_filtered:
-                     logger.info(f"预期时间点范围调整为: {expected_times_filtered[0]} 至 {expected_times_filtered[-1]}，调整后预期时间点数量: {len(expected_times_filtered)}，股票: {stock_code} {time_level_str}")
+                     logger.debug(f"预期时间点范围调整为: {expected_times_filtered[0]} 至 {expected_times_filtered[-1]}，调整后预期时间点数量: {len(expected_times_filtered)}，股票: {stock_code} {time_level_str}")
                  else:
                      # 如果过滤后为空，说明获取到的数据的时间范围内没有任何标准的 K 线结束时间点
                      logger.warning(f"在实际数据时间范围 {min_time} 至 {max_time} 内没有找到预期的标准K线结束时间点，股票: {stock_code} {time_level_str}")
@@ -754,7 +754,7 @@ class IndicatorDAO(BaseDAO):
             df.drop(columns=['trade_time'], inplace=True)
             # 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
-            logger.info(f"成功获取并处理股票 {stock_code} 的筹码分布汇总数据，数据量: {len(df)} 条")
+            logger.debug(f"成功获取并处理股票 {stock_code} 的筹码分布汇总数据，数据量: {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"获取股票 {stock_code} 筹码分布汇总数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
@@ -818,7 +818,7 @@ class IndicatorDAO(BaseDAO):
             df.index = df['trade_time']
             df.drop(columns=['trade_time'], inplace=True)
             df.sort_index(ascending=True, inplace=True)
-            logger.info(f"成功获取并处理股票 {stock_code} 的日级资金流向数据，数据量: {len(df)} 条")
+            logger.debug(f"成功获取并处理股票 {stock_code} 的日级资金流向数据，数据量: {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"获取股票 {stock_code} 日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
@@ -872,7 +872,7 @@ class IndicatorDAO(BaseDAO):
             df.index = df['trade_time']
             df.drop(columns=['trade_time'], inplace=True)
             df.sort_index(ascending=True, inplace=True)
-            logger.info(f"成功获取并处理股票 {stock_code} 的同花顺日级资金流向数据，数据量: {len(df)} 条")
+            logger.debug(f"成功获取并处理股票 {stock_code} 的同花顺日级资金流向数据，数据量: {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"获取股票 {stock_code} 同花顺日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
@@ -928,7 +928,7 @@ class IndicatorDAO(BaseDAO):
             df.index = df['trade_time']
             df.drop(columns=['trade_time'], inplace=True)
             df.sort_index(ascending=True, inplace=True)
-            logger.info(f"成功获取并处理股票 {stock_code} 的东方财富日级资金流向数据，数据量: {len(df)} 条")
+            logger.debug(f"成功获取并处理股票 {stock_code} 的东方财富日级资金流向数据，数据量: {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"获取股票 {stock_code} 东方财富日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)

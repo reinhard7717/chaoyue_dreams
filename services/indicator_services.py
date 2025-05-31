@@ -157,7 +157,7 @@ class IndicatorService:
             df.rename(columns={'amount_col_from_dao': 'amount'}, inplace=True)
             logger.debug(f"[{stock_code}] 时间级别 {time_level}: 示例性重命名 'amount_col_from_dao' 为 'amount'.")
         if isinstance(df.index, pd.DatetimeIndex) and df.index.tzinfo is not None:
-             logger.info(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
+             logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
         else:
              logger.warning(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，但索引不是时区感知的 DatetimeIndex。")
         return df
@@ -380,7 +380,7 @@ class IndicatorService:
             all_indices_df = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='outer'), all_indices_dfs_list)
         
         if not all_indices_df.empty: # 修改行: 检查合并后的 all_indices_df
-            logger.info(f"已获取并合并指数/板块数据，数据量: {len(all_indices_df)} 条，列数: {len(all_indices_df.columns)}")
+            logger.debug(f"已获取并合并指数/板块数据，数据量: {len(all_indices_df)} 条，列数: {len(all_indices_df.columns)}")
         else:
             logger.warning(f"未获取到任何指数/板块数据 for {stock_code}")
             all_indices_df = pd.DataFrame(index=df.index if not df.empty else None)
@@ -388,14 +388,14 @@ class IndicatorService:
         if cyq_perf_df is not None and not cyq_perf_df.empty:
             cyq_perf_df.drop(columns=['stock_code'], inplace=True, errors='ignore')
             cyq_perf_df.columns = [f'cyq_{col}' for col in cyq_perf_df.columns]
-            logger.info(f"已获取股票 {stock_code} 的筹码分布汇总数据，数据量: {len(cyq_perf_df)} 条，列数: {len(cyq_perf_df.columns)}")
+            logger.debug(f"已获取股票 {stock_code} 的筹码分布汇总数据，数据量: {len(cyq_perf_df)} 条，列数: {len(cyq_perf_df.columns)}")
         else:
             logger.warning(f"未获取到股票 {stock_code} 的筹码分布汇总数据")
             cyq_perf_df = pd.DataFrame(index=df.index if not df.empty else None)
 
         fund_flow_cnt_ths_dfs_list = [] # 修改行: 优化合并逻辑
         if fund_flow_cnt_ths_df_raw is not None and not fund_flow_cnt_ths_df_raw.empty:
-             logger.info(f"已获取同花顺板块资金流向统计数据 (原始)，数据量: {len(fund_flow_cnt_ths_df_raw)} 条")
+             logger.debug(f"已获取同花顺板块资金流向统计数据 (原始)，数据量: {len(fund_flow_cnt_ths_df_raw)} 条")
              for ths_code_ff in fund_flow_cnt_ths_df_raw['ts_code'].unique(): # 修改变量名避免冲突
                   cnt_df = fund_flow_cnt_ths_df_raw[fund_flow_cnt_ths_df_raw['ts_code'] == ths_code_ff].copy()
                   if not cnt_df.empty:
@@ -409,13 +409,13 @@ class IndicatorService:
         if fund_flow_cnt_ths_dfs_list: # 修改行
             fund_flow_cnt_ths_df_processed = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='outer'), fund_flow_cnt_ths_dfs_list)
             if not fund_flow_cnt_ths_df_processed.empty:
-                 logger.info(f"已处理同花顺板块资金流向统计数据，数据量: {len(fund_flow_cnt_ths_df_processed)} 条，列数: {len(fund_flow_cnt_ths_df_processed.columns)}")
+                 logger.debug(f"已处理同花顺板块资金流向统计数据，数据量: {len(fund_flow_cnt_ths_df_processed)} 条，列数: {len(fund_flow_cnt_ths_df_processed.columns)}")
             else:
                  logger.warning(f"处理同花顺板块资金流向统计数据后 DataFrame 为空 for {ths_codes}")
         
         fund_flow_industry_ths_dfs_list = [] # 修改行: 优化合并逻辑
         if fund_flow_industry_ths_df_raw is not None and not fund_flow_industry_ths_df_raw.empty:
-             logger.info(f"已获取同花顺行业资金流向统计数据 (原始)，数据量: {len(fund_flow_industry_ths_df_raw)} 条")
+             logger.debug(f"已获取同花顺行业资金流向统计数据 (原始)，数据量: {len(fund_flow_industry_ths_df_raw)} 条")
              for ths_code_fi in fund_flow_industry_ths_df_raw['ts_code'].unique(): # 修改变量名
                   ind_df = fund_flow_industry_ths_df_raw[fund_flow_industry_ths_df_raw['ts_code'] == ths_code_fi].copy()
                   if not ind_df.empty:
@@ -429,7 +429,7 @@ class IndicatorService:
         if fund_flow_industry_ths_dfs_list: # 修改行
             fund_flow_industry_ths_df_processed = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='outer'), fund_flow_industry_ths_dfs_list)
             if not fund_flow_industry_ths_df_processed.empty:
-                 logger.info(f"已处理同花顺行业资金流向统计数据，数据量: {len(fund_flow_industry_ths_df_processed)} 条，列数: {len(fund_flow_industry_ths_df_processed.columns)}")
+                 logger.debug(f"已处理同花顺行业资金流向统计数据，数据量: {len(fund_flow_industry_ths_df_processed)} 条，列数: {len(fund_flow_industry_ths_df_processed.columns)}")
             else:
                  logger.warning(f"处理同花顺行业资金流向统计数据后 DataFrame 为空 for {ths_codes}")
 
@@ -449,18 +449,18 @@ class IndicatorService:
             merged_external_df = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='outer'), valid_external_dfs)
         
         if not merged_external_df.empty:
-             logger.info(f"所有外部特征数据合并完成，数据量: {len(merged_external_df)} 条，列数: {len(merged_external_df.columns)}")
-             # 确保索引类型一致性，都转为不含时区（naive）的 DatetimeIndex 进行合并，或都为带时区的
-             # 主 df.index 是时区感知的，外部特征的索引通常是 naive date 转换为 tz-aware DatetimeIndex
-             # DAO 层应该已经统一了外部特征的索引为时区感知的 DatetimeIndex
-             # 如果没有，这里可能需要 df.index.tz_localize(None) 和 merged_external_df.index.tz_localize(None)
-             # 但由于主 df 是 tz-aware，外部特征也应该是，以避免错误
-             final_df = pd.merge(df, merged_external_df, left_index=True, right_index=True, how='left')
-             logger.info(f"外部特征已合并到主 DataFrame，合并后数据量: {len(final_df)} 条，列数: {len(final_df.columns)}")
-             return final_df
+            #  logger.info(f"所有外部特征数据合并完成，数据量: {len(merged_external_df)} 条，列数: {len(merged_external_df.columns)}")
+            # 确保索引类型一致性，都转为不含时区（naive）的 DatetimeIndex 进行合并，或都为带时区的
+            # 主 df.index 是时区感知的，外部特征的索引通常是 naive date 转换为 tz-aware DatetimeIndex
+            # DAO 层应该已经统一了外部特征的索引为时区感知的 DatetimeIndex
+            # 如果没有，这里可能需要 df.index.tz_localize(None) 和 merged_external_df.index.tz_localize(None)
+            # 但由于主 df 是 tz-aware，外部特征也应该是，以避免错误
+            final_df = pd.merge(df, merged_external_df, left_index=True, right_index=True, how='left')
+            logger.info(f"外部特征已合并到主 DataFrame，合并后数据量: {len(final_df)} 条，列数: {len(final_df.columns)}")
+            return final_df
         else:
-             logger.warning(f"没有获取到任何外部特征数据 for {stock_code}，返回原始 DataFrame。")
-             return df
+            logger.warning(f"没有获取到任何外部特征数据 for {stock_code}，返回原始 DataFrame。")
+            return df
 
     async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
         """
@@ -506,7 +506,7 @@ class IndicatorService:
             return None, None
         main_index_codes = params.get('base_scoring', {}).get('main_index_codes', [])
         if not main_index_codes:
-             logger.warning(f"[{stock_code}] JSON 参数中未配置 'base_scoring.main_index_codes'，相对强度计算将仅使用股票所属板块作为基准。")
+            logger.warning(f"[{stock_code}] JSON 参数中未配置 'base_scoring.main_index_codes'，相对强度计算将仅使用股票所属板块作为基准。")
         fe_params = params.get('feature_engineering_params', {})
         external_data_history_days = fe_params.get('external_data_history_days', 365)
         logger.info(f"[{stock_code}] 外部特征历史数据天数 (从 JSON 读取): {external_data_history_days}")
@@ -524,12 +524,12 @@ class IndicatorService:
                 'param_override_key': param_override_key
             })
         def _get_indicator_params(param_block: Dict, default_params: Dict, param_override_key: Optional[str] = None) -> Dict:
-             indi_specific_params_json = param_block.get(param_override_key, param_block) if param_override_key else param_block
-             final_calc_params = default_params.copy()
-             for k, v_json in indi_specific_params_json.items():
-                 if k in final_calc_params:
-                      final_calc_params[k] = v_json
-             return final_calc_params
+            indi_specific_params_json = param_block.get(param_override_key, param_block) if param_override_key else param_block
+            final_calc_params = default_params.copy()
+            for k, v_json in indi_specific_params_json.items():
+                if k in final_calc_params:
+                    final_calc_params[k] = v_json
+            return final_calc_params
         bs_params = params.get('base_scoring', {})
         bs_timeframes = bs_params.get('timeframes', ['5', '15', '30', '60', 'D'])
         all_time_levels_needed.update(bs_timeframes)
@@ -573,7 +573,7 @@ class IndicatorService:
                     'period': bs_params.get('boll_period', default_boll_p['period']),
                     'std_dev': bs_params.get('boll_std_dev', default_boll_p['std_dev'])
                 }
-                print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {calc_params} 应用于时间框架: {bs_timeframes}")
+                # print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {calc_params} 应用于时间框架: {bs_timeframes}")
                 _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'cci':
                 calc_params = {'period': bs_params.get('cci_period', default_cci_p['period'])}
@@ -585,7 +585,7 @@ class IndicatorService:
                 calc_params = {'period': bs_params.get('roc_period', default_roc_p['period'])}
                 _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'dmi':
-                print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}")
+                # print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}")
                 calc_params = {'period': bs_params.get('dmi_period', default_dmi_p['period'])}
                 _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'sar':
@@ -611,9 +611,9 @@ class IndicatorService:
         target_vol_ana_tfs = list(set(vol_ana_tfs_vc) | set(ia_tfs) | set(bs_timeframes))
         all_time_levels_needed.update(target_vol_ana_tfs)
         if vc_params.get('enabled', False) or ia_params.get('calculate_amt_ma', False):
-             amt_ma_p = vc_params.get('amount_ma_period', ia_params.get('amount_ma_period', 20))
-             amt_ma_calc_params = {'period': amt_ma_p}
-             _add_indicator_config('AMT_MA', self.calculate_amount_ma, 'volume_confirmation' if vc_params.get('enabled', False) else 'indicator_analysis_params', amt_ma_calc_params, target_vol_ana_tfs, param_override_key='amount_ma_params')
+            amt_ma_p = vc_params.get('amount_ma_period', ia_params.get('amount_ma_period', 20))
+            amt_ma_calc_params = {'period': amt_ma_p}
+            _add_indicator_config('AMT_MA', self.calculate_amount_ma, 'volume_confirmation' if vc_params.get('enabled', False) else 'indicator_analysis_params', amt_ma_calc_params, target_vol_ana_tfs, param_override_key='amount_ma_params')
         if vc_params.get('enabled', False) or ia_params.get('calculate_cmf', False):
             cmf_p = vc_params.get('cmf_period', ia_params.get('cmf_period', 20))
             cmf_calc_params = {'period': cmf_p}
@@ -629,7 +629,7 @@ class IndicatorService:
             _add_indicator_config('STOCH', self.calculate_stoch, 'indicator_analysis_params', stoch_calc_params, ia_timeframes)
         if ia_params.get('calculate_vwap', False):
             vwap_calc_params = _get_indicator_params(ia_params, {'anchor': None}, param_override_key='vwap_params')
-            print(f"[{stock_code}] Debug: 注册 VWAP 计算配置，应用于时间框架: {ia_timeframes}")
+            # print(f"[{stock_code}] Debug: 注册 VWAP 计算配置，应用于时间框架: {ia_timeframes}")
             _add_indicator_config('VWAP', self.calculate_vwap, 'indicator_analysis_params', vwap_calc_params, ia_timeframes)
         if ia_params.get('calculate_adl', False):
             _add_indicator_config('ADL', self.calculate_adl, 'indicator_analysis_params', {}, ia_timeframes, param_override_key='adl_params')
@@ -644,37 +644,37 @@ class IndicatorService:
         fe_timeframes = [fe_timeframes_cfg] if isinstance(fe_timeframes_cfg, str) else fe_timeframes_cfg if fe_params else []
         all_time_levels_needed.update(fe_timeframes)
         if fe_params.get('calculate_atr', False):
-             atr_calc_params = _get_indicator_params(fe_params, default_atr_p, param_override_key='atr_params')
-             _add_indicator_config('ATR', self.calculate_atr, 'feature_engineering_params', atr_calc_params, fe_timeframes)
+            atr_calc_params = _get_indicator_params(fe_params, default_atr_p, param_override_key='atr_params')
+            _add_indicator_config('ATR', self.calculate_atr, 'feature_engineering_params', atr_calc_params, fe_timeframes)
         if fe_params.get('calculate_hv', False):
-             hv_calc_params = _get_indicator_params(fe_params, default_hv_p, param_override_key='hv_params')
-             _add_indicator_config('HV', self.calculate_historical_volatility, 'feature_engineering_params', hv_calc_params, fe_timeframes)
+            hv_calc_params = _get_indicator_params(fe_params, default_hv_p, param_override_key='hv_params')
+            _add_indicator_config('HV', self.calculate_historical_volatility, 'feature_engineering_params', hv_calc_params, fe_timeframes)
         if fe_params.get('calculate_kc', False):
-             kc_calc_params = _get_indicator_params(fe_params, default_kc_p, param_override_key='kc_params')
-             _add_indicator_config('KC', self.calculate_keltner_channels, 'feature_engineering_params', kc_calc_params, fe_timeframes)
+            kc_calc_params = _get_indicator_params(fe_params, default_kc_p, param_override_key='kc_params')
+            _add_indicator_config('KC', self.calculate_keltner_channels, 'feature_engineering_params', kc_calc_params, fe_timeframes)
         if fe_params.get('calculate_mom', False):
-             mom_calc_params = _get_indicator_params(fe_params, default_mom_p, param_override_key='mom_params')
-             _add_indicator_config('MOM', self.calculate_mom, 'feature_engineering_params', mom_calc_params, fe_timeframes)
+            mom_calc_params = _get_indicator_params(fe_params, default_mom_p, param_override_key='mom_params')
+            _add_indicator_config('MOM', self.calculate_mom, 'feature_engineering_params', mom_calc_params, fe_timeframes)
         if fe_params.get('calculate_willr', False):
-             willr_calc_params = _get_indicator_params(fe_params, default_willr_p, param_override_key='willr_params')
-             _add_indicator_config('WILLR', self.calculate_willr, 'feature_engineering_params', willr_calc_params, fe_timeframes)
+            willr_calc_params = _get_indicator_params(fe_params, default_willr_p, param_override_key='willr_params')
+            _add_indicator_config('WILLR', self.calculate_willr, 'feature_engineering_params', willr_calc_params, fe_timeframes)
         if fe_params.get('calculate_vroc', False):
-             vroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='vroc_params')
-             _add_indicator_config('VROC', self.calculate_volume_roc, 'feature_engineering_params', vroc_calc_params, fe_timeframes)
+            vroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='vroc_params')
+            _add_indicator_config('VROC', self.calculate_volume_roc, 'feature_engineering_params', vroc_calc_params, fe_timeframes)
         if fe_params.get('calculate_aroc', False):
-             aroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='aroc_params')
-             _add_indicator_config('AROC', self.calculate_amount_roc, 'feature_engineering_params', aroc_calc_params, fe_timeframes)
+            aroc_calc_params = _get_indicator_params(fe_params, default_roc_p, param_override_key='aroc_params')
+            _add_indicator_config('AROC', self.calculate_amount_roc, 'feature_engineering_params', aroc_calc_params, fe_timeframes)
         for ma_type, ma_func in [('EMA', self.calculate_ema), ('SMA', self.calculate_sma)]:
             ma_periods = fe_params.get(f'{ma_type.lower()}_periods', [])
             if ma_periods:
                 for p_val in ma_periods:
-                     if isinstance(p_val, int) and p_val > 0:
-                         ma_calc_params = {'period': p_val}
-                         _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes)
+                    if isinstance(p_val, int) and p_val > 0:
+                        ma_calc_params = {'period': p_val}
+                        _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes)
             elif fe_params.get(f'calculate_{ma_type.lower()}', False):
-                 ma_p = fe_params.get(f'{ma_type.lower()}_period', default_sma_ema_p['period'])
-                 ma_calc_params = {'period': ma_p}
-                 _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes)
+                ma_p = fe_params.get(f'{ma_type.lower()}_period', default_sma_ema_p['period'])
+                ma_calc_params = {'period': ma_p}
+                _add_indicator_config(ma_type, ma_func, 'feature_engineering_params', ma_calc_params, fe_timeframes)
         if not any(conf['name'] == 'OBV' for conf in indicator_configs):
             _add_indicator_config('OBV', self.calculate_obv, None, {}, list(all_time_levels_needed))
         focus_tf = params.get('trend_following_params', {}).get('focus_timeframe', '30')
@@ -688,8 +688,8 @@ class IndicatorService:
         for tf_str_loop in all_time_levels_needed:
             minutes = self._get_timeframe_in_minutes(tf_str_loop)
             if minutes is not None and minutes < min_tf_minutes:
-                 min_tf_minutes = minutes
-                 min_time_level = tf_str_loop
+                min_tf_minutes = minutes
+                min_time_level = tf_str_loop
         if min_time_level is None and bs_timeframes:
              min_time_level = bs_timeframes[0]
              print(f"[{stock_code}] Debug: 无法精确确定最小时间级别 (按分钟)，回退使用基础时间级别列表的第一个: {min_time_level}")
@@ -701,11 +701,11 @@ class IndicatorService:
         unique_configs_for_lookback = {}
         for config in indicator_configs:
             if config.get('param_block_key') is None and config['name'] != 'OBV':
-                 continue
+                continue
             params_hashable = tuple(sorted(config['params'].items()))
             key = (config['name'], params_hashable)
             if key not in unique_configs_for_lookback:
-                 unique_configs_for_lookback[key] = config
+                unique_configs_for_lookback[key] = config
         print(f"[{stock_code}] Debug: 用于回看期计算的唯一指标配置数量: {len(unique_configs_for_lookback)}")
         for config in unique_configs_for_lookback.values():
             current_max_period = 0
@@ -722,21 +722,21 @@ class IndicatorService:
             if config['name'] == 'DMI' and 'period' in config['params']:
                 current_max_period = max(current_max_period, int(config['params']['period'] * 2.5 + 10))
             if config['name'] == 'KC':
-                 p_kc = config['params']
-                 current_max_period = max(current_max_period, p_kc.get('ema_period', 0), p_kc.get('atr_period', 0))
+                p_kc = config['params']
+                current_max_period = max(current_max_period, p_kc.get('ema_period', 0), p_kc.get('atr_period', 0))
             if config['name'] == 'Ichimoku':
-                 p_ichi = config['params']
-                 current_max_period = max(current_max_period, p_ichi.get('tenkan_period', 0), p_ichi.get('kijun_period', 0), p_ichi.get('senkou_period', 0))
+                p_ichi = config['params']
+                current_max_period = max(current_max_period, p_ichi.get('tenkan_period', 0), p_ichi.get('kijun_period', 0), p_ichi.get('senkou_period', 0))
             if config['name'] in ['EMA', 'SMA']:
-                 current_max_period = max(current_max_period, config['params'].get('period', 0))
+                current_max_period = max(current_max_period, config['params'].get('period', 0))
             if config['name'] in ['AMT_MA', 'VOL_MA', 'MOM', 'WILLR', 'VROC', 'AROC', 'RSI', 'CCI', 'MFI', 'ROC', 'ATR', 'SAR']:
-                 current_max_period = max(current_max_period,
+                current_max_period = max(current_max_period,
                                            config['params'].get('period', 0),
                                            config['params'].get('k_period', 0),
                                            config['params'].get('atr_period', 0))
             if config['name'] == 'KDJ':
-                 p_kdj = config['params']
-                 current_max_period = max(current_max_period, p_kdj.get('period', 0), p_kdj.get('signal_period', 0), p_kdj.get('smooth_k_period', 0))
+                p_kdj = config['params']
+                current_max_period = max(current_max_period, p_kdj.get('period', 0), p_kdj.get('signal_period', 0), p_kdj.get('smooth_k_period', 0))
             global_max_lookback = max(global_max_lookback, current_max_period)
         global_max_lookback += 100
         logger.info(f"[{stock_code}] 动态计算的全局指标最大回看期 (含缓冲): {global_max_lookback}")
@@ -754,8 +754,8 @@ class IndicatorService:
             ohlcv_tasks[tf_fetch] = self._get_ohlcv_data(stock_code, tf_fetch, needed_bars=needed_bars_for_tf)
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         raw_ohlcv_dfs = dict(zip(all_time_levels_needed, ohlcv_results))
-        for tf_debug, df_debug in raw_ohlcv_dfs.items():
-            print(f"  - TF {tf_debug}: {'None/Empty' if df_debug is None or df_debug.empty else f'Shape {df_debug.shape}, Columns: {df_debug.columns.tolist()}'}")
+        # for tf_debug, df_debug in raw_ohlcv_dfs.items():
+        #     print(f"  - TF {tf_debug}: {'None/Empty' if df_debug is None or df_debug.empty else f'Shape {df_debug.shape}, Columns: {df_debug.columns.tolist()}'}")
         
         # --- 修改开始: 并行化重采样 ---
         resampled_ohlcv_dfs = {}
@@ -794,7 +794,7 @@ class IndicatorService:
                 if len(resampled_df_processed) < global_max_lookback * 0.5:
                     logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据量 {len(resampled_df_processed)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。")
                 
-                print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_processed.columns.tolist()[:20]}...")
+                # print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_processed.columns.tolist()[:20]}...")
                 resampled_ohlcv_dfs[tf_resample] = resampled_df_processed
         # --- 修改结束: 并行化重采样 ---
 
@@ -804,7 +804,7 @@ class IndicatorService:
              logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
              return None, None
         base_index = resampled_ohlcv_dfs[min_time_level].index
-        logger.info(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，数量: {len(base_index)}。")
+        logger.debug(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，数量: {len(base_index)}。")
         indicator_calculation_tasks = []
         async def _calculate_single_indicator_async(tf_calc: str, base_df_with_suffix: pd.DataFrame, config_item: Dict) -> Optional[Tuple[str, pd.DataFrame]]:
             """
@@ -837,13 +837,13 @@ class IndicatorService:
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
                 # --- 修改结束 ---
                 if indicator_result_df is None:
-                     print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。")
-                     logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为 None。")
-                     return None, None
+                    print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。")
+                    logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为 None。")
+                    return None, None
                 if indicator_result_df.empty:
-                     print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 Empty DataFrame。")
-                     logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为空。")
-                     return None, None
+                    print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 Empty DataFrame。")
+                    logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为空。")
+                    return None, None
                 if not isinstance(indicator_result_df, pd.DataFrame):
                     logger.warning(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算函数未返回DataFrame (返回类型: {type(indicator_result_df)})。尝试转换。")
                     if isinstance(indicator_result_df, pd.Series):
@@ -878,28 +878,28 @@ class IndicatorService:
                 if indi_df_res is not None and not indi_df_res.empty:
                     calculated_indicators_by_tf[tf_res].append(indi_df_res)
             elif isinstance(res_tuple_item, Exception):
-                 print(f"[{stock_code}] Debug: 指标计算任务发生异常: {res_tuple_item}")
-                 logger.error(f"[{stock_code}] 指标计算任务发生异常: {res_tuple_item}", exc_info=res_tuple_item) # 修改行: 传递异常实例给 exc_info
+                print(f"[{stock_code}] Debug: 指标计算任务发生异常: {res_tuple_item}")
+                logger.error(f"[{stock_code}] 指标计算任务发生异常: {res_tuple_item}", exc_info=res_tuple_item) # 修改行: 传递异常实例给 exc_info
             else:
-                 print(f"[{stock_code}] Debug: 指标计算任务返回非预期结果: {res_tuple_item}")
-                 logger.warning(f"[{stock_code}] 指标计算任务返回非预期结果: {res_tuple_item}")
+                print(f"[{stock_code}] Debug: 指标计算任务返回非预期结果: {res_tuple_item}")
+                logger.warning(f"[{stock_code}] 指标计算任务返回非预期结果: {res_tuple_item}")
         final_df = resampled_ohlcv_dfs.get(min_time_level)
         if final_df is None or final_df.empty:
-             logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
-             return None, None
+            logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
+            return None, None
         
         dfs_to_merge = [final_df] # 修改行: 使用列表收集待合并的DF
         for tf_merge, df_to_merge in resampled_ohlcv_dfs.items():
-             if tf_merge != min_time_level and df_to_merge is not None and not df_to_merge.empty:
-                  dfs_to_merge.append(df_to_merge) # 修改行
+            if tf_merge != min_time_level and df_to_merge is not None and not df_to_merge.empty:
+                dfs_to_merge.append(df_to_merge) # 修改行
         
         for tf_indi, indi_dfs_list in calculated_indicators_by_tf.items():
-             if indi_dfs_list:
-                  merged_indi_df_for_tf = pd.concat(indi_dfs_list, axis=1)
-                  if not merged_indi_df_for_tf.empty:
-                       dfs_to_merge.append(merged_indi_df_for_tf) # 修改行
-                  else:
-                       logger.warning(f"[{stock_code}] 时间级别 {tf_indi} 的指标数据合并后为空。")
+            if indi_dfs_list:
+                merged_indi_df_for_tf = pd.concat(indi_dfs_list, axis=1)
+                if not merged_indi_df_for_tf.empty:
+                    dfs_to_merge.append(merged_indi_df_for_tf) # 修改行
+                else:
+                    logger.warning(f"[{stock_code}] 时间级别 {tf_indi} 的指标数据合并后为空。")
 
         if not dfs_to_merge: # 修改行: 如果列表为空
             logger.error(f"[{stock_code}] 没有可合并的数据。")
@@ -909,8 +909,8 @@ class IndicatorService:
         final_df = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='left'), dfs_to_merge)
         
         if final_df is None or final_df.empty:
-             logger.error(f"[{stock_code}] 合并所有 OHLCV 和指标数据后 DataFrame 为空。")
-             return None, None
+            logger.error(f"[{stock_code}] 合并所有 OHLCV 和指标数据后 DataFrame 为空。")
+            return None, None
         logger.info(f"[{stock_code}] 所有 OHLCV 和指标数据合并完成，最终 Shape: {final_df.shape}, 列数: {len(final_df.columns)}")
         logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")
         final_df = await self.enrich_features(df=final_df, stock_code=stock_code, main_indices=main_index_codes, external_data_history_days=external_data_history_days)
@@ -946,7 +946,7 @@ class IndicatorService:
              columns_to_lag_from_json = lag_config.get('columns_to_lag', [])
              lags = lag_config.get('lags', [1, 2, 3])
              if columns_to_lag_from_json and lags:
-                  logger.info(f"[{stock_code}] 开始添加滞后特征...")
+                  logger.debug(f"[{stock_code}] 开始添加滞后特征...")
                   for tf_apply in apply_on_tfs:
                        actual_cols_for_lagging = []
                        for col_template_from_json in columns_to_lag_from_json:
@@ -978,14 +978,14 @@ class IndicatorService:
                             logger.warning(f"[{stock_code}] 添加滞后特征 for TF {tf_apply} 失败，未找到任何有效列。JSON配置: {columns_to_lag_from_json}")
                   logger.info(f"[{stock_code}] 滞后特征添加完成。")
              else:
-                  logger.warning(f"[{stock_code}] 滞后特征未启用或配置不完整。")
+                logger.warning(f"[{stock_code}] 滞后特征未启用或配置不完整。")
         roll_config = fe_config.get('rolling_features', {})
         if roll_config.get('enabled', False):
              columns_to_roll_from_json = roll_config.get('columns_to_roll', [])
              windows = roll_config.get('windows', [5, 10, 20])
              stats = roll_config.get('stats', ["mean", "std"])
              if columns_to_roll_from_json and windows and stats:
-                  logger.info(f"[{stock_code}] 开始添加滚动统计特征...")
+                  logger.debug(f"[{stock_code}] 开始添加滚动统计特征...")
                   for tf_apply in apply_on_tfs:
                        actual_cols_for_rolling = []
                        for col_template_from_json in columns_to_roll_from_json:
@@ -993,8 +993,8 @@ class IndicatorService:
                             if col_template_from_json.startswith("RSI"):
                                 effective_base_name = f"RSI_{actual_rsi_period}"
                             elif col_template_from_json.startswith("MACD_") and \
-                                 not col_template_from_json.startswith("MACDh_") and \
-                                 not col_template_from_json.startswith("MACDs_"):
+                                not col_template_from_json.startswith("MACDh_") and \
+                                not col_template_from_json.startswith("MACDs_"):
                                 effective_base_name = f"MACD_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
                             elif col_template_from_json.startswith("MACDh_"):
                                 effective_base_name = f"MACDh_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
@@ -1002,13 +1002,13 @@ class IndicatorService:
                                 effective_base_name = f"MACDs_{actual_macd_fast}_{actual_macd_slow}_{actual_macd_signal}"
                             col_with_suffix = f"{effective_base_name}_{tf_apply}"
                             if col_with_suffix in final_df.columns:
-                                 actual_cols_for_rolling.append(col_with_suffix)
+                                actual_cols_for_rolling.append(col_with_suffix)
                             else:
-                                 if effective_base_name in final_df.columns:
-                                      actual_cols_for_rolling.append(effective_base_name)
-                                      logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 进行滚动统计计算。")
-                                 else:
-                                      logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 或其带后缀形式 {col_with_suffix} 进行滚动统计计算。")
+                                if effective_base_name in final_df.columns:
+                                    actual_cols_for_rolling.append(effective_base_name)
+                                    logger.debug(f"[{stock_code}] TF {tf_apply}: 找到不带时间级别后缀的列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 进行滚动统计计算。")
+                                else:
+                                    logger.warning(f"[{stock_code}] TF {tf_apply}: 未找到指定列 {effective_base_name} (来自JSON模板 {col_template_from_json}) 或其带后缀形式 {col_with_suffix} 进行滚动统计计算。")
                        if actual_cols_for_rolling:
                             logger.debug(f"[{stock_code}] TF {tf_apply}: 准备为以下列添加滚动统计特征: {actual_cols_for_rolling}")
                             final_df = self.add_rolling_features(final_df, actual_cols_for_rolling, windows, stats)
@@ -1017,15 +1017,15 @@ class IndicatorService:
                             logger.warning(f"[{stock_code}] 滚动统计特征 for TF {tf_apply} 失败，未找到任何指定列。JSON配置: {columns_to_roll_from_json}")
                   logger.info(f"[{stock_code}] 滚动统计特征添加完成。")
              else:
-                  logger.warning(f"[{stock_code}] 滚动统计特征未启用或配置不完整。")
+                logger.warning(f"[{stock_code}] 滚动统计特征未启用或配置不完整。")
         original_nan_count = final_df.isnull().sum().sum()
         final_df.ffill(inplace=True)
         final_df.bfill(inplace=True)
         nan_count_after_fill = final_df.isnull().sum().sum()
         if nan_count_after_fill > 0:
-             logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
+            logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
         else:
-             logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
+            logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
         return final_df, indicator_configs
 
     def filter_to_period_points(self, df: pd.DataFrame, tf: str) -> pd.DataFrame:
@@ -1050,8 +1050,8 @@ class IndicatorService:
                                       ((df.index.time >= datetime.time(13, 0)) & (df.index.time <= datetime.time(15, 0)))
                 trading_minutes = df.index[trading_hours_mask].minute
                 if trading_minutes.empty:
-                     logger.warning(f"在交易时段内没有找到分钟数据点，无法确定周期点: {tf}")
-                     return df
+                    logger.warning(f"在交易时段内没有找到分钟数据点，无法确定周期点: {tf}")
+                    return df
                 mod_counts = trading_minutes % period
                 if mod_counts.empty:
                     logger.warning(f"计算分钟余数时发现空数据，无法确定周期点: {tf}")
@@ -1096,7 +1096,7 @@ class IndicatorService:
                 logger.warning(f"[{stock_code}] 关键列缺失比例(%)(仅显示有缺失的): {key_missing_ratio_filtered.to_dict()}")
             top_missing = non_zero_missing_ratio.sort_values(ascending=False).head(5)
             if not top_missing.empty:
-                 logger.warning(f"[{stock_code}] 缺失比例最高的5列 (仅显示有缺失的): {top_missing.to_dict()}")
+                logger.warning(f"[{stock_code}] 缺失比例最高的5列 (仅显示有缺失的): {top_missing.to_dict()}")
         else:
             logger.info(f"[{stock_code}] 合并填充后所有列数据完整，无缺失值。")
         all_nan_rows = df.isna().all(axis=1).sum()
