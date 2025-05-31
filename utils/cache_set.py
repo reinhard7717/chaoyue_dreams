@@ -144,7 +144,7 @@ class CacheSet():
                 timeout=cache_timeout
             )
             if success:
-                logger.info(f"股票[{stock_code}] 最新策略数据缓存成功, key: {cache_key}")
+                print(f"股票[{stock_code}] 最新策略数据缓存成功, key: {cache_key}")
                 return True
             else:
                 logger.warning(f"缓存股票[{stock_code}] 策略数据失败 (CacheManager.set 返回 False), key: {cache_key}")
