@@ -3948,6 +3948,8 @@ class TrendFollowingStrategy:
 
             cache_set = StrategyCacheSet()
             created = cache_set.analyze_signals_trend_following(stock_code=stock_code,data_to_cache=defaults_payload)
+            print(f"defaults_payload: {defaults_payload}")
+            print(f"created: {created}")
 
             # 使用 update_or_create 方法避免重复创建
             # obj, created = StockScoreAnalysis.objects.update_or_create(
