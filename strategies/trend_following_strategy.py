@@ -1,5 +1,6 @@
 # 此策略侧重于识别和跟随趋势，主要使用 EMA 排列、DMI、SAR 等指标，并以 30 分钟级别为主要权重。
 # strategies/trend_following_strategy.py
+import asyncio
 import pickle
 import optuna
 import pandas as pd
@@ -3947,9 +3948,9 @@ class TrendFollowingStrategy:
             }
 
             cache_set = StrategyCacheSet()
-            created = cache_set.analyze_signals_trend_following(stock_code=stock_code,data_to_cache=defaults_payload)
-            print(f"defaults_payload: {defaults_payload}")
-            print(f"created: {created}")
+            created = asyncio.run(cache_set.analyze_signals_trend_following(stock_code=stock_code, data_to_cache=defaults_payload))
+            # print(f"defaults_payload: {defaults_payload}")
+            # print(f"created: {created}")
 
             # 使用 update_or_create 方法避免重复创建
             # obj, created = StockScoreAnalysis.objects.update_or_create(
