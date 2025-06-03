@@ -1099,7 +1099,7 @@ def train_transformer_model(
     reduce_lr_patience = training_config.get('reduce_lr_patience', 10)
     reduce_lr_factor = training_config.get('reduce_lr_factor', 0.5)
     min_lr = training_config.get('min_lr', 1e-7) # 获取最小学习率配置
-    monitor_metric = training_config.get('monitor_metric', 'val_loss').lower()
+    monitor_metric = training_config.get('monitor_metric', 'avg_val_mae').lower()
     clip_grad_norm_value = training_config.get('clip_grad_norm', None) # 梯度裁剪值
     use_amp_config = training_config.get('use_amp', False) # 是否使用AMP
 
