@@ -54,8 +54,8 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 # 1. 在文件顶部或 main 里，提前生成所有合法组合
-d_model_choices = [64, 128, 256, 512]
-nhead_choices = [2, 3, 4, 5, 6, 7, 8]
+d_model_choices = [2*32, 3*32, 4*32, 5*32, 6*32]
+nhead_choices = [2, 3, 4, 5, 6]
 dmodel_nhead_strs = []
 for d in d_model_choices:
     for n in nhead_choices:
@@ -68,9 +68,9 @@ def objective(trial, strategy, item_name, epochs):
     # 将字符串分割为整数 d_model 和 nhead
     d_model, nhead = map(int, dmodel_nhead_str.split("_"))
     # 采样 dim_feedforward，范围 128 到 512，步长 32
-    dim_feedforward = trial.suggest_int("dim_feedforward", 256, 384, step=16)
+    dim_feedforward = trial.suggest_int("dim_feedforward", 192, 384, step=16)
     # 采样 nlayers，范围 2 到 12
-    nlayers = trial.suggest_int("nlayers", 7, 11)
+    nlayers = trial.suggest_int("nlayers", 4, 8)
     # 采样 dropout，范围 0.05 到 0.5
     dropout = trial.suggest_float("dropout", 0.10, 0.20)
     # 固定激活函数为 gelu
@@ -78,9 +78,9 @@ def objective(trial, strategy, item_name, epochs):
     # 固定学习率调度器为 CosineAnnealingLR
     lr_scheduler = "CosineAnnealingLR"
     # 采样 batch_size，范围 128 到 512，步长 32
-    batch_size = trial.suggest_int("batch_size", 96, 160, step=16)
+    batch_size = trial.suggest_int("batch_size", 160, 288, step=16)
     # 采样 learning_rate，范围 1e-5 到 1e-3，对数尺度
-    learning_rate = trial.suggest_float("learning_rate", 1e-4, 4e-4, log=True)
+    learning_rate = trial.suggest_float("learning_rate", 1e-4, 8e-4, log=True)
     # 采样 weight_decay，范围 1e-5 到 1e-2，对数尺度
     weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-3, log=True)  # 原1e-5-1e-2
     # 采样 clip_grad_norm，范围 0.1 到 1.0

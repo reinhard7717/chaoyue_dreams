@@ -571,14 +571,14 @@ class TrendFollowingStrategy:
         os.makedirs(prepared_data_dir, exist_ok=True)
         trained_model_dir = os.path.join(self.base_data_dir, "trained_model")
         os.makedirs(trained_model_dir, exist_ok=True)
-        self.model_path = trained_model_dir  # os.path.join(trained_model_dir, "trend_following_transformer_weights.pth")
         self.feature_scaler_path = os.path.join(prepared_data_dir, "trend_following_transformer_feature_scaler.save")
         self.target_scaler_path = os.path.join(prepared_data_dir, "trend_following_transformer_target_scaler.save")
         self.selected_features_path = os.path.join(prepared_data_dir, "trend_following_transformer_selected_features.json")
         self.all_prepared_data_npz_path = os.path.join(prepared_data_dir, "all_prepared_data_transformer.npz")
-        logger.debug(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
-        logger.debug(f"  模型权重: {self.model_path}")
-        logger.debug(f"  特征Scaler: {self.feature_scaler_path}")
+        self.model_path = os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
+        print(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
+        print(f"  模型权重: {self.model_path}")
+        print(f"  特征Scaler: {self.feature_scaler_path}")
         logger.debug(f"  目标Scaler: {self.target_scaler_path}")
         logger.debug(f"  准备数据NPZ: {self.all_prepared_data_npz_path}")
         logger.debug(f"  选中特征: {self.selected_features_path}")
@@ -2597,6 +2597,10 @@ class TrendFollowingStrategy:
         # 为了简化，我们假设 load_prepared_data 已经将所需的 self.transformer_model, self.feature_scaler, self.target_scaler, self.selected_feature_names_for_transformer, self.pca_model, self.scaler_for_pca, self.feature_selector_model 加载好了
         # 如果 load_prepared_data 返回了数据，这里可以忽略它们，只关注 self 属性
         _, _, _, _, _, _, feature_scaler_loaded, target_scaler_loaded = self.load_prepared_data(stock_code)
+        # 调用 load_transformer_model 来加载 Transformer 模型本身
+        # 修改开始
+        self.load_transformer_model(stock_code) # 调用此方法加载 Transformer 模型
+        # 修改结束
         # 检查模型和必需的 Scaler/特征列表是否已加载
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
             try:
@@ -2639,7 +2643,7 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号...")
         try:
             # 获取信号组合权重
-            # 从 tf_params 中获取 signal_combination_weights，并确保是字典
+            # 从 tf_params 中获取 signal_combination_weights
             signal_combination_weights = self.tf_params.get('signal_combination_weights', {})
             if not isinstance(signal_combination_weights, dict) or not signal_combination_weights:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 'signal_combination_weights' 参数无效或为空，使用默认权重 {{'rule_weight': 0.6, 'transformer_weight': 0.4}}。")
