@@ -2981,10 +2981,59 @@ class TrendFollowingStrategy:
                  self._reset_model_components() # 重置状态
                  return
 
+            # 修改开始
+            # --- 修正模型配置以匹配已保存的模型权重 ---
+            # 根据错误日志推断的已保存模型参数
+            # 错误日志示例:
+            # size mismatch for embedding.weight: copying a param with shape torch.Size([64, 120]) from checkpoint, the shape in current model is torch.Size([128, 135]).
+            # Missing key(s) in state_dict: "transformer_encoder.layers.5..." (implies nlayers=6)
+            # size mismatch for transformer_encoder.layers.0.linear1.weight: copying a param with shape torch.Size([256, 64]) from checkpoint
+            # size mismatch for transformer_encoder.layers.0.self_attn.in_proj_weight: copying a param with shape torch.Size([192, 64]) from checkpoint
+            
+            # 假设已保存模型的参数是：
+            saved_model_num_features = 120
+            saved_model_d_model = 64
+            saved_model_nlayers = 6
+            saved_model_dim_feedforward = 256
+            saved_model_nhead = 8 # 根据 d_model=64 和 in_proj_weight=192 推断 (192 = 3 * d_model_per_head * nhead; d_model = nhead * d_model_per_head => 192 = 3 * d_model => d_model=64. 如果 nhead=8, d_model_per_head=8, 3*8*8=192)
+
+            config_mismatch_detected = False
+
+            # 检查并修正特征数量
+            if num_features != saved_model_num_features:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 特征数量不匹配: 当前配置 {num_features}，已保存模型 {saved_model_num_features}。将使用已保存模型的特征数量。")
+                num_features = saved_model_num_features
+                config_mismatch_detected = True
+            
+            # 检查并修正模型配置参数
+            current_d_model = self.transformer_model_config.get('d_model')
+            current_nlayers = self.transformer_model_config.get('nlayers')
+            current_dim_feedforward = self.transformer_model_config.get('dim_feedforward')
+            current_nhead = self.transformer_model_config.get('nhead')
+
+            if current_d_model != saved_model_d_model or \
+               current_nlayers != saved_model_nlayers or \
+               current_dim_feedforward != saved_model_dim_feedforward or \
+               current_nhead != saved_model_nhead:
+                
+                logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer模型配置不匹配。当前配置: d_model={current_d_model}, nlayers={current_nlayers}, dim_feedforward={current_dim_feedforward}, nhead={current_nhead}。")
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 将强制使用已保存模型的配置: d_model={saved_model_d_model}, nlayers={saved_model_nlayers}, dim_feedforward={saved_model_dim_feedforward}, nhead={saved_model_nhead}。")
+                
+                # 强制更新模型配置，以匹配已保存的模型
+                self.transformer_model_config['d_model'] = saved_model_d_model
+                self.transformer_model_config['nlayers'] = saved_model_nlayers
+                self.transformer_model_config['dim_feedforward'] = saved_model_dim_feedforward
+                self.transformer_model_config['nhead'] = saved_model_nhead
+                config_mismatch_detected = True
+
+            if config_mismatch_detected:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 注意: 模型配置已临时调整以匹配已保存的 .pth 文件。强烈建议更新策略参数文件和/或重新训练模型以保持一致性。")
+            # 修改结束
+
             # 构建模型
             self.transformer_model = build_transformer_model(
-                num_features=num_features,
-                model_config=self.transformer_model_config,
+                num_features=num_features, # 使用修正后的 num_features
+                model_config=self.transformer_model_config, # 使用修正后的 model_config
                 summary=False, # 加载模型时不打印摘要
                 window_size=self.transformer_window_size
             )
@@ -3013,7 +3062,7 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 加载 Transformer 模型或Scaler或特征列表出错: {e}", exc_info=True)
             self._reset_model_components() # 出现错误时重置状态
-
+            
     def _reset_model_components(self):
         """辅助函数，用于重置模型相关组件状态。"""
         self.transformer_model = None
