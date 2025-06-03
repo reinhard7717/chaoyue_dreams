@@ -2,6 +2,7 @@
 # strategies/trend_following_strategy.py
 import asyncio
 import pickle
+import re
 import optuna
 import pandas as pd
 import numpy as np
