@@ -2975,73 +2975,158 @@ class TrendFollowingStrategy:
                  self.selected_feature_names_for_transformer = json.load(f)
             logger.debug(f"[{self.strategy_name}][{stock_code}] 选中特征名列表 ({len(self.selected_feature_names_for_transformer)}个) 从 {self.selected_features_path} 加载。")
 
-            num_features = len(self.selected_feature_names_for_transformer)
-            if num_features == 0:
+            current_num_features_from_json = len(self.selected_feature_names_for_transformer)
+            if current_num_features_from_json == 0:
                  logger.error(f"[{self.strategy_name}][{stock_code}] 加载的选中特征列表为空，无法构建模型。")
                  self._reset_model_components() # 重置状态
                  return
 
             # 修改开始
-            # --- 修正模型配置以匹配已保存的模型权重 ---
-            # 根据错误日志推断的已保存模型参数
-            # 错误日志示例:
-            # size mismatch for embedding.weight: copying a param with shape torch.Size([64, 120]) from checkpoint, the shape in current model is torch.Size([128, 135]).
-            # Missing key(s) in state_dict: "transformer_encoder.layers.5..." (implies nlayers=6)
-            # size mismatch for transformer_encoder.layers.0.linear1.weight: copying a param with shape torch.Size([256, 64]) from checkpoint
-            # size mismatch for transformer_encoder.layers.0.self_attn.in_proj_weight: copying a param with shape torch.Size([192, 64]) from checkpoint
-            
-            # 假设已保存模型的参数是：
-            saved_model_num_features = 120
-            saved_model_d_model = 64
-            saved_model_nlayers = 6
-            saved_model_dim_feedforward = 256
-            saved_model_nhead = 8 # 根据 d_model=64 和 in_proj_weight=192 推断 (192 = 3 * d_model_per_head * nhead; d_model = nhead * d_model_per_head => 192 = 3 * d_model => d_model=64. 如果 nhead=8, d_model_per_head=8, 3*8*8=192)
+            # --- 动态加载并推断已保存模型的参数 ---
+            logger.debug(f"[{self.strategy_name}][{stock_code}] 尝试从 {self.model_path} 加载模型状态字典以推断参数。")
+            # 1. 加载模型的 state_dict
+            model_state_dict = torch.load(self.model_path, map_location=self.device)
+
+            # 2. 定义辅助函数，从 state_dict 推断模型参数
+            def _infer_model_params_from_state_dict(state_dict: dict) -> dict:
+                inferred_params = {}
+                # 推断 num_features (输入特征维度)
+                if 'embedding.weight' in state_dict:
+                    inferred_params['num_features'] = state_dict['embedding.weight'].shape[1]
+                else:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] 无法从 state_dict 推断 'num_features' (缺少 'embedding.weight')。")
+                    return {}
+
+                # 推断 d_model (模型内部维度)
+                if 'embedding.weight' in state_dict:
+                    inferred_params['d_model'] = state_dict['embedding.weight'].shape[0]
+                elif 'pos_encoder.pe' in state_dict: # 备用推断方式
+                    inferred_params['d_model'] = state_dict['pos_encoder.pe'].shape[1]
+                else:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] 无法从 state_dict 推断 'd_model'。")
+                    return {}
+
+                # 推断 nlayers (Transformer Encoder 层数)
+                max_layer_idx = -1
+                layer_pattern = re.compile(r'transformer_encoder\.layers\.(\d+)\..*')
+                for key in state_dict.keys():
+                    match = layer_pattern.match(key)
+                    if match:
+                        layer_idx = int(match.group(1))
+                        if layer_idx > max_layer_idx:
+                            max_layer_idx = layer_idx
+                inferred_params['nlayers'] = max_layer_idx + 1 if max_layer_idx != -1 else 0
+                if inferred_params['nlayers'] == 0:
+                    logger.warning(f"[{self.strategy_name}][{stock_code}] 未在 state_dict 中找到 Transformer Encoder 层。")
+
+                # 推断 dim_feedforward (前馈网络维度)
+                # 检查是否存在第一层的 linear1.weight
+                if f'transformer_encoder.layers.0.linear1.weight' in state_dict:
+                    inferred_params['dim_feedforward'] = state_dict[f'transformer_encoder.layers.0.linear1.weight'].shape[0]
+                else:
+                    logger.warning(f"[{self.strategy_name}][{stock_code}] 无法从 state_dict 推断 'dim_feedforward' (缺少 'transformer_encoder.layers.0.linear1.weight')。")
+                    inferred_params['dim_feedforward'] = None # 如果无法推断，则设为 None，让 build_transformer_model 使用默认值或配置值
+
+                # 推断 nhead (注意力头数)
+                # nhead 无法直接从 state_dict 的键中推断，因为它不是一个权重或偏置的维度。
+                # 它通常是 d_model / head_dim。
+                # 我们可以尝试从 self_attn.in_proj_weight 的形状来间接推断 d_model，但 nhead 仍需假设。
+                # 最佳实践是，如果 config 中有 nhead，就用 config 的；否则，根据 d_model 给出常见值。
+                # 假设 in_proj_weight 的形状是 (3 * d_model, d_model)
+                # 并且 d_model = nhead * head_dim
+                # 我们可以尝试从 self_attn.out_proj.weight 的形状来推断 head_dim
+                # out_proj.weight 的形状是 (d_model, d_model)
+                # 这是一个复杂的问题，通常 nhead 是一个超参数，在模型训练时确定。
+                # 鉴于之前的日志，d_model=64 时 nhead=8 是一个合理的推断。
+                # 这里我们优先使用当前配置中的 nhead，如果配置中没有，则根据推断的 d_model 给出常见值。
+                inferred_params['nhead'] = self.transformer_model_config.get('nhead')
+                if inferred_params['nhead'] is None:
+                    if inferred_params['d_model'] == 64:
+                        inferred_params['nhead'] = 8
+                    elif inferred_params['d_model'] == 128:
+                        inferred_params['nhead'] = 8 # 也可以是 4
+                    else:
+                        inferred_params['nhead'] = 4 # 一个通用默认值
+                    logger.warning(f"[{self.strategy_name}][{stock_code}] 'nhead' 未在配置中找到，根据推断的 d_model={inferred_params['d_model']} 猜测为 {inferred_params['nhead']}。")
+
+                return inferred_params
+
+            # 3. 调用辅助函数推断已保存模型的参数
+            saved_model_params = _infer_model_params_from_state_dict(model_state_dict)
+            if not saved_model_params:
+                logger.error(f"[{self.strategy_name}][{stock_code}] 无法从模型状态字典推断参数，加载失败。")
+                self._reset_model_components()
+                return
+
+            # 4. 获取推断出的参数
+            saved_model_num_features = saved_model_params.get('num_features')
+            saved_model_d_model = saved_model_params.get('d_model')
+            saved_model_nlayers = saved_model_params.get('nlayers')
+            saved_model_dim_feedforward = saved_model_params.get('dim_feedforward')
+            saved_model_nhead = saved_model_params.get('nhead')
 
             config_mismatch_detected = False
 
-            # 检查并修正特征数量
-            if num_features != saved_model_num_features:
-                logger.warning(f"[{self.strategy_name}][{stock_code}] 特征数量不匹配: 当前配置 {num_features}，已保存模型 {saved_model_num_features}。将使用已保存模型的特征数量。")
-                num_features = saved_model_num_features
+            # 5. 比较当前配置与推断出的参数，并进行调整
+            # 调整 num_features
+            if current_num_features_from_json != saved_model_num_features:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 特征数量不匹配: JSON配置 {current_num_features_from_json}，已保存模型 {saved_model_num_features}。将使用已保存模型的特征数量。")
+                num_features_for_build = saved_model_num_features
+                config_mismatch_detected = True
+            else:
+                num_features_for_build = current_num_features_from_json
+            
+            # 创建一个临时配置字典，用于构建模型，优先使用推断出的参数
+            temp_model_config = self.transformer_model_config.copy()
+
+            # 调整 d_model
+            current_d_model = self.transformer_model_config.get('d_model')
+            if current_d_model != saved_model_d_model:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] d_model 不匹配: 配置 {current_d_model}，已保存模型 {saved_model_d_model}。将使用已保存模型的 d_model。")
+                temp_model_config['d_model'] = saved_model_d_model
                 config_mismatch_detected = True
             
-            # 检查并修正模型配置参数
-            current_d_model = self.transformer_model_config.get('d_model')
+            # 调整 nlayers
             current_nlayers = self.transformer_model_config.get('nlayers')
+            if current_nlayers != saved_model_nlayers:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] nlayers 不匹配: 配置 {current_nlayers}，已保存模型 {saved_model_nlayers}。将使用已保存模型的 nlayers。")
+                temp_model_config['nlayers'] = saved_model_nlayers
+                config_mismatch_detected = True
+            
+            # 调整 dim_feedforward (如果推断出且与当前配置不同)
             current_dim_feedforward = self.transformer_model_config.get('dim_feedforward')
+            if saved_model_dim_feedforward is not None and current_dim_feedforward != saved_model_dim_feedforward:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] dim_feedforward 不匹配: 配置 {current_dim_feedforward}，已保存模型 {saved_model_dim_feedforward}。将使用已保存模型的 dim_feedforward。")
+                temp_model_config['dim_feedforward'] = saved_model_dim_feedforward
+                config_mismatch_detected = True
+            
+            # 调整 nhead (如果推断出且与当前配置不同，或当前配置中没有)
             current_nhead = self.transformer_model_config.get('nhead')
-
-            if current_d_model != saved_model_d_model or \
-               current_nlayers != saved_model_nlayers or \
-               current_dim_feedforward != saved_model_dim_feedforward or \
-               current_nhead != saved_model_nhead:
-                
-                logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer模型配置不匹配。当前配置: d_model={current_d_model}, nlayers={current_nlayers}, dim_feedforward={current_dim_feedforward}, nhead={current_nhead}。")
-                logger.warning(f"[{self.strategy_name}][{stock_code}] 将强制使用已保存模型的配置: d_model={saved_model_d_model}, nlayers={saved_model_nlayers}, dim_feedforward={saved_model_dim_feedforward}, nhead={saved_model_nhead}。")
-                
-                # 强制更新模型配置，以匹配已保存的模型
-                self.transformer_model_config['d_model'] = saved_model_d_model
-                self.transformer_model_config['nlayers'] = saved_model_nlayers
-                self.transformer_model_config['dim_feedforward'] = saved_model_dim_feedforward
-                self.transformer_model_config['nhead'] = saved_model_nhead
+            if saved_model_nhead is not None and current_nhead != saved_model_nhead:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] nhead 不匹配: 配置 {current_nhead}，已保存模型 {saved_model_nhead}。将使用已保存模型的 nhead。")
+                temp_model_config['nhead'] = saved_model_nhead
+                config_mismatch_detected = True
+            elif saved_model_nhead is not None and current_nhead is None:
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 配置中缺少 nhead，将使用推断的 nhead: {saved_model_nhead}。")
+                temp_model_config['nhead'] = saved_model_nhead
                 config_mismatch_detected = True
 
             if config_mismatch_detected:
                 logger.warning(f"[{self.strategy_name}][{stock_code}] 注意: 模型配置已临时调整以匹配已保存的 .pth 文件。强烈建议更新策略参数文件和/或重新训练模型以保持一致性。")
-            # 修改结束
-
-            # 构建模型
+            
+            # 6. 使用调整后的参数构建模型
             self.transformer_model = build_transformer_model(
-                num_features=num_features, # 使用修正后的 num_features
-                model_config=self.transformer_model_config, # 使用修正后的 model_config
+                num_features=num_features_for_build, # 使用修正后的 num_features
+                model_config=temp_model_config, # 使用修正后的 model_config
                 summary=False, # 加载模型时不打印摘要
                 window_size=self.transformer_window_size
             )
             self.transformer_model.to(self.device)
 
-            # 加载模型权重
-            self.transformer_model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+            # 7. 加载模型权重 (现在模型结构与 state_dict 匹配，加载应该成功)
+            self.transformer_model.load_state_dict(model_state_dict) # 使用已加载的 state_dict
             logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型权重从 {self.model_path} 加载成功。")
+            # 修改结束
 
             # 加载 Scaler
             self.feature_scaler = joblib.load(self.feature_scaler_path)
@@ -3062,7 +3147,7 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}][{stock_code}] 加载 Transformer 模型或Scaler或特征列表出错: {e}", exc_info=True)
             self._reset_model_components() # 出现错误时重置状态
-            
+                        
     def _reset_model_components(self):
         """辅助函数，用于重置模型相关组件状态。"""
         self.transformer_model = None
