@@ -2610,7 +2610,7 @@ class TrendFollowingStrategy:
                 # 提取用于预测的最新数据窗口 (最后 window_size 行)
                 latest_data_window = processed_data.tail(self.transformer_window_size).copy() # 修改行：提取最新窗口数据
                 # 应用特征工程管道
-                processed_data_for_prediction = self._apply_feature_engineering_pipeline_for_prediction(latest_data_window) # 修改行：调用新的辅助方法
+                processed_data_for_prediction = self._apply_feature_engineering_pipeline(latest_data_window) # 修改行：调用新的辅助方法
                 if processed_data_for_prediction is None or processed_data_for_prediction.empty:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 应用特征工程管道后数据无效或为空，无法进行 Transformer 预测。")
                 else:
