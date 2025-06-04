@@ -272,7 +272,7 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
         if not enabled:
             continue
 
-        # --- 修改开始: 改进主指标配置的查找逻辑 ---
+        # --- 改进主指标配置的查找逻辑 ---
         # 确定用于在 indicator_naming_conv 中查找指标配置的主键。
         # 原始逻辑 (indicator_key.upper()) 对于 'macd_hist' 会查找 'MACD_HIST'，这通常不存在。
         # 正确的逻辑是为 'macd_hist' 查找 'MACD' 的配置块。
@@ -2255,7 +2255,7 @@ def adjust_score_with_volume(
             if suffix not in seen: seen.add(suffix); unique_suffixes.append(suffix)
         possible_tf_suffixes = unique_suffixes if unique_suffixes else [tf_score_str]
 
-        # --- 修改开始: OHLCV 列名查找逻辑 ---
+        # --- OHLCV 列名查找逻辑 ---
         ohlcv_cols_found: Dict[str, str] = {}
         ohlcv_base_names = ['open', 'high', 'low', 'close', 'volume']
         ohlcv_naming_conv_from_config = current_naming_config.get('ohlcv_naming_convention', {})
@@ -2266,9 +2266,6 @@ def adjust_score_with_volume(
             actual_ohlcv_base_pattern = base_name_key # 默认使用内部键名
             if pattern_entry and pattern_entry.get('name_pattern'):
                 actual_ohlcv_base_pattern = pattern_entry['name_pattern']
-                # logger.debug(f"OHLCV: 使用来自配置的模式 '{actual_ohlcv_base_pattern}' (内部键: '{base_name_key}')。")
-            # else:
-                # logger.debug(f"OHLCV: 未在 naming_config 中找到键 '{base_name_key}' (基于 internal_key) 的特定模式。使用默认基础模式: '{base_name_key}'。")
 
             found_ohlcv_col = None
             for suffix in possible_tf_suffixes:
@@ -2281,11 +2278,8 @@ def adjust_score_with_volume(
             
             if found_ohlcv_col:
                 ohlcv_cols_found[base_name_key] = found_ohlcv_col
-            # else:
-                # logger.warning(f"OHLCV数据列查找：对于内部键 '{base_name_key}' (尝试基础模式 '{actual_ohlcv_base_pattern}')，在尝试后缀 {possible_tf_suffixes} 和无后缀后未在data.columns中找到对应列。")
-        # --- 修改结束: OHLCV 列名查找逻辑 ---
 
-        # --- 修改开始: 指标 (CMF, OBV, OBV_MA) 列名查找逻辑 ---
+        # --- 指标 (CMF, OBV, OBV_MA) 列名查找逻辑 ---
         indicator_cols_found: Dict[str, str] = {}
         indicator_naming_root = current_naming_config.get('indicator_naming_conventions', {})
         derivative_naming_root = current_naming_config.get('derivative_feature_naming_conventions', {})
@@ -2350,9 +2344,6 @@ def adjust_score_with_volume(
             
             if found_indicator_col:
                 indicator_cols_found[internal_key] = found_indicator_col
-            # else:
-                # logger.warning(f"指标数据列查找：对于内部键 '{internal_key}' (尝试的基础模式 '{base_pattern_for_col_name}', 原始配置模式: '{raw_pattern_str_from_config}', 周期: {period_value}), 在尝试后缀 {possible_tf_suffixes} 和无后缀后未在data.columns中找到对应列。")
-        # --- 修改结束: 指标列名查找逻辑 ---
 
 
         # 检查必需列是否都已找到
@@ -2557,7 +2548,6 @@ def adjust_score_with_volume(
 
     logger.info(f"量能调整和分析模块处理完成。成功处理的时间框架: {processed_tfs}。")
     return result_df
-
 
 # 注意：在修改后的回退查找逻辑中，此函数不再用于匹配模式，但保留以防其他地方使用或用于调试。
 def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[Any] | None:

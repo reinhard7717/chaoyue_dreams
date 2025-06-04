@@ -750,7 +750,7 @@ class IndicatorService:
                 base_needed_bars=effective_base_needed_bars,
                 global_max_lookback=global_max_lookback
             )
-            logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})需(估算){effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
+            logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})计划提取{effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
             ohlcv_tasks[tf_fetch] = self._get_ohlcv_data(stock_code, tf_fetch, needed_bars=needed_bars_for_tf)
         ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
         raw_ohlcv_dfs = dict(zip(all_time_levels_needed, ohlcv_results))

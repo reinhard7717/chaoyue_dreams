@@ -576,7 +576,7 @@ class TrendFollowingStrategy:
         self.target_scaler_path = os.path.join(prepared_data_dir, "trend_following_transformer_target_scaler.save")
         self.selected_features_path = os.path.join(prepared_data_dir, "trend_following_transformer_selected_features.json")
         self.all_prepared_data_npz_path = os.path.join(prepared_data_dir, "all_prepared_data_transformer.npz")
-        self.model_path = os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
+        self.model_path = trained_model_dir # os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
         print(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
         print(f"  模型权重: {self.model_path}")
         print(f"  特征Scaler: {self.feature_scaler_path}")
