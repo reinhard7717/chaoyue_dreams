@@ -92,7 +92,7 @@ def objective(trial, strategy, item_name, epochs):
     # 采样 early_stopping_patience，范围 5 到 30
     early_stopping_patience = trial.suggest_int("early_stopping_patience", 10, 20)  # 原5-30
     # 采样 reduce_lr_patience，范围 2 到 10
-    reduce_lr_patience = trial.suggest_int("reduce_lr_patience", 8, 12)  # 原2-10
+    reduce_lr_patience = trial.suggest_int("reduce_lr_patience", 4, 12)  # 原2-10
     # 采样 reduce_lr_factor，范围 0.1 到 0.5
     reduce_lr_factor = trial.suggest_float("reduce_lr_factor", 0.3, 0.4)  # 原0.1-0.5
     # 采样 min_lr，范围 1e-7 到 1e-5，对数尺度

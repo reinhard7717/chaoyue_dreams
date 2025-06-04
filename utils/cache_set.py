@@ -2,6 +2,7 @@ import logging
 import pickle
 from typing import Any, Dict, List
 from asgiref.sync import sync_to_async
+import pandas as pd
 import umsgpack
 from datetime import datetime, date # 同时导入 date 类，如果需要处理的话
 from decimal import Decimal # 导入 Decimal
@@ -130,25 +131,35 @@ class CacheSet():
             logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 实时数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
 
-    async def _stock_strategy_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
+    async def _stock_strategy_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str, timestamp: pd.Timestamp) -> bool: # 修改: 添加 timestamp 参数
         if not data_to_cache:
             logger.warning(f"试图缓存股票[{stock_code}] 的空时间序列数据，操作跳过。")
             return False
         try:
             cache_manager = await self.get_cache_manager()
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_STRATEGY) # 或者 cc.TYPE_TIMESERIES
-            # 3. 调用 CacheManager 设置缓存
-            success = await cache_manager.set(
+            cache_timeout = cache_manager.get_timeout(cc.TYPE_STRATEGY)
+            # 修改开始: 构造 ZADD 的 mapping: 成员是序列化的数据，分数是时间戳
+            member_data = json.dumps(data_to_cache, ensure_ascii=False, default=str)
+            score = timestamp.timestamp()
+            zadd_mapping = {member_data: score}
+            # 修改结束
+            # 3. 调用 CacheManager 设置缓存 (改为 ZADD)
+            # 修改开始
+            added_count = await cache_manager.zadd(
                 key=cache_key,
-                data=data_to_cache,
+                mapping=zadd_mapping,
                 timeout=cache_timeout
             )
-            if success:
-                print(f"股票[{stock_code}] 最新策略数据缓存成功, key: {cache_key}")
-                return True
-            else:
-                logger.warning(f"缓存股票[{stock_code}] 策略数据失败 (CacheManager.set 返回 False), key: {cache_key}")
+            if added_count is not None: # zadd 成功执行 (返回非 None)
+                if added_count > 0:
+                    print(f"股票[{stock_code}] 最新策略数据缓存成功 (ZADD 新增 {added_count} 个成员), key: {cache_key}")
+                else:
+                    print(f"股票[{stock_code}] 最新策略数据缓存成功 (ZADD 成员已存在或已更新), key: {cache_key}")
+                return True # 表示操作成功
+            else: # zadd 返回 None，表示操作失败
+                logger.warning(f"缓存股票[{stock_code}] 策略数据失败 (CacheManager.zadd 返回 None), key: {cache_key}")
                 return False
+            # 修改结束
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_strategy_data缓存股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
@@ -486,14 +497,16 @@ class StockRealtimeCacheSet(CacheSet):
         return await self._history_data(stock_code, data_to_cache, cache_key)
     
 class StrategyCacheSet(CacheSet):
-    async def analyze_signals_trend_following(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+    async def analyze_signals_trend_following(self, stock_code: str, data_to_cache: Dict[str, Any], timestamp: pd.Timestamp) -> bool: # 修改: 添加 timestamp 参数
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"analyze_signals_trend_following.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         print(f"analyze_signals_trend_following.cache_key: {cache_key}")
-        return await self._stock_strategy_data(stock_code=stock_code, data_to_cache=data_to_cache, cache_key=cache_key)
+        # 修改: 传递 timestamp 参数
+        return await self._stock_strategy_data(stock_code=stock_code, data_to_cache=data_to_cache, cache_key=cache_key, timestamp=timestamp)
+
 
 
 

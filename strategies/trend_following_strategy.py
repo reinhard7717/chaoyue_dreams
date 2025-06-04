@@ -402,8 +402,8 @@ class TrendFollowingStrategy:
         formatted_list = []
         for t in templates:
             if not isinstance(t, str):
-                 logger.warning(f"指标名称模板不是字符串: {t}. 类型: {type(t)}")
-                 continue
+                logger.warning(f"指标名称模板不是字符串: {t}. 类型: {type(t)}")
+                continue
             try:
                 # 改进：检查模板中是否包含 kwargs 中没有的 key，避免 KeyError
                 import re
@@ -411,9 +411,9 @@ class TrendFollowingStrategy:
                 keys_in_template = set(re.findall(r'{(\w+)(?:[.:!<>=\^].*?)?}', t)) # 查找所有 {key} 或 {key:format}
                 missing_keys = keys_in_template - clean_kwargs.keys()
                 if missing_keys:
-                     # logger.warning(f"格式化指标名模板 '{t}' 缺少参数: {missing_keys}. Kwargs: {clean_kwargs}") # 日志可能过于频繁
-                     # 如果缺少关键参数，这个模板就无法格式化，直接跳过
-                     continue
+                    # logger.warning(f"格式化指标名模板 '{t}' 缺少参数: {missing_keys}. Kwargs: {clean_kwargs}") # 日志可能过于频繁
+                    # 如果缺少关键参数，这个模板就无法格式化，直接跳过
+                    continue
 
                 formatted_list.append(t.format(**clean_kwargs))
             except KeyError as e:
@@ -421,8 +421,8 @@ class TrendFollowingStrategy:
                 # logger.warning(f"格式化指标名模板 '{t}' 失败，缺少参数: {e}。Kwargs: {clean_kwargs}") # 日志记录可能过于频繁
                 pass # 暂时忽略格式化失败的模板
             except Exception as e:
-                 logger.error(f"格式化指标名模板 '{t}' 时发生未知错误: {e}", exc_info=True)
-                 pass # 发生其他错误也跳过
+                logger.error(f"格式化指标名模板 '{t}' 时发生未知错误: {e}", exc_info=True)
+                pass # 发生其他错误也跳过
 
         return formatted_list
 
@@ -4375,11 +4375,13 @@ class TrendFollowingStrategy:
                 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x)) # 保存完整的分析结果字典 (将不可序列化的对象转为字符串)
             }
             cache_set = StrategyCacheSet()
-            created = asyncio.run(cache_set.analyze_signals_trend_following(stock_code=stock_code, data_to_cache=defaults_payload))
-            if created:
-                print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 创建新的 StockScoreAnalysis 记录。") # 修改: 使用print输出调试信息
+            # 传递 timestamp 参数给 analyze_signals_trend_following
+            # analyze_signals_trend_following 现在返回 bool (表示操作是否成功)
+            operation_successful = asyncio.run(cache_set.analyze_signals_trend_following(stock_code=stock_code, data_to_cache=defaults_payload, timestamp=timestamp))
+            if operation_successful:
+                print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略数据已成功保存/更新到缓存。") # 修改: 使用print输出调试信息
             else:
-                print(f"[{self.strategy_name}][{stock_code}] 更新时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 的 StockScoreAnalysis 记录。") # 修改: 使用print输出调试信息
+                print(f"[{self.strategy_name}][{stock_code}] 保存/更新时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 的 StockScoreAnalysis 记录失败。") # 修改: 使用print输出调试信息
         except StockInfo.DoesNotExist:
             print(f"[{self.strategy_name}][{stock_code}] 保存分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。") # 修改: 使用print输出调试信息
         except Exception as e:

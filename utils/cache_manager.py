@@ -443,7 +443,6 @@ class CacheManager:
             return 0
         try:
             await self._ensure_client()
-
             # 序列化 mapping 中的成员 (member)
             serialized_mapping = {}
             for member, score in mapping.items():
@@ -452,7 +451,6 @@ class CacheManager:
                  except ValueError as e: # 捕获序列化或 float 转换错误
                       logger.error(f"ZADD 序列化/转换失败: member={member}, score={score}, error='{e}'")
                       return None # 单个成员失败则整个操作失败
-
             # 确定超时
             effective_timeout = timeout
             if effective_timeout is None:
@@ -461,13 +459,11 @@ class CacheManager:
                     effective_timeout = self.get_timeout(prefix)
                 except IndexError:
                     effective_timeout = self.get_timeout('')
-
             # 使用 pipeline 保证原子性
             async with self.redis_client.pipeline() as pipe:
                 pipe.zadd(key, serialized_mapping)
                 if effective_timeout is not None and effective_timeout > 0:
                      pipe.expire(key, effective_timeout) # 仅在需要时设置过期
-
                 results = await pipe.execute()
                 # zadd 返回成功添加的新成员数量 (不包括更新的成员)
                 added_count = results[0] if results and isinstance(results[0], int) else None
@@ -597,10 +593,8 @@ class CacheManager:
         if limit <= 0:
              logger.warning(f"ZADD_AND_TRIM: limit 必须大于 0, key='{key}'")
              return 0
-
         try:
             await self._ensure_client()
-
             # 序列化成员
             serialized_mapping = {}
             for member, score in mapping.items():
@@ -609,7 +603,6 @@ class CacheManager:
                  except ValueError as e:
                       logger.error(f"ZADD_AND_TRIM 序列化/转换失败: member={member}, score={score}, error='{e}'")
                       return None
-
             # 确定超时
             effective_timeout = timeout
             if effective_timeout is None:
@@ -618,7 +611,6 @@ class CacheManager:
                     effective_timeout = self.get_timeout(prefix)
                 except IndexError:
                     effective_timeout = self.get_timeout('')
-
             # 使用 pipeline 保证原子性
             async with self.redis_client.pipeline() as pipe:
                 # 1. 添加新成员
@@ -629,20 +621,17 @@ class CacheManager:
                 # 3. 设置/更新过期时间
                 if effective_timeout is not None and effective_timeout > 0:
                     pipe.expire(key, effective_timeout)
-
                 results = await pipe.execute()
                 # results[0] 是 zadd 的结果 (新增数量)
                 # results[1] 是 zremrangebyrank 的结果 (移除数量)
                 added_count = results[0] if results and len(results) > 0 and isinstance(results[0], int) else None
                 removed_count = results[1] if results and len(results) > 1 and isinstance(results[1], int) else None
-
                 if added_count is not None and removed_count is not None:
                      logger.debug(f"ZADD_AND_TRIM 操作成功: key='{key}', 添加/更新 {len(serialized_mapping)} 个, 新增 {added_count} 个, 移除 {removed_count} 个, 限制 {limit}, timeout={effective_timeout}s")
                      return added_count # 返回新增的数量
                 else:
                      logger.error(f"ZADD_AND_TRIM pipeline 执行结果异常: results={results}")
                      return None
-
         except ConnectionError as e:
              logger.error(f"ZADD_AND_TRIM 操作失败 (Redis 连接错误): key='{key}', error='{e}'")
              return None
