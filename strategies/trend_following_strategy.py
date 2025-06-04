@@ -17,6 +17,7 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService # 确保导入 IndicatorService
 from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas_ta as ta
@@ -130,7 +131,7 @@ class TrendFollowingStrategy:
         self._perform_initial_validation_and_logging(log_prefix, self.params_file_path, file_load_success, loaded_params is not None and bool(loaded_params)) # 调用辅助方法
 
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
-        print(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。") # DEBUG: 结束信息
+        # print(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。") # DEBUG: 结束信息
 
     #辅助方法 - 初始化基础路径和依赖
     def _initialize_base_paths_and_dependencies(self, params_file: Optional[str], base_data_dir: Optional[str]) -> Tuple[str, str]:
@@ -578,11 +579,11 @@ class TrendFollowingStrategy:
         self.all_prepared_data_npz_path = os.path.join(prepared_data_dir, "all_prepared_data_transformer.npz")
         self.model_path = trained_model_dir # os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
         print(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
-        print(f"  模型权重: {self.model_path}")
-        print(f"  特征Scaler: {self.feature_scaler_path}")
-        logger.debug(f"  目标Scaler: {self.target_scaler_path}")
-        logger.debug(f"  准备数据NPZ: {self.all_prepared_data_npz_path}")
-        logger.debug(f"  选中特征: {self.selected_features_path}")
+        # print(f"  模型权重: {self.model_path}")
+        # print(f"  特征Scaler: {self.feature_scaler_path}")
+        # logger.debug(f"  目标Scaler: {self.target_scaler_path}")
+        # logger.debug(f"  准备数据NPZ: {self.all_prepared_data_npz_path}")
+        # logger.debug(f"  选中特征: {self.selected_features_path}")
         # 设置 PCA 模型保存路径
         self.pca_model_path = os.path.join(prepared_data_dir, "trend_following_transformer_pca_model.joblib")
         # 设置 PCA 前使用的 Scaler 保存路径
@@ -2601,7 +2602,7 @@ class TrendFollowingStrategy:
         # 调用 load_transformer_model 来加载 Transformer 模型本身
         # 修改开始
         self.load_transformer_model(stock_code) # 调用此方法加载 Transformer 模型
-        # 修改结束
+        
         # 检查模型和必需的 Scaler/特征列表是否已加载
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
             try:
@@ -3127,7 +3128,7 @@ class TrendFollowingStrategy:
             # 7. 加载模型权重 (现在模型结构与 state_dict 匹配，加载应该成功)
             self.transformer_model.load_state_dict(model_state_dict) # 使用已加载的 state_dict
             logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型权重从 {self.model_path} 加载成功。")
-            # 修改结束
+            
 
             # 加载 Scaler
             self.feature_scaler = joblib.load(self.feature_scaler_path)
@@ -3535,21 +3536,21 @@ class TrendFollowingStrategy:
         print(f"[{self.strategy_name}] 趋势持续时间计算：使用的规则信号列名为 '{final_rule_signal_col}'。")
 
         # 严格检查输入数据框和信号列的有效性
-        # 修改开始：增加对输入DataFrame类型的检查
+        # 增加对输入DataFrame类型的检查
         if not isinstance(data_with_signals, pd.DataFrame) or data_with_signals.empty:
             logger.warning(f"[{self.strategy_name}] 输入数据框为空或不是有效的DataFrame，无法计算趋势持续时间。")
             print(f"[{self.strategy_name}] 输入数据无效，返回默认趋势信息。")
             return trend_duration_info
-        # 修改结束
+        
         if final_rule_signal_col not in data_with_signals.columns:
             logger.warning(f"[{self.strategy_name}] 规则信号列 '{final_rule_signal_col}' 不存在于数据中，无法计算趋势持续时间。")
             print(f"[{self.strategy_name}] 规则信号列 '{final_rule_signal_col}' 不存在，返回默认趋势信息。")
             return trend_duration_info
 
         # 提取信号序列并去除空值，转换为NumPy数组以提高迭代效率
-        # 修改开始：直接获取NumPy数组，避免Pandas Series的额外开销
+        # 直接获取NumPy数组，避免Pandas Series的额外开销
         final_signal_values = data_with_signals[final_rule_signal_col].dropna().values
-        # 修改结束
+        
         if final_signal_values.size < 2: # 至少需要两个点才能判断趋势持续
             logger.warning(f"[{self.strategy_name}] 规则信号列 '{final_rule_signal_col}' 去除空值后数据点少于2个 ({final_signal_values.size}个)，无法有效计算趋势持续时间。")
             print(f"[{self.strategy_name}] 信号数据点过少，返回默认趋势信息。")
@@ -3558,7 +3559,7 @@ class TrendFollowingStrategy:
         # --- 获取并校验趋势判断阈值 ---
         # 使用局部变量存储阈值，避免直接修改 self.tf_params
         # 确保所有阈值都是数字类型，并提供默认值
-        # 修改开始：优化阈值获取和校验逻辑，使用更简洁的赋值方式
+        # 优化阈值获取和校验逻辑，使用更简洁的赋值方式
         thresholds_map = {
             'trend_confirmation_threshold_upper': 55,
             'trend_confirmation_threshold_lower': 45,
@@ -3608,7 +3609,7 @@ class TrendFollowingStrategy:
         print(f"[{self.strategy_name}] 趋势判断阈值：上沿={trend_threshold_upper}, 下沿={trend_threshold_lower}, 强多={strong_bullish_threshold}, 强空={strong_bearish_threshold}, 中多={moderate_bullish_threshold}, 中空={moderate_bearish_threshold}。")
         print(f"[{self.strategy_name}] 趋势持续时间阈值：强={trend_duration_threshold_strong}, 中={trend_duration_threshold_moderate}。")
         print(f"[{self.strategy_name}] 交易日分钟数：{trading_day_minutes}。")
-        # 修改结束
+        
 
         current_bullish_streak = 0
         current_bearish_streak = 0
@@ -3671,9 +3672,9 @@ class TrendFollowingStrategy:
                  trend_duration_info['bearish_duration_text'] = format_duration_simple(bearish_total_minutes)
             else:
                 trend_duration_info['bullish_duration_text'] = format_duration_with_trading_day(bullish_total_minutes, trading_day_minutes)
-                # 修改开始：修正 bearish_duration_text 的参数传递，确保使用 trading_day_minutes
+                # 修正 bearish_duration_text 的参数传递，确保使用 trading_day_minutes
                 trend_duration_info['bearish_duration_text'] = format_duration_with_trading_day(bearish_total_minutes, trading_day_minutes)
-                # 修改结束
+                
             print(f"[{self.strategy_name}] 格式化后的看涨持续时间: {trend_duration_info['bullish_duration_text']}, 看跌持续时间: {trend_duration_info['bearish_duration_text']}。")
 
         except ValueError:
@@ -3688,9 +3689,9 @@ class TrendFollowingStrategy:
              print(f"[{self.strategy_name}] 格式化时间发生未知错误。")
 
         # 判断当前趋势方向和强度
-        # 修改开始：直接从NumPy数组获取最后一个值，更高效
+        # 直接从NumPy数组获取最后一个值，更高效
         latest_rule_signal_val = final_signal_values[-1]
-        # 修改结束
+        
         print(f"[{self.strategy_name}] 最新规则信号值: {latest_rule_signal_val:.2f}。")
 
         if latest_rule_signal_val >= strong_bullish_threshold:
@@ -3732,7 +3733,7 @@ class TrendFollowingStrategy:
         """
         print(f"[{self.strategy_name}][{stock_code}] 开始分析信号。")
 
-        # 修改开始：严格的输入检查
+        # 严格的输入检查
         if not isinstance(stock_code, str) or not stock_code.strip():
             logger.error(f"[{self.strategy_name}] 无效的股票代码: '{stock_code}'。")
             print(f"[{self.strategy_name}] 无效股票代码，返回 None。")
@@ -3740,18 +3741,19 @@ class TrendFollowingStrategy:
         if not isinstance(self.intermediate_data, pd.DataFrame) or self.intermediate_data.empty:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 中间数据为空或不是有效的DataFrame，无法进行信号分析。")
             print(f"[{self.strategy_name}][{stock_code}] 中间数据为空，返回 None。")
-            return None
-        # 修改结束
+            return None        
 
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
         print(f"[{self.strategy_name}][{stock_code}] 获取最新数据行。")
+        # 新增：用于记录每次add_signal_impact的详细影响
+        signal_impact_records = []
 
-        # 修改开始：参数预加载，减少重复字典查找
+        # 参数预加载，减少重复字典查找
         # 从 self.tf_params 中一次性获取所有需要的阈值和参数
         moderate_bullish_thresh = self.tf_params.get('moderate_bullish_threshold', 60)
         strong_bullish_thresh = self.tf_params.get('strong_bullish_threshold', 75)
-        moderate_bearish_thresh = self.tf_params.get('moderate_bearish_threshold', 40)
+        moderate_bearish_thresh =   self.tf_params.get('moderate_bearish_threshold', 40)
         strong_bearish_thresh = self.tf_params.get('strong_bearish_threshold', 25)
         trend_conf_upper_thresh = self.tf_params.get('trend_confirmation_threshold_upper', 55)
         trend_conf_lower_thresh = self.tf_params.get('trend_confirmation_threshold_lower', 45)
@@ -3762,7 +3764,7 @@ class TrendFollowingStrategy:
         volatility_thresh_low = self.tf_params.get('volatility_threshold_low', 0.01)
         adx_strong_thresh = self.tf_params.get('adx_strong_threshold', 30)
         adx_moderate_thresh = self.tf_params.get('adx_moderate_threshold', 20)
-        # 修改结束
+        
         print(f"[{self.strategy_name}][{stock_code}] 策略参数已加载。")
 
         # 获取策略内部列名，使用 JSON 配置
@@ -3801,7 +3803,7 @@ class TrendFollowingStrategy:
         def get_col_name(pattern: str, default_str: str) -> str:
             return actual_col_names.get(pattern, default_str)
 
-        # 修改开始：统一获取所有信号值，使用 .get() 避免 KeyError
+        # 统一获取所有信号值，使用 .get() 避免 KeyError
         # 获取所有需要分析的信号值对应的实际列名
         combined_signal_col = get_col_name("combined_signal", "combined_signal")
         final_rule_signal_col = get_col_name("final_rule_signal", "final_rule_signal")
@@ -3851,7 +3853,7 @@ class TrendFollowingStrategy:
         vwap_deviation_signal_val = latest_data_row.get(vwap_deviation_signal_col, np.nan)
         vwap_deviation_percent_val = latest_data_row.get(vwap_deviation_percent_col, np.nan)
         boll_breakout_signal_val = latest_data_row.get(boll_breakout_signal_col, np.nan)
-        # 修改结束
+        
         print(f"[{self.strategy_name}][{stock_code}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
         # 计算趋势持续时间
@@ -3879,6 +3881,14 @@ class TrendFollowingStrategy:
             confidence_score += confidence_change
             if risk_msg:
                 risk_warning_str += risk_msg + " "
+            # 新增：记录本次信号影响的详细信息
+            signal_impact_records.append({
+                "key": key,
+                "status": status,
+                "confidence_change": confidence_change,
+                "risk_msg": risk_msg,
+                "confidence_score_after": confidence_score  # 记录本次后的累计信心分
+            })
             print(f"[{self.strategy_name}][{stock_code}] 信号影响 - {key}: {status}, 信心变化: {confidence_change}, 当前信心: {confidence_score}。")
 
         # 1. 整体信号强度评估
@@ -4152,10 +4162,14 @@ class TrendFollowingStrategy:
         signal_judgment_dict['has_bullish_divergence'] = has_bullish_div_val
         signal_judgment_dict['confidence_score'] = confidence_score
         signal_judgment_dict['normalized_confidence'] = normalized_confidence
+        signal_judgment_dict['signal_impact_records'] = signal_impact_records  # <--- 记录所有信号影响明细
 
         now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+        stock_basic_dao = StockBasicInfoDao()
+        stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
+
         chinese_interpretation_str = (
-            f"【趋势跟踪策略分析 - {stock_code} - {now_str}】\n"
+            f"【趋势跟踪策略分析 - {stock} - {now_str}】\n"
             f"焦点时间框架: {self.focus_timeframe}\n"
             f"最新组合信号分: {final_score_val:.2f} (规则: {final_rule_score_val:.2f}, Transformer: {transformer_score_val:.2f})\n"
             f"当前策略信号强度: {signal_judgment_dict.get('overall_signal_strength', '中性')}\n"
@@ -4184,7 +4198,47 @@ class TrendFollowingStrategy:
             f"综合信心分数: {confidence_score} (归一化: {normalized_confidence:.2f})\n"
             f"操作建议: {operation_advice_str}\n"
             f"风险提示: {risk_warning_str}\n"
+            f"信号影响明细: {signal_impact_records}\n"
         )
+
+        # 1. 统计每类信号的累计贡献
+        from collections import defaultdict
+        signal_contribution_summary = defaultdict(int)
+        for record in signal_impact_records:
+            signal_contribution_summary[record['key']] += record['confidence_change']
+        signal_contribution_summary = dict(signal_contribution_summary)
+        signal_judgment_dict['signal_contribution_summary'] = signal_contribution_summary  # 新增
+
+        # 2. 复杂加权（可自定义）
+        SIGNAL_WEIGHTS = {
+            'overall_signal_strength': 1.5,
+            'trend_duration_impact': 1.2,
+            'trend_volume_consistency': 1.0,
+            'volume_effect': 1.0,
+            'long_term_vs_current': 1.3,
+            'stoch_trend_relation': 1.1,
+            'vol_spike_trend': 1.0,
+            'alignment_status': 1.0,
+            'ema_cross_status': 1.0,
+            'ema_strength_status': 1.0,
+            'score_momentum_status': 1.0,
+            'score_momentum_acceleration_status': 1.0,
+            'vwap_deviation_status': 1.0,
+            'boll_breakout_status': 1.0,
+            'adx_status': 1.2,
+            'divergence_status': 1.5,
+            'transformer_rule_consistency': 1.2,
+            'ema_score_status': 1.0,
+            'volatility_status': 1.0,
+            'volatility_signal_status': 1.0,
+            # ... 其他信号 ...
+        }
+        weighted_confidence_score = 0
+        for record in signal_impact_records:
+            weight = SIGNAL_WEIGHTS.get(record['key'], 1.0)
+            weighted_confidence_score += record['confidence_change'] * weight
+        signal_judgment_dict['weighted_confidence_score'] = weighted_confidence_score  # 新增
+
         analysis_results_dict['signal_judgment'] = signal_judgment_dict
         analysis_results_dict['operation_advice'] = operation_advice_str
         analysis_results_dict['risk_warning'] = risk_warning_str
@@ -4193,6 +4247,7 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
         logger.info(chinese_interpretation_str)
         print(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
+
         return analysis_results_dict
 
     def get_analysis_results(self) -> Optional[Dict[str, Any]]:
@@ -4205,10 +4260,15 @@ class TrendFollowingStrategy:
         保存趋势跟踪策略的分析结果到数据库。
         使用JSON配置获取内部列名和OHLCV列名。
         """
+        # 修改: 引入 json 和 asyncio 模块，用于序列化复杂数据结构和执行异步操作
+        import json
+        import asyncio
+        # 原始代码中的导入，保留
         from stock_models.stock_analytics import StockScoreAnalysis
         from stock_models.stock_basic import StockInfo
+
         if self.analysis_results is None:
-            logger.warning(f"[{self.strategy_name}][{stock_code}] 无分析结果可保存。请先运行 analyze_signals。")
+            print(f"[{self.strategy_name}][{stock_code}] 无分析结果可保存。请先运行 analyze_signals。") # 修改: 使用print输出调试信息
             return
         # 尝试从 self.intermediate_data 获取最新的数据行，如果 self.intermediate_data 为 None 或空，则尝试从传入的 data 获取
         latest_intermediate_row = pd.Series(dtype=object) # 初始化一个空 Series
@@ -4218,19 +4278,18 @@ class TrendFollowingStrategy:
                 # 使用 asof 查找小于等于 timestamp 的最新一行
                 latest_intermediate_row = self.intermediate_data.loc[self.intermediate_data.index.asof(timestamp)]
                 if latest_intermediate_row.isnull().all(): # asof 可能返回全 NaN 行
-                    logger.warning(f"[{self.strategy_name}][{stock_code}] 无法通过 asof 在 intermediate_data 中找到时间戳 {timestamp} 对应的行，使用最后一行。")
+                    print(f"[{self.strategy_name}][{stock_code}] 无法通过 asof 在 intermediate_data 中找到时间戳 {timestamp} 对应的行，使用最后一行。") # 修改: 使用print输出调试信息
                     latest_intermediate_row = self.intermediate_data.iloc[-1]
             except Exception as e:
-                logger.warning(f"[{self.strategy_name}][{stock_code}] 在 intermediate_data 中查找时间戳 {timestamp} 对应的行出错: {e}，使用最后一行。")
+                print(f"[{self.strategy_name}][{stock_code}] 在 intermediate_data 中查找时间戳 {timestamp} 对应的行出错: {e}，使用最后一行。") # 修改: 使用print输出调试信息
                 try:
                     latest_intermediate_row = self.intermediate_data.iloc[-1]
                 except IndexError:
-                    logger.error(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，无法获取最新数据行。")
+                    print(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，无法获取最新数据行。") # 修改: 使用print输出调试信息
                     latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
-
         elif data is not None and not data.empty:
              # 如果 intermediate_data 为空，尝试从传入的原始数据 data 获取最后一行
-            logger.warning(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，尝试从原始输入 data 获取最新数据行。")
+            print(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，尝试从原始输入 data 获取最新数据行。") # 修改: 使用print输出调试信息
             try:
                 # 同样尝试 asof 查找
                 latest_data_row_from_input = data.loc[data.index.asof(timestamp)]
@@ -4238,33 +4297,28 @@ class TrendFollowingStrategy:
                     latest_data_row_from_input = data.iloc[-1]
                 latest_intermediate_row = latest_data_row_from_input # 使用从输入数据获取的行
             except Exception as e:
-                logger.warning(f"[{self.strategy_name}][{stock_code}] 从原始输入 data 获取最新数据行出错: {e}。")
+                print(f"[{self.strategy_name}][{stock_code}] 从原始输入 data 获取最新数据行出错: {e}。") # 修改: 使用print输出调试信息
                 latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
-
         if latest_intermediate_row.empty:
-            logger.error(f"[{self.strategy_name}][{stock_code}] 无法获取最新的数据行用于保存分析结果。")
+            print(f"[{self.strategy_name}][{stock_code}] 无法获取最新的数据行用于保存分析结果。") # 修改: 使用print输出调试信息
             # 继续保存，但部分字段可能为 None
-
         try:
             stock_obj = StockInfo.objects.get(stock_code=stock_code)
-
             # 辅助函数，将 NaN, Inf 或 None 转换为 None，以便保存到数据库字段
             def convert_nan_to_none(value):
                 if isinstance(value, (float, np.floating)) and (np.isnan(value) or np.isinf(value)):
                     return None
                 # 检查 pandas NotNa，用于处理 pd.NA 或 pd.NaT
                 return value if pd.notna(value) else None
-
             # 获取策略内部列名
+            # 假设 NAMING_CONFIG 已在外部定义或传入
             internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
             if not isinstance(internal_cols_conf, list): internal_cols_conf = []
-
             def get_internal_col_name(pattern, default_name):
                 for item in internal_cols_conf:
                     if isinstance(item, dict) and item.get('name_pattern') == pattern:
                         return item['name_pattern']
                 return default_name
-
             combined_signal_col = get_internal_col_name("combined_signal", "combined_signal")
             final_rule_signal_col = get_internal_col_name("final_rule_signal", "final_rule_signal")
             transformer_signal_col = get_internal_col_name("transformer_signal", "transformer_signal")
@@ -4278,14 +4332,14 @@ class TrendFollowingStrategy:
             has_bullish_div_col = get_internal_col_name("HAS_BULLISH_DIVERGENCE", "HAS_BULLISH_DIVERGENCE")
             # VOL_SPIKE_SIGNAL_{timeframe} 列名模式，需要根据 focus_timeframe 获取具体列名
             vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern', '').startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
-            vol_spike_signal_col_tf = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
+            vol_spike_signal_col_tf = self._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
             vol_spike_signal_col = vol_spike_signal_col_tf[0] if vol_spike_signal_col_tf else None # 使用第一个格式化结果
-
             # 获取 close 列名，使用 JSON 配置
             ohlcv_configs = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
             close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close')
             close_price_col_name = f'{close_base_name}_{self.focus_timeframe}' # 使用带后缀的列名
-
+            # 从 analysis_results 中获取 signal_judgment 字典
+            signal_judgment = self.analysis_results.get('signal_judgment', {})
             defaults_payload = {
                 'score': convert_nan_to_none(latest_intermediate_row.get(combined_signal_col)),
                 'rule_signal': convert_nan_to_none(latest_intermediate_row.get(final_rule_signal_col)),
@@ -4300,9 +4354,7 @@ class TrendFollowingStrategy:
                 'div_has_bullish_divergence': bool(latest_intermediate_row.get(has_bullish_div_col, False)), # 确保是布尔值
                 # 确保 volume_spike_signal_col 存在于 latest_intermediate_row 中
                 'volume_spike_signal': convert_nan_to_none(latest_intermediate_row.get(vol_spike_signal_col)),
-
                 'close_price': convert_nan_to_none(latest_intermediate_row.get(close_price_col_name)),
-
                 'current_trend': self.analysis_results.get('current_trend'),
                 'trend_strength': self.analysis_results.get('trend_strength'),
                 'trend_duration_bullish': self.analysis_results.get('bullish_duration'),
@@ -4310,41 +4362,28 @@ class TrendFollowingStrategy:
                 'trend_duration_text_bullish': self.analysis_results.get('bullish_duration_text'),
                 'trend_duration_text_bearish': self.analysis_results.get('bearish_duration_text'),
                 'trend_duration_status': self.analysis_results.get('duration_status'),
-
                 'operation_advice': self.analysis_results.get('operation_advice'),
                 'risk_warning': self.analysis_results.get('risk_warning'),
                 'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
-
-                # TODO: 可以根据需要在 analysis_results_dict 中添加更多字段，并在此处保存
-                # 例如：'score_momentum', 'score_volatility', 'vwap_deviation_percent', 'boll_breakout_signal' 等
-                # 这些字段需要在 _perform_trend_analysis 和 analyze_signals 中计算并添加到 analysis_results_dict
-
+                # 修改: 添加 signal_impact_records, signal_contribution_summary 和 weighted_confidence_score
+                # signal_impact_records 是列表，需要序列化为 JSON 字符串
+                'signal_impact_records_json': json.dumps(signal_judgment.get('signal_impact_records', []), ensure_ascii=False, default=lambda x: str(x)),
+                # signal_contribution_summary 是字典，需要序列化为 JSON 字符串
+                'signal_contribution_summary_json': json.dumps(signal_judgment.get('signal_contribution_summary', {}), ensure_ascii=False, default=lambda x: str(x)),
+                # weighted_confidence_score 是数值，直接保存
+                'weighted_confidence_score': convert_nan_to_none(signal_judgment.get('weighted_confidence_score')),
                 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x)) # 保存完整的分析结果字典 (将不可序列化的对象转为字符串)
             }
-
             cache_set = StrategyCacheSet()
             created = asyncio.run(cache_set.analyze_signals_trend_following(stock_code=stock_code, data_to_cache=defaults_payload))
-            # print(f"defaults_payload: {defaults_payload}")
-            # print(f"created: {created}")
-
-            # 使用 update_or_create 方法避免重复创建
-            # obj, created = StockScoreAnalysis.objects.update_or_create(
-            #     stock=stock_obj,
-            #     strategy_name=self.strategy_name,
-            #     timestamp=timestamp, # 使用传入的时间戳作为唯一标识
-            #     timeframe=self.focus_timeframe, # 保存策略的焦点时间框架
-            #     defaults=defaults_payload
-            # )
-
             if created:
-                logger.info(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 创建新的 StockScoreAnalysis 记录。")
+                print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 创建新的 StockScoreAnalysis 记录。") # 修改: 使用print输出调试信息
             else:
-                logger.info(f"[{self.strategy_name}][{stock_code}] 更新时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 的 StockScoreAnalysis 记录。")
-
+                print(f"[{self.strategy_name}][{stock_code}] 更新时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 的 StockScoreAnalysis 记录。") # 修改: 使用print输出调试信息
         except StockInfo.DoesNotExist:
-            logger.error(f"[{self.strategy_name}][{stock_code}] 保存分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。")
+            print(f"[{self.strategy_name}][{stock_code}] 保存分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。") # 修改: 使用print输出调试信息
         except Exception as e:
-            logger.error(f"[{self.strategy_name}][{stock_code}] 保存 StockScoreAnalysis 记录出错: {e}", exc_info=True)
+            print(f"[{self.strategy_name}][{stock_code}] 保存 StockScoreAnalysis 记录出错: {e}") # 修改: 使用print输出调试信息
 
     def _get_intermediate_file_path(self, stock_code: str):
         """
