@@ -3764,6 +3764,11 @@ class TrendFollowingStrategy:
         volatility_thresh_low = self.tf_params.get('volatility_threshold_low', 0.01)
         adx_strong_thresh = self.tf_params.get('adx_strong_threshold', 30)
         adx_moderate_thresh = self.tf_params.get('adx_moderate_threshold', 20)
+        # 新增多时间段分数变化相关参数的加载
+        score_momentum_short_period = self.tf_params.get('score_momentum_short_period', 3)
+        score_momentum_long_period = self.tf_params.get('score_momentum_long_period', 5)
+        score_momentum_threshold_abs = self.tf_params.get('score_momentum_threshold_abs', 5)
+        score_momentum_long_term_multiplier = self.tf_params.get('score_momentum_long_term_multiplier', 1.5)
         
         print(f"[{self.strategy_name}][{stock_code}] 策略参数已加载。")
 
@@ -4025,7 +4030,69 @@ class TrendFollowingStrategy:
             else: add_signal_impact('score_momentum_acceleration_status', "信号分加速中性", 0)
         else: add_signal_impact('score_momentum_acceleration_status', "数据缺失", 0)
 
-        # 11. VWAP 偏离信号判断
+        # 11. 多时间段的分数变化 (基于 combined_signal_col 的历史值)
+        print(f"[{self.strategy_name}][{stock_code}] 分析信号分在多时间段的变化。")
+        score_change_short = np.nan
+        score_change_long = np.nan
+        score_change_consistency_status = "数据不足"
+
+        # 确保 combined_signal_col 存在且数据量足够
+        if combined_signal_col in self.intermediate_data.columns and len(self.intermediate_data) > 1:
+            combined_signals = self.intermediate_data[combined_signal_col]
+
+            # 短期信号分变化
+            if len(combined_signals) > score_momentum_short_period:
+                score_val_short_ago = combined_signals.iloc[-(score_momentum_short_period + 1)]
+                score_change_short = final_score_val - score_val_short_ago
+                print(f"[{self.strategy_name}][{stock_code}] 短期 ({score_momentum_short_period}期) 信号分变化: {score_change_short:.2f}。")
+
+                if score_change_short >= score_momentum_threshold_abs:
+                    add_signal_impact('score_change_short_term', f"短期信号分强劲上涨 ({score_momentum_short_period}期)", 10)
+                elif score_change_short <= -score_momentum_threshold_abs:
+                    add_signal_impact('score_change_short_term', f"短期信号分强劲下跌 ({score_momentum_short_period}期)", -10)
+                else:
+                    add_signal_impact('score_change_short_term', f"短期信号分变化不大 ({score_momentum_short_period}期)", 0)
+            else:
+                add_signal_impact('score_change_short_term', "数据不足，无法计算短期信号分变化", 0)
+                print(f"[{self.strategy_name}][{stock_code}] 数据不足 ({len(self.intermediate_data)}行)，无法计算短期信号分变化。")
+
+            # 长期信号分变化
+            if len(combined_signals) > score_momentum_long_period:
+                score_val_long_ago = combined_signals.iloc[-(score_momentum_long_period + 1)]
+                score_change_long = final_score_val - score_val_long_ago
+                print(f"[{self.strategy_name}][{stock_code}] 长期 ({score_momentum_long_period}期) 信号分变化: {score_change_long:.2f}。")
+
+                long_term_threshold = score_momentum_threshold_abs * score_momentum_long_term_multiplier
+                if score_change_long >= long_term_threshold:
+                    add_signal_impact('score_change_long_term', f"长期信号分强劲上涨 ({score_momentum_long_period}期)", 15)
+                elif score_change_long <= -long_term_threshold:
+                    add_signal_impact('score_change_long_term', f"长期信号分强劲下跌 ({score_momentum_long_period}期)", -15)
+                else:
+                    add_signal_impact('score_change_long_term', f"长期信号分变化不大 ({score_momentum_long_period}期)", 0)
+            else:
+                add_signal_impact('score_change_long_term', "数据不足，无法计算长期信号分变化", 0)
+                print(f"[{self.strategy_name}][{stock_code}] 数据不足 ({len(self.intermediate_data)}行)，无法计算长期信号分变化。")
+
+            # 短期与长期变化方向一致性检查
+            if not np.isnan(score_change_short) and not np.isnan(score_change_long):
+                if (score_change_short > 0 and score_change_long > 0) or \
+                   (score_change_short < 0 and score_change_long < 0):
+                    add_signal_impact('score_change_consistency', "短期与长期信号分变化方向一致", 5)
+                    score_change_consistency_status = "一致"
+                else:
+                    add_signal_impact('score_change_consistency', "短期与长期信号分变化方向不一致", -5, "信号分短期与长期变化方向不一致，趋势可能不稳定。")
+                    score_change_consistency_status = "不一致"
+            else:
+                add_signal_impact('score_change_consistency', "数据不足，无法判断信号分变化一致性", 0)
+                score_change_consistency_status = "数据不足"
+        else:
+            add_signal_impact('score_change_short_term', "数据不足，无法计算短期信号分变化", 0)
+            add_signal_impact('score_change_long_term', "数据不足，无法计算长期信号分变化", 0)
+            add_signal_impact('score_change_consistency', "数据不足，无法判断信号分变化一致性", 0)
+            score_change_consistency_status = "数据不足"
+            print(f"[{self.strategy_name}][{stock_code}] 信号分列缺失或数据不足 ({len(self.intermediate_data)}行)，无法计算多时间段信号分变化。")
+
+        # 12. VWAP 偏离信号判断
         if not np.isnan(vwap_deviation_signal_val) and not np.isnan(vwap_deviation_percent_val):
             if vwap_deviation_signal_val == 1: # 价格在VWAP之上且偏离较大
                 if vwap_deviation_percent_val > vwap_deviation_thresh and final_score_val > 60:
@@ -4039,7 +4106,7 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('vwap_deviation_status', "数据缺失", 0)
 
-        # 12. Bollinger Band 突破信号判断
+        # 13. Bollinger Band 突破信号判断
         if not np.isnan(boll_breakout_signal_val):
             if boll_breakout_signal_val == 1: # 向上突破上轨
                 if final_score_val > 60: add_signal_impact('boll_breakout_status', "向上突破布林带上轨，趋势可能加速", 10)
@@ -4051,7 +4118,7 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('boll_breakout_status', "数据缺失", 0)
 
-        # 13. 波动率信号判断 (如果与 score_volatility 不同)
+        # 14. 波动率信号判断 (如果与 score_volatility 不同)
         if not np.isnan(volatility_signal_val):
             if volatility_signal_val == 1: add_signal_impact('volatility_signal_status', "高波动信号", -5, "波动率信号提示高波动，增加交易风险。")
             elif volatility_signal_val == -1: add_signal_impact('volatility_signal_status', "低波动信号", 5)
@@ -4059,7 +4126,7 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('volatility_signal_status', "数据缺失", 0)
 
-        # 14. ADX 强度判断
+        # 15. ADX 强度判断
         # 获取 dmi_period，用于构建 ADX 列名
         param_sources = [self.tf_params, self.params.get('volume_confirmation', {}), self.params.get('indicator_analysis_params', {}), self.params.get('base_scoring', {})]
         dmi_period_bs = self._get_param_val(param_sources, 'dmi_period', 14)
@@ -4075,7 +4142,7 @@ class TrendFollowingStrategy:
              add_signal_impact('adx_status', "原始ADX数据缺失", 0)
              logger.warning(f"[{self.strategy_name}][{stock_code}] 分析：缺少原始 ADX 列 '{adx_col}'，无法判断 ADX 趋势强度状态。")
 
-        # 15. 背离状态判断
+        # 16. 背离状态判断
         if has_bearish_div_val and final_score_val > 50:
             add_signal_impact('divergence_status', "检测到顶背离", -20, "检测到顶背离，强烈预示趋势衰竭或反转！")
         elif has_bullish_div_val and final_score_val < 50:
@@ -4083,7 +4150,7 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('divergence_status', "无明显背离", 0)
 
-        # 16. Transformer 信号与规则信号的一致性
+        # 17. Transformer 信号与规则信号的一致性
         if not np.isnan(transformer_score_val) and not np.isnan(final_rule_score_val):
             transformer_rule_diff = abs(transformer_score_val - final_rule_score_val)
             if transformer_rule_diff > 20:
@@ -4093,7 +4160,7 @@ class TrendFollowingStrategy:
             else:
                 add_signal_impact('transformer_rule_consistency', "一致", 5)
 
-        # 17. EMA Score (基础得分的指数移动平均)
+        # 18. EMA Score (基础得分的指数移动平均)
         if not np.isnan(ema_score_val):
             if final_score_val > 60 and ema_score_val > 60:
                 add_signal_impact('ema_score_status', f"EMA得分 ({ema_score_col}) 强劲看涨，与主信号一致", 5)
@@ -4106,7 +4173,7 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('ema_score_status', "数据缺失", 0)
 
-        # 18. 波动率 (score_volatility)
+        # 19. 波动率 (score_volatility)
         print(f"[{self.strategy_name}][{stock_code}] 波动率值: {volatility_val:.4f}。")
         if not np.isnan(volatility_val):
             if volatility_val >= volatility_thresh_high:
@@ -4163,6 +4230,10 @@ class TrendFollowingStrategy:
         signal_judgment_dict['confidence_score'] = confidence_score
         signal_judgment_dict['normalized_confidence'] = normalized_confidence
         signal_judgment_dict['signal_impact_records'] = signal_impact_records  # <--- 记录所有信号影响明细
+        # 添加多时间段分数变化相关数据到 signal_judgment_dict
+        signal_judgment_dict['score_change_short'] = score_change_short
+        signal_judgment_dict['score_change_long'] = score_change_long
+        signal_judgment_dict['score_change_consistency_status'] = score_change_consistency_status
 
         now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
         stock_basic_dao = StockBasicInfoDao()
@@ -4185,6 +4256,8 @@ class TrendFollowingStrategy:
             f"EMA交叉信号: {signal_judgment_dict.get('ema_cross_status', '未知')}\n"
             f"EMA强度: {signal_judgment_dict.get('ema_strength_status', '未知')}\n"
             f"信号分动量: {signal_judgment_dict.get('score_momentum_status', '未知')}, 加速: {signal_judgment_dict.get('score_momentum_acceleration_status', '未知')}\n"
+            # 添加信号分变化信息到中文解读
+            f"信号分变化: 短期({score_momentum_short_period}期) {signal_judgment_dict.get('score_change_short_term', '未知')}, 长期({score_momentum_long_period}期) {signal_judgment_dict.get('score_change_long_term', '未知')}, 一致性: {signal_judgment_dict.get('score_change_consistency_status', '未知')}\n"
             f"VWAP偏离状态: {signal_judgment_dict.get('vwap_deviation_status', '未知')}\n"
             f"布林带突破: {signal_judgment_dict.get('boll_breakout_status', '未知')}\n"
             f"ADX强度: {signal_judgment_dict.get('adx_status', '未知')}\n"
@@ -4223,6 +4296,11 @@ class TrendFollowingStrategy:
             'ema_strength_status': 1.0,
             'score_momentum_status': 1.0,
             'score_momentum_acceleration_status': 1.0,
+            # 添加多时间段分数变化信号的权重
+            'score_change_short_term': 1.0,
+            'score_change_long_term': 1.2,
+            'score_change_consistency': 1.0,
+            # 结束
             'vwap_deviation_status': 1.0,
             'boll_breakout_status': 1.0,
             'adx_status': 1.2,

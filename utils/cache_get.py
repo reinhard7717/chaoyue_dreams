@@ -98,27 +98,38 @@ class CacheGet():
 
     async def _stock_strategy_data(self, stock_code: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
-            # 1. 生成缓存键 (必须与写入时使用的键完全一致)
             logger.info(f"尝试从缓存获取股票[{stock_code}] 策略数据, key: {cache_key}")
-            # 2. 调用 CacheManager 获取数据
             cache_manager = await self.get_cache_manager()
-            cached_data = await cache_manager.get(key=cache_key)
-            if cached_data is not None:
-                if isinstance(cached_data, dict):
-                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 策略数据, key: {cache_key}")
-                    return cached_data
-                else:
-                    logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
-                    cache_manager.delete(cache_key) # 可选：删除错误数据
+            # 修改开始: 使用 zrevrange 获取 ZSET 中分数最高的成员
+            # zrevrange(0, 0) 获取分数最高的单个成员
+            cached_members = await cache_manager.zrevrange(key=cache_key, start=0, end=0, withscores=False)
+            if cached_members:
+                # 取出第一个（也是唯一一个）成员，它是一个 JSON 字符串
+                json_data_str = cached_members[0]
+                try:
+                    # 反序列化 JSON 字符串为字典
+                    cached_data = json.loads(json_data_str)
+                    if isinstance(cached_data, dict):
+                        logger.info(f"缓存命中: 成功获取并解析股票[{stock_code}] 策略数据, key: {cache_key}")
+                        return cached_data
+                    else:
+                        logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 的缓存值解析后不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
+                        # 可选：如果数据格式错误，可以考虑删除该键或该成员
+                        # await cache_manager.zrem(cache_key, json_data_str) # 如果有 zrem 方法
+                        return None
+                except json.JSONDecodeError as e:
+                    logger.error(f"缓存数据解析失败: 股票[{stock_code}] 的缓存值不是有效的 JSON 格式, key: {cache_key}, 错误: {e}. 将视为未命中。")
+                    # 可选：删除损坏的成员
+                    # await cache_manager.zrem(cache_key, json_data_str)
                     return None
             else:
-                logger.info(f"缓存未命中: 未找到股票[{stock_code}] 策略数据, key: {cache_key}")
+                logger.info(f"缓存未命中: 未找到股票[{stock_code}] 策略数据或 ZSET 为空, key: {cache_key}")
                 return None
-
+            # 修改结束
         except Exception as e:
-            logger.error(f"StockIndicatorsDAO._stock_strategy_data从缓存获取股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
+            logger.error(f"StrategyCacheGet._stock_strategy_data从缓存获取股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return None
-
+        
 class UserCacheGet(CacheGet):
     async def initialize(self):
         """
