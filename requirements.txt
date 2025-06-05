@@ -34,6 +34,7 @@ matplotlib
 seaborn
 psutil
 tensorboard
+optuna
 # https://pytorch.org/get-started/locally/   pytorch从这里下载
 
 

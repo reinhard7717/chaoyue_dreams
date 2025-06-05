@@ -681,7 +681,7 @@ class TrendFollowingStrategy:
                 train_targets_tensor = train_targets_tensor.unsqueeze(1)
 
             train_dataset = TimeSeriesDataset(train_features_tensor, train_targets_tensor, self.transformer_window_size)
-            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True, num_workers=0) # num_workers 可根据系统调整
+            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True, num_workers=4) # num_workers 可根据系统调整
 
             val_loader = None
             if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and \
