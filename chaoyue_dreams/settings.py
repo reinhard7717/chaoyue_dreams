@@ -418,7 +418,6 @@ CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_
 
 # 定义队列
 CELERY_TASK_QUEUES = (
-    Queue('priority_tasks', routing_key='priority.#'), # 高优先级队列
     Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
     Queue('SaveData_RealTime', routing_key='save_api_data_RealTime.#'), # 保存API数据队列
     Queue('SaveData_TimeTrade', routing_key='save_api_data_TimeTrade.#'), # 保存API数据队列
