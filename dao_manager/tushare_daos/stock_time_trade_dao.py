@@ -306,11 +306,11 @@ class StockTimeTradeDAO(BaseDAO):
         end_datetime = start_datetime + timedelta(days=1)
 
         # 查询当天的所有5分钟K线
-        queryset = self.filter(
+        queryset = await self.filter(
             stock=stock,
             trade_time__gte=start_datetime,
             trade_time__lt=end_datetime,
-            time_level='5min'
+            time_level='5'
         )
         # 这里必须await values_list
         # Django异步ORM的 values_list 也是异步方法，必须 await。
