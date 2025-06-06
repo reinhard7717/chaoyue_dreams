@@ -294,7 +294,7 @@ class StockTimeTradeDAO(BaseDAO):
         :return: 交易时间字符串列表
         """
         if not date:
-            date = datetime.date.today()
+            date = datetime.today().date()
         # 获取股票对象
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
@@ -305,21 +305,20 @@ class StockTimeTradeDAO(BaseDAO):
         start_datetime = datetime.combine(date, datetime.min.time())
         end_datetime = start_datetime + timedelta(days=1)
 
-        # 查询当天的所有5分钟K线
-        queryset = await StockMinuteData.filter(
-            stock=stock,
-            trade_time__gte=start_datetime,
-            trade_time__lt=end_datetime,
-            time_level='5'
-        )
-        # 这里必须await values_list
-        # Django异步ORM的 values_list 也是异步方法，必须 await。
-        # 不能直接 await self.filter(...).values_list(...)，要先拿到QuerySet，再 await values_list。
-        # 这样可以解决 'coroutine' object has no attribute 'values_list' 的报错。
-        records = await queryset.values_list('trade_time', flat=True)
+        # 用sync_to_async包装ORM查询
+        @sync_to_async
+        def get_trade_times():
+            qs = StockMinuteData.objects.filter(
+                stock=stock,
+                trade_time__gte=start_datetime,
+                trade_time__lt=end_datetime,
+                time_level='5'  # 这里要和你的数据一致
+            ).values_list('trade_time', flat=True)
+            return list(qs)
 
-        # 转换为字符串格式
+        records = await get_trade_times()
         trade_times = [record.strftime('%Y-%m-%d %H:%M:%S') for record in records]
+        print(f"查询到{len(trade_times)}条5分钟K线数据")  # 调试信息
         return trade_times
 
     async def save_minute_time_trade_history_by_time_level(self, stock_code: str, time_level: str) -> None:
