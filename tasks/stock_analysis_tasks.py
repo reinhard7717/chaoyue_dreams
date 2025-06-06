@@ -92,11 +92,9 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
 
 def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):
     indicator_service = IndicatorService()
-    dt = datetime.strptime(trade_time_str, '%Y-%m-%d %H:%M:%S')
-    trade_time_ts = int(dt.timestamp())
     # 2. 准备数据 (基于 params_file 准备所有策略所需数据)
     try:
-        result = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time_ts))
+        result = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time_str))
         if result is None or not isinstance(result, tuple) or len(result) != 2:
             logger.warning(f"股票 {stock_code} 数据准备失败，跳过分析")
             return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}
@@ -107,7 +105,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
 
         # 获取最新时间戳（假设从数据中取最新时间）
         timestamp = data_df.index[-1] if not data_df.empty else pd.Timestamp.now()
-
+        print(f"execute_strategy_for_trade_time.timestamp: {timestamp}")
         # 3. 实例化需要运行的策略
         strategies_to_run: Dict[str, Any] = {}
         try:
