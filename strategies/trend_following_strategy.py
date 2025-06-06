@@ -678,12 +678,13 @@ class TrendFollowingStrategy:
             # 您的原始代码使用了 TimeSeriesDataset，这表示数据需要转换为序列形式
             train_features_tensor = torch.tensor(features_scaled_train_np, dtype=torch.float32)
             train_targets_tensor = torch.tensor(targets_scaled_train_np, dtype=torch.float32)
+            pin_memory = torch.cuda.is_available()
             # 确保 targets 是 2D，例如 (N, 1)
             if train_targets_tensor.ndim == 1:
                 train_targets_tensor = train_targets_tensor.unsqueeze(1)
 
             train_dataset = TimeSeriesDataset(train_features_tensor, train_targets_tensor, self.transformer_window_size)
-            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=True, num_workers=0) # num_workers 可根据系统调整
+            train_loader = DataLoader(train_dataset, batch_size=self.transformer_batch_size, shuffle=True, pin_memory=pin_memory, num_workers=0) # num_workers 可根据系统调整
 
             val_loader = None
             if features_scaled_val_np is not None and features_scaled_val_np.shape[0] >= self.transformer_window_size and \
@@ -694,7 +695,7 @@ class TrendFollowingStrategy:
                     val_targets_tensor = val_targets_tensor.unsqueeze(1)
                 val_dataset = TimeSeriesDataset(val_features_tensor, val_targets_tensor, self.transformer_window_size)
                 if len(val_dataset) > 0:
-                    val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False, pin_memory=True, num_workers=0)
+                    val_loader = DataLoader(val_dataset, batch_size=self.transformer_batch_size, shuffle=False, pin_memory=pin_memory, num_workers=0)
                 else:
                     logger.warning(f"[{self.strategy_name}][{stock_code}] 验证集 Dataset 为空 (数据量不足 {self.transformer_window_size} 或其他原因)。验证阶段将跳过。")
             else:
