@@ -306,7 +306,7 @@ class StockTimeTradeDAO(BaseDAO):
         end_datetime = start_datetime + timedelta(days=1)
 
         # 查询当天的所有5分钟K线
-        queryset = await self.filter(
+        queryset = await StockMinuteData.filter(
             stock=stock,
             trade_time__gte=start_datetime,
             trade_time__lt=end_datetime,
