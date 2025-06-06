@@ -3742,6 +3742,8 @@ class TrendFollowingStrategy:
         优化：增加严格的输入检查，参数预加载，统一信号值获取，提升效率和清晰度。
         """
         print(f"[{self.strategy_name}][{stock_code}] 开始分析信号。")
+        stock_basic_dao = StockBasicInfoDao()
+        stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
 
         # 严格的输入检查
         if not isinstance(stock_code, str) or not stock_code.strip():
@@ -3755,7 +3757,8 @@ class TrendFollowingStrategy:
 
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
-        print(f"[{self.strategy_name}][{stock_code}] 获取最新数据行。")
+        print(f"analyze_signals.latest_data_row: {latest_data_row}")
+        print(f"[{self.strategy_name}][{stock}] 获取最新数据行。")
         # 新增：用于记录每次add_signal_impact的详细影响
         signal_impact_records = []
 
@@ -3811,8 +3814,8 @@ class TrendFollowingStrategy:
                 if actual_name and actual_name in latest_data_row:
                     actual_col_names[pattern] = actual_name
                 else:
-                    logger.debug(f"[{self.strategy_name}][{stock_code}] 内部列模式 '{pattern}' (或其格式化名称 '{actual_name}') 未在数据中找到。")
-        print(f"[{self.strategy_name}][{stock_code}] 动态获取内部列名完成。")
+                    logger.debug(f"[{self.strategy_name}][{stock}] 内部列模式 '{pattern}' (或其格式化名称 '{actual_name}') 未在数据中找到。")
+        print(f"[{self.strategy_name}][{stock}] 动态获取内部列名完成。")
 
         # 从 actual_col_names 字典中安全获取列名，如果不存在则使用默认字符串
         def get_col_name(pattern: str, default_str: str) -> str:
@@ -3867,12 +3870,12 @@ class TrendFollowingStrategy:
         vwap_deviation_percent_val = latest_data_row.get(vwap_deviation_percent_col, np.nan)
         boll_breakout_signal_val = latest_data_row.get(boll_breakout_signal_col, np.nan)
 
-        print(f"[{self.strategy_name}][{stock_code}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
+        print(f"[{self.strategy_name}][{stock}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
         # 计算趋势持续时间
         trend_duration_info_dict = self._calculate_trend_duration(self.intermediate_data)
         analysis_results_dict.update(trend_duration_info_dict)
-        print(f"[{self.strategy_name}][{stock_code}] 趋势持续时间信息已计算。")
+        print(f"[{self.strategy_name}][{stock}] 趋势持续时间信息已计算。")
 
         signal_judgment_dict = {}
         operation_advice_str = "中性观望"
@@ -3882,7 +3885,7 @@ class TrendFollowingStrategy:
         duration_status_rule_str = trend_duration_info_dict.get('duration_status', '短')
         current_trend_direction = trend_duration_info_dict.get('current_trend', '中性')
         current_trend_strength = trend_duration_info_dict.get('trend_strength', '不明')
-        print(f"[{self.strategy_name}][{stock_code}] 趋势持续状态: '{duration_status_rule_str}', 方向: '{current_trend_direction}', 强度: '{current_trend_strength}'。")
+        print(f"[{self.strategy_name}][{stock}] 趋势持续状态: '{duration_status_rule_str}', 方向: '{current_trend_direction}', 强度: '{current_trend_strength}'。")
 
         # ================== 多变量深化判断与智能建议 ==================
         confidence_score = 0 # 初始信心分数，范围 -100 到 100
@@ -3901,7 +3904,7 @@ class TrendFollowingStrategy:
                 "risk_msg": risk_msg,
                 "confidence_score_after": confidence_score
             })
-            print(f"[{self.strategy_name}][{stock_code}] 信号影响 - {key}: {status}, 信心变化: {confidence_change}, 当前信心: {confidence_score}。")
+            print(f"[{self.strategy_name}][{stock}] 信号影响 - {key}: {status}, 信心变化: {confidence_change}, 当前信心: {confidence_score}。")
 
         # 1. 整体信号强度评估
         if final_score_val >= strong_bullish_thresh:
@@ -3932,7 +3935,7 @@ class TrendFollowingStrategy:
             add_signal_impact('trend_duration_impact', '趋势发展中', 0)
 
         # 3. 趋势分与量能分配合/背离
-        print(f"[{self.strategy_name}][{stock_code}] 原始分: {base_score_raw_val:.2f}, 量能调整分: {base_score_volume_adjusted_val:.2f}。")
+        print(f"[{self.strategy_name}][{stock}] 原始分: {base_score_raw_val:.2f}, 量能调整分: {base_score_volume_adjusted_val:.2f}。")
         if not np.isnan(base_score_raw_val) and not np.isnan(base_score_volume_adjusted_val):
             score_diff = base_score_volume_adjusted_val - base_score_raw_val
             if abs(score_diff) > 10:
@@ -3947,7 +3950,7 @@ class TrendFollowingStrategy:
                 add_signal_impact('volume_effect', "量能影响一般", 0)
 
         # 4. 长期趋势与当前信号配合/背离
-        print(f"[{self.strategy_name}][{stock_code}] 长期趋势背景: '{long_term_context_val}'。")
+        print(f"[{self.strategy_name}][{stock}] 长期趋势背景: '{long_term_context_val}'。")
         if long_term_context_val is not None:
             if long_term_context_val == "多头" and final_score_val < 50:
                 add_signal_impact('long_term_vs_current', "多头背景下信号偏弱", -10, "长期趋势为多头，但当前信号偏弱，警惕短期回调风险。")
@@ -3961,7 +3964,7 @@ class TrendFollowingStrategy:
                 add_signal_impact('long_term_vs_current', f"长期趋势：{long_term_context_val}", 0)
 
         # 5. 动量指标 (STOCH) 与趋势信号共振/背离
-        print(f"[{self.strategy_name}][{stock_code}] STOCH 信号: {stoch_signal_val:.2f}, 超买阈值={stoch_overbought_thresh}, 超卖阈值={stoch_oversold_thresh}。")
+        print(f"[{self.strategy_name}][{stock}] STOCH 信号: {stoch_signal_val:.2f}, 超买阈值={stoch_overbought_thresh}, 超卖阈值={stoch_oversold_thresh}。")
         if not np.isnan(stoch_signal_val):
             if stoch_signal_val >= stoch_overbought_thresh and final_score_val >= moderate_bullish_thresh:
                 add_signal_impact('stoch_trend_relation', "趋势与超买共振", -15, "趋势强劲但随机指标超买，短线追高风险较大，注意回调。")
@@ -3975,7 +3978,7 @@ class TrendFollowingStrategy:
                 add_signal_impact('stoch_trend_relation', "随机指标与趋势分无明显共振", 0)
 
         # 6. 量能异动与趋势信号配合/背离
-        print(f"[{self.strategy_name}][{stock_code}] 量能异动信号: {vol_spike_signal_val:.2f}。")
+        print(f"[{self.strategy_name}][{stock}] 量能异动信号: {vol_spike_signal_val:.2f}。")
         if not np.isnan(vol_spike_signal_val):
             if vol_spike_signal_val > 0 and final_score_val >= moderate_bullish_thresh:
                 add_signal_impact('vol_spike_trend', "量能异动强化看涨趋势", 10, "趋势强劲且伴随放量上涨，可能预示加速，但需注意追高风险。")
@@ -4038,7 +4041,7 @@ class TrendFollowingStrategy:
         else: add_signal_impact('score_momentum_acceleration_status', "数据缺失", 0)
 
         # 11. 多时间段的分数变化
-        print(f"[{self.strategy_name}][{stock_code}] 分析信号分在多时间段的变化。")
+        print(f"[{self.strategy_name}][{stock}] 分析信号分在多时间段的变化。")
         score_change_short = np.nan
         score_change_long = np.nan
         score_change_consistency_status = "数据不足"
@@ -4047,7 +4050,7 @@ class TrendFollowingStrategy:
             if len(combined_signals) > score_momentum_short_period:
                 score_val_short_ago = combined_signals.iloc[-(score_momentum_short_period + 1)]
                 score_change_short = final_score_val - score_val_short_ago
-                print(f"[{self.strategy_name}][{stock_code}] 短期 ({score_momentum_short_period}期) 信号分变化: {score_change_short:.2f}。")
+                print(f"[{self.strategy_name}][{stock}] 短期 ({score_momentum_short_period}期) 信号分变化: {score_change_short:.2f}。")
                 if score_change_short >= score_momentum_threshold_abs:
                     add_signal_impact('score_change_short_term', f"短期信号分强劲上涨 ({score_momentum_short_period}期)", 10)
                 elif score_change_short <= -score_momentum_threshold_abs:
@@ -4059,7 +4062,7 @@ class TrendFollowingStrategy:
             if len(combined_signals) > score_momentum_long_period:
                 score_val_long_ago = combined_signals.iloc[-(score_momentum_long_period + 1)]
                 score_change_long = final_score_val - score_val_long_ago
-                print(f"[{self.strategy_name}][{stock_code}] 长期 ({score_momentum_long_period}期) 信号分变化: {score_change_long:.2f}。")
+                print(f"[{self.strategy_name}][{stock}] 长期 ({score_momentum_long_period}期) 信号分变化: {score_change_long:.2f}。")
                 long_term_threshold = score_momentum_threshold_abs * score_momentum_long_term_multiplier
                 if score_change_long >= long_term_threshold:
                     add_signal_impact('score_change_long_term', f"长期信号分强劲上涨 ({score_momentum_long_period}期)", 15)
@@ -4123,7 +4126,7 @@ class TrendFollowingStrategy:
         dmi_period_bs = self._get_param_val(param_sources, 'dmi_period', 14)
         adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}'
         adx_val = latest_data_row.get(adx_col, np.nan)
-        print(f"[{self.strategy_name}][{stock_code}] 原始 ADX 值 (来自列 {adx_col}): {adx_val}。")
+        print(f"[{self.strategy_name}][{stock}] 原始 ADX 值 (来自列 {adx_col}): {adx_val}。")
         if not np.isnan(adx_val):
              if adx_val >= adx_strong_thresh: add_signal_impact('adx_status', "趋势非常强劲 (原始ADX)", 10)
              elif adx_val >= adx_moderate_thresh: add_signal_impact('adx_status', "趋势强劲 (原始ADX)", 5)
@@ -4165,7 +4168,7 @@ class TrendFollowingStrategy:
             add_signal_impact('ema_score_status', "数据缺失", 0)
 
         # 19. 波动率 (score_volatility)
-        print(f"[{self.strategy_name}][{stock_code}] 波动率值: {volatility_val:.4f}。")
+        print(f"[{self.strategy_name}][{stock}] 波动率值: {volatility_val:.4f}。")
         if not np.isnan(volatility_val):
             if volatility_val >= volatility_thresh_high:
                 add_signal_impact('volatility_status', "高波动", -10, f"当前波动率较高({volatility_val:.2%})，市场不确定性增加。")
@@ -4177,7 +4180,7 @@ class TrendFollowingStrategy:
             add_signal_impact('volatility_status', "波动率数据缺失", 0)
 
         # MODIFIED: 新增判断规则：20. ADX 强度信号判断 (来自 adx_strength_signal 列, 结合方向)
-        print(f"[{self.strategy_name}][{stock_code}] ADX 强度信号值 (来自列 {adx_strength_signal_col}, 结合方向): {adx_strength_signal_val:.2f}。")
+        print(f"[{self.strategy_name}][{stock}] ADX 强度信号值 (来自列 {adx_strength_signal_col}, 结合方向): {adx_strength_signal_val:.2f}。")
         if not np.isnan(adx_strength_signal_val):
             trend_direction_from_adx_signal = "中性"
             # 使用一个小的epsilon来比较浮点数，避免等于0的精确比较问题
@@ -4264,7 +4267,7 @@ class TrendFollowingStrategy:
 
         # 根据综合信心分数生成更高效和有效的操作建议
         normalized_confidence = max(-1.0, min(1.0, confidence_score / 100.0))
-        print(f"[{self.strategy_name}][{stock_code}] 最终综合信心分数: {confidence_score}, 归一化信心: {normalized_confidence:.2f}。")
+        print(f"[{self.strategy_name}][{stock}] 最终综合信心分数: {confidence_score}, 归一化信心: {normalized_confidence:.2f}。")
 
         if normalized_confidence >= 0.7:
             operation_advice_str = f"【强烈买入/积极加仓】信号极度强劲，多重指标共振看涨，趋势稳固。建议积极介入。{t_plus_1_note_str}"
@@ -4313,8 +4316,6 @@ class TrendFollowingStrategy:
         signal_judgment_dict['score_change_consistency_status'] = score_change_consistency_status
 
         now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-        stock_basic_dao = StockBasicInfoDao()
-        stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
 
         chinese_interpretation_str = (
             f"【趋势跟踪策略分析 - {stock} - {now_str}】\n"
@@ -4394,9 +4395,9 @@ class TrendFollowingStrategy:
         analysis_results_dict['risk_warning'] = risk_warning_str
         analysis_results_dict['chinese_interpretation'] = chinese_interpretation_str
         self.analysis_results = analysis_results_dict
-        logger.debug(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
+        logger.debug(f"[{self.strategy_name}][{stock}] 信号分析完成。")
         logger.info(chinese_interpretation_str)
-        print(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
+        print(f"[{self.strategy_name}][{stock}] 信号分析完成。")
 
         return analysis_results_dict
 
