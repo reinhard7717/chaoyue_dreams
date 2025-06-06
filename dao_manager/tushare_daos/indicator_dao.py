@@ -318,13 +318,11 @@ class IndicatorDAO(BaseDAO):
 
             # 按时间倒序，限制数量
             qs = qs.order_by('-trade_time')[:limit]
-            # 直接 await 异步切片
-            data_list = await qs[:limit]
-
+            data_list = await sync_to_async(list)(qs)  # 用同步ORM，异步调用
             # 升序排列
             data_list = list(data_list)[::-1]
             print(f"{stock} data_list_count: {len(data_list)}")
-            
+
             # --- 以下是原始数据缺失检查部分 ---
             # 1. 获取实际有的数据时间点，并转换为时区感知的 datetime 对象
             trade_times_aware = []
