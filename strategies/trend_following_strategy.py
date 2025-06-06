@@ -2646,7 +2646,7 @@ class TrendFollowingStrategy:
                 self.jit_traced = True
                 print(f"[{self.strategy_name}][{stock_code}] 已自动script并保存scripted模型: {traced_model_path}")
             except Exception as e:
-                print(f"[{self.strategy_name}][{stock_code}] torch.jit.trace失败: {e}")
+                print(f"[{self.strategy_name}][{stock_code}] torch.jit.script失败: {e}")
         # ----------- 后续推理用 self.transformer_model 即可 -----------
         
         # 检查模型和必需的 Scaler/特征列表是否已加载
