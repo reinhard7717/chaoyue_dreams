@@ -1,6 +1,7 @@
 # dao_manager\tushare_daos\stock_time_trade_dao.py
 import logging
 import time
+from asgiref.sync import sync_to_async
 from typing import List
 import numpy as np
 import pandas as pd
