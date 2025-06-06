@@ -34,7 +34,8 @@ async def _get_all_relevant_stock_codes_for_processing():
     try:
         all_stocks = await stock_basic_dao.get_stock_list()
         for stock in all_stocks:
-            all_stock_codes.add(stock.stock_code)
+            if not stock.stock_id.endswith('.BJ'):  # 过滤掉以.BJ结尾的股票代码
+                all_stock_codes.add(stock.stock_code)
         logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
@@ -42,6 +43,9 @@ async def _get_all_relevant_stock_codes_for_processing():
     # 计算非自选股代码
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
+
+    favorite_stock_codes_list = sorted(favorite_stock_codes_list)  # 按stock_code排序
+    non_favorite_stock_codes = sorted(non_favorite_stock_codes)    # 按stock_code排序
 
     total_unique_stocks = len(favorite_stock_codes_list) + len(non_favorite_stock_codes)
     logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
