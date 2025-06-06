@@ -2609,7 +2609,7 @@ class TrendFollowingStrategy:
         # 更好的做法是有一个专门加载模型和转换器的方法，而不是复用 load_prepared_data
         # 为了简化，我们假设 load_prepared_data 已经将所需的 self.transformer_model, self.feature_scaler, self.target_scaler, self.selected_feature_names_for_transformer, self.pca_model, self.scaler_for_pca, self.feature_selector_model 加载好了
         # 如果 load_prepared_data 返回了数据，这里可以忽略它们，只关注 self 属性
-        # _, _, _, _, _, _, feature_scaler_loaded, target_scaler_loaded = self.load_prepared_data(stock_code)
+        _, _, _, _, _, _, feature_scaler_loaded, target_scaler_loaded = self.load_prepared_data(stock_code)
         # 调用 load_transformer_model 来加载 Transformer 模型本身
         
         self.load_transformer_model(stock_code) # 调用此方法加载 Transformer 模型
