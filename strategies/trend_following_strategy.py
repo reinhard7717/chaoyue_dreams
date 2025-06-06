@@ -615,7 +615,7 @@ class TrendFollowingStrategy:
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
 
         # 设置 PyTorch 使用的线程数
-        torch.set_num_threads(4)  # 根据你的 CPU 核心数进行调整
+        torch.set_num_threads(8)  # 根据你的 CPU 核心数进行调整
 
         # 增加错误处理，确保 load_prepared_data 返回有效数据
         try:
@@ -2767,93 +2767,61 @@ class TrendFollowingStrategy:
     # 负责在预测时对最新的数据窗口应用已拟合的转换器
     def _apply_feature_engineering_pipeline(self, raw_data_window: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
-        对原始数据窗口应用训练时使用的特征工程管道。
-        这是一个内部辅助方法。
+        对原始数据窗口应用特征工程管道，返回处理后的特征DataFrame。
+        包括NaN填充、特征筛选、缩放、PCA降维和特征选择。
         """
         if raw_data_window is None or raw_data_window.empty:
+            logger.warning(f"[{self.strategy_name}] 输入数据为空，无法应用特征工程管道。")
             return None
-
         processed_df = raw_data_window.copy()
-
-        # 1. 初始特征列选择 (如果需要，取决于 raw_data_window 包含哪些列)
-        # 如果 raw_data_window 已经只包含 prepare_data_for_transformer 初始筛选后的列，则跳过
-        # 否则，需要一个列表来存储 prepare_data_for_transformer 初始筛选后的列名
-        # 假设 self.initial_feature_names 存储了这个列表
-        # if hasattr(self, 'initial_feature_names') and self.initial_feature_names:
-        #     try:
-        #         processed_df = processed_df[self.initial_feature_names]
-        #     except KeyError as e:
-        #         logger.error(f"[{self.strategy_name}] 原始数据窗口缺少初始特征列: {e}")
-        #         return None
-
-        # 2. 处理 NaN (与 prepare_data_for_transformer 一致)
+        # 处理NaN，先前向填充，再后向填充，最后用0填充
         if processed_df.isnull().any().any():
-             processed_df = processed_df.ffill().bfill().fillna(0)
-             if processed_df.isnull().any().any():
-                  logger.error(f"[{self.strategy_name}] 应用特征工程管道时 NaN 填充后仍存在 NaN。")
-                  return None
-
+            processed_df = processed_df.ffill().bfill().fillna(0)
+            if processed_df.isnull().any().any():
+                logger.error(f"[{self.strategy_name}] 应用特征工程管道时 NaN 填充后仍存在 NaN。")
+                return None
+        # 筛选训练时的特征列，确保顺序和内容一致
+        if hasattr(self, 'selected_feature_names_for_transformer') and self.selected_feature_names_for_transformer:
+            try:
+                processed_df = processed_df[self.selected_feature_names_for_transformer]
+            except KeyError as e:
+                logger.error(f"[{self.strategy_name}] 筛选特征列失败，缺少训练时特征: {e}")
+                return None
+        else:
+            logger.warning(f"[{self.strategy_name}] 未加载训练时特征名列表，跳过特征筛选。")
+        # 转为numpy数组，类型为float32
         current_features_np = processed_df.values.astype(np.float32)
-        current_feature_names = processed_df.columns.tolist() # 跟踪特征名
-
-        # 3. 应用 PCA 前缩放 (如果使用了)
-        if self.scaler_for_pca is not None:
-            logger.debug(f"[{self.strategy_name}] 应用 PCA 前缩放器...")
+        # 应用PCA前缩放器
+        if hasattr(self, 'scaler_for_pca') and self.scaler_for_pca is not None:
             try:
                 current_features_np = self.scaler_for_pca.transform(current_features_np)
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] 应用 PCA 前缩放器出错: {e}", exc_info=True)
                 return None
-
-        # 4. 应用 PCA (如果使用了)
-        if self.pca_model is not None:
-            logger.debug(f"[{self.strategy_name}] 应用 PCA 模型...")
+        # 应用PCA降维
+        if hasattr(self, 'pca_model') and self.pca_model is not None:
             try:
                 current_features_np = self.pca_model.transform(current_features_np)
-                # PCA 后特征名改变
-                current_feature_names = [f"pca_comp_{i}" for i in range(current_features_np.shape[1])]
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] 应用 PCA 模型出错: {e}", exc_info=True)
                 return None
-
-        # 5. 应用特征选择 (如果使用了)
-        # 注意：SelectFromModel 在 transform 时需要原始特征名或索引来匹配 fit 时的特征
-        # 如果在 PCA 后应用特征选择，SelectFromModel 需要在 PCA 转换后的特征上 fit
-        # prepare_data_for_transformer 的逻辑是 PCA 和基于模型的选择通常互斥
-        # 如果您的 prepare_data_for_transformer 是先 PCA 再特征选择，那么这里的顺序是对的
-        # 如果是先特征选择再 PCA，那么这里的顺序需要调整
-        # 假设是 PCA 和基于模型的选择互斥，或者先 PCA 再基于模型选择
-        if self.feature_selector_model is not None:
-            logger.debug(f"[{self.strategy_name}] 应用特征选择器模型...")
+        # 应用特征选择器模型
+        if hasattr(self, 'feature_selector_model') and self.feature_selector_model is not None:
             try:
-                # SelectFromModel.transform 接收 NumPy 数组
                 current_features_np = self.feature_selector_model.transform(current_features_np)
-                # 更新特征名列表以匹配选择后的特征
-                # 这需要知道 feature_selector_model 选择了哪些原始特征的索引
-                # 如果是在 PCA 后应用，则需要知道选择了 PCA 后的哪些成分
-                # 这是一个复杂的地方，确保 selected_feature_names_for_transformer 总是与 current_features_np 的列匹配
-                # 最简单的方式是依赖 selected_feature_names_for_transformer 是最终的列名
-                # 但 SelectFromModel.transform 不直接提供新的列名
-                # 更好的方法是 SelectFromModel.get_support(indices=True) 获取索引
-                # 这里我们假设 selected_feature_names_for_transformer 已经是最终的列名
-                # 并且 transform 后的列数与 selected_feature_names_for_transformer 长度一致
-                if current_features_np.shape[1] != len(self.selected_feature_names_for_transformer):
-                     logger.error(f"[{self.strategy_name}] 特征选择器转换后的维度 ({current_features_np.shape[1]}) 与最终选定特征列表长度 ({len(self.selected_feature_names_for_transformer)}) 不匹配！")
-                     return None
-                current_feature_names = self.selected_feature_names_for_transformer # 更新为最终选定的特征名
-
             except Exception as e:
                 logger.error(f"[{self.strategy_name}] 应用特征选择器模型出错: {e}", exc_info=True)
                 return None
-
-        # 6. 将最终处理好的 NumPy 数组转回 DataFrame，列名使用 self.selected_feature_names_for_transformer
-        # 这是为了匹配 predict_with_transformer_model 函数的输入要求
-        if current_features_np.shape[1] != len(self.selected_feature_names_for_transformer):
-             logger.error(f"[{self.strategy_name}] 最终处理后的特征维度 ({current_features_np.shape[1]}) 与最终选定特征列表长度 ({len(self.selected_feature_names_for_transformer)}) 不匹配！")
-             return None
-
+        # 确保current_features_np是二维数组
+        if current_features_np.ndim == 1:
+            current_features_np = current_features_np.reshape(1, -1)
+        # 检查特征维度是否和训练时一致
+        expected_feature_num = len(self.selected_feature_names_for_transformer) if hasattr(self, 'selected_feature_names_for_transformer') else None
+        if expected_feature_num is not None and current_features_np.shape[1] != expected_feature_num:
+            logger.error(f"[{self.strategy_name}] 特征选择后维度 {current_features_np.shape[1]} 与训练时特征数 {expected_feature_num} 不匹配！")
+            return None
+        # 构建最终DataFrame，列名用训练时的特征名，索引与输入数据一致
         processed_df_final = pd.DataFrame(current_features_np, columns=self.selected_feature_names_for_transformer, index=raw_data_window.index)
-
         return processed_df_final
 
     # --- 为 Transformer 训练准备数据子集 ---
@@ -2890,33 +2858,33 @@ class TrendFollowingStrategy:
 
         # 合并 intermediate_results_dict 中的 DataFrame/Series 到临时容器
         for key, df_or_series in intermediate_results_dict.items():
-             if isinstance(df_or_series, pd.DataFrame) and not df_or_series.empty:
-                 # 合并 DataFrame 的所有列
-                 for col_join in df_or_series.columns:
-                     # 避免覆盖原始数据或已有的中间列，除非是特定的内部列需要更新
-                     # 假设 strategy_utils 返回的 DataFrame 列名是最终想要的列名（除了 ADJUSTED_SCORE）
-                     if col_join != 'ADJUSTED_SCORE' and col_join not in temp_data_container.columns:
-                          temp_data_container[col_join] = df_or_series[col_join]
-                     elif col_join == 'ADJUSTED_SCORE':
-                          # 特殊处理 ADJUSTED_SCORE，将其值赋值给 'base_score_volume_adjusted' 列 (如果还没有的话)
-                          if 'base_score_volume_adjusted' not in temp_data_container.columns:
-                               temp_data_container['base_score_volume_adjusted'] = df_or_series[col_join]
-                          else:
-                               logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 'ADJUSTED_SCORE' 已存在于 temp_data_container['base_score_volume_adjusted']，跳过合并。")
-                     else:
-                         logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 '{col_join}' 已存在于 temp_data_container，跳过合并来自 '{key}' 的同名列。")
+            if isinstance(df_or_series, pd.DataFrame) and not df_or_series.empty:
+                # 合并 DataFrame 的所有列
+                for col_join in df_or_series.columns:
+                    # 避免覆盖原始数据或已有的中间列，除非是特定的内部列需要更新
+                    # 假设 strategy_utils 返回的 DataFrame 列名是最终想要的列名（除了 ADJUSTED_SCORE）
+                    if col_join != 'ADJUSTED_SCORE' and col_join not in temp_data_container.columns:
+                        temp_data_container[col_join] = df_or_series[col_join]
+                    elif col_join == 'ADJUSTED_SCORE':
+                        # 特殊处理 ADJUSTED_SCORE，将其值赋值给 'base_score_volume_adjusted' 列 (如果还没有的话)
+                        if 'base_score_volume_adjusted' not in temp_data_container.columns:
+                            temp_data_container['base_score_volume_adjusted'] = df_or_series[col_join]
+                        else:
+                            logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 'ADJUSTED_SCORE' 已存在于 temp_data_container['base_score_volume_adjusted']，跳过合并。")
+                    else:
+                        logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果列 '{col_join}' 已存在于 temp_data_container，跳过合并来自 '{key}' 的同名列。")
 
-             elif isinstance(df_or_series, pd.Series) and not df_or_series.empty:
-                  # 合并 Series
-                  # 如果 Series 有 name 属性，使用 name 作为列名
-                  series_col_name = df_or_series.name
-                  if series_col_name and series_col_name not in temp_data_container.columns:
-                      temp_data_container[series_col_name] = df_or_series
-                  # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
-                  elif not series_col_name and key not in temp_data_container.columns:
-                       temp_data_container[key] = df_or_series
-                  else:
-                      logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
+            elif isinstance(df_or_series, pd.Series) and not df_or_series.empty:
+                # 合并 Series
+                # 如果 Series 有 name 属性，使用 name 作为列名
+                series_col_name = df_or_series.name
+                if series_col_name and series_col_name not in temp_data_container.columns:
+                    temp_data_container[series_col_name] = df_or_series
+                # 如果 Series 没有 name，或者 name 已存在，可以考虑使用 dict 的 key 作为列名（需要确保不冲突）
+                elif not series_col_name and key not in temp_data_container.columns:
+                    temp_data_container[key] = df_or_series
+                else:
+                    logger.debug(f"[{self.strategy_name}][{stock_code}] 中间结果Series '{series_col_name or key}' 已存在或无名，跳过合并。")
 
         logger.info(f"[{self.strategy_name}][{stock_code}] 临时数据容器构建完成，形状: {temp_data_container.shape}")
         print(f"[{self.strategy_name}][{stock_code}] temp_data_container 内存使用 (MB): {temp_data_container.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印内存使用
@@ -2947,7 +2915,6 @@ class TrendFollowingStrategy:
             logger.error(f"[{self.strategy_name}][{stock_code}] Transformer 目标列 '{target_column}' 不存在于临时数据容器中。请检查规则计算或目标列配置。可用列: {temp_data_container.columns.tolist()}")
             del temp_data_container # 释放内存
             return pd.DataFrame() # 无法确定目标列，返回空 DataFrame
-
 
         logger.info(f"[{self.strategy_name}][{stock_code}] 确定 Transformer 目标列: '{target_column}'.")
 
@@ -2990,7 +2957,6 @@ class TrendFollowingStrategy:
         # print(f"[{self.strategy_name}][{stock_code}] data_subset 数据类型:\n{data_subset.dtypes}") # 打印数据类型
         print(f"[{self.strategy_name}][{stock_code}] data_subset 内存使用 (MB): {data_subset.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印内存使用
 
-
         return data_subset
 
     # 将 load_lstm_model 更名为 load_transformer_model
@@ -3020,7 +2986,7 @@ class TrendFollowingStrategy:
         try:
             # 加载选中特征列表
             with open(self.selected_features_path, 'r', encoding='utf-8') as f:
-                 self.selected_feature_names_for_transformer = json.load(f)
+                self.selected_feature_names_for_transformer = json.load(f)
             logger.debug(f"[{self.strategy_name}][{stock_code}] 选中特征名列表 ({len(self.selected_feature_names_for_transformer)}个) 从 {self.selected_features_path} 加载。")
 
             current_num_features_from_json = len(self.selected_feature_names_for_transformer)
@@ -3491,7 +3457,6 @@ class TrendFollowingStrategy:
                               data_with_target[series_col_name] = df_or_series
                          elif not series_col_name and key not in data_with_target.columns:
                               data_with_target[key] = df_or_series
-
 
             except Exception as e:
                 logger.error(f"[{log_prefix}] 规则信号计算出错，无法生成目标列 '{self.transformer_target_column}': {e}", exc_info=True)
