@@ -48,6 +48,9 @@ file_handler.setFormatter(formatter)
 
 logger = logging.getLogger("strategy_trend_following") # 策略特定的 logger
 
+torch.backends.mkl.enabled = True       # 启用 MKL（Intel Math Kernel Library）加速
+torch.backends.openmp.enabled = True    # 启用 OpenMP 多线程加速
+
 # 读取指标规范命名json
 def load_naming_config():
     # 检查文件是否存在再尝试打开，更健壮
@@ -83,8 +86,6 @@ def load_indicator_parameters():
 
 INDICATOR_PARAMETERS = load_indicator_parameters()
 
-
-
 class TrendFollowingStrategy:
     """
     趋势跟踪策略：
@@ -97,6 +98,9 @@ class TrendFollowingStrategy:
     """
     strategy_name_class_default = "TrendFollowingStrategy_ClassDefault" # 改个名字以区分
     default_focus_timeframe = '30' # 默认主要关注的时间框架
+
+    torch.backends.mkl.enabled = True       # 启用 MKL（Intel Math Kernel Library）加速
+    torch.backends.openmp.enabled = True    # 启用 OpenMP 多线程加速
 
     def __init__(self, params_file: str = None, base_data_dir: str = None):
         """
@@ -115,6 +119,7 @@ class TrendFollowingStrategy:
         self.pca_model_path = None # 初始化 pca_model_path
         self.scaler_for_pca_path = None # 初始化 scaler_for_pca_path
         self.feature_selector_model_path = None # 初始化 feature_selector_model_path
+        self.jit_traced = False
         temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]" # 临时日志前缀
 
         # --- 阶段 1 & 2: 解析和加载参数文件 ---
@@ -608,6 +613,9 @@ class TrendFollowingStrategy:
         # 设置模型文件路径，包括模型目录和基准文件名（非 Trial 专属）
         self.set_model_paths(stock_code)
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
+
+        # 设置 PyTorch 使用的线程数
+        torch.set_num_threads(4)  # 根据你的 CPU 核心数进行调整
 
         # 增加错误处理，确保 load_prepared_data 返回有效数据
         try:
@@ -2603,8 +2611,44 @@ class TrendFollowingStrategy:
         # 如果 load_prepared_data 返回了数据，这里可以忽略它们，只关注 self 属性
         _, _, _, _, _, _, feature_scaler_loaded, target_scaler_loaded = self.load_prepared_data(stock_code)
         # 调用 load_transformer_model 来加载 Transformer 模型本身
-        # 修改开始
+        
         self.load_transformer_model(stock_code) # 调用此方法加载 Transformer 模型
+
+        # ----------- 自动trace并保存traced模型 -----------
+        # 假设模型路径和traced模型路径如下
+        model_dir = os.path.dirname(self.model_path)
+        traced_model_path = os.path.join(model_dir, f"transformer_{stock_code}_traced.pt")
+
+        # 优先加载traced模型
+        if os.path.exists(traced_model_path):
+            try:
+                self.transformer_model = torch.jit.load(traced_model_path, map_location='cpu')
+                self.transformer_model.eval()
+                self.jit_traced = True
+                print(f"[{self.strategy_name}][{stock_code}] 已加载traced模型: {traced_model_path}")
+            except Exception as e:
+                print(f"[{self.strategy_name}][{stock_code}] 加载traced模型失败: {e}，将尝试trace原始模型。")
+                self.jit_traced = False
+        else:
+            self.jit_traced = False
+
+        # 如果未trace过，自动trace并保存
+        if self.transformer_model and not getattr(self, 'jit_traced', False):
+            try:
+                self.transformer_model.eval()
+                # 构造示例输入，shape需与实际推理一致
+                example_input = torch.zeros(1, self.transformer_window_size, len(self.selected_feature_names_for_transformer))
+                example_input = example_input.to('cpu')
+                self.transformer_model.to('cpu')
+                traced_model = torch.jit.trace(self.transformer_model, example_input)
+                # 保存traced模型
+                traced_model.save(traced_model_path)
+                self.transformer_model = traced_model
+                self.jit_traced = True
+                print(f"[{self.strategy_name}][{stock_code}] 已自动trace并保存traced模型: {traced_model_path}")
+            except Exception as e:
+                print(f"[{self.strategy_name}][{stock_code}] torch.jit.trace失败: {e}")
+        # ----------- 后续推理用 self.transformer_model 即可 -----------
         
         # 检查模型和必需的 Scaler/特征列表是否已加载
         if self.transformer_model and self.feature_scaler and self.target_scaler and self.selected_feature_names_for_transformer:
@@ -2986,7 +3030,6 @@ class TrendFollowingStrategy:
                  self._reset_model_components() # 重置状态
                  return
 
-            # 修改开始
             # --- 动态加载并推断已保存模型的参数 ---
             logger.debug(f"[{self.strategy_name}][{stock_code}] 尝试从 {self.model_path} 加载模型状态字典以推断参数。")
             # 1. 加载模型的 state_dict
@@ -3131,7 +3174,6 @@ class TrendFollowingStrategy:
             # 7. 加载模型权重 (现在模型结构与 state_dict 匹配，加载应该成功)
             self.transformer_model.load_state_dict(model_state_dict) # 使用已加载的 state_dict
             logger.info(f"[{self.strategy_name}][{stock_code}] Transformer 模型权重从 {self.model_path} 加载成功。")
-            
 
             # 加载 Scaler
             self.feature_scaler = joblib.load(self.feature_scaler_path)
