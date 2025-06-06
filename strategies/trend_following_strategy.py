@@ -2768,59 +2768,55 @@ class TrendFollowingStrategy:
     def _apply_feature_engineering_pipeline(self, raw_data_window: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         对原始数据窗口应用特征工程管道，返回处理后的特征DataFrame。
-        包括NaN填充、特征筛选、缩放、PCA降维和特征选择。
+        包括NaN填充、根据训练时特征名筛选列、缩放、PCA降维和特征选择。
         """
         if raw_data_window is None or raw_data_window.empty:
             logger.warning(f"[{self.strategy_name}] 输入数据为空，无法应用特征工程管道。")
             return None
         processed_df = raw_data_window.copy()
-        # 处理NaN，先前向填充，再后向填充，最后用0填充
+        # 1. 处理NaN，先前向填充，再后向填充，最后用0填充
         if processed_df.isnull().any().any():
             processed_df = processed_df.ffill().bfill().fillna(0)
             if processed_df.isnull().any().any():
-                logger.error(f"[{self.strategy_name}] 应用特征工程管道时 NaN 填充后仍存在 NaN。")
+                logger.error(f"[{self.strategy_name}] NaN填充后仍存在缺失值，无法继续处理。")
                 return None
-        # 筛选训练时的特征列，确保顺序和内容一致
+        # 2. 根据训练时保存的特征名列表筛选列，确保顺序和数量一致
         if hasattr(self, 'selected_feature_names_for_transformer') and self.selected_feature_names_for_transformer:
-            try:
-                processed_df = processed_df[self.selected_feature_names_for_transformer]
-            except KeyError as e:
-                logger.error(f"[{self.strategy_name}] 筛选特征列失败，缺少训练时特征: {e}")
+            missing_features = set(self.selected_feature_names_for_transformer) - set(processed_df.columns)
+            if missing_features:
+                logger.error(f"[{self.strategy_name}] 缺少训练时特征列: {missing_features}")
                 return None
+            # 严格按照训练时顺序筛选列
+            processed_df = processed_df[self.selected_feature_names_for_transformer]
         else:
             logger.warning(f"[{self.strategy_name}] 未加载训练时特征名列表，跳过特征筛选。")
-        # 转为numpy数组，类型为float32
+        # 3. 转为numpy数组，类型为float32，方便后续模型处理
         current_features_np = processed_df.values.astype(np.float32)
-        # 应用PCA前缩放器
+        # 4. 应用PCA前的缩放器
         if hasattr(self, 'scaler_for_pca') and self.scaler_for_pca is not None:
             try:
                 current_features_np = self.scaler_for_pca.transform(current_features_np)
             except Exception as e:
-                logger.error(f"[{self.strategy_name}] 应用 PCA 前缩放器出错: {e}", exc_info=True)
+                logger.error(f"[{self.strategy_name}] 应用PCA前缩放器失败: {e}", exc_info=True)
                 return None
-        # 应用PCA降维
+        # 5. 应用PCA降维
         if hasattr(self, 'pca_model') and self.pca_model is not None:
             try:
                 current_features_np = self.pca_model.transform(current_features_np)
             except Exception as e:
-                logger.error(f"[{self.strategy_name}] 应用 PCA 模型出错: {e}", exc_info=True)
+                logger.error(f"[{self.strategy_name}] 应用PCA模型失败: {e}", exc_info=True)
                 return None
-        # 应用特征选择器模型
+        # 6. 应用特征选择器模型
         if hasattr(self, 'feature_selector_model') and self.feature_selector_model is not None:
             try:
                 current_features_np = self.feature_selector_model.transform(current_features_np)
             except Exception as e:
-                logger.error(f"[{self.strategy_name}] 应用特征选择器模型出错: {e}", exc_info=True)
+                logger.error(f"[{self.strategy_name}] 应用特征选择器模型失败: {e}", exc_info=True)
                 return None
-        # 确保current_features_np是二维数组
+        # 7. 确保输出是二维数组
         if current_features_np.ndim == 1:
             current_features_np = current_features_np.reshape(1, -1)
-        # 检查特征维度是否和训练时一致
-        expected_feature_num = len(self.selected_feature_names_for_transformer) if hasattr(self, 'selected_feature_names_for_transformer') else None
-        if expected_feature_num is not None and current_features_np.shape[1] != expected_feature_num:
-            logger.error(f"[{self.strategy_name}] 特征选择后维度 {current_features_np.shape[1]} 与训练时特征数 {expected_feature_num} 不匹配！")
-            return None
-        # 构建最终DataFrame，列名用训练时的特征名，索引与输入数据一致
+        # 8. 构建最终DataFrame，列名用训练时特征名，索引与输入数据一致
         processed_df_final = pd.DataFrame(current_features_np, columns=self.selected_feature_names_for_transformer, index=raw_data_window.index)
         return processed_df_final
 
