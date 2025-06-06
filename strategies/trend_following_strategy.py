@@ -3752,7 +3752,7 @@ class TrendFollowingStrategy:
         if not isinstance(self.intermediate_data, pd.DataFrame) or self.intermediate_data.empty:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 中间数据为空或不是有效的DataFrame，无法进行信号分析。")
             print(f"[{self.strategy_name}][{stock_code}] 中间数据为空，返回 None。")
-            return None        
+            return None
 
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
@@ -3780,7 +3780,7 @@ class TrendFollowingStrategy:
         score_momentum_long_period = self.tf_params.get('score_momentum_long_period', 5)
         score_momentum_threshold_abs = self.tf_params.get('score_momentum_threshold_abs', 5)
         score_momentum_long_term_multiplier = self.tf_params.get('score_momentum_long_term_multiplier', 1.5)
-        
+
         print(f"[{self.strategy_name}][{stock_code}] 策略参数已加载。")
 
         # 获取策略内部列名，使用 JSON 配置
@@ -3828,7 +3828,7 @@ class TrendFollowingStrategy:
         base_score_volume_adjusted_col = get_col_name("ADJUSTED_SCORE", "ADJUSTED_SCORE")
         alignment_signal_col = get_col_name("alignment_signal", "alignment_signal")
         long_term_context_col = get_col_name("long_term_context", "long_term_context")
-        adx_strength_signal_col = get_col_name("adx_strength_signal", "adx_strength_signal")
+        adx_strength_signal_col = get_col_name("adx_strength_signal", "adx_strength_signal") # adx_strength_signal 列名
         stoch_signal_col = get_col_name("stoch_signal", "stoch_signal")
         has_bearish_div_col = get_col_name("HAS_BEARISH_DIVERGENCE", "HAS_BEARISH_DIVERGENCE")
         has_bullish_div_col = get_col_name("HAS_BULLISH_DIVERGENCE", "HAS_BULLISH_DIVERGENCE")
@@ -3854,7 +3854,7 @@ class TrendFollowingStrategy:
         base_score_volume_adjusted_val = latest_data_row.get(base_score_volume_adjusted_col, np.nan)
         alignment_val = latest_data_row.get(alignment_signal_col, np.nan)
         long_term_context_val = latest_data_row.get(long_term_context_col, None)
-        adx_strength_signal_val = latest_data_row.get(adx_strength_signal_col, np.nan)
+        adx_strength_signal_val = latest_data_row.get(adx_strength_signal_col, np.nan) # adx_strength_signal_val 的赋值
         stoch_signal_val = latest_data_row.get(stoch_signal_col, np.nan)
         has_bearish_div_val = latest_data_row.get(has_bearish_div_col, False)
         has_bullish_div_val = latest_data_row.get(has_bullish_div_col, False)
@@ -3869,7 +3869,7 @@ class TrendFollowingStrategy:
         vwap_deviation_signal_val = latest_data_row.get(vwap_deviation_signal_col, np.nan)
         vwap_deviation_percent_val = latest_data_row.get(vwap_deviation_percent_col, np.nan)
         boll_breakout_signal_val = latest_data_row.get(boll_breakout_signal_col, np.nan)
-        
+
         print(f"[{self.strategy_name}][{stock_code}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
         # 计算趋势持续时间
@@ -4137,18 +4137,19 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('volatility_signal_status', "数据缺失", 0)
 
-        # 15. ADX 强度判断
+        # 15. ADX 强度判断 (基于原始ADX列)
         # 获取 dmi_period，用于构建 ADX 列名
         param_sources = [self.tf_params, self.params.get('volume_confirmation', {}), self.params.get('indicator_analysis_params', {}), self.params.get('base_scoring', {})]
         dmi_period_bs = self._get_param_val(param_sources, 'dmi_period', 14)
         adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}'
         adx_val = latest_data_row.get(adx_col, np.nan)
+        print(f"[{self.strategy_name}][{stock_code}] 原始 ADX 值 (来自列 {adx_col}): {adx_val}。") # 增加原始ADX值打印
         if not np.isnan(adx_val):
-             if adx_val >= adx_strong_thresh: add_signal_impact('adx_status', "趋势非常强劲", 10)
-             elif adx_val >= adx_moderate_thresh: add_signal_impact('adx_status', "趋势强劲", 5)
-             else: add_signal_impact('adx_status', "趋势较弱", -5, "ADX显示趋势强度不足，市场可能处于盘整状态。")
-             if adx_val < adx_moderate_thresh and abs(final_score_val - 50) > 10:
-                 risk_warning_str += f"ADX ({adx_val:.2f}) 显示趋势强度不足 ({adx_moderate_thresh})，当前信号偏离中性，注意假信号或震荡风险。 "
+             if adx_val >= adx_strong_thresh: add_signal_impact('adx_status', "趋势非常强劲 (原始ADX)", 10)
+             elif adx_val >= adx_moderate_thresh: add_signal_impact('adx_status', "趋势强劲 (原始ADX)", 5)
+             else: add_signal_impact('adx_status', "趋势较弱 (原始ADX)", -5, "原始ADX显示趋势强度不足，市场可能处于盘整状态。")
+             if adx_val < adx_moderate_thresh and abs(final_score_val - 50) > 10: # 此风险提示保持
+                 risk_warning_str += f"原始ADX ({adx_val:.2f}) 显示趋势强度不足 ({adx_moderate_thresh})，当前信号偏离中性，注意假信号或震荡风险。 "
         else:
              add_signal_impact('adx_status', "原始ADX数据缺失", 0)
              logger.warning(f"[{self.strategy_name}][{stock_code}] 分析：缺少原始 ADX 列 '{adx_col}'，无法判断 ADX 趋势强度状态。")
@@ -4196,6 +4197,21 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('volatility_status', "波动率数据缺失", 0)
 
+        # 判断规则：20. ADX 强度信号判断 (来自 adx_strength_signal 列)
+        print(f"[{self.strategy_name}][{stock_code}] ADX 强度信号值 (来自列 {adx_strength_signal_col}): {adx_strength_signal_val}。")
+        if not np.isnan(adx_strength_signal_val):
+            # 假设 adx_strength_signal_val 是一个强度评分，值越大越强，可以使用现有ADX阈值
+            # 或者它是一个分类信号，例如 1=强, 0=中, -1=弱。以下逻辑基于与原始ADX相似的数值范围。
+            # 您可能需要根据 adx_strength_signal_val 的实际含义调整这里的逻辑和阈值。
+            if adx_strength_signal_val >= adx_strong_thresh: # 使用已有的阈值
+                add_signal_impact('adx_processed_strength_status', "处理后ADX信号：趋势非常强劲", 7) # 给予与原始ADX判断略微不同的权重
+            elif adx_strength_signal_val >= adx_moderate_thresh:
+                add_signal_impact('adx_processed_strength_status', "处理后ADX信号：趋势强劲", 3)
+            else: # 低于温和阈值
+                add_signal_impact('adx_processed_strength_status', "处理后ADX信号：趋势较弱", -7, "处理后的ADX信号显示趋势强度不足。")
+        else:
+            add_signal_impact('adx_processed_strength_status', "处理后ADX强度信号数据缺失", 0)
+
         # 根据综合信心分数生成更高效和有效的操作建议
         normalized_confidence = max(-1.0, min(1.0, confidence_score / 100.0)) # 限制在 -1 到 1 之间
         print(f"[{self.strategy_name}][{stock_code}] 最终综合信心分数: {confidence_score}, 归一化信心: {normalized_confidence:.2f}。")
@@ -4238,6 +4254,8 @@ class TrendFollowingStrategy:
         signal_judgment_dict['boll_breakout_signal_val'] = boll_breakout_signal_val
         signal_judgment_dict['has_bearish_divergence'] = has_bearish_div_val
         signal_judgment_dict['has_bullish_divergence'] = has_bullish_div_val
+        signal_judgment_dict['adx_val_raw'] = adx_val # MODIFIED: 添加原始ADX值到字典
+        signal_judgment_dict['adx_strength_signal_val'] = adx_strength_signal_val # MODIFIED: 添加 adx_strength_signal_val 到字典
         signal_judgment_dict['confidence_score'] = confidence_score
         signal_judgment_dict['normalized_confidence'] = normalized_confidence
         signal_judgment_dict['signal_impact_records'] = signal_impact_records  # <--- 记录所有信号影响明细
@@ -4271,7 +4289,8 @@ class TrendFollowingStrategy:
             f"信号分变化: 短期({score_momentum_short_period}期) {signal_judgment_dict.get('score_change_short_term', '未知')}, 长期({score_momentum_long_period}期) {signal_judgment_dict.get('score_change_long_term', '未知')}, 一致性: {signal_judgment_dict.get('score_change_consistency_status', '未知')}\n"
             f"VWAP偏离状态: {signal_judgment_dict.get('vwap_deviation_status', '未知')}\n"
             f"布林带突破: {signal_judgment_dict.get('boll_breakout_status', '未知')}\n"
-            f"ADX强度: {signal_judgment_dict.get('adx_status', '未知')}\n"
+            f"原始ADX强度: {signal_judgment_dict.get('adx_status', '未知')} (值: {adx_val:.2f})\n" # MODIFIED: 更新原始ADX解读
+            f"处理后ADX强度信号: {signal_judgment_dict.get('adx_processed_strength_status', '未知')} (值: {adx_strength_signal_val:.2f})\n" # MODIFIED: 新增处理后ADX解读
             f"背离状态: {signal_judgment_dict.get('divergence_status', '未知')}\n"
             f"模型信号一致性: {signal_judgment_dict.get('transformer_rule_consistency', '未知')}\n"
             f"EMA得分: {signal_judgment_dict.get('ema_score_status', '未知')}\n"
@@ -4314,7 +4333,8 @@ class TrendFollowingStrategy:
             # 结束
             'vwap_deviation_status': 1.0,
             'boll_breakout_status': 1.0,
-            'adx_status': 1.2,
+            'adx_status': 1.2, # 原始ADX权重
+            'adx_processed_strength_status': 1.1, # MODIFIED: 新增处理后ADX信号的权重
             'divergence_status': 1.5,
             'transformer_rule_consistency': 1.2,
             'ema_score_status': 1.0,
@@ -4339,142 +4359,675 @@ class TrendFollowingStrategy:
 
         return analysis_results_dict
 
+
     def get_analysis_results(self) -> Optional[Dict[str, Any]]:
         """返回信号分析结果字典。"""
         return self.analysis_results
 
     # 添加 timestamp 参数，用于记录分析发生的时间点，data 参数可选，方便获取最新价格
-    def save_analysis_results(self, stock_code: str, timestamp: pd.Timestamp, data: Optional[pd.DataFrame]=None):
+    def analyze_signals(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
-        保存趋势跟踪策略的分析结果到数据库。
-        使用JSON配置获取内部列名和OHLCV列名。
+        分析趋势策略信号，生成解读和建议。
+        使用JSON配置获取内部列名。
+        优化：增加严格的输入检查，参数预加载，统一信号值获取，提升效率和清晰度。
         """
-        # 修改: 引入 json 和 asyncio 模块，用于序列化复杂数据结构和执行异步操作
-        import json
-        import asyncio
-        # 原始代码中的导入，保留
-        from stock_models.stock_analytics import StockScoreAnalysis
-        from stock_models.stock_basic import StockInfo
+        print(f"[{self.strategy_name}][{stock_code}] 开始分析信号。")
 
-        if self.analysis_results is None:
-            print(f"[{self.strategy_name}][{stock_code}] 无分析结果可保存。请先运行 analyze_signals。") # 修改: 使用print输出调试信息
-            return
-        # 尝试从 self.intermediate_data 获取最新的数据行，如果 self.intermediate_data 为 None 或空，则尝试从传入的 data 获取
-        latest_intermediate_row = pd.Series(dtype=object) # 初始化一个空 Series
-        if self.intermediate_data is not None and not self.intermediate_data.empty:
-            # 查找与 timestamp 最接近的索引行，或者直接使用最后一行
-            try:
-                # 使用 asof 查找小于等于 timestamp 的最新一行
-                latest_intermediate_row = self.intermediate_data.loc[self.intermediate_data.index.asof(timestamp)]
-                if latest_intermediate_row.isnull().all(): # asof 可能返回全 NaN 行
-                    print(f"[{self.strategy_name}][{stock_code}] 无法通过 asof 在 intermediate_data 中找到时间戳 {timestamp} 对应的行，使用最后一行。") # 修改: 使用print输出调试信息
-                    latest_intermediate_row = self.intermediate_data.iloc[-1]
-            except Exception as e:
-                print(f"[{self.strategy_name}][{stock_code}] 在 intermediate_data 中查找时间戳 {timestamp} 对应的行出错: {e}，使用最后一行。") # 修改: 使用print输出调试信息
-                try:
-                    latest_intermediate_row = self.intermediate_data.iloc[-1]
-                except IndexError:
-                    print(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，无法获取最新数据行。") # 修改: 使用print输出调试信息
-                    latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
-        elif data is not None and not data.empty:
-             # 如果 intermediate_data 为空，尝试从传入的原始数据 data 获取最后一行
-            print(f"[{self.strategy_name}][{stock_code}] intermediate_data 为空，尝试从原始输入 data 获取最新数据行。") # 修改: 使用print输出调试信息
-            try:
-                # 同样尝试 asof 查找
-                latest_data_row_from_input = data.loc[data.index.asof(timestamp)]
-                if latest_data_row_from_input.isnull().all():
-                    latest_data_row_from_input = data.iloc[-1]
-                latest_intermediate_row = latest_data_row_from_input # 使用从输入数据获取的行
-            except Exception as e:
-                print(f"[{self.strategy_name}][{stock_code}] 从原始输入 data 获取最新数据行出错: {e}。") # 修改: 使用print输出调试信息
-                latest_intermediate_row = pd.Series(dtype=object) # 确保是空 Series
-        if latest_intermediate_row.empty:
-            print(f"[{self.strategy_name}][{stock_code}] 无法获取最新的数据行用于保存分析结果。") # 修改: 使用print输出调试信息
-            # 继续保存，但部分字段可能为 None
-        try:
-            stock_obj = StockInfo.objects.get(stock_code=stock_code)
-            # 辅助函数，将 NaN, Inf 或 None 转换为 None，以便保存到数据库字段
-            def convert_nan_to_none(value):
-                if isinstance(value, (float, np.floating)) and (np.isnan(value) or np.isinf(value)):
-                    return None
-                # 检查 pandas NotNa，用于处理 pd.NA 或 pd.NaT
-                return value if pd.notna(value) else None
-            # 获取策略内部列名
-            # 假设 NAMING_CONFIG 已在外部定义或传入
-            internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
-            if not isinstance(internal_cols_conf, list): internal_cols_conf = []
-            def get_internal_col_name(pattern, default_name):
-                for item in internal_cols_conf:
-                    if isinstance(item, dict) and item.get('name_pattern') == pattern:
-                        return item['name_pattern']
-                return default_name
-            combined_signal_col = get_internal_col_name("combined_signal", "combined_signal")
-            final_rule_signal_col = get_internal_col_name("final_rule_signal", "final_rule_signal")
-            transformer_signal_col = get_internal_col_name("transformer_signal", "transformer_signal")
-            base_score_raw_col = get_internal_col_name("base_score_raw", "base_score_raw")
-            base_score_volume_adjusted_col = get_internal_col_name("ADJUSTED_SCORE", "base_score_volume_adjusted") # ADJUSTED_SCORE 在 adjust_score_with_volume 中生成，通常映射到 base_score_volume_adjusted
-            alignment_signal_col = get_internal_col_name("alignment_signal", "alignment_signal")
-            long_term_context_col = get_internal_col_name("long_term_context", "long_term_context")
-            adx_strength_signal_col = get_internal_col_name("adx_strength_signal", "adx_strength_signal")
-            stoch_signal_col = get_internal_col_name("stoch_signal", "stoch_signal")
-            has_bearish_div_col = get_internal_col_name("HAS_BEARISH_DIVERGENCE", "HAS_BEARISH_DIVERGENCE")
-            has_bullish_div_col = get_internal_col_name("HAS_BULLISH_DIVERGENCE", "HAS_BULLISH_DIVERGENCE")
-            # VOL_SPIKE_SIGNAL_{timeframe} 列名模式，需要根据 focus_timeframe 获取具体列名
-            vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern', '').startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
-            vol_spike_signal_col_tf = self._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
-            vol_spike_signal_col = vol_spike_signal_col_tf[0] if vol_spike_signal_col_tf else None # 使用第一个格式化结果
-            # 获取 close 列名，使用 JSON 配置
-            ohlcv_configs = NAMING_CONFIG.get('ohlcv_naming_convention', {}).get('output_columns', [])
-            close_base_name = next((c['name_pattern'] for c in ohlcv_configs if isinstance(c, dict) and c.get('name_pattern') == 'close'), 'close')
-            close_price_col_name = f'{close_base_name}_{self.focus_timeframe}' # 使用带后缀的列名
-            # 从 analysis_results 中获取 signal_judgment 字典
-            signal_judgment = self.analysis_results.get('signal_judgment', {})
-            defaults_payload = {
-                'score': convert_nan_to_none(latest_intermediate_row.get(combined_signal_col)),
-                'rule_signal': convert_nan_to_none(latest_intermediate_row.get(final_rule_signal_col)),
-                'lstm_signal': convert_nan_to_none(latest_intermediate_row.get(transformer_signal_col)),
-                'base_score_raw': convert_nan_to_none(latest_intermediate_row.get(base_score_raw_col)),
-                'base_score_volume_adjusted': convert_nan_to_none(latest_intermediate_row.get(base_score_volume_adjusted_col)),
-                'alignment_signal': convert_nan_to_none(latest_intermediate_row.get(alignment_signal_col)),
-                'long_term_context': convert_nan_to_none(latest_intermediate_row.get(long_term_context_col)),
-                'adx_strength_signal': convert_nan_to_none(latest_intermediate_row.get(adx_strength_signal_col)),
-                'stoch_signal': convert_nan_to_none(latest_intermediate_row.get(stoch_signal_col)),
-                'div_has_bearish_divergence': bool(latest_intermediate_row.get(has_bearish_div_col, False)), # 确保是布尔值
-                'div_has_bullish_divergence': bool(latest_intermediate_row.get(has_bullish_div_col, False)), # 确保是布尔值
-                # 确保 volume_spike_signal_col 存在于 latest_intermediate_row 中
-                'volume_spike_signal': convert_nan_to_none(latest_intermediate_row.get(vol_spike_signal_col)),
-                'close_price': convert_nan_to_none(latest_intermediate_row.get(close_price_col_name)),
-                'current_trend': self.analysis_results.get('current_trend'),
-                'trend_strength': self.analysis_results.get('trend_strength'),
-                'trend_duration_bullish': self.analysis_results.get('bullish_duration'),
-                'trend_duration_bearish': self.analysis_results.get('bearish_duration'),
-                'trend_duration_text_bullish': self.analysis_results.get('bullish_duration_text'),
-                'trend_duration_text_bearish': self.analysis_results.get('bearish_duration_text'),
-                'trend_duration_status': self.analysis_results.get('duration_status'),
-                'operation_advice': self.analysis_results.get('operation_advice'),
-                'risk_warning': self.analysis_results.get('risk_warning'),
-                'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
-                # 修改: 添加 signal_impact_records, signal_contribution_summary 和 weighted_confidence_score
-                # signal_impact_records 是列表，需要序列化为 JSON 字符串
-                'signal_impact_records_json': json.dumps(signal_judgment.get('signal_impact_records', []), ensure_ascii=False, default=lambda x: str(x)),
-                # signal_contribution_summary 是字典，需要序列化为 JSON 字符串
-                'signal_contribution_summary_json': json.dumps(signal_judgment.get('signal_contribution_summary', {}), ensure_ascii=False, default=lambda x: str(x)),
-                # weighted_confidence_score 是数值，直接保存
-                'weighted_confidence_score': convert_nan_to_none(signal_judgment.get('weighted_confidence_score')),
-                'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x)) # 保存完整的分析结果字典 (将不可序列化的对象转为字符串)
-            }
-            cache_set = StrategyCacheSet()
-            # 传递 timestamp 参数给 analyze_signals_trend_following
-            # analyze_signals_trend_following 现在返回 bool (表示操作是否成功)
-            operation_successful = asyncio.run(cache_set.analyze_signals_trend_following(stock_code=stock_code, data_to_cache=defaults_payload, timestamp=timestamp))
-            if operation_successful:
-                print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略数据已成功保存/更新到缓存。") # 修改: 使用print输出调试信息
+        # 严格的输入检查
+        if not isinstance(stock_code, str) or not stock_code.strip():
+            logger.error(f"[{self.strategy_name}] 无效的股票代码: '{stock_code}'。")
+            print(f"[{self.strategy_name}] 无效股票代码，返回 None。")
+            return None
+        if not isinstance(self.intermediate_data, pd.DataFrame) or self.intermediate_data.empty:
+            logger.warning(f"[{self.strategy_name}][{stock_code}] 中间数据为空或不是有效的DataFrame，无法进行信号分析。")
+            print(f"[{self.strategy_name}][{stock_code}] 中间数据为空，返回 None。")
+            return None
+
+        analysis_results_dict = {}
+        latest_data_row = self.intermediate_data.iloc[-1]
+        print(f"[{self.strategy_name}][{stock_code}] 获取最新数据行。")
+        # 新增：用于记录每次add_signal_impact的详细影响
+        signal_impact_records = []
+
+        # 参数预加载，减少重复字典查找
+        # 从 self.tf_params 中一次性获取所有需要的阈值和参数
+        moderate_bullish_thresh = self.tf_params.get('moderate_bullish_threshold', 60)
+        strong_bullish_thresh = self.tf_params.get('strong_bullish_threshold', 75)
+        moderate_bearish_thresh =   self.tf_params.get('moderate_bearish_threshold', 40)
+        strong_bearish_thresh = self.tf_params.get('strong_bearish_threshold', 25)
+        trend_conf_upper_thresh = self.tf_params.get('trend_confirmation_threshold_upper', 55)
+        trend_conf_lower_thresh = self.tf_params.get('trend_confirmation_threshold_lower', 45)
+        stoch_oversold_thresh = self.tf_params.get('stoch_oversold_threshold', 20)
+        stoch_overbought_thresh = self.tf_params.get('stoch_overbought_threshold', 80)
+        vwap_deviation_thresh = self.tf_params.get('vwap_deviation_threshold', 0.01)
+        volatility_thresh_high = self.tf_params.get('volatility_threshold_high', 0.03)
+        volatility_thresh_low = self.tf_params.get('volatility_threshold_low', 0.01)
+        adx_strong_thresh = self.tf_params.get('adx_strong_threshold', 30) # 用于ADX强度判断
+        adx_moderate_thresh = self.tf_params.get('adx_moderate_threshold', 20) # 用于ADX强度判断
+        # 新增多时间段分数变化相关参数的加载
+        score_momentum_short_period = self.tf_params.get('score_momentum_short_period', 3)
+        score_momentum_long_period = self.tf_params.get('score_momentum_long_period', 5)
+        score_momentum_threshold_abs = self.tf_params.get('score_momentum_threshold_abs', 5)
+        score_momentum_long_term_multiplier = self.tf_params.get('score_momentum_long_term_multiplier', 1.5)
+
+        print(f"[{self.strategy_name}][{stock_code}] 策略参数已加载。")
+
+        # 获取策略内部列名，使用 JSON 配置
+        internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
+        if not isinstance(internal_cols_conf, list):
+            logger.error(f"[{self.strategy_name}][{stock_code}] NAMING_CONFIG 中 'strategy_internal_columns.output_columns' 配置无效，应为列表。")
+            internal_cols_conf = []
+
+        # 动态映射所有 NAMING_CONFIG 中的列名到实际数据中的列名
+        actual_col_names = {}
+        for item in internal_cols_conf:
+            if isinstance(item, dict) and 'name_pattern' in item:
+                pattern = item['name_pattern']
+                actual_name = None
+                if '{timeframe}' in pattern:
+                    formatted_names = self._format_indicator_name(pattern, timeframe=self.focus_timeframe)
+                    if formatted_names: actual_name = formatted_names[0]
+                elif '{period}' in pattern:
+                    # 尝试在数据中查找匹配该模式的列，取第一个找到的
+                    found_period_col = None
+                    prefix = pattern.replace('_{period}', '_')
+                    for col in latest_data_row.index:
+                        if col.startswith(prefix) and col[len(prefix):].isdigit():
+                            found_period_col = col
+                            break
+                    actual_name = found_period_col
+                else:
+                    actual_name = pattern
+                if actual_name and actual_name in latest_data_row:
+                    actual_col_names[pattern] = actual_name
+                else:
+                    logger.debug(f"[{self.strategy_name}][{stock_code}] 内部列模式 '{pattern}' (或其格式化名称 '{actual_name}') 未在数据中找到。")
+        print(f"[{self.strategy_name}][{stock_code}] 动态获取内部列名完成。")
+
+        # 从 actual_col_names 字典中安全获取列名，如果不存在则使用默认字符串
+        def get_col_name(pattern: str, default_str: str) -> str:
+            return actual_col_names.get(pattern, default_str)
+
+        # 统一获取所有信号值，使用 .get() 避免 KeyError
+        # 获取所有需要分析的信号值对应的实际列名
+        combined_signal_col = get_col_name("combined_signal", "combined_signal")
+        final_rule_signal_col = get_col_name("final_rule_signal", "final_rule_signal")
+        transformer_signal_col = get_col_name("transformer_signal", "transformer_signal")
+        base_score_raw_col = get_col_name("base_score_raw", "base_score_raw")
+        base_score_volume_adjusted_col = get_col_name("ADJUSTED_SCORE", "ADJUSTED_SCORE")
+        alignment_signal_col = get_col_name("alignment_signal", "alignment_signal")
+        long_term_context_col = get_col_name("long_term_context", "long_term_context")
+        adx_strength_signal_col = get_col_name("adx_strength_signal", "adx_strength_signal") # adx_strength_signal 列名
+        stoch_signal_col = get_col_name("stoch_signal", "stoch_signal")
+        has_bearish_div_col = get_col_name("HAS_BEARISH_DIVERGENCE", "HAS_BEARISH_DIVERGENCE")
+        has_bullish_div_col = get_col_name("HAS_BULLISH_DIVERGENCE", "HAS_BULLISH_DIVERGENCE")
+        vol_spike_signal_col = get_col_name("VOL_SPIKE_SIGNAL_{timeframe}", f"VOL_SPIKE_SIGNAL_{self.focus_timeframe}") # 确保默认值也带时间后缀
+        volatility_col = get_col_name("score_volatility", "score_volatility")
+        ema_score_col = next((col for col in latest_data_row.index if col.startswith('ema_score_') and col[len('ema_score_'):].isdigit()), "ema_score_default")
+        ema_cross_signal_col = get_col_name("ema_cross_signal", "ema_cross_signal")
+        ema_strength_col = get_col_name("ema_strength", "ema_strength")
+        score_momentum_col = get_col_name("score_momentum", "score_momentum")
+        score_momentum_acceleration_col = get_col_name("score_momentum_acceleration", "score_momentum_acceleration")
+        volatility_signal_col = get_col_name("volatility_signal", "volatility_signal")
+        vwap_deviation_signal_col = get_col_name("vwap_deviation_signal", "vwap_deviation_signal")
+        vwap_deviation_percent_col = get_col_name("vwap_deviation_percent", "vwap_deviation_percent")
+        boll_breakout_signal_col = get_col_name("boll_breakout_signal", "boll_breakout_signal")
+
+        # 获取所有信号的最新值
+        final_score_val = latest_data_row.get(combined_signal_col, 50.0)
+        final_rule_score_val = latest_data_row.get(final_rule_signal_col, 50.0)
+        transformer_score_val = latest_data_row.get(transformer_signal_col, 50.0)
+        base_score_raw_val = latest_data_row.get(base_score_raw_col, np.nan)
+        base_score_volume_adjusted_val = latest_data_row.get(base_score_volume_adjusted_col, np.nan)
+        alignment_val = latest_data_row.get(alignment_signal_col, np.nan)
+        long_term_context_val = latest_data_row.get(long_term_context_col, None)
+        adx_strength_signal_val = latest_data_row.get(adx_strength_signal_col, np.nan) # adx_strength_signal_val 的赋值
+        stoch_signal_val = latest_data_row.get(stoch_signal_col, np.nan)
+        has_bearish_div_val = latest_data_row.get(has_bearish_div_col, False)
+        has_bullish_div_val = latest_data_row.get(has_bullish_div_col, False)
+        vol_spike_signal_val = latest_data_row.get(vol_spike_signal_col, np.nan)
+        volatility_val = latest_data_row.get(volatility_col, np.nan)
+        ema_score_val = latest_data_row.get(ema_score_col, np.nan)
+        ema_cross_signal_val = latest_data_row.get(ema_cross_signal_col, np.nan)
+        ema_strength_val = latest_data_row.get(ema_strength_col, np.nan)
+        score_momentum_val = latest_data_row.get(score_momentum_col, np.nan)
+        score_momentum_acceleration_val = latest_data_row.get(score_momentum_acceleration_col, np.nan)
+        volatility_signal_val = latest_data_row.get(volatility_signal_col, np.nan)
+        vwap_deviation_signal_val = latest_data_row.get(vwap_deviation_signal_col, np.nan)
+        vwap_deviation_percent_val = latest_data_row.get(vwap_deviation_percent_col, np.nan)
+        boll_breakout_signal_val = latest_data_row.get(boll_breakout_signal_col, np.nan)
+
+        print(f"[{self.strategy_name}][{stock_code}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
+
+        # 计算趋势持续时间
+        trend_duration_info_dict = self._calculate_trend_duration(self.intermediate_data)
+        analysis_results_dict.update(trend_duration_info_dict)
+        print(f"[{self.strategy_name}][{stock_code}] 趋势持续时间信息已计算。")
+
+        signal_judgment_dict = {}
+        operation_advice_str = "中性观望"
+        risk_warning_str = ""
+        t_plus_1_note_str = "（受 T+1 限制，建议次日操作）"
+
+        duration_status_rule_str = trend_duration_info_dict.get('duration_status', '短')
+        current_trend_direction = trend_duration_info_dict.get('current_trend', '中性')
+        current_trend_strength = trend_duration_info_dict.get('trend_strength', '不明')
+        print(f"[{self.strategy_name}][{stock_code}] 趋势持续状态: '{duration_status_rule_str}', 方向: '{current_trend_direction}', 强度: '{current_trend_strength}'。")
+
+        # ================== 多变量深化判断与智能建议 ==================
+        confidence_score = 0 # 初始信心分数，范围 -100 到 100
+
+        # 辅助函数：用于统一添加信号判断结果、更新信心分数和风险提示
+        def add_signal_impact(key: str, status: str, confidence_change: int, risk_msg: str = ""):
+            nonlocal confidence_score, risk_warning_str
+            signal_judgment_dict[key] = status
+            confidence_score += confidence_change
+            if risk_msg:
+                risk_warning_str += risk_msg + " "
+            signal_impact_records.append({
+                "key": key,
+                "status": status,
+                "confidence_change": confidence_change,
+                "risk_msg": risk_msg,
+                "confidence_score_after": confidence_score
+            })
+            print(f"[{self.strategy_name}][{stock_code}] 信号影响 - {key}: {status}, 信心变化: {confidence_change}, 当前信心: {confidence_score}。")
+
+        # 1. 整体信号强度评估
+        if final_score_val >= strong_bullish_thresh:
+            add_signal_impact('overall_signal_strength', '非常强劲看涨', 30)
+        elif final_score_val >= moderate_bullish_thresh:
+            add_signal_impact('overall_signal_strength', '强劲看涨', 20)
+        elif final_score_val >= trend_conf_upper_thresh:
+            add_signal_impact('overall_signal_strength', '温和看涨', 10)
+        elif final_score_val <= strong_bearish_thresh:
+            add_signal_impact('overall_signal_strength', '非常强劲看跌', -30)
+        elif final_score_val <= moderate_bearish_thresh:
+            add_signal_impact('overall_signal_strength', '强劲看跌', -20)
+        elif final_score_val <= trend_conf_lower_thresh:
+            add_signal_impact('overall_signal_strength', '温和看跌', -10)
+        else:
+            add_signal_impact('overall_signal_strength', '中性', 0)
+
+        # 2. 趋势持续时间对信心的影响
+        if duration_status_rule_str == '长':
+            if (current_trend_direction.startswith('看涨') and final_score_val > 50) or \
+               (current_trend_direction.startswith('看跌') and final_score_val < 50):
+                add_signal_impact('trend_duration_impact', '趋势持续且与信号一致', 10)
             else:
-                print(f"[{self.strategy_name}][{stock_code}] 保存/更新时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 的 StockScoreAnalysis 记录失败。") # 修改: 使用print输出调试信息
-        except StockInfo.DoesNotExist:
-            print(f"[{self.strategy_name}][{stock_code}] 保存分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。") # 修改: 使用print输出调试信息
-        except Exception as e:
-            print(f"[{self.strategy_name}][{stock_code}] 保存 StockScoreAnalysis 记录出错: {e}") # 修改: 使用print输出调试信息
+                add_signal_impact('trend_duration_impact', '趋势持续但与信号有分歧', -5, "长期趋势与当前信号方向不完全一致，注意风险。")
+        elif duration_status_rule_str == '短':
+            add_signal_impact('trend_duration_impact', '趋势刚启动或不稳定', -5, "趋势持续时间较短，信号可能不稳定。")
+        else: # '中'
+            add_signal_impact('trend_duration_impact', '趋势发展中', 0)
+
+        # 3. 趋势分与量能分配合/背离
+        print(f"[{self.strategy_name}][{stock_code}] 原始分: {base_score_raw_val:.2f}, 量能调整分: {base_score_volume_adjusted_val:.2f}。")
+        if not np.isnan(base_score_raw_val) and not np.isnan(base_score_volume_adjusted_val):
+            score_diff = base_score_volume_adjusted_val - base_score_raw_val
+            if abs(score_diff) > 10:
+                add_signal_impact('trend_volume_consistency', "分歧", -10, "基础趋势分与量能调整分分歧较大，趋势信号稳定性存疑。")
+            else:
+                add_signal_impact('trend_volume_consistency', "一致", 5)
+            if score_diff > 8:
+                add_signal_impact('volume_effect', "量能显著强化趋势", 15 if final_score_val > 50 else 0)
+            elif score_diff < -8:
+                add_signal_impact('volume_effect', "量能显著削弱趋势", -15 if final_score_val < 50 else 0)
+            else:
+                add_signal_impact('volume_effect', "量能影响一般", 0)
+
+        # 4. 长期趋势与当前信号配合/背离
+        print(f"[{self.strategy_name}][{stock_code}] 长期趋势背景: '{long_term_context_val}'。")
+        if long_term_context_val is not None:
+            if long_term_context_val == "多头" and final_score_val < 50:
+                add_signal_impact('long_term_vs_current', "多头背景下信号偏弱", -10, "长期趋势为多头，但当前信号偏弱，警惕短期回调风险。")
+            elif long_term_context_val == "空头" and final_score_val > 50:
+                add_signal_impact('long_term_vs_current', "空头背景下信号偏强", -10, "长期趋势为空头，但当前信号偏强，警惕反弹结束或诱多。")
+            elif long_term_context_val == "多头" and final_score_val > 50:
+                add_signal_impact('long_term_vs_current', "长期多头与当前信号一致", 10)
+            elif long_term_context_val == "空头" and final_score_val < 50:
+                add_signal_impact('long_term_vs_current', "长期空头与当前信号一致", 10)
+            else:
+                add_signal_impact('long_term_vs_current', f"长期趋势：{long_term_context_val}", 0)
+
+        # 5. 动量指标 (STOCH) 与趋势信号共振/背离
+        print(f"[{self.strategy_name}][{stock_code}] STOCH 信号: {stoch_signal_val:.2f}, 超买阈值={stoch_overbought_thresh}, 超卖阈值={stoch_oversold_thresh}。")
+        if not np.isnan(stoch_signal_val):
+            if stoch_signal_val >= stoch_overbought_thresh and final_score_val >= moderate_bullish_thresh:
+                add_signal_impact('stoch_trend_relation', "趋势与超买共振", -15, "趋势强劲但随机指标超买，短线追高风险较大，注意回调。")
+            elif stoch_signal_val <= stoch_oversold_thresh and final_score_val <= moderate_bearish_thresh:
+                add_signal_impact('stoch_trend_relation', "趋势与超卖共振", 15, "趋势疲软但随机指标超卖，短线反弹概率增加，可关注。")
+            elif stoch_signal_val >= stoch_overbought_thresh and final_score_val < 50:
+                add_signal_impact('stoch_trend_relation', "超买与趋势分背离", -20, "随机指标超买但趋势分偏弱，警惕假突破或诱多。")
+            elif stoch_signal_val <= stoch_oversold_thresh and final_score_val > 50:
+                add_signal_impact('stoch_trend_relation', "超卖与趋势分背离", -20, "随机指标超卖但趋势分偏强，警惕假反弹或洗盘。")
+            else:
+                add_signal_impact('stoch_trend_relation', "随机指标与趋势分无明显共振", 0)
+
+        # 6. 量能异动与趋势信号配合/背离
+        print(f"[{self.strategy_name}][{stock_code}] 量能异动信号: {vol_spike_signal_val:.2f}。")
+        if not np.isnan(vol_spike_signal_val):
+            if vol_spike_signal_val > 0 and final_score_val >= moderate_bullish_thresh:
+                add_signal_impact('vol_spike_trend', "量能异动强化看涨趋势", 10, "趋势强劲且伴随放量上涨，可能预示加速，但需注意追高风险。")
+            elif vol_spike_signal_val < 0 and final_score_val <= moderate_bearish_thresh:
+                add_signal_impact('vol_spike_trend', "量能异动强化看跌趋势", 10, "趋势疲软且伴随放量下跌，可能预示加速，但需注意抄底风险。")
+            elif vol_spike_signal_val > 0 and final_score_val < 50:
+                add_signal_impact('vol_spike_trend', "量能异动与弱趋势", -5, "趋势偏弱但出现放量，警惕反抽或短期诱多。")
+            elif vol_spike_signal_val < 0 and final_score_val > 50:
+                add_signal_impact('vol_spike_trend', "量能异动与强趋势", -5, "趋势偏强但出现放量下跌，警惕短期洗盘或回调。")
+            elif vol_spike_signal_val != 0:
+                add_signal_impact('vol_spike_trend', "量能异动", 0, "市场出现量能异动，短线波动可能加剧。")
+            else:
+                add_signal_impact('vol_spike_trend', "无量能异动", 0)
+        else:
+            add_signal_impact('vol_spike_trend', "量能异动数据缺失", 0)
+
+        # 7. EMA 排列状态判断
+        if not np.isnan(alignment_val):
+             if alignment_val == 3: add_signal_impact('alignment_status', "完全多头排列", 15)
+             elif alignment_val == -3: add_signal_impact('alignment_status', "完全空头排列", -15)
+             elif alignment_val > 0: add_signal_impact('alignment_status', "多头排列形成中", 5)
+             elif alignment_val < 0: add_signal_impact('alignment_status', "空头排列形成中", -5)
+             else: add_signal_impact('alignment_status', "排列不明朗", -5, "EMA排列不明朗，市场可能处于震荡。")
+        else:
+             add_signal_impact('alignment_status', "数据缺失", 0)
+
+        # 8. EMA 交叉信号判断
+        if not np.isnan(ema_cross_signal_val):
+            if ema_cross_signal_val == 1:
+                if final_score_val > 50: add_signal_impact('ema_cross_status', "EMA金叉，看涨确认", 10)
+                else: add_signal_impact('ema_cross_status', "EMA金叉，但主信号偏弱", 0, "EMA金叉但主信号未确认，可能为假突破。")
+            elif ema_cross_signal_val == -1:
+                if final_score_val < 50: add_signal_impact('ema_cross_status', "EMA死叉，看跌确认", -10)
+                else: add_signal_impact('ema_cross_status', "EMA死叉，但主信号偏强", 0, "EMA死叉但主信号未确认，可能为假跌破。")
+            else: add_signal_impact('ema_cross_status', "无EMA交叉", 0)
+        else:
+            add_signal_impact('ema_cross_status', "数据缺失", 0)
+
+        # 9. EMA 强度判断
+        if not np.isnan(ema_strength_val):
+            if ema_strength_val > 0.02:
+                add_signal_impact('ema_strength_status', "EMA多头强度强", 5)
+            elif ema_strength_val < -0.02:
+                add_signal_impact('ema_strength_status', "EMA空头强度强", -5)
+            else:
+                add_signal_impact('ema_strength_status', "EMA强度中性", 0)
+        else:
+            add_signal_impact('ema_strength_status', "数据缺失", 0)
+
+        # 10. 信号动量和加速判断
+        if not np.isnan(score_momentum_val):
+            if score_momentum_val > 5: add_signal_impact('score_momentum_status', "信号分动量强劲向上", 5)
+            elif score_momentum_val < -5: add_signal_impact('score_momentum_status', "信号分动量强劲向下", -5)
+            else: add_signal_impact('score_momentum_status', "信号分动量中性", 0)
+        else: add_signal_impact('score_momentum_status', "数据缺失", 0)
+        if not np.isnan(score_momentum_acceleration_val):
+            if score_momentum_acceleration_val > 2: add_signal_impact('score_momentum_acceleration_status', "信号分加速向上", 5)
+            elif score_momentum_acceleration_val < -2: add_signal_impact('score_momentum_acceleration_status', "信号分加速向下", -5)
+            else: add_signal_impact('score_momentum_acceleration_status', "信号分加速中性", 0)
+        else: add_signal_impact('score_momentum_acceleration_status', "数据缺失", 0)
+
+        # 11. 多时间段的分数变化
+        print(f"[{self.strategy_name}][{stock_code}] 分析信号分在多时间段的变化。")
+        score_change_short = np.nan
+        score_change_long = np.nan
+        score_change_consistency_status = "数据不足"
+        if combined_signal_col in self.intermediate_data.columns and len(self.intermediate_data) > 1:
+            combined_signals = self.intermediate_data[combined_signal_col]
+            if len(combined_signals) > score_momentum_short_period:
+                score_val_short_ago = combined_signals.iloc[-(score_momentum_short_period + 1)]
+                score_change_short = final_score_val - score_val_short_ago
+                print(f"[{self.strategy_name}][{stock_code}] 短期 ({score_momentum_short_period}期) 信号分变化: {score_change_short:.2f}。")
+                if score_change_short >= score_momentum_threshold_abs:
+                    add_signal_impact('score_change_short_term', f"短期信号分强劲上涨 ({score_momentum_short_period}期)", 10)
+                elif score_change_short <= -score_momentum_threshold_abs:
+                    add_signal_impact('score_change_short_term', f"短期信号分强劲下跌 ({score_momentum_short_period}期)", -10)
+                else:
+                    add_signal_impact('score_change_short_term', f"短期信号分变化不大 ({score_momentum_short_period}期)", 0)
+            else:
+                add_signal_impact('score_change_short_term', "数据不足，无法计算短期信号分变化", 0)
+            if len(combined_signals) > score_momentum_long_period:
+                score_val_long_ago = combined_signals.iloc[-(score_momentum_long_period + 1)]
+                score_change_long = final_score_val - score_val_long_ago
+                print(f"[{self.strategy_name}][{stock_code}] 长期 ({score_momentum_long_period}期) 信号分变化: {score_change_long:.2f}。")
+                long_term_threshold = score_momentum_threshold_abs * score_momentum_long_term_multiplier
+                if score_change_long >= long_term_threshold:
+                    add_signal_impact('score_change_long_term', f"长期信号分强劲上涨 ({score_momentum_long_period}期)", 15)
+                elif score_change_long <= -long_term_threshold:
+                    add_signal_impact('score_change_long_term', f"长期信号分强劲下跌 ({score_momentum_long_period}期)", -15)
+                else:
+                    add_signal_impact('score_change_long_term', f"长期信号分变化不大 ({score_momentum_long_period}期)", 0)
+            else:
+                add_signal_impact('score_change_long_term', "数据不足，无法计算长期信号分变化", 0)
+            if not np.isnan(score_change_short) and not np.isnan(score_change_long):
+                if (score_change_short > 0 and score_change_long > 0) or \
+                   (score_change_short < 0 and score_change_long < 0):
+                    add_signal_impact('score_change_consistency', "短期与长期信号分变化方向一致", 5)
+                    score_change_consistency_status = "一致"
+                else:
+                    add_signal_impact('score_change_consistency', "短期与长期信号分变化方向不一致", -5, "信号分短期与长期变化方向不一致，趋势可能不稳定。")
+                    score_change_consistency_status = "不一致"
+            else:
+                add_signal_impact('score_change_consistency', "数据不足，无法判断信号分变化一致性", 0)
+        else:
+            add_signal_impact('score_change_short_term', "数据不足", 0)
+            add_signal_impact('score_change_long_term', "数据不足", 0)
+            add_signal_impact('score_change_consistency', "数据不足", 0)
+
+        # 12. VWAP 偏离信号判断
+        if not np.isnan(vwap_deviation_signal_val) and not np.isnan(vwap_deviation_percent_val):
+            if vwap_deviation_signal_val == 1:
+                if vwap_deviation_percent_val > vwap_deviation_thresh and final_score_val > 60:
+                    add_signal_impact('vwap_deviation_status', "价格偏离VWAP过高，短期超买", -5, "价格短期偏离VWAP过高，注意回调风险。")
+                else: add_signal_impact('vwap_deviation_status', "价格在VWAP之上", 5)
+            elif vwap_deviation_signal_val == -1:
+                if vwap_deviation_percent_val < -vwap_deviation_thresh and final_score_val < 40:
+                    add_signal_impact('vwap_deviation_status', "价格偏离VWAP过低，短期超卖", 5, "价格短期偏离VWAP过低，注意反弹机会。")
+                else: add_signal_impact('vwap_deviation_status', "价格在VWAP之下", -5)
+            else: add_signal_impact('vwap_deviation_status', "价格接近VWAP", 0)
+        else:
+            add_signal_impact('vwap_deviation_status', "数据缺失", 0)
+
+        # 13. Bollinger Band 突破信号判断
+        if not np.isnan(boll_breakout_signal_val):
+            if boll_breakout_signal_val == 1:
+                if final_score_val > 60: add_signal_impact('boll_breakout_status', "向上突破布林带上轨，趋势可能加速", 10)
+                else: add_signal_impact('boll_breakout_status', "向上突破布林带上轨，但主信号偏弱", -5, "布林带向上突破但主信号未确认，警惕假突破。")
+            elif boll_breakout_signal_val == -1:
+                if final_score_val < 40: add_signal_impact('boll_breakout_status', "向下突破布林带下轨，趋势可能加速下跌", -10)
+                else: add_signal_impact('boll_breakout_status', "向下突破布林带下轨，但主信号偏强", 5, "布林带向下突破但主信号未确认，警惕假跌破。")
+            else: add_signal_impact('boll_breakout_status', "无布林带突破", 0)
+        else:
+            add_signal_impact('boll_breakout_status', "数据缺失", 0)
+
+        # 14. 波动率信号判断
+        if not np.isnan(volatility_signal_val):
+            if volatility_signal_val == 1: add_signal_impact('volatility_signal_status', "高波动信号", -5, "波动率信号提示高波动，增加交易风险。")
+            elif volatility_signal_val == -1: add_signal_impact('volatility_signal_status', "低波动信号", 5)
+            else: add_signal_impact('volatility_signal_status', "中性波动信号", 0)
+        else:
+            add_signal_impact('volatility_signal_status', "数据缺失", 0)
+
+        # 15. ADX 强度判断 (基于原始ADX列)
+        param_sources = [self.tf_params, self.params.get('volume_confirmation', {}), self.params.get('indicator_analysis_params', {}), self.params.get('base_scoring', {})]
+        dmi_period_bs = self._get_param_val(param_sources, 'dmi_period', 14)
+        adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}'
+        adx_val = latest_data_row.get(adx_col, np.nan)
+        print(f"[{self.strategy_name}][{stock_code}] 原始 ADX 值 (来自列 {adx_col}): {adx_val}。")
+        if not np.isnan(adx_val):
+             if adx_val >= adx_strong_thresh: add_signal_impact('adx_status', "趋势非常强劲 (原始ADX)", 10)
+             elif adx_val >= adx_moderate_thresh: add_signal_impact('adx_status', "趋势强劲 (原始ADX)", 5)
+             else: add_signal_impact('adx_status', "趋势较弱 (原始ADX)", -5, "原始ADX显示趋势强度不足，市场可能处于盘整状态。")
+             if adx_val < adx_moderate_thresh and abs(final_score_val - 50) > 10:
+                 risk_warning_str += f"原始ADX ({adx_val:.2f}) 显示趋势强度不足 ({adx_moderate_thresh})，当前信号偏离中性，注意假信号或震荡风险。 "
+        else:
+             add_signal_impact('adx_status', "原始ADX数据缺失", 0)
+
+        # 16. 背离状态判断
+        if has_bearish_div_val and final_score_val > 50:
+            add_signal_impact('divergence_status', "检测到顶背离", -20, "检测到顶背离，强烈预示趋势衰竭或反转！")
+        elif has_bullish_div_val and final_score_val < 50:
+            add_signal_impact('divergence_status', "检测到底背离", 20, "检测到底背离，强烈预示趋势衰竭或反转！")
+        else:
+            add_signal_impact('divergence_status', "无明显背离", 0)
+
+        # 17. Transformer 信号与规则信号的一致性
+        if not np.isnan(transformer_score_val) and not np.isnan(final_rule_score_val):
+            transformer_rule_diff = abs(transformer_score_val - final_rule_score_val)
+            if transformer_rule_diff > 20:
+                add_signal_impact('transformer_rule_consistency', "分歧较大", -15, "Transformer信号与规则信号存在较大分歧，模型预测风险较高。")
+            elif transformer_rule_diff > 10:
+                add_signal_impact('transformer_rule_consistency', "有分歧", -5, "Transformer信号与规则信号存在一定分歧，需谨慎。")
+            else:
+                add_signal_impact('transformer_rule_consistency', "一致", 5)
+
+        # 18. EMA Score
+        if not np.isnan(ema_score_val):
+            if final_score_val > 60 and ema_score_val > 60:
+                add_signal_impact('ema_score_status', f"EMA得分 ({ema_score_col}) 强劲看涨，与主信号一致", 5)
+            elif final_score_val < 40 and ema_score_val < 40:
+                add_signal_impact('ema_score_status', f"EMA得分 ({ema_score_col}) 强劲看跌，与主信号一致", -5)
+            elif abs(final_score_val - ema_score_val) > 10:
+                add_signal_impact('ema_score_status', f"EMA得分 ({ema_score_col}) 与主信号存在分歧", -5, "EMA得分与主信号存在分歧，趋势可能不稳定。")
+            else:
+                add_signal_impact('ema_score_status', f"EMA得分 ({ema_score_col}) 中性或一致", 0)
+        else:
+            add_signal_impact('ema_score_status', "数据缺失", 0)
+
+        # 19. 波动率 (score_volatility)
+        print(f"[{self.strategy_name}][{stock_code}] 波动率值: {volatility_val:.4f}。")
+        if not np.isnan(volatility_val):
+            if volatility_val >= volatility_thresh_high:
+                add_signal_impact('volatility_status', "高波动", -10, f"当前波动率较高({volatility_val:.2%})，市场不确定性增加。")
+            elif volatility_val <= volatility_thresh_low:
+                add_signal_impact('volatility_status', "低波动", 5, f"当前波动率较低({volatility_val:.2%})，市场可能处于盘整或趋势启动前夕。")
+            else:
+                add_signal_impact('volatility_status', "中等波动", 0)
+        else:
+            add_signal_impact('volatility_status', "波动率数据缺失", 0)
+
+        # 20. ADX 强度信号判断 (来自 adx_strength_signal 列, 结合方向)
+        print(f"[{self.strategy_name}][{stock_code}] ADX 强度信号值 (来自列 {adx_strength_signal_col}, 结合方向): {adx_strength_signal_val:.2f}。")
+        if not np.isnan(adx_strength_signal_val):
+            trend_direction_from_adx_signal = "中性"
+            # 使用一个小的epsilon来比较浮点数，避免等于0的精确比较问题
+            epsilon = 1e-9
+            if adx_strength_signal_val > epsilon:
+                trend_direction_from_adx_signal = "看涨"
+            elif adx_strength_signal_val < -epsilon:
+                trend_direction_from_adx_signal = "看跌"
+
+            abs_adx_strength = abs(adx_strength_signal_val)
+            strength_desc = "不明"
+            confidence_adj = 0
+            risk_msg_adx_processed = ""
+
+            # 主信号方向判断简化
+            main_signal_is_strong_bullish = final_score_val >= strong_bullish_thresh
+            main_signal_is_moderate_bullish = final_score_val >= moderate_bullish_thresh and not main_signal_is_strong_bullish
+            main_signal_is_mildly_bullish = final_score_val >= trend_conf_upper_thresh and not (main_signal_is_strong_bullish or main_signal_is_moderate_bullish)
+
+            main_signal_is_strong_bearish = final_score_val <= strong_bearish_thresh
+            main_signal_is_moderate_bearish = final_score_val <= moderate_bearish_thresh and not main_signal_is_strong_bearish
+            main_signal_is_mildly_bearish = final_score_val <= trend_conf_lower_thresh and not (main_signal_is_strong_bearish or main_signal_is_moderate_bearish)
+
+            main_signal_overall_bullish = final_score_val > trend_conf_upper_thresh # 主信号总体看涨
+            main_signal_overall_bearish = final_score_val < trend_conf_lower_thresh # 主信号总体看跌
+
+            if abs_adx_strength >= adx_strong_thresh:
+                strength_desc = "非常强劲"
+                if trend_direction_from_adx_signal == "看涨":
+                    confidence_adj = 10
+                    if main_signal_overall_bearish: # 主信号总体看跌
+                        confidence_adj = -7 # 显著冲突
+                        risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看涨，但与主信号(score:{final_score_val:.2f})看跌方向冲突。"
+                elif trend_direction_from_adx_signal == "看跌":
+                    confidence_adj = -10
+                    if main_signal_overall_bullish: # 主信号总体看涨
+                        confidence_adj = 7 # 显著冲突 (绝对值减小，但仍为负向影响，因为ADX信号是看跌的，所以应该是负的) -> 改为 -7
+                        risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看跌，但与主信号(score:{final_score_val:.2f})看涨方向冲突。"
+                        if confidence_adj > 0 : confidence_adj = -7 # 确保冲突时，ADX看跌信号不会导致正向信心
+            elif abs_adx_strength >= adx_moderate_thresh:
+                strength_desc = "强劲"
+                if trend_direction_from_adx_signal == "看涨":
+                    confidence_adj = 7
+                    if main_signal_is_strong_bearish or main_signal_is_moderate_bearish: # 主信号明确看跌
+                        confidence_adj = -5
+                        risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看涨，但与主信号(score:{final_score_val:.2f})看跌方向冲突。"
+                    elif main_signal_is_mildly_bearish: # 主信号温和看跌
+                        confidence_adj = 0
+                        risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看涨，但与主信号(score:{final_score_val:.2f})温和看跌不一致。"
+                elif trend_direction_from_adx_signal == "看跌":
+                    confidence_adj = -7
+                    if main_signal_is_strong_bullish or main_signal_is_moderate_bullish: # 主信号明确看涨
+                        confidence_adj = 5 # 同样，ADX看跌信号与主信号看涨冲突，信心应该是负向或减弱 -> 改为 -5
+                        risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看跌，但与主信号(score:{final_score_val:.2f})看涨方向冲突。"
+                        if confidence_adj > 0 : confidence_adj = -5
+                    elif main_signal_is_mildly_bullish: # 主信号温和看涨
+                        confidence_adj = 0
+                        risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看跌，但与主信号(score:{final_score_val:.2f})温和看涨不一致。"
+            elif abs_adx_strength > epsilon: # 温和趋势 (大于epsilon，小于moderate_thresh)
+                strength_desc = "温和"
+                if trend_direction_from_adx_signal == "看涨":
+                    confidence_adj = 3
+                    if main_signal_is_strong_bearish or main_signal_is_moderate_bearish: # 主信号明确看跌
+                         confidence_adj = -3
+                         risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看涨，但与主信号(score:{final_score_val:.2f})看跌方向冲突。"
+                elif trend_direction_from_adx_signal == "看跌":
+                    confidence_adj = -3
+                    if main_signal_is_strong_bullish or main_signal_is_moderate_bullish: # 主信号明确看涨
+                         confidence_adj = 3 # ADX看跌与主信号看涨冲突 -> 改为 -3
+                         risk_msg_adx_processed = f"处理后ADX信号{strength_desc}看跌，但与主信号(score:{final_score_val:.2f})看涨方向冲突。"
+                         if confidence_adj > 0: confidence_adj = -3
+            else: # abs_adx_strength is very small (无明显趋势)
+                strength_desc = "无明显趋势"
+                confidence_adj = 0
+                if main_signal_overall_bullish or main_signal_overall_bearish: # 主信号有明显趋势
+                    confidence_adj = -3
+                    risk_msg_adx_processed = f"处理后ADX信号显示{strength_desc}，但主信号(score:{final_score_val:.2f})有明显趋势倾向。"
+
+            status_msg = f"处理后ADX信号：{trend_direction_from_adx_signal}趋势{strength_desc}"
+            add_signal_impact('adx_processed_strength_status', status_msg, confidence_adj, risk_msg_adx_processed)
+        else:
+            add_signal_impact('adx_processed_strength_status', "处理后ADX强度信号数据缺失", 0)
+
+        # 根据综合信心分数生成更高效和有效的操作建议
+        normalized_confidence = max(-1.0, min(1.0, confidence_score / 100.0))
+        print(f"[{self.strategy_name}][{stock_code}] 最终综合信心分数: {confidence_score}, 归一化信心: {normalized_confidence:.2f}。")
+
+        if normalized_confidence >= 0.7:
+            operation_advice_str = f"【强烈买入/积极加仓】信号极度强劲，多重指标共振看涨，趋势稳固。建议积极介入。{t_plus_1_note_str}"
+        elif normalized_confidence >= 0.3:
+            operation_advice_str = f"【买入/持有】信号强劲，趋势明确。建议持有或逢低加仓。{t_plus_1_note_str}"
+        elif normalized_confidence > 0.05:
+            operation_advice_str = f"【谨慎买入/观望】信号偏多，但有不确定性。建议轻仓试探或等待更明确信号。{t_plus_1_note_str}"
+        elif normalized_confidence <= -0.7:
+            operation_advice_str = f"【强烈卖出/坚决空仓】信号极度疲软，多重指标共振看跌，趋势明确。建议坚决离场。{t_plus_1_note_str}"
+        elif normalized_confidence <= -0.3:
+            operation_advice_str = f"【卖出/减仓】信号疲软，趋势向下。建议减仓或逢高减仓。{t_plus_1_note_str}"
+        elif normalized_confidence < -0.05:
+            operation_advice_str = f"【谨慎卖出/观望】信号偏空，但有不确定性。建议轻仓试空或等待更明确信号。{t_plus_1_note_str}"
+        else:
+            operation_advice_str = f"【中性观望】市场信号不明朗。建议耐心等待。{t_plus_1_note_str}"
+
+        if not risk_warning_str:
+            risk_warning_str = "无明显风险提示。"
+
+        # 汇总所有关键变量到 signal_judgment_dict
+        signal_judgment_dict['final_score'] = final_score_val
+        signal_judgment_dict['base_score_raw'] = base_score_raw_val
+        signal_judgment_dict['base_score_volume_adjusted'] = base_score_volume_adjusted_val
+        signal_judgment_dict['long_term_context'] = long_term_context_val
+        signal_judgment_dict['stoch_signal'] = stoch_signal_val
+        signal_judgment_dict['vol_spike_signal'] = vol_spike_signal_val
+        signal_judgment_dict['volatility_val'] = volatility_val
+        signal_judgment_dict['ema_score_val'] = ema_score_val
+        signal_judgment_dict['ema_cross_signal_val'] = ema_cross_signal_val
+        signal_judgment_dict['ema_strength_val'] = ema_strength_val
+        signal_judgment_dict['score_momentum_val'] = score_momentum_val
+        signal_judgment_dict['score_momentum_acceleration_val'] = score_momentum_acceleration_val
+        signal_judgment_dict['volatility_signal_val'] = volatility_signal_val
+        signal_judgment_dict['vwap_deviation_signal_val'] = vwap_deviation_signal_val
+        signal_judgment_dict['vwap_deviation_percent_val'] = vwap_deviation_percent_val
+        signal_judgment_dict['boll_breakout_signal_val'] = boll_breakout_signal_val
+        signal_judgment_dict['has_bearish_divergence'] = has_bearish_div_val
+        signal_judgment_dict['has_bullish_divergence'] = has_bullish_div_val
+        signal_judgment_dict['adx_val_raw'] = adx_val
+        signal_judgment_dict['adx_strength_signal_val'] = adx_strength_signal_val # MODIFIED: 确保存储
+        signal_judgment_dict['confidence_score'] = confidence_score
+        signal_judgment_dict['normalized_confidence'] = normalized_confidence
+        signal_judgment_dict['signal_impact_records'] = signal_impact_records
+        signal_judgment_dict['score_change_short'] = score_change_short
+        signal_judgment_dict['score_change_long'] = score_change_long
+        signal_judgment_dict['score_change_consistency_status'] = score_change_consistency_status
+
+        now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+        stock_basic_dao = StockBasicInfoDao()
+        stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
+
+        chinese_interpretation_str = (
+            f"【趋势跟踪策略分析 - {stock} - {now_str}】\n"
+            f"焦点时间框架: {self.focus_timeframe}\n"
+            f"最新组合信号分: {final_score_val:.2f} (规则: {final_rule_score_val:.2f}, Transformer: {transformer_score_val:.2f})\n"
+            f"当前策略信号强度: {signal_judgment_dict.get('overall_signal_strength', '中性')}\n"
+            f"基于规则趋势判断: {current_trend_direction} (强度: {current_trend_strength})\n"
+            f"趋势持续时间: {trend_duration_info_dict.get('bullish_duration_text' if current_trend_direction.startswith('看涨') else 'bearish_duration_text','未知')} (状态: {duration_status_rule_str})\n"
+            f"----------------------------------------\n"
+            f"【多维度信号交叉验证】\n"
+            f"量能与趋势一致性: {signal_judgment_dict.get('trend_volume_consistency', '未知')}, 量能效果: {signal_judgment_dict.get('volume_effect', '未知')}\n"
+            f"长期趋势与当前信号: {signal_judgment_dict.get('long_term_vs_current', '未知')}\n"
+            f"随机指标(STOCH)与趋势关系: {signal_judgment_dict.get('stoch_trend_relation', '未知')}\n"
+            f"量能异动与趋势: {signal_judgment_dict.get('vol_spike_trend', '未知')}\n"
+            f"EMA排列状态: {signal_judgment_dict.get('alignment_status', '未知')}\n"
+            f"EMA交叉信号: {signal_judgment_dict.get('ema_cross_status', '未知')}\n"
+            f"EMA强度: {signal_judgment_dict.get('ema_strength_status', '未知')}\n"
+            f"信号分动量: {signal_judgment_dict.get('score_momentum_status', '未知')}, 加速: {signal_judgment_dict.get('score_momentum_acceleration_status', '未知')}\n"
+            f"信号分变化: 短期({score_momentum_short_period}期) {signal_judgment_dict.get('score_change_short_term', '未知')}, 长期({score_momentum_long_period}期) {signal_judgment_dict.get('score_change_long_term', '未知')}, 一致性: {signal_judgment_dict.get('score_change_consistency_status', '未知')}\n"
+            f"VWAP偏离状态: {signal_judgment_dict.get('vwap_deviation_status', '未知')}\n"
+            f"布林带突破: {signal_judgment_dict.get('boll_breakout_status', '未知')}\n"
+            f"原始ADX强度: {signal_judgment_dict.get('adx_status', '未知')} (值: {adx_val:.2f})\n"
+            f"处理后ADX强度信号: {signal_judgment_dict.get('adx_processed_strength_status', '未知')} (原始值: {adx_strength_signal_val:.2f})\n" # MODIFIED: 更新解读
+            f"背离状态: {signal_judgment_dict.get('divergence_status', '未知')}\n"
+            f"模型信号一致性: {signal_judgment_dict.get('transformer_rule_consistency', '未知')}\n"
+            f"EMA得分: {signal_judgment_dict.get('ema_score_status', '未知')}\n"
+            f"波动率状态: {signal_judgment_dict.get('volatility_status', '未知')}\n"
+            f"波动率信号: {signal_judgment_dict.get('volatility_signal_status', '未知')}\n"
+            f"----------------------------------------\n"
+            f"【综合评估与操作建议】\n"
+            f"综合信心分数: {confidence_score} (归一化: {normalized_confidence:.2f})\n"
+            f"操作建议: {operation_advice_str}\n"
+            f"风险提示: {risk_warning_str}\n"
+            f"信号影响明细: {signal_impact_records}\n"
+        )
+
+        from collections import defaultdict
+        signal_contribution_summary = defaultdict(int)
+        for record in signal_impact_records:
+            signal_contribution_summary[record['key']] += record['confidence_change']
+        signal_judgment_dict['signal_contribution_summary'] = dict(signal_contribution_summary)
+
+        SIGNAL_WEIGHTS = {
+            'overall_signal_strength': 1.5,
+            'trend_duration_impact': 1.2,
+            'trend_volume_consistency': 1.0,
+            'volume_effect': 1.0,
+            'long_term_vs_current': 1.3,
+            'stoch_trend_relation': 1.1,
+            'vol_spike_trend': 1.0,
+            'alignment_status': 1.0,
+            'ema_cross_status': 1.0,
+            'ema_strength_status': 1.0,
+            'score_momentum_status': 1.0,
+            'score_momentum_acceleration_status': 1.0,
+            'score_change_short_term': 1.0,
+            'score_change_long_term': 1.2,
+            'score_change_consistency': 1.0,
+            'vwap_deviation_status': 1.0,
+            'boll_breakout_status': 1.0,
+            'adx_status': 1.2,
+            'adx_processed_strength_status': 1.2, # MODIFIED: 调整权重，使其与原始ADX判断权重相似或略高，因其包含方向
+            'divergence_status': 1.5,
+            'transformer_rule_consistency': 1.2,
+            'ema_score_status': 1.0,
+            'volatility_status': 1.0,
+            'volatility_signal_status': 1.0,
+        }
+        weighted_confidence_score = 0
+        for record in signal_impact_records:
+            weight = SIGNAL_WEIGHTS.get(record['key'], 1.0)
+            weighted_confidence_score += record['confidence_change'] * weight
+        signal_judgment_dict['weighted_confidence_score'] = weighted_confidence_score
+
+        analysis_results_dict['signal_judgment'] = signal_judgment_dict
+        analysis_results_dict['operation_advice'] = operation_advice_str
+        analysis_results_dict['risk_warning'] = risk_warning_str
+        analysis_results_dict['chinese_interpretation'] = chinese_interpretation_str
+        self.analysis_results = analysis_results_dict
+        logger.debug(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
+        logger.info(chinese_interpretation_str)
+        print(f"[{self.strategy_name}][{stock_code}] 信号分析完成。")
+
+        return analysis_results_dict
 
     def _get_intermediate_file_path(self, stock_code: str):
         """
