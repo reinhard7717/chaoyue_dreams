@@ -35,7 +35,7 @@ SUBTYPE_BIG_DEAL = 'big_deal'
 SUBTYPE_ABNORMAL_MOVEMENT = 'abnormal_movement'
 SUBTYPE_TIME_DEAL = 'time_deal'
 SUBTYPE_LEVEL5 = 'level5'
-SUBTYPE_STRATEGY_MACD_RSI_KDJ_BOLL = 'macd_rsi_kdj_boll'
+SUBTYPE_STRATEGY_TREND_FOLLOWING = 'trend_following'
 
 # ... 其他子类型或固定标识符
 

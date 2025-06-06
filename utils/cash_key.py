@@ -492,7 +492,7 @@ class StrategyCashKey(CashKey):
             cache_type=cc.TYPE_STRATEGY,
             entity_type=cc.ENTITY_STOCK,
             entity_id=stock_code,
-            subtype=cc.SUBTYPE_STRATEGY_MACD_RSI_KDJ_BOLL,
+            subtype=cc.SUBTYPE_STRATEGY_TREND_FOLLOWING,
             # params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
