@@ -141,7 +141,7 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
         tasks_non_favorite = group(analyze_single_stock.s(stock_code, params_file) for stock_code in non_favorite_codes)
         
         # 分别异步执行两组任务
-        result_favorite = tasks_favorite.apply_async(queue='calculate_strategy') if favorite_codes else None
+        result_favorite = tasks_favorite.apply_async(queue='favorite_calculate_strategy') if favorite_codes else None
         result_non_favorite = tasks_non_favorite.apply_async(queue='calculate_strategy') if non_favorite_codes else None
 
         # 记录任务ID（如果有多个任务组，取最后一个或合并记录）
