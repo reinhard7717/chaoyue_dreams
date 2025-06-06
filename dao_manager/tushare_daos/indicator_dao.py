@@ -312,12 +312,15 @@ class IndicatorDAO(BaseDAO):
             else:
                 qs = StockMinuteData.objects.filter(stock=stock, time_level=time_level_str)
 
+            print("初始qs:", qs.query)
             # 如果提供了起点时间，加入过滤条件
             if start_trade_time:
                 qs = qs.filter(trade_time__lte=start_trade_time)
+                print("加trade_time过滤后qs:", qs.query)
 
             # 按时间倒序，限制数量
             qs = qs.order_by('-trade_time')[:limit]
+            print("最终qs:", qs.query)
             data_list = await sync_to_async(list)(qs)  # 用同步ORM，异步调用
             # 升序排列
             data_list = list(data_list)[::-1]
