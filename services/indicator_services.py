@@ -781,7 +781,7 @@ class IndicatorService:
                                      lstm_window_size + global_max_lookback + 500
         min_usable_bars = math.ceil(effective_base_needed_bars * 0.6) # 用于检查数据量是否足够
 
-        # 修改开始: 顺序获取/聚合 OHLCV 数据
+        # 顺序获取/聚合 OHLCV 数据
         final_ohlcv_dfs: Dict[str, pd.DataFrame] = {}
         for tf_process in sorted_time_levels:
             needed_bars_for_tf = self._calculate_needed_bars_for_tf(

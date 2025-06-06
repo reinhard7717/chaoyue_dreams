@@ -331,18 +331,18 @@ class IndicatorDAO(BaseDAO):
 
             # 按时间升序排列
             data_list.reverse()
-
+            print(f"{stock} data_list_count: {data_list.count}")
             # --- 以下是原始数据缺失检查部分 ---
             # 1. 获取实际有的数据时间点，并转换为时区感知的 datetime 对象
             trade_times_aware = []
             for trade in data_list:
-                 t_raw = getattr(trade, 'trade_time', None)
-                 if t_raw:
-                     safe_dt = self._safe_datetime(t_raw)
-                     if safe_dt:
-                         trade_times_aware.append(safe_dt)
-                     else:
-                         logger.warning(f"从数据库获取的数据中发现无效或无法转换的 trade_time: {t_raw}")
+                t_raw = getattr(trade, 'trade_time', None)
+                if t_raw:
+                    safe_dt = self._safe_datetime(t_raw)
+                    if safe_dt:
+                        trade_times_aware.append(safe_dt)
+                    else:
+                        logger.warning(f"从数据库获取的数据中发现无效或无法转换的 trade_time: {t_raw}")
 
             trade_times_aware.sort() # 确保时间排序
 
