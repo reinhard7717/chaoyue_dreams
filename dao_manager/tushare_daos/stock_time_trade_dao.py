@@ -306,12 +306,17 @@ class StockTimeTradeDAO(BaseDAO):
         end_datetime = start_datetime + timedelta(days=1)
 
         # 查询当天的所有5分钟K线
-        records = await self.filter(
+        queryset = self.filter(
             stock=stock,
             trade_time__gte=start_datetime,
             trade_time__lt=end_datetime,
             time_level='5min'
-        ).values_list('trade_time', flat=True)
+        )
+        # 这里必须await values_list
+        # Django异步ORM的 values_list 也是异步方法，必须 await。
+        # 不能直接 await self.filter(...).values_list(...)，要先拿到QuerySet，再 await values_list。
+        # 这样可以解决 'coroutine' object has no attribute 'values_list' 的报错。
+        records = await queryset.values_list('trade_time', flat=True)
 
         # 转换为字符串格式
         trade_times = [record.strftime('%Y-%m-%d %H:%M:%S') for record in records]
