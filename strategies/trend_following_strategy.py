@@ -3757,7 +3757,7 @@ class TrendFollowingStrategy:
 
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
-        print(f"analyze_signals.latest_data_row: {latest_data_row}")
+        # print(f"analyze_signals.latest_data_row: {latest_data_row}")
         print(f"[{self.strategy_name}][{stock}] 获取最新数据行。")
         # 新增：用于记录每次add_signal_impact的详细影响
         signal_impact_records = []
@@ -4315,10 +4315,10 @@ class TrendFollowingStrategy:
         signal_judgment_dict['score_change_long'] = score_change_long
         signal_judgment_dict['score_change_consistency_status'] = score_change_consistency_status
 
-        now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+        # now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
 
         chinese_interpretation_str = (
-            f"【趋势跟踪策略分析 - {stock} - {now_str}】\n"
+            f"【趋势跟踪策略分析 - {stock} - {str(latest_data_row.name)}】\n"
             f"焦点时间框架: {self.focus_timeframe}\n"
             f"最新组合信号分: {final_score_val:.2f} (规则: {final_rule_score_val:.2f}, Transformer: {transformer_score_val:.2f})\n"
             f"当前策略信号强度: {signal_judgment_dict.get('overall_signal_strength', '中性')}\n"
