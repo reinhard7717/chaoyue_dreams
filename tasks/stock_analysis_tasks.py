@@ -90,7 +90,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
         logger.info(f"开始分析股票 {stock_code} - {trade_time_str}")
         execute_strategy_for_trade_time(stock_code=stock_code, params_file= params_file, trade_time_str=trade_time_str)
 
-def execute_strategy_for_trade_time(self, stock_code: str, params_file: str, trade_time_str: str):
+def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):
     indicator_service = IndicatorService()
     dt = datetime.strptime(trade_time_str, '%Y-%m-%d %H:%M:%S')
     trade_time_ts = int(dt.timestamp())
@@ -146,7 +146,7 @@ def execute_strategy_for_trade_time(self, stock_code: str, params_file: str, tra
         return {"stock_code": stock_code, "status": "completed", "results": results}
     except Exception as e:
         logger.error(f"分析股票 {stock_code} 时发生错误: {e}", exc_info=True)
-        raise self.retry(exc=e)
+        # raise
 
 # --- 调度任务：获取所有股票并分配分析任务 ---
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks')
