@@ -102,7 +102,7 @@ class IndexBasicDAO(BaseDAO):
         """
         if not trade_date:
             trade_date = datetime.date.today()
-        print(f"基准日期为: {trade_date}")  # 调试信息
+        # print(f"基准日期为: {trade_date}")  # 调试信息
         trade_date_str = trade_date.strftime('%Y%m%d')
         trade_days_raw = await sync_to_async(
             lambda: list(
@@ -112,7 +112,7 @@ class IndexBasicDAO(BaseDAO):
                 ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
             )
         )()
-        print(f"查询到的开盘日数量: {len(trade_days_raw)}")  # 调试信息
+        # print(f"查询到的开盘日数量: {len(trade_days_raw)}")  # 调试信息
         # 修改：兼容字符串和datetime.date类型
         trade_days = []
         for day in trade_days_raw:

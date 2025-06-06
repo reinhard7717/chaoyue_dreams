@@ -19,6 +19,7 @@ import pandas_ta as ta
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from core.constants import TimeLevel
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
 warnings.filterwarnings(action='ignore', category=FutureWarning, message=".*Passing 'suffixes' which cause duplicate columns.*")
@@ -1830,10 +1831,10 @@ class IndicatorService:
             return []
 
         trade_times_set = set()
-
+        stt_dao = StockTimeTradeDAO()
         for trade_day in trade_days:
             # 获取当天的所有5分钟K线时间
-            daily_trade_times = await self.get_5_min_kline_time_by_day(stock_code, 1, trade_day)
+            daily_trade_times = await stt_dao.get_5_min_kline_time_by_day(stock_code=stock_code, date=trade_day)
             # 将当天的时间加入集合
             trade_times_set.update(daily_trade_times)
 
