@@ -314,6 +314,7 @@ class TrendFollowingStrategy:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"{log_prefix} 使用设备: {self.device}")
         # 路径初始化为 None，set_model_paths 会具体设置
+        self.model_dir: Optional[str] = None
         self.model_path: Optional[str] = None
         self.feature_scaler_path: Optional[str] = None
         self.target_scaler_path: Optional[str] = None
@@ -577,7 +578,8 @@ class TrendFollowingStrategy:
         self.target_scaler_path = os.path.join(prepared_data_dir, "trend_following_transformer_target_scaler.save")
         self.selected_features_path = os.path.join(prepared_data_dir, "trend_following_transformer_selected_features.json")
         self.all_prepared_data_npz_path = os.path.join(prepared_data_dir, "all_prepared_data_transformer.npz")
-        self.model_path = trained_model_dir # os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
+        self.model_dir = trained_model_dir
+        self.model_path = os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
         print(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
         # print(f"  模型权重: {self.model_path}")
         # print(f"  特征Scaler: {self.feature_scaler_path}")
@@ -742,7 +744,7 @@ class TrendFollowingStrategy:
         try:
             # checkpoint_dir 是股票专属的模型保存目录
             # `self.model_dir_path` 是由 `self.set_model_paths` 设置的，它应该包含 /trained_model 部分
-            checkpoint_dir_for_dl_utils = str(self.model_path) 
+            checkpoint_dir_for_dl_utils = str(self.model_dir) 
             if not os.path.exists(checkpoint_dir_for_dl_utils):
                 os.makedirs(checkpoint_dir_for_dl_utils)
                 logger.info(f"[{self.strategy_name}][{stock_code}] 创建模型保存目录: {checkpoint_dir_for_dl_utils}")
