@@ -7,6 +7,7 @@ import json
 import os
 import warnings
 import logging
+from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.indicator_dao import IndicatorDAO
 import numpy as np
 import pandas as pd
@@ -129,7 +130,7 @@ class IndicatorService:
         print(f"Debug: 为目标时间级别 '{target_tf}' 找到的潜在聚合源: {potential_sources}") # 调试信息
         return potential_sources
 
-    def _calculate_needed_bars_for_tf( self, target_tf: str, min_tf: str, base_needed_bars: int, global_max_lookback: int ) -> int:
+    def _calculate_needed_bars_for_tf(self, target_tf: str, min_tf: str, base_needed_bars: int, global_max_lookback: int) -> int:
         """
         计算目标时间级别需要从 DAO 获取的原始 K 线数量。
         获取数量应足够覆盖基础时间级别所需的最早时间点及所有指标的最大回看期。
@@ -158,21 +159,19 @@ class IndicatorService:
                   needed = max(needed, global_max_lookback + 365*2)
         return math.ceil(needed)
 
-    async def _get_ohlcv_data(self, stock_code: str, time_level: Union[TimeLevel, str], needed_bars: int) -> Optional[pd.DataFrame]:
+    async def _get_ohlcv_data(self, stock_code: str, time_level: Union[TimeLevel, str], needed_bars: int, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         异步获取足够用于计算的原始历史数据 DataFrame。
         此函数仅负责从 DAO 获取，不进行时间序列对齐或质量过滤。
-
         Args:
             stock_code (str): 股票代码。
             time_level (Union[TimeLevel, str]): 时间级别。
             needed_bars (int): 需要获取的 K 线数量。
-
         Returns:
             Optional[pd.DataFrame]: 包含 OHLCV 数据的 DataFrame，如果获取失败则为 None。
         """
         limit = needed_bars
-        df = await self.indicator_dao.get_history_ohlcv_df(stock_code, time_level, limit=limit)
+        df = await self.indicator_dao.get_history_ohlcv_df(stock_code=stock_code, time_level=time_level, limit=limit, trade_time=trade_time)
         if df is None or df.empty:
             logger.warning(f"[{stock_code}] 时间级别 {time_level} 无法获取足够的原始历史数据 (请求 {limit} 条)。")
             return None
@@ -183,9 +182,9 @@ class IndicatorService:
             df.rename(columns={'amount_col_from_dao': 'amount'}, inplace=True)
             logger.debug(f"[{stock_code}] 时间级别 {time_level}: 示例性重命名 'amount_col_from_dao' 为 'amount'.")
         if isinstance(df.index, pd.DatetimeIndex) and df.index.tzinfo is not None:
-             logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
+            logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，时间范围: {df.index.min()} 至 {df.index.max()}")
         else:
-             logger.warning(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，但索引不是时区感知的 DatetimeIndex。")
+            logger.warning(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据，但索引不是时区感知的 DatetimeIndex。")
         return df
 
     def _resample_and_clean_dataframe(self, df: pd.DataFrame, tf: str, min_periods: int = 1, fill_method: str = 'ffill') -> Optional[pd.DataFrame]:
@@ -505,7 +504,7 @@ class IndicatorService:
             logger.warning(f"没有获取到任何外部特征数据 for {stock_code}，返回原始 DataFrame。")
             return df
 
-    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
+    async def prepare_strategy_dataframe(self, stock_code: str, params_file: str, base_needed_bars: Optional[int] = None, trade_time: Optional[str] = None) -> Optional[Tuple[pd.DataFrame, List[Dict[str, Any]]]]:
         """
         根据策略 JSON 配置文件准备包含重采样基础数据和所有计算指标的 DataFrame。
         此方法通过并行化数据获取、重采样和指标计算来优化性能。
@@ -792,7 +791,7 @@ class IndicatorService:
             print(f"[{stock_code}] Debug: 正在处理时间级别 {tf_process}。所需条数: {needed_bars_for_tf}")
 
             # 1. 尝试从数据库直接获取该时间级别的数据
-            raw_df_from_db = await self._get_ohlcv_data(stock_code, tf_process, needed_bars=needed_bars_for_tf)
+            raw_df_from_db = await self._get_ohlcv_data(stock_code=stock_code, time_level=tf_process, needed_bars=needed_bars_for_tf, trade_time=trade_time)
             processed_df_for_tf = None
 
             if raw_df_from_db is not None and not raw_df_from_db.empty:
@@ -1812,3 +1811,50 @@ class IndicatorService:
             else:
                 logger.warning(f"添加滚动统计特征失败，未找到列: {col}")
         return df
+
+    async def get_5_min_kline_time_by_day_count(self, stock_code: str, day_count: int) -> List[str]:
+        """
+        获取指定股票在前N个交易日内所有的5分钟K线的交易时间字符串集合
+        """
+        # 获取股票对象（假设存在异步方法获取股票信息）
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            print(f"未找到股票代码：{stock_code}")
+            return []
+
+        # 获取前N个交易日
+        index_dao = IndexBasicDAO()  # 实例化IndexBasicDAO
+        trade_days = await index_dao.get_last_n_trade_cal_open(n=day_count)
+        if not trade_days:
+            print("未获取到交易日列表")
+            return []
+
+        trade_times_set = set()
+
+        for trade_day in trade_days:
+            # 获取当天的所有5分钟K线时间
+            daily_trade_times = await self.get_5_min_kline_time_by_day(stock_code, 1, trade_day)
+            # 将当天的时间加入集合
+            trade_times_set.update(daily_trade_times)
+
+        # 转换为列表并排序
+        trade_times_list = sorted(trade_times_set)
+        print(f"总共获取到的交易时间点数量：{len(trade_times_list)}")
+        return trade_times_list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

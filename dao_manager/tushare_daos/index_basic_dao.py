@@ -471,7 +471,6 @@ class IndexBasicDAO(BaseDAO):
             print(f"保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
         return result
 
-
     # ============== 大盘指数每日指标 ==============
     async def get_index_daily_basic_by_limit(self, index_code: str, limit: int) -> List['IndexDailyBasic']:
         """

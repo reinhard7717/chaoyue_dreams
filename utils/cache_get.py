@@ -96,7 +96,7 @@ class CacheGet():
             logger.error(f"StockIndicatorsDAO._stock_latest_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
 
-    async def _stock_strategy_datas(self, stock_code: str, cache_key: str) -> List[Dict[str, Any]]: # 修改行: 返回类型从 Optional[Dict[str, Any]] 变更为 List[Dict[str, Any]]
+    async def _stock_strategy_datas(self, stock_code: str, cache_key: str, days_count: int) -> List[Dict[str, Any]]: # 修改行: 返回类型从 Optional[Dict[str, Any]] 变更为 List[Dict[str, Any]]
         try:
             # 调试信息：尝试从缓存获取股票策略数据
             logger.info(f"尝试从缓存获取股票[{stock_code}] 近三日策略数据, key: {cache_key}")
@@ -104,8 +104,8 @@ class CacheGet():
 
             # 修改开始: 计算近三日的时间戳范围
             end_timestamp = datetime.now().timestamp() # 当前时间戳作为分数上限
-            start_datetime = datetime.now() - datetime.timedelta(days=3) # 计算三天前的时间
-            start_timestamp = start_datetime.timestamp() # 三天前的时间戳作为分数下限
+            start_datetime = datetime.now() - datetime.timedelta(days=days_count) # 计算N天前的时间
+            start_timestamp = start_datetime.timestamp() # N天前的时间戳作为分数下限
 
             # 修改行: 使用 zrangebyscore 获取 ZSET 中分数在指定时间戳范围内的所有成员
             # zrangebyscore(key, min_score, max_score) 用于获取分数在 min_score 和 max_score 之间的所有成员
@@ -433,10 +433,25 @@ class StrategyCacheGet(CacheGet):
     async def initialize(self):
         pass
 
-    async def analyze_signals_trend_following_datas(self, stock_code: str) -> Optional[Dict[str, Any]]:
+    async def analyze_signals_trend_following_datas(self, stock_code: str, days_count: int = 1) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
-        return await self._stock_strategy_datas(stock_code=stock_code, cache_key=cache_key)
-
+        return await self._stock_strategy_datas(stock_code=stock_code, cache_key=cache_key, days_count=days_count)
+    
+    async def analyze_signals_trend_following_datas_by_timestamp(self, stock_code: str, timestamp: int) -> Optional[List[Any]]:
+        cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
+        cache_manager = await self.get_cache_manager()
+        try:
+            members = await cache_manager.zrangebyscore(
+                key=cache_key,
+                min_score=timestamp,
+                max_score=timestamp,
+                withscores=False
+            )
+            return members if members else None
+        except Exception as e:
+            logger.error(f"调用 zrangebyscore 失败: {e}")
+            return None
+        
 
 
 

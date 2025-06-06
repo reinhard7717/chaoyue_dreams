@@ -1,8 +1,9 @@
 # tasks/stock_analysis_tasks.py
 import asyncio
+from datetime import datetime
 import logging
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from celery import group
 from django.conf import settings
 from asgiref.sync import sync_to_async
@@ -13,6 +14,7 @@ from services.indicator_services import IndicatorService
 from strategies.t_plus_0_strategy import TPlus0Strategy
 from strategies.trend_following_strategy import TrendFollowingStrategy
 from strategies.trend_reversal_strategy import TrendReversalStrategy
+from utils.cache_get import StrategyCacheGet
 
 logger = logging.getLogger(__name__)
 
@@ -56,17 +58,45 @@ async def _get_all_relevant_stock_codes_for_processing():
     return favorite_stock_codes_list, non_favorite_stock_codes
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock')
-def analyze_single_stock(self, stock_code: str, params_file: str):
+def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int = 5):
     """
     对单只股票执行所有策略分析并保存结果
     """
-    try:
-        logger.info(f"开始分析股票 {stock_code}")
-        # 1. 实例化 IndicatorService
-        indicator_service = IndicatorService()
+    # 1. 实例化 IndicatorService
+    indicator_service = IndicatorService()
+    cache_get = StrategyCacheGet()
+    # 2. 获取时间字符串列表
+    trade_times_list = indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count)
+    # 3. 转换成时间戳，升序排序
+    trade_times_list = sorted(trade_times_list)
+    # 4. 转换字符串时间为时间戳（假设时间格式为'%Y-%m-%d %H:%M:%S'，根据实际调整）
+    def str_to_timestamp(t_str):
+        dt = datetime.strptime(t_str, '%Y-%m-%d %H:%M:%S')
+        return int(dt.timestamp())
+    timestamps = [str_to_timestamp(t_str) for t_str in trade_times_list]
+    # 5. 遍历检测
+    first_missing_index = None
+    for idx, ts in enumerate(timestamps):
+        exists = asyncio.run(self.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
+        if not exists:
+            first_missing_index = idx
+            break
+    # 6. 从第一个不存在的时间开始，执行策略分析
+    start_index = first_missing_index if first_missing_index is not None else 0
 
-        # 2. 准备数据 (基于 params_file 准备所有策略所需数据)
-        result = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000))
+    for idx in range(start_index, len(timestamps)):
+        ts = timestamps[idx]
+        trade_time_str = trade_times_list[idx]
+        logger.info(f"开始分析股票 {stock_code} - {trade_time_str}")
+        execute_strategy_for_trade_time(stock_code=stock_code, params_file= params_file, trade_time_str=trade_time_str)
+
+def execute_strategy_for_trade_time(self, stock_code: str, params_file: str, trade_time_str: str):
+    indicator_service = IndicatorService()
+    dt = datetime.strptime(trade_time_str, '%Y-%m-%d %H:%M:%S')
+    trade_time_ts = int(dt.timestamp())
+    # 2. 准备数据 (基于 params_file 准备所有策略所需数据)
+    try:
+        result = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time_ts))
         if result is None or not isinstance(result, tuple) or len(result) != 2:
             logger.warning(f"股票 {stock_code} 数据准备失败，跳过分析")
             return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}
@@ -126,7 +156,6 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
     """
     try:
         logger.info("开始调度所有股票的分析任务")
-        stock_basic_dao = StockBasicInfoDao()
         # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
         if not non_favorite_codes and not favorite_codes:
@@ -136,18 +165,15 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"找到 {stock_count} 只股票待分析")
 
-         # 创建任务组，分别分配 favorite 和 non_favorite 股票的任务
-        tasks_favorite = group(analyze_single_stock.s(stock_code, params_file) for stock_code in favorite_codes)
-        tasks_non_favorite = group(analyze_single_stock.s(stock_code, params_file) for stock_code in non_favorite_codes)
-        
-        # 分别异步执行两组任务
-        result_favorite = tasks_favorite.apply_async(queue='favorite_calculate_strategy') if favorite_codes else None
-        result_non_favorite = tasks_non_favorite.apply_async(queue='calculate_strategy') if non_favorite_codes else None
+        for stock_code in favorite_codes:
+            analyze_single_stock.s(stock_code, params_file).set(queue='favorite_calculate_strategy').apply_async()
+        for stock_code in non_favorite_codes:
+            analyze_single_stock.s(stock_code, params_file).set(queue='calculate_strategy').apply_async()
 
         # 记录任务ID（如果有多个任务组，取最后一个或合并记录）
-        task_id = result_non_favorite.id if result_non_favorite else result_favorite.id if result_favorite else "N/A"
-        logger.info(f"已调度 {stock_count} 只股票的分析任务，任务ID: {task_id}")
-        return {"status": "started", "task_id": task_id, "stock_count": stock_count}
+        logger.info(f"已调度 {favorite_codes.count} 只股票的favorite分析任务")
+        logger.info(f"已调度 {non_favorite_codes.count} 只股票的non_favorite分析任务")
+        return {"status": "started",  "stock_count": stock_count}
     except Exception as e:
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}

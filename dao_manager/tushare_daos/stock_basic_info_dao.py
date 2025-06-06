@@ -104,7 +104,6 @@ class StockBasicInfoDao(BaseDAO):
                 print(f"批量查找股票信息发生其他异常: {e}")
                 break
         return {}  # 所有重试失败，返回空字典
-        
 
     async def get_favorite_stocks_by_user(self, user: 'User') -> List['FavoriteStock']:  
         """
@@ -232,7 +231,6 @@ class StockBasicInfoDao(BaseDAO):
                         unique_fields=['stock_code'] # ORM 能处理 stock 实例
                     )
         return result
-
 
 
 

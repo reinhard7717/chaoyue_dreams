@@ -4,7 +4,6 @@ import time
 from typing import List
 import numpy as np
 import pandas as pd
-from math import ceil
 from datetime import datetime, date, timedelta
 from api_manager.apis.stock_indicators_api import StockIndicatorsAPI
 from dao_manager.base_dao import BaseDAO
@@ -232,7 +231,6 @@ class StockTimeTradeDAO(BaseDAO):
         result = await self.save_daily_time_trade_history_by_trade_date(day_str)
         return result
 
-
     # 未复权信息，慎用
     async def save_daily_time_trade_realtime(self, stock_code: str) -> None:
         """
@@ -288,6 +286,37 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_daily_data_list
 
     # =============== A股分钟行情 ===============
+    async def get_5_min_kline_time_by_day(self, stock_code: str, date: datetime.date = None) -> List[str]:
+        """
+        获取指定日期当天的所有5分钟K线的交易时间
+        :param stock_code: 股票代码
+        :param date: 指定日期（datetime.date类型），为空则默认为今天
+        :return: 交易时间字符串列表
+        """
+        if not date:
+            date = datetime.date.today()
+        # 获取股票对象
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            print(f"未找到股票代码：{stock_code}")
+            return []
+
+        # 定义当天的起止时间
+        start_datetime = datetime.combine(date, datetime.min.time())
+        end_datetime = start_datetime + timedelta(days=1)
+
+        # 查询当天的所有5分钟K线
+        records = await self.filter(
+            stock=stock,
+            trade_time__gte=start_datetime,
+            trade_time__lt=end_datetime,
+            time_level='5min'
+        ).values_list('trade_time', flat=True)
+
+        # 转换为字符串格式
+        trade_times = [record.strftime('%Y-%m-%d %H:%M:%S') for record in records]
+        return trade_times
+
     async def save_minute_time_trade_history_by_time_level(self, stock_code: str, time_level: str) -> None:
         """
         保存股票的历史分钟级交易数据

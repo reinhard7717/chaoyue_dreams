@@ -589,7 +589,6 @@ class TrendFollowingStrategy:
         except Exception as e:
             logger.error(f"[{self.strategy_name}] 加载特征名时发生未知错误: {e}")
 
-
     def set_model_paths(self, stock_code: str):
         """
         为特定股票设置模型、scaler 和准备好的数据的保存/加载路径。
