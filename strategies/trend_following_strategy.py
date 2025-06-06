@@ -2640,12 +2640,11 @@ class TrendFollowingStrategy:
                 example_input = torch.zeros(1, self.transformer_window_size, len(self.selected_feature_names_for_transformer))
                 example_input = example_input.to('cpu')
                 self.transformer_model.to('cpu')
-                traced_model = torch.jit.trace(self.transformer_model, example_input)
-                # 保存traced模型
-                traced_model.save(traced_model_path)
-                self.transformer_model = traced_model
+                scripted_model = torch.jit.script(self.transformer_model)
+                scripted_model.save(traced_model_path)
+                self.transformer_model = scripted_model
                 self.jit_traced = True
-                print(f"[{self.strategy_name}][{stock_code}] 已自动trace并保存traced模型: {traced_model_path}")
+                print(f"[{self.strategy_name}][{stock_code}] 已自动script并保存scripted模型: {traced_model_path}")
             except Exception as e:
                 print(f"[{self.strategy_name}][{stock_code}] torch.jit.trace失败: {e}")
         # ----------- 后续推理用 self.transformer_model 即可 -----------
