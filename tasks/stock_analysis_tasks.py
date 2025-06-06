@@ -77,7 +77,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     # 5. 遍历检测
     first_missing_index = None
     for idx, ts in enumerate(timestamps):
-        exists = asyncio.run(self.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
+        exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
         if not exists:
             first_missing_index = idx
             break
