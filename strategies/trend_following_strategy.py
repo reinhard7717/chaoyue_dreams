@@ -638,7 +638,7 @@ class TrendFollowingStrategy:
         logger.info(f"[{self.strategy_name}] 开始为股票 {stock_code} 训练 Transformer 模型 (从已准备数据加载)...")
 
         # 设置 PyTorch 使用的线程数
-        torch.set_num_threads(8)  # 根据你的 CPU 核心数进行调整
+        torch.set_num_threads(16)  # 根据你的 CPU 核心数进行调整
 
         # 增加错误处理，确保 load_prepared_data 返回有效数据
         try:
