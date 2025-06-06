@@ -66,7 +66,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     indicator_service = IndicatorService()
     cache_get = StrategyCacheGet()
     # 2. 获取时间字符串列表
-    trade_times_list = indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count)
+    trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
     # 3. 转换成时间戳，升序排序
     trade_times_list = sorted(trade_times_list)
     # 4. 转换字符串时间为时间戳（假设时间格式为'%Y-%m-%d %H:%M:%S'，根据实际调整）
