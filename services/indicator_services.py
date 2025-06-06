@@ -103,6 +103,32 @@ class IndicatorService:
             logger.warning(f"不支持的时间级别 '{tf_str}' 进行重采样。")
             return None
 
+    def _get_aggregation_source_tfs(self, target_tf: str, all_known_tfs: Set[str]) -> List[str]:
+        """
+        根据目标时间级别，确定所有可能用于聚合的更小时间级别。
+        例如：对于 '30' 分钟，可能返回 ['5', '15']。对于 'D'，可能返回 ['5', '15', '30', '60']。
+        Args:
+            target_tf (str): 目标时间级别字符串。
+            all_known_tfs (Set[str]): 策略所需的所有时间级别集合。
+        Returns:
+            List[str]: 用于聚合的源时间级别字符串列表，按分钟数从小到大排序。
+        """
+        target_minutes = self._get_timeframe_in_minutes(target_tf)
+        if target_minutes is None:
+            return []
+
+        potential_sources = []
+        for tf_str in all_known_tfs:
+            source_minutes = self._get_timeframe_in_minutes(tf_str)
+            # 确保源时间级别存在且小于目标时间级别
+            if source_minutes is not None and source_minutes < target_minutes:
+                potential_sources.append(tf_str)
+
+        # 按分钟数从小到大排序，确保优先使用更精细的数据进行聚合
+        potential_sources.sort(key=lambda tf: self._get_timeframe_in_minutes(tf) or float('inf'))
+        print(f"Debug: 为目标时间级别 '{target_tf}' 找到的潜在聚合源: {potential_sources}") # 调试信息
+        return potential_sources
+
     def _calculate_needed_bars_for_tf( self, target_tf: str, min_tf: str, base_needed_bars: int, global_max_lookback: int ) -> int:
         """
         计算目标时间级别需要从 DAO 获取的原始 K 线数量。
@@ -177,6 +203,7 @@ class IndicatorService:
             Optional[pd.DataFrame]: 重采样并初步填充后的 DataFrame，如果失败则返回 None。
         """
         if df is None or df.empty:
+            print(f"Debug: _resample_and_clean_dataframe 收到空或None的DataFrame，时间级别 {tf}。") # 修改行: 调试信息
             return None
         freq = self._get_resample_freq_str(tf)
         if freq is None:
@@ -195,6 +222,22 @@ class IndicatorService:
             logger.warning(f"[{df.index.name if hasattr(df.index, 'name') else 'UnknownIndex'}] 时间级别 {tf} 没有找到可以聚合的列，无法进行重采样。")
             return None
         try:
+            # 确保索引是时区感知的，如果不是，尝试本地化
+            if not isinstance(df.index, pd.DatetimeIndex) or df.index.tzinfo is None:
+                try:
+                    default_tz = timezone.get_default_timezone()
+                    if df.index.tzinfo is None:
+                        df.index = df.index.tz_localize(default_tz)
+                    else:
+                        df.index = df.index.tz_convert(default_tz)
+                    print(f"Debug: _resample_and_clean_dataframe: 尝试将DataFrame索引转换为默认时区。") # 修改行: 调试信息
+                except Exception as e:
+                    logger.error(f"转换DataFrame索引时区失败: {e}", exc_info=True)
+                    return None
+            
+            # 只对当天的数据进行聚合：resample函数本身在处理 intraday 频率时，会自然地在每日边界处创建新的时间段。
+            # 例如，从 5T 到 15T，它不会将跨越午夜的 5T 数据聚合到一个 15T 的 K 线中。
+            # 因此，无需额外的按天分组逻辑。
             resampled_df = df.resample(freq, label='right', closed='right').agg(agg_rules, min_periods=min_periods)
             if resampled_df.empty:
                 logger.warning(f"[{df.index.name if hasattr(df.index, 'name') else 'UnknownIndex'}] 时间级别 {tf} 重采样后 DataFrame 为空。")
@@ -471,13 +514,12 @@ class IndicatorService:
         1. 加载策略参数。
         2. 解析参数，识别时间级别和指标。
         3. 估算数据量。
-        4. 并行获取原始 OHLCV 数据。
-        5. 并行重采样和初步清洗原始数据。
-        6. 并行计算所有配置的基础指标。
-        7. 合并所有数据。
-        8. 补充外部特征。
-        9. 计算衍生特征。
-        10. 最终缺失值填充。
+        4. **修改点: 顺序获取/聚合原始 OHLCV 数据，优先从数据库获取，否则从更小时间级别聚合。**
+        5. 并行计算所有配置的基础指标。
+        6. 合并所有数据。
+        7. 补充外部特征。
+        8. 计算衍生特征。
+        9. 最终缺失值填充。
 
         Args:
             stock_code (str): 股票代码。
@@ -573,7 +615,6 @@ class IndicatorService:
                     'period': bs_params.get('boll_period', default_boll_p['period']),
                     'std_dev': bs_params.get('boll_std_dev', default_boll_p['std_dev'])
                 }
-                # print(f"[{stock_code}] Debug: 注册 BOLL 计算配置，使用参数: {calc_params} 应用于时间框架: {bs_timeframes}")
                 _add_indicator_config('BOLL', self.calculate_boll_bands_and_width, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'cci':
                 calc_params = {'period': bs_params.get('cci_period', default_cci_p['period'])}
@@ -585,7 +626,6 @@ class IndicatorService:
                 calc_params = {'period': bs_params.get('roc_period', default_roc_p['period'])}
                 _add_indicator_config('ROC', self.calculate_roc, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'dmi':
-                # print(f"[{stock_code}] Debug: 注册 DMI 计算配置，应用于时间框架: {bs_timeframes}")
                 calc_params = {'period': bs_params.get('dmi_period', default_dmi_p['period'])}
                 _add_indicator_config('DMI', self.calculate_dmi, 'base_scoring', calc_params, bs_timeframes)
             elif indi_key == 'sar':
@@ -629,7 +669,6 @@ class IndicatorService:
             _add_indicator_config('STOCH', self.calculate_stoch, 'indicator_analysis_params', stoch_calc_params, ia_timeframes)
         if ia_params.get('calculate_vwap', False):
             vwap_calc_params = _get_indicator_params(ia_params, {'anchor': None}, param_override_key='vwap_params')
-            # print(f"[{stock_code}] Debug: 注册 VWAP 计算配置，应用于时间框架: {ia_timeframes}")
             _add_indicator_config('VWAP', self.calculate_vwap, 'indicator_analysis_params', vwap_calc_params, ia_timeframes)
         if ia_params.get('calculate_adl', False):
             _add_indicator_config('ADL', self.calculate_adl, 'indicator_analysis_params', {}, ia_timeframes, param_override_key='adl_params')
@@ -685,18 +724,14 @@ class IndicatorService:
         if not all_time_levels_needed:
             logger.error(f"[{stock_code}] 未能从参数文件中确定任何需要的时间级别。")
             return None, None
-        for tf_str_loop in all_time_levels_needed:
-            minutes = self._get_timeframe_in_minutes(tf_str_loop)
-            if minutes is not None and minutes < min_tf_minutes:
-                min_tf_minutes = minutes
-                min_time_level = tf_str_loop
-        if min_time_level is None and bs_timeframes:
-             min_time_level = bs_timeframes[0]
-             print(f"[{stock_code}] Debug: 无法精确确定最小时间级别 (按分钟)，回退使用基础时间级别列表的第一个: {min_time_level}")
-        elif min_time_level is None:
+        # 按照分钟数从小到大排序时间级别，以便先处理小级别数据
+        sorted_time_levels = sorted(list(all_time_levels_needed), key=lambda tf: self._get_timeframe_in_minutes(tf) or float('inf'))
+        if not sorted_time_levels:
             logger.error(f"[{stock_code}] 无法确定有效的最小时间级别从所需级别: {all_time_levels_needed}")
             return None, None
-        logger.info(f"[{stock_code}] 策略所需时间级别: {sorted(list(all_time_levels_needed))}, 最小时间级别: {min_time_level} ({min_tf_minutes if min_tf_minutes != float('inf') else 'N/A'} 分钟)")
+        min_time_level = sorted_time_levels[0] # 最小时间级别
+        logger.info(f"[{stock_code}] 策略所需时间级别: {sorted_time_levels}, 最小时间级别: {min_time_level}")
+        
         global_max_lookback = 0
         unique_configs_for_lookback = {}
         for config in indicator_configs:
@@ -740,71 +775,87 @@ class IndicatorService:
             global_max_lookback = max(global_max_lookback, current_max_period)
         global_max_lookback += 100
         logger.info(f"[{stock_code}] 动态计算的全局指标最大回看期 (含缓冲): {global_max_lookback}")
-        ohlcv_tasks = {}
+        
         lstm_window_size = params.get('lstm_training_config',{}).get('lstm_window_size', 60)
         effective_base_needed_bars = base_needed_bars if base_needed_bars is not None else \
                                      lstm_window_size + global_max_lookback + 500
-        for tf_fetch in all_time_levels_needed:
+        min_usable_bars = math.ceil(effective_base_needed_bars * 0.6) # 用于检查数据量是否足够
+
+        # 修改开始: 顺序获取/聚合 OHLCV 数据
+        final_ohlcv_dfs: Dict[str, pd.DataFrame] = {}
+        for tf_process in sorted_time_levels:
             needed_bars_for_tf = self._calculate_needed_bars_for_tf(
-                target_tf=tf_fetch, min_tf=min_time_level,
+                target_tf=tf_process, min_tf=min_time_level,
                 base_needed_bars=effective_base_needed_bars,
                 global_max_lookback=global_max_lookback
             )
-            logger.info(f"[{stock_code}] 时间级别 {tf_fetch}: 基础({min_time_level})计划提取{effective_base_needed_bars}条, 指标需{global_max_lookback}条 -> 动态计算需获取 {needed_bars_for_tf} 条原始数据.")
-            ohlcv_tasks[tf_fetch] = self._get_ohlcv_data(stock_code, tf_fetch, needed_bars=needed_bars_for_tf)
-        ohlcv_results = await asyncio.gather(*ohlcv_tasks.values())
-        raw_ohlcv_dfs = dict(zip(all_time_levels_needed, ohlcv_results))
-        # for tf_debug, df_debug in raw_ohlcv_dfs.items():
-        #     print(f"  - TF {tf_debug}: {'None/Empty' if df_debug is None or df_debug.empty else f'Shape {df_debug.shape}, Columns: {df_debug.columns.tolist()}'}")
-        
-        # --- 修改开始: 并行化重采样 ---
-        resampled_ohlcv_dfs = {}
-        min_usable_bars = math.ceil(effective_base_needed_bars * 0.6)
-        
-        resample_task_futures = {}
-        valid_raw_dfs_for_resample = {} # 存储有效的原始 DataFrame 及其时间框架键
+            print(f"[{stock_code}] Debug: 正在处理时间级别 {tf_process}。所需条数: {needed_bars_for_tf}")
 
-        for tf_resample, raw_df_item in raw_ohlcv_dfs.items(): # 修改变量名 raw_df 为 raw_df_item
-            if raw_df_item is None or raw_df_item.empty:
-                logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 没有获取到原始数据，跳过重采样。")
-                resampled_ohlcv_dfs[tf_resample] = None # 标记为 None，后续检查会处理
+            # 1. 尝试从数据库直接获取该时间级别的数据
+            raw_df_from_db = await self._get_ohlcv_data(stock_code, tf_process, needed_bars=needed_bars_for_tf)
+            processed_df_for_tf = None
+
+            if raw_df_from_db is not None and not raw_df_from_db.empty:
+                # 如果数据库有数据，直接重采样和清洗
+                print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 从数据库获取到 {len(raw_df_from_db)} 条数据，进行重采样。")
+                processed_df_for_tf = await asyncio.to_thread(
+                    self._resample_and_clean_dataframe, raw_df_from_db, tf_process, min_periods=1, fill_method='ffill'
+                )
+            else:
+                # 2. 如果数据库没有数据，尝试从更小的时间级别聚合
+                # 获取所有潜在的更精细的源时间级别，按分钟数从小到大排序
+                potential_source_tfs = self._get_aggregation_source_tfs(tf_process, all_time_levels_needed)
+                print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 数据库无数据，尝试从更小时间级别聚合。潜在源: {potential_source_tfs}")
+
+                for source_tf in potential_source_tfs:
+                    # 检查该源时间级别的数据是否已经成功处理并存在
+                    if source_tf in final_ohlcv_dfs and not final_ohlcv_dfs[source_tf].empty:
+                        print(f"[{stock_code}] Debug: 尝试从已处理的 {source_tf} 聚合到 {tf_process}。")
+                        source_df_for_agg = final_ohlcv_dfs[source_tf].copy()
+                        # 移除后缀，以便resample能识别'open', 'high', 'low', 'close', 'volume', 'amount'
+                        # 这一步非常重要，因为 _resample_and_clean_dataframe 期望输入是标准OHLCV列名
+                        source_df_for_agg.columns = [col.replace(f'_{source_tf}', '') if col.endswith(f'_{source_tf}') else col for col in source_df_for_agg.columns]
+                        
+                        processed_df_for_tf = await asyncio.to_thread(
+                            self._resample_and_clean_dataframe, source_df_for_agg, tf_process, min_periods=1, fill_method='ffill'
+                        )
+                        if processed_df_for_tf is not None and not processed_df_for_tf.empty:
+                            print(f"[{stock_code}] Debug: 成功从 {source_tf} 聚合得到 {len(processed_df_for_tf)} 条 {tf_process} 数据。")
+                            break # 成功聚合，跳出内部循环，不再尝试其他源
+                        else:
+                            print(f"[{stock_code}] Debug: 从 {source_tf} 聚合到 {tf_process} 失败或结果为空，尝试下一个潜在源。")
+                    else:
+                        print(f"[{stock_code}] Debug: 潜在源 {source_tf} 未处理或为空，跳过。")
+
+            if processed_df_for_tf is None or processed_df_for_tf.empty:
+                print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 无法从数据库获取数据，也无法从任何更小时间级别聚合。")
+                logger.warning(f"[{stock_code}] 时间级别 {tf_process} 无法获取或聚合到有效数据，跳过。")
+                final_ohlcv_dfs[tf_process] = pd.DataFrame() # 标记为空DataFrame
+                if tf_process == min_time_level:
+                    logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 无法获取有效数据，终止流程。")
+                    return None, None
                 continue
-            valid_raw_dfs_for_resample[tf_resample] = raw_df_item
-            # _resample_and_clean_dataframe 是同步函数，使用 asyncio.to_thread 放入线程池执行
-            resample_task_futures[tf_resample] = asyncio.to_thread(
-                self._resample_and_clean_dataframe, raw_df_item, tf_resample, min_periods=1, fill_method='ffill'
-            )
-        
-        if resample_task_futures: # 如果有任何有效的重采样任务
-            gathered_resample_results = await asyncio.gather(*resample_task_futures.values())
-            resampled_dfs_from_tasks = dict(zip(resample_task_futures.keys(), gathered_resample_results))
+            
+            # 对最小时间级别的数据量进行硬性检查
+            if tf_process == min_time_level and len(processed_df_for_tf) < min_usable_bars:
+                logger.error(f"[{stock_code}] 最小时间级别 {tf_process} 处理后数据量 {len(processed_df_for_tf)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。")
+                return None, None # 数据量不足，终止流程
+            
+            # 检查数据量是否显著少于全局最大回看期
+            if len(processed_df_for_tf) < global_max_lookback * 0.5:
+                logger.warning(f"[{stock_code}] 时间级别 {tf_process} 处理后数据量 {len(processed_df_for_tf)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。")
+            
+            final_ohlcv_dfs[tf_process] = processed_df_for_tf
+            print(f"[{stock_code}] Debug: 时间级别 {tf_process} 处理完成，数据量: {len(final_ohlcv_dfs[tf_process])}。")
+        # 修改结束: 顺序获取/聚合 OHLCV 数据
 
-            for tf_resample, resampled_df_processed in resampled_dfs_from_tasks.items():
-                if resampled_df_processed is None or resampled_df_processed.empty:
-                    logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据为空，跳过。")
-                    resampled_ohlcv_dfs[tf_resample] = None
-                    continue
-                
-                # 对最小时间级别的数据量进行硬性检查
-                if tf_resample == min_time_level and len(resampled_df_processed) < min_usable_bars:
-                    logger.error(f"[{stock_code}] 最小时间级别 {tf_resample} 重采样后数据量 {len(resampled_df_processed)} 条，少于最低可用阈值 {min_usable_bars} 条。无法继续。")
-                    return None, None # 数据量不足，终止流程
-                
-                # 检查数据量是否显著少于全局最大回看期
-                if len(resampled_df_processed) < global_max_lookback * 0.5:
-                    logger.warning(f"[{stock_code}] 时间级别 {tf_resample} 重采样后数据量 {len(resampled_df_processed)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。")
-                
-                # print(f"[{stock_code}] Debug: TF {tf_resample} 重采样并重命名后的列: {resampled_df_processed.columns.tolist()[:20]}...")
-                resampled_ohlcv_dfs[tf_resample] = resampled_df_processed
-        # --- 修改结束: 并行化重采样 ---
-
-        if min_time_level not in resampled_ohlcv_dfs or \
-           resampled_ohlcv_dfs.get(min_time_level) is None or \
-           resampled_ohlcv_dfs.get(min_time_level).empty:
-             logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
+        if min_time_level not in final_ohlcv_dfs or final_ohlcv_dfs[min_time_level].empty:
+             logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的 OHLCV 数据不可用，无法进行合并。")
              return None, None
-        base_index = resampled_ohlcv_dfs[min_time_level].index
-        logger.debug(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的重采样索引作为合并基准，数量: {len(base_index)}。")
+        
+        base_index = final_ohlcv_dfs[min_time_level].index
+        logger.debug(f"[{stock_code}] 使用最小时间级别 {min_time_level} 的 OHLCV 索引作为合并基准，数量: {len(base_index)}。")
+        
         indicator_calculation_tasks = []
         async def _calculate_single_indicator_async(tf_calc: str, base_df_with_suffix: pd.DataFrame, config_item: Dict) -> Optional[Tuple[str, pd.DataFrame]]:
             """
@@ -833,9 +884,7 @@ class IndicatorService:
                 return None, None
             try:
                 func_params_to_pass = config_item['params'].copy()
-                # --- 修改开始: 调用指标计算函数（这些函数内部已改为使用 asyncio.to_thread 执行 CPU 密集型操作）---
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
-                # --- 修改结束 ---
                 if indicator_result_df is None:
                     print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。")
                     logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为 None。")
@@ -860,16 +909,18 @@ class IndicatorService:
                 print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}")
                 logger.error(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}", exc_info=True)
                 return None, None
+        
         for config_item_loop in indicator_configs:
             for tf_conf in config_item_loop['timeframes']:
-                if tf_conf in resampled_ohlcv_dfs and resampled_ohlcv_dfs[tf_conf] is not None and not resampled_ohlcv_dfs[tf_conf].empty: # 确保数据有效
-                    base_ohlcv_df_for_tf_loop = resampled_ohlcv_dfs[tf_conf]
+                if tf_conf in final_ohlcv_dfs and not final_ohlcv_dfs[tf_conf].empty: # 确保数据有效
+                    base_ohlcv_df_for_tf_loop = final_ohlcv_dfs[tf_conf]
                     indicator_calculation_tasks.append(
                         _calculate_single_indicator_async(tf_conf, base_ohlcv_df_for_tf_loop, config_item_loop)
                     )
                 else:
                     print(f"[{stock_code}] Debug: 时间框架 {tf_conf} 的基础数据未找到或无效 ({config_item_loop['name']})，无法创建计算任务。")
-                    logger.warning(f"[{stock_code}] 时间框架 {tf_conf} 在 resampled_ohlcv_dfs 中未找到有效数据，无法为指标 {config_item_loop['name']} 创建计算任务。")
+                    logger.warning(f"[{stock_code}] 时间框架 {tf_conf} 在 final_ohlcv_dfs 中未找到有效数据，无法为指标 {config_item_loop['name']} 创建计算任务。")
+        
         calculated_results_tuples = await asyncio.gather(*indicator_calculation_tasks, return_exceptions=True)
         calculated_indicators_by_tf = defaultdict(list)
         for res_tuple_item in calculated_results_tuples:
@@ -879,33 +930,35 @@ class IndicatorService:
                     calculated_indicators_by_tf[tf_res].append(indi_df_res)
             elif isinstance(res_tuple_item, Exception):
                 print(f"[{stock_code}] Debug: 指标计算任务发生异常: {res_tuple_item}")
-                logger.error(f"[{stock_code}] 指标计算任务发生异常: {res_tuple_item}", exc_info=res_tuple_item) # 修改行: 传递异常实例给 exc_info
+                logger.error(f"[{stock_code}] 指标计算任务发生异常: {res_tuple_item}", exc_info=res_tuple_item)
             else:
                 print(f"[{stock_code}] Debug: 指标计算任务返回非预期结果: {res_tuple_item}")
                 logger.warning(f"[{stock_code}] 指标计算任务返回非预期结果: {res_tuple_item}")
-        final_df = resampled_ohlcv_dfs.get(min_time_level)
+        
+        final_df = final_ohlcv_dfs.get(min_time_level)
         if final_df is None or final_df.empty:
-            logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的重采样 OHLCV 数据不可用，无法进行合并。")
+            logger.error(f"[{stock_code}] 最小时间级别 {min_time_level} 的 OHLCV 数据不可用，无法进行合并。")
             return None, None
         
-        dfs_to_merge = [final_df] # 修改行: 使用列表收集待合并的DF
-        for tf_merge, df_to_merge in resampled_ohlcv_dfs.items():
-            if tf_merge != min_time_level and df_to_merge is not None and not df_to_merge.empty:
-                dfs_to_merge.append(df_to_merge) # 修改行
+        dfs_to_merge = [final_df]
+        for tf_merge in sorted_time_levels:
+            if tf_merge != min_time_level:
+                df_to_merge = final_ohlcv_dfs.get(tf_merge)
+                if df_to_merge is not None and not df_to_merge.empty:
+                    dfs_to_merge.append(df_to_merge)
         
         for tf_indi, indi_dfs_list in calculated_indicators_by_tf.items():
             if indi_dfs_list:
                 merged_indi_df_for_tf = pd.concat(indi_dfs_list, axis=1)
                 if not merged_indi_df_for_tf.empty:
-                    dfs_to_merge.append(merged_indi_df_for_tf) # 修改行
+                    dfs_to_merge.append(merged_indi_df_for_tf)
                 else:
                     logger.warning(f"[{stock_code}] 时间级别 {tf_indi} 的指标数据合并后为空。")
 
-        if not dfs_to_merge: # 修改行: 如果列表为空
+        if not dfs_to_merge:
             logger.error(f"[{stock_code}] 没有可合并的数据。")
             return None, None
 
-        # 修改行: 使用 reduce 进行左连接合并，以 final_df (最小时间级别) 为基础
         final_df = reduce(lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how='left'), dfs_to_merge)
         
         if final_df is None or final_df.empty:
@@ -923,7 +976,7 @@ class IndicatorService:
         apply_on_tfs = fe_config.get('apply_on_timeframes', bs_timeframes)
         rs_config = fe_config.get('relative_strength', {})
         if rs_config.get('enabled', False):
-             ths_indexs_for_rs_objects = await self.industry_dao.get_stock_ths_indices(stock_code) # 修改变量名
+             ths_indexs_for_rs_objects = await self.industry_dao.get_stock_ths_indices(stock_code)
              if ths_indexs_for_rs_objects is None:
                   logger.warning(f"[{stock_code}] 无法获取股票 {stock_code} 的同花顺板块信息。相对强度计算将跳过。")
                   ths_codes_for_rs = []
@@ -1104,7 +1157,7 @@ class IndicatorService:
             logger.warning(f"[{stock_code}] 注意：合并填充后 DataFrame 仍存在 {all_nan_rows} 行全部为 NaN 的数据！这些行可能无法用于训练/预测。")
 
     # --- 所有指标计算函数 async def calculate_* ---
-    # --- 修改说明: 以下所有 calculate_* 方法均已修改 ---
+    # --- 以下所有 calculate_* 方法均已修改 ---
     # --- 将核心的、潜在CPU密集型的 pandas-ta 调用放入 asyncio.to_thread() 中执行，以实现真正的异步并行计算 ---
     async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算 ATR (平均真实波幅)"""
