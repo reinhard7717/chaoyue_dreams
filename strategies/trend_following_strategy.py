@@ -569,6 +569,27 @@ class TrendFollowingStrategy:
                   logger.error(f"{log_prefix} VALIDATION: 'volume_confirmation.tf' 必须是字符串或列表，但得到的是: {type(vc_tfs)}。量能确认可能无法按预期工作。")
         logger.debug(f"{log_prefix} TrendFollowingStrategy 特定参数验证完成。")
 
+    def _load_selected_feature_names(self):
+        """
+        从 JSON 文件加载 Transformer 模型所需的特征名列表。
+        此方法应在 set_model_paths 被调用并设置 self.selected_features_path 后调用。
+        """
+        # MODIFIED LINE: 确保在加载前设置了路径
+        if not hasattr(self, 'selected_features_path') or self.selected_features_path is None:
+            logger.warning(f"[{self.strategy_name}] selected_features_path 未设置，无法加载特征名。请先调用 set_model_paths。") # MODIFIED LINE: 提示用户先调用set_model_paths
+            return
+        try:
+            with open(self.selected_features_path, 'r', encoding='utf-8') as f:
+                self.selected_feature_names_for_transformer = json.load(f)
+            print(f"[{self.strategy_name}] 已从 {self.selected_features_path} 加载 {len(self.selected_feature_names_for_transformer)} 个特征名。") # ADDED LINE: 调试信息
+        except FileNotFoundError:
+            logger.error(f"[{self.strategy_name}] 特征名文件未找到: {self.selected_features_path}")
+        except json.JSONDecodeError:
+            logger.error(f"[{self.strategy_name}] 特征名文件 JSON 解析失败: {self.selected_features_path}")
+        except Exception as e:
+            logger.error(f"[{self.strategy_name}] 加载特征名时发生未知错误: {e}")
+
+
     def set_model_paths(self, stock_code: str):
         """
         为特定股票设置模型、scaler 和准备好的数据的保存/加载路径。
@@ -597,6 +618,8 @@ class TrendFollowingStrategy:
         self.scaler_for_pca_path = os.path.join(prepared_data_dir, "trend_following_transformer_scaler_for_pca.joblib")
         # 设置特征选择模型保存路径
         self.feature_selector_model_path = os.path.join(prepared_data_dir, "trend_following_transformer_feature_selector_model.joblib")
+
+        self._load_selected_feature_names() # 在设置路径后立即加载特征名
 
     def train_transformer_model_from_prepared_data(
         self,
@@ -2768,7 +2791,7 @@ class TrendFollowingStrategy:
     def _apply_feature_engineering_pipeline(self, raw_data_window: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         对原始数据窗口应用特征工程管道，返回处理后的特征DataFrame。
-        包括NaN填充、根据训练时特征名筛选列、缩放、PCA降维和特征选择。
+        包括NaN填充、根据训练时特征名筛选列。
         """
         if raw_data_window is None or raw_data_window.empty:
             logger.warning(f"[{self.strategy_name}] 输入数据为空，无法应用特征工程管道。")
@@ -2780,44 +2803,27 @@ class TrendFollowingStrategy:
             if processed_df.isnull().any().any():
                 logger.error(f"[{self.strategy_name}] NaN填充后仍存在缺失值，无法继续处理。")
                 return None
+        print(f"[{self.strategy_name}] NaN填充后数据维度: {processed_df.shape}") # ADDED LINE: 调试信息
         # 2. 根据训练时保存的特征名列表筛选列，确保顺序和数量一致
-        if hasattr(self, 'selected_feature_names_for_transformer') and self.selected_feature_names_for_transformer:
-            missing_features = set(self.selected_feature_names_for_transformer) - set(processed_df.columns)
-            if missing_features:
-                logger.error(f"[{self.strategy_name}] 缺少训练时特征列: {missing_features}")
-                return None
-            # 严格按照训练时顺序筛选列
-            processed_df = processed_df[self.selected_feature_names_for_transformer]
-        else:
-            logger.warning(f"[{self.strategy_name}] 未加载训练时特征名列表，跳过特征筛选。")
+        # 确保 self.selected_feature_names_for_transformer 已加载
+        if not hasattr(self, 'selected_feature_names_for_transformer') or not self.selected_feature_names_for_transformer:
+            logger.error(f"[{self.strategy_name}] 未加载训练时特征名列表，无法进行特征筛选。请确保已调用 _load_selected_feature_names。") # MODIFIED LINE: 提示用户加载特征名
+            return None
+        missing_features = set(self.selected_feature_names_for_transformer) - set(processed_df.columns)
+        if missing_features:
+            logger.error(f"[{self.strategy_name}] 缺少训练时特征列: {missing_features}")
+            return None
+        # 严格按照训练时顺序筛选列
+        processed_df = processed_df[self.selected_feature_names_for_transformer]
+        print(f"[{self.strategy_name}] 根据JSON特征列表筛选后数据维度: {processed_df.shape}") # ADDED LINE: 调试信息
         # 3. 转为numpy数组，类型为float32，方便后续模型处理
         current_features_np = processed_df.values.astype(np.float32)
-        # 4. 应用PCA前的缩放器
-        if hasattr(self, 'scaler_for_pca') and self.scaler_for_pca is not None:
-            try:
-                current_features_np = self.scaler_for_pca.transform(current_features_np)
-            except Exception as e:
-                logger.error(f"[{self.strategy_name}] 应用PCA前缩放器失败: {e}", exc_info=True)
-                return None
-        # 5. 应用PCA降维
-        if hasattr(self, 'pca_model') and self.pca_model is not None:
-            try:
-                current_features_np = self.pca_model.transform(current_features_np)
-            except Exception as e:
-                logger.error(f"[{self.strategy_name}] 应用PCA模型失败: {e}", exc_info=True)
-                return None
-        # 6. 应用特征选择器模型
-        if hasattr(self, 'feature_selector_model') and self.feature_selector_model is not None:
-            try:
-                current_features_np = self.feature_selector_model.transform(current_features_np)
-            except Exception as e:
-                logger.error(f"[{self.strategy_name}] 应用特征选择器模型失败: {e}", exc_info=True)
-                return None
-        # 7. 确保输出是二维数组
+        # 4. 确保输出是二维数组
         if current_features_np.ndim == 1:
             current_features_np = current_features_np.reshape(1, -1)
-        # 8. 构建最终DataFrame，列名用训练时特征名，索引与输入数据一致
+        # 5. 构建最终DataFrame，列名用训练时特征名，索引与输入数据一致
         processed_df_final = pd.DataFrame(current_features_np, columns=self.selected_feature_names_for_transformer, index=raw_data_window.index)
+        print(f"[{self.strategy_name}] 最终处理后的特征DataFrame维度: {processed_df_final.shape}") # ADDED LINE: 调试信息
         return processed_df_final
 
     # --- 为 Transformer 训练准备数据子集 ---
