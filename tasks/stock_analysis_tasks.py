@@ -74,7 +74,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     trade_times_list = sorted(trade_times_list)
     # 5. 遍历检测
     first_missing_index = None
-    for t_str in trade_times_list:
+    for idx, t_str in enumerate(trade_times_list):
         # exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
         exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_str).exists()
         if not exists:
