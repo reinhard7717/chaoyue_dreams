@@ -6,6 +6,7 @@ import re
 import optuna
 import pandas as pd
 import numpy as np
+from datetime import datetime
 import json
 import os
 import logging
@@ -1555,7 +1556,6 @@ class TrendFollowingStrategy:
         if not isinstance(derivative_naming_conv, dict): derivative_naming_conv = {}
         if not isinstance(strategy_internal_naming_conv, dict): strategy_internal_naming_conv = {}
 
-
         # 检查关键OHLCV列
         ohlcv_base_names_list = ohlcv_naming_conv.get('output_columns', [])
         # 增加类型检查
@@ -2626,6 +2626,7 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
         # 添加 transformer_signal 列 (内部列)，默认填充 50.0
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
+        print(f"generate_signals.processed_data: {stock_code} - {processed_data}")
         self.set_model_paths(stock_code)
         # 调用加载 Transformer 模型和转换器的方法
         # load_prepared_data 会加载数据、Scalers 和可选的特征工程转换器
@@ -4403,9 +4404,82 @@ class TrendFollowingStrategy:
 
         return analysis_results_dict
 
-    def get_analysis_results(self) -> Optional[Dict[str, Any]]:
-        """返回信号分析结果字典。"""
-        return self.analysis_results
+    def get_analysis_results(self, stock_code: str, timestamp: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+        """
+        读取股票趋势跟踪策略的分析结果。
+        如果提供了时间戳，则读取该时间戳的分析结果；否则，读取最新的分析结果。
+        参数:
+            stock_code (str): 股票代码，例如 '000001.SZ'。
+            timestamp (Optional[datetime]): 可选的分析时间戳。如果为 None，则返回最新的结果。
+        返回:
+            Optional[Dict[str, Any]]: 包含分析结果的字典，如果未找到则返回 None。
+        """
+        print(f"[{self.strategy_name}][{stock_code}] 开始读取分析结果。") # 调试信息：开始读取操作
+        try:
+            # 确保 StockAnalysisResultTrendFollowing 和 StockInfo 模型以及 StockBasicInfoDao 可用
+            stock_basic_dao = StockBasicInfoDao()
+            # 异步获取 StockInfo 对象
+            stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
+            if not stock_obj:
+                print(f"[{self.strategy_name}][{stock_code}] 读取分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。") # 调试信息：股票不存在
+                return None
+            # 构建查询集，过滤指定股票
+            query_set = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj)
+            if timestamp:
+                # 如果提供了时间戳，精确查找该时间点的分析结果
+                analysis_record = query_set.filter(timestamp=timestamp).first()
+                if not analysis_record:
+                    print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 未找到分析结果。") # 调试信息：指定时间未找到
+                    return None
+            else:
+                # 如果未提供时间戳，查找该股票最新的分析结果
+                analysis_record = query_set.order_by('-timestamp').first()
+                if not analysis_record:
+                    print(f"[{self.strategy_name}][{stock_code}] 未找到最新的分析结果。") # 调试信息：未找到最新结果
+                    return None
+            print(f"[{self.strategy_name}][{stock_code}] 成功读取到时间点 {analysis_record.timestamp.strftime('%Y-%m-%d %H:%M')} 的分析结果。") # 调试信息：读取成功
+            # 将模型实例的字段转换为字典
+            results_dict = {
+                'stock_code': analysis_record.stock.stock_code,
+                'timestamp': analysis_record.timestamp.isoformat(), # 将 datetime 对象转换为 ISO 格式字符串
+                'score': analysis_record.score,
+                'rule_signal': analysis_record.rule_signal,
+                'lstm_signal': analysis_record.lstm_signal,
+                'base_score_raw': analysis_record.base_score_raw,
+                'base_score_volume_adjusted': analysis_record.base_score_volume_adjusted,
+                'alignment_signal': analysis_record.alignment_signal,
+                'long_term_context': analysis_record.long_term_context,
+                'adx_strength_signal': analysis_record.adx_strength_signal,
+                'stoch_signal': analysis_record.stoch_signal,
+                'div_has_bearish_divergence': analysis_record.div_has_bearish_divergence,
+                'div_has_bullish_divergence': analysis_record.div_has_bullish_divergence,
+                'volume_spike_signal': analysis_record.volume_spike_signal,
+                'close_price': analysis_record.close_price,
+                'current_trend': analysis_record.current_trend,
+                'trend_strength': analysis_record.trend_strength,
+                'trend_duration_bullish': analysis_record.trend_duration_bullish,
+                'trend_duration_bearish': analysis_record.trend_duration_bearish,
+                'trend_duration_text_bullish': analysis_record.trend_duration_text_bullish,
+                'trend_duration_text_bearish': analysis_record.trend_duration_text_bearish,
+                'trend_duration_status': analysis_record.trend_duration_status,
+                'operation_advice': analysis_record.operation_advice,
+                'risk_warning': analysis_record.risk_warning,
+                'chinese_interpretation': analysis_record.chinese_interpretation,
+                'weighted_confidence_score': analysis_record.weighted_confidence_score,
+                'confidence_score': analysis_record.confidence_score,
+                'normalized_confidence': analysis_record.normalized_confidence,
+            }
+            # Django的JSONField会自动反序列化为Python对象，直接访问属性即可
+            results_dict['signal_impact_records'] = analysis_record.signal_impact_records_json
+            results_dict['signal_contribution_summary'] = analysis_record.signal_contribution_summary_json
+            results_dict['raw_analysis_data'] = analysis_record.raw_analysis_data
+            return results_dict
+        except StockInfo.DoesNotExist:
+            print(f"[{self.strategy_name}][{stock_code}] 读取分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。") # 调试信息：股票不存在异常
+            return None
+        except Exception as e:
+            print(f"[{self.strategy_name}][{stock_code}] 读取 StockAnalysisResultTrendFollowing 记录出错: {e}") # 调试信息：其他读取异常
+            return None
 
     # 添加 timestamp 参数，用于记录分析发生的时间点，data 参数可选，方便获取最新价格
     def save_analysis_results(self, stock_code: str, timestamp: pd.Timestamp, data: Optional[pd.DataFrame]=None):
