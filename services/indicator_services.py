@@ -531,19 +531,19 @@ class IndicatorService:
                                                                 如果准备失败则返回 None。
         """
         if 'ta' not in globals() or ta is None:
-            print(f"[{stock_code}] Debug: pandas_ta 未加载。")
+            # print(f"[{stock_code}] Debug: pandas_ta 未加载。")
             logger.error(f"[{stock_code}] pandas_ta 未加载，无法准备策略数据。")
             return None, None
         try:
             if not os.path.exists(params_file):
-                print(f"[{stock_code}] Debug: 策略参数文件未找到: {params_file}")
+                # print(f"[{stock_code}] Debug: 策略参数文件未找到: {params_file}")
                 logger.error(f"[{stock_code}] 策略参数文件未找到: {params_file}")
                 return None, None
             with open(params_file, 'r', encoding='utf-8') as f:
                 params = json.load(f)
             logger.info(f"[{stock_code}] 从 {params_file} 加载策略参数成功。")
         except Exception as e:
-            print(f"[{stock_code}] Debug: 加载或解析参数文件失败: {e}")
+            # print(f"[{stock_code}] Debug: 加载或解析参数文件失败: {e}")
             logger.error(f"[{stock_code}] 加载或解析参数文件 {params_file} 失败: {e}", exc_info=True)
             return None, None
         main_index_codes = params.get('base_scoring', {}).get('main_index_codes', [])
@@ -741,7 +741,7 @@ class IndicatorService:
             key = (config['name'], params_hashable)
             if key not in unique_configs_for_lookback:
                 unique_configs_for_lookback[key] = config
-        print(f"[{stock_code}] Debug: 用于回看期计算的唯一指标配置数量: {len(unique_configs_for_lookback)}")
+        # print(f"[{stock_code}] Debug: 用于回看期计算的唯一指标配置数量: {len(unique_configs_for_lookback)}")
         for config in unique_configs_for_lookback.values():
             current_max_period = 0
             period_keys = ['period', 'period_fast', 'period_slow', 'signal_period', 'k_period', 'd_period', 'smooth_k_period',
@@ -789,7 +789,7 @@ class IndicatorService:
                 base_needed_bars=effective_base_needed_bars,
                 global_max_lookback=global_max_lookback
             )
-            print(f"[{stock_code}] Debug: 正在处理时间级别 {tf_process}。所需条数: {needed_bars_for_tf}")
+            # print(f"[{stock_code}] Debug: 正在处理时间级别 {tf_process}。所需条数: {needed_bars_for_tf}")
 
             # 1. 尝试从数据库直接获取该时间级别的数据
             raw_df_from_db = await self._get_ohlcv_data(stock_code=stock_code, time_level=tf_process, needed_bars=needed_bars_for_tf, trade_time=trade_time)
@@ -797,7 +797,7 @@ class IndicatorService:
 
             if raw_df_from_db is not None and not raw_df_from_db.empty:
                 # 如果数据库有数据，直接重采样和清洗
-                print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 从数据库获取到 {len(raw_df_from_db)} 条数据，进行重采样。")
+                # print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 从数据库获取到 {len(raw_df_from_db)} 条数据，进行重采样。")
                 processed_df_for_tf = await asyncio.to_thread(
                     self._resample_and_clean_dataframe, raw_df_from_db, tf_process, min_periods=1, fill_method='ffill'
                 )
@@ -805,12 +805,12 @@ class IndicatorService:
                 # 2. 如果数据库没有数据，尝试从更小的时间级别聚合
                 # 获取所有潜在的更精细的源时间级别，按分钟数从小到大排序
                 potential_source_tfs = self._get_aggregation_source_tfs(tf_process, all_time_levels_needed)
-                print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 数据库无数据，尝试从更小时间级别聚合。潜在源: {potential_source_tfs}")
+                # print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 数据库无数据，尝试从更小时间级别聚合。潜在源: {potential_source_tfs}")
 
                 for source_tf in potential_source_tfs:
                     # 检查该源时间级别的数据是否已经成功处理并存在
                     if source_tf in final_ohlcv_dfs and not final_ohlcv_dfs[source_tf].empty:
-                        print(f"[{stock_code}] Debug: 尝试从已处理的 {source_tf} 聚合到 {tf_process}。")
+                        # print(f"[{stock_code}] Debug: 尝试从已处理的 {source_tf} 聚合到 {tf_process}。")
                         source_df_for_agg = final_ohlcv_dfs[source_tf].copy()
                         # 移除后缀，以便resample能识别'open', 'high', 'low', 'close', 'volume', 'amount'
                         # 这一步非常重要，因为 _resample_and_clean_dataframe 期望输入是标准OHLCV列名
@@ -828,7 +828,7 @@ class IndicatorService:
                         print(f"[{stock_code}] Debug: 潜在源 {source_tf} 未处理或为空，跳过。")
 
             if processed_df_for_tf is None or processed_df_for_tf.empty:
-                print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 无法从数据库获取数据，也无法从任何更小时间级别聚合。")
+                # print(f"[{stock_code}] Debug: 时间级别 {tf_process}: 无法从数据库获取数据，也无法从任何更小时间级别聚合。")
                 logger.warning(f"[{stock_code}] 时间级别 {tf_process} 无法获取或聚合到有效数据，跳过。")
                 final_ohlcv_dfs[tf_process] = pd.DataFrame() # 标记为空DataFrame
                 if tf_process == min_time_level:
@@ -846,7 +846,7 @@ class IndicatorService:
                 logger.warning(f"[{stock_code}] 时间级别 {tf_process} 处理后数据量 {len(processed_df_for_tf)} 条，显著少于全局指标最大回看期 {global_max_lookback} 条。计算的指标可能不可靠。")
             
             final_ohlcv_dfs[tf_process] = processed_df_for_tf
-            print(f"[{stock_code}] Debug: 时间级别 {tf_process} 处理完成，数据量: {len(final_ohlcv_dfs[tf_process])}。")
+            # print(f"[{stock_code}] Debug: 时间级别 {tf_process} 处理完成，数据量: {len(final_ohlcv_dfs[tf_process])}。")
         # 修改结束: 顺序获取/聚合 OHLCV 数据
 
         if min_time_level not in final_ohlcv_dfs or final_ohlcv_dfs[min_time_level].empty:
@@ -863,7 +863,7 @@ class IndicatorService:
             核心的 pandas-ta 计算将通过 asyncio.to_thread 在单独线程中运行，以避免阻塞事件循环。
             """
             if base_df_with_suffix is None or base_df_with_suffix.empty:
-                print(f"[{stock_code}] Debug: TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}")
+                # print(f"[{stock_code}] Debug: TF {tf_calc}: 基础OHLCV数据为空，无法计算指标 {config_item['name']}")
                 return None, None
             df_for_ta = base_df_with_suffix.copy()
             ohlcv_map_to_std = {
@@ -879,18 +879,18 @@ class IndicatorService:
                 required_cols_for_func.add('amount')
             if not all(col in df_for_ta.columns for col in required_cols_for_func):
                 missing_cols_str = ", ".join(list(required_cols_for_func - set(df_for_ta.columns)))
-                print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 缺少必要列 ({missing_cols_str})，跳过计算。")
+                # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 缺少必要列 ({missing_cols_str})，跳过计算。")
                 logger.debug(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} 时，df_for_ta 缺少必要列 ({missing_cols_str})。可用: {df_for_ta.columns.tolist()}")
                 return None, None
             try:
                 func_params_to_pass = config_item['params'].copy()
                 indicator_result_df = await config_item['func'](df_for_ta, **func_params_to_pass)
                 if indicator_result_df is None:
-                    print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。")
+                    # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 None。")
                     logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为 None。")
                     return None, None
                 if indicator_result_df.empty:
-                    print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 Empty DataFrame。")
+                    # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 计算结果为 Empty DataFrame。")
                     logger.debug(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 计算结果为空。")
                     return None, None
                 if not isinstance(indicator_result_df, pd.DataFrame):
@@ -898,15 +898,15 @@ class IndicatorService:
                     if isinstance(indicator_result_df, pd.Series):
                         series_name = indicator_result_df.name if indicator_result_df.name else config_item['name']
                         indicator_result_df = indicator_result_df.to_frame(name=series_name)
-                        print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 转换为DataFrame后列名: {indicator_result_df.columns.tolist()}")
+                        # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 转换为DataFrame后列名: {indicator_result_df.columns.tolist()}")
                     else:
-                        print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 返回类型 {type(indicator_result_df)} 无法处理。")
+                        # print(f"[{stock_code}] Debug: TF {tf_calc}, 指标 {config_item['name']}: 返回类型 {type(indicator_result_df)} 无法处理。")
                         logger.warning(f"[{stock_code}] TF {tf_calc}: 指标 {config_item['name']} 返回类型 {type(indicator_result_df)} 无法处理。")
                         return None, None
                 result_renamed_df = indicator_result_df.rename(columns=lambda x: f"{x}_{tf_calc}")
                 return (tf_calc, result_renamed_df)
             except Exception as e_calc:
-                print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}")
+                # print(f"[{stock_code}] Debug: TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}")
                 logger.error(f"[{stock_code}] TF {tf_calc}: 计算指标 {config_item['name']} (参数: {config_item['params']}) 时出错: {e_calc}", exc_info=True)
                 return None, None
         
@@ -918,7 +918,7 @@ class IndicatorService:
                         _calculate_single_indicator_async(tf_conf, base_ohlcv_df_for_tf_loop, config_item_loop)
                     )
                 else:
-                    print(f"[{stock_code}] Debug: 时间框架 {tf_conf} 的基础数据未找到或无效 ({config_item_loop['name']})，无法创建计算任务。")
+                    # print(f"[{stock_code}] Debug: 时间框架 {tf_conf} 的基础数据未找到或无效 ({config_item_loop['name']})，无法创建计算任务。")
                     logger.warning(f"[{stock_code}] 时间框架 {tf_conf} 在 final_ohlcv_dfs 中未找到有效数据，无法为指标 {config_item_loop['name']} 创建计算任务。")
         
         calculated_results_tuples = await asyncio.gather(*indicator_calculation_tasks, return_exceptions=True)
@@ -929,10 +929,10 @@ class IndicatorService:
                 if indi_df_res is not None and not indi_df_res.empty:
                     calculated_indicators_by_tf[tf_res].append(indi_df_res)
             elif isinstance(res_tuple_item, Exception):
-                print(f"[{stock_code}] Debug: 指标计算任务发生异常: {res_tuple_item}")
+                # print(f"[{stock_code}] Debug: 指标计算任务发生异常: {res_tuple_item}")
                 logger.error(f"[{stock_code}] 指标计算任务发生异常: {res_tuple_item}", exc_info=res_tuple_item)
             else:
-                print(f"[{stock_code}] Debug: 指标计算任务返回非预期结果: {res_tuple_item}")
+                # print(f"[{stock_code}] Debug: 指标计算任务返回非预期结果: {res_tuple_item}")
                 logger.warning(f"[{stock_code}] 指标计算任务返回非预期结果: {res_tuple_item}")
         
         final_df = final_ohlcv_dfs.get(min_time_level)
