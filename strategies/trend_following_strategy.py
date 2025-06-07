@@ -1598,7 +1598,7 @@ class TrendFollowingStrategy:
         timeframes_from_config = bs_params.get('timeframes', [])
         if not isinstance(timeframes_from_config, list) or not timeframes_from_config:
             logger.error(f"[{self.strategy_name}][{stock_code}] 'base_scoring.timeframes' 为空或无效，无法计算基础评分。")
-             # 返回一个全为50的Series和一个空的Dict
+            # 返回一个全为50的Series和一个空的Dict
             return pd.Series(50.0, index=data.index, name='final_rule_signal'), {}
 
         # 确定时间框架权重 current_weights
@@ -1618,8 +1618,8 @@ class TrendFollowingStrategy:
             focus_weight_val = tf_params.get('focus_weight', 0.45)
             # 确保 focus_weight_val 是有效数字且在 [0, 1] 范围内
             if not isinstance(focus_weight_val, (int, float)) or not (0 <= focus_weight_val <= 1):
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] 'focus_weight' 参数无效 ({focus_weight_val})，使用默认值 0.45。")
-                 focus_weight_val = 0.45
+                logger.warning(f"[{self.strategy_name}][{stock_code}] 'focus_weight' 参数无效 ({focus_weight_val})，使用默认值 0.45。")
+                focus_weight_val = 0.45
 
             num_other_tfs = len(timeframes_from_config) - 1
             if num_other_tfs > 0:
@@ -1635,9 +1635,9 @@ class TrendFollowingStrategy:
             if self.focus_timeframe in timeframes_from_config: # 确保 focus_timeframe 在列表中才添加权重
                 current_weights[self.focus_timeframe] = focus_weight_val
             elif timeframes_from_config: # 如果 timeframes_from_config 不为空但 focus_tf 不在，将权重平均分配
-                 logger.warning(f"[{self.strategy_name}][{stock_code}] focus_timeframe '{self.focus_timeframe}' 不在配置的时间框架列表中。将权重平均分配。")
-                 avg_weight = 1.0 / len(timeframes_from_config) if timeframes_from_config else 0.0
-                 current_weights = {tf: avg_weight for tf in timeframes_from_config}
+                logger.warning(f"[{self.strategy_name}][{stock_code}] focus_timeframe '{self.focus_timeframe}' 不在配置的时间框架列表中。将权重平均分配。")
+                avg_weight = 1.0 / len(timeframes_from_config) if timeframes_from_config else 0.0
+                current_weights = {tf: avg_weight for tf in timeframes_from_config}
 
         self._normalize_weights(current_weights)
 
@@ -1663,9 +1663,9 @@ class TrendFollowingStrategy:
                     base_score_raw = base_score_raw.add(tf_average_score * tf_weight, fill_value=0.0)
                     total_effective_weight += tf_weight
                 else:
-                     logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 的所有指标评分列全为 NaN。将使用中性分50参与加权。")
-                     base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
-                     total_effective_weight += tf_weight
+                    logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 的所有指标评分列全为 NaN。将使用中性分50参与加权。")
+                    base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
+                    total_effective_weight += tf_weight
             else:
                 logger.debug(f"[{self.strategy_name}][{stock_code}] 时间框架 '{tf_s}' (权重 {tf_weight:.2f}) 没有找到任何指标评分列。将使用中性分50参与加权。")
                 base_score_raw = base_score_raw.add(pd.Series(50.0, index=data.index) * tf_weight, fill_value=0.0)
@@ -1702,21 +1702,21 @@ class TrendFollowingStrategy:
         vc_tf_list_raw = vc_params.get('timeframes', [self.focus_timeframe])
         vc_tf_list = [vc_tf_list_raw] if isinstance(vc_tf_list_raw, str) else vc_tf_list_raw
         if not isinstance(vc_tf_list, list) or not vc_tf_list:
-             logger.warning(f"[{self.strategy_name}][{stock_code}] 量能确认时间框架配置无效或为空，量能调整将跳过。")
-             # 如果量能调整跳过，adjusted_score 就等于 raw_score
-             volume_adjusted_results_df = pd.DataFrame(index=data.index)
-             volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
-             # 添加量价异动默认列 (全0)
-             internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
-             vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
-             # 为每个量能时间框架添加默认列
-             for tf in ([self.focus_timeframe] if not vc_tf_list else vc_tf_list):
-                 vol_spike_col_name = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=tf)[0]
-                 volume_adjusted_results_df[vol_spike_col_name] = 0.0
+            logger.warning(f"[{self.strategy_name}][{stock_code}] 量能确认时间框架配置无效或为空，量能调整将跳过。")
+            # 如果量能调整跳过，adjusted_score 就等于 raw_score
+            volume_adjusted_results_df = pd.DataFrame(index=data.index)
+            volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
+            # 添加量价异动默认列 (全0)
+            internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
+            vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
+            # 为每个量能时间框架添加默认列
+            for tf in ([self.focus_timeframe] if not vc_tf_list else vc_tf_list):
+                vol_spike_col_name = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=tf)[0]
+                volume_adjusted_results_df[vol_spike_col_name] = 0.0
         else:
-             try:
-                 # strategy_utils.adjust_score_with_volume 需要知道如何找到带后缀的 OHLCV, OBV, AMT_MA, VOL_MA 列
-                 volume_adjusted_results_df = strategy_utils.adjust_score_with_volume(
+            try:
+                # strategy_utils.adjust_score_with_volume 需要知道如何找到带后缀的 OHLCV, OBV, AMT_MA, VOL_MA 列
+                volume_adjusted_results_df = strategy_utils.adjust_score_with_volume(
                     preliminary_score=base_score_raw,
                     data=data, # 传递包含所有数据的 DataFrame
                     vc_params=vc_params_adjusted,
@@ -1724,19 +1724,19 @@ class TrendFollowingStrategy:
                     vol_ma_period=vol_ma_period_vc, # 传递 VOL_MA 周期
                     obv_ma_period=obv_ma_period_vc, # 传递 OBV_MA 周期
                     naming_config=NAMING_CONFIG # 传递命名规范
-                 )
-                 # 检查 ADJUSTED_SCORE 列是否存在
-                 if 'ADJUSTED_SCORE' not in volume_adjusted_results_df.columns:
-                      logger.error(f"[{self.strategy_name}][{stock_code}] 量能调整模块未能生成 'ADJUSTED_SCORE' 列。将使用原始基础评分。")
-                      volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
-                 logger.debug(f"[{self.strategy_name}][{stock_code}] 量能调整/分析完成。")
-             except Exception as e:
-                 logger.error(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块出错: {e}", exc_info=True)
-                 volume_adjusted_results_df = pd.DataFrame(index=data.index)
-                 volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
-                 internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
-                 vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
-                 for tf in vc_tf_list:
+                )
+                # 检查 ADJUSTED_SCORE 列是否存在
+                if 'ADJUSTED_SCORE' not in volume_adjusted_results_df.columns:
+                    logger.error(f"[{self.strategy_name}][{stock_code}] 量能调整模块未能生成 'ADJUSTED_SCORE' 列。将使用原始基础评分。")
+                    volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
+                logger.debug(f"[{self.strategy_name}][{stock_code}] 量能调整/分析完成。")
+            except Exception as e:
+                logger.error(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块出错: {e}", exc_info=True)
+                volume_adjusted_results_df = pd.DataFrame(index=data.index)
+                volume_adjusted_results_df['ADJUSTED_SCORE'] = base_score_raw
+                internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
+                vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'].startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
+                for tf in vc_tf_list:
                     vol_spike_col_name = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=tf)[0]
                     volume_adjusted_results_df[vol_spike_col_name] = 0.0
         base_score_volume_adjusted = volume_adjusted_results_df['ADJUSTED_SCORE']
@@ -1816,22 +1816,22 @@ class TrendFollowingStrategy:
                 # strategy_utils.detect_divergence 需要知道如何找到带后缀的指标列
                 divergence_signals_df = strategy_utils.detect_divergence(data=data, dd_params=dd_params, naming_config=NAMING_CONFIG, indicator_scoring_info=div_indicator_scoring_info)
                 if not divergence_signals_df.empty:
-                     internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
-                     has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
-                     has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
+                    internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
+                    has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
+                    has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
 
-                     if has_bearish_div_col not in divergence_signals_df.columns:
-                         divergence_signals_df[has_bearish_div_col] = False
-                     if has_bullish_div_col not in divergence_signals_df.columns:
-                         divergence_signals_df[has_bullish_div_col] = False
+                    if has_bearish_div_col not in divergence_signals_df.columns:
+                        divergence_signals_df[has_bearish_div_col] = False
+                    if has_bullish_div_col not in divergence_signals_df.columns:
+                        divergence_signals_df[has_bullish_div_col] = False
 
-                     logger.debug(f"[{self.strategy_name}][{stock_code}] 背离检测完成，最新信号: {divergence_signals_df.iloc[-1].to_dict() if not divergence_signals_df.empty else '无'}")
+                    logger.debug(f"[{self.strategy_name}][{stock_code}] 背离检测完成，最新信号: {divergence_signals_df.iloc[-1].to_dict() if not divergence_signals_df.empty else '无'}")
                 else:
-                     internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
-                     has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
-                     has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
-                     divergence_signals_df[has_bearish_div_col] = False
-                     divergence_signals_df[has_bullish_div_col] = False
+                    internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
+                    has_bearish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BEARISH_DIVERGENCE"), "HAS_BEARISH_DIVERGENCE")
+                    has_bullish_div_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c['name_pattern'] == "HAS_BULLISH_DIVERGENCE"), "HAS_BULLISH_DIVERGENCE")
+                    divergence_signals_df[has_bearish_div_col] = False
+                    divergence_signals_df[has_bullish_div_col] = False
 
             except Exception as e:
                 logger.error(f"[{self.strategy_name}][{stock_code}] 执行量价背离检测时出错: {e}", exc_info=True)
@@ -1884,10 +1884,10 @@ class TrendFollowingStrategy:
 
         # 检查量价异动列是否存在，如果不存在或没有指定时间框架，则使用全0 Series
         if vol_spike_signal_col and vol_spike_signal_col in volume_adjusted_results_df.columns:
-             volume_spike_norm = volume_adjusted_results_df.get(vol_spike_signal_col, pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
+            volume_spike_norm = volume_adjusted_results_df.get(vol_spike_signal_col, pd.Series(0.0, index=data.index)).fillna(0.0) # 假定范围是-1, 0, 1
         else:
-             logger.warning(f"[{self.strategy_name}][{stock_code}] 量价异动信号列 '{vol_spike_signal_col}' (基于时间框架 {vc_tf_list_vol_spike[0] if vc_tf_list_vol_spike else '无'}) 不存在或量能时间框架未配置。规则组合中量价异动贡献为 0。")
-             volume_spike_norm = pd.Series(0.0, index=data.index)
+            logger.warning(f"[{self.strategy_name}][{stock_code}] 量价异动信号列 '{vol_spike_signal_col}' (基于时间框架 {vc_tf_list_vol_spike[0] if vc_tf_list_vol_spike else '无'}) 不存在或量能时间框架未配置。规则组合中量价异动贡献为 0。")
+            volume_spike_norm = pd.Series(0.0, index=data.index)
 
 
         total_weighted_contribution = pd.Series(0.0, index=data.index)
@@ -1937,6 +1937,9 @@ class TrendFollowingStrategy:
             'trend_analysis_df': trend_analysis_df, # 包含 alignment_signal, adx_strength_signal 等列
             'divergence_signals_df': divergence_signals_df # 包含 HAS_BEARISH_DIVERGENCE, HAS_BULLISH_DIVERGENCE 列
         }
+        print(f"_calculate_rule_based_signal: {stock_code}")
+        print(f"final_rule_signal: {final_rule_signal}")
+        print(f"intermediate_results: {intermediate_results}")
         return final_rule_signal, intermediate_results
 
     def _perform_trend_analysis(self, data: pd.DataFrame, base_score_series: pd.Series) -> pd.DataFrame:
