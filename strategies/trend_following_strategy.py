@@ -1651,7 +1651,7 @@ class TrendFollowingStrategy:
 
         base_score_raw = base_score_raw.clip(0, 100).fillna(50.0)
         # 修改行: 打印 base_score_raw 的最新值
-        print(f"DEBUG: {stock_code} - base_score_raw (last row): {base_score_raw.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - base_score_raw (last row): {base_score_raw.iloc[-1]:.4f}")
 
         # 量能调整基础评分 (假定 strategy_utils 包含此函数)
         logger.debug(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块...")
@@ -1702,7 +1702,7 @@ class TrendFollowingStrategy:
                     volume_adjusted_results_df[vol_spike_col_name] = 0.0
         base_score_volume_adjusted = volume_adjusted_results_df['ADJUSTED_SCORE']
         # 修改行: 打印 base_score_volume_adjusted 的最新值
-        print(f"DEBUG: {stock_code} - base_score_volume_adjusted (last row): {base_score_volume_adjusted.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - base_score_volume_adjusted (last row): {base_score_volume_adjusted.iloc[-1]:.4f}")
 
         # 执行趋势分析 (假定 _perform_trend_analysis 已实现)
         trend_analysis_df = self._perform_trend_analysis(data, base_score_volume_adjusted)
@@ -1810,7 +1810,7 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}][{stock_code}] 计算综合规则信号...")
         weights = self.rule_signal_weights
         # 修改行: 打印权重配置
-        print(f"DEBUG: {stock_code} - rule_signal_weights: {weights}")
+        # print(f"DEBUG: {stock_code} - rule_signal_weights: {weights}")
 
         # 提取各种信号列，如果缺失则用 0 填充
         base_score_norm = (base_score_volume_adjusted.fillna(50.0) - 50) / 50 # 归一化到 [-1, 1]
@@ -1846,17 +1846,17 @@ class TrendFollowingStrategy:
             volume_spike_norm = pd.Series(0.0, index=data.index)
 
         # 修改行: 打印归一化后的各个信号值
-        print(f"DEBUG: {stock_code} - Normalized Signals (last row):")
-        print(f"  base_score_norm: {base_score_norm.iloc[-1]:.4f}")
-        print(f"  alignment_norm: {alignment_norm.iloc[-1]:.4f}")
-        print(f"  long_context_norm: {long_context_norm.iloc[-1]:.4f}")
-        print(f"  momentum_norm: {momentum_norm.iloc[-1]:.4f}")
-        print(f"  ema_cross_norm: {ema_cross_norm.iloc[-1]:.4f}")
-        print(f"  boll_breakout_norm: {boll_breakout_norm.iloc[-1]:.4f}")
-        print(f"  adx_strength_norm: {adx_strength_norm.iloc[-1]:.4f}")
-        print(f"  stoch_signal_norm: {stoch_signal_norm.iloc[-1]:.4f}")
-        print(f"  vwap_dev_norm: {vwap_dev_norm.iloc[-1]:.4f}")
-        print(f"  volume_spike_norm: {volume_spike_norm.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - Normalized Signals (last row):")
+        # print(f"  base_score_norm: {base_score_norm.iloc[-1]:.4f}")
+        # print(f"  alignment_norm: {alignment_norm.iloc[-1]:.4f}")
+        # print(f"  long_context_norm: {long_context_norm.iloc[-1]:.4f}")
+        # print(f"  momentum_norm: {momentum_norm.iloc[-1]:.4f}")
+        # print(f"  ema_cross_norm: {ema_cross_norm.iloc[-1]:.4f}")
+        # print(f"  boll_breakout_norm: {boll_breakout_norm.iloc[-1]:.4f}")
+        # print(f"  adx_strength_norm: {adx_strength_norm.iloc[-1]:.4f}")
+        # print(f"  stoch_signal_norm: {stoch_signal_norm.iloc[-1]:.4f}")
+        # print(f"  vwap_dev_norm: {vwap_dev_norm.iloc[-1]:.4f}")
+        # print(f"  volume_spike_norm: {volume_spike_norm.iloc[-1]:.4f}")
 
         total_weighted_contribution = pd.Series(0.0, index=data.index)
         total_weighted_contribution += base_score_norm * weights.get('base_score', 0)
@@ -1871,13 +1871,13 @@ class TrendFollowingStrategy:
         total_weighted_contribution += volume_spike_norm * weights.get('volume_spike', 0)
 
         # 修改行: 打印加权总贡献
-        print(f"DEBUG: {stock_code} - total_weighted_contribution (last row): {total_weighted_contribution.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - total_weighted_contribution (last row): {total_weighted_contribution.iloc[-1]:.4f}")
 
         # 将加权贡献转换回 0-100 的分数范围
         base_rule_signal_before_adjust = 50.0 + total_weighted_contribution * 50.0
         base_rule_signal_before_adjust = base_rule_signal_before_adjust.clip(0, 100)
         # 修改行: 打印调整前的基础规则信号
-        print(f"DEBUG: {stock_code} - base_rule_signal_before_adjust (last row): {base_rule_signal_before_adjust.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - base_rule_signal_before_adjust (last row): {base_rule_signal_before_adjust.iloc[-1]:.4f}")
 
         # 应用 ADX 增强 (假定 _apply_adx_boost 已实现)
         # 修改行: 更改变量名以便后续打印
@@ -1887,19 +1887,19 @@ class TrendFollowingStrategy:
             (base_rule_signal_before_adjust.fillna(50.0) - 50.0) / 50.0
         )
         # 修改行: 打印 ADX 增强后的信号
-        print(f"DEBUG: {stock_code} - final_rule_signal_after_adx (last row): {final_rule_signal_after_adx.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - final_rule_signal_after_adx (last row): {final_rule_signal_after_adx.iloc[-1]:.4f}")
 
         # 应用背离惩罚 (假定 _apply_divergence_penalty 已实现)
         # 修改行: 更改变量名以便后续打印
         final_rule_signal_after_div = self._apply_divergence_penalty(final_rule_signal_after_adx, divergence_signals_df, dd_params)
         # 修改行: 打印背离惩罚后的信号
-        print(f"DEBUG: {stock_code} - final_rule_signal_after_div (last row): {final_rule_signal_after_div.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - final_rule_signal_after_div (last row): {final_rule_signal_after_div.iloc[-1]:.4f}")
 
         # 应用趋势确认过滤 (假定 _apply_trend_confirmation 已实现)
         # 修改行: 更改变量名以便后续打印
         final_rule_signal = self._apply_trend_confirmation(final_rule_signal_after_div)
         # 修改行: 打印趋势确认后的最终信号
-        print(f"DEBUG: {stock_code} - final_rule_signal_after_trend_conf (last row): {final_rule_signal.iloc[-1]:.4f}")
+        # print(f"DEBUG: {stock_code} - final_rule_signal_after_trend_conf (last row): {final_rule_signal.iloc[-1]:.4f}")
 
         # 最终剪切和四舍五入
         final_rule_signal = final_rule_signal.clip(0, 100).round(2)
@@ -1913,9 +1913,9 @@ class TrendFollowingStrategy:
             'trend_analysis_df': trend_analysis_df,
             'divergence_signals_df': divergence_signals_df
         }
-        print(f"_calculate_rule_based_signal: {stock_code}")
-        print(f"final_rule_signal: {final_rule_signal}")
-        print(f"intermediate_results: {intermediate_results}")
+        # print(f"_calculate_rule_based_signal: {stock_code}")
+        # print(f"final_rule_signal: {final_rule_signal}")
+        # print(f"intermediate_results: {intermediate_results}")
         return final_rule_signal, intermediate_results
 
     def _perform_trend_analysis(self, data: pd.DataFrame, base_score_series: pd.Series) -> pd.DataFrame:
@@ -2605,7 +2605,7 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
         # 添加 transformer_signal 列 (内部列)，默认填充 50.0
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
-        print(f"generate_signals.processed_data: {stock_code} - {processed_data['final_rule_signal']}")
+        # print(f"generate_signals.processed_data: {stock_code} - {processed_data['final_rule_signal']}")
         self.set_model_paths(stock_code)
         # 调用加载 Transformer 模型和转换器的方法
         # load_prepared_data 会加载数据、Scalers 和可选的特征工程转换器
