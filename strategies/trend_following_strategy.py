@@ -2626,7 +2626,7 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}][{stock_code}] 准备 Transformer 模型预测...")
         # 添加 transformer_signal 列 (内部列)，默认填充 50.0
         processed_data['transformer_signal'] = pd.Series(50.0, index=processed_data.index)
-        print(f"generate_signals.processed_data: {stock_code} - {processed_data}")
+        print(f"generate_signals.processed_data: {stock_code} - {processed_data['final_rule_signal']}")
         self.set_model_paths(stock_code)
         # 调用加载 Transformer 模型和转换器的方法
         # load_prepared_data 会加载数据、Scalers 和可选的特征工程转换器
