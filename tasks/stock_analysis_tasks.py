@@ -72,24 +72,18 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
     # 3. 转换成时间戳，升序排序
     trade_times_list = sorted(trade_times_list)
-    # 4. 转换字符串时间为时间戳（假设时间格式为'%Y-%m-%d %H:%M:%S'，根据实际调整）
-    def str_to_timestamp(t_str):
-        dt = datetime.strptime(t_str, '%Y-%m-%d %H:%M:%S')
-        return int(dt.timestamp())
-    timestamps = [str_to_timestamp(t_str) for t_str in trade_times_list]
     # 5. 遍历检测
     first_missing_index = None
-    for idx, ts in enumerate(timestamps):
+    for t_str in trade_times_list:
         # exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
-        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=ts.to_pydatetime()).exists()
+        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_str).exists()
         if not exists:
             first_missing_index = idx
             break
     # 6. 从第一个不存在的时间开始，执行策略分析
     start_index = first_missing_index if first_missing_index is not None else 0
 
-    for idx in range(start_index, len(timestamps)):
-        ts = timestamps[idx]
+    for idx in range(start_index, len(trade_times_list)):
         trade_time_str = trade_times_list[idx]
         logger.info(f"开始分析股票 {stock_code} - {trade_time_str}")
         execute_strategy_for_trade_time(stock_code=stock_code, params_file= params_file, trade_time_str=trade_time_str)
