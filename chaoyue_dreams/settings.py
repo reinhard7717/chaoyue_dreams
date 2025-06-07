@@ -272,7 +272,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'services': {
-            'level': 'INFO',
+            'level': 'WARNING',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'services.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
@@ -308,7 +308,7 @@ LOGGING = {
             'encoding': 'utf-8',  # 设置编码为utf-8
         },
         'strategy_trend_following': {
-            'level': 'INFO',
+            'level': 'WARNING',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'strategy_trend_following.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5MB
@@ -366,7 +366,7 @@ LOGGING = {
         },
         'services': {
             'handlers': ['console', 'services'],
-            'level': 'INFO',
+            'level': 'WARNING',
             'propagate': False,
         },
         'strategy': {
@@ -381,7 +381,7 @@ LOGGING = {
         },
         'strategy_trend_following': {
             'handlers': ['console', 'file'],
-            'level': 'INFO',
+            'level': 'WARNING',
             'propagate': False,
         },
         'strategy_deep_learning_utils': {
