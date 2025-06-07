@@ -2501,9 +2501,10 @@ class TrendFollowingStrategy:
              logger.warning(f"[{self.strategy_name}] 趋势确认过滤：lower ({trend_threshold_lower}) >= upper ({trend_threshold_upper}) 阈值，调整 lower 阈值。")
              trend_threshold_lower = trend_threshold_upper - 5 # 确保有一个间隔
 
-
         final_signal_filled = final_signal.fillna(50.0)
-        filtered_signal = pd.Series(50.0, index=final_signal.index) # 默认过滤后信号是中性 50
+        # 初始化 filtered_signal 为 NaN，以便后续进行前向填充
+        filtered_signal = pd.Series(index=final_signal.index, dtype=float) # 初始化为NaN，用于趋势保持
+        print(f"DEBUG: 初始 filtered_signal (NaN): {filtered_signal.head()}") # 调试信息
 
         if len(final_signal_filled) < confirmation_periods:
              logger.warning(f"[{self.strategy_name}] 趋势确认过滤：数据长度 ({len(final_signal_filled)}) 不足确认周期 ({confirmation_periods})。跳过过滤。")
@@ -2511,6 +2512,7 @@ class TrendFollowingStrategy:
 
         try:
             # 判断信号是否持续高于上限或低于下限足够周期
+            # min_periods=confirmation_periods 确保只有足够的数据点才开始计算
             above_upper_streak = (final_signal_filled >= trend_threshold_upper).rolling(window=confirmation_periods, min_periods=confirmation_periods).sum() == confirmation_periods
             below_lower_streak = (final_signal_filled <= trend_threshold_lower).rolling(window=confirmation_periods, min_periods=confirmation_periods).sum() == confirmation_periods
 
@@ -2518,9 +2520,14 @@ class TrendFollowingStrategy:
             # 只有在连续满足条件时，才将原始信号值传递过来
             filtered_signal.loc[above_upper_streak] = final_signal_filled.loc[above_upper_streak]
             filtered_signal.loc[below_lower_streak] = final_signal_filled.loc[below_lower_streak]
+            print(f"DEBUG: 赋值后的 filtered_signal (仅确认点有值): {filtered_signal.head()}") # 调试信息
 
-            # 填充 NaN，特别是开头 confirmation_periods-1 个点
-            filtered_signal = filtered_signal.fillna(50.0) # 默认填充 50
+            # 使用 ffill() 保持上一个确认的趋势值
+            filtered_signal = filtered_signal.ffill() # 前向填充，保持趋势状态
+            print(f"DEBUG: ffill 后的 filtered_signal (趋势保持): {filtered_signal.head()}") # 调试信息
+            # 填充 NaN，特别是开头 confirmation_periods-1 个点以及未被任何趋势确认覆盖的区域
+            filtered_signal = filtered_signal.fillna(50.0) # 填充剩余的NaN（如序列开头），默认中性50
+            print(f"DEBUG: fillna(50.0) 后的 filtered_signal (最终填充): {filtered_signal.head()}") # 调试信息
 
         except Exception as e:
             logger.error(f"[{self.strategy_name}] 趋势确认过滤出错: {e}", exc_info=True)
@@ -2530,7 +2537,7 @@ class TrendFollowingStrategy:
         if not filtered_signal.empty:
              logger.debug(f"[{self.strategy_name}] 趋势确认过滤后信号 (最新值): {filtered_signal.iloc[-1] if not filtered_signal.empty else 'N/A'}")
         return filtered_signal.clip(0, 100) # 确保过滤后的信号也在 0-100 范围内
-
+    
     # 这个方法是实际的信号生成入口，返回 DataFrame
     def generate_signals(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None) -> pd.DataFrame:
         """
