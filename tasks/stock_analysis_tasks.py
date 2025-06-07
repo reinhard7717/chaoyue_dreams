@@ -11,6 +11,7 @@ from chaoyue_dreams.celery import app as celery_app
 from django.core.management.base import CommandError
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
+from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
 from strategies.t_plus_0_strategy import TPlus0Strategy
 from strategies.trend_following_strategy import TrendFollowingStrategy
 from strategies.trend_reversal_strategy import TrendReversalStrategy
@@ -65,6 +66,8 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     # 1. 实例化 IndicatorService
     indicator_service = IndicatorService()
     cache_get = StrategyCacheGet()
+    stock_basic_dao = StockBasicInfoDao()
+    stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
     # 2. 获取时间字符串列表
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
     # 3. 转换成时间戳，升序排序
@@ -77,7 +80,8 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     # 5. 遍历检测
     first_missing_index = None
     for idx, ts in enumerate(timestamps):
-        exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
+        # exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
+        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=ts).exists()
         if not exists:
             first_missing_index = idx
             break

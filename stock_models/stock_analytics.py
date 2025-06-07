@@ -324,3 +324,209 @@ class StockScoreAnalysis(models.Model):
         time_display = self.timestamp.strftime('%Y-%m-%d %H:%M') if self.timestamp else "No Timestamp"
         return f"{self.stock.stock_code} - {self.strategy_name} ({self.time_level}) @ {time_display} - Score: {score_display}"
 
+class StockAnalysisResultTrendFollowing(models.Model):
+    """
+    存储股票趋势跟踪策略的分析结果。
+    """
+    # 外键关联到 StockInfo 模型，表示分析结果属于哪只股票
+    # on_delete=models.CASCADE 表示当关联的 StockInfo 被删除时，此分析结果也一并删除
+    # related_name 允许通过 stock_info_instance.trend_analysis_results.all() 反向查询
+    stock = models.ForeignKey(
+        StockInfo,
+        on_delete=models.CASCADE,      # 当关联的股票信息删除时，这条分析结果也删除
+        to_field='stock_code',         # 关联到 StockInfo 的 stock_code 字段
+        related_name='stock_analysis_result_trend_following', # 反向查询名称 (例如 stock_info.score_analyses.all())
+        verbose_name='股票代码'         # Django Admin 中显示的字段名
+    )
+    # 分析发生的时间点，通常是数据的时间戳
+    timestamp = models.DateTimeField(
+        db_index=True, # 添加索引以提高查询效率
+        verbose_name="分析时间戳",
+        help_text="该分析结果对应的数据时间戳"
+    )
+
+    # --- 核心信号分数 ---
+    score = models.FloatField(
+        null=True, blank=True,
+        verbose_name="组合信号分",
+        help_text="最终综合信号分数 (combined_signal)"
+    )
+    rule_signal = models.FloatField(
+        null=True, blank=True,
+        verbose_name="规则信号分",
+        help_text="基于规则的信号分数 (final_rule_signal)"
+    )
+    lstm_signal = models.FloatField(
+        null=True, blank=True,
+        verbose_name="Transformer信号分",
+        help_text="Transformer模型生成的信号分数 (transformer_signal)"
+    )
+    base_score_raw = models.FloatField(
+        null=True, blank=True,
+        verbose_name="原始基础分",
+        help_text="未调整前的基础趋势分数 (base_score_raw)"
+    )
+    base_score_volume_adjusted = models.FloatField(
+        null=True, blank=True,
+        verbose_name="量能调整基础分",
+        help_text="经过量能调整后的基础趋势分数 (ADJUSTED_SCORE)"
+    )
+
+    # --- 趋势与指标信号 ---
+    alignment_signal = models.FloatField(
+        null=True, blank=True,
+        verbose_name="EMA排列信号",
+        help_text="EMA排列状态信号 (alignment_signal)"
+    )
+    long_term_context = models.CharField(
+        max_length=50, null=True, blank=True,
+        verbose_name="长期趋势背景",
+        help_text="长期趋势的文字描述 (long_term_context)"
+    )
+    adx_strength_signal = models.FloatField(
+        null=True, blank=True,
+        verbose_name="ADX强度信号",
+        help_text="结合方向的ADX强度信号 (adx_strength_signal)"
+    )
+    stoch_signal = models.FloatField(
+        null=True, blank=True,
+        verbose_name="STOCH信号",
+        help_text="随机指标信号 (stoch_signal)"
+    )
+    div_has_bearish_divergence = models.BooleanField(
+        default=False,
+        verbose_name="存在顶背离",
+        help_text="是否检测到顶背离 (HAS_BEARISH_DIVERGENCE)"
+    )
+    div_has_bullish_divergence = models.BooleanField(
+        default=False,
+        verbose_name="存在底背离",
+        help_text="是否检测到底背离 (HAS_BULLISH_DIVERGENCE)"
+    )
+    volume_spike_signal = models.FloatField(
+        null=True, blank=True,
+        verbose_name="量能异动信号",
+        help_text="量能异动信号 (VOL_SPIKE_SIGNAL)"
+    )
+    close_price = models.FloatField(
+        null=True, blank=True,
+        verbose_name="收盘价",
+        help_text="分析时的收盘价格"
+    )
+
+    # --- 趋势持续与状态 ---
+    current_trend = models.CharField(
+        max_length=20, null=True, blank=True,
+        verbose_name="当前趋势方向",
+        help_text="当前趋势的文字方向 (如: 看涨, 看跌, 中性)"
+    )
+    trend_strength = models.CharField(
+        max_length=20, null=True, blank=True,
+        verbose_name="趋势强度",
+        help_text="当前趋势的强度 (如: 强劲, 温和, 不明)"
+    )
+    trend_duration_bullish = models.IntegerField(
+        null=True, blank=True,
+        verbose_name="看涨持续周期",
+        help_text="看涨趋势持续的周期数"
+    )
+    trend_duration_bearish = models.IntegerField(
+        null=True, blank=True,
+        verbose_name="看跌持续周期",
+        help_text="看跌趋势持续的周期数"
+    )
+    trend_duration_text_bullish = models.CharField(
+        max_length=100, null=True, blank=True,
+        verbose_name="看涨持续文本",
+        help_text="看涨趋势持续时间的文字描述"
+    )
+    trend_duration_text_bearish = models.CharField(
+        max_length=100, null=True, blank=True,
+        verbose_name="看跌持续文本",
+        help_text="看跌趋势持续时间的文字描述"
+    )
+    trend_duration_status = models.CharField(
+        max_length=20, null=True, blank=True,
+        verbose_name="趋势持续状态",
+        help_text="趋势持续的总体状态 (如: 短, 中, 长)"
+    )
+
+    # --- 综合评估与建议 ---
+    operation_advice = models.TextField(
+        null=True, blank=True,
+        verbose_name="操作建议",
+        help_text="基于分析结果的操作建议"
+    )
+    risk_warning = models.TextField(
+        null=True, blank=True,
+        verbose_name="风险提示",
+        help_text="基于分析结果的风险提示"
+    )
+    chinese_interpretation = models.TextField(
+        null=True, blank=True,
+        verbose_name="中文解读",
+        help_text="详细的中文分析解读"
+    )
+
+    # --- 详细信号影响与贡献 (JSON 字段) ---
+    # JSONField 适用于存储非结构化或半结构化数据，如字典和列表
+    signal_impact_records_json = models.JSONField(
+        null=True, blank=True,
+        verbose_name="信号影响记录",
+        help_text="信号影响的详细记录 (JSON 格式)"
+    )
+    signal_contribution_summary_json = models.JSONField(
+        null=True, blank=True,
+        verbose_name="信号贡献汇总",
+        help_text="各信号对信心分贡献的汇总 (JSON 格式)"
+    )
+
+    # --- 信心分数 (新增的顶层字段) ---
+    weighted_confidence_score = models.FloatField(
+        null=True, blank=True,
+        verbose_name="加权信心分数",
+        help_text="加权计算后的综合信心分数"
+    )
+    confidence_score = models.FloatField( # MODIFIED: 新增字段
+        null=True, blank=True,
+        verbose_name="综合信心分数",
+        help_text="未加权计算的综合信心分数"
+    )
+    normalized_confidence = models.FloatField( # MODIFIED: 新增字段
+        null=True, blank=True,
+        verbose_name="归一化信心分数",
+        help_text="归一化后的综合信心分数 (范围 -1.0 到 1.0)"
+    )
+
+    # --- 原始分析数据 (JSON 字段) ---
+    raw_analysis_data = models.JSONField(
+        null=True, blank=True,
+        verbose_name="原始分析数据",
+        help_text="完整的原始分析结果字典 (JSON 格式)"
+    )
+
+    class Meta:
+        db_table = 'stock_analysis_result_trend_following' # 明确指定数据库表名
+        verbose_name = '股票趋势分析结果'
+        verbose_name_plural = '股票趋势分析结果'
+        # 联合唯一索引，确保同一只股票在同一时间点只有一个分析结果
+        unique_together = ('stock', 'timestamp')
+        # 默认排序方式，按股票代码和时间戳降序
+        ordering = ['stock', '-timestamp']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} - {self.timestamp.strftime('%Y-%m-%d %H:%M')} 趋势分析"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
