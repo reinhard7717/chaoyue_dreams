@@ -1404,31 +1404,40 @@ class IndicatorService:
 
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 EMA (指数移动平均线)"""
-        if df is None or df.empty or close_col not in df.columns: return None
+        if df is None or df.empty or close_col not in df.columns:
+            return None
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_ema():
                 return df.ta.ema(close=df[close_col], length=period, append=False)
             ema_series = await asyncio.to_thread(_sync_ema)
-            if ema_series is None or ema_series.empty: return None
-            return pd.DataFrame({f'EMA_{period}': ema_series})
+            if ema_series is None or ema_series.empty:
+                return None
+            # --- 直接用 to_frame 并重命名列 ---
+            ema_df = ema_series.to_frame(name=f'EMA_{period}')
+            return ema_df
         except Exception as e:
             logger.error(f"计算 EMA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_sma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 SMA (简单移动平均线)"""
-        if df is None or df.empty or close_col not in df.columns: return None
+        if df is None or df.empty or close_col not in df.columns:
+            return None
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_sma():
                 return df.ta.sma(close=df[close_col], length=period, append=False)
             sma_series = await asyncio.to_thread(_sync_sma)
-            if sma_series is None or sma_series.empty: return None
-            return pd.DataFrame({f'SMA_{period}': sma_series})
+            if sma_series is None or sma_series.empty:
+                return None
+            # --- 直接用 to_frame 并重命名列 ---
+            sma_df = sma_series.to_frame(name=f'SMA_{period}')
+            return sma_df
         except Exception as e:
             logger.error(f"计算 SMA (周期 {period}) 出错: {e}", exc_info=True)
             return None
+
 
     async def calculate_amount_ma(self, df: pd.DataFrame, period: int = 20, amount_col='amount') -> Optional[pd.DataFrame]:
         """计算成交额的移动平均线 (AMT_MA)"""
