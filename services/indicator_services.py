@@ -1813,18 +1813,16 @@ class IndicatorService:
                 logger.warning(f"添加滚动统计特征失败，未找到列: {col}")
         return df
 
-    async def get_5_min_kline_time_by_day_count(self, stock_code: str, day_count: int) -> List[str]:
+    async def get_5_min_kline_time_by_day_count(self, stock_code: str, day_count: int) -> List[datetime]:
         """
-        获取指定股票在前N个交易日内所有的5分钟K线的交易时间字符串集合
+        获取指定股票在前N个交易日内所有的5分钟K线的交易时间（UTC，datetime对象）
         """
-        # 获取股票对象（假设存在异步方法获取股票信息）
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             print(f"未找到股票代码：{stock_code}")
             return []
 
-        # 获取前N个交易日
-        index_dao = IndexBasicDAO()  # 实例化IndexBasicDAO
+        index_dao = IndexBasicDAO()
         trade_days = await index_dao.get_last_n_trade_cal_open(n=day_count)
         if not trade_days:
             print("未获取到交易日列表")
@@ -1833,15 +1831,18 @@ class IndicatorService:
         trade_times_set = set()
         stt_dao = StockTimeTradeDAO()
         for trade_day in trade_days:
-            # 获取当天的所有5分钟K线时间
+            # 获取当天的所有5分钟K线时间（假设返回字符串列表）
             daily_trade_times = await stt_dao.get_5_min_kline_time_by_day(stock_code=stock_code, date=trade_day)
-            # 将当天的时间加入集合
-            trade_times_set.update(daily_trade_times)
+            # 转为带UTC时区的datetime对象
+            for t_str in daily_trade_times:
+                # 假设格式为"2024-06-08 09:35:00"
+                t_dt = datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)  # 加入UTC时区
+                trade_times_set.add(t_dt)
 
-        # 转换为列表并排序
         trade_times_list = sorted(trade_times_set)
         print(f"总共获取到的交易时间点数量：{len(trade_times_list)}")
         return trade_times_list
+
 
 
 

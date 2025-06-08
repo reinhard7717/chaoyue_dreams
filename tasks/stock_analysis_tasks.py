@@ -63,19 +63,14 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
     # 2. 获取时间字符串列表
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
-    # 3. 升序排序
     trade_times_list = sorted(trade_times_list)
-    # 4. 遍历检测
-    for t_str in trade_times_list:
-        # 将字符串时间转为datetime对象，并加1分钟
-        t_dt = datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S")  # 假设时间格式为"2024-06-08 09:35:00"
-        t_dt_plus_1min = t_dt + timedelta(minutes=1)  # 增加1分钟
-        t_str_plus_1min = t_dt_plus_1min.strftime("%Y-%m-%d %H:%M:%S")  # 再转回字符串
-        # exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
-        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_str_plus_1min).exists()  # 修改为加1分钟后的时间
+    for t_dt in trade_times_list:
+        t_dt_plus_1min = t_dt + timedelta(minutes=1)
+        # 直接用datetime对象查询
+        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_dt_plus_1min).exists()
         if not exists:
-            logger.info(f"开始分析股票 {stock_code} - {t_str_plus_1min}")  # 日志也输出加1分钟后的时间
-            execute_strategy_for_trade_time(stock_code=stock_code, params_file=params_file, trade_time_str=t_str_plus_1min)  # 传递加1分钟后的时间
+            logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
+            execute_strategy_for_trade_time(stock_code=stock_code, params_file=params_file, trade_time_str=t_dt_plus_1min)
 
 def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):
     indicator_service = IndicatorService()
