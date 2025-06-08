@@ -1836,7 +1836,7 @@ class IndicatorService:
             # 转为带UTC时区的datetime对象
             for t_str in daily_trade_times:
                 # 假设格式为"2024-06-08 09:35:00"
-                t_dt = datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)  # 加入UTC时区
+                t_dt = datetime.datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc)  # 加入UTC时区
                 trade_times_set.add(t_dt)
 
         trade_times_list = sorted(trade_times_set)
