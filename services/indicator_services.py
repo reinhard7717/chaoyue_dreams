@@ -1836,6 +1836,8 @@ class IndicatorService:
         if not trade_days:
             print("未获取到交易日列表")
             return []
+        else:
+            print(f"获取到交易日列表: {trade_days}")
 
         trade_times_set = set()
         stt_dao = StockTimeTradeDAO()
@@ -1849,7 +1851,7 @@ class IndicatorService:
                 trade_times_set.add(t_dt)
 
         trade_times_list = sorted(trade_times_set)
-        print(f"总共获取到的交易时间点数量：{len(trade_times_list)}")
+        print(f"总共获取到的交易时间点数量：{stock} - {len(trade_times_list)}")
         return trade_times_list
 
 

@@ -146,9 +146,9 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
         logger.info(f"找到 {stock_count} 只股票待分析")
 
         for stock_code in favorite_codes:
-            analyze_single_stock.s(stock_code=stock_code, params_file=params_file, day_count=1).set(queue='favorite_calculate_strategy').apply_async()
+            analyze_single_stock.s(stock_code=stock_code, params_file=params_file, day_count=2).set(queue='favorite_calculate_strategy').apply_async()
         for stock_code in non_favorite_codes:
-            analyze_single_stock.s(stock_code=stock_code, params_file=params_file, day_count=1).set(queue='calculate_strategy').apply_async()
+            analyze_single_stock.s(stock_code=stock_code, params_file=params_file, day_count=2).set(queue='calculate_strategy').apply_async()
 
         # 记录任务ID（如果有多个任务组，取最后一个或合并记录）
         logger.info(f"已调度 {len(favorite_codes)} 只股票的favorite分析任务")
