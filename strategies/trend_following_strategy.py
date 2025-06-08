@@ -3893,7 +3893,7 @@ class TrendFollowingStrategy:
                 "risk_msg": risk_msg,
                 "confidence_score_after": confidence_score
             })
-            print(f"[{self.strategy_name}][{stock}] 信号影响 - {key}: {status}, 信心变化: {confidence_change}, 当前信心: {confidence_score}。")
+            # print(f"[{self.strategy_name}][{stock}] 信号影响 - {key}: {status}, 信心变化: {confidence_change}, 当前信心: {confidence_score}。")
 
         # 1. 整体信号强度评估
         if final_score_val >= strong_bullish_thresh:
