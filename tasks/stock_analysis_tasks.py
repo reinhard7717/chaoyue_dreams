@@ -110,7 +110,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
                     analysis_result = strategy.analyze_signals(stock_code)
                     if analysis_result is not None:
                         # 保存分析结果
-                        strategy.save_analysis_results(stock_code, timestamp, data_df)
+                        strategy.save_analysis_results(stock_code=stock_code, timestamp=timestamp, data=data_df)
                         results[strategy_name] = {"status": "success", "signal": signals.iloc[-1] if not signals.empty else None}
                     else:
                         results[strategy_name] = {"status": "failed", "reason": "no analysis result"}
@@ -146,13 +146,13 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
         logger.info(f"找到 {stock_count} 只股票待分析")
 
         for stock_code in favorite_codes:
-            analyze_single_stock.s(stock_code, params_file).set(queue='favorite_calculate_strategy').apply_async()
+            analyze_single_stock.s(stock_code=stock_code, params_file=params_file).set(queue='favorite_calculate_strategy').apply_async()
         for stock_code in non_favorite_codes:
-            analyze_single_stock.s(stock_code, params_file).set(queue='calculate_strategy').apply_async()
+            analyze_single_stock.s(stock_code=stock_code, params_file=params_file).set(queue='calculate_strategy').apply_async()
 
         # 记录任务ID（如果有多个任务组，取最后一个或合并记录）
-        logger.info(f"已调度 {favorite_codes.count} 只股票的favorite分析任务")
-        logger.info(f"已调度 {non_favorite_codes.count} 只股票的non_favorite分析任务")
+        logger.info(f"已调度 {len(favorite_codes)} 只股票的favorite分析任务")
+        logger.info(f"已调度 {len(non_favorite_codes)} 只股票的non_favorite分析任务")
         return {"status": "started",  "stock_count": stock_count}
     except Exception as e:
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)

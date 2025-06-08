@@ -30,7 +30,6 @@ from .utils import strategy_utils
 from .utils.deep_learning_utils import (
     build_transformer_model,
     evaluate_transformer_model,
-    train_transformer_model,
     predict_with_transformer_model,
     TimeSeriesDataset,
     prepare_data_for_transformer # prepare_data_for_transformer 仍然从这里导入
@@ -115,7 +114,7 @@ class TrendFollowingStrategy:
         print(f"TrendFollowingStrategy __init__ called with params_file: {params_file}, base_data_dir: {base_data_dir}") # DEBUG: 初始调用信息
 
         # --- 阶段 0: 基础依赖和路径初始化 ---
-        params_file, base_data_dir = self._initialize_base_paths_and_dependencies(params_file, base_data_dir) # 调用辅助方法
+        params_file, base_data_dir = self._initialize_base_paths_and_dependencies(params_file=params_file, base_data_dir=base_data_dir) # 调用辅助方法
         self.base_data_dir = base_data_dir # 确保 self.base_data_dir 设置
         self.fe_params: Dict[str, Any] = {} # 初始化 fe_params
         # 新增属性初始化
@@ -126,17 +125,17 @@ class TrendFollowingStrategy:
         temp_log_prefix = f"[{TrendFollowingStrategy.strategy_name_class_default}-init]" # 临时日志前缀
 
         # --- 阶段 1 & 2: 解析和加载参数文件 ---
-        self.params_file_path, loaded_params, file_load_success = self._resolve_and_load_params_file(params_file, temp_log_prefix) # 调用辅助方法
+        self.params_file_path, loaded_params, file_load_success = self._resolve_and_load_params_file(params_file_input=params_file, temp_log_prefix=temp_log_prefix) # 调用辅助方法
 
         # --- 阶段 3 & 4: 设置策略名称和核心参数 ---
-        log_prefix = self._setup_strategy_name_and_core_params(loaded_params, temp_log_prefix) # 调用辅助方法
+        log_prefix = self._setup_strategy_name_and_core_params(loaded_params=loaded_params, temp_log_prefix=temp_log_prefix) # 调用辅助方法
 
         # --- 阶段 5: 初始化策略特定属性 ---
-        self._initialize_strategy_attributes(log_prefix) # 调用辅助方法
-        self._initialize_model_related_attributes(log_prefix) # 调用辅助方法，拆分模型相关属性
+        self._initialize_strategy_attributes(log_prefix=log_prefix) # 调用辅助方法
+        self._initialize_model_related_attributes(log_prefix=log_prefix) # 调用辅助方法，拆分模型相关属性
 
         # --- 阶段 6 & 7: 参数验证和最终日志 ---
-        self._perform_initial_validation_and_logging(log_prefix, self.params_file_path, file_load_success, loaded_params is not None and bool(loaded_params)) # 调用辅助方法
+        self._perform_initial_validation_and_logging(log_prefix=log_prefix, resolved_params_file_path=self.params_file_path, file_load_success=file_load_success, params_loaded=loaded_params is not None and bool(loaded_params)) # 调用辅助方法
 
         logger.info(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。")
         # print(f"{log_prefix} TrendFollowingStrategy __init__ 执行完毕。") # DEBUG: 结束信息
@@ -238,8 +237,8 @@ class TrendFollowingStrategy:
     #辅助方法 - 整合阶段1和2
     def _resolve_and_load_params_file(self, params_file_input: str, temp_log_prefix: str) -> Tuple[Optional[str], Dict[str, Any], bool]:
         """解析参数文件路径并从该路径加载参数。"""
-        resolved_path = self._resolve_config_file_path(params_file_input, temp_log_prefix)
-        loaded_params, file_load_success = self._load_json_from_file(resolved_path, temp_log_prefix, "策略参数")
+        resolved_path = self._resolve_config_file_path(file_path_input=params_file_input, log_prefix_temp=temp_log_prefix)
+        loaded_params, file_load_success = self._load_json_from_file(resolved_file_path=resolved_path, log_prefix_temp=temp_log_prefix, file_description="策略参数")
         return resolved_path, loaded_params, file_load_success
 
     #辅助方法 - 设置策略名称和核心参数字典
@@ -4338,7 +4337,7 @@ class TrendFollowingStrategy:
             f"综合信心分数: {confidence_score} (归一化: {normalized_confidence:.2f})\n"
             f"操作建议: {operation_advice_str}\n"
             f"风险提示: {risk_warning_str}\n"
-            f"信号影响明细: {signal_impact_records}\n"
+            # f"信号影响明细: {signal_impact_records}\n"
         )
 
         from collections import defaultdict
