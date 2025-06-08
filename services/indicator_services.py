@@ -1813,7 +1813,7 @@ class IndicatorService:
                 logger.warning(f"添加滚动统计特征失败，未找到列: {col}")
         return df
 
-    async def get_5_min_kline_time_by_day_count(self, stock_code: str, day_count: int) -> List[datetime]:
+    async def get_5_min_kline_time_by_day_count(self, stock_code: str, day_count: int) -> List[datetime.datetime]:
         """
         获取指定股票在前N个交易日内所有的5分钟K线的交易时间（UTC，datetime对象）
         """

@@ -1,4 +1,6 @@
 # dashboard/tasks.py
+import asyncio
+from asgiref.sync import async_to_sync
 import logging
 from django.contrib.auth import get_user_model
 from channels.layers import get_channel_layer
@@ -7,6 +9,9 @@ from chaoyue_dreams.celery import app as celery_app
 import time
 import random
 from users.models import FavoriteStock
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -31,6 +36,12 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
     if channel_layer is None:
         logger.error("无法获取 Channel Layer，WebSocket推送失败。")
         return
+    
+    for stock_code in updated_stock_codes:
+        stock_basic_dao = StockBasicInfoDao()
+        stock_realtime_dao = StockRealtimeDAO()
+        stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
+        latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(stock_code)
 
 # 你还需要配置 Celery Beat 来定时运行这些任务
 # 例如，在 settings.py 中配置:

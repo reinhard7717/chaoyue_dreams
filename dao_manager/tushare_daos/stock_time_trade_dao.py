@@ -319,7 +319,7 @@ class StockTimeTradeDAO(BaseDAO):
 
         records = await get_trade_times()
         trade_times = [record.strftime('%Y-%m-%d %H:%M:%S') for record in records]
-        print(f"查询到{len(trade_times)}条5分钟K线数据")  # 调试信息
+        # print(f"{stock} - 查询到{len(trade_times)}条5分钟K线数据")  # 调试信息
         return trade_times
 
     async def save_minute_time_trade_history_by_time_level(self, stock_code: str, time_level: str) -> None:

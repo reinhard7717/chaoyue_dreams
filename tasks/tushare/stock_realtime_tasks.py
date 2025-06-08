@@ -1,5 +1,6 @@
 # tasks/tushare/stock_realtime_tasks.py
 import asyncio
+from asgiref.sync import async_to_sync
 import logging
 import datetime
 from typing import List, Dict, Any # 引入 List, Dict, Any
@@ -86,7 +87,6 @@ def save_tick_data_batch(self, stock_codes: List[str]):
         # 1. 保存tick数据
         asyncio.run(stock_realtime_dao.save_tick_data_by_stock_codes(stock_codes))
         # logger.info("批量tick数据保存完成，准备推送到前台")
-        from asgiref.sync import async_to_sync
         from users.models import FavoriteStock
         from dashboard.tasks import send_update_to_user_task_celery
 

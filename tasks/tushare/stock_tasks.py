@@ -3,6 +3,7 @@ import asyncio
 from celery import shared_task
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from utils.websockets import send_update_to_user_sync # 导入推送函数
 from asgiref.sync import async_to_sync
@@ -55,7 +56,7 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
         volume = latest_data.volume if latest_data else None
         change_percent = latest_data.change_percent if latest_data else None
         # 3. 获取最新策略信号 (优先从缓存)
-        signal_data = async_to_sync(strategies_dao.get_latest_strategies)(stock_code) # 返回包含 type 和 text 的字典或对象
+        signal_data = async_to_sync(strategies_dao.get_latest_strategy_result)(stock_code) # 返回包含 type 和 text 的字典或对象
         signal = {
             'type': signal_data.get('signal_display', 'hold'), 
             'text': signal_data.get('text', 'N/A')
