@@ -4582,7 +4582,7 @@ class TrendFollowingStrategy:
                 'weighted_confidence_score': convert_nan_to_none(signal_judgment.get('weighted_confidence_score')),
                 'confidence_score': convert_nan_to_none(signal_judgment.get('confidence_score')),
                 'normalized_confidence': convert_nan_to_none(signal_judgment.get('normalized_confidence')),
-                'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x))
+                # 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x))
             }
 
             # 使用 update_or_create 方法保存数据
