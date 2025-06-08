@@ -515,7 +515,8 @@ class StockAnalysisResultTrendFollowing(models.Model):
         ordering = ['stock', '-timestamp']
 
     def __str__(self):
-        return f"{self.stock.stock_code} - {self.timestamp.strftime('%Y-%m-%d %H:%M')} 趋势分析"
+        stock_info = self.stock
+        return f"{stock_info.stock_code}-{stock_info.stock_name} - {self.timestamp.strftime('%Y-%m-%d %H:%M')} 趋势分析"
 
 
 

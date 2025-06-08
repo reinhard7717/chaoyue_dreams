@@ -1,21 +1,15 @@
 # tasks/stock_analysis_tasks.py
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import pandas as pd
-from typing import Dict, Any, Optional
-from celery import group
-from django.conf import settings
-from asgiref.sync import sync_to_async
+from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from django.core.management.base import CommandError
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
 from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
-from strategies.t_plus_0_strategy import TPlus0Strategy
 from strategies.trend_following_strategy import TrendFollowingStrategy
-from strategies.trend_reversal_strategy import TrendReversalStrategy
-from utils.cache_get import StrategyCacheGet
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +59,23 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     """
     # 1. 实例化 IndicatorService
     indicator_service = IndicatorService()
-    cache_get = StrategyCacheGet()
     stock_basic_dao = StockBasicInfoDao()
     stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
     # 2. 获取时间字符串列表
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
-    # 3. 转换成时间戳，升序排序
+    # 3. 升序排序
     trade_times_list = sorted(trade_times_list)
     # 4. 遍历检测
     for t_str in trade_times_list:
+        # 将字符串时间转为datetime对象，并加1分钟
+        t_dt = datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S")  # 假设时间格式为"2024-06-08 09:35:00"
+        t_dt_plus_1min = t_dt + timedelta(minutes=1)  # 增加1分钟
+        t_str_plus_1min = t_dt_plus_1min.strftime("%Y-%m-%d %H:%M:%S")  # 再转回字符串
         # exists = asyncio.run(cache_get.analyze_signals_trend_following_datas_by_timestamp(stock_code, ts))
-        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_str).exists()
+        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_str_plus_1min).exists()  # 修改为加1分钟后的时间
         if not exists:
-            logger.info(f"开始分析股票 {stock_code} - {t_str}")
-            execute_strategy_for_trade_time(stock_code=stock_code, params_file= params_file, trade_time_str=t_str)
+            logger.info(f"开始分析股票 {stock_code} - {t_str_plus_1min}")  # 日志也输出加1分钟后的时间
+            execute_strategy_for_trade_time(stock_code=stock_code, params_file=params_file, trade_time_str=t_str_plus_1min)  # 传递加1分钟后的时间
 
 def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):
     indicator_service = IndicatorService()
@@ -95,7 +92,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
 
         # 获取最新时间戳（假设从数据中取最新时间）
         timestamp = data_df.index[-1] if not data_df.empty else pd.Timestamp.now()
-        print(f"execute_strategy_for_trade_time.timestamp: {timestamp}")
+        print(f"execute_strategy_for_trade_time.timestamp: {stock_code} - {timestamp}")
         # 3. 实例化需要运行的策略
         strategies_to_run: Dict[str, Any] = {}
         try:
