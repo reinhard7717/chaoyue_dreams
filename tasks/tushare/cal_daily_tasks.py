@@ -3,7 +3,7 @@ import logging
 from typing import List
 from chaoyue_dreams.celery import app as celery_app
 from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_this_week_task, save_fund_flow_daily_data_ths_this_week_task, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_ths_yesterday, save_fund_flow_daily_data_today, save_fund_flow_daily_data_yesterday
-from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task, save_index_daily_yesterday_task
+from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task, save_index_daily_yesterday_task, save_trade_cal
 from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_day_data_this_week_batch, save_day_data_today_task, save_day_data_yesterday_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_daily_basic_data_yesterday_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task, save_stocks_minute_data_yesterday_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from tasks.tushare.industry_tasks import save_ths_index_today_task, save_ths_index_yesterday_task
 
@@ -21,6 +21,8 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
     logger.info("整体任务启动: run_daily_data_ingestion_task - 开始执行当日数据采集流程")
 
     try:
+        logger.info("开始执行: 更新交易日历...")
+        save_trade_cal.delay()
         # 步骤 1: 执行分钟数据采集调度任务
         # 这个任务会获取所有股票并分批派发 save_stocks_minute_data_today_batch
         logger.info("开始执行: 分钟数据采集调度任务...")

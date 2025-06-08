@@ -1405,17 +1405,53 @@ class IndicatorService:
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 EMA (指数移动平均线)"""
         if df is None or df.empty or close_col not in df.columns:
+            # logger.warning(f"calculate_ema: 输入 df 为 None、为空或 '{close_col}' 列不存在。") # 根据需要取消注释日志
             return None
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_ema():
+                # df.ta.ema 需要 df[close_col] 是一个 Series
+                # 如果 df[close_col] 由于某种原因不是 Series (例如 df 结构异常)，pandas-ta 内部会处理或报错
                 return df.ta.ema(close=df[close_col], length=period, append=False)
+
             ema_series = await asyncio.to_thread(_sync_ema)
-            if ema_series is None or ema_series.empty:
+
+            # --- 调试信息 Start ---
+            # print(f"DEBUG calculate_ema: period={period}, input df rows={len(df)}")
+            # print(f"DEBUG calculate_ema: ema_series type: {type(ema_series)}")
+            # if ema_series is not None:
+            #     print(f"DEBUG calculate_ema: ema_series value (first 5 if Series else value): {ema_series.head(5) if isinstance(ema_series, pd.Series) else ema_series}")
+            #     if hasattr(ema_series, 'empty'):
+            #         print(f"DEBUG calculate_ema: ema_series.empty: {ema_series.empty}")
+            #     if hasattr(ema_series, 'index'):
+            #         print(f"DEBUG calculate_ema: ema_series.index: {ema_series.index}")
+            #     from pandas.api.types import is_scalar
+            #     print(f"DEBUG calculate_ema: is_scalar(ema_series): {is_scalar(ema_series)}")
+            # else:
+            #     print(f"DEBUG calculate_ema: ema_series is None")
+            # --- 调试信息 End ---
+
+            if ema_series is None: # 修改: 首先检查 ema_series 是否为 None
+                # logger.warning(f"EMA (周期 {period}) 计算后 _sync_ema 返回 None. 输入 df 行数: {len(df)}.")
                 return None
-            # --- 直接用 to_frame 并重命名列 ---
-            ema_df = ema_series.to_frame(name=f'EMA_{period}')
-            return ema_df
+
+            if not isinstance(ema_series, pd.Series): # 修改: 严格检查返回类型是否为 pd.Series
+                logger.error(f"EMA (周期 {period}) 计算结果不是 pandas.Series. "
+                             f"实际类型: {type(ema_series)}, 值 (部分): {str(ema_series)[:200]}. "
+                             f"输入 df 行数: {len(df)}.")
+                return None
+
+            if ema_series.empty: # 修改: 如果是 pd.Series，再检查是否为空
+                # logger.warning(f"EMA (周期 {period}) 计算结果为 空的 pandas.Series. 输入 df 行数: {len(df)}.")
+                return None
+            
+            # 此时 ema_series 是一个非空的 pd.Series
+            return pd.DataFrame({f'EMA_{period}': ema_series})
+        except AttributeError as ae: # 修改: 捕获 AttributeError，例如在非 Series 对象上调用 .empty
+            logger.error(f"计算 EMA (周期 {period}) 时发生 AttributeError: {ae}. "
+                         f"ema_series 当前类型: {type(ema_series)}, 值 (部分): {str(ema_series)[:200]}. "
+                         f"这可能意味着 ema_series 不是预期的 Series 类型，并且类型检查未完全捕获。", exc_info=True)
+            return None
         except Exception as e:
             logger.error(f"计算 EMA (周期 {period}) 出错: {e}", exc_info=True)
             return None
@@ -1423,21 +1459,53 @@ class IndicatorService:
     async def calculate_sma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 SMA (简单移动平均线)"""
         if df is None or df.empty or close_col not in df.columns:
+            # logger.warning(f"calculate_sma: 输入 df 为 None、为空或 '{close_col}' 列不存在。") # 根据需要取消注释日志
             return None
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_sma():
                 return df.ta.sma(close=df[close_col], length=period, append=False)
+
             sma_series = await asyncio.to_thread(_sync_sma)
-            if sma_series is None or sma_series.empty:
+            
+            # --- 调试信息 Start ---
+            # print(f"DEBUG calculate_sma: period={period}, input df rows={len(df)}")
+            # print(f"DEBUG calculate_sma: sma_series type: {type(sma_series)}")
+            # if sma_series is not None:
+            #     print(f"DEBUG calculate_sma: sma_series value (first 5 if Series else value): {sma_series.head(5) if isinstance(sma_series, pd.Series) else sma_series}")
+            #     if hasattr(sma_series, 'empty'):
+            #         print(f"DEBUG calculate_sma: sma_series.empty: {sma_series.empty}")
+            #     if hasattr(sma_series, 'index'):
+            #         print(f"DEBUG calculate_sma: sma_series.index: {sma_series.index}")
+            #     from pandas.api.types import is_scalar
+            #     print(f"DEBUG calculate_sma: is_scalar(sma_series): {is_scalar(sma_series)}")
+            # else:
+            #     print(f"DEBUG calculate_sma: sma_series is None")
+            # --- 调试信息 End ---
+
+            if sma_series is None: # 修改: 首先检查 sma_series 是否为 None
+                # logger.warning(f"SMA (周期 {period}) 计算后 _sync_sma 返回 None. 输入 df 行数: {len(df)}.")
                 return None
-            # --- 直接用 to_frame 并重命名列 ---
-            sma_df = sma_series.to_frame(name=f'SMA_{period}')
-            return sma_df
+
+            if not isinstance(sma_series, pd.Series): # 修改: 严格检查返回类型是否为 pd.Series
+                logger.error(f"SMA (周期 {period}) 计算结果不是 pandas.Series. "
+                             f"实际类型: {type(sma_series)}, 值 (部分): {str(sma_series)[:200]}. "
+                             f"输入 df 行数: {len(df)}.")
+                return None
+
+            if sma_series.empty: # 修改: 如果是 pd.Series，再检查是否为空
+                # logger.warning(f"SMA (周期 {period}) 计算结果为 空的 pandas.Series. 输入 df 行数: {len(df)}.")
+                return None
+
+            # 此时 sma_series 是一个非空的 pd.Series
+            return pd.DataFrame({f'SMA_{period}': sma_series})
+        except AttributeError as ae: # 修改: 捕获 AttributeError
+            logger.error(f"计算 SMA (周期 {period}) 时发生 AttributeError: {ae}. "
+                         f"sma_series 当前类型: {type(sma_series)}, 值 (部分): {str(sma_series)[:200]}. ", exc_info=True)
+            return None
         except Exception as e:
             logger.error(f"计算 SMA (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
 
     async def calculate_amount_ma(self, df: pd.DataFrame, period: int = 20, amount_col='amount') -> Optional[pd.DataFrame]:
         """计算成交额的移动平均线 (AMT_MA)"""
