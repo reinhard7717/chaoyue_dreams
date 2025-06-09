@@ -13,7 +13,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET_KEY = 'django-insecure-your-secret-key-here'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "chaoyuedreams.top",  # 你的域名
+    "39.101.65.133",      # 你的服务器公网IP
+    "172.30.93.156",      # 内网IP
+    "localhost",          # 本地调试
+    "127.0.0.1",          # 本地回环
+]
 # --- 开始: 动态获取本机IP并设置Redis主机 ---
 def get_local_ip():
     """尝试获取本机的主要出站IP地址"""
