@@ -211,7 +211,7 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')
-def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5', params_file: str = "default_params.json", day_count: int = 5):
+def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5', params_file: str = "config/indicator_parameters.json", day_count: int = 5):
     """
     调度器任务：保存分钟数据后自动分析
     """
