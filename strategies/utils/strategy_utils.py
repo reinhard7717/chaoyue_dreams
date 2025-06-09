@@ -2241,7 +2241,7 @@ def adjust_score_with_volume(
     processed_tfs = []
 
     for current_vol_tf in vol_tf_list_to_process:
-        print(f"\n--- DEBUG PRINT: 处理量能时间框架: {current_vol_tf} ---")
+        # print(f"\n--- DEBUG PRINT: 处理量能时间框架: {current_vol_tf} ---")
 
         timeframe_naming_conv = current_naming_config.get('timeframe_naming_convention', {})
         tf_score_str = str(current_vol_tf)

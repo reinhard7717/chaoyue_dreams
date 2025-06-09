@@ -3621,7 +3621,7 @@ class TrendFollowingStrategy:
                 current_bearish_streak += 1
                 current_bullish_streak = 0
             else: # 信号回到中性区域，趋势中断
-                print(f"[{self.strategy_name}] 信号 {signal_val:.2f} 进入中性区域，趋势中断。")
+                # print(f"[{self.strategy_name}] 信号 {signal_val:.2f} 进入中性区域，趋势中断。")
                 break
         # print(f"[{self.strategy_name}] 计算得到连续看涨周期数: {current_bullish_streak}, 连续看跌周期数: {current_bearish_streak}。")
 
