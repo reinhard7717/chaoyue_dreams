@@ -20,10 +20,8 @@ class UserDAO(BaseDAO):
         self.data_format_process = UserDataFormatProcess()
 
     async def initialize_cache_objects(self):
-        self.cache_set = UserCacheSet()  # 先实例化
-        await self.cache_set.initialize()  # 然后 await 初始化
-        self.cache_get = UserCacheGet()  # 类似处理
-        await self.cache_get.initialize()
+        self.cache_set = UserCacheSet()
+        self.cache_get = UserCacheGet()
 
     async def get_user_favorites(self, user_id: int) -> List[FavoriteStock]:
         try:
