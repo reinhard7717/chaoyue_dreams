@@ -78,7 +78,7 @@ def log_execution_time(func: Callable) -> Callable:
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logger.info(f"函数 {func.__name__} 执行耗时: {end_time - start_time:.4f} 秒")
+        # logger.info(f"函数 {func.__name__} 执行耗时: {end_time - start_time:.4f} 秒")
         return result
     return wrapper
 
