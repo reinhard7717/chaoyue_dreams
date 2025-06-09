@@ -46,21 +46,34 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             return
         # 2. 获取最新实时数据 (优先从缓存)
         latest_data = async_to_sync(realtime_dao.get_latest_tick_data)(stock_code)
-        current_price = latest_data.current_price if latest_data else None
-        high_price = latest_data.high_price if latest_data else None
-        low_price = latest_data.low_price if latest_data else None
-        open_price = latest_data.open_price if latest_data else None
-        prev_close_price = latest_data.prev_close_price if latest_data else None
-        trade_time = latest_data.trade_time if latest_data else None
-        turnover_value = latest_data.turnover_value if latest_data else None
-        volume = latest_data.volume if latest_data else None
-        change_percent = latest_data.change_percent if latest_data else None
+        current_price = latest_data.get('current_price') if latest_data else None
+        high_price = latest_data.get('high_price') if latest_data else None
+        low_price = latest_data.get('low_price') if latest_data else None
+        open_price = latest_data.get('open_price') if latest_data else None
+        prev_close_price = latest_data.get('prev_close_price') if latest_data else None
+        trade_time = latest_data.get('trade_time') if latest_data else None
+        turnover_value = latest_data.get('turnover_value') if latest_data else None
+        volume = latest_data.get('volume') if latest_data else None
+        change_percent = latest_data.get('change_percent') if latest_data else None
         # 3. 获取最新策略信号 (优先从缓存)
-        signal_data = async_to_sync(strategies_dao.get_latest_strategy_result)(stock_code) # 返回包含 type 和 text 的字典或对象
+        latest_strategy_result = async_to_sync(strategies_dao.get_latest_strategy_result)(stock_code) # 返回包含 type 和 text 的字典或对象
+        score = getattr(latest_strategy_result, 'score', None)
+        if score is None:
+            signal_type = 'hold'
+            signal_text = 'N/A'
+        else:
+            # 你可以自定义分数区间
+            if score >= 75:
+                signal_type = 'buy'
+            elif score <= 25:
+                signal_type = 'sell'
+            else:
+                signal_type = 'hold'
+            signal_text = str(score)
         signal = {
-            'type': signal_data.get('signal_display', 'hold'), 
-            'text': signal_data.get('text', 'N/A')
-            } if signal_data else {'type': 'hold', 'text': 'N/A'}
+            'type': signal_type, 
+            'text': signal_text
+            }
         # 4. 组装 Payload
         payload_data = {
             'id': favorite_id, # 使用 FavoriteStock 的 ID
@@ -87,6 +100,3 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
         logger.info(f"成功推送新自选股 {stock_info.stock_code} 数据给用户 {user_id}")
     except Exception as e:
         logger.error(f"为新自选股 {stock_code} 获取数据并推送时出错: {e}", exc_info=True)
-    finally:
-        # 如果 DAO 需要关闭连接，在这里处理 (取决于你的 DAO 实现)
-        realtime_dao.close()
