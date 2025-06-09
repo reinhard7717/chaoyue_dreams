@@ -124,6 +124,7 @@ class StockRealtimeDAO(BaseDAO):
             volume = data_dict.get('volume')
             volume = round(volume / 100, 2)
             data_dict['volume'] = volume
+            print(f"data_dict: {data_dict}")
             return data_dict
         else:
             return None
