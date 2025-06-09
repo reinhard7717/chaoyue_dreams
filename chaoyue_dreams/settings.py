@@ -15,6 +15,7 @@ SECRET_KEY = 'django-insecure-your-secret-key-here'
 DEBUG = True
 ALLOWED_HOSTS = [
     "chaoyuedreams.top",  # 你的域名
+    "www.chaoyuedreams.top",
     "39.101.65.133",      # 你的服务器公网IP
     "172.30.93.156",      # 内网IP
     "localhost",          # 本地调试
