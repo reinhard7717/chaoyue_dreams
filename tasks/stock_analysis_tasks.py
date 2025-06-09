@@ -1,12 +1,14 @@
 # tasks/stock_analysis_tasks.py
 import asyncio
 from datetime import datetime, timedelta
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from django.db.models import Q
+import pandas as pd
 import logging
 from celery import group
 import pandas as pd
 from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
-from django.core.management.base import CommandError
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
 from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
