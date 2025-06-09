@@ -232,27 +232,28 @@ document.addEventListener('DOMContentLoaded', function() {
     function addStockRow(favData) {
         if (!favoritesTbody) return;
         // 检查是否已存在 (以防万一重复推送)
-        if (favoritesTbody.querySelector(`tr[data-favorite-id="${favData.id}"]`)) {
-            console.warn(`Stock row with favorite ID ${favData.id} already exists.`);
-            // 可以选择更新现有行而不是添加
-            // updateStockRow(favData); // 如果 updateStockRow 能处理完整数据
+        const existRow = favoritesTbody.querySelector(`tr[data-favorite-id="${favData.id}"]`);
+        if (existRow) {
+            console.warn(`Stock row with favorite ID ${favData.id} already exists. 刷新内容。`);
+            updateStockRow(favData);
+            flashRow(existRow);
             return;
         }
         favoritesEmpty.style.display = 'none'; // 隐藏空状态提示
         favoritesLoading.style.display = 'none'; // 确保加载状态隐藏
-
+    
         const row = document.createElement('tr');
         row.dataset.stockCode = favData.code;
         row.dataset.favoriteId = favData.id; // 设置 favorite ID
-
+    
         const changePercent = favData.change_percent;
         let percentClass = '';
         if (changePercent > 0) percentClass = 'positive';
         else if (changePercent < 0) percentClass = 'negative';
-
+    
         const signal = favData.signal || { type: 'hold', text: 'N/A' };
         const signalClass = `signal-${signal.type || 'hold'}`;
-
+    
         row.innerHTML = `
             <td class="stock-code">${favData.code || 'N/A'}</td>
             <td class="stock-name">${favData.name || 'N/A'}</td>
@@ -265,7 +266,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <button class="btn btn-danger btn-sm action-btn" data-action="remove">移除</button>
             </td>
         `;
-        favoritesTbody.appendChild(row); // 添加新行到表格末尾 (或根据需要插入到特定位置)
+        favoritesTbody.appendChild(row); // 添加新行到表格末尾
         flashRow(row); // 给新行一个闪烁效果
     }
 

@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}趋势跟踪评分 - {{ block.super }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <section class="trend-list-section">
+        <h2><span class="icon">📈</span> 全市场趋势跟踪评分</h2>
+        <div class="table-wrapper">
+            <table class="data-table" id="trend-table">
+                <thead>
+                    <tr>
+                        <th>股票代码</th>
+                        <th>股票名称</th>
+                        <th>收盘价</th>
+                        <th>组合信号分</th>
+                        <th>规则信号分</th>
+                        <th>Transformer信号分</th>
+                        <th>量能调整基础分</th>
+                        <th>EMA排列信号</th>
+                        <th>ADX强度信号</th>
+                        <th>STOCH信号</th>
+                        <th>当前趋势方向</th>
+                        <th>趋势强度</th>
+                        <th>看涨持续周期</th>
+                        <th>看跌持续周期</th>
+                        <th>加权信心分数</th>
+                        <th>综合信心分数</th>
+                        <th>归一化信心分数</th>
+                        <th>分析时间</th>
+                        <th>操作建议</th>
+                        <th>风险提示</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in trend_scores %}
+                    <tr>
+                        <td>{{ s.stock.stock_code }}</td>
+                        <td>{{ s.stock.stock_name }}</td>
+                        <td>{{ s.close_price|default:"-" }}</td>
+                        <td>{{ s.score|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.rule_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.lstm_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.base_score_volume_adjusted|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.alignment_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.adx_strength_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.stoch_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.current_trend|default:"-" }}</td>
+                        <td>{{ s.trend_strength|default:"-" }}</td>
+                        <td>{{ s.trend_duration_bullish|default:"-" }}</td>
+                        <td>{{ s.trend_duration_bearish|default:"-" }}</td>
+                        <td>{{ s.weighted_confidence_score|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.confidence_score|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.normalized_confidence|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.timestamp|date:"Y-m-d H:i" }}</td>
+                        <td>{{ s.operation_advice|default:"-" }}</td>
+                        <td>{{ s.risk_warning|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="20">暂无数据</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

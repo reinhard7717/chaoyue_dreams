@@ -1,6 +1,7 @@
 # dashboard/views.py
 import json
 from asgiref.sync import async_to_sync
+from django.db.models import Max, F, Subquery, OuterRef
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
@@ -8,6 +9,7 @@ from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q # 用于复杂查询
 from django.core.serializers.json import DjangoJSONEncoder
+from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
@@ -53,6 +55,26 @@ def dashboard_view(request):
     }
     # 4. 渲染模板
     return render(request, 'dashboard/home.html', context)
+
+def trend_following_list(request):
+    # 1. 先查出每只股票的最新时间戳
+    latest_timestamp_subquery = StockAnalysisResultTrendFollowing.objects.filter(
+        stock=OuterRef('stock')
+    ).order_by('-timestamp').values('timestamp')[:1]
+
+    # 2. 只取每只股票最新的那条分析结果
+    latest_results = StockAnalysisResultTrendFollowing.objects.annotate(
+        latest_timestamp=Subquery(latest_timestamp_subquery)
+    ).filter(timestamp=F('latest_timestamp'))
+
+    # 3. 按score从高到低排序
+    latest_results = latest_results.order_by('-score')
+
+    print(f"共查询到{latest_results.count()}只股票的最新趋势评分")  # 调试信息
+
+    return render(request, 'strategies/trend_following.html', {
+        'trend_scores': latest_results,
+    })
 
 # --- DRF API 视图 ---
 

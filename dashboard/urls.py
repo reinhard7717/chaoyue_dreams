@@ -12,6 +12,7 @@ router.register(r'favorites', views.FavoriteStockViewSet, basename='favorite')
 urlpatterns = [
     # 页面 URL
     path('', views.dashboard_view, name='home'), # 主控台页面
+    path('trend_following/', views.trend_following_list, name='trend_following'),
 
     # API URLs
     path('api/search/', views.StockSearchView.as_view(), name='stock-search'),
