@@ -1,12 +1,11 @@
 # tasks/stock_analysis_tasks.py
 import asyncio
 from datetime import datetime, timedelta
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from celery import group
 import pandas as pd
-from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
-from django.core.management.base import CommandError
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
 from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
@@ -56,28 +55,66 @@ async def _get_all_relevant_stock_codes_for_processing():
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock', queue='calculate_strategy')
 def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int = 5):
     """
-    对单只股票执行所有策略分析并保存结果
+    对单只股票执行所有策略分析并保存结果（多进程并发优化版）
     """
-    # 1. 实例化 IndicatorService
     indicator_service = IndicatorService()
     stock_basic_dao = StockBasicInfoDao()
+    # 只调用一次asyncio.run，提升效率
     stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
-    # 2. 获取时间字符串列表
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
     trade_times_list = sorted(trade_times_list)
-    for t_dt in trade_times_list:
-        t_dt_plus_1min = t_dt + timedelta(minutes=1)
-        # 直接用datetime对象查询
-        exists = StockAnalysisResultTrendFollowing.objects.filter(stock=stock_obj, timestamp=t_dt_plus_1min).exists()
-        if not exists:
-            logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
-            execute_strategy_for_trade_time(stock_code=stock_code, params_file=params_file, trade_time_str=t_dt_plus_1min)
 
-def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):
+    # 批量提前查出已存在的分析结果，减少数据库IO
+    t_dt_plus_1min_list = [t_dt + timedelta(minutes=1) for t_dt in trade_times_list]
+    exists_set = set(
+        StockAnalysisResultTrendFollowing.objects.filter(
+            stock=stock_obj, timestamp__in=t_dt_plus_1min_list
+        ).values_list('timestamp', flat=True)
+    )
+
+    # 构建待分析的时间点
+    tasks = []
+    for t_dt, t_dt_plus_1min in zip(trade_times_list, t_dt_plus_1min_list):
+        if t_dt_plus_1min not in exists_set:
+            logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
+            tasks.append((stock_code, params_file, t_dt_plus_1min))
+
+    # 多进程并发执行分析任务
+    results = []
+    if tasks:
+        # 进程池大小可根据CPU核心数调整
+        with ProcessPoolExecutor(max_workers=4) as executor:
+            # 提交所有任务
+            future_to_task = {
+                executor.submit(execute_strategy_for_trade_time_mp, stock_code, params_file, trade_time): (stock_code, trade_time)
+                for stock_code, params_file, trade_time in tasks
+            }
+            for future in as_completed(future_to_task):
+                stock_code, trade_time = future_to_task[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    print(f"分析完成: {stock_code} - {trade_time}")
+                except Exception as exc:
+                    logger.error(f"分析 {stock_code} - {trade_time} 时发生异常: {exc}", exc_info=True)
+    else:
+        print("没有需要分析的时间点。")
+    print(f"所有分析任务已完成，结果数量: {len(results)}")
+    return results
+
+def execute_strategy_for_trade_time_mp(stock_code: str, params_file: str, trade_time):
+    """
+    多进程用的分析函数，参数trade_time为datetime对象
+    """
+    import django
+    django.setup()  # 多进程下需手动初始化Django
+
     indicator_service = IndicatorService()
-    # 2. 准备数据 (基于 params_file 准备所有策略所需数据)
     try:
-        result = asyncio.run(indicator_service.prepare_strategy_dataframe(stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time_str))
+        # 直接同步调用
+        result = asyncio.run(indicator_service.prepare_strategy_dataframe(
+            stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time
+        ))
         if result is None or not isinstance(result, tuple) or len(result) != 2:
             logger.warning(f"股票 {stock_code} 数据准备失败，跳过分析")
             return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}
@@ -86,31 +123,22 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
             logger.warning(f"股票 {stock_code} 数据为空，跳过分析")
             return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}
 
-        # 获取最新时间戳（假设从数据中取最新时间）
         timestamp = data_df.index[-1] if not data_df.empty else pd.Timestamp.now()
-        # print(f"execute_strategy_for_trade_time.timestamp: {stock_code} - {timestamp}")
-        # 3. 实例化需要运行的策略
-        strategies_to_run: Dict[str, Any] = {}
+        strategies_to_run = {}
         try:
-            # 按需实例化策略
             strategies_to_run['trend_following'] = TrendFollowingStrategy(params_file=params_file)
-            # strategies_to_run['trend_reversal'] = TrendReversalStrategy(params_file=params_file)
-            # strategies_to_run['t_plus_0'] = TPlus0Strategy(params_file=params_file)
             logger.info(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
         except (FileNotFoundError, ValueError, ImportError, KeyError) as e:
             logger.error(f"初始化策略时出错: {e}", exc_info=True)
-            raise CommandError(f"初始化策略时出错: {e}")
+            return {"stock_code": stock_code, "status": "error", "reason": str(e)}
 
         results = {}
         for strategy_name, strategy in strategies_to_run.items():
             try:
-                # 执行策略生成信号
                 signals = strategy.generate_signals(data=data_df, stock_code=stock_code, indicator_configs=indicator_configs)
                 if signals is not None and not signals.empty:
-                    # 先分析信号
                     analysis_result = strategy.analyze_signals(stock_code)
                     if analysis_result is not None:
-                        # 保存分析结果
                         strategy.save_analysis_results(stock_code=stock_code, timestamp=timestamp, data=data_df)
                         results[strategy_name] = {"status": "success", "signal": signals.iloc[-1] if not signals.empty else None}
                     else:
@@ -127,7 +155,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
         return {"stock_code": stock_code, "status": "completed", "results": results}
     except Exception as e:
         logger.error(f"分析股票 {stock_code} 时发生错误: {e}", exc_info=True)
-        # raise
+        return {"stock_code": stock_code, "status": "error", "reason": str(e)}
 
 # --- 调度任务：获取所有股票并分配分析任务 ---
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
