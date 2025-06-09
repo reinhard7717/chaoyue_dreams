@@ -1,6 +1,7 @@
 # tasks/tushare/stock_realtime_tasks.py
 import asyncio
 from asgiref.sync import async_to_sync
+from celery import chain
 import logging
 import datetime
 from typing import List, Dict, Any # 引入 List, Dict, Any
@@ -11,6 +12,7 @@ from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from tasks.stock_analysis_tasks import analyze_batch_stocks
 
 
 # 自选股队列
@@ -208,60 +210,52 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')
-def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5'): # 限量：单次最大1000行数据
+def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5', params_file: str = "default_params.json", day_count: int = 5):
     """
-    调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
-    这个任务由 Celery Beat 调度。
+    调度器任务：保存分钟数据后自动分析
     """
     if not is_trading_time():
         return
     logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
     try:
-        # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-
         if not favorite_codes and not non_favorite_codes:
             logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
             return {"status": "warning", "message": "未获取到股票代码", "dispatched_batches": 0}
-
         total_dispatched_batches = 0
         total_favorite_stocks = len(favorite_codes)
         total_non_favorite_stocks = len(non_favorite_codes)
-
         # 1. 分派自选股批量任务
         logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
         for i in range(0, total_favorite_stocks, batch_size):
             batch = favorite_codes[i:i + batch_size]
             if batch:
-                # 使用新的批量任务，并指定队列
-                save_minute_data_realtime_batch.s(batch, time_level).set().apply_async()
+                # 链式：先保存分钟数据，再分析
+                task_chain = chain(
+                    save_minute_data_realtime_batch.s(batch, time_level),
+                    analyze_batch_stocks.s(params_file, day_count)
+                )
+                task_chain.apply_async()
                 total_dispatched_batches += 1
-
-        # logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
         favorite_batches_dispatched = total_dispatched_batches
-
         # 2. 分派非自选股批量任务
         logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
         non_favorite_batches_dispatched = 0
         for i in range(0, total_non_favorite_stocks, batch_size):
             batch = non_favorite_codes[i:i + batch_size]
             if batch:
-                # logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
-                # 使用新的批量任务，并指定队列
-                save_minute_data_realtime_batch.s(batch, time_level).set().apply_async()
+                task_chain = chain(
+                    save_minute_data_realtime_batch.s(batch, time_level),
+                    analyze_batch_stocks.s(params_file, day_count)
+                )
+                task_chain.apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
-
         logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
-
     except Exception as e:
         logger.error(f"执行 save_stocks_realtime_min_data_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
-
 
 

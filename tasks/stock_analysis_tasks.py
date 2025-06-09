@@ -52,7 +52,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 
     return favorite_stock_codes_list, non_favorite_stock_codes
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock', queue='calculate_strategy')
 def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int = 5):
     """
     对单只股票执行所有策略分析并保存结果
@@ -129,7 +129,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
         # raise
 
 # --- 调度任务：获取所有股票并分配分析任务 ---
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.json"):
     """
     调度任务：获取所有股票并分配分析任务
@@ -157,3 +157,13 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
     except Exception as e:
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
+
+# 批量分析任务
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='calculate_strategy')
+def analyze_batch_stocks(self, stock_codes: list, params_file: str = "default_params.json", day_count: int = 5):
+    """
+    批量分析一组股票
+    """
+    for code in stock_codes:
+        print(f"开始分析股票: {code}")  # 调试信息
+        analyze_single_stock.delay(code, params_file, day_count)
