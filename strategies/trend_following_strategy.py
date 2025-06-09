@@ -111,7 +111,7 @@ class TrendFollowingStrategy:
             params_file (str): 策略参数JSON文件的路径。
             base_data_dir (str): 存储策略相关数据的基础目录。
         """
-        print(f"TrendFollowingStrategy __init__ called with params_file: {params_file}, base_data_dir: {base_data_dir}") # DEBUG: 初始调用信息
+        # print(f"TrendFollowingStrategy __init__ called with params_file: {params_file}, base_data_dir: {base_data_dir}") # DEBUG: 初始调用信息
 
         # --- 阶段 0: 基础依赖和路径初始化 ---
         params_file, base_data_dir = self._initialize_base_paths_and_dependencies(params_file=params_file, base_data_dir=base_data_dir) # 调用辅助方法
@@ -576,7 +576,7 @@ class TrendFollowingStrategy:
         try:
             with open(self.selected_features_path, 'r', encoding='utf-8') as f:
                 self.selected_feature_names_for_transformer = json.load(f)
-            print(f"[{self.strategy_name}] 已从 {self.selected_features_path} 加载 {len(self.selected_feature_names_for_transformer)} 个特征名。") # ADDED LINE: 调试信息
+            # print(f"[{self.strategy_name}] 已从 {self.selected_features_path} 加载 {len(self.selected_feature_names_for_transformer)} 个特征名。") # ADDED LINE: 调试信息
         except FileNotFoundError:
             logger.error(f"[{self.strategy_name}] 特征名文件未找到: {self.selected_features_path}")
         except json.JSONDecodeError:
@@ -600,7 +600,7 @@ class TrendFollowingStrategy:
         self.all_prepared_data_npz_path = os.path.join(prepared_data_dir, "all_prepared_data_transformer.npz")
         self.model_dir = trained_model_dir
         self.model_path = os.path.join(trained_model_dir, f"best_transformer_model_{stock_code}.pth")
-        print(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
+        # print(f"[{self.strategy_name}] 为股票 {stock_code} 设置文件路径:")
         # print(f"  模型权重: {self.model_path}")
         # print(f"  特征Scaler: {self.feature_scaler_path}")
         # logger.debug(f"  目标Scaler: {self.target_scaler_path}")
@@ -3518,7 +3518,7 @@ class TrendFollowingStrategy:
         深化：增加更详细的参数校验和调试信息，以及数据点数量检查。
         优化：在保证严格性的前提下，提升代码效率和清晰度。
         """
-        print(f"[{self.strategy_name}] 开始计算趋势持续时间。")
+        # print(f"[{self.strategy_name}] 开始计算趋势持续时间。")
         trend_duration_info = {
             'bullish_duration': 0, 'bearish_duration': 0,
             'bullish_duration_text': '0分钟', 'bearish_duration_text': '0分钟',
@@ -3531,7 +3531,7 @@ class TrendFollowingStrategy:
             logger.error(f"[{self.strategy_name}] NAMING_CONFIG 中 'strategy_internal_columns.output_columns' 配置无效，应为列表。")
             internal_cols_conf = []
         final_rule_signal_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern') == "final_rule_signal"), "final_rule_signal")
-        print(f"[{self.strategy_name}] 趋势持续时间计算：使用的规则信号列名为 '{final_rule_signal_col}'。")
+        # print(f"[{self.strategy_name}] 趋势持续时间计算：使用的规则信号列名为 '{final_rule_signal_col}'。")
 
         # 严格检查输入数据框和信号列的有效性
         # 增加对输入DataFrame类型的检查
@@ -3604,9 +3604,9 @@ class TrendFollowingStrategy:
         if trend_duration_threshold_strong < trend_duration_threshold_moderate:
              logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：强趋势阈值 ({trend_duration_threshold_strong}) 小于中等趋势阈值 ({trend_duration_threshold_moderate})。已调整强趋势阈值以确保逻辑正确。")
              trend_duration_threshold_strong = trend_duration_threshold_moderate + 1
-        print(f"[{self.strategy_name}] 趋势判断阈值：上沿={trend_threshold_upper}, 下沿={trend_threshold_lower}, 强多={strong_bullish_threshold}, 强空={strong_bearish_threshold}, 中多={moderate_bullish_threshold}, 中空={moderate_bearish_threshold}。")
-        print(f"[{self.strategy_name}] 趋势持续时间阈值：强={trend_duration_threshold_strong}, 中={trend_duration_threshold_moderate}。")
-        print(f"[{self.strategy_name}] 交易日分钟数：{trading_day_minutes}。")
+        # print(f"[{self.strategy_name}] 趋势判断阈值：上沿={trend_threshold_upper}, 下沿={trend_threshold_lower}, 强多={strong_bullish_threshold}, 强空={strong_bearish_threshold}, 中多={moderate_bullish_threshold}, 中空={moderate_bearish_threshold}。")
+        # print(f"[{self.strategy_name}] 趋势持续时间阈值：强={trend_duration_threshold_strong}, 中={trend_duration_threshold_moderate}。")
+        # print(f"[{self.strategy_name}] 交易日分钟数：{trading_day_minutes}。")
         
 
         current_bullish_streak = 0
@@ -3623,7 +3623,7 @@ class TrendFollowingStrategy:
             else: # 信号回到中性区域，趋势中断
                 print(f"[{self.strategy_name}] 信号 {signal_val:.2f} 进入中性区域，趋势中断。")
                 break
-        print(f"[{self.strategy_name}] 计算得到连续看涨周期数: {current_bullish_streak}, 连续看跌周期数: {current_bearish_streak}。")
+        # print(f"[{self.strategy_name}] 计算得到连续看涨周期数: {current_bullish_streak}, 连续看跌周期数: {current_bearish_streak}。")
 
         trend_duration_info['bullish_duration'] = current_bullish_streak
         trend_duration_info['bearish_duration'] = current_bearish_streak
@@ -3633,7 +3633,7 @@ class TrendFollowingStrategy:
             timeframe_minutes = int(self.focus_timeframe)
             bullish_total_minutes = current_bullish_streak * timeframe_minutes
             bearish_total_minutes = current_bearish_streak * timeframe_minutes
-            print(f"[{self.strategy_name}] 转换时间：单周期分钟数={timeframe_minutes}, 看涨总分钟={bullish_total_minutes}, 看跌总分钟={bearish_total_minutes}。")
+            # print(f"[{self.strategy_name}] 转换时间：单周期分钟数={timeframe_minutes}, 看涨总分钟={bullish_total_minutes}, 看跌总分钟={bearish_total_minutes}。")
 
             def format_duration_with_trading_day(total_minutes: int, trading_day_minutes: int) -> str:
                 """将总分钟数格式化为交易日、小时、分钟的字符串。"""
@@ -3729,7 +3729,7 @@ class TrendFollowingStrategy:
         使用JSON配置获取内部列名。
         优化：增加严格的输入检查，参数预加载，统一信号值获取，提升效率和清晰度。
         """
-        print(f"[{self.strategy_name}][{stock_code}] 开始分析信号。")
+        # print(f"[{self.strategy_name}][{stock_code}] 开始分析信号。")
         stock_basic_dao = StockBasicInfoDao()
         stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
 
@@ -3746,7 +3746,7 @@ class TrendFollowingStrategy:
         analysis_results_dict = {}
         latest_data_row = self.intermediate_data.iloc[-1]
         # print(f"analyze_signals.latest_data_row: {latest_data_row}")
-        print(f"[{self.strategy_name}][{stock}] 获取最新数据行。")
+        # print(f"[{self.strategy_name}][{stock}] 获取最新数据行。")
         # 新增：用于记录每次add_signal_impact的详细影响
         signal_impact_records = []
 
@@ -3771,7 +3771,7 @@ class TrendFollowingStrategy:
         score_momentum_threshold_abs = self.tf_params.get('score_momentum_threshold_abs', 5)
         score_momentum_long_term_multiplier = self.tf_params.get('score_momentum_long_term_multiplier', 1.5)
 
-        print(f"[{self.strategy_name}][{stock_code}] 策略参数已加载。")
+        # print(f"[{self.strategy_name}][{stock_code}] 策略参数已加载。")
 
         # 获取策略内部列名，使用 JSON 配置
         internal_cols_conf = NAMING_CONFIG.get('strategy_internal_columns', {}).get('output_columns', [])
@@ -3803,7 +3803,7 @@ class TrendFollowingStrategy:
                     actual_col_names[pattern] = actual_name
                 else:
                     logger.debug(f"[{self.strategy_name}][{stock}] 内部列模式 '{pattern}' (或其格式化名称 '{actual_name}') 未在数据中找到。")
-        print(f"[{self.strategy_name}][{stock}] 动态获取内部列名完成。")
+        # print(f"[{self.strategy_name}][{stock}] 动态获取内部列名完成。")
 
         # 从 actual_col_names 字典中安全获取列名，如果不存在则使用默认字符串
         def get_col_name(pattern: str, default_str: str) -> str:
@@ -3863,7 +3863,7 @@ class TrendFollowingStrategy:
         # 计算趋势持续时间
         trend_duration_info_dict = self._calculate_trend_duration(self.intermediate_data)
         analysis_results_dict.update(trend_duration_info_dict)
-        print(f"[{self.strategy_name}][{stock}] 趋势持续时间信息已计算。")
+        # print(f"[{self.strategy_name}][{stock}] 趋势持续时间信息已计算。")
 
         signal_judgment_dict = {}
         operation_advice_str = "中性观望"
@@ -3938,7 +3938,7 @@ class TrendFollowingStrategy:
                 add_signal_impact('volume_effect', "量能影响一般", 0)
 
         # 4. 长期趋势与当前信号配合/背离
-        print(f"[{self.strategy_name}][{stock}] 长期趋势背景: '{long_term_context_val}'。")
+        # print(f"[{self.strategy_name}][{stock}] 长期趋势背景: '{long_term_context_val}'。")
         if long_term_context_val is not None:
             if long_term_context_val == "多头" and final_score_val < 50:
                 add_signal_impact('long_term_vs_current', "多头背景下信号偏弱", -10, "长期趋势为多头，但当前信号偏弱，警惕短期回调风险。")
@@ -3952,7 +3952,7 @@ class TrendFollowingStrategy:
                 add_signal_impact('long_term_vs_current', f"长期趋势：{long_term_context_val}", 0)
 
         # 5. 动量指标 (STOCH) 与趋势信号共振/背离
-        print(f"[{self.strategy_name}][{stock}] STOCH 信号: {stoch_signal_val:.2f}, 超买阈值={stoch_overbought_thresh}, 超卖阈值={stoch_oversold_thresh}。")
+        # print(f"[{self.strategy_name}][{stock}] STOCH 信号: {stoch_signal_val:.2f}, 超买阈值={stoch_overbought_thresh}, 超卖阈值={stoch_oversold_thresh}。")
         if not np.isnan(stoch_signal_val):
             if stoch_signal_val >= stoch_overbought_thresh and final_score_val >= moderate_bullish_thresh:
                 add_signal_impact('stoch_trend_relation', "趋势与超买共振", -15, "趋势强劲但随机指标超买，短线追高风险较大，注意回调。")
@@ -3966,7 +3966,7 @@ class TrendFollowingStrategy:
                 add_signal_impact('stoch_trend_relation', "随机指标与趋势分无明显共振", 0)
 
         # 6. 量能异动与趋势信号配合/背离
-        print(f"[{self.strategy_name}][{stock}] 量能异动信号: {vol_spike_signal_val:.2f}。")
+        # print(f"[{self.strategy_name}][{stock}] 量能异动信号: {vol_spike_signal_val:.2f}。")
         if not np.isnan(vol_spike_signal_val):
             if vol_spike_signal_val > 0 and final_score_val >= moderate_bullish_thresh:
                 add_signal_impact('vol_spike_trend', "量能异动强化看涨趋势", 10, "趋势强劲且伴随放量上涨，可能预示加速，但需注意追高风险。")
@@ -4029,7 +4029,7 @@ class TrendFollowingStrategy:
         else: add_signal_impact('score_momentum_acceleration_status', "数据缺失", 0)
 
         # 11. 多时间段的分数变化
-        print(f"[{self.strategy_name}][{stock}] 分析信号分在多时间段的变化。")
+        # print(f"[{self.strategy_name}][{stock}] 分析信号分在多时间段的变化。")
         score_change_short = np.nan
         score_change_long = np.nan
         score_change_consistency_status = "数据不足"
@@ -4114,7 +4114,7 @@ class TrendFollowingStrategy:
         dmi_period_bs = self._get_param_val(param_sources, 'dmi_period', 14)
         adx_col = f'ADX_{dmi_period_bs}_{self.focus_timeframe}'
         adx_val = latest_data_row.get(adx_col, np.nan)
-        print(f"[{self.strategy_name}][{stock}] 原始 ADX 值 (来自列 {adx_col}): {adx_val}。")
+        # print(f"[{self.strategy_name}][{stock}] 原始 ADX 值 (来自列 {adx_col}): {adx_val}。")
         if not np.isnan(adx_val):
              if adx_val >= adx_strong_thresh: add_signal_impact('adx_status', "趋势非常强劲 (原始ADX)", 10)
              elif adx_val >= adx_moderate_thresh: add_signal_impact('adx_status', "趋势强劲 (原始ADX)", 5)
@@ -4383,9 +4383,9 @@ class TrendFollowingStrategy:
         analysis_results_dict['risk_warning'] = risk_warning_str
         analysis_results_dict['chinese_interpretation'] = chinese_interpretation_str
         self.analysis_results = analysis_results_dict
-        logger.debug(f"[{self.strategy_name}][{stock}] 信号分析完成。")
+        # logger.debug(f"[{self.strategy_name}][{stock}] 信号分析完成。")
         logger.info(chinese_interpretation_str)
-        print(f"[{self.strategy_name}][{stock}] 信号分析完成。")
+        # print(f"[{self.strategy_name}][{stock}] 信号分析完成。")
 
         return analysis_results_dict
 

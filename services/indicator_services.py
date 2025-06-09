@@ -717,8 +717,8 @@ class IndicatorService:
         if not any(conf['name'] == 'OBV' for conf in indicator_configs):
             _add_indicator_config('OBV', self.calculate_obv, None, {}, list(all_time_levels_needed))
         focus_tf = params.get('trend_following_params', {}).get('focus_timeframe', '30')
-        print(f"[{stock_code}] Debug: 策略关注的时间级别 (focus_tf): {focus_tf}")
-        print(f"[{stock_code}] Debug: 所有策略所需时间级别集合: {sorted(list(all_time_levels_needed))}")
+        # print(f"[{stock_code}] Debug: 策略关注的时间级别 (focus_tf): {focus_tf}")
+        # print(f"[{stock_code}] Debug: 所有策略所需时间级别集合: {sorted(list(all_time_levels_needed))}")
         min_time_level = None
         min_tf_minutes = float('inf')
         if not all_time_levels_needed:

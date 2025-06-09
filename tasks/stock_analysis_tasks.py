@@ -88,7 +88,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
 
         # 获取最新时间戳（假设从数据中取最新时间）
         timestamp = data_df.index[-1] if not data_df.empty else pd.Timestamp.now()
-        print(f"execute_strategy_for_trade_time.timestamp: {stock_code} - {timestamp}")
+        # print(f"execute_strategy_for_trade_time.timestamp: {stock_code} - {timestamp}")
         # 3. 实例化需要运行的策略
         strategies_to_run: Dict[str, Any] = {}
         try:
