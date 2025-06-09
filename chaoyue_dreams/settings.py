@@ -449,13 +449,13 @@ CELERY_BEAT_SCHEDULE = {
     #     'kwargs': {'time_level': '1'},
     #     'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     # },
-    # '每 5 分钟运行一次所有股票的K线数据获取任务': {
-    #     # 这里包含了获得最新数据、计算指标、执行策略等步骤
-    #     'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-    #     'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
-    #     'kwargs': {'time_level': '5'},
-    #     'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
-    # },
+    '每 5 分钟运行一次所有股票的K线数据获取任务': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
     # '每 15 分钟运行一次所有股票的K线数据获取任务': {
     #     # 这里包含了获得最新数据、计算指标、执行策略等步骤
     #     'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
