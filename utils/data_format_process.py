@@ -238,7 +238,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
 
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
         # 兼容 freq 和 time_level 字段
-        time_level = getattr(df_data, "freq", getattr(df_data, "time_level", None))
+        time_level = getattr(df_data, "freq", getattr(df_data, "time_level", None)).lower()
         # 处理time_level，去掉min，转为int
         if isinstance(time_level, str) and time_level.endswith('min'):
             time_level_num = int(time_level.replace('min', ''))
