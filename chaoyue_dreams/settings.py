@@ -21,6 +21,11 @@ ALLOWED_HOSTS = [
     "localhost",          # 本地调试
     "127.0.0.1",          # 本地回环
 ]
+CSRF_TRUSTED_ORIGINS = [
+    "https://chaoyuedreams.top",  # 你的正式域名
+    "https://www.chaoyuedreams.top",
+]
+
 # --- 开始: 动态获取本机IP并设置Redis主机 ---
 def get_local_ip():
     """尝试获取本机的主要出站IP地址"""
