@@ -2695,8 +2695,8 @@ class TrendFollowingStrategy:
             except Exception as e:
                 logger.error(f"[{self.strategy_name}][{stock_code}] Transformer 模型预测出错: {e}", exc_info=True)
                 # 预测出错时，transformer_signal 列保持默认值 50.0
-        else:
-            logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型/Scaler/特征列表未加载，跳过 Transformer 预测。Transformer_signal 将保持默认值 50.0。")
+        # else:
+            # logger.warning(f"[{self.strategy_name}][{stock_code}] Transformer 模型/Scaler/特征列表未加载，跳过 Transformer 预测。Transformer_signal 将保持默认值 50.0。")
         # --- 阶段 3: 组合规则信号和 Transformer 信号 ---
         logger.debug(f"[{self.strategy_name}][{stock_code}] 组合规则信号和 Transformer 信号...")
         try:
@@ -2968,7 +2968,7 @@ class TrendFollowingStrategy:
         ])
 
         if not required_files_exist:
-            logger.warning(f"[{self.strategy_name}][{stock_code}] 缺失必需的 Transformer 模型/Scaler/特征文件，无法加载。")
+            # logger.warning(f"[{self.strategy_name}][{stock_code}] 缺失必需的 Transformer 模型/Scaler/特征文件，无法加载。")
             self._reset_model_components() # 重置状态
             return
 
@@ -3716,10 +3716,10 @@ class TrendFollowingStrategy:
              trend_duration_info['duration_status'] = '中'
         else:
              trend_duration_info['duration_status'] = '短'
-        print(f"[{self.strategy_name}] 趋势持续周期数: {current_duration_periods}, 持续状态: '{trend_duration_info['duration_status']}'。")
+        # print(f"[{self.strategy_name}] 趋势持续周期数: {current_duration_periods}, 持续状态: '{trend_duration_info['duration_status']}'。")
 
-        logger.debug(f"[{self.strategy_name}] 趋势持续时间计算完成。持续信息: {trend_duration_info}")
-        print(f"[{self.strategy_name}] 趋势持续时间计算完成。")
+        # logger.debug(f"[{self.strategy_name}] 趋势持续时间计算完成。持续信息: {trend_duration_info}")
+        # print(f"[{self.strategy_name}] 趋势持续时间计算完成。")
 
         return trend_duration_info
 
