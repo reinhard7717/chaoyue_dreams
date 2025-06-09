@@ -207,6 +207,7 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
         asyncio.run(stock_time_trade_dao.save_minute_time_trade_realtime_by_stock_codes_and_time_level(stock_codes, time_level))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    return stock_codes
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')

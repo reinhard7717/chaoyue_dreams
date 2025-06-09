@@ -2,6 +2,7 @@
 import asyncio
 from datetime import datetime, timedelta
 import logging
+from celery import group
 import pandas as pd
 from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
@@ -162,8 +163,13 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='calculate_strategy')
 def analyze_batch_stocks(self, stock_codes: list, params_file: str = "default_params.json", day_count: int = 5):
     """
-    批量分析一组股票
+    批量分析一组股票，充分利用多核并发
     """
-    for code in stock_codes:
-        print(f"开始分析股票: {code}")  # 调试信息
-        analyze_single_stock.delay(code, params_file, day_count)
+    print(f"批量分析任务启动，股票数: {len(stock_codes)}")  # 调试信息
+    # 构建 group，每只股票一个 analyze_single_stock 子任务
+    job_group = group(
+        analyze_single_stock.s(code, params_file, day_count) for code in stock_codes
+    )
+    result = job_group.apply_async()
+    print(f"已分发{len(stock_codes)}个分析子任务，task_ids: {[t.id for t in result.results]}")
+    return {"dispatched": len(stock_codes), "task_ids": [t.id for t in result.results]}
