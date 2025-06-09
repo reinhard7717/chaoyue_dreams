@@ -1,11 +1,12 @@
 # tasks/stock_analysis_tasks.py
 import asyncio
 from datetime import datetime, timedelta
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from celery import group
 import pandas as pd
+from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
+from django.core.management.base import CommandError
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
 from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
@@ -52,68 +53,48 @@ async def _get_all_relevant_stock_codes_for_processing():
 
     return favorite_stock_codes_list, non_favorite_stock_codes
 
+# 1. 优化单只股票分析任务
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_single_stock', queue='calculate_strategy')
 def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int = 5):
     """
-    对单只股票执行所有策略分析并保存结果（多进程并发优化版）
+    对单只股票执行所有策略分析并保存结果
     """
     indicator_service = IndicatorService()
     stock_basic_dao = StockBasicInfoDao()
-    # 只调用一次asyncio.run，提升效率
     stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
     trade_times_list = sorted(trade_times_list)
-
-    # 批量提前查出已存在的分析结果，减少数据库IO
-    t_dt_plus_1min_list = [t_dt + timedelta(minutes=1) for t_dt in trade_times_list]
+    # 优化1：提前批量查找已存在的分析结果，减少数据库IO
+    time_plus_1min = [t + timedelta(minutes=1) for t in trade_times_list]
     exists_set = set(
         StockAnalysisResultTrendFollowing.objects.filter(
-            stock=stock_obj, timestamp__in=t_dt_plus_1min_list
+            stock=stock_obj, timestamp__in=time_plus_1min
         ).values_list('timestamp', flat=True)
     )
-
-    # 构建待分析的时间点
+    # 优化2：用进程池并行分析每个时间点（CPU密集型）
     tasks = []
-    for t_dt, t_dt_plus_1min in zip(trade_times_list, t_dt_plus_1min_list):
-        if t_dt_plus_1min not in exists_set:
-            logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
-            tasks.append((stock_code, params_file, t_dt_plus_1min))
+    with ProcessPoolExecutor(max_workers=4) as executor:  # 可根据CPU核数调整
+        for t_dt, t_dt_plus_1min in zip(trade_times_list, time_plus_1min):
+            if t_dt_plus_1min not in exists_set:
+                logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
+                # 提交到进程池
+                tasks.append(
+                    executor.submit(execute_strategy_for_trade_time, stock_code, params_file, t_dt_plus_1min)
+                )
+        # 收集结果
+        for future in as_completed(tasks):
+            try:
+                result = future.result()
+                print(f"分析结果: {result}")  # 调试信息
+            except Exception as e:
+                logger.error(f"分析进程出错: {e}", exc_info=True)
 
-    # 多进程并发执行分析任务
-    results = []
-    if tasks:
-        # 进程池大小可根据CPU核心数调整
-        with ProcessPoolExecutor(max_workers=4) as executor:
-            # 提交所有任务
-            future_to_task = {
-                executor.submit(execute_strategy_for_trade_time_mp, stock_code, params_file, trade_time): (stock_code, trade_time)
-                for stock_code, params_file, trade_time in tasks
-            }
-            for future in as_completed(future_to_task):
-                stock_code, trade_time = future_to_task[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                    print(f"分析完成: {stock_code} - {trade_time}")
-                except Exception as exc:
-                    logger.error(f"分析 {stock_code} - {trade_time} 时发生异常: {exc}", exc_info=True)
-    else:
-        print("没有需要分析的时间点。")
-    print(f"所有分析任务已完成，结果数量: {len(results)}")
-    return results
-
-def execute_strategy_for_trade_time_mp(stock_code: str, params_file: str, trade_time):
-    """
-    多进程用的分析函数，参数trade_time为datetime对象
-    """
-    import django
-    django.setup()  # 多进程下需手动初始化Django
-
+def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str):
+    # 优化3：避免每次都实例化IndicatorService
     indicator_service = IndicatorService()
     try:
-        # 直接同步调用
         result = asyncio.run(indicator_service.prepare_strategy_dataframe(
-            stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time
+            stock_code=stock_code, params_file=params_file, base_needed_bars=1000, trade_time=trade_time_str
         ))
         if result is None or not isinstance(result, tuple) or len(result) != 2:
             logger.warning(f"股票 {stock_code} 数据准备失败，跳过分析")
@@ -122,16 +103,17 @@ def execute_strategy_for_trade_time_mp(stock_code: str, params_file: str, trade_
         if data_df is None or data_df.empty:
             logger.warning(f"股票 {stock_code} 数据为空，跳过分析")
             return {"stock_code": stock_code, "status": "skipped", "reason": "no data"}
-
         timestamp = data_df.index[-1] if not data_df.empty else pd.Timestamp.now()
-        strategies_to_run = {}
+        # 优化4：策略对象只实例化一次
         try:
-            strategies_to_run['trend_following'] = TrendFollowingStrategy(params_file=params_file)
+            strategies_to_run = {
+                'trend_following': TrendFollowingStrategy(params_file=params_file),
+                # 可扩展更多策略
+            }
             logger.info(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
-        except (FileNotFoundError, ValueError, ImportError, KeyError) as e:
+        except Exception as e:
             logger.error(f"初始化策略时出错: {e}", exc_info=True)
             return {"stock_code": stock_code, "status": "error", "reason": str(e)}
-
         results = {}
         for strategy_name, strategy in strategies_to_run.items():
             try:
@@ -150,7 +132,6 @@ def execute_strategy_for_trade_time_mp(stock_code: str, params_file: str, trade_
             except Exception as e:
                 logger.error(f"策略 {strategy_name} 分析 {stock_code} 时出错: {e}", exc_info=True)
                 results[strategy_name] = {"status": "error", "reason": str(e)}
-
         logger.info(f"完成股票 {stock_code} 的分析")
         return {"stock_code": stock_code, "status": "completed", "results": results}
     except Exception as e:
@@ -165,28 +146,23 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
     """
     try:
         logger.info("开始调度所有股票的分析任务")
-        # 在同步任务中运行异步代码获取列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
-
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"找到 {stock_count} 只股票待分析")
-
+        # 优化5：批量调度任务，减少循环内IO
         for stock_code in favorite_codes:
             analyze_single_stock.s(stock_code=stock_code, params_file=params_file, day_count=2).set(queue='favorite_calculate_strategy').apply_async()
         for stock_code in non_favorite_codes:
             analyze_single_stock.s(stock_code=stock_code, params_file=params_file, day_count=2).set(queue='calculate_strategy').apply_async()
-
-        # 记录任务ID（如果有多个任务组，取最后一个或合并记录）
         logger.info(f"已调度 {len(favorite_codes)} 只股票的favorite分析任务")
         logger.info(f"已调度 {len(non_favorite_codes)} 只股票的non_favorite分析任务")
         return {"status": "started",  "stock_count": stock_count}
     except Exception as e:
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
 # 批量分析任务
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='calculate_strategy')
 def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/indicator_parameters.json", day_count: int = 1):
