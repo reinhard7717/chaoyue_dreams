@@ -161,7 +161,7 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
 
 # 批量分析任务
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='calculate_strategy')
-def analyze_batch_stocks(self, stock_codes: list, params_file: str = "default_params.json", day_count: int = 5):
+def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/indicator_parameters.json", day_count: int = 1):
     """
     批量分析一组股票，充分利用多核并发
     """
