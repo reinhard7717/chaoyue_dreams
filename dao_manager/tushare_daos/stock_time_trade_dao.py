@@ -740,17 +740,8 @@ class StockTimeTradeDAO(BaseDAO):
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                    print(f"data_dict: {data_dict}")
                     data_dicts.append(data_dict)
-                    # cache_data_dict = data_dict.copy()
-                    # if 'stock' in cache_data_dict and isinstance(stock, StockInfo):
-                    #     # 替换为 stock_code
-                    #     cache_data_dict['stock_code'] = row.ts_code
-                    #     del cache_data_dict['stock'] # 删除实例键
-                    # prepared_data = await self._prepare_data_for_cache(cache_data_dict, related_field_map=None)
-                    # if prepared_data:
-                    #     await self.cache_set.history_time_trade(row.ts_code, time_level, prepared_data)
-                    # else:
-                    #     logger.warning(f"为股票 {stock} 准备缓存数据失败，跳过缓存写入。原始数据: {data_dict}")
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMinuteData,
