@@ -729,7 +729,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 拉取数据
         data_dicts = []
         df = self.ts_pro.rt_min(**{
-            "topic": "", "freq": time_level + "min", "ts_code": stock_codes_str, "limit": "", "offset": ""
+            "topic": "", "freq": time_level + "MIN", "ts_code": stock_codes_str, "limit": "", "offset": ""
         }, fields=[
             "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
         ])
