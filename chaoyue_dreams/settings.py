@@ -215,6 +215,9 @@ STATICFILES_FINDERS = [
 
 # 静态文件设置
 STATIC_URL = 'static/'
+# 下面这行是关键，指定一个本地目录用于 collectstatic
+STATIC_ROOT = BASE_DIR / 'staticfiles'  # 推荐用 pathlib 写法（Django 3.1+）
+
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'), # 使用 os.path.join 拼接字符串路径
 ]
