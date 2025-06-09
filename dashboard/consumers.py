@@ -1,9 +1,11 @@
 # dashboard/consumers.py
 import json
 from asgiref.sync import async_to_sync
+from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async # 异步访问数据库
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from users.models import FavoriteStock
 
 class DashboardConsumer(AsyncWebsocketConsumer):
@@ -49,19 +51,49 @@ class DashboardConsumer(AsyncWebsocketConsumer):
 
     async def send_initial_favorites_with_realtime(self):
         # 获取自选股列表
-        favorites = await database_sync_to_async(lambda: list(FavoriteStock.objects.filter(user=self.user).select_related('stock')))()
+        # 用 sync_to_async 包装同步函数，返回自选股和股票信息的字典列表
+        @sync_to_async
+        def get_favorites_data(user):
+            favorites = FavoriteStock.objects.filter(user=user).select_related('stock')
+            data = []
+            for fav in favorites:
+                if fav.stock:  # 防止 stock 为空
+                    data.append({
+                        'id': fav.id,
+                        'code': fav.stock.stock_code,
+                        'name': fav.stock.stock_name,
+                    })
+            return data
+        favorites_data = await get_favorites_data(self.user)
         # 获取行情
         realtime_dao = StockRealtimeDAO()
+        strategy_dao = StrategiesDAO()
         data = []
-        for fav in favorites:
-            stock_code = fav.stock.stock_code
+        for fav in favorites_data:
+            stock_code = fav['code']
             # 用 async_to_sync 包装 DAO 的 async 方法
             latest_data = await realtime_dao.get_latest_tick_data(stock_code)
-            print(f"latest_data: {latest_data}")
+            latest_strategy_result = await strategy_dao.get_latest_strategy_result(stock_code)
+            # print(f"latest_data: {latest_data}")
+            # print(f"score: {getattr(latest_strategy_result, 'score', None)}, : {getattr(latest_strategy_result, 'chinese_interpretation', None)}, ")
+            score = getattr(latest_strategy_result, 'score', None)
+            if score is None:
+                signal_type = 'hold'
+                signal_text = 'N/A'
+            else:
+                # 你可以自定义分数区间
+                if score >= 75:
+                    signal_type = 'buy'
+                elif score <= 25:
+                    signal_type = 'sell'
+                else:
+                    signal_type = 'hold'
+                signal_text = str(score)
+
             data.append({
-                'id': fav.id,
+                'id': fav['id'],
                 'code': stock_code,
-                'name': fav.stock.stock_name,
+                'name': fav['name'],
                 'current_price': latest_data.get('current_price') if latest_data else None,
                 'high_price': latest_data.get('high_price') if latest_data else None,
                 'low_price': latest_data.get('low_price') if latest_data else None,
@@ -71,8 +103,12 @@ class DashboardConsumer(AsyncWebsocketConsumer):
                 'turnover_value': latest_data.get('turnover_value') if latest_data else None,
                 'change_percent': latest_data.get('change_percent') if latest_data else None,
                 'volume': latest_data.get('volume') if latest_data else None,
-                'signal': None,  # 如有策略信号可一并查出
+                'signal': {
+                    'type': signal_type,
+                    'text': signal_text
+                },
             })
+            print(f"data: {data}")
         await self.send(text_data=json.dumps({
             'type': 'favorites_update',
             'payload': data

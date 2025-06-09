@@ -12,6 +12,7 @@ from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from tasks.stock_analysis_tasks import analyze_batch_stocks
 
 
@@ -86,6 +87,7 @@ def save_tick_data_batch(self, stock_codes: List[str]):
         return {"processed": 0, "success": 0, "errors": 0}
     logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(Tick)数据任务...")
     stock_realtime_dao = StockRealtimeDAO()
+    strategy_dao = StrategiesDAO()
     try:
         # 1. 保存tick数据
         asyncio.run(stock_realtime_dao.save_tick_data_by_stock_codes(stock_codes))
@@ -101,11 +103,12 @@ def save_tick_data_batch(self, stock_codes: List[str]):
                 continue
             # 获取最新tick数据（调用异步方法，转同步）
             latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(code)
+            latest_strategy_result = async_to_sync(strategy_dao.get_latest_strategy_result)(code)
             if not latest_tick:
                 logger.warning(f"未获取到股票{code}的最新tick数据，跳过推送")
                 continue
             # --- 保证signal字段为对象 ---
-            signal = latest_tick.get('signal')
+            signal = latest_strategy_result.score  #latest_tick.get('signal')
             if not isinstance(signal, dict):
                 signal = {'type': 'hold', 'text': signal or 'N/A'}
             # --- 构造payload，字段名与前端updateStockRow完全一致 ---
