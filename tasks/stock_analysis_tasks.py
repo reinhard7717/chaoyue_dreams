@@ -62,7 +62,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     stock_basic_dao = StockBasicInfoDao()
     stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
     trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
-    trade_times_list = sorted(trade_times_list)
+    trade_times_list = sorted(trade_times_list, reverse=True)
     time_plus_1min = [t + timedelta(minutes=1) for t in trade_times_list]
     exists_set = set(
         StockAnalysisResultTrendFollowing.objects.filter(
