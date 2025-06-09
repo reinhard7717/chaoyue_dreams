@@ -1,10 +1,7 @@
 # tasks\calculate_tasks.py
 import asyncio
 import logging
-import math
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
-from celery import Celery, chain, group # 导入 group
-from celery.utils.log import get_task_logger
 from core.constants import TIME_TEADE_TIME_LEVELS_PER_TRADING
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
@@ -50,7 +47,7 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
-    stock_basic_dao = StockBasicDAO()
+    stock_basic_dao = StockBasicInfoDao()
     favorite_stock_codes = set()
     all_stock_codes = set()
 
@@ -68,7 +65,9 @@ async def _get_all_relevant_stock_codes_for_processing():
         # 注意：如果 get_stock_list() 返回大量数据，考虑分页或流式处理
         all_stocks = await stock_basic_dao.get_stock_list()
         for stock in all_stocks:
-            all_stock_codes.add(stock.stock_code)
+            code = str(stock.stock_code)
+            if not code.endswith('.BJ'):
+                all_stock_codes.add(code)
         logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)

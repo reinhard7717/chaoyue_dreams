@@ -62,13 +62,14 @@ async def _get_all_relevant_stock_codes_for_processing():
         logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-
     # 获取所有A股 (或者你需要的范围)
     try:
         # 注意：如果 get_stock_list() 返回大量数据，考虑分页或流式处理
         all_stocks = await stock_basic_dao.get_stock_list()
         for stock in all_stocks:
-            all_stock_codes.add(stock.stock_code)
+            code = str(stock.stock_code)
+            if not code.endswith('.BJ'):
+                all_stock_codes.add(code)
         logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)

@@ -54,7 +54,8 @@ async def _get_all_relevant_stock_codes_for_processing():
         all_stocks = await stock_basic_dao.get_stock_list()
         for stock in all_stocks:
             code = str(stock.stock_code)
-            all_stock_codes.add(code)
+            if not code.endswith('.BJ'):
+                all_stock_codes.add(code)
         # logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
