@@ -4,7 +4,8 @@
 import decimal # 用于高精度数字
 import json
 import logging
-import asyncio # 用于异步操作
+import asyncio
+import re # 用于异步操作
 from django.utils import timezone
 from django.db.models import Q, Model # Django 查询和模型基类
 import math
@@ -929,6 +930,9 @@ class BaseDAO(Generic[T]):
                 try: value = value.decode('utf-8')
                 except UnicodeDecodeError: return None
             value = value.strip()
+
+            # 修正不规范的时区格式（如 +08:06 -> +08:00）
+            value = re.sub(r'(\+\d{2}):\d{2}$', r'\1:00', value)  # 新增：修正时区格式
 
             # 尝试 ISO 格式
             try:
