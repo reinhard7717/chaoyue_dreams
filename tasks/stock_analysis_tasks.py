@@ -73,7 +73,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
         if t_dt_plus_1min not in exists_set:
             logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
             result = execute_strategy_for_trade_time(stock_code, params_file, t_dt_plus_1min)
-            print(f"分析结果: {result}")  # 调试信息
+            # print(f"分析结果: {result}")  # 调试信息
 
 def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):
     indicator_service = IndicatorService()
