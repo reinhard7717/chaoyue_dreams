@@ -67,7 +67,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     exists_set = set(
         StockAnalysisResultTrendFollowing.objects.filter(
             stock=stock_obj, timestamp__in=time_plus_1min
-        ).values_list('-timestamp', flat=True)
+        ).values_list('timestamp', flat=True)
     )
     for t_dt, t_dt_plus_1min in zip(trade_times_list, time_plus_1min):
         if t_dt_plus_1min not in exists_set:
