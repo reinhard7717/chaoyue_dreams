@@ -341,7 +341,7 @@ class StockTimeTradeDAO(BaseDAO):
             record = (StockMinuteData.objects
                     .filter(stock=stock, time_level='5')
                     .order_by('-trade_time')
-                    .values('trade_time', 'open', 'high', 'low', 'close', 'volume', 'amount')
+                    # .values('trade_time', 'open', 'high', 'low', 'close', 'volume', 'amount')
                     .first())
             return record
 
