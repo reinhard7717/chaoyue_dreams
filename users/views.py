@@ -7,6 +7,7 @@ from django.contrib.auth.views import LoginView
 from .forms import UserLoginForm, UserProfileForm, FavoriteStockForm
 from .models import FavoriteStock, UserProfile
 from stock_models.stock_basic import StockInfo
+from django.contrib.auth.forms import UserCreationForm
 
 
 @login_required # 确保用户已登录
@@ -19,6 +20,18 @@ def favorite_list_view(request):
     # 后续可以传递初始数据到模板
     context = {}
     return render(request, 'users/favorite_list.html', context)
+
+def register(request):
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            form.save()  # 保存普通用户
+            print("新用户注册成功")  # 调试信息
+            return redirect('login')  # 注册成功后跳转到登录页面
+    else:
+        form = UserCreationForm()
+    return render(request, 'users/register.html', {'form': form})
+
 
 
 

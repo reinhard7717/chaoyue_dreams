@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}趋势跟踪评分 - {{ block.super }}{% endblock %}
+
+{% block content %}
+    <h2>注册新用户</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">注册</button>
+    </form>
+{% endblock %}

@@ -15,6 +15,7 @@ urlpatterns = [
 
     path('admin/', admin.site.urls),
     path('users/', include('users.urls', namespace='users')),  # 用户相关URL
+    
     path('dashboard/', include('dashboard.urls', namespace='dashboard')), # dashboard URLs
     path('accounts/', include('django.contrib.auth.urls')), # 登录/登出等URL
     path('', RedirectView.as_view(url='/dashboard/', permanent=False), name='go-to-dashboard'),

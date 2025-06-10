@@ -18,6 +18,9 @@ urlpatterns = [
     path('favorites/', views.favorite_list_view, name='favorite_list'), # 自选股列表页 URL (示例)
     path('profile/', views.profile_view, name='profile'), # 个人设置页 URL (示例)
 
+    # 注册账户
+    path('register/', views.register, name='register'),
+
 
     
     
