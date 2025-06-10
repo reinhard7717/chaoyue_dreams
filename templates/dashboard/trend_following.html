@@ -24,7 +24,7 @@
                         <th>趋势方向</th>
                         <th>趋势强度</th>
                         <th>看涨持续周期</th>
-                        <th>是否底部</th>
+                        <th>是否放量</th>
                         <!-- <th>看跌持续周期</th>
                         <th>加权信心分数</th> -->
                         <th>综合信心</th>
@@ -57,17 +57,14 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if s.data.is_in_bottom %}
-                                底部
-                            {% else %}
-                                -
-                            {% endif %}|
-                            {% if s.data.is_bottom_breakout %}
-                                起涨
+                            {% if s.data.bottom_volume_breakout_signal %}
+                                底部放量起涨
+                            {% elif s.data.volume_breakout_signal %}
+                                放量起涨
                             {% else %}
                                 -
                             {% endif %}
-                        </td>
+                        </td>                        
                         <!-- <td>{{ s.data.trend_duration_bearish|default:"-" }}</td>
                         <td>{{ s.data.weighted_confidence_score|floatformat:2|default:"-" }}</td> -->
                         <td>{{ s.confidence_score|floatformat:2|default:"-" }}</td>

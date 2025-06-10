@@ -1649,8 +1649,6 @@ class TrendFollowingStrategy:
             pass
 
         base_score_raw = base_score_raw.clip(0, 100).fillna(50.0)
-        # 修改行: 打印 base_score_raw 的最新值
-        # print(f"DEBUG: {stock_code} - base_score_raw (last row): {base_score_raw.iloc[-1]:.4f}")
 
         # 量能调整基础评分 (假定 strategy_utils 包含此函数)
         logger.debug(f"[{self.strategy_name}][{stock_code}] 执行量能调整/分析模块...")
@@ -2243,6 +2241,70 @@ class TrendFollowingStrategy:
         logger.debug(f"[{self.strategy_name}] 趋势分析完成，最新分析信号 (部分): "
                      f"Alignment: {analysis_df['alignment_signal'].iloc[-1] if not analysis_df.empty and 'alignment_signal' in analysis_df.columns and not analysis_df['alignment_signal'].empty else 'N/A'}, "
                      f"ADX Strength: {analysis_df['adx_strength_signal'].iloc[-1] if not analysis_df.empty and 'adx_strength_signal' in analysis_df.columns and not analysis_df['adx_strength_signal'].empty else 'N/A'}")
+
+        # “底部放量起涨”信号
+        # 0. 底部判定：近60根K线收盘价处于最低20%（即底部区域）
+        bottom_window = indicator_analysis_config.get('bottom_window', 55)  # 可配置，默认60
+        bottom_percent = indicator_analysis_config.get('bottom_percent', 0.2)  # 可配置，默认0.2
+
+        if close_col in analysis_df.columns:
+            analysis_df['min_close_60'] = analysis_df[close_col].rolling(window=bottom_window, min_periods=1).min()
+            analysis_df['max_close_60'] = analysis_df[close_col].rolling(window=bottom_window, min_periods=1).max()
+            analysis_df['bottom_zone'] = (
+                (analysis_df[close_col] - analysis_df['min_close_60']) /
+                (analysis_df['max_close_60'] - analysis_df['min_close_60'] + 1e-6) < bottom_percent
+            ).astype(float)
+        else:
+            analysis_df['bottom_zone'] = 0.0
+
+        # 1. 获取参数
+        volume_spike_factor = indicator_analysis_config.get('volume_spike_factor', 2.0)  # 放量倍数，默认2.0
+        # volume_ma_period = indicator_analysis_config.get('volume_ma_period', 20)         # 均量周期，默认20
+
+        # 2. 字段名
+        vol_col = f'volume_{focus_tf}'
+        vol_ma_col = f'VOL_MA_{focus_tf}'
+        close_col = f'close_{focus_tf}'
+        open_col = f'open_{focus_tf}'
+        high_col = f'high_{focus_tf}'
+
+        # 3. 计算近20日最高价
+        if high_col in analysis_df.columns:
+            analysis_df['high_20'] = analysis_df[high_col].rolling(window=20, min_periods=1).max()
+        else:
+            analysis_df['high_20'] = None
+
+        # 4. 放量判断
+        if vol_col in analysis_df.columns and vol_ma_col in analysis_df.columns:
+            analysis_df['is_volume_surge'] = (analysis_df[vol_col] > volume_spike_factor * analysis_df[vol_ma_col]).astype(float)
+        else:
+            analysis_df['is_volume_surge'] = 0.0
+
+        # 5. 起涨判断（两种方式：突破近20日高点 或 大阳线涨幅>3%）
+        if close_col in analysis_df.columns and open_col in analysis_df.columns:
+            # 价格突破近20日高点
+            analysis_df['is_price_breakout'] = (
+                (analysis_df['high_20'].notnull()) & (analysis_df[close_col] > analysis_df['high_20'])
+            ).astype(float)
+            # 大阳线且涨幅>3%
+            analysis_df['is_strong_bull'] = (
+                (analysis_df[close_col] > analysis_df[open_col]) &
+                ((analysis_df[close_col] - analysis_df[open_col]) / analysis_df[open_col] > 0.03)
+            ).astype(float)
+        else:
+            analysis_df['is_price_breakout'] = 0.0
+            analysis_df['is_strong_bull'] = 0.0
+
+        # 6. 综合“放量起涨”信号
+        analysis_df['volume_breakout_signal'] = (
+            (analysis_df['is_volume_surge'] > 0) &
+            ((analysis_df['is_price_breakout'] > 0) | (analysis_df['is_strong_bull'] > 0))
+        ).astype(float)
+        # 7. 综合“底部放量起涨”信号
+        analysis_df['bottom_volume_breakout_signal'] = (
+            (analysis_df['bottom_zone'] > 0) &
+            (analysis_df['volume_breakout_signal'] > 0)
+        ).astype(float)
         return analysis_df
 
     def _adjust_volatility_parameters(self, data: pd.DataFrame):
@@ -3678,30 +3740,6 @@ class TrendFollowingStrategy:
              trend_duration_info['duration_status'] = '中'
         else:
              trend_duration_info['duration_status'] = '短'
-        # === 底部/底部起涨判断 ===
-        # 1. 判断底部区间（连续N周期低于下阈值）
-        bottom_periods = 30  # 连续30周期低位可认为底部
-        is_in_bottom = False
-        if final_signal_values.size >= bottom_periods:
-            # 取最近N个周期
-            recent_signals = final_signal_values[-bottom_periods:]
-            if all(val <= trend_threshold_lower for val in recent_signals):
-                is_in_bottom = True
-                print(f"[{self.strategy_name}] 检测到连续{bottom_periods}周期处于底部区间。")
-
-        # 2. 判断底部起涨（低位持续后首次突破上阈值）
-        is_bottom_breakout = False
-        if final_signal_values.size >= bottom_periods + 1:
-            # 前N周期都在底部，最新周期突破上阈值
-            prev_signals = final_signal_values[-(bottom_periods+1):-1]
-            last_signal = final_signal_values[-1]
-            if all(val <= trend_threshold_lower for val in prev_signals) and last_signal >= trend_threshold_upper:
-                is_bottom_breakout = True
-                print(f"[{self.strategy_name}] 检测到底部起涨信号：前{bottom_periods}周期低位，最新周期突破上阈值。")
-
-        # 3. 结果写入trend_duration_info
-        trend_duration_info['is_in_bottom'] = is_in_bottom
-        trend_duration_info['is_bottom_breakout'] = is_bottom_breakout
 
         return trend_duration_info
 
@@ -3815,6 +3853,9 @@ class TrendFollowingStrategy:
         vwap_deviation_signal_col = get_col_name("vwap_deviation_signal", "vwap_deviation_signal")
         vwap_deviation_percent_col = get_col_name("vwap_deviation_percent", "vwap_deviation_percent")
         boll_breakout_signal_col = get_col_name("boll_breakout_signal", "boll_breakout_signal")
+        # 底部放量
+        volume_breakout_signal_col = get_col_name("volume_breakout_signal", "volume_breakout_signal")
+        bottom_volume_breakout_signal_col = get_col_name("bottom_volume_breakout_signal", "bottom_volume_breakout_signal")
 
         # 获取所有信号的最新值
         final_score_val = latest_data_row.get(combined_signal_col, 50.0)
@@ -3839,6 +3880,9 @@ class TrendFollowingStrategy:
         vwap_deviation_signal_val = latest_data_row.get(vwap_deviation_signal_col, np.nan)
         vwap_deviation_percent_val = latest_data_row.get(vwap_deviation_percent_col, np.nan)
         boll_breakout_signal_val = latest_data_row.get(boll_breakout_signal_col, np.nan)
+        # 底部放量
+        volume_breakout_signal_val = latest_data_row.get(volume_breakout_signal_col, np.nan)
+        bottom_volume_breakout_signal_val = latest_data_row.get(bottom_volume_breakout_signal_col, np.nan)
 
         print(f"[{self.strategy_name}][{stock}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
@@ -4152,11 +4196,17 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('volatility_status', "波动率数据缺失", 0)
 
-        # 20. 底部区间与底部起涨信号判断
-        if is_in_bottom:
-            add_signal_impact('bottom_zone', "处于底部区间", 10, "信号持续低位，关注底部企稳机会。")
-        if is_bottom_breakout:
-            add_signal_impact('bottom_breakout', "底部起涨信号", 20, "底部信号后首次突破，关注反转机会。")
+        # 20. 放量起涨与底部放量起涨信号判断
+        if not np.isnan(volume_breakout_signal_val) and volume_breakout_signal_val > 0:
+            add_signal_impact('volume_breakout_signal', "放量起涨信号", 15, "出现放量起涨信号，主力资金有进场迹象，关注短线拉升机会。")
+            volume_breakout_signal_str = "【放量起涨信号】：出现放量起涨，主力资金有进场迹象，关注短线拉升机会。\n"
+        else:
+            volume_breakout_signal_str = "【放量起涨信号】：无明显放量起涨信号。\n"
+        if not np.isnan(bottom_volume_breakout_signal_val) and bottom_volume_breakout_signal_val > 0:
+            add_signal_impact('bottom_volume_breakout_signal', "底部放量起涨", 25, "底部区域出现放量起涨信号，极有可能是阶段性反转起点，建议重点关注。")
+            bottom_volume_breakout_signal_str = "【底部放量起涨】：底部区域出现放量起涨，极有可能是阶段性反转起点，建议重点关注。\n"
+        else:
+            bottom_volume_breakout_signal_str = "【底部放量起涨】：无底部放量起涨信号。\n"
 
         # 21. ADX 强度信号判断 (来自 adx_strength_signal 列, 结合方向)
         print(f"[{self.strategy_name}][{stock}] ADX 强度信号值 (来自列 {adx_strength_signal_col}, 结合方向): {adx_strength_signal_val:.2f}。")
@@ -4292,9 +4342,9 @@ class TrendFollowingStrategy:
         signal_judgment_dict['score_change_short'] = score_change_short
         signal_judgment_dict['score_change_long'] = score_change_long
         signal_judgment_dict['score_change_consistency_status'] = score_change_consistency_status
-        # 底部信号单独列明
-        signal_judgment_dict['is_in_bottom'] = is_in_bottom
-        signal_judgment_dict['is_bottom_breakout'] = is_bottom_breakout
+        # 放量起涨与底部放量起涨信号判断
+        signal_judgment_dict['volume_breakout_signal'] = volume_breakout_signal_val
+        signal_judgment_dict['bottom_volume_breakout_signal'] = bottom_volume_breakout_signal_val
 
         # now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -4305,7 +4355,8 @@ class TrendFollowingStrategy:
             f"当前策略信号强度: {signal_judgment_dict.get('overall_signal_strength', '中性')}\n"
             f"基于规则趋势判断: {current_trend_direction} (强度: {current_trend_strength})\n"
             f"趋势持续时间: {trend_duration_info_dict.get('bullish_duration_text' if current_trend_direction.startswith('看涨') else 'bearish_duration_text','未知')} (状态: {duration_status_rule_str})\n"
-            f"底部区间: {'是' if is_in_bottom else '否'}，底部起涨: {'是' if is_bottom_breakout else '否'}\n"
+            f"{volume_breakout_signal_str}"
+            f"{bottom_volume_breakout_signal_str}"
             f"----------------------------------------\n"
             f"【多维度信号交叉验证】\n"
             f"量能与趋势一致性: {signal_judgment_dict.get('trend_volume_consistency', '未知')}, 量能效果: {signal_judgment_dict.get('volume_effect', '未知')}\n"
@@ -4571,8 +4622,8 @@ class TrendFollowingStrategy:
                 'trend_duration_status': self.analysis_results.get('duration_status'),
                 'operation_advice': self.analysis_results.get('operation_advice'),
                 'risk_warning': self.analysis_results.get('risk_warning'),
-                'is_in_bottom': self.analysis_results.get('is_in_bottom'),
-                'is_bottom_breakout': self.analysis_results.get('is_bottom_breakout'),
+                'volume_breakout_signal': self.analysis_results.get('volume_breakout_signal'),
+                'bottom_volume_breakout_signal': self.analysis_results.get('bottom_volume_breakout_signal'),
                 'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
                 'signal_impact_records_json': json.dumps(signal_judgment.get('signal_impact_records', []), ensure_ascii=False, default=lambda x: str(x)),
                 'signal_contribution_summary_json': json.dumps(signal_judgment.get('signal_contribution_summary', {}), ensure_ascii=False, default=lambda x: str(x)),
