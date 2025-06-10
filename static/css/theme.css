@@ -166,7 +166,7 @@ body.dark-theme a:hover {
 
 /* --- 侧边栏样式 (如果存在) --- */
 .site-sidebar {
-    width: 220px; /* 稍宽 */
+    width: 150px; /* 稍宽 */
     flex-shrink: 0;
     background-color: var(--semi-color-bg-1);
     border-right: 1px solid var(--semi-color-border);
