@@ -48,7 +48,13 @@
                         <td>{{ s.stoch_signal|floatformat:2|default:"-" }}</td> -->
                         <td>{{ s.current_trend|default:"-" }}</td>
                         <td>{{ s.trend_strength|default:"-" }}</td>
-                        <td>{{ s.trend_duration_bullish|default:"-" }}</td>
+                        <td>
+                            {% if s.trend_duration_bullish %}
+                              {% widthratio s.trend_duration_bullish 2 1 %}小时
+                            {% else %}
+                              -
+                            {% endif %}
+                          </td>
                         <!-- <td>{{ s.trend_duration_bearish|default:"-" }}</td>
                         <td>{{ s.weighted_confidence_score|floatformat:2|default:"-" }}</td> -->
                         <td>{{ s.confidence_score|floatformat:2|default:"-" }}</td>
@@ -62,6 +68,20 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+        <!-- 分页控件 -->
+        <div class="pagination">
+            {% if trend_scores.has_previous %}
+                <a href="?page=1">&laquo; 首页</a>
+                <a href="?page={{ trend_scores.previous_page_number }}">上一页</a>
+            {% endif %}
+
+            <span>第 {{ trend_scores.number }} / {{ trend_scores.paginator.num_pages }} 页</span>
+
+            {% if trend_scores.has_next %}
+                <a href="?page={{ trend_scores.next_page_number }}">下一页</a>
+                <a href="?page={{ trend_scores.paginator.num_pages }}">末页 &raquo;</a>
+            {% endif %}
         </div>
     </section>
 </div>

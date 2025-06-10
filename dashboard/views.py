@@ -2,6 +2,7 @@
 import json
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Subquery, OuterRef
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
@@ -68,12 +69,22 @@ def trend_following_list(request):
     ).filter(timestamp=F('latest_timestamp'))
 
     # 3. 按score从高到低排序
-    latest_results = latest_results.order_by('-score')
+    latest_results = latest_results.order_by('-score', '-confidence_score')
 
-    print(f"共查询到{latest_results.count()}只股票的最新趋势评分")  # 调试信息
+    # 4. 分页，每页50条
+    paginator = Paginator(latest_results, 50)  # 每页50条
+    page = request.GET.get('page', 1)  # 获取当前页码，默认为1
+    try:
+        trend_scores = paginator.page(page)
+    except PageNotAnInteger:
+        trend_scores = paginator.page(1)
+    except EmptyPage:
+        trend_scores = paginator.page(paginator.num_pages)
+
+    print(f"共查询到{paginator.count}只股票的最新趋势评分，当前第{trend_scores.number}页")  # 调试信息
 
     return render(request, 'dashboard/trend_following.html', {
-        'trend_scores': latest_results,
+        'trend_scores': trend_scores,  # 传递Page对象
     })
 
 # --- DRF API 视图 ---
