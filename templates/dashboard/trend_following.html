@@ -71,16 +71,14 @@
         </div>
         <!-- 分页控件 -->
         <div class="pagination">
-            {% if trend_scores.has_previous %}
+            {% if page > 1 %}
                 <a href="?page=1">&laquo; 首页</a>
-                <a href="?page={{ trend_scores.previous_page_number }}">上一页</a>
+                <a href="?page={{ page|add:"-1" }}">上一页</a>
             {% endif %}
-
-            <span>第 {{ trend_scores.number }} / {{ trend_scores.paginator.num_pages }} 页</span>
-
-            {% if trend_scores.has_next %}
-                <a href="?page={{ trend_scores.next_page_number }}">下一页</a>
-                <a href="?page={{ trend_scores.paginator.num_pages }}">末页 &raquo;</a>
+            <span>第 {{ page }} / {{ total_pages }} 页</span>
+            {% if page < total_pages %}
+                <a href="?page={{ page|add:"1" }}">下一页</a>
+                <a href="?page={{ total_pages }}">末页 &raquo;</a>
             {% endif %}
         </div>
     </section>
