@@ -740,9 +740,7 @@ class StockTimeTradeDAO(BaseDAO):
                 stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                    if not data_dict.get('trade_time'):
-                        print(f"data_dict: {data_dict}，row：{row}")
-                    else:
+                    if data_dict.get('trade_time'):
                         data_dicts.append(data_dict)
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
