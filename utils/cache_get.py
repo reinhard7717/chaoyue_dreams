@@ -64,7 +64,7 @@ class CacheGet():
             cached_data = await cache_manager.get(key=cache_key)
             if cached_data is not None:
                 if isinstance(cached_data, dict):
-                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}]实时数据, key: {cache_key}")
+                    # logger.info(f"缓存命中: 成功获取到股票[{stock_code}]实时数据, key: {cache_key}")
                     return cached_data
                 else:
                     logger.warning(f"缓存数据格式错误: 股票[{stock_code}]实时数据的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
@@ -82,7 +82,7 @@ class CacheGet():
             cached_data = await cache_manager.get(key=cache_key)
             if cached_data is not None:
                 if isinstance(cached_data, dict):
-                    logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
+                    # logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
                     return cached_data
                 else:
                     logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 时间级别[{time_level}] 的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
@@ -437,7 +437,7 @@ class StrategyCacheGet(CacheGet):
         cached_data = await cache_manager.get(key=cache_key)
         if cached_data is not None:
             if isinstance(cached_data, dict):
-                logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 最新策略判断, key: {cache_key}")
+                # logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 最新策略判断, key: {cache_key}")
                 return cached_data
             else:
                 logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 最新策略判断的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
