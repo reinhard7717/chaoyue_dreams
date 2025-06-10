@@ -4592,6 +4592,9 @@ class TrendFollowingStrategy:
             stoch_signal_col = get_internal_col_name("stoch_signal", "stoch_signal")
             has_bearish_div_col = get_internal_col_name("HAS_BEARISH_DIVERGENCE", "HAS_BEARISH_DIVERGENCE")
             has_bullish_div_col = get_internal_col_name("HAS_BULLISH_DIVERGENCE", "HAS_BULLISH_DIVERGENCE")
+            # 新增：获取 volume_breakout_signal 和 bottom_volume_breakout_signal 的列名
+            volume_breakout_signal_col = get_internal_col_name("volume_breakout_signal", "volume_breakout_signal")
+            bottom_volume_breakout_signal_col = get_internal_col_name("bottom_volume_breakout_signal", "bottom_volume_breakout_signal")
 
             vol_spike_pattern = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern', '').startswith("VOL_SPIKE_SIGNAL")), "VOL_SPIKE_SIGNAL_{timeframe}")
             vol_spike_signal_col_tf = self._format_indicator_name(vol_spike_pattern, timeframe=self.focus_timeframe)
@@ -4628,14 +4631,15 @@ class TrendFollowingStrategy:
                 'trend_duration_status': self.analysis_results.get('duration_status'),
                 'operation_advice': self.analysis_results.get('operation_advice'),
                 'risk_warning': self.analysis_results.get('risk_warning'),
-                'volume_breakout_signal': self.analysis_results.get('volume_breakout_signal'),
-                'bottom_volume_breakout_signal': self.analysis_results.get('bottom_volume_breakout_signal'),
+                'volume_breakout_signal': volume_breakout_signal_col,  # 修改：从 intermediate_row 获取
+                'bottom_volume_breakout_signal': bottom_volume_breakout_signal_col,  # 修改：从 intermediate_row 获取
                 'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
                 'signal_impact_records_json': json.dumps(signal_judgment.get('signal_impact_records', []), ensure_ascii=False, default=lambda x: str(x)),
                 'signal_contribution_summary_json': json.dumps(signal_judgment.get('signal_contribution_summary', {}), ensure_ascii=False, default=lambda x: str(x)),
                 'weighted_confidence_score': convert_nan_to_none(signal_judgment.get('weighted_confidence_score')),
                 'confidence_score': convert_nan_to_none(signal_judgment.get('confidence_score')),
                 'normalized_confidence': convert_nan_to_none(signal_judgment.get('normalized_confidence')),
+                
                 # 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x))
             }
             asyncio.run(strategy_dao.save_strategy_results(stock_code=stock_code,timestamp=timestamp,defaults_kwargs=defaults_kwargs))
