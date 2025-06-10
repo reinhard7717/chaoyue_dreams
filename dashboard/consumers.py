@@ -74,8 +74,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             # 用 async_to_sync 包装 DAO 的 async 方法
             latest_data = await realtime_dao.get_latest_tick_data(stock_code)
             latest_strategy_result = await strategy_dao.get_latest_strategy_result(stock_code)
-            # print(f"latest_data: {latest_data}")
-            # print(f"score: {getattr(latest_strategy_result, 'score', None)}, : {getattr(latest_strategy_result, 'chinese_interpretation', None)}, ")
             score = getattr(latest_strategy_result, 'score', None)
             if score is None:
                 signal_type = 'hold'
@@ -108,7 +106,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
                     'text': signal_text
                 },
             })
-            print(f"data: {data}")
         await self.send(text_data=json.dumps({
             'type': 'favorites_update',
             'payload': data
