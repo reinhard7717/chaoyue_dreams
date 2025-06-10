@@ -1,4 +1,6 @@
+# users\views.py
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -27,7 +29,7 @@ def register(request):
         if form.is_valid():
             form.save()  # 保存普通用户
             print("新用户注册成功")  # 调试信息
-            return redirect('login')  # 注册成功后跳转到登录页面
+            return redirect(reverse('users:login'))  # 修改：注册成功后跳转到 /users/login/
     else:
         form = UserCreationForm()
     return render(request, 'users/register.html', {'form': form})
