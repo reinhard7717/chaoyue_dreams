@@ -641,25 +641,33 @@ class CacheManager:
 
     async def scan_keys(self, pattern: str):
         """
-        扫描并返回所有匹配 pattern 的 key 列表
+        (异步) 扫描并返回所有匹配 pattern 的 key 列表
         :param pattern: Redis key 匹配模式，如 'strategy:stock:*:trend_following'
         :return: 匹配到的 key 列表（str 类型）
         """
-        keys = []
-        cursor = 0  # 初始游标
-        while True:
-            # aioredis 的 scan 返回 (cursor, [keys])
-            cursor, batch = await self.redis.scan(cursor=cursor, match=pattern, count=100)
-            # 兼容 bytes 和 str
-            for k in batch:
-                if isinstance(k, bytes):
-                    keys.append(k.decode())
-                else:
-                    keys.append(k)
-            if cursor == 0:
-                break
-        print(f"scan_keys: pattern={pattern}, 共找到{len(keys)}个key")
-        return keys
+        try:
+            await self._ensure_client()  # 确保 Redis 客户端已初始化
+            keys = []
+            cursor = 0  # 初始游标
+            while True:
+                # aioredis 的 scan 返回 (cursor, [keys])
+                cursor, batch = await self.redis_client.scan(cursor=cursor, match=pattern, count=100)
+                # 兼容 bytes 和 str
+                for k in batch:
+                    if isinstance(k, bytes):
+                        keys.append(k.decode())
+                    else:
+                        keys.append(k)
+                if cursor == 0:
+                    break
+            print(f"scan_keys: pattern={pattern}, 共找到{len(keys)}个key")  # 调试信息
+            return keys
+        except ConnectionError as e:
+            logger.error(f"scan_keys 失败 (Redis 连接错误): pattern='{pattern}', error='{e}'")
+            return []
+        except Exception as e:
+            logger.error(f"scan_keys 时发生未知 Redis 错误: pattern='{pattern}', error='{e}'", exc_info=True)
+            return []
 
     # --- 辅助方法 ---
     def generate_key(self, cache_type: str, *args: str) -> str:
