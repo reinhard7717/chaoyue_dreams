@@ -638,7 +638,29 @@ class CacheManager:
         except Exception as e:
             logger.error(f"ZADD_AND_TRIM 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-        
+
+    async def scan_keys(self, pattern: str):
+        """
+        扫描并返回所有匹配 pattern 的 key 列表
+        :param pattern: Redis key 匹配模式，如 'strategy:stock:*:trend_following'
+        :return: 匹配到的 key 列表（str 类型）
+        """
+        keys = []
+        cursor = 0  # 初始游标
+        while True:
+            # aioredis 的 scan 返回 (cursor, [keys])
+            cursor, batch = await self.redis.scan(cursor=cursor, match=pattern, count=100)
+            # 兼容 bytes 和 str
+            for k in batch:
+                if isinstance(k, bytes):
+                    keys.append(k.decode())
+                else:
+                    keys.append(k)
+            if cursor == 0:
+                break
+        print(f"scan_keys: pattern={pattern}, 共找到{len(keys)}个key")
+        return keys
+
     # --- 辅助方法 ---
     def generate_key(self, cache_type: str, *args: str) -> str:
         """生成标准化的缓存键"""

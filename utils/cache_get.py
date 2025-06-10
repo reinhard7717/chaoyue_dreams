@@ -446,6 +446,32 @@ class StrategyCacheGet(CacheGet):
         else:
             logger.info(f"缓存未命中: 未找到股票[{stock_code}] 最新策略判断, key: {cache_key}")
             return None
+        
+    async def all_analyze_signals_trend_following_data(self):
+        """
+        获取全部股票的最新趋势跟踪策略数据（从Redis缓存）。
+        返回: dict，key为stock_code，value为策略数据
+        """
+        cache_manager = await self.get_cache_manager()
+        # 构造key的前缀
+        key_prefix = "strategy:stock:"
+        pattern = f"{key_prefix}*:trend_following"
+        # 获取所有匹配的key
+        keys = await cache_manager.scan_keys(pattern)
+        print(f"all_analyze_signals_trend_following_data: 匹配到{len(keys)}个key")
+        result = {}
+        for key in keys:
+            # 提取stock_code
+            # key格式: strategy:stock:{stock_code}:trend_following
+            try:
+                stock_code = key.split(":")[2]
+            except Exception as e:
+                print(f"解析key出错: {key}, 错误: {e}")
+                continue
+            data = await cache_manager.get(key)
+            if data is not None:
+                result[stock_code] = data
+        return result
 
 
     async def analyze_signals_trend_following_datas(self, stock_code: str, days_count: int = 1) -> Optional[Dict[str, Any]]:

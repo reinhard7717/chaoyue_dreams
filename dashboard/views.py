@@ -13,6 +13,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
+from utils.cache_get import StrategyCacheGet
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
 from tasks.tushare.stock_tasks import fetch_data_for_new_favorite # 导入新任务
@@ -58,20 +59,27 @@ def dashboard_view(request):
     return render(request, 'dashboard/home.html', context)
 
 def trend_following_list(request):
-    # 1. 先查出每只股票的最新时间戳
-    latest_timestamp_subquery = StockAnalysisResultTrendFollowing.objects.filter(
-        stock=OuterRef('stock')
-    ).order_by('-timestamp').values('timestamp')[:1]
+    # 1. 从缓存获取所有股票的最新趋势策略数据（dict）
+    cache_get = StrategyCacheGet()
+    all_data = async_to_sync(cache_get.all_analyze_signals_trend_following_data)()
+    # all_data: {stock_code: 策略数据}
 
-    # 2. 只取每只股票最新的那条分析结果
-    latest_results = StockAnalysisResultTrendFollowing.objects.annotate(
-        latest_timestamp=Subquery(latest_timestamp_subquery)
-    ).filter(timestamp=F('latest_timestamp'))
+    # 2. dict转为list，并补充stock_code字段
+    trend_scores = []
+    for stock_code, data in all_data.items():
+        # 兼容数据缺失情况
+        trend_scores.append({
+            'stock_code': stock_code,
+            'score': data.get('score', 0),
+            'confidence_score': data.get('confidence_score', 0),
+            'timestamp': data.get('timestamp', ''),
+            'data': data,  # 原始策略数据
+        })
 
-    # 3. 按score和confidence_score排序
-    latest_results = latest_results.order_by('-score', '-confidence_score')
+    # 3. 按score和confidence_score降序排序
+    trend_scores.sort(key=lambda x: (-x['score'], -x['confidence_score']))
 
-    # 4. 只查当前页数据
+    # 4. 分页
     page_size = 50
     page = request.GET.get('page', 1)
     try:
@@ -81,24 +89,22 @@ def trend_following_list(request):
     except ValueError:
         page = 1
 
-    total_count = latest_results.count()  # 总条数
+    total_count = len(trend_scores)
     start = (page - 1) * page_size
     end = start + page_size
-    trend_scores = latest_results[start:end]  # 只查当前页
+    page_trend_scores = trend_scores[start:end]
 
-    # 计算总页数
     total_pages = (total_count + page_size - 1) // page_size
 
     print(f"共查询到{total_count}只股票的最新趋势评分，当前第{page}页")  # 调试信息
 
     return render(request, 'dashboard/trend_following.html', {
-        'trend_scores': trend_scores,  # 当前页数据
+        'trend_scores': page_trend_scores,  # 当前页数据
         'page': page,
         'total_pages': total_pages,
         'total_count': total_count,
         'page_size': page_size,
     })
-
 # --- DRF API 视图 ---
 
 class StockSearchView(generics.ListAPIView):
