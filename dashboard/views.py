@@ -3,6 +3,8 @@ import json
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Subquery, OuterRef
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from dateutil import parser as date_parser
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
@@ -61,24 +63,37 @@ def dashboard_view(request):
 def trend_following_list(request):
     # 1. 从缓存获取所有股票的最新趋势策略数据（dict）
     cache_get = StrategyCacheGet()
+    stock_basic_dao = StockBasicInfoDao()
     all_data = async_to_sync(cache_get.all_analyze_signals_trend_following_data)()
     # all_data: {stock_code: 策略数据}
 
     # 2. dict转为list，并补充stock_code字段
     trend_scores = []
     for stock_code, data in all_data.items():
-        # 兼容数据缺失情况
+        stock_obj = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
+        stock_name = stock_obj.stock_name
+        ts = data.get('timestamp', '')
+        if ts:
+            try:
+                dt = date_parser.parse(ts)  # 自动识别+08:00
+            except Exception as e:
+                print(f"timestamp解析失败: {ts}, error: {e}")
+                dt = None
+        else:
+            dt = None
+
         trend_scores.append({
             'stock_code': stock_code,
+            'stock_name': stock_name,
             'score': data.get('score', 0),
             'confidence_score': data.get('confidence_score', 0),
-            'timestamp': data.get('timestamp', ''),
-            'data': data,  # 原始策略数据
+            'timestamp': dt,  # 这里是datetime对象
+            'data': data,
         })
 
     # 3. 按score和confidence_score降序排序
     trend_scores.sort(key=lambda x: (-x['score'], -x['confidence_score']))
-
+    # print(f"trend_scores: {trend_scores}")
     # 4. 分页
     page_size = 50
     page = request.GET.get('page', 1)

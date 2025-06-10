@@ -36,32 +36,32 @@
                 <tbody>
                     {% for s in trend_scores %}
                     <tr>
-                        <td>{{ s.stock.stock_code }}</td>
-                        <td>{{ s.stock.stock_name }}</td>
-                        <td>{{ s.close_price|default:"-" }}</td>
+                        <td>{{ s.stock_code }}</td>
+                        <td>{{ s.stock_name|default:"-" }}</td>
+                        <td>{{ s.data.close_price|floatformat:2|default:"-" }}</td>
                         <td>{{ s.score|floatformat:2|default:"-" }}</td>
-                        <td>{{ s.rule_signal|floatformat:2|default:"-" }}</td>
-                        <td>{{ s.lstm_signal|floatformat:2|default:"-" }}</td>
-                        <!-- <td>{{ s.base_score_volume_adjusted|floatformat:2|default:"-" }}</td> -->
-                        <!-- <td>{{ s.alignment_signal|floatformat:2|default:"-" }}</td>
-                        <td>{{ s.adx_strength_signal|floatformat:2|default:"-" }}</td>
-                        <td>{{ s.stoch_signal|floatformat:2|default:"-" }}</td> -->
-                        <td>{{ s.current_trend|default:"-" }}</td>
-                        <td>{{ s.trend_strength|default:"-" }}</td>
+                        <td>{{ s.data.rule_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.data.lstm_signal|floatformat:2|default:"-" }}</td>
+                        <!-- <td>{{ s.data.base_score_volume_adjusted|floatformat:2|default:"-" }}</td> -->
+                        <!-- <td>{{ s.data.alignment_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.data.adx_strength_signal|floatformat:2|default:"-" }}</td>
+                        <td>{{ s.data.stoch_signal|floatformat:2|default:"-" }}</td> -->
+                        <td>{{ s.data.current_trend|default:"-" }}</td>
+                        <td>{{ s.data.trend_strength|default:"-" }}</td>
                         <td>
-                            {% if s.trend_duration_bullish %}
-                              {% widthratio s.trend_duration_bullish 2 1 %}小时
+                            {% if s.data.trend_duration_bullish %}
+                                {% widthratio s.data.trend_duration_bullish 2 1 %}小时
                             {% else %}
-                              -
+                                -
                             {% endif %}
-                          </td>
-                        <!-- <td>{{ s.trend_duration_bearish|default:"-" }}</td>
-                        <td>{{ s.weighted_confidence_score|floatformat:2|default:"-" }}</td> -->
+                        </td>
+                        <!-- <td>{{ s.data.trend_duration_bearish|default:"-" }}</td>
+                        <td>{{ s.data.weighted_confidence_score|floatformat:2|default:"-" }}</td> -->
                         <td>{{ s.confidence_score|floatformat:2|default:"-" }}</td>
-                        <!-- <td>{{ s.normalized_confidence|floatformat:2|default:"-" }}</td> -->
+                        <!-- <td>{{ s.data.normalized_confidence|floatformat:2|default:"-" }}</td> -->
                         <td>{{ s.timestamp|date:"Y-m-d H:i" }}</td>
-                        <!-- <td>{{ s.operation_advice|default:"-" }}</td>
-                        <td>{{ s.risk_warning|default:"-" }}</td> -->
+                        <!-- <td>{{ s.data.operation_advice|default:"-" }}</td>
+                        <td>{{ s.data.risk_warning|default:"-" }}</td> -->
                     </tr>
                     {% empty %}
                     <tr><td colspan="20">暂无数据</td></tr>
