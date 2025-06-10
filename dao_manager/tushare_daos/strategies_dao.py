@@ -24,7 +24,7 @@ logger = logging.getLogger("dao")
 class StrategiesDAO(BaseDAO):
     def __init__(self):
         self.cache_set = StrategyCacheSet()
-        self.cache_get = StrategyCacheSet()
+        self.cache_get = StrategyCacheGet()
     
     async def get_latest_strategy_result(self, stock_code: str):
         """
