@@ -65,7 +65,7 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     cache_get = StrategyCacheGet()
     # stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
     latest_kline = asyncio.run(stt_dao.get_latest_5_min_kline(stock_code=stock_code))
-    time_plus_1min = latest_kline.get("trade_time") + timedelta(minutes=1)
+    time_plus_1min = latest_kline.trade_time + timedelta(minutes=1)
     
     # exists_set = set(
     #     StockAnalysisResultTrendFollowing.objects.filter(
