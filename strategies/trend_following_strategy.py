@@ -3887,8 +3887,12 @@ class TrendFollowingStrategy:
         # 防止出现 None 或 np.nan
         if volume_breakout_signal_val is None or (isinstance(volume_breakout_signal_val, float) and np.isnan(volume_breakout_signal_val)):
             volume_breakout_signal_val = 0
+        # 转换为布尔类型
+        volume_breakout_signal_val = bool(volume_breakout_signal_val)
         if bottom_volume_breakout_signal_val is None or (isinstance(bottom_volume_breakout_signal_val, float) and np.isnan(bottom_volume_breakout_signal_val)):
             bottom_volume_breakout_signal_val = 0
+        # 转换为布尔类型
+        bottom_volume_breakout_signal_val = bool(bottom_volume_breakout_signal_val)
 
         print(f"[{self.strategy_name}][{stock}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
