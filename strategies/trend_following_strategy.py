@@ -3884,6 +3884,12 @@ class TrendFollowingStrategy:
         volume_breakout_signal_val = latest_data_row.get(volume_breakout_signal_col, 0)
         bottom_volume_breakout_signal_val = latest_data_row.get(bottom_volume_breakout_signal_col, 0)
 
+        # 防止出现 None 或 np.nan
+        if volume_breakout_signal_val is None or (isinstance(volume_breakout_signal_val, float) and np.isnan(volume_breakout_signal_val)):
+            volume_breakout_signal_val = 0
+        if bottom_volume_breakout_signal_val is None or (isinstance(bottom_volume_breakout_signal_val, float) and np.isnan(bottom_volume_breakout_signal_val)):
+            bottom_volume_breakout_signal_val = 0
+
         print(f"[{self.strategy_name}][{stock}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
         # 计算趋势持续时间
