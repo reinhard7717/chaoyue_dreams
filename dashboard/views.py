@@ -89,6 +89,7 @@ def trend_following_list(request):
             'stock_code': stock_code,
             'stock_name': stock_name,
             'score': data.get('score', 0),
+            'rule_signal': data.get('rule_signal', 0),
             'confidence_score': data.get('confidence_score', 0),
             'timestamp': dt,  # 这里是datetime对象
             'data': data,
