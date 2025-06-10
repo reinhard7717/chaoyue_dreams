@@ -413,6 +413,17 @@ class StockAnalysisResultTrendFollowing(models.Model):
         verbose_name="收盘价",
         help_text="分析时的收盘价格"
     )
+    # --- 底部识别信号 ---
+    is_in_bottom = models.BooleanField(
+        default=False,
+        verbose_name="处于底部区间",
+        help_text="当前是否处于底部区间"
+    )
+    is_bottom_breakout = models.BooleanField(
+        default=False,
+        verbose_name="底部起涨信号",
+        help_text="是否出现底部起涨信号"
+    )
 
     # --- 趋势持续与状态 ---
     current_trend = models.CharField(

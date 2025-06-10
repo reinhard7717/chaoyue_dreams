@@ -1533,7 +1533,6 @@ class TrendFollowingStrategy:
             self.params.get('feature_engineering_params', {}), # feature_engineering_params
             bs_params # base_scoring
         ]
-
         focus_tf = self.focus_timeframe
 
         # 获取命名规范字典
@@ -1701,8 +1700,6 @@ class TrendFollowingStrategy:
                     vol_spike_col_name = TrendFollowingStrategy._format_indicator_name(vol_spike_pattern, timeframe=tf)[0]
                     volume_adjusted_results_df[vol_spike_col_name] = 0.0
         base_score_volume_adjusted = volume_adjusted_results_df['ADJUSTED_SCORE']
-        # 修改行: 打印 base_score_volume_adjusted 的最新值
-        # print(f"DEBUG: {stock_code} - base_score_volume_adjusted (last row): {base_score_volume_adjusted.iloc[-1]:.4f}")
 
         # 执行趋势分析 (假定 _perform_trend_analysis 已实现)
         trend_analysis_df = self._perform_trend_analysis(data, base_score_volume_adjusted)
@@ -1809,8 +1806,6 @@ class TrendFollowingStrategy:
         # 综合规则信号 (假定 strategy_utils 包含 combine_rule_signals 函数)
         logger.debug(f"[{self.strategy_name}][{stock_code}] 计算综合规则信号...")
         weights = self.rule_signal_weights
-        # 修改行: 打印权重配置
-        # print(f"DEBUG: {stock_code} - rule_signal_weights: {weights}")
 
         # 提取各种信号列，如果缺失则用 0 填充
         base_score_norm = (base_score_volume_adjusted.fillna(50.0) - 50) / 50 # 归一化到 [-1, 1]
@@ -1845,19 +1840,6 @@ class TrendFollowingStrategy:
             logger.warning(f"[{self.strategy_name}][{stock_code}] 量价异动信号列 '{vol_spike_signal_col}' (基于时间框架 {vc_tf_list_vol_spike[0] if vc_tf_list_vol_spike else '无'}) 不存在或量能时间框架未配置。规则组合中量价异动贡献为 0。")
             volume_spike_norm = pd.Series(0.0, index=data.index)
 
-        # 修改行: 打印归一化后的各个信号值
-        # print(f"DEBUG: {stock_code} - Normalized Signals (last row):")
-        # print(f"  base_score_norm: {base_score_norm.iloc[-1]:.4f}")
-        # print(f"  alignment_norm: {alignment_norm.iloc[-1]:.4f}")
-        # print(f"  long_context_norm: {long_context_norm.iloc[-1]:.4f}")
-        # print(f"  momentum_norm: {momentum_norm.iloc[-1]:.4f}")
-        # print(f"  ema_cross_norm: {ema_cross_norm.iloc[-1]:.4f}")
-        # print(f"  boll_breakout_norm: {boll_breakout_norm.iloc[-1]:.4f}")
-        # print(f"  adx_strength_norm: {adx_strength_norm.iloc[-1]:.4f}")
-        # print(f"  stoch_signal_norm: {stoch_signal_norm.iloc[-1]:.4f}")
-        # print(f"  vwap_dev_norm: {vwap_dev_norm.iloc[-1]:.4f}")
-        # print(f"  volume_spike_norm: {volume_spike_norm.iloc[-1]:.4f}")
-
         total_weighted_contribution = pd.Series(0.0, index=data.index)
         total_weighted_contribution += base_score_norm * weights.get('base_score', 0)
         total_weighted_contribution += alignment_norm * weights.get('alignment', 0)
@@ -1870,14 +1852,9 @@ class TrendFollowingStrategy:
         total_weighted_contribution += vwap_dev_norm * weights.get('vwap_deviation', 0)
         total_weighted_contribution += volume_spike_norm * weights.get('volume_spike', 0)
 
-        # 修改行: 打印加权总贡献
-        # print(f"DEBUG: {stock_code} - total_weighted_contribution (last row): {total_weighted_contribution.iloc[-1]:.4f}")
-
         # 将加权贡献转换回 0-100 的分数范围
         base_rule_signal_before_adjust = 50.0 + total_weighted_contribution * 50.0
         base_rule_signal_before_adjust = base_rule_signal_before_adjust.clip(0, 100)
-        # 修改行: 打印调整前的基础规则信号
-        # print(f"DEBUG: {stock_code} - base_rule_signal_before_adjust (last row): {base_rule_signal_before_adjust.iloc[-1]:.4f}")
 
         # 应用 ADX 增强 (假定 _apply_adx_boost 已实现)
         # 修改行: 更改变量名以便后续打印
@@ -1886,20 +1863,14 @@ class TrendFollowingStrategy:
             adx_strength_norm,
             (base_rule_signal_before_adjust.fillna(50.0) - 50.0) / 50.0
         )
-        # 修改行: 打印 ADX 增强后的信号
-        # print(f"DEBUG: {stock_code} - final_rule_signal_after_adx (last row): {final_rule_signal_after_adx.iloc[-1]:.4f}")
 
         # 应用背离惩罚 (假定 _apply_divergence_penalty 已实现)
         # 修改行: 更改变量名以便后续打印
         final_rule_signal_after_div = self._apply_divergence_penalty(final_rule_signal_after_adx, divergence_signals_df, dd_params)
-        # 修改行: 打印背离惩罚后的信号
-        # print(f"DEBUG: {stock_code} - final_rule_signal_after_div (last row): {final_rule_signal_after_div.iloc[-1]:.4f}")
 
         # 应用趋势确认过滤 (假定 _apply_trend_confirmation 已实现)
         # 修改行: 更改变量名以便后续打印
         final_rule_signal = self._apply_trend_confirmation(final_rule_signal_after_div)
-        # 修改行: 打印趋势确认后的最终信号
-        # print(f"DEBUG: {stock_code} - final_rule_signal_after_trend_conf (last row): {final_rule_signal.iloc[-1]:.4f}")
 
         # 最终剪切和四舍五入
         final_rule_signal = final_rule_signal.clip(0, 100).round(2)
@@ -1913,9 +1884,6 @@ class TrendFollowingStrategy:
             'trend_analysis_df': trend_analysis_df,
             'divergence_signals_df': divergence_signals_df
         }
-        # print(f"_calculate_rule_based_signal: {stock_code}")
-        # print(f"final_rule_signal: {final_rule_signal}")
-        # print(f"intermediate_results: {intermediate_results}")
         return final_rule_signal, intermediate_results
 
     def _perform_trend_analysis(self, data: pd.DataFrame, base_score_series: pd.Series) -> pd.DataFrame:
@@ -3532,7 +3500,6 @@ class TrendFollowingStrategy:
             logger.error(f"[{self.strategy_name}] NAMING_CONFIG 中 'strategy_internal_columns.output_columns' 配置无效，应为列表。")
             internal_cols_conf = []
         final_rule_signal_col = next((c['name_pattern'] for c in internal_cols_conf if isinstance(c, dict) and c.get('name_pattern') == "final_rule_signal"), "final_rule_signal")
-        # print(f"[{self.strategy_name}] 趋势持续时间计算：使用的规则信号列名为 '{final_rule_signal_col}'。")
 
         # 严格检查输入数据框和信号列的有效性
         # 增加对输入DataFrame类型的检查
@@ -3605,10 +3572,6 @@ class TrendFollowingStrategy:
         if trend_duration_threshold_strong < trend_duration_threshold_moderate:
              logger.warning(f"[{self.strategy_name}] 趋势持续时间状态：强趋势阈值 ({trend_duration_threshold_strong}) 小于中等趋势阈值 ({trend_duration_threshold_moderate})。已调整强趋势阈值以确保逻辑正确。")
              trend_duration_threshold_strong = trend_duration_threshold_moderate + 1
-        # print(f"[{self.strategy_name}] 趋势判断阈值：上沿={trend_threshold_upper}, 下沿={trend_threshold_lower}, 强多={strong_bullish_threshold}, 强空={strong_bearish_threshold}, 中多={moderate_bullish_threshold}, 中空={moderate_bearish_threshold}。")
-        # print(f"[{self.strategy_name}] 趋势持续时间阈值：强={trend_duration_threshold_strong}, 中={trend_duration_threshold_moderate}。")
-        # print(f"[{self.strategy_name}] 交易日分钟数：{trading_day_minutes}。")
-        
 
         current_bullish_streak = 0
         current_bearish_streak = 0
@@ -3624,7 +3587,6 @@ class TrendFollowingStrategy:
             else: # 信号回到中性区域，趋势中断
                 # print(f"[{self.strategy_name}] 信号 {signal_val:.2f} 进入中性区域，趋势中断。")
                 break
-        # print(f"[{self.strategy_name}] 计算得到连续看涨周期数: {current_bullish_streak}, 连续看跌周期数: {current_bearish_streak}。")
 
         trend_duration_info['bullish_duration'] = current_bullish_streak
         trend_duration_info['bearish_duration'] = current_bearish_streak
@@ -3634,7 +3596,6 @@ class TrendFollowingStrategy:
             timeframe_minutes = int(self.focus_timeframe)
             bullish_total_minutes = current_bullish_streak * timeframe_minutes
             bearish_total_minutes = current_bearish_streak * timeframe_minutes
-            # print(f"[{self.strategy_name}] 转换时间：单周期分钟数={timeframe_minutes}, 看涨总分钟={bullish_total_minutes}, 看跌总分钟={bearish_total_minutes}。")
 
             def format_duration_with_trading_day(total_minutes: int, trading_day_minutes: int) -> str:
                 """将总分钟数格式化为交易日、小时、分钟的字符串。"""
@@ -3717,10 +3678,30 @@ class TrendFollowingStrategy:
              trend_duration_info['duration_status'] = '中'
         else:
              trend_duration_info['duration_status'] = '短'
-        # print(f"[{self.strategy_name}] 趋势持续周期数: {current_duration_periods}, 持续状态: '{trend_duration_info['duration_status']}'。")
+        # === 底部/底部起涨判断 ===
+        # 1. 判断底部区间（连续N周期低于下阈值）
+        bottom_periods = 30  # 连续30周期低位可认为底部
+        is_in_bottom = False
+        if final_signal_values.size >= bottom_periods:
+            # 取最近N个周期
+            recent_signals = final_signal_values[-bottom_periods:]
+            if all(val <= trend_threshold_lower for val in recent_signals):
+                is_in_bottom = True
+                print(f"[{self.strategy_name}] 检测到连续{bottom_periods}周期处于底部区间。")
 
-        # logger.debug(f"[{self.strategy_name}] 趋势持续时间计算完成。持续信息: {trend_duration_info}")
-        # print(f"[{self.strategy_name}] 趋势持续时间计算完成。")
+        # 2. 判断底部起涨（低位持续后首次突破上阈值）
+        is_bottom_breakout = False
+        if final_signal_values.size >= bottom_periods + 1:
+            # 前N周期都在底部，最新周期突破上阈值
+            prev_signals = final_signal_values[-(bottom_periods+1):-1]
+            last_signal = final_signal_values[-1]
+            if all(val <= trend_threshold_lower for val in prev_signals) and last_signal >= trend_threshold_upper:
+                is_bottom_breakout = True
+                print(f"[{self.strategy_name}] 检测到底部起涨信号：前{bottom_periods}周期低位，最新周期突破上阈值。")
+
+        # 3. 结果写入trend_duration_info
+        trend_duration_info['is_in_bottom'] = is_in_bottom
+        trend_duration_info['is_bottom_breakout'] = is_bottom_breakout
 
         return trend_duration_info
 
@@ -3874,6 +3855,9 @@ class TrendFollowingStrategy:
         duration_status_rule_str = trend_duration_info_dict.get('duration_status', '短')
         current_trend_direction = trend_duration_info_dict.get('current_trend', '中性')
         current_trend_strength = trend_duration_info_dict.get('trend_strength', '不明')
+        is_in_bottom = trend_duration_info_dict.get('is_in_bottom', False)
+        is_bottom_breakout = trend_duration_info_dict.get('is_bottom_breakout', False)
+
         print(f"[{self.strategy_name}][{stock}] 趋势持续状态: '{duration_status_rule_str}', 方向: '{current_trend_direction}', 强度: '{current_trend_strength}'。")
 
         # ================== 多变量深化判断与智能建议 ==================
@@ -4168,7 +4152,13 @@ class TrendFollowingStrategy:
         else:
             add_signal_impact('volatility_status', "波动率数据缺失", 0)
 
-        # 新增判断规则：20. ADX 强度信号判断 (来自 adx_strength_signal 列, 结合方向)
+        # 20. 底部区间与底部起涨信号判断
+        if is_in_bottom:
+            add_signal_impact('bottom_zone', "处于底部区间", 10, "信号持续低位，关注底部企稳机会。")
+        if is_bottom_breakout:
+            add_signal_impact('bottom_breakout', "底部起涨信号", 20, "底部信号后首次突破，关注反转机会。")
+
+        # 21. ADX 强度信号判断 (来自 adx_strength_signal 列, 结合方向)
         print(f"[{self.strategy_name}][{stock}] ADX 强度信号值 (来自列 {adx_strength_signal_col}, 结合方向): {adx_strength_signal_val:.2f}。")
         if not np.isnan(adx_strength_signal_val):
             trend_direction_from_adx_signal = "中性"
@@ -4252,7 +4242,6 @@ class TrendFollowingStrategy:
             add_signal_impact('adx_processed_strength_status', status_msg, confidence_adj, risk_msg_adx_processed)
         else:
             add_signal_impact('adx_processed_strength_status', "处理后ADX强度信号数据缺失", 0)
-        # END MODIFIED
 
         # 根据综合信心分数生成更高效和有效的操作建议
         normalized_confidence = max(-1.0, min(1.0, confidence_score / 100.0))
@@ -4303,6 +4292,9 @@ class TrendFollowingStrategy:
         signal_judgment_dict['score_change_short'] = score_change_short
         signal_judgment_dict['score_change_long'] = score_change_long
         signal_judgment_dict['score_change_consistency_status'] = score_change_consistency_status
+        # 底部信号单独列明
+        signal_judgment_dict['is_in_bottom'] = is_in_bottom
+        signal_judgment_dict['is_bottom_breakout'] = is_bottom_breakout
 
         # now_str = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -4313,6 +4305,7 @@ class TrendFollowingStrategy:
             f"当前策略信号强度: {signal_judgment_dict.get('overall_signal_strength', '中性')}\n"
             f"基于规则趋势判断: {current_trend_direction} (强度: {current_trend_strength})\n"
             f"趋势持续时间: {trend_duration_info_dict.get('bullish_duration_text' if current_trend_direction.startswith('看涨') else 'bearish_duration_text','未知')} (状态: {duration_status_rule_str})\n"
+            f"底部区间: {'是' if is_in_bottom else '否'}，底部起涨: {'是' if is_bottom_breakout else '否'}\n"
             f"----------------------------------------\n"
             f"【多维度信号交叉验证】\n"
             f"量能与趋势一致性: {signal_judgment_dict.get('trend_volume_consistency', '未知')}, 量能效果: {signal_judgment_dict.get('volume_effect', '未知')}\n"
@@ -4476,9 +4469,9 @@ class TrendFollowingStrategy:
         # 引入 json 模块，用于序列化复杂数据结构
         # 移除 asyncio 导入，因为不再使用异步缓存操作
         # import asyncio # 原始代码中的导入，已移除
-        stock_basic_dao = StockBasicInfoDao()
+        # stock_basic_dao = StockBasicInfoDao()
         strategy_dao = StrategiesDAO()
-        stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
+        # stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
 
         if self.analysis_results is None:
             print(f"[{self.strategy_name}][{stock_code}] 无分析结果可保存。请先运行 analyze_signals。")
@@ -4578,6 +4571,8 @@ class TrendFollowingStrategy:
                 'trend_duration_status': self.analysis_results.get('duration_status'),
                 'operation_advice': self.analysis_results.get('operation_advice'),
                 'risk_warning': self.analysis_results.get('risk_warning'),
+                'is_in_bottom': self.analysis_results.get('is_in_bottom'),
+                'is_bottom_breakout': self.analysis_results.get('is_bottom_breakout'),
                 'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
                 'signal_impact_records_json': json.dumps(signal_judgment.get('signal_impact_records', []), ensure_ascii=False, default=lambda x: str(x)),
                 'signal_contribution_summary_json': json.dumps(signal_judgment.get('signal_contribution_summary', {}), ensure_ascii=False, default=lambda x: str(x)),

@@ -1416,21 +1416,6 @@ class IndicatorService:
 
             ema_series = await asyncio.to_thread(_sync_ema)
 
-            # --- 调试信息 Start ---
-            # print(f"DEBUG calculate_ema: period={period}, input df rows={len(df)}")
-            # print(f"DEBUG calculate_ema: ema_series type: {type(ema_series)}")
-            # if ema_series is not None:
-            #     print(f"DEBUG calculate_ema: ema_series value (first 5 if Series else value): {ema_series.head(5) if isinstance(ema_series, pd.Series) else ema_series}")
-            #     if hasattr(ema_series, 'empty'):
-            #         print(f"DEBUG calculate_ema: ema_series.empty: {ema_series.empty}")
-            #     if hasattr(ema_series, 'index'):
-            #         print(f"DEBUG calculate_ema: ema_series.index: {ema_series.index}")
-            #     from pandas.api.types import is_scalar
-            #     print(f"DEBUG calculate_ema: is_scalar(ema_series): {is_scalar(ema_series)}")
-            # else:
-            #     print(f"DEBUG calculate_ema: ema_series is None")
-            # --- 调试信息 End ---
-
             if ema_series is None: # 修改: 首先检查 ema_series 是否为 None
                 # logger.warning(f"EMA (周期 {period}) 计算后 _sync_ema 返回 None. 输入 df 行数: {len(df)}.")
                 return None
