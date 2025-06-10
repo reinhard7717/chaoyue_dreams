@@ -4,6 +4,7 @@ from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Subquery, OuterRef
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from dateutil import parser as date_parser
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
@@ -64,6 +65,7 @@ def trend_following_list(request):
     # 1. 从缓存获取所有股票的最新趋势策略数据（dict）
     cache_get = StrategyCacheGet()
     stock_basic_dao = StockBasicInfoDao()
+    stock_realtime_dao = StockRealtimeDAO()
     all_data = async_to_sync(cache_get.all_analyze_signals_trend_following_data)()
     # all_data: {stock_code: 策略数据}
 
@@ -71,6 +73,7 @@ def trend_following_list(request):
     trend_scores = []
     for stock_code, data in all_data.items():
         stock_obj = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
+        latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(stock_code)
         stock_name = stock_obj.stock_name
         ts = data.get('timestamp', '')
         if ts:
@@ -92,7 +95,7 @@ def trend_following_list(request):
         })
 
     # 3. 按score和confidence_score降序排序
-    trend_scores.sort(key=lambda x: (-x['score'], -x['confidence_score']))
+    trend_scores.sort(key=lambda x: (-x['rule_signal'], -x['confidence_score']))
     # print(f"trend_scores: {trend_scores}")
     # 4. 分页
     page_size = 50
