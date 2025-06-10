@@ -3887,12 +3887,8 @@ class TrendFollowingStrategy:
         # 防止出现 None 或 np.nan
         if volume_breakout_signal_val is None or (isinstance(volume_breakout_signal_val, float) and np.isnan(volume_breakout_signal_val)):
             volume_breakout_signal_val = 0
-        # 转换为布尔类型
-        volume_breakout_signal_val = bool(volume_breakout_signal_val)
         if bottom_volume_breakout_signal_val is None or (isinstance(bottom_volume_breakout_signal_val, float) and np.isnan(bottom_volume_breakout_signal_val)):
             bottom_volume_breakout_signal_val = 0
-        # 转换为布尔类型
-        bottom_volume_breakout_signal_val = bool(bottom_volume_breakout_signal_val)
 
         print(f"[{self.strategy_name}][{stock}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
@@ -4635,8 +4631,8 @@ class TrendFollowingStrategy:
                 'trend_duration_status': self.analysis_results.get('duration_status'),
                 'operation_advice': self.analysis_results.get('operation_advice'),
                 'risk_warning': self.analysis_results.get('risk_warning'),
-                'volume_breakout_signal': bool(volume_breakout_signal_col),  # 修改：从 intermediate_row 获取
-                'bottom_volume_breakout_signal': bool(bottom_volume_breakout_signal_col),  # 修改：从 intermediate_row 获取
+                'volume_breakout_signal': bool(volume_breakout_signal_col, False),  # 修改：从 intermediate_row 获取
+                'bottom_volume_breakout_signal': bool(bottom_volume_breakout_signal_col, False),  # 修改：从 intermediate_row 获取
                 'chinese_interpretation': self.analysis_results.get('chinese_interpretation'),
                 'signal_impact_records_json': json.dumps(signal_judgment.get('signal_impact_records', []), ensure_ascii=False, default=lambda x: str(x)),
                 'signal_contribution_summary_json': json.dumps(signal_judgment.get('signal_contribution_summary', {}), ensure_ascii=False, default=lambda x: str(x)),
