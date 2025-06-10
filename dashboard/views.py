@@ -68,23 +68,35 @@ def trend_following_list(request):
         latest_timestamp=Subquery(latest_timestamp_subquery)
     ).filter(timestamp=F('latest_timestamp'))
 
-    # 3. 按score从高到低排序
+    # 3. 按score和confidence_score排序
     latest_results = latest_results.order_by('-score', '-confidence_score')
 
-    # 4. 分页，每页50条
-    paginator = Paginator(latest_results, 50)  # 每页50条
-    page = request.GET.get('page', 1)  # 获取当前页码，默认为1
+    # 4. 只查当前页数据
+    page_size = 50
+    page = request.GET.get('page', 1)
     try:
-        trend_scores = paginator.page(page)
-    except PageNotAnInteger:
-        trend_scores = paginator.page(1)
-    except EmptyPage:
-        trend_scores = paginator.page(paginator.num_pages)
+        page = int(page)
+        if page < 1:
+            page = 1
+    except ValueError:
+        page = 1
 
-    print(f"共查询到{paginator.count}只股票的最新趋势评分，当前第{trend_scores.number}页")  # 调试信息
+    total_count = latest_results.count()  # 总条数
+    start = (page - 1) * page_size
+    end = start + page_size
+    trend_scores = latest_results[start:end]  # 只查当前页
+
+    # 计算总页数
+    total_pages = (total_count + page_size - 1) // page_size
+
+    print(f"共查询到{total_count}只股票的最新趋势评分，当前第{page}页")  # 调试信息
 
     return render(request, 'dashboard/trend_following.html', {
-        'trend_scores': trend_scores,  # 传递Page对象
+        'trend_scores': trend_scores,  # 当前页数据
+        'page': page,
+        'total_pages': total_pages,
+        'total_count': total_count,
+        'page_size': page_size,
     })
 
 # --- DRF API 视图 ---
