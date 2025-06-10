@@ -8,9 +8,11 @@ from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from django.core.management.base import CommandError
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from services.indicator_services import IndicatorService
 from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
 from strategies.trend_following_strategy import TrendFollowingStrategy
+from utils.cache_get import StrategyCacheGet
 
 logger = logging.getLogger(__name__)
 
@@ -58,21 +60,34 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
     """
     对单只股票执行所有策略分析并保存结果
     """
-    indicator_service = IndicatorService()
-    stock_basic_dao = StockBasicInfoDao()
-    stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
-    trade_times_list = asyncio.run(indicator_service.get_5_min_kline_time_by_day_count(stock_code=stock_code, day_count=day_count))
-    trade_times_list = sorted(trade_times_list, reverse=True)
-    time_plus_1min = [t + timedelta(minutes=1) for t in trade_times_list]
-    exists_set = set(
-        StockAnalysisResultTrendFollowing.objects.filter(
-            stock=stock_obj, timestamp__in=time_plus_1min
-        ).values_list('timestamp', flat=True)
-    )
-    for t_dt, t_dt_plus_1min in zip(trade_times_list, time_plus_1min):
-        if t_dt_plus_1min not in exists_set:
-            logger.info(f"开始分析股票 {stock_code} - {t_dt_plus_1min}")
-            result = execute_strategy_for_trade_time(stock_code, params_file, t_dt_plus_1min)
+    stt_dao = StockTimeTradeDAO()
+    # stock_basic_dao = StockBasicInfoDao()
+    cache_get = StrategyCacheGet()
+    # stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
+    latest_kline = asyncio.run(stt_dao.get_latest_5_min_kline(stock_code=stock_code))
+    time_plus_1min = latest_kline.get("trade_time") + timedelta(minutes=1)
+    
+    # exists_set = set(
+    #     StockAnalysisResultTrendFollowing.objects.filter(
+    #         stock=stock_obj, timestamp__in=time_plus_1min
+    #     ).values_list('timestamp', flat=True)
+    # )
+    # 1. 获取Redis缓存中的最新数据
+    cache_data = asyncio.run(cache_get.lastest_analyze_signals_trend_following_data(stock_code))
+    cache_ts = None
+    if cache_data and 'timestamp' in cache_data:
+        # 兼容字符串和datetime类型
+        try:
+            if isinstance(cache_data['timestamp'], str):
+                cache_ts = datetime.fromisoformat(cache_data['timestamp'])
+            else:
+                cache_ts = cache_data['timestamp']
+        except Exception as e:
+            print(f"缓存时间戳解析失败: {e}")
+            cache_ts = None
+    if time_plus_1min > cache_ts:
+        logger.info(f"开始分析股票 {stock_code} - {time_plus_1min}")
+        result = execute_strategy_for_trade_time(stock_code, params_file, time_plus_1min)
             # print(f"分析结果: {result}")  # 调试信息
 
 def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time_str: str):

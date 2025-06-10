@@ -2,7 +2,7 @@
 import logging
 import time
 from asgiref.sync import sync_to_async
-from typing import List
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -321,6 +321,34 @@ class StockTimeTradeDAO(BaseDAO):
         trade_times = [record.strftime('%Y-%m-%d %H:%M:%S') for record in records]
         # print(f"{stock} - 查询到{len(trade_times)}条5分钟K线数据")  # 调试信息
         return trade_times
+
+    async def get_latest_5_min_kline(self, stock_code: str) -> Optional[Dict]:
+        """
+        获取指定股票最新一条5分钟K线数据
+        :param stock_code: 股票代码
+        :return: 最新K线数据字典，未找到则返回None
+        """
+        # 获取股票对象
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            print(f"未找到股票代码：{stock_code}")
+            return None
+
+        # 用sync_to_async包装ORM查询
+        @sync_to_async
+        def get_latest_kline():
+            # 按trade_time倒序，取最新一条
+            record = (StockMinuteData.objects
+                    .filter(stock=stock, time_level='5')
+                    .order_by('-trade_time')
+                    .values('trade_time', 'open', 'high', 'low', 'close', 'volume', 'amount')
+                    .first())
+            return record
+
+        latest_kline = await get_latest_kline()
+        if not latest_kline:
+            print(f"{stock_code} 未查询到5分钟K线数据")  # 调试信息
+        return latest_kline
 
     async def save_minute_time_trade_history_by_time_level(self, stock_code: str, time_level: str) -> None:
         """
@@ -646,7 +674,6 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time']
             )
         return result
-
 
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime(self, stock_code: str, time_level: str) -> None:
