@@ -94,9 +94,9 @@ class StrategiesDAO(BaseDAO):
         analysis_record, created = await update_or_create_analysis()
 
         if created:
-            print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略分析结果已成功创建。")
+            print(f"[{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略分析结果已成功创建。")
         else:
-            print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略分析结果已成功更新。")
+            print(f"[{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略分析结果已成功更新。")
 
         # 1. 获取Redis缓存中的最新数据
         cache_data = await self.cache_get.lastest_analyze_signals_trend_following_data(stock_code)
