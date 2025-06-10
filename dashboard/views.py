@@ -72,7 +72,7 @@ def trend_following_list(request):
 
     print(f"共查询到{latest_results.count()}只股票的最新趋势评分")  # 调试信息
 
-    return render(request, 'strategies/trend_following.html', {
+    return render(request, 'dashboard/trend_following.html', {
         'trend_scores': latest_results,
     })
 
