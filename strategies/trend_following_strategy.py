@@ -3881,8 +3881,8 @@ class TrendFollowingStrategy:
         vwap_deviation_percent_val = latest_data_row.get(vwap_deviation_percent_col, np.nan)
         boll_breakout_signal_val = latest_data_row.get(boll_breakout_signal_col, np.nan)
         # 底部放量
-        volume_breakout_signal_val = latest_data_row.get(volume_breakout_signal_col, np.nan)
-        bottom_volume_breakout_signal_val = latest_data_row.get(bottom_volume_breakout_signal_col, np.nan)
+        volume_breakout_signal_val = latest_data_row.get(volume_breakout_signal_col, 0)
+        bottom_volume_breakout_signal_val = latest_data_row.get(bottom_volume_breakout_signal_col, 0)
 
         print(f"[{self.strategy_name}][{stock}] 最新信号值：组合={final_score_val:.2f}, 规则={final_rule_score_val:.2f}, Transformer={transformer_score_val:.2f}。")
 
