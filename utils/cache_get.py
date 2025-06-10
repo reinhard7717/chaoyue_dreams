@@ -430,8 +430,23 @@ class StockIndicatorsCacheGet(CacheGet):
 
 
 class StrategyCacheGet(CacheGet):
-    async def initialize(self):
-        pass
+    async def lastest_analyze_signals_trend_following_data(self, stock_code: str):
+        cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
+        # 2. 调用 CacheManager 获取数据
+        cache_manager = await self.get_cache_manager()
+        cached_data = await cache_manager.get(key=cache_key)
+        if cached_data is not None:
+            if isinstance(cached_data, dict):
+                logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 最新策略判断, key: {cache_key}")
+                return cached_data
+            else:
+                logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 最新策略判断的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
+                cache_manager.delete(cache_key) # 可选：删除错误数据
+                return None
+        else:
+            logger.info(f"缓存未命中: 未找到股票[{stock_code}] 最新策略判断, key: {cache_key}")
+            return None
+
 
     async def analyze_signals_trend_following_datas(self, stock_code: str, days_count: int = 1) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
@@ -451,7 +466,8 @@ class StrategyCacheGet(CacheGet):
         except Exception as e:
             logger.error(f"调用 zrangebyscore 失败: {e}")
             return None
-        
+    
+
 
 
 

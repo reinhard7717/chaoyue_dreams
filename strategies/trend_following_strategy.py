@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.indicator_services import IndicatorService # 确保导入 IndicatorService
 from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas_ta as ta
@@ -4476,6 +4477,7 @@ class TrendFollowingStrategy:
         # 移除 asyncio 导入，因为不再使用异步缓存操作
         # import asyncio # 原始代码中的导入，已移除
         stock_basic_dao = StockBasicInfoDao()
+        strategy_dao = StrategiesDAO()
         stock_obj = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code))
 
         if self.analysis_results is None:
@@ -4584,19 +4586,7 @@ class TrendFollowingStrategy:
                 'normalized_confidence': convert_nan_to_none(signal_judgment.get('normalized_confidence')),
                 # 'raw_analysis_data': json.dumps(self.analysis_results, ensure_ascii=False, default=lambda x: str(x))
             }
-
-            # 使用 update_or_create 方法保存数据
-            # 查找条件是 stock_obj 和 timestamp
-            analysis_record, created = StockAnalysisResultTrendFollowing.objects.update_or_create(
-                stock=stock_obj, # 外键直接传入 StockInfo 对象
-                timestamp=timestamp,
-                defaults=defaults_kwargs # 传入所有其他字段作为 defaults
-            )
-
-            if created:
-                print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略分析结果已成功创建。")
-            else:
-                print(f"[{self.strategy_name}][{stock_code}] 在时间点 {timestamp.strftime('%Y-%m-%d %H:%M')} 策略分析结果已成功更新。")
+            asyncio.run(strategy_dao.save_strategy_results(stock_code=stock_code,timestamp=timestamp,defaults_kwargs=defaults_kwargs))
 
         except StockInfo.DoesNotExist:
             print(f"[{self.strategy_name}][{stock_code}] 保存分析结果失败：股票代码 {stock_code} 不存在于 StockInfo 模型中。")
