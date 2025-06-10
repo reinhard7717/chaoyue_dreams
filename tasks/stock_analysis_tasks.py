@@ -85,7 +85,10 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
         except Exception as e:
             print(f"缓存时间戳解析失败: {e}")
             cache_ts = None
-    if time_plus_1min > cache_ts:
+    if cache_ts is None:
+        logger.info(f"开始分析股票 {stock_code} - {time_plus_1min}")
+        result = execute_strategy_for_trade_time(stock_code, params_file, time_plus_1min)
+    elif time_plus_1min > cache_ts:
         logger.info(f"开始分析股票 {stock_code} - {time_plus_1min}")
         result = execute_strategy_for_trade_time(stock_code, params_file, time_plus_1min)
             # print(f"分析结果: {result}")  # 调试信息
