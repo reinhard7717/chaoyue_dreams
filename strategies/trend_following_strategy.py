@@ -3905,8 +3905,8 @@ class TrendFollowingStrategy:
         duration_status_rule_str = trend_duration_info_dict.get('duration_status', '短')
         current_trend_direction = trend_duration_info_dict.get('current_trend', '中性')
         current_trend_strength = trend_duration_info_dict.get('trend_strength', '不明')
-        is_in_bottom = trend_duration_info_dict.get('is_in_bottom', False)
-        is_bottom_breakout = trend_duration_info_dict.get('is_bottom_breakout', False)
+        # is_in_bottom = trend_duration_info_dict.get('is_in_bottom', False)
+        # is_bottom_breakout = trend_duration_info_dict.get('is_bottom_breakout', False)
 
         print(f"[{self.strategy_name}][{stock}] 趋势持续状态: '{duration_status_rule_str}', 方向: '{current_trend_direction}', 强度: '{current_trend_strength}'。")
 
