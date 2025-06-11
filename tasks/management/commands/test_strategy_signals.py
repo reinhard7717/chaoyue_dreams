@@ -102,7 +102,7 @@ class Command(BaseCommand):
             # strategies_to_run['trend_reversal'] = TrendReversalStrategy(params_file=params_file)
             # strategies_to_run['t_plus_0'] = TPlus0Strategy(params_file=params_file)
             # 可以在这里添加或移除其他策略
-            self.stdout.write(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
+            # self.stdout.write(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
         except (FileNotFoundError, ValueError, ImportError, KeyError) as e: # 捕捉更多可能的初始化错误
             raise CommandError(f"初始化策略时出错: {e}")
 

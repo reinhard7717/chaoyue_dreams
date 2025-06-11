@@ -116,7 +116,7 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
             strategies_to_run['trend_following'] = TrendFollowingStrategy(params_file=params_file)
             # strategies_to_run['trend_reversal'] = TrendReversalStrategy(params_file=params_file)
             # strategies_to_run['t_plus_0'] = TPlus0Strategy(params_file=params_file)
-            logger.info(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
+            # logger.info(f"将要运行的策略: {', '.join(s.strategy_name for s in strategies_to_run.values())}")
         except (FileNotFoundError, ValueError, ImportError, KeyError) as e:
             logger.error(f"初始化策略时出错: {e}", exc_info=True)
             raise CommandError(f"初始化策略时出错: {e}")
