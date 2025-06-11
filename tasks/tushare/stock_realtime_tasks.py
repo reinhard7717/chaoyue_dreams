@@ -239,7 +239,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
                 save_task = save_minute_data_realtime_batch.s(batch, time_level)
                 # 对 batch 里的每个 code，单独分配 analyze_batch_stocks 任务
                 analyze_tasks = group(
-                    analyze_single_stock.s([code], params_file, day_count).set(queue="favorite_calculate_strategy")
+                    analyze_single_stock.s(code, params_file, day_count).set(queue="favorite_calculate_strategy")
                     for code in batch
                 )
                 # 链式：先保存，再分析
@@ -258,7 +258,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
                 save_task = save_minute_data_realtime_batch.s(batch, time_level)
                 # 对 batch 里的每个 code，单独分配 analyze_batch_stocks 任务
                 analyze_tasks = group(
-                    analyze_single_stock.s([code], params_file, day_count).set(queue="calculate_strategy")
+                    analyze_single_stock.s(code, params_file, day_count).set(queue="calculate_strategy")
                     for code in batch
                 )
                 # 链式：先保存，再分析
