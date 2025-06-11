@@ -4,6 +4,8 @@ from django.contrib.auth.views import LogoutView
 from django.contrib.auth import views as auth_views
 from .forms import UserLoginForm # 引入你的自定义表单
 from . import views
+from dashboard.views import dashboard_view  # 导入dashboard_view
+
 
 app_name = 'users' # 定义 app 命名空间
 
@@ -15,7 +17,7 @@ urlpatterns = [
     ), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='/'), name='logout'), # 登出后重定向到首页
 
-    path('home/', views.user_home_view, name='home'), # 主控台 URL
+    path('home/', dashboard_view, name='home'), # 主控台 URL
     path('favorites/', views.favorite_list_view, name='favorite_list'), # 自选股列表页 URL (示例)
     path('profile/', views.profile_view, name='profile'), # 个人设置页 URL (示例)
 
