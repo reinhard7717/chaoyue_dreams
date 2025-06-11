@@ -85,11 +85,13 @@ def analyze_single_stock(self, stock_code: str, params_file: str, day_count: int
         except Exception as e:
             print(f"缓存时间戳解析失败: {e}")
             cache_ts = None
+    beijing_time = time_plus_1min + timedelta(hours=8)  # 直接加8小时得到北京时间
+    beijing_time_str = beijing_time.strftime('%Y-%m-%d %H:%M')
     if cache_ts is None:
-        logger.info(f"开始分析股票 {stock_code} - {time_plus_1min}")
+        logger.info(f"开始分析股票 {stock_code} - {beijing_time_str}")
         result = execute_strategy_for_trade_time(stock_code, params_file, time_plus_1min)
     elif time_plus_1min > cache_ts:
-        logger.info(f"开始分析股票 {stock_code} - {time_plus_1min}")
+        logger.info(f"开始分析股票 {stock_code} - {beijing_time_str}")
         result = execute_strategy_for_trade_time(stock_code, params_file, time_plus_1min)
             # print(f"分析结果: {result}")  # 调试信息
 
@@ -183,13 +185,49 @@ def analyze_all_stocks(self, params_file: str = "config/indicator_parameters.jso
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='celery')
 def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/indicator_parameters.json", day_count: int = 1):
     """
-    批量分析一组股票，充分利用多核并发
+    批量分析一组股票，对传入的stock_codes区分自选股和非自选股，分别分发到不同队列
     """
-    print(f"批量分析任务启动，股票数: {len(stock_codes)}")  # 调试信息
-    # 构建 group，每只股票一个 analyze_single_stock 子任务
-    job_group = group(
-        analyze_single_stock.s(code, params_file, day_count) for code in stock_codes
-    )
-    result = job_group.apply_async()
-    print(f"已分发{len(stock_codes)}个分析子任务，task_ids: {[t.id for t in result.results]}")
-    return {"dispatched": len(stock_codes), "task_ids": [t.id for t in result.results]}
+    print(f"批量分析任务启动，传入股票数: {len(stock_codes)}")  # 调试信息
+
+    # 获取所有自选股代码
+    favorite_stock_codes, _ = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+    favorite_stock_codes_set = set(favorite_stock_codes)
+
+    # 对传入的stock_codes进行区分
+    favorite_list = []
+    non_favorite_list = []
+    for code in stock_codes:
+        if code in favorite_stock_codes_set:
+            favorite_list.append(code)
+        else:
+            non_favorite_list.append(code)
+
+    print(f"自选股{len(favorite_list)}个，非自选股{len(non_favorite_list)}个")  # 调试信息
+
+    # 分别构建任务组
+    favorite_group = group(
+        analyze_single_stock.s(code, params_file, day_count).set(queue='favorite_calculate_strategy')
+        for code in favorite_list
+    ) if favorite_list else None
+
+    non_favorite_group = group(
+        analyze_single_stock.s(code, params_file, day_count).set(queue='calculate_strategy')
+        for code in non_favorite_list
+    ) if non_favorite_list else None
+
+    # 分别分发任务
+    favorite_result = favorite_group.apply_async() if favorite_group else None
+    non_favorite_result = non_favorite_group.apply_async() if non_favorite_group else None
+
+    # 输出调试信息
+    if favorite_result:
+        print(f"已分发{len(favorite_list)}个自选股分析子任务，task_ids: {[t.id for t in favorite_result.results]}")
+    if non_favorite_result:
+        print(f"已分发{len(non_favorite_list)}个非自选股分析子任务，task_ids: {[t.id for t in non_favorite_result.results]}")
+
+    return {
+        "favorite_dispatched": len(favorite_list),
+        "favorite_task_ids": [t.id for t in favorite_result.results] if favorite_result else [],
+        "non_favorite_dispatched": len(non_favorite_list),
+        "non_favorite_task_ids": [t.id for t in non_favorite_result.results] if non_favorite_result else []
+    }

@@ -1,7 +1,7 @@
 # tasks/tushare/stock_realtime_tasks.py
 import asyncio
 from asgiref.sync import async_to_sync
-from celery import chain, group
+from celery import chain
 import logging
 import datetime
 from typing import List, Dict, Any # 引入 List, Dict, Any
@@ -13,7 +13,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from tasks.stock_analysis_tasks import analyze_batch_stocks, analyze_single_stock
+from tasks.stock_analysis_tasks import analyze_batch_stocks
 
 
 # 自选股队列
@@ -235,18 +235,13 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
         for i in range(0, total_favorite_stocks, batch_size):
             batch = favorite_codes[i:i + batch_size]
             if batch:
-                # 先保存 batch 的分钟数据
-                save_task = save_minute_data_realtime_batch.s(batch, time_level)
-                # 对 batch 里的每个 code，单独分配 analyze_batch_stocks 任务
-                analyze_tasks = group(
-                    analyze_single_stock.s(code, params_file, day_count).set(queue="favorite_calculate_strategy")
-                    for code in batch
+                # 链式：先保存分钟数据，再分析
+                task_chain = chain(
+                    save_minute_data_realtime_batch.s(batch, time_level),
+                    analyze_batch_stocks.s(params_file, day_count)
                 )
-                # 链式：先保存，再分析
-                task_chain = chain(save_task, analyze_tasks)
                 task_chain.apply_async()
                 total_dispatched_batches += 1
-                print(f"已分发第{total_dispatched_batches}个批次，包含{len(batch)}只股票")
         favorite_batches_dispatched = total_dispatched_batches
         # 2. 分派非自选股批量任务
         logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
@@ -254,18 +249,14 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
         for i in range(0, total_non_favorite_stocks, batch_size):
             batch = non_favorite_codes[i:i + batch_size]
             if batch:
-                # 先保存 batch 的分钟数据
-                save_task = save_minute_data_realtime_batch.s(batch, time_level)
-                # 对 batch 里的每个 code，单独分配 analyze_batch_stocks 任务
-                analyze_tasks = group(
-                    analyze_single_stock.s(code, params_file, day_count).set(queue="calculate_strategy")
-                    for code in batch
+                task_chain = chain(
+                    save_minute_data_realtime_batch.s(batch, time_level),
+                    analyze_batch_stocks.s(params_file, day_count)
                 )
-                # 链式：先保存，再分析
-                task_chain = chain(save_task, analyze_tasks)
                 task_chain.apply_async()
                 total_dispatched_batches += 1
-                print(f"已分发第{total_dispatched_batches}个批次，包含{len(batch)}只股票")
+                non_favorite_batches_dispatched += 1
+                logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
         logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
     except Exception as e:
