@@ -238,7 +238,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
                 # 链式：先保存分钟数据，再分析
                 task_chain = chain(
                     save_minute_data_realtime_batch.s(batch, time_level),
-                    analyze_batch_stocks.s(params_file, day_count).set(queue=FAVORITE_SAVE_API_DATA_QUEUE)
+                    analyze_batch_stocks.s(params_file, day_count).set(queue="favorite_calculate_strategy")
                 )
                 task_chain.apply_async()
                 total_dispatched_batches += 1
@@ -251,7 +251,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
             if batch:
                 task_chain = chain(
                     save_minute_data_realtime_batch.s(batch, time_level),
-                    analyze_batch_stocks.s(params_file, day_count).set(queue=STOCKS_SAVE_API_DATA_QUEUE)
+                    analyze_batch_stocks.s(params_file, day_count).set(queue="calculate_strategy")
                 )
                 task_chain.apply_async()
                 total_dispatched_batches += 1
