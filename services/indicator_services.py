@@ -1076,7 +1076,8 @@ class IndicatorService:
         final_df.bfill(inplace=True)
         nan_count_after_fill = final_df.isnull().sum().sum()
         if nan_count_after_fill > 0:
-            logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
+            # logger.warning(f"[{stock_code}] 最终填充后仍存在 {nan_count_after_fill} 个缺失值 (原始 {original_nan_count})。缺失列详情 (部分): {final_df.isnull().sum()[final_df.isnull().sum() > 0].head().to_dict()}")
+            pass
         else:
             logger.info(f"[{stock_code}] 最终缺失值填充完成，无剩余 NaN。")
         return final_df, indicator_configs
