@@ -100,8 +100,9 @@ class CacheSet():
                 data=data_to_cache,
                 timeout=cache_timeout
             )
+            # print(f"_stock_latest_data - {stock_code}: {success}")
             if success:
-                # logger.info(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
+                # print(f"股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据缓存成功, key: {cache_key}")
                 return True
             else:
                 logger.warning(f"缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据失败 (CacheManager.set 返回 False), key: {cache_key}")
@@ -418,6 +419,7 @@ class StockTimeTradeCacheSet(CacheSet):
             logger.error(f"latest_time_trade.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
+        # print(f"latest_time_trade.cache_key: {cache_key}")
         return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
 
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -491,7 +493,7 @@ class StrategyCacheSet(CacheSet):
             logger.error(f"lastest_analyze_signals_trend_following_data.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
-        print(f"lastest_analyze_signals_trend_following_data.cache_key: {cache_key}")
+        # print(f"lastest_analyze_signals_trend_following_data.cache_key: {cache_key}")
         return await self._stock_strategy_data(stock_code=stock_code, data_to_cache=data_to_cache, cache_key=cache_key)
 
     async def analyze_signals_trend_following(self, stock_code: str, data_to_cache: Dict[str, Any], timestamp: pd.Timestamp) -> bool: # 修改: 添加 timestamp 参数

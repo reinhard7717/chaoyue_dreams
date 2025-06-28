@@ -1,19 +1,24 @@
 # dashboard/views.py
+import asyncio
 import json
+import re
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Subquery, OuterRef
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from dateutil import parser as date_parser
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q # 用于复杂查询
+# --- 导入Django ORM高级查询工具 ---
+from django.db.models import Case, When, Value, IntegerField, Q
 from django.core.serializers.json import DjangoJSONEncoder
-from stock_models.stock_analytics import StockAnalysisResultTrendFollowing
+from dashboard.utils import extract_score_details
+from stock_models.stock_analytics import StockAnalysisResultTrendFollowing, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.cache_get import StrategyCacheGet
@@ -24,6 +29,35 @@ import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
 target_queue = 'dashboard'
+
+# 内部辅助函数，用于处理所有策略列表页的通用逻辑
+# 这个函数封装了排序、分页、数据处理和渲染的重复代码，使视图函数更简洁。
+def _render_strategy_list_page(request, base_queryset, page_title, template_name):
+    """
+    一个通用的辅助函数，用于渲染策略列表页面。
+    【最终修正版 V2】: 移除了此处的 .annotate() 调用。
+                     所有计算字段现在都由DAO层提供。
+    """
+    print(f"--- [View] 开始渲染页面: {page_title} ---")
+    
+    # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+    # 【代码修改】删除整个 .annotate() 块。base_queryset 已包含所有字段。
+    #    现在 ordered_queryset 就是 base_queryset。
+    ordered_queryset = base_queryset
+    print("--- [View] DAO已提供完整数据，跳过视图层注解 ---")
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    paginator = Paginator(ordered_queryset, 25)  # 每页显示25条
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'page_obj': page_obj,
+        'total_count': paginator.count,
+        'page_title': page_title,
+    }
+    return render(request, template_name, context)
+
 # --- 页面视图 ---
 @login_required
 def dashboard_view(request):
@@ -61,69 +95,94 @@ def dashboard_view(request):
     # 4. 渲染模板
     return render(request, 'dashboard/home.html', context)
 
+login_required
+def monthly_trend_strategy_list(request):
+    """
+    【重构】月线趋势跟踪策略列表页。
+    所有复杂逻辑已移至 _render_strategy_list_page 辅助函数。
+    """
+    str_dao = StrategiesDAO()
+    # 假设 get_latest_monthly_trend_reports 返回的是 QuerySet
+    all_reports_queryset = async_to_sync(str_dao.get_latest_monthly_trend_reports)()
+    
+    return _render_strategy_list_page(
+        request=request,
+        base_queryset=all_reports_queryset,
+        page_title="月线趋势跟踪评分",
+        template_name='dashboard/monthly_trend_strategy.html'
+    )
+
+@login_required
+def fav_monthly_trend_list(request):
+    """
+    【重构】展示用户自选股的月线趋势策略信号。
+    所有复杂逻辑已移至 _render_strategy_list_page 辅助函数。
+    """
+    user_dao = UserDAO()
+    str_dao = StrategiesDAO()
+    
+    user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
+    fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
+    
+    # 假设 get_latest_monthly_trend_reports_by_stock_codes 返回的是 QuerySet
+    all_reports_queryset = async_to_sync(str_dao.get_latest_monthly_trend_reports_by_stock_codes)(fav_codes)
+
+    return _render_strategy_list_page(
+        request=request,
+        base_queryset=all_reports_queryset,
+        page_title="自选股-月线趋势跟踪",
+        template_name='dashboard/fav_monthly_trend_list.html'
+    )
+
+
+@login_required
 def trend_following_list(request):
-    # 1. 从缓存获取所有股票的最新趋势策略数据（dict）
-    cache_get = StrategyCacheGet()
-    stock_basic_dao = StockBasicInfoDao()
-    stock_realtime_dao = StockRealtimeDAO()
-    all_data = async_to_sync(cache_get.all_analyze_signals_trend_following_data)()
-    # all_data: {stock_code: 策略数据}
+    """
+    【V2.1 重构版】日线趋势跟踪列表视图
+    - 数据源为 StrategyState 摘要模型。
+    - (V2.1 新增) 明确筛选 timeframe='D'，确保只展示日线策略状态。
+    """
+    strategy_name = 'multi_timeframe_collaboration' 
 
-    # 2. dict转为list，并补充stock_code字段
-    trend_scores = []
-    for stock_code, data in all_data.items():
-        stock_obj = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
-        latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(stock_code)
-        stock_name = stock_obj.stock_name
-        ts = data.get('timestamp', '')
-        if ts:
-            try:
-                dt = date_parser.parse(ts)  # 自动识别+08:00
-            except Exception as e:
-                print(f"timestamp解析失败: {ts}, error: {e}")
-                dt = None
-        else:
-            dt = None
+    state_list = TrendFollowStrategyState.objects.filter(
+        strategy_name=strategy_name,
+        timeframe='D'  # 只看日线周期的状态
+    ).select_related('stock').order_by('-latest_score')
 
-        trend_scores.append({
-            'stock_code': stock_code,
-            'stock_name': stock_name,
-            'score': data.get('score', 0),
-            'rule_signal': data.get('rule_signal', 0),
-            'confidence_score': data.get('confidence_score', 0),
-            'timestamp': dt,  # 这里是datetime对象
-            'data': data,
-        })
+    paginator = Paginator(state_list, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
 
-    # 3. 按score和confidence_score降序排序
-    trend_scores.sort(key=lambda x: (-x['rule_signal'], -x['confidence_score']))
-    # print(f"trend_scores: {trend_scores}")
-    # 4. 分页
-    page_size = 50
-    page = request.GET.get('page', 1)
-    try:
-        page = int(page)
-        if page < 1:
-            page = 1
-    except ValueError:
-        page = 1
+    context = {
+        'page_title': '多时间框架策略评分 (日线)', # 标题更明确
+        'page_obj': page_obj,
+        'total_count': paginator.count,
+    }
+    return render(request, 'dashboard/trend_following_list.html', context)
 
-    total_count = len(trend_scores)
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_trend_scores = trend_scores[start:end]
+@login_required
+def fav_trend_following_list(request):
+    """
+    【新增】展示用户自选股的日线趋势策略信号。
+    调用辅助函数，只需提供日线策略的数据源和模板即可。
+    """
+    user_dao = UserDAO()
+    str_dao = StrategiesDAO()
+    
+    user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
+    fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
+    
+    # 注意：这里假设您的 StrategiesDAO 中有一个获取日线策略报告的方法
+    # 它的命名逻辑应与月线方法对应，例如 get_latest_trend_follow_reports_by_stock_codes
+    all_reports_queryset = async_to_sync(str_dao.get_latest_trend_follow_reports_by_stock_codes)(fav_codes)
 
-    total_pages = (total_count + page_size - 1) // page_size
+    return _render_strategy_list_page(
+        request=request,
+        base_queryset=all_reports_queryset,
+        page_title="自选股-日线趋势跟踪",
+        template_name='dashboard/fav_trend_following_list.html' # 使用新的模板
+    )
 
-    print(f"共查询到{total_count}只股票的最新趋势评分，当前第{page}页")  # 调试信息
-
-    return render(request, 'dashboard/trend_following.html', {
-        'trend_scores': page_trend_scores,  # 当前页数据
-        'page': page,
-        'total_pages': total_pages,
-        'total_count': total_count,
-        'page_size': page_size,
-    })
 # --- DRF API 视图 ---
 
 class StockSearchView(generics.ListAPIView):
@@ -197,11 +256,6 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             logger.info(f"已将后台任务发送到队列 '{target_queue}' 为用户 {self.request.user.id} 的新自选股 {favorite.stock.stock_code} 获取数据")
         except Exception as task_error:
             logger.error(f"触发后台任务 fetch_data_for_new_favorite 时出错: {task_error}", exc_info=True)
-
-
-        # 3. (隐式) DRF 会自动返回 HTTP 201 Created 响应给前端
-        #    我们不再需要手动推送整个列表 ('favorites_update')
-
     
     def perform_destroy(self, instance):
         user_id = instance.user.id # 在删除前获取 user_id
@@ -240,4 +294,16 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
     # ModelViewSet 自动处理 list (GET), create (POST), retrieve (GET /id/),
     # update (PUT/PATCH /id/), destroy (DELETE /id/)
     # 我们主要用 list, create, destroy
+
+
+
+
+
+
+
+
+
+
+
+
 

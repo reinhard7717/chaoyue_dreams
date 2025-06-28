@@ -1,0 +1,366 @@
+# 文件: strategies/weekly_trend_follow_strategy.py
+import asyncio
+import json
+import logging
+from typing import Dict, Optional, Tuple
+import numpy as np
+import pandas as pd
+from services.indicator_services import IndicatorService
+from utils.config_loader import load_strategy_config
+
+logger = logging.getLogger(__name__)
+
+# 修改行: 类名从 MonthlyTrendFollowStrategy 改为 WeeklyTrendFollowStrategy
+class WeeklyTrendFollowStrategy:
+    """
+    周线趋势跟踪策略 (V1.1 - 接口优化版)
+    - 慢速战略层，用于判断中期趋势是否处于多头环境。
+    - 将所有月线('M')逻辑迁移至周线('W')。
+    - 明确返回接口，返回 (DataFrame, None)。
+    """
+
+    def __init__(self, config_path: str = 'config/weekly_trend_follow_strategy.json'):
+        """
+        构造函数，初始化服务和事件循环。
+        """
+        self.indicator_service = IndicatorService()
+        self.favorite_stock_set = None
+        self.params = load_strategy_config(config_path)
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+
+    async def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Optional[Dict[str, pd.Series]]]:
+        """
+        【核心策略应用函数 V5.0 - 终极修复版】
+        - 确保所有信号都通过返回Series并使用.loc赋值，彻底解决信号覆盖问题。
+        """
+        if df is None or df.empty:
+            logger.warning("输入DataFrame为空，无法应用策略。")
+            return pd.DataFrame(), None
+
+        # --- 步骤 1-5: 核心信号链计算 ---
+        # 调用周线吸筹检查
+        df.loc[:, 'signal_weekly_accumulation'] = self._check_weekly_accumulation(df, params.get('weekly_accumulation_params', {}))
+        # 调用周线突破检查
+        df.loc[:, 'signal_weekly_breakout'] = self._check_weekly_breakout(df, params.get('weekly_breakout_params', {}))
+        df.loc[:, 'washout_score'] = self._calculate_washout_score(df, params.get('final_washout_params', {}))
+        washout_signal_threshold = params.get('final_washout_params', {}).get('score_threshold', 1)
+        df.loc[:, 'signal_final_washout'] = df['washout_score'] >= washout_signal_threshold
+
+        # 吸筹检查逻辑改为周线
+        recent_accumulation_window = 12 # 定义“近期”的时间窗口为12个交易周（约3个月）
+        had_recent_accumulation = df['signal_weekly_accumulation'].rolling(window=recent_accumulation_window, min_periods=1).sum().shift(1) > 0
+        was_accumulating = had_recent_accumulation.fillna(False)
+
+        is_breakout_week = was_accumulating & (df['signal_weekly_breakout'] | df['signal_final_washout'])
+        df.loc[:, 'signal_breakout_initiation'] = (is_breakout_week) & (is_breakout_week.shift(1) == False)
+        df.loc[:, 'signal_ma_rejection'] = self._check_ma_rejection_signal(df, params.get('ma_rejection_filter_params', {}))
+        df.loc[:, 'signal_box_rejection'] = self._check_box_rejection_signal(df, params.get('box_rejection_filter_params', {}))
+        is_rejection_day = (df['signal_ma_rejection'] == -1) | (df['signal_box_rejection'] == -1)
+        breakout_event_group = df['signal_breakout_initiation'].cumsum()
+        rejections_in_group_so_far = is_rejection_day.groupby(breakout_event_group).cumsum()
+        has_no_rejection_yet = (rejections_in_group_so_far == 0)
+        df.loc[:, 'signal_breakout_trigger'] = is_breakout_week & has_no_rejection_yet
+
+        df.loc[:, 'strategic_go'] = df['signal_breakout_trigger']
+
+        # --- 步骤 6: 打印调试信息 ---
+        print("\n---【策略逻辑链调试】---")
+        print(f"【步骤1】月线吸筹信号总数: {df['signal_weekly_accumulation'].sum()}")
+        # 修改行: 更新调试信息的文本以匹配新的逻辑
+        print(f"【步骤1.5】'近期有吸筹'(was_accumulating)信号总数: {was_accumulating.sum()}")
+        print(f"【步骤2】月线突破信号总数: {df['signal_weekly_breakout'].sum()}")
+        print(f"【步骤3】最后洗盘信号总数: {df['signal_final_washout'].sum()}")
+        print(f"【步骤4】'初始突破条件'(is_breakout_week)信号总数: {is_breakout_week.sum()}")
+        print(f"【步骤4.5】'突破启动日'(signal_breakout_initiation)信号总数: {df['signal_breakout_initiation'].sum()}")
+        print(f"【步骤5】'拒绝信号日'总数: {is_rejection_day.sum()}")
+        print(f"【步骤6】最终'突破观察'(signal_breakout_trigger)信号总数: {df['signal_breakout_trigger'].sum()}")
+
+        # --- 步骤 7: 基于干净的信号计算买入点 ---
+        df.loc[:, 'signal_pullback_entry'] = self._find_pullback_entry_signal(df, params.get('pullback_entry_params', {}))
+        df.loc[:, 'signal_continuation_entry'] = self._find_continuation_entry_signal(df, params.get('continuation_entry_params', {}))
+
+        # --- 步骤 8: 计算止盈信号 (采用新的安全模式) ---
+        df.loc[:, 'take_profit_signal'] = self.apply_take_profit_rules(df, params.get('take_profit_params', {}))
+
+        logger.info(f"策略应用完成。")
+        return df, None
+
+    def apply_take_profit_rules(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V6.3 增强版】应用所有已启用的止盈规则，返回一个代表止盈类型的整数Series。
+        编码: 0=无信号, 1=压力位止盈, 2=移动止盈, 3=指标止盈
+        """
+        # 整个函数逻辑重构，以返回类型编码而不是布尔值
+        # 解释: 我们创建一个新的列来存储止盈类型，并按优先级填充它。
+        #       这样可以精确地知道是哪个规则触发了信号。
+        take_profit_type = pd.Series(0, index=df.index)
+
+        # 计算每种止盈信号
+        tp_signal_resistance = self._check_resistance_take_profit(df, params.get('resistance_exit', {}))
+        tp_signal_trailing = self._check_trailing_stop_take_profit(df, params.get('trailing_stop_exit', {}))
+        tp_signal_indicator = self._check_indicator_take_profit(df, params.get('indicator_exit', {}))
+
+        # 按优先级（指标 > 移动 > 压力位）填充止盈类型
+        # 这样如果同时触发多个，会记录最优先的那个
+        take_profit_type.loc[tp_signal_resistance] = 1
+        take_profit_type.loc[tp_signal_trailing] = 2
+        take_profit_type.loc[tp_signal_indicator] = 3
+        
+        # 返回包含止盈类型编码的Series
+        return take_profit_type
+
+    # 解释：原始的周线吸筹逻辑过于严苛，导致所有股票都无法获得战略许可。
+    # 1. 【修改】在 _check_weekly_accumulation 方法中，我们将多个“与”条件(`&`)修改为“或”条件(`|`)。
+    # 2. 【新理念】新的逻辑是：只要满足“Coppock看多”或“TRIX看多”或“价格形态健康”中的任何一个，就认为处于可观察的吸筹阶段。
+    # 3. 【效果】这将大大增加 `signal_weekly_accumulation` 信号的产生几率，从而“打开”战略层的总闸门，让下游的战术策略有机会发挥作用。
+    def _check_weekly_accumulation(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V12.0 逻辑优化版】
+        - 放宽了吸筹信号的判定条件，将多个 AND 条件改为 OR，增加信号的触发机会。
+        """
+        if not params.get('enabled', False): return pd.Series(True, index=df.index)
+        ma_period = params.get('ma_period', 20)
+        trix_period = params.get('trix_period', 12)
+        trix_signal_period = params.get('trix_signal_period', 9)
+        coppock_long_roc = params.get('coppock_long_roc', 14)
+        coppock_short_roc = params.get('coppock_short_roc', 11)
+        coppock_wma = params.get('coppock_wma', 10)
+        ma_col = f'EMA_{ma_period}_W'
+        trix_col = f'TRIX_{trix_period}_{trix_signal_period}_W'
+        coppock_col = f'COPPOCK_{coppock_long_roc}_{coppock_short_roc}_{coppock_wma}_W'
+        
+        # 初始化所有条件为 False
+        is_coppock_buy = pd.Series(False, index=df.index)
+        is_trix_rising = pd.Series(False, index=df.index)
+        is_near_ma = pd.Series(False, index=df.index)
+
+        # 计算各个独立的条件
+        if coppock_col in df.columns: 
+            is_coppock_buy = df[coppock_col] > 0
+        if trix_col in df.columns and not df[trix_col].isnull().all(): 
+            is_trix_rising = df[trix_col] > df[trix_col].shift(1)
+        if ma_col in df.columns and 'close_W' in df.columns: 
+            is_near_ma = (df['close_W'] / df[ma_col]).between(0.85, 1.5)
+        else: 
+            # 如果没有MA数据，默认此条件为True，不应成为否决项
+            is_near_ma = pd.Series(True, index=df.index)
+        
+        # ★★★ 核心修改：将原来的 AND 逻辑改为 OR 逻辑 ★★★
+        # 原逻辑: accumulation_signal = (is_coppock_buy | is_trix_rising) & is_near_ma
+        # 新逻辑：只要满足任何一个条件，就认为有吸筹迹象。
+        accumulation_signal = is_coppock_buy | is_trix_rising | is_near_ma
+        
+        # 增加一个调试打印，看看放宽后是否有信号
+        print(f"    [调试-周线吸筹 V12.0] Coppock信号: {is_coppock_buy.sum()}, TRIX信号: {is_trix_rising.sum()}, MA形态信号: {is_near_ma.sum()}, 最终吸筹信号: {accumulation_signal.sum()}")
+
+        return accumulation_signal
+
+    def _check_weekly_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(True, index=df.index)
+        lookback_weeks = params.get('lookback_weeks', 6)
+        volume_multiplier = params.get('volume_multiplier', 1.5)
+        period_high_col = f'consolidation_period_high_W_{lookback_weeks}'
+        period_low_col = f'consolidation_period_low_W_{lookback_weeks}'
+        avg_volume_col = f'avg_volume_W_{lookback_weeks}'
+        required_cols = ['close_W', 'volume_W', period_high_col, period_low_col, avg_volume_col]
+        if not all(col in df.columns for col in required_cols):
+            return pd.Series(False, index=df.index)
+        is_price_breakout = df['close_W'] > df[period_high_col]
+        is_volume_breakout = df['volume_W'] > (df[avg_volume_col] * volume_multiplier)
+        is_above_support = df['close_W'] > df[period_low_col]
+        weekly_breakout_signal = is_price_breakout & is_volume_breakout & is_above_support
+        return weekly_breakout_signal
+
+    def _find_pullback_entry_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(0, index=df.index)
+        lookback_window = params.get('lookback_window', 3)
+        volume_upper_bound_ratio = params.get('volume_upper_bound_ratio', 2.0)
+        weekly_breakout_params = params.get('weekly_breakout_params', {})
+        lookback_weeks = weekly_breakout_params.get('lookback_weeks', 6)
+        support_level_col = f'consolidation_period_high_W_{lookback_weeks}'
+        if support_level_col not in df.columns:
+            return pd.Series(0, index=df.index)
+        breakout_days = df['signal_breakout_initiation'] == True
+        pullback_signal = pd.Series(0, index=df.index)
+        breakout_indices = df.index[breakout_days]
+        for idx in breakout_indices:
+            breakout_day_volume = df.loc[idx, 'volume_D']
+            breakout_support_level = df.loc[idx, support_level_col]
+            try: breakout_loc = df.index.get_loc(idx)
+            except KeyError: continue
+            for i in range(1, lookback_window + 1):
+                current_loc = breakout_loc + i
+                if current_loc >= len(df): break 
+                current_idx = df.index[current_loc]
+                is_not_another_breakout = df.loc[current_idx, 'signal_breakout_initiation'] == False
+                is_volume_controlled = df.loc[current_idx, 'volume_D'] < breakout_day_volume * volume_upper_bound_ratio
+                is_above_support = df.loc[current_idx, 'close_D'] >= breakout_support_level
+                if is_not_another_breakout and is_volume_controlled and is_above_support:
+                    pullback_signal.loc[current_idx] = 1
+                    break
+        return pullback_signal
+
+    def _find_continuation_entry_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(0, index=df.index)
+        continuation_days = params.get('continuation_days', 3)
+        support_ma_period = params.get('support_ma_period', 5)
+        support_ma_col = f'EMA_{support_ma_period}_D'
+        if support_ma_col not in df.columns:
+            return pd.Series(0, index=df.index)
+        breakout_indices = df.index[df['signal_breakout_initiation'] == True]
+        continuation_signal = pd.Series(0, index=df.index)
+        for idx in breakout_indices:
+            try: breakout_loc = df.index.get_loc(idx)
+            except KeyError: continue
+            is_strong_continuation = True
+            if breakout_loc + continuation_days >= len(df): is_strong_continuation = False
+            else:
+                for i in range(1, continuation_days + 1):
+                    current_loc = breakout_loc + i
+                    current_idx = df.index[current_loc]
+                    if df.loc[current_idx, 'close_D'] <= df.loc[current_idx, support_ma_col]:
+                        is_strong_continuation = False
+                        break
+            if is_strong_continuation:
+                entry_day_loc = breakout_loc + continuation_days
+                entry_day_idx = df.index[entry_day_loc]
+                continuation_signal.loc[entry_day_idx] = 1
+        return continuation_signal
+
+    def _calculate_washout_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(0, index=df.index)
+        washout_score = pd.Series(0, index=df.index)
+        support_level = self._get_support_level(df, params)
+        if support_level is None: return washout_score
+        washout_intraday = (df['low_D'] < support_level) & (df['close_D'] > support_level)
+        washout_interday = (df['close_D'] > support_level) & (df['close_D'].shift(1) < support_level.shift(1))
+        drift_lookback = params.get('drift_lookback_period', 3)
+        was_below_recently = (df['close_D'].shift(1) < support_level.shift(1)).rolling(window=drift_lookback, min_periods=1).sum() > 0
+        washout_drift = (df['close_D'] > support_level) & was_below_recently
+        bull_trap_params = params.get('bull_trap_params', {})
+        if bull_trap_params.get('enabled', False):
+            lookback = bull_trap_params.get('lookback_period', 8)
+            drop_threshold = bull_trap_params.get('drop_threshold', 0.05)
+            recent_peak = df['high_D'].shift(1).rolling(window=lookback).max()
+            is_in_trap_zone = df['close_D'] < recent_peak * (1 - drop_threshold)
+            is_recovering_from_trap = df['close_D'] > df['close_D'].shift(1)
+            washout_bull_trap = is_in_trap_zone & is_recovering_from_trap
+        else: washout_bull_trap = pd.Series(False, index=df.index)
+        vol_con_params = params.get('volume_contraction_params', {})
+        if vol_con_params.get('enabled', False):
+            avg_period = vol_con_params.get('avg_period', 20)
+            threshold = vol_con_params.get('threshold', 0.7)
+            avg_volume = df['volume_D'].shift(1).rolling(window=avg_period).mean()
+            is_volume_contracted = df['volume_D'] < avg_volume * threshold
+            washout_volume_contraction = (washout_interday | washout_drift) & is_volume_contracted.shift(1).fillna(False)
+        else: washout_volume_contraction = pd.Series(False, index=df.index)
+        uo_div_params = params.get('uo_divergence_params', {})
+        if uo_div_params.get('enabled', False):
+            periods = uo_div_params.get('periods', [7, 14, 28])
+            lookback = uo_div_params.get('lookback_period', 5)
+            uo_col = f'UO_{periods[0]}_{periods[1]}_{periods[2]}_D'
+            if uo_col in df.columns:
+                low_in_lookback = df['low_D'].rolling(window=lookback).min()
+                uo_at_low = df[uo_col].rolling(window=lookback).min()
+                price_makes_lower_low = df['low_D'] < low_in_lookback.shift(1)
+                uo_makes_higher_low = df[uo_col] > uo_at_low.shift(1)
+                washout_uo_divergence = price_makes_lower_low & uo_makes_higher_low
+            else: washout_uo_divergence = pd.Series(False, index=df.index)
+        else: washout_uo_divergence = pd.Series(False, index=df.index)
+        washout_score += washout_intraday.astype(int)
+        washout_score += washout_interday.astype(int)
+        washout_score += washout_drift.astype(int)
+        washout_score += washout_bull_trap.astype(int)
+        washout_score += washout_volume_contraction.astype(int)
+        washout_score += washout_uo_divergence.astype(int)
+        pre_condition = df.get('signal_weekly_accumulation', pd.Series(True, index=df.index))
+        final_score = washout_score.where(pre_condition, 0)
+        return final_score
+
+    def _check_ma_rejection_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(0, index=df.index)
+        ma_period = params.get('ma_period', 20)
+        ma_col = f'EMA_{ma_period}_D'
+        return self._check_resistance_rejection(df, ma_col, params)
+
+    def _check_box_rejection_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(0, index=df.index)
+        lookback_period = params.get('lookback_period', 60)
+        resistance_col_name = f'box_top_{lookback_period}D_resistance'
+        df[resistance_col_name] = df['high_D'].shift(1).rolling(window=lookback_period, min_periods=int(lookback_period * 0.8)).max()
+        return self._check_resistance_rejection(df, resistance_col_name, params)
+
+    def _get_support_level(self, df: pd.DataFrame, washout_params: dict) -> pd.Series | None:
+        support_type = washout_params.get('support_type', 'MA')
+        support_level = pd.Series(np.nan, index=df.index)
+        if support_type == 'MA':
+            ma_period = washout_params.get('support_ma_period', 20)
+            ma_col = f'EMA_{ma_period}_D'
+            if ma_col not in df.columns: return None
+            support_level = df[ma_col]
+        elif support_type == 'BOX':
+            box_period = washout_params.get('box_period', 20)
+            bbw_col = 'BBW_D'
+            volatility_threshold = washout_params.get('box_volatility_threshold', 0.1)
+            if bbw_col not in df.columns: return None
+            box_bottom = df['low_D'].rolling(window=box_period).min()
+            is_consolidating = df[bbw_col] < volatility_threshold
+            support_level = box_bottom.where(is_consolidating, np.nan)
+        if support_level.isnull().all(): return None
+        support_level.ffill(inplace=True)
+        return support_level
+
+    def _check_resistance_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+        lookback_period = params.get('lookback_period', 90)
+        approach_threshold = params.get('approach_threshold', 0.02)
+        resistance_level = df['high_D'].shift(1).rolling(window=lookback_period, min_periods=int(lookback_period*0.8)).max()
+        signal = df['high_D'] >= resistance_level * (1 - approach_threshold)
+        return signal & resistance_level.notna()
+
+    def _check_trailing_stop_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+        pullback_percentage = params.get('percentage_pullback', 0.10)
+        lookback_period = params.get('lookback_period', 20)
+        highest_close_since = df['close_D'].shift(1).rolling(window=lookback_period, min_periods=int(lookback_period*0.8)).max()
+        stop_price = highest_close_since * (1 - pullback_percentage)
+        signal = df['close_D'] < stop_price
+        return signal & highest_close_since.notna()
+
+    def _check_indicator_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+        indicator_type = params.get('indicator_type', 'RSI')
+        if indicator_type == 'RSI':
+            rsi_period = params.get('rsi_period', 14)
+            threshold = params.get('threshold', 80)
+            rsi_col = f'RSI_{rsi_period}_D'
+            if rsi_col not in df.columns: return pd.Series(False, index=df.index)
+            return df[rsi_col] > threshold
+        elif indicator_type == 'TRIX':
+            trix_period = params.get('trix_period', 12)
+            signal_period = params.get('trix_signal_period', 9)
+            trix_col = f'TRIX_{trix_period}_{signal_period}_D'
+            trix_signal_col = f'TRIXs_{trix_period}_{signal_period}_D'
+            if not all(col in df.columns for col in [trix_col, trix_signal_col]): return pd.Series(False, index=df.index)
+            return (df[trix_col].shift(1) > df[trix_signal_col].shift(1)) & (df[trix_col] < df[trix_signal_col])
+        return pd.Series(False, index=df.index)
+
+    def _check_resistance_rejection(self, df: pd.DataFrame, resistance_col: str, params: dict) -> pd.Series:
+        volume_multiplier = params.get('volume_multiplier', 1.5)
+        vol_ma_col = 'VOL_WA_20_D' 
+        if resistance_col not in df.columns or vol_ma_col not in df.columns:
+            return pd.Series(0, index=df.index)
+        pattern_condition = (df['high_D'] > df[resistance_col]) & (df['close_D'] < df[resistance_col])
+        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
+        body_size = (df['open_D'] - df['close_D']).abs().replace(0, 0.0001)
+        long_upper_shadow_condition = (upper_shadow / body_size) > 1.0
+        high_volume_condition = df['volume_D'] > df[vol_ma_col] * volume_multiplier
+        rejection_signal = pattern_condition & long_upper_shadow_condition & high_volume_condition
+        return pd.Series(np.where(rejection_signal, -1, 0), index=df.index)
+
+
+    # ... 其他所有辅助方法都需要进行类似的 _W -> _W 的改造 ...

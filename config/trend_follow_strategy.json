@@ -1,0 +1,186 @@
+{
+  "file_name": "config/trend_follow_strategy.json",
+  "说明": "这是一个完整的、多剧本驱动的趋势跟踪策略配置文件。它定义了从数据预处理到具体策略逻辑所需的所有参数，是整个策略的核心。最新修改：全面采用斐波那契数列作为核心指标的周期参数，以增强策略的内在逻辑一致性。",
+  "feature_engineering_params": {
+    "说明": "【斐波那契化改造】特征工程参数，用于指导IndicatorService需要提前计算哪些技术指标。大部分周期参数已统一为斐波那契数，以更好地契合市场节奏。",
+    "indicators": {
+      "说明": "定义需要计算的各项技术指标。key为指标缩写，value为具体配置。",
+      "ema": {
+        "enabled": true, 
+        "apply_on": ["D", "M", "60"],
+        "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233],
+        "说明": "【斐波那契周期】计算EMA。5,8,13为短周期; 21,34为中短周期; 55,89为中期核心; 144,233为长期核心。"
+      },
+      "vol_ma": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算日线级别的21日成交量均线，约等于一个月。" },
+      "trix": { "enabled": true, "apply_on": ["M"], "periods": [13, 8], "说明": "计算月线级别的TRIX指标(13,8)，用于判断长期趋势。" },
+      "coppock": { "enabled": true, "apply_on": ["M"], "periods": [14, 11, 10], "说明": "计算月线级别的Coppock曲线，使用经典参数以捕捉长期底部。" },
+      "rsi": { "enabled": true, "apply_on": ["D"], "periods": [13], "说明": "计算日线级别的13日RSI，使其更灵敏。" },
+      "macd": { "enabled": true, "apply_on": ["D"], "periods": [13, 34, 8], "说明": "计算日线级别的MACD(13,34,8)，用于捕捉中期波段。" },
+      "dmi": { "enabled": true, "apply_on": ["D"], "periods": [13], "说明": "计算日线级别的13日DMI动向指标。" },
+      "boll_bands_and_width": { "enabled": true, "apply_on": ["D"], "periods": [21], "std_dev": 2.0, "说明": "计算21日布林带及宽度。" },
+      "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算21日蔡金资金流。" },
+      "bias": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算21日乖离率。" },
+      "atrn": { "enabled": true, "apply_on": ["D"], "periods": [13], "说明": "计算13日归一化平均真实波幅。" },
+      "obv": { "enabled": true, "apply_on": ["D"], "说明": "计算能量潮(On-Balance Volume)，无周期参数。" },
+      "advanced_fund_features": {
+        "enabled": true, 
+        "apply_on": ["D"],
+        "params": {
+          "ma_periods": [5, 10, 20]
+        },
+        "说明": "【新增】计算资金流和筹码的衍生特征，如大单净买入的移动平均趋势、收盘价相对筹码成本的偏离度等。"
+      },
+      "index_sync": { "index_code": "000300.SH", "rename_to": "index_close", "说明": "同步沪深300指数的收盘价。" }
+    },
+    "consolidation_period": {
+      "说明": "计算历史盘整区间的参数",
+      "lookback_months": 6,
+      "说明_lookback_months": "回看多少个月的数据来确定前期的重要高点作为结构支撑/压力位。"
+    }
+  },
+  "strategy_params": {
+    "trend_follow": {
+      "long_term_trend_params": {
+        "enabled": true,
+        "ma_period": 89,
+        "trix_period": 13,
+        "trix_signal_period": 8,
+        "coppock_long_roc": 14,
+        "coppock_short_roc": 11,
+        "coppock_wma": 10,
+        "coppock_threshold": 0
+      },
+      "mid_term_trend_params": {
+        "enabled": true,
+        "fast_ma": 21,
+        "mid_ma": 55,
+        "slow_ma": 89
+      },
+      "dynamic_box_params": {
+        "enabled": true,
+        "peak_distance": 10,
+        "peak_prominence": 0.02,
+        "trough_prominence": 0.02,
+        "max_width_ratio": 0.40,
+        "breakout_score": 125,
+        "breakdown_sell_enabled": true,
+        "说明": "【V2.12 核心升级】动态箱体识别参数。使用find_peaks算法，让市场自己定义箱体边界。",
+        "说明_peak_distance": "两个波峰/波谷之间的最小距离（天），避免识别出过于频繁的微小波动。",
+        "说明_peak_prominence": "波峰/波谷的“突起”程度（相对于自身价格的百分比），用于过滤掉不重要的波动。",
+        "说明_max_width_ratio": "箱体最大相对宽度（(高-低)/中轴），用于过滤掉过宽的无效箱体。",
+        "说明_breakout_score": "动态箱体向上突破的基础得分，这是一个非常高质量的信号。",
+        "说明_breakdown_sell_enabled": "是否启用跌破动态箱体下轨作为卖出信号。"
+      },
+      "pullback_ma_entry_params": {
+        "enabled": true,
+        "support_ma": 20,
+        "confirmation_days": 2,
+        "bias_lower_bound": -8.0,
+        "bias_upper_bound": 3.0,
+        "setup_proximity_threshold": 0.03
+      },
+      "pullback_structure_entry_params": { "enabled": true, "confirmation_days": 2 },
+      "momentum_entry_params": { "enabled": true, "lookback_period": 21, "vol_ma_period": 21, "volume_ratio": 1.5 },
+      "first_breakout_params": { "enabled": true, "price_increase_threshold": 0.05, "vol_ma_period": 21, "volume_ratio": 2.5 },
+      "indicator_entry_params": { "enabled": true, "use_dmi_adx": true, "dmi_period": 13, "adx_threshold": 25, "use_macd_cross": true, "macd_fast": 13, "macd_slow": 34, "macd_signal": 8, "macd_low_threshold": -0.5, "macd_high_threshold": 1.0, "price_stability_period": 3 },
+      "divergence_params": { "enabled": true, "distance": 34 },
+      "bband_squeeze_params": { "enabled": true, "bb_period": 21, "bb_std": 2.0, "squeeze_lookback": 55 },
+      "cmf_params": { "enabled": true, "cmf_period": 21, "cmf_threshold": 0.0 },
+      "bias_reversal_entry_params": { "enabled": true, "bias_period": 21, "oversold_threshold": -15.0 },
+      "steady_climb_params": { "enabled": true, "atr_period": 13, "atr_lookback": 55, "atr_percentile": 0.3 },
+      "board_pattern_params": { "enabled": true, "limit_up_threshold": 0.098, "limit_down_threshold": -0.098, "high_turnover_rate": 7.0 },
+      "gap_support_params": { "enabled": true, "gap_check_days": 5 },
+      "consolidation_breakout_params": { "enabled": true, "lookback_period": 55, "volatility_quantile": 0.2, "volume_quantile": 0.2, "breakout_volume_ratio": 2.0, "vol_ma_period": 21 },
+      "bullish_flag_params": { "enabled": true, "flagpole_threshold": 0.05, "max_flag_days": 5 },
+      "energy_compression_params": { "enabled": true, "lookback_period": 55, "volume_quantile": 0.1, "atr_quantile": 0.1, "breakout_volume_ratio": 1.5, "breakout_pct_change": 0.03, "atr_period": 13, "vol_ma_period": 21 },
+      "capital_flow_divergence_params": { "enabled": true, "lookback_period": 34 },
+      "relative_strength_params": { "enabled": true, "lookback_period": 5 },
+      "upthrust_distribution_params": { "enabled": true, "lookback_period": 34, "upper_shadow_ratio": 0.6, "high_volume_quantile": 0.8 },
+      "volume_breakdown_params": { "enabled": true, "support_ma_period": 55, "volume_surge_ratio": 2.0, "vol_ma_period": 21 },
+      "take_profit_params": { "rsi_period": 13, "rsi_overbought": 75, "atr_period": 13, "atr_multiplier": 2.5, "max_holding_days": 21, "profit_target_pct": 0.20, "trailing_stop_pct": 0.05, "divergence_distance": 34, "divergence_prominence": 0.1 },
+      "v_reversal_entry_params": {
+        "enabled": true,
+        "support_ma": 21,
+        "lower_shadow_to_body_ratio": 2.0,
+        "upper_shadow_to_body_ratio": 1.0
+      },
+      "debug_params": {
+        "enabled": true,
+        "verbose_logging": false,
+        "说明": "调试相关参数。",
+        "说明_verbose_logging": "是否打印详细的原子信号计算过程。大规模回测时建议设为 false 以提升性能。"
+      },
+      "kline_pattern_params": {
+        "说明": "K线形态识别器的双层阈值配置。可在此处调整'标准'和'完美'的定义。",
+        "body_ratios": {"decent": 0.5, "perfect": 0.7},
+        "small_body_ratios": {"decent": 0.2, "perfect": 0.1},
+        "doji_body_ratios": {"decent": 0.1, "perfect": 0.05},
+        "hammer": { "lower_shadow_ratio": {"decent": 1.8, "perfect": 2.5}, "upper_shadow_ratio": {"decent": 1.2, "perfect": 0.8} },
+        "engulfing": { "prev_body_ratio": {"decent": 1.1, "perfect": 1.5} },
+        "piercing": { "penetration_ratio": {"decent": 0.4, "perfect": 0.6} }
+      },
+      "chip_cost_breakthrough_params": {
+        "enabled": true
+      },
+      "chip_pressure_release_params": {
+        "enabled": true
+      },
+      "fund_flow_confirm_params": {
+        "enabled": true,
+        "threshold": 0
+      },
+      "entry_scoring_params": {
+        "score_threshold": 100,
+        "points": {
+          "说明": "各项看涨条件/剧本对应的基础分数和奖励分数。",
+          "__CATEGORY_ULTIMATE_SIGNAL__": "--- 终极信号/市场反转 ---",
+          "EARTH_HEAVEN_BOARD": 200, "说明_EARTH_HEAVEN_BOARD": "【终极信号】地天板，市场最强反转，给予压倒性高分。",
+          "__CATEGORY_HIDDEN_GEMS__": "--- 隐蔽信号/先手博弈 ---",
+          "ENERGY_COMPRESSION_BREAKOUT": 140, "说明_ENERGY_COMPRESSION_BREAKOUT": "【专家剧本】潜龙在渊：成交量与波动率双重压缩后的首次放量突破，可能是大行情起点。",
+          "CAPITAL_FLOW_DIVERGENCE": 135, "说明_CAPITAL_FLOW_DIVERGENCE": "【专家剧本】资金暗流：价格新低但OBV未新低，主力左侧吸筹的明确信号。",
+          "KLINE_MORNING_STAR": 140, "说明_KLINE_MORNING_STAR": "【K线独立剧本】早晨之星：三K线组合的强力底部反转信号，可左侧交易。",
+          "__CATEGORY_ULTRA_HIGH_RISK__": "--- 超高风险/龙头博弈 ---",
+          "N_SHAPE_RELAY": 130,
+          "__CATEGORY_MASTER_PLAYS__": "--- 主力行为/核心剧本 ---",
+          "CONSOLIDATION_BREAKOUT": 125, "说明_CONSOLIDATION_BREAKOUT": "【主力剧本】底部长期盘整后的突破，主力隐蔽吸筹完成的信号。",
+          "BULLISH_FLAG": 110, "说明_BULLISH_FLAG": "【主力剧本】上升三法（旗形整理），主力空中加油强力吸筹的信号。",
+          "RELATIVE_STRENGTH_MAVERICK": 100, "说明_RELATIVE_STRENGTH_MAVERICK": "【专家剧本】逆市强人：大盘下跌但个股坚挺，大盘企稳后的龙头备选。",
+          "__CATEGORY_HIGH_CERTAINTY__": "--- 高确定性/核心剧本 ---",
+          "OLD_DUCK_HEAD": 120, "说明_OLD_DUCK_HEAD": "【专家剧本】老鸭头形态，主力深度控盘后的二次启动信号。",
+          "BOTTOM_DIVERGENCE": 120, "说明_BOTTOM_DIVERGENCE": "复合底背离信号，最高权重的左侧反转信号。",
+          "WASHOUT_REVERSAL": 115, "说明_WASHOUT_REVERSAL": "巨阴洗盘后的回马枪，极强的反转博弈信号。",
+          "PULLBACK_STEADY_CLIMB": 110, "说明_PULLBACK_STEADY_CLIMB": "【稳健爬升剧本】低波动状态下精准回踩支撑，机构票核心买点。",
+          "KLINE_THREE_SOLDIERS": 100, "说明_KLINE_THREE_SOLDIERS": "【K线独立剧本】三白兵：上升趋势中的强力持续信号。",
+          "PULLBACK_NORMAL": 100, "说明_PULLBACK_NORMAL": "普通回踩支撑。逻辑已提纯为高质量的'昨日探底,今日收阳'右侧信号，故大幅提升权重。",
+          "V_SHAPE_REVERSAL": 95, "说明_V_SHAPE_REVERSAL": "【专家剧本】V型反转：触底当天以长下影线阳线反转，强烈的多头信号。",
+          "FIRST_BREAKOUT": 90, "说明_FIRST_BREAKOUT": "A股特色信号：底部区域首次放量大阳线启动。",
+          "DOJI_CONTINUATION": 85, "说明_DOJI_CONTINUATION": "上涨中继十字星后的突破，分歧转一致的确认信号。",
+          "BBAND_SQUEEZE_BREAKOUT": 80, "说明_BBAND_SQUEEZE_BREAKOUT": "布林带收缩后的向上突破。",
+          "__CATEGORY_TREND_FOLLOWING__": "--- 趋势跟踪/右侧信号 ---",
+          "BIAS_REVERSAL": 75, "说明_BIAS_REVERSAL": "BIAS极端超卖后的反弹信号。",
+          "MOMENTUM_BREAKOUT": 70, "说明_MOMENTUM_BREAKOUT": "放量突破近期高点。",
+          "MACD_ZERO_CROSS": 60, "说明_MACD_ZERO_CROSS": "MACD零轴金叉。",
+          "PULLBACK_SETUP": 50, "说明_PULLBACK_SETUP": "为预备信号设置一个分数",
+          "MACD_LOW_CROSS": 40, "说明_MACD_LOW_CROSS": "MACD低位金叉。",
+          "DMI_CROSS": 30, "说明_DMI_CROSS": "DMI金叉。",
+          "MACD_HIGH_CROSS": 25, "说明_MACD_HIGH_CROSS": "MACD高位金叉。",
+          "__CATEGORY_KLINE_BONUS__": "--- K线形态协同奖励 ---",
+          "PULLBACK_KLINE_DECENT_BONUS": 40, "说明_PULLBACK_KLINE_DECENT_BONUS": "【K线协同】回踩 + 标准看涨形态(吞没/刺透/锤子)的基础奖励分。",
+          "PULLBACK_KLINE_PERFECT_BONUS": 35, "说明_PULLBACK_KLINE_PERFECT_BONUS": "【K线协同】如果上述形态为'完美级'，再额外追加的奖励分。",
+          "__CATEGORY_BONUS_PENALTY__": "--- 协同奖励与冲突惩罚 ---",
+          "TURNOVER_BOARD_BONUS": 45, "说明_TURNOVER_BOARD_BONUS": "【协同奖励】昨日出现换手板后，对今日买入信号的额外加分。",
+          "GAP_SUPPORT_MULTIPLIER": 1.3, "说明_GAP_SUPPORT_MULTIPLIER": "【协同奖励】当处于'缺口支撑'强势状态时，对总分的奖励乘数。",
+          "CMF_CONFIRMATION_MULTIPLIER": 1.2, "说明_CMF_CONFIRMATION_MULTIPLIER": "【协同奖励】当有资金确认(CMF>0)时，对总分的奖励乘数。",
+          "CMF_CONFIRMATION_BONUS": 20, "说明_CMF_CONFIRMATION_BONUS": "【协同奖励】当有资金确认(CMF>0)时，对总分的固定加分。",
+          "BB_MOMENTUM_COMBO_BONUS": 50, "说明_BB_MOMENTUM_COMBO_BONUS": "【协同奖励】布林收缩突破+动能突破同时出现时的额外加分。",
+          "STEADY_CLIMB_MACD_ZERO_BONUS": 40, "说明_STEADY_CLIMB_MACD_ZERO_BONUS": "【协同奖励】稳健爬升回踩+MACD零轴金叉同时出现时的额外加分。",
+          "REVERSAL_BREAKOUT_CONFLICT_PENALTY": 0.8, "说明_REVERSAL_BREAKOUT_CONFLICT_PENALTY": "【冲突处理】当反转剧本和突破剧本同时出现时，对总分的惩罚乘数。",
+          "CHIP_COST_BREAKTHROUGH": 130,
+          "CHIP_PRESSURE_RELEASE": 150,
+          "FUND_FLOW_CONFIRM_BONUS": 25,
+          "FUND_FLOW_CONFIRM_MULTIPLIER": 1.25
+        }
+      }
+    }
+  }
+}

@@ -938,8 +938,8 @@ def build_transformer_model( num_features: int, model_config: Dict[str, Any], su
         ValueError: 如果 `num_features` 或 `window_size` 小于等于0，
                     或者 `d_model` 不是 `nhead` 的整数倍。
     """
-    logger.info("开始构建 Transformer 模型...")
-    logger.info(f"模型配置: num_features={num_features}, window_size={window_size}, config={model_config}")
+    # logger.info("开始构建 Transformer 模型...")
+    # logger.info(f"模型配置: num_features={num_features}, window_size={window_size}, config={model_config}")
     if num_features <= 0:
         raise ValueError(f"输入特征数量 (num_features) 必须大于0，当前为: {num_features}")
     if window_size <= 0:
@@ -1823,7 +1823,7 @@ def predict_with_transformer_model(
     # 这个范围取决于具体业务场景中 final_signal 的定义
     final_predicted_signal = np.clip(predicted_signal_score, 0, 100)
     final_predicted_signal = round(float(final_predicted_signal), 2) # 四舍五入到两位小数
-    logger.info(f"Transformer 模型预测完成。预测信号 (原始尺度, 0-100范围, 保留2位小数): {final_predicted_signal:.2f}")
+    # logger.info(f"Transformer 模型预测完成。预测信号 (原始尺度, 0-100范围, 保留2位小数): {final_predicted_signal:.2f}")
     return final_predicted_signal
 
 @log_execution_time

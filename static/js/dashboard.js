@@ -270,21 +270,21 @@ document.addEventListener('DOMContentLoaded', function() {
         flashRow(row); // 给新行一个闪烁效果
     }
 
-     // --- 移除单个股票行 ---
-     function removeStockRow(favoriteId) {
-         if (!favoritesTbody) return;
-         const rowToRemove = favoritesTbody.querySelector(`tr[data-favorite-id="${favoriteId}"]`);
-         if (rowToRemove) {
-             rowToRemove.remove();
-             console.log(`Removed row with favorite ID: ${favoriteId}`);
-             // 检查表格是否变为空
-             if (favoritesTbody.children.length === 0) {
-                 favoritesEmpty.style.display = 'block';
-             }
-         } else {
-             console.warn(`Could not find row with favorite ID ${favoriteId} to remove.`);
-         }
-     }
+    // --- 移除单个股票行 ---
+    function removeStockRow(favoriteId) {
+        if (!favoritesTbody) return;
+        const rowToRemove = favoritesTbody.querySelector(`tr[data-favorite-id="${favoriteId}"]`);
+        if (rowToRemove) {
+            rowToRemove.remove();
+            console.log(`Removed row with favorite ID: ${favoriteId}`);
+            // 检查表格是否变为空
+            if (favoritesTbody.children.length === 0) {
+                favoritesEmpty.style.display = 'block';
+            }
+        } else {
+            console.warn(`Could not find row with favorite ID ${favoriteId} to remove.`);
+        }
+    }
 
     // --- 自选股表格渲染与更新 (需要修改以存储 ID) ---
     function renderFavoritesTable(favoritesData) {

@@ -8,13 +8,9 @@ import math
 # 导入 Django 的 Model 基类，用于判断是否是模型实例
 from django.db.models import Model
 from dao_manager.base_dao import BaseDAO
-from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowIndustryTHS, FundFlowMarketDc
-from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar
-from stock_models.industry import DcIndex, DcIndexDaily, DcIndexMember, KplConcept, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily
-from stock_models.market import HmDetail, HmList, LimitCptList, LimitListD, LimitListThs, LimitStep, MarketDailyInfo
+from stock_models.index import IndexInfo
+from stock_models.industry import DcIndex, KplConcept, SwIndustry, ThsIndex
 from stock_models.stock_basic import StockInfo
-from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
-from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData, IndexDaily
 from users.models import FavoriteStock
 
 logger = logging.getLogger(__name__)
@@ -237,20 +233,10 @@ class StockTimeTradeFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        # 兼容 freq 和 time_level 字段
-        time_level = getattr(df_data, "freq", getattr(df_data, "time_level", None)).lower()
-        # 处理time_level，去掉min，转为int
-        if isinstance(time_level, str) and time_level.endswith('min'):
-            time_level_num = int(time_level.replace('min', ''))
-        else:
-            try:
-                time_level_num = int(time_level)
-            except Exception:
-                return {}  # 不能转为数字的直接丢弃
         data_dict = {
             "stock": stock,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_time", getattr(df_data, "time", None))),
-            "time_level": time_level_num,
+            # "time_level": time_level_num,
             "open": getattr(df_data, "open", None),
             "high": getattr(df_data, "high", None),
             "low": getattr(df_data, "low", None),
@@ -264,10 +250,10 @@ class StockTimeTradeFormatProcess(BaseDAO):
         data_dict = {
             "stock": stock,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
-            "open": self._parse_number(getattr(df_data, "open", None)),
-            "high": self._parse_number(getattr(df_data, "high", None)),
-            "low": self._parse_number(getattr(df_data, "low", None)),
-            "close": self._parse_number(getattr(df_data, "close", None)),
+            "open": self._parse_number(getattr(df_data, "open", getattr(df_data, "open_qfq", None))),
+            "high": self._parse_number(getattr(df_data, "high", getattr(df_data, "high_qfq", None))),
+            "low": self._parse_number(getattr(df_data, "low", getattr(df_data, "low_qfq", None))),
+            "close": self._parse_number(getattr(df_data, "close", getattr(df_data, "close_qfq", None))),
             "pre_close": self._parse_number(getattr(df_data, "pre_close", None)),
             "change": self._parse_number(getattr(df_data, "change", None)),
             "pct_chg": self._parse_number(getattr(df_data, "pct_chg", getattr(df_data, "pct_change", None))),
@@ -280,10 +266,10 @@ class StockTimeTradeFormatProcess(BaseDAO):
         data_dict = {
             "stock": stock,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
-            "open": self._parse_number(getattr(df_data, "open", None)),
-            "high": self._parse_number(getattr(df_data, "high", None)),
-            "low": self._parse_number(getattr(df_data, "low", None)),
-            "close": self._parse_number(getattr(df_data, "close", None)),
+            "open": self._parse_number(getattr(df_data, "open", getattr(df_data, "open_qfq", None))),
+            "high": self._parse_number(getattr(df_data, "high", getattr(df_data, "high_qfq", None))),
+            "low": self._parse_number(getattr(df_data, "low", getattr(df_data, "low_qfq", None))),
+            "close": self._parse_number(getattr(df_data, "close", getattr(df_data, "close_qfq", None))),
             "pre_close": self._parse_number(getattr(df_data, "pre_close", None)),
             "change": self._parse_number(getattr(df_data, "change", None)),
             "pct_chg": self._parse_number(getattr(df_data, "pct_chg", getattr(df_data, "pct_change", None))),

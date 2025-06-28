@@ -29,7 +29,7 @@ except ImportError:
 # --- 导入项目模块 ---
 from services.indicator_services import IndicatorService # 依赖这个服务来准备数据
 # --- 导入需要运行的策略 ---
-from strategies.trend_following_strategy import TrendFollowingStrategy
+from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.trend_reversal_strategy import TrendReversalStrategy
 from strategies.t_plus_0_strategy import TPlus0Strategy
 
@@ -98,7 +98,7 @@ class Command(BaseCommand):
         strategies_to_run: Dict[str, Any] = {}
         try:
             # --- 按需实例化策略 ---
-            strategies_to_run['trend_following'] = TrendFollowingStrategy(params_file=params_file)
+            strategies_to_run['trend_following'] = TrendFollowStrategy(params_file=params_file)
             # strategies_to_run['trend_reversal'] = TrendReversalStrategy(params_file=params_file)
             # strategies_to_run['t_plus_0'] = TPlus0Strategy(params_file=params_file)
             # 可以在这里添加或移除其他策略

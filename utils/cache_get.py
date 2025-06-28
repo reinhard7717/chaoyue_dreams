@@ -76,7 +76,7 @@ class CacheGet():
     async def _stock_latest_data(self, stock_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
-            logger.info(f"尝试从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
+            # logger.info(f"尝试从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
             # 2. 调用 CacheManager 获取数据
             cache_manager = await self.get_cache_manager()
             cached_data = await cache_manager.get(key=cache_key)

@@ -14,8 +14,8 @@ import pandas as pd
 from chaoyue_dreams.celery import app as celery_app
 # 假设 IndicatorService 存在且可用
 from services.indicator_services import IndicatorService
-# 导入修改后的 TrendFollowingStrategy 类
-from strategies.trend_following_strategy import TrendFollowingStrategy
+# 导入修改后的 TrendFollowStrategy 类
+from strategies.trend_following_strategy import TrendFollowStrategy
 # 导入 prepare_data_for_transformer 函数
 from strategies.utils.deep_learning_utils import prepare_data_for_transformer
 
@@ -31,11 +31,11 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
     # 记录任务开始信息
     logger.info(f"{task_id_str}：开始为 {stock_code} 执行 Transformer 数据处理流程...")
     # 记录策略实例化信息
-    logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowingStrategy...")
+    logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowStrategy...")
     # 实例化策略，传递参数文件路径和模型目录
-    strategy = TrendFollowingStrategy(params_file=params_file, base_data_dir=model_dir)
+    strategy = TrendFollowStrategy(params_file=params_file, base_data_dir=model_dir)
     # 记录策略实例化完成信息
-    logger.info(f"{task_id_str} [{stock_code}]：TrendFollowingStrategy 实例化完毕，策略名: '{strategy.strategy_name}'。")
+    logger.info(f"{task_id_str} [{stock_code}]：TrendFollowStrategy 实例化完毕，策略名: '{strategy.strategy_name}'。")
     # 检查策略参数是否为空
     if not strategy.params:
         # 记录严重错误并终止任务
@@ -385,10 +385,10 @@ def process_stock_data_stage1(self, stock_code: str, params_file: str = None, mo
     logger.info(f"{task_id_str}：开始为 {stock_code} 执行 Transformer 数据处理阶段 1 & 2...")
     try:
         # 记录策略实例化信息
-        logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowingStrategy...")
+        logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowStrategy...")
         # 实例化策略，传递参数文件路径和模型目录 (用于确定保存路径)
-        strategy = TrendFollowingStrategy(params_file=params_file, base_data_dir=model_dir)
-        logger.info(f"{task_id_str} [{stock_code}]：TrendFollowingStrategy 实例化完毕，策略名: '{strategy.strategy_name}'。")
+        strategy = TrendFollowStrategy(params_file=params_file, base_data_dir=model_dir)
+        logger.info(f"{task_id_str} [{stock_code}]：TrendFollowStrategy 实例化完毕，策略名: '{strategy.strategy_name}'。")
         # 检查策略参数是否为空
         if not strategy.params:
             logger.error(f"{task_id_str} [{stock_code}]：CRITICAL TASK HALT: strategy.params 为空。参数文件可能未加载或无效。任务无法继续。")
@@ -460,9 +460,9 @@ def process_stock_data_stage2(self, stock_code: str, dataframe_path: str, metada
     logger.info(f"{task_id_str}：开始为 {stock_code} 执行 Transformer 数据处理阶段 3 & 4...")
     try:
         # 记录策略实例化信息 (需要 params_file 和 model_dir 来调用 save_prepared_data)
-        logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowingStrategy (用于加载中间数据和保存最终结果)...")
-        strategy = TrendFollowingStrategy(params_file=params_file, base_data_dir=model_dir)
-        logger.info(f"{task_id_str} [{stock_code}]：TrendFollowingStrategy 实例化完毕。")
+        logger.info(f"{task_id_str} [{stock_code}]：实例化 TrendFollowStrategy (用于加载中间数据和保存最终结果)...")
+        strategy = TrendFollowStrategy(params_file=params_file, base_data_dir=model_dir)
+        logger.info(f"{task_id_str} [{stock_code}]：TrendFollowStrategy 实例化完毕。")
         # --- 新增：从文件加载阶段 1 和 2 的结果 ---
         logger.info(f"{task_id_str} [{stock_code}]：开始从文件加载中间数据...")
         data_for_prep, transformer_target_column, tf_params, transformer_window_size, required_columns_for_transformer = strategy.load_intermediate_data(
@@ -602,7 +602,7 @@ def batch_train_following_strategy_transformer(self, stock_code: str, params_fil
     # 实例化策略，传递参数文件和模型目录
     params_file=settings.INDICATOR_PARAMETERS_CONFIG_PATH
     model_dir = settings.STRATEGY_DATA_DIR # 修改行：使用设置的模型目录
-    strategy = TrendFollowingStrategy(params_file=params_file, base_data_dir=model_dir)
+    strategy = TrendFollowStrategy(params_file=params_file, base_data_dir=model_dir)
     try:
         # strategy.train_transformer_model_from_prepared_data 内部会加载数据并训练
         strategy.train_transformer_model_from_prepared_data(stock_code)

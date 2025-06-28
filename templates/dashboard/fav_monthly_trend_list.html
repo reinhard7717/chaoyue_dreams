@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}月线趋势跟踪评分 - {{ block.super }}{% endblock %}
+
+{% block sidebar %}
+    {# --- 侧边栏内容 (保持不变) --- #}
+    <aside class="site-sidebar">
+        <nav class="sidebar-nav">
+             <h3>导航菜单</h3>
+            <ul>
+                <li><a href="{% url 'users:home' %}">主控台</a></li> {# 当前页面设为 active #}
+                <li><a href="{% url 'dashboard:trend_following_list' %}">趋势跟踪</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选-趋势</a></li>
+                <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
+                <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}" class="active">自选-月线</a></li>
+            </ul>
+        </nav>
+    </aside>
+{% endblock sidebar %}
+
+{% block content %}
+<div class="dashboard-container">
+    <section class="trend-list-section">
+        {# --- 代码修改: 在标题中显示从视图传递的总数 --- #}
+        <h2><span class="icon">📈</span> 月线趋势跟踪评分 (共 {{ total_count }} 只)</h2>
+        <div class="table-wrapper">
+            <table class="data-table" id="trend-table">
+                <thead>
+                    <tr>
+                        {# --- 代码修改: 更新表头以匹配新的数据字段 --- #}
+                        <th>股票代码</th>
+                        <th>股票名称</th>
+                        <th>最新价</th>
+                        <th>信号类型</th>
+                        <th>买入评分</th>
+                        <th>信号详情</th>
+                        <th>评分细则</th>
+                        <th>信号日期</th>
+                    </tr>
+                </thead>
+                <tbody id="favorites-tbody">
+                    {# --- 代码修改: 循环遍历从视图传递的 page_obj 对象 --- #}
+                    {% for item in page_obj.object_list %}
+                    <tr>
+                        <td>{{ item.stock__stock_code }}</td>
+                        <td>{{ item.stock__stock_name|default:"-" }}</td>
+                        <td>{{ item.close_D|floatformat:2|default:"-" }}</td>
+                        <td>{{ item.signal_type|default:"-" }}</td>
+                        <td>{{ item.buy_score|floatformat:0|default:"-" }}</td>
+                        {# --- 代码修改: 使用新的 'signal_details' 字段替换旧的布尔值字段 --- #}
+                        <td>{{ item.signal_details|default:"-" }}</td>
+                        {# --- 代码修改: 使用清理后的 'analysis_details' 字段 --- #}
+                        <td>{{ item.analysis_details|default:"-" }}</td>
+                        <td>{{ item.trade_time|date:"Y-m-d" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" style="text-align: center; padding: 20px;">暂无数据</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        {# --- 代码修改: 使用 Django Paginator 的标准方式重构分页控件，但保留您原有的 class --- #}
+        <div class="pagination">
+            {% if page_obj.has_other_pages %}
+                {% if page_obj.has_previous %}
+                    <a href="?page=1">&laquo; 首页</a>
+                    <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
+                {% endif %}
+
+                <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+
+                {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}">下一页</a>
+                    <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

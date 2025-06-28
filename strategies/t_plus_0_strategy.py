@@ -87,7 +87,7 @@ class TPlus0Strategy(BaseStrategy):
 
         # 如果启用了长期趋势过滤
         if t0_params.get('use_long_term_filter', False):
-             # 需要计算长期趋势的列，假设来自 TrendFollowingStrategy 或单独计算
+             # 需要计算长期趋势的列，假设来自 TrendFollowStrategy 或单独计算
              # 这里需要确定 long_term_context 的来源
              # 假设它是由另一个策略或服务预先计算并合并到 data 中的
              required.add('long_term_context') # 需要这个列

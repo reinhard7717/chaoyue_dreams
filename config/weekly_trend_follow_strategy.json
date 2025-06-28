@@ -1,0 +1,191 @@
+{
+  "file_name": "config/weekly_trend_follow_strategy.json",
+  "feature_engineering_params": {
+    "timeframes": ["D", "W", "M"],
+    "indicators": {
+      "ema": { "enabled": true, "periods": [5, 8, 13, 21, 34, 55, 233], "apply_on": ["D", "W"] },
+      "macd": { "enabled": true, "periods": [8, 26, 7], "apply_on": ["D", "W"] },
+      "rsi": { "enabled": true, "periods": [14], "apply_on": ["D", "W"] },
+      "kdj": { "enabled": true, "periods": [9, 3, 3], "apply_on": ["D", "W"] },
+      "obv": { "enabled": true, "apply_on": ["D", "W"] },
+      "roc": { "enabled": true, "periods": [12], "apply_on": ["W"] },
+      "vol_ma": { "enabled": true, "periods": [21, 55], "apply_on": ["W"] },
+      "boll_bands_and_width": { "enabled": true, "periods": [20], "std": 2.0, "apply_on": ["W"] },
+      "consolidation_period": { 
+        "enabled": true, 
+        "apply_on": ["W"],
+        "boll_period": 20, "说明_boll_period": "布林带周期",
+        "boll_std": 2.0, "说明_boll_std": "布林带标准差",
+        "bbw_quantile": 0.25, "说明_bbw_quantile": "动态BBW阈值：使用历史数据的前25%分位点",
+        "roc_period": 12, "说明_roc_period": "ROC周期，用于判断趋势强度",
+        "roc_threshold": 5.0, "说明_roc_threshold": "ROC绝对值阈值，低于此值视为无明显趋势",
+        "vol_ma_period": 55, "说明_vol_ma_period": "成交量均线周期，用于判断缩量", 
+        "说明": "【V2.0 多因子共振模型】结合动态BBW(历史前25%分位)、12周ROC(绝对值<5)和成交量(低于55周均量)来识别周线级箱体。注意：此指标的逻辑已被新的剧本内部逻辑取代，可考虑在未来版本中移除。"
+      },
+      "trix": { "enabled": true, "periods": [12, 9], "apply_on": ["D", "W"] },
+      "coppock": { "enabled": true, "periods": [14, 11, 10], "apply_on": ["D", "W"] },
+      "uo": { "enabled": true, "periods": [7, 14, 28], "apply_on": ["D", "W"] },
+      "atrr": { "enabled": true, "periods": [14], "apply_on": ["W"] },
+      "bias": { "enabled": true, "periods": [21], "apply_on": ["W"] }
+    }
+  },
+  "strategy_playbooks": {
+      "ma20_turn_up_playbook": { "enabled": true, "slope_period": 2 },
+      "early_uptrend_playbook": { "enabled": true },
+      "classic_breakout_playbook": { "enabled": true, "lookback_weeks": 26, "volume_multiplier": 1.5 },
+      "ma_uptrend_playbook": { "enabled": true },
+      
+      "box_consolidation_breakout_playbook": {
+          "enabled": true, "说明_enabled": "是否启用此'专业箱体突破'剧本。",
+          "volume_multiplier": 1.5, "说明_volume_multiplier": "成交量放大倍数。定义了突破日的成交量必须是过去N日平均成交量的多少倍才算有效放量。",
+          "box_period": 26, "说明_box_period": "箱体周期。定义了计算箱体上轨(前期高点)和平均成交量的回看窗口期。26周约等于半年，是一个常用的中期箱体周期。",
+          "volatility_method": "QUANTILE", "说明_volatility_method": "波动率识别模式。核心开关。'QUANTILE'表示使用动态分位数模式，让策略自适应每只股票的波动性；'STATIC'表示使用固定的阈值（不推荐）。",
+          "quantile_level": 0.25, "说明_quantile_level": "动态分位数水平。当 volatility_method 为 'QUANTILE' 时生效。0.25 表示将一只股票历史布林带宽度(BBW)最低的25%区间定义为'低波动盘整期'。",
+          "boll_period": 20, "说明_boll_period": "布林带周期。用于内部计算布林带宽度(BBW)指标，以判断波动率。必须与'指标配置'中的'boll_bands_and_width'周期保持一致。",
+          "boll_std": 2.0, "说明_boll_std": "布林带标准差。同样用于内部计算BBW指标。必须与'指标配置'中的'boll_bands_and_width'标准差保持一致。"
+      },
+
+      "oversold_rebound_bias_playbook": { "enabled": true, "oversold_threshold": -10, "rebound_trigger": -7 },
+      "washout_score_playbook": {
+        "enabled": true,
+        "support_type": "BOX",
+        "support_ma_period": 21,
+        "box_period": 26,
+        "volatility_method": "QUANTILE", "说明_volatility_method": "启用动态分位数模式，让策略自适应每只股票的波动性",
+        "quantile_level": 0.25, "说明_quantile_level": "定义“低波动”为该股票历史波动率最低的25%区间",
+        "drift_lookback_period": 3,
+        "bull_trap_lookback_period": 8,
+        "bull_trap_drop_threshold": 0.05,
+        "volume_avg_period": 20,
+        "volume_contraction_threshold": 0.7,
+        "score_threshold": 2
+      },
+      "rejection_filter_playbook": {
+          "enabled": true,
+          "ma_period": 21,
+          "box_lookback_period": 52,
+          "volume_multiplier": 1.5
+      },
+      "pullback_entry_playbook": {
+          "enabled": true,
+          "lookback_window": 3,
+          "volume_upper_bound_ratio": 2.0
+      },
+      "continuation_entry_playbook": {
+          "enabled": true,
+          "continuation_weeks": 2,
+          "support_ma_period": 8
+      }
+  },
+  "weekly_trend_strategy_params": {
+    "ma_period": 20,
+    "grinding_window": 10,
+    "steady_window": 3,
+    "volume_increase_threshold": 1.2,
+    "volume_spike_threshold": 2.0,
+    "adx_threshold": 25,
+    "core_tf": "60",
+    "multi_tf_combine": ["30", "60"],
+    "weekly_grind_window": 4,
+    "weekly_bbw_threshold": 0.15,
+    "weekly_obv_window": 2,
+    "daily_volume_multiplier": 1.8
+  },
+  "final_washout_params": {
+    "enabled": true,
+    "score_threshold": 1,
+    "说明_score_threshold": "核心参数。定义了洗盘分数达到多少才算作一个有效的 Is_Final_Washout_Signal。设置为1表示只要满足任意一种模式即可。您可以调高到2，以寻找满足多种模式的“高置信度”信号。",
+    "support_type": "BOX", 
+    "说明_support_type": "核心开关。设置为 'BOX' 使用箱体支撑，设置为 'MA' 使用均线支撑。我个人更推荐 BOX，因为它更贴近市场成本。",
+    "washout_lookback_period": 3,
+    "说明_washout_lookback_period": "用于“短期漂移后收复”模式的回看窗口。",
+    "support_ma_period": 20,
+    "说明_support_ma_period": "当 support_type 为 MA 时生效。",
+    "box_period": 20,
+    "说明_box_period": "当 support_type 为 BOX 时生效，定义了计算箱体下轨的回看周期。",
+    "box_volatility_threshold": 0.12,
+    "说明_box_volatility_threshold": "",
+    "bull_trap_lookback_period": 8,
+    "说明_bull_trap_lookback_period": "定义了寻找“诱多高点”的回看窗口期。8个交易日大约是两周，是一个比较合适的时间窗口。",
+    "bull_trap_drop_threshold": 0.05,
+    "说明_bull_trap_drop_threshold": "定义了从高点回落多少才算进入“陷阱区”。0.05 代表回落幅度超过5%。这个值可以根据市场波动性进行调整，市场波动大时可以适当调高。",
+    "volume_avg_period": 20,
+    "说明_volume_avg_period": "计算平均成交量的周期",
+    "volume_contraction_threshold": 0.7,
+    "说明_volume_contraction_threshold": "定义了“缩量”的标准，即成交量低于20日均量的70%",
+    "u_shape_lookback_period": 10,
+    "说明_u_shape_lookback_period": "U型底模式中，判断股价在支撑下运行的时间窗口。",
+    "u_shape_stability_period": 3,
+    "说明_u_shape_stability_period": "U型底模式中，判断底部是否企稳和向上拐点的时间窗口。",
+    "uo_divergence_params": {
+      "enabled": true,
+      "short_period": 7,
+      "medium_period": 14,
+      "long_period": 28,
+      "lookback_period": 5
+    }
+  },
+  "take_profit_params": {
+    "resistance_exit": {
+      "enabled": true,
+      "lookback_period": 90,
+      "说明_lookback_period": "定义了寻找“箱体上沿”的时间窗口，90天约等于一个季度，是一个常用的中期压力位参考周期。",
+      "approach_threshold": 0.02
+    },
+    "trailing_stop_exit": {
+      "enabled": true,
+      "lookback_period": 20,
+      "percentage_pullback": 0.10,
+      "说明_percentage_pullback": "定义了从近期高点回撤多少比例触发止盈，10% (0.10) 是一个比较常用的值，可以根据股票的波动性调整。"
+    },
+    "indicator_exit": {
+      "enabled": true,
+      "indicator": "TRIX",
+      "说明_indicator": "指定用于判断过热的指标列名，这里是 TRIX.",
+      "trix_period": 12,
+      "trix_signal_period": 9
+    }
+  },
+  "weekly_accumulation_params": {
+    "enabled": true,
+    "ma_period": 20,
+    "trix_period": 12,
+    "trix_signal_period": 9,
+    "coppock_long_roc": 14,
+    "coppock_short_roc": 11,
+    "coppock_wma": 10
+  },
+  
+  "weekly_breakout_params": {
+    "enabled": true,
+    "lookback_weeks": 26,
+    "volume_multiplier": 1.5
+  },
+  "ma_rejection_filter_params": {
+    "enabled": true,
+    "ma_period": 20,
+    "volume_multiplier": 1.5
+  },
+  "box_rejection_filter_params": {
+    "enabled": true,
+    "lookback_period": 60,
+    "volume_multiplier": 1.5
+  },
+  "pullback_entry_params": {
+    "说明_pullback_entry_params": "回踩买入策略，已升级为可识别'强势横盘'的智能模式",
+    "enabled": true,
+    "lookback_window": 3,
+    "volume_upper_bound_ratio": 2.0,
+    "说明_volume_upper_bound_ratio": "【核心新增参数】定义了回踩/整理期间成交量的上限，是突破日成交量的2.0倍。这使得策略能识别'平量/微放量'的强势整理，而不仅仅是'缩量'回踩。旧的 volume_ratio_threshold 已被此参数取代。",
+    "support_ma_period": 21,
+    "说明_support_ma_period": "回踩支撑均线 (当前已被更优的'颈线支撑'逻辑取代，此参数保留备用)"
+  },
+  "continuation_entry_params": {
+    "说明_continuation_entry_params": "新增的强势追击策略配置模块",
+    "enabled": true,
+    "continuation_days": 3,
+    "说明_continuation_days": "定义了需要连续多少天保持在短期均线上方，才确认为“强势模式”。3天是一个比较可靠的选择。",
+    "support_ma_period": 5,
+    "说明_support_ma_period": "定义了强势行情的“生命线”，5日均线是攻击性最强的均线，最适合这个场景。"
+  }
+}

@@ -23,7 +23,6 @@ class StockBasicInfoDao(BaseDAO):
         super().__init__(None, None, 3600)
         from utils.data_format_process import StockInfoFormatProcess
         from utils.cache_manager import CacheManager
-        from api_manager.apis.stock_basic_api import StockBasicAPI
         self.cache_manager = CacheManager()  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()
         self.stock_cache_set = StockInfoCacheSet()

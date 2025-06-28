@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 import pandas as pd # 可选：用于可能的结果展示
 
 # 导入你的策略类
-from strategies.trend_following_strategy import TrendFollowingStrategy
+from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.trend_reversal_strategy import TrendReversalStrategy
 from strategies.t_plus_0_strategy import TPlus0Strategy
 # from strategies import strategy_utils # utils 被策略内部使用，通常无需直接在此导入
@@ -96,7 +96,7 @@ class Command(BaseCommand):
             # 1. 实例化选定的策略
             self.stdout.write("正在初始化策略...")
             if strategy_name == 'trend_following':
-                strategy_instance = TrendFollowingStrategy(params_file=params_file)
+                strategy_instance = TrendFollowStrategy(params_file=params_file)
             elif strategy_name == 'trend_reversal':
                 strategy_instance = TrendReversalStrategy(params_file=params_file)
             elif strategy_name == 't_plus_0':

@@ -7,14 +7,18 @@ import logging
 import asyncio
 import re # 用于异步操作
 from django.utils import timezone
+from zoneinfo import ZoneInfo
 from django.db.models import Q, Model # Django 查询和模型基类
 import math
 from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
-from datetime import datetime, date # 日期时间类型
+from datetime import datetime, date, timedelta
 import dateutil.parser
 from django.db import models # Django 模型
-from decimal import Decimal # 导入 Decimal
+from decimal import Decimal
+
+import numpy as np
+import pandas as pd # 导入 Decimal
 from stock_models.index import IndexInfo
 from stock_models.stock_basic import StockInfo
 import tushare as ts
@@ -324,24 +328,31 @@ class BaseDAO(Generic[T]):
             logger.error(f"从缓存数据构建 {model_class.__name__} 实例时发生未知错误: {e}, data: {cached_data}", exc_info=True)
             return None # 构建失败返回 None
 
-    def parse_date_auto(self, value, is_datefield=True):
-        if isinstance(value, (date, datetime)):
-            return value.date() if is_datefield and isinstance(value, datetime) else value
-        if isinstance(value, str):
-            try:
-                dt = dateutil.parser.parse(value)
-                return dt.date() if is_datefield else dt
-            except Exception:
-                pass
-        return value
-
-    def replace_nan_with_none(self, data):
+    def _sanitize_for_json(self, data: Any) -> Any:
+        """
+        递归地清洗数据，使其完全兼容JSON序列化。
+        - 将 Decimal 转换为 float。
+        - 将 numpy 数字类型 (如 float64, int64) 转换为原生 Python 类型。
+        - 将 NaN, NaT, pd.NA 转换为 None。
+        """
         if isinstance(data, dict):
-            return {k: self.replace_nan_with_none(v) for k, v in data.items()}
-        elif isinstance(data, float) and math.isnan(data):
+            # 如果是字典，递归处理其所有值
+            return {k: self._sanitize_for_json(v) for k, v in data.items()}
+        if isinstance(data, list):
+            # 如果是列表，递归处理其所有元素
+            return [self._sanitize_for_json(item) for item in data]
+        if isinstance(data, Decimal):
+            # 将 Decimal 转换为 float
+            return float(data)
+        if isinstance(data, np.generic):
+            # 将所有 numpy 的通用数值类型转换为其对应的 Python 原生类型
+            return data.item()
+        if pd.isna(data):
+            # 将所有 pandas/numpy 的空值表示 (NaN, NaT, pd.NA) 转换为 None
             return None
-        else:
-            return data
+        # 其他类型原样返回
+        return data
+
     # ==================== CRUD 操作 ====================
 
     async def get_by_id(self, id_value: Any, related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> Optional[T]:
@@ -622,171 +633,261 @@ class BaseDAO(Generic[T]):
             logger.error(f"数据库筛选 {self.model_name} 错误: {str(e)}", exc_info=True)
             return []
 
-    async def get_or_create_fk_instance(self, field_name: str, field_model: Type[models.Model],
-        prepared_data: dict, lookup_field: str = "id" ) -> None:
-        """
-        异步获取或创建关联外键实例，替换 prepared_data 中的外键数据字典为模型实例。
-        Args:
-            field_name: 外键字段名，prepared_data 中该字段对应的值是 dict 或已是模型实例。
-            field_model: 外键对应的模型类。
-            prepared_data: 当前准备插入的整条数据字典，会在此函数内修改。
-            lookup_field: 用于查询的唯一字段名，默认为 "id"。
-        Raises:
-            KeyError: 如果 lookup_field 在字典中不存在，则会抛出异常。
-        """
-        fk_data = prepared_data.get(field_name)
-        if isinstance(fk_data, dict):
-            # 异步查询数据库是否已存在对应的关联实例
-            lookup_value = fk_data.get(lookup_field)
-            if lookup_value is None:
-                logger.error(f"外键字段 {field_name} 字典中缺少必须的唯一字段 {lookup_field}: {fk_data}")
-                raise KeyError(f"缺少唯一字段 {lookup_field} 用于查询 {field_name}")
-            instance = await sync_to_async(field_model.objects.filter(**{lookup_field: lookup_value}).first)()
-            if not instance:
-                try:
-                    instance = field_model(**fk_data)
-                    await sync_to_async(instance.save)()
-                except Exception as e:
-                    logger.error(f"创建外键模型 {field_model.__name__} 实例失败: {e}", exc_info=True)
-                    raise
-            # 替换字典为模型实例，供bulk_create使用
-            prepared_data[field_name] = instance
-        elif fk_data is None:
-            # 如果外键允许为空，保持 None
-            prepared_data[field_name] = None
-        else:
-            # 如果已经是模型实例，则不操作
-            pass
-
     # ==================== 批量保存方法 ====================
     # 保留 Django 5 原生 Upsert 方法作为推荐实现
-    async def _save_all_to_db_native_upsert( self, model_class: Type[models.Model], data_list: List[Dict[str, Any]],
-        unique_fields: List[str], # 用于冲突检测的字段 (应有唯一约束)
-        **extra_fields: Any,
-    ) -> Dict[str, int]:
+    async def _save_all_to_db_native_upsert(self, model_class, data_list, unique_fields, batch_size=5000):
         """
-        (内部方法/异步) 使用 Django 5+ 原生的 bulk_create 实现 Upsert (Update or Create) 的批量处理方法。
-        这是推荐的批量保存方式，性能较好。
-        Args:
-            model_class: 要操作的 Django 模型类。
-            data_list: 包含待处理数据的字典列表。
-            unique_fields: 用于确定唯一记录并检测冲突的字段列表 (必须在数据库中有唯一约束)。
-            **extra_fields: (可选) 额外的字段和值，将添加到所有创建/更新的记录中。
-        Returns:
-            一个字典，包含处理结果的统计信息:
-                - "尝试处理": 本次调用尝试处理的总记录数。
-                - "失败": 处理过程中失败的记录数 (通常是整个批次失败)。
-                - "创建/更新成功": 成功创建或更新的记录数 (原生方法不区分两者)。
+        【V5 - 修复外键映射（健壮版）】使用 Django 4.1+ 的原生 bulk_create(update_conflicts=True) 
+        实现高效的批量更新或插入（Upsert）。
         """
         if not data_list:
-            logger.warning(f"未提供任何数据用于处理 - {model_class.__name__}")
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-        if not isinstance(data_list, list):
-            data_list = [data_list]
-        total_attempted = len(data_list)
+
+        total_records = len(data_list)
+        success_count = 0
         failed_count = 0
-        # --- 确定需要更新的字段 (update_fields) ---
-        all_keys = set()
-        if data_list:
-            # 从第一个数据项获取基础键，并合并 extra_fields 的键
-            all_keys = set(data_list[0].keys()) | set(extra_fields.keys())
-        # 排除掉用于匹配唯一性的字段
-        update_fields = list(all_keys - set(unique_fields))
-        # 可选：移除主键，因为通常不更新主键
+
+        # 1. 获取模型的所有可写字段名。
+        all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
+        
+        # 2. 创建一个包含 unique_fields 及其对象形式（如 'stock'）的集合，用于排除。
+        unique_field_set = set(unique_fields)
+        for field_name in unique_fields:
+            if field_name.endswith('_id'):
+                unique_field_set.add(field_name[:-3])
+
+        # 3. 要更新的字段 = 所有模型字段 - 唯一约束字段 - 主键。
         pk_name = model_class._meta.pk.name
-        if pk_name in update_fields:
-            update_fields.remove(pk_name)
-        if not update_fields:
-            logger.warning(
-                f"模型 {model_class.__name__} 没有可用于更新的字段（除了唯一字段 {unique_fields}）。"
-                f" bulk_create 在 update_conflicts=True 模式下仍会尝试创建新记录，但现有记录不会被修改。"
+        update_fields = [f for f in all_model_fields if f not in unique_field_set and f != pk_name]
+        
+        # print(f"调试信息: [BaseDAO-Upsert] 计算出的待更新字段 (update_fields): {update_fields}")
+
+        # 【关键修改处】
+        # 解释: 采纳您的建议，对外键映射逻辑进行加固。
+        # 旧逻辑 f"{f.name}_code" 无法处理模型中字段名本身就是 'stock_id' 的情况。
+        # 新逻辑先移除字段名末尾可能的 '_id'，再拼接 '_code'，更加健壮。
+        # 例如: 'stock' -> 'stock_code', 'stock_id' -> 'stock_code'
+        fk_fields_map = {}
+        for f in model_class._meta.fields:
+            if isinstance(f, models.ForeignKey):
+                field_name = f.name  # 模型中的外键字段名，如 'stock' 或 'stock_id'
+                # 使用 removesuffix (Python 3.9+) 移除末尾的 '_id' (如果存在)，得到基础名，如 'stock'
+                base_name = field_name.removesuffix('_id')
+                # 约定数据源中的列名为 '基础名_code'，如 'stock_code'
+                code_field_name = f"{base_name}_code"
+                fk_fields_map[field_name] = code_field_name
+        # print(f"调试信息: [BaseDAO-Upsert] 生成的健壮版外键映射 (fk_fields_map): {fk_fields_map}")
+
+        # 准备待处理的对象列表
+        objects_to_create = []
+        failed_records = []
+        for record in data_list:
+            try:
+                sanitized_record = self._sanitize_for_json(record)
+                instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
+                objects_to_create.append(model_class(**instance_data))
+            except Exception as e:
+                logger.error(f"在准备模型实例时出错: {e}, 记录: {record}", exc_info=True)
+                failed_records.append(record)
+        
+        failed_count += len(failed_records)
+
+        # 分批处理
+        for i in range(0, len(objects_to_create), batch_size):
+            batch = objects_to_create[i:i + batch_size]
+            batch_success_count, batch_failed_count = await self.process_batch_async(
+                model_class, batch, unique_fields, update_fields
             )
-        batch_size = 8000 # 定义每个数据库事务处理的批次大小
-        for i in range(0, len(data_list), batch_size):
-            batch = data_list[i : i + batch_size]
-            current_batch_size = len(batch)
-            # --- 准备模型实例列表 ---
-            objs_to_process = []
-            # 在批次循环外，自动识别所有 DateField/DateTimeField
-            date_fields = {
-                f.name: isinstance(f, models.DateField) and not isinstance(f, models.DateTimeField)
-                for f in model_class._meta.get_fields()
-                if isinstance(f, (models.DateField, models.DateTimeField))
-            }
-            for item in batch:
-                # 合并 extra_fields 到每个 item
-                prepared_data = {**item, **extra_fields}
-                # 创建模型实例
-                # 注意：这里假设 prepared_data 中的字段名和类型与模型匹配
-                # 如果 API 返回的数据需要转换 (如日期字符串、数字格式)，应在调用此方法前完成
-                # 自动转换所有日期/时间字段
-                for field_name, is_datefield in date_fields.items():
-                    if field_name in prepared_data:
-                        prepared_data[field_name] = self.parse_date_auto(prepared_data[field_name], is_datefield)
-                # 批量入库前，将所有 NaN 替换为 None
-                prepared_data = self.replace_nan_with_none(prepared_data)
-                # 处理 ForeignKey 字段 stock（示例，只针对 stock 字段，有多个类似情况需扩展）
-                # 只保留模型字段里有的字段，避免传入多余字段
-                model_field_names = {f.name for f in model_class._meta.get_fields() if not (f.many_to_many or f.one_to_many)}
-                # 过滤prepared_data
-                filtered_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
-                # 依次处理所有外键字段
-                if "stock" in model_field_names:
-                    await self.get_or_create_fk_instance("stock", StockInfo, filtered_data, lookup_field="stock_code")
-                if "index" in model_field_names:
-                    await self.get_or_create_fk_instance("index", IndexInfo, filtered_data, lookup_field="index_code")
-                try:
-                    objs_to_process.append(model_class(**filtered_data))
-                except Exception as model_init_err:
-                    logger.error(f"创建模型 {model_class.__name__} 实例失败: {model_init_err}, data: {filtered_data}", exc_info=True)
-                    failed_count += 1 # 单条记录创建失败
-            # 如果当前批次所有记录都创建失败，则跳过数据库操作
-            if len(objs_to_process) == 0 and current_batch_size > 0:
-                 logger.error(f"批次 {i // batch_size + 1} 所有记录模型实例化失败，跳过数据库操作")
-                 # failed_count 已经在上面累加
-                 continue # 处理下一个批次
-            # 使用 sync_to_async 执行同步的数据库操作
-            @sync_to_async
-            @transaction.atomic # 确保每个批次在事务中执行
-            def process_batch_sync():
-                nonlocal failed_count # 允许内部函数修改外部的 failed_count
-                try:
-                    # --- 调用 Django 原生 bulk_create 实现 Upsert ---
-                    model_class.objects.bulk_create(
-                        objs_to_process,
-                        update_conflicts=True,       # 启用 Upsert 模式
-                        # unique_fields=unique_fields, # 指定用于冲突检测的唯一字段
-                        update_fields=update_fields, # 指定冲突时需要更新的字段
-                        batch_size=current_batch_size # 处理当前批次的所有对象
+            success_count += batch_success_count
+            failed_count += batch_failed_count
+
+        return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
+
+    async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
+        """
+        【V6 - 终极健壮版】
+        准备单个模型实例的数据字典。
+        核心功能：处理外键，将 'stock_code' 这样的字段或 {'stock': {'stock_code': ...}} 这样的结构，统一转换为实际的 'stock' 对象。
+
+        (本次修改) 增加了对外键字段本身就是字典（嵌套结构）的处理逻辑，使其更加健壮。
+        """
+        # 遍历所有定义的外键映射, e.g., {'stock': 'stock_code'}
+        for fk_field_name, code_field_name in fk_fields_map.items():
+            code_value = None
+            # --- 新增逻辑：优先处理外键字段本身就是字典的情况 ---
+            # 检查 'stock' 这样的键是否存在，并且其值是否为字典
+            if fk_field_name in prepared_data and isinstance(prepared_data[fk_field_name], dict):
+                # 从嵌套的字典中提取 'stock_code' 的值
+                fk_dict = prepared_data[fk_field_name]
+                code_value = fk_dict.get(code_field_name)
+                # print(f"调试信息: [Prepare Instance] 在嵌套字典 '{fk_field_name}' 中找到外键代码: '{code_value}'")
+            # --- 原有逻辑：处理 'stock_code' 这样的键直接存在于数据顶层的情况 ---
+            elif code_field_name in prepared_data:
+                # 从数据中弹出 'stock_code'
+                code_value = prepared_data.pop(code_field_name)
+                # print(f"调试信息: [Prepare Instance] 在顶层字段 '{code_field_name}' 中找到外键代码: '{code_value}'")
+
+            # 如果通过上述任一方式找到了 code_value，则进行处理
+            if code_value is not None:
+                # 如果传入的 code 本身就是 None，则直接将外键字段设为 None
+                # 这要求模型定义中该外键字段允许 null=True
+                if code_value is None:
+                    prepared_data[fk_field_name] = None
+                    continue
+
+                # 获取外键关联的模型，例如 StockInfo 模型
+                fk_model = model_class._meta.get_field(fk_field_name).related_model
+                
+                # 调用辅助方法获取或创建外键实例
+                fk_instance = await self.get_or_create_fk_instance(fk_model, code_value, prepared_data)
+
+                # --- 关键检查 ---
+                if fk_instance is None:
+                    # 如果返回 None，说明无法找到或创建对应的外键记录，立即抛出异常。
+                    error_msg = (
+                        f"为外键字段 '{fk_field_name}' 准备实例失败！"
+                        f"无法为代码 '{code_value}' 找到或创建对应的 '{fk_model.__name__}' 实例。"
+                        f"请检查数据源或 'get_or_create_fk_instance' 方法的逻辑。"
                     )
-                    # logger.info(f"批次 {i // batch_size + 1} 处理成功")
-                except (IntegrityError, DatabaseError) as e:
-                    # 捕获数据库层面的错误 (例如唯一约束未设置、外键问题等)
-                    logger.error(
-                        f"批次 {i // batch_size + 1} (大小: {len(objs_to_process)}) "
-                        f"使用原生 bulk_create (upsert) 时遇到数据库错误: {str(e)}",
-                        exc_info=True
-                    )
-                    failed_count += len(objs_to_process) # 整个批次标记为失败
-                except Exception as e:
-                    # 捕获其他潜在错误
-                    logger.error(
-                        f"批次 {i // batch_size + 1} (大小: {len(objs_to_process)}) "
-                        f"使用原生 bulk_create (upsert) 时遇到意外错误: {str(e)}",
-                        exc_info=True
-                    )
-                    failed_count += len(objs_to_process) # 整个批次标记为失败
-            # 执行异步包裹的数据库操作
-            await process_batch_sync()
-        # --- 计算最终结果 ---
-        successful_count = total_attempted - failed_count
-        result = {
-            "尝试处理": total_attempted,
-            "失败": failed_count,
-            "创建/更新成功": successful_count, # 原生方法不区分创建和更新
-        }
-        # logger.info(f"完成 {model_class.__name__} 数据批量处理 (使用原生 bulk_create upsert): {result}")
-        return result
+                    raise ValueError(error_msg)
+                
+                # 【关键赋值】将获取或创建的 StockInfo 对象实例赋值给 'stock' 键
+                # 这会覆盖掉原来的嵌套字典（如果存在的话）
+                prepared_data[fk_field_name] = fk_instance
+                # print(f"调试信息: [Prepare Instance] 成功将外键字段 '{fk_field_name}' 设置为 '{fk_model.__name__}' 实例: {fk_instance}")
+
+        # 移除数据字典中所有在模型中不存在的字段
+        model_field_names = {f.name for f in model_class._meta.get_fields()}
+        cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
+
+        return cleaned_data
+
+    async def process_batch_async(self, model_class, batch, unique_fields, update_fields):
+        """
+        【V5 最终修正版】异步执行数据库批处理操作。
+        将为 MySQL 重构的同步方法包装在 sync_to_async 中。
+        """
+        try:
+            # 调用重构后的同步方法，参数保持一致
+            await sync_to_async(self.process_batch_sync_for_mysql)(
+                model_class, batch, unique_fields, update_fields
+            )
+            return len(batch), 0  # 假设整个批次都成功，因为内部有详细处理
+        except Exception as e:
+            logger.error(f"批次处理时遇到意外错误: {e}", exc_info=True)
+            return 0, len(batch)
+        
+    def process_batch_sync_for_mysql(self, model_class, batch, unique_fields, update_fields):
+        """
+        【V5 最终修正版 - 兼容 MySQL】同步的数据库批处理操作。
+        
+        本方法专门为 MySQL 数据库设计，实现了 "Upsert" (更新或插入) 逻辑。
+        由于 MySQL 不支持 Django 的 `update_conflicts` 参数，本方法采用以下步骤：
+        1. 根据唯一键 (unique_fields) 查询数据库，找出批次中已存在的记录。
+        2. 将批次数据分为 `to_create` (待创建) 和 `to_update` (待更新) 两个列表。
+        3. 使用 `bulk_create` 批量插入新记录。
+        4. 使用 `bulk_update` 批量更新已存在的记录。
+        5. 整个过程在数据库事务中执行，保证数据一致性。
+        """
+        if not batch:
+            return
+        
+        model_name = model_class.__name__
+
+        # 假设 unique_fields 列表的第一个字段是用于查询的主唯一键
+        # 注意：Django 的 bulk_update 要求被更新的对象必须已设置主键 (pk)
+        # 我们的逻辑通过查询现有对象来确保这一点。
+        unique_field_name = unique_fields[0]
+        
+        # 1. 提取批次中所有记录的唯一键的值
+        lookup_values = [getattr(obj, unique_field_name) for obj in batch]
+
+        # 2. 一次性查询出数据库中所有已存在的对象
+        existing_objects = model_class.objects.filter(**{f"{unique_field_name}__in": lookup_values})
+        
+        # 3. 创建一个从唯一键值到已存在对象实例的映射，方便快速查找
+        #    这个对象实例是带有主键(pk)的，可以直接用于 bulk_update
+        existing_map = {getattr(obj, unique_field_name): obj for obj in existing_objects}
+
+        instances_to_create = []
+        instances_to_update = []
+
+        # 4. 遍历传入的批次，将数据分配到 to_create 或 to_update 列表
+        for new_instance in batch:
+            lookup_key = getattr(new_instance, unique_field_name)
+            
+            if lookup_key in existing_map:
+                # 如果记录已存在，准备更新
+                existing_instance = existing_map[lookup_key]
+                
+                # 将新数据中的待更新字段值，复制到从数据库查出的实例上
+                for field in update_fields:
+                    setattr(existing_instance, field, getattr(new_instance, field))
+                
+                instances_to_update.append(existing_instance)
+            else:
+                # 如果记录不存在，准备创建
+                instances_to_create.append(new_instance)
+
+        try:
+            # 5. 在一个事务中执行所有数据库操作
+            with transaction.atomic():
+                # 批量创建新记录
+                if instances_to_create:
+                    print(f"调试信息: [BaseDAO-MySQL] 模型 '{model_name}': 准备批量创建 {len(instances_to_create)} 条新记录。")
+                    model_class.objects.bulk_create(instances_to_create, batch_size=500)
+
+                # 批量更新已存在的记录
+                if instances_to_update:
+                    print(f"调试信息: [BaseDAO-MySQL] 模型 '{model_name}': 准备批量更新 {len(instances_to_update)} 条记录。更新字段: {update_fields}")
+                    model_class.objects.bulk_update(instances_to_update, fields=update_fields, batch_size=500)
+            
+            print(f"调试信息: [BaseDAO-MySQL] 成功处理批次: 创建 {len(instances_to_create)}, 更新 {len(instances_to_update)}。")
+
+        except Exception as e:
+            logger.error(f"数据库批处理 (大小: {len(batch)}) 时遇到错误: {e}", exc_info=True)
+            # 重新抛出异常，让上层调用者 (process_batch_async) 能够捕获
+            raise
+
+    @staticmethod
+    @sync_to_async
+    def _get_or_create_fk_sync(fk_model: Type[models.Model], code_value: str) -> models.Model | None:
+        """
+        【新增】同步的辅助方法，用于执行数据库的 get_or_create 操作。
+        这是被 sync_to_async 包装的核心，确保数据库调用在同步线程中执行。
+        """
+        # 关键假设：我们假设您的 StockInfo 模型中，用来唯一标识股票的字段名叫 'stock_code'。
+        # 如果字段名是 'code' 或其他名称，请务必修改下面这行。
+        lookup_field = 'stock_code'
+        
+        try:
+            # 使用 Django ORM 的 get_or_create，它会原子性地尝试获取，如果不存在则创建。
+            # 它返回一个元组 (instance, created_boolean)。
+            instance, created = fk_model.objects.get_or_create(
+                **{lookup_field: code_value},
+                # 如果需要创建，可以提供默认值
+                # defaults={'stock_name': '未知', ...} 
+            )
+            if created:
+                # 如果是新创建的，打印一条日志，方便调试。
+                # print(f"调试信息: [FK-Sync] 在 '{fk_model.__name__}' 表中新创建了记录: {code_value}")
+                pass
+            return instance
+        except Exception as e:
+            # 捕获可能的数据库错误或其他问题，并记录详细日志。
+            logger.error(f"在 _get_or_create_fk_sync 中为代码 '{code_value}' 操作 '{fk_model.__name__}' 时出错: {e}", exc_info=True)
+            return None # 出错时返回 None，上层会捕获并抛出 ValueError
+
+    async def get_or_create_fk_instance(self, fk_model: Type[models.Model], code_value: str, prepared_data: dict) -> models.Model | None:
+        """
+        【V5 最终修正版 - 健壮版】
+        异步获取或创建外键实例。
+        它调用一个被 @sync_to_async 包装的同步方法来安全地与数据库交互。
+        这个版本简化了接口，直接接收 code_value。
+        """
+        # 调用我们上面定义的、被包装的同步方法
+        return await self._get_or_create_fk_sync(fk_model, code_value)
+
 
     # ==================== 更新和删除操作 ====================
 
@@ -893,33 +994,47 @@ class BaseDAO(Generic[T]):
 
     # ==================== 数据解析工具方法 ====================
 
-    def _parse_datetime(self, value: Any, default_format: Optional[str] = None) -> Optional[datetime]:
+    def _parse_datetime(self, value, default_format=None):
         """
         (内部方法/同步) 解析各种格式的日期时间值，返回 timezone-aware 或 naive datetime 对象。
-        Args:
-            value: 要解析的日期时间值 (字符串、时间戳、datetime 对象等)。
-            default_format: (可选) 指定输入字符串的格式 (例如 '%Y-%m-%d %H:%M:%S')。
-        Returns:
-            解析后的 datetime 对象，如果解析失败则返回 None。
         """
         # 获取项目配置的时区，如果未配置则使用 UTC
         tz_name = getattr(settings, 'TIME_ZONE', 'UTC')
         try:
-            tz = pytz.timezone(tz_name)
-        except pytz.UnknownTimeZoneError:
+            tz = ZoneInfo(tz_name)
+        except Exception:
             logger.warning(f"未知的时区名称 '{tz_name}'，将使用 UTC。")
-            tz = pytz.UTC
+            tz = ZoneInfo("UTC")
+
+        def fix_bj_time(dt):
+            """
+            检查并修正为标准北京时间（+08:00），如不是则强制转换。
+            """
+            if isinstance(dt, datetime):
+                offset = dt.tzinfo.utcoffset(dt) if dt.tzinfo else None
+                tzkey = getattr(dt.tzinfo, 'key', None) or str(dt.tzinfo)
+                # 只要不是Asia/Shanghai或offset不是+8小时，都强制修正
+                if offset != timedelta(hours=8) or tzkey != 'Asia/Shanghai':
+                    # print(f"警告：检测到非标准北京时间，已强制修正为+08:00，原tzinfo: {dt.tzinfo}, offset: {offset}, tzkey: {tzkey}")
+                    dt = dt.replace(tzinfo=None)
+                    dt = dt.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+            return dt
 
         if isinstance(value, datetime):
             # 如果已经是 datetime 对象，确保其时区正确
             if settings.USE_TZ:
-                return timezone.make_aware(value, tz) if timezone.is_naive(value) else value.astimezone(tz)
+                dt = timezone.make_aware(value, tz) if timezone.is_naive(value) else value.astimezone(tz)
             else:
-                return timezone.make_naive(value, tz) if timezone.is_aware(value) else value
+                dt = timezone.make_naive(value, tz) if timezone.is_aware(value) else value
+            dt = fix_bj_time(dt)  # 校正时区
+            return dt
+
         if isinstance(value, date) and not isinstance(value, datetime):
-             # 如果是 date 对象，转换为 datetime (午夜)
-             dt = datetime.combine(value, datetime.min.time())
-             return timezone.make_aware(dt, tz) if settings.USE_TZ else dt
+            # 如果是 date 对象，转换为 datetime (午夜)
+            dt = datetime.combine(value, datetime.min.time())
+            dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
+            dt = fix_bj_time(dt)  # 校正时区
+            return dt
 
         if value is None or str(value).strip() in ['', '-', 'N/A', '暂无']:
             return None # 处理空值
@@ -927,20 +1042,23 @@ class BaseDAO(Generic[T]):
         # 尝试解析字符串
         if isinstance(value, (str, bytes)):
             if isinstance(value, bytes):
-                try: value = value.decode('utf-8')
-                except UnicodeDecodeError: return None
+                try:
+                    value = value.decode('utf-8')
+                except UnicodeDecodeError:
+                    return None
             value = value.strip()
-
-            # 修正不规范的时区格式（如 +08:06 -> +08:00）
-            value = re.sub(r'(\+\d{2}):\d{2}$', r'\1:00', value)  # 新增：修正时区格式
+            # 修正所有 +08:xx 或 -09:xx 变成 +08:00 或 -09:00
+            value = re.sub(r'([+-]\d{2}):\d{2}$', r'\1:00', value)
 
             # 尝试 ISO 格式
             try:
                 dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
                 if settings.USE_TZ:
-                    return timezone.make_aware(dt, tz) if timezone.is_naive(dt) else dt.astimezone(tz)
+                    dt = timezone.make_aware(dt, tz) if timezone.is_naive(dt) else dt.astimezone(tz)
                 else:
-                    return timezone.make_naive(dt, tz) if timezone.is_aware(dt) else dt
+                    dt = timezone.make_naive(dt, tz) if timezone.is_aware(dt) else dt
+                dt = fix_bj_time(dt)  # 校正时区
+                return dt
             except ValueError:
                 pass # 继续尝试
 
@@ -948,7 +1066,9 @@ class BaseDAO(Generic[T]):
             if default_format:
                 try:
                     dt = datetime.strptime(value, default_format)
-                    return timezone.make_aware(dt, tz) if settings.USE_TZ else dt
+                    dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
+                    dt = fix_bj_time(dt)  # 校正时区
+                    return dt
                 except ValueError:
                     pass # 继续尝试
 
@@ -961,7 +1081,9 @@ class BaseDAO(Generic[T]):
             for fmt in common_formats:
                 try:
                     dt = datetime.strptime(value, fmt)
-                    return timezone.make_aware(dt, tz) if settings.USE_TZ else dt
+                    dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
+                    dt = fix_bj_time(dt)  # 校正时区
+                    return dt
                 except ValueError:
                     continue
 
@@ -972,6 +1094,7 @@ class BaseDAO(Generic[T]):
             if timestamp > 2000000000: # 大约 2033 年后的秒数，可能是毫秒
                 timestamp /= 1000
             dt = datetime.fromtimestamp(timestamp, tz)
+            dt = fix_bj_time(dt)  # 校正时区
             return dt if settings.USE_TZ else timezone.make_naive(dt, tz)
         except (ValueError, TypeError):
             pass # 不是时间戳，继续尝试其他格式

@@ -15,7 +15,6 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from tasks.stock_analysis_tasks import analyze_batch_stocks
 
-
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
 STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
@@ -204,7 +203,7 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
     if not stock_codes:
         logger.info("收到空的股票代码列表，任务结束")
         return {"processed": 0, "success": 0, "errors": 0}
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(分钟)数据任务...")
+    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(分钟) ({time_level}) 数据任务...")
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
@@ -215,12 +214,10 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')
-def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5', params_file: str = "config/indicator_parameters.json", day_count: int = 0):
+def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5', params_file: str = "config/indicator_parameters.json"):
     """
     调度器任务：保存分钟数据后自动分析
     """
-    if not is_trading_time():
-        return
     logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
     try:
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
@@ -235,12 +232,13 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
         for i in range(0, total_favorite_stocks, batch_size):
             batch = favorite_codes[i:i + batch_size]
             if batch:
+                save_minute_data_realtime_batch.s(batch, time_level).apply_async()
                 # 链式：先保存分钟数据，再分析
-                task_chain = chain(
-                    save_minute_data_realtime_batch.s(batch, time_level),
-                    analyze_batch_stocks.s(params_file, day_count)
-                )
-                task_chain.apply_async()
+                # task_chain = chain(
+                #     save_minute_data_realtime_batch.s(batch, time_level),
+                #     analyze_batch_stocks.s(params_file, -1)
+                # )
+                # task_chain.apply_async()
                 total_dispatched_batches += 1
         favorite_batches_dispatched = total_dispatched_batches
         # 2. 分派非自选股批量任务
@@ -251,7 +249,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
             if batch:
                 task_chain = chain(
                     save_minute_data_realtime_batch.s(batch, time_level),
-                    analyze_batch_stocks.s(params_file, day_count)
+                    analyze_batch_stocks.s(params_file, -1)
                 )
                 task_chain.apply_async()
                 total_dispatched_batches += 1

@@ -1,0 +1,460 @@
+股票列表
+API：https://ig507.com/data/base/gplist?licence=您的licence
+描述：获取基础的股票代码和名称，用于后续接口的参数传入。
+更新频率：每天16点。
+完成更新耗时：约10分钟。
+请求频率限制：1分钟10次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 股票代码，如：000001
+mc string 股票名称，如：平安银行
+jys string 交易所，"sh"表示上证，"sz"表示深证
+示例：
+https://ig507.com/data/base/gplist?licence=您的licence
+
+新股日历
+API：https://ig507.com/data/all/xgrl?licence=您的licence
+描述：新股日历，按申购日期倒序。
+更新频率：每天16点。
+完成更新耗时：约1小时。
+请求频率限制：1分钟10次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+zqdm string 股票代码
+zqjc string 股票简称
+sgdm string 申购代码
+fxsl number 发行总数（股）
+swfxsl number 网上发行（股）
+sgsx number 申购上限（股）
+dgsz number 顶格申购需配市值(元)
+sgrq string 申购日期
+fxjg number 发行价格（元），null为“未知”
+zxj number 最新价（元），null为“未知”
+srspj number 首日收盘价（元），null为“未知”
+zqgbrq string 中签号公布日，null为未知
+zqjkrq string 中签缴款日，null为未知
+ssrq string 上市日期，null为未知
+syl number 发行市盈率，null为“未知”
+hysyl number 行业市盈率
+wszql number 中签率（%），null为“未知”
+yzbsl number 连续一字板数量，null为“未知”
+zf number 涨幅（%），null为“未知”
+yqhl number 每中一签获利（元），null为“未知”
+zyyw string 主营业务
+示例，下方为假数据，请使用licence获取真实数据：
+https://ig507.com/data/all/xgrl?licence=您的licence
+[{"zqdm":"605555","zqjc":"德昌股份","sgdm":"707555","fxsl":50000000,"swfxsl":45000000,"sgsx":20000,"dgsz":200000,"fxjg":32.35,"zxj":27.78,"srspj":41.97,"sgrq":"2021-10-11","zqgbrq":"2021-10-13","zqjkrq":"2021-10-13","ssrq":"2021-10-21","syl":22.99,"hysyl":43.81,"wszql":0.02633618,"yzbsl":1,"zf":36,"yqhl":11600,"zyyw":"小家电及汽车EPS电机的设计、制造与销售业务,包括小家电ODM/OEM产品、家电电器电机及汽车电子助力转向系统(ElectronicPowerSteering,简称EPS)电机"}]
+
+风险警示股票列表
+API：https://ig507.com/data/all/stgplist?licence=您的licence
+描述：获取风险警示（ST）股票的代码和名称。
+更新频率：每天16点。
+完成更新耗时：约10分钟。
+请求频率限制：1分钟10次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 股票代码，如：000001
+mc string 股票名称，如：平安银行
+jys string 交易所，"sh"表示上证，"sz"表示深证
+示例，下方为假数据，请使用licence获取真实数据：
+https://ig507.com/data/all/stgplist?licence=您的licence
+[{"dm":"300268","mc":"ST佳沃","jys":"sz"},{"dm":"603030","mc":"ST全筑","jys":"sh"}]
+
+公司简介
+API：https://ig507.com/data/time/f10/info/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司的简介。包括公司基本信息，概念以及发行信息等。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：{}
+返回字段说明：
+字段 类型 说明
+name string 公司名称
+ename string 公司英文名称
+market string 上市市场
+idea string 概念及板块，多个概念由英文逗号分隔
+ldate string 上市日期，格式yyyy-MM-dd
+sprice string 发行价格（元）
+principal string 主承销商
+rdate string 成立日期
+rprice string 注册资本
+instype string 机构类型
+organ string 组织形式
+
+所属指数
+API：https://ig507.com/data/time/f10/index/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司的所属指数。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}]
+返回字段说明：
+字段 类型 说明
+mc string 指数名称
+dm string 指数代码
+ind string 进入日期yyyy-MM-dd
+outd string 退出日期yyyy-MM-dd
+示例：
+https://ig507.com/data/time/f10/index/000001?licence=您的licence
+[{"mc":"金融业","dm":"825500","ind":"","outd":""},{"mc":"中信大盘","dm":"816100","ind":"","outd":""}]
+
+近一年各季度利润
+API：https://ig507.com/data/time/f10/pf/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司近一年各个季度的利润。按截止日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}]
+返回字段说明：
+字段 类型 说明
+date string 截止日期yyyy-MM-dd
+income string 营业收入（万元）
+expend string 营业支出（万元）
+profit string 营业利润（万元）
+totalp string 利润总额（万元）
+reprofit string 净利润（万元）
+basege string 基本每股收益(元/股)
+ettege string 稀释每股收益(元/股)
+otherp string 其他综合收益（万元）
+totalcp string 综合收益总额（万元）
+示例：
+https://ig507.com/data/time/f10/pf/000001?licence=您的licence
+[{"date":"2024-12-31","income":"14,669,500.00","expend":"4,206,100.00","profit":"5,520,600.00","totalp":"5,473,800.00","reprofit":"4,450,800.00","basege":"2.1500","ettege":"2.1500","otherp":"-37,400.00","totalcp":"4,413,400.00"}]
+
+近一年各季度现金流
+API：https://ig507.com/data/time/f10/cf/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司近一年各个季度的现金流。按截止日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}]
+返回字段说明：
+字段 类型 说明
+date string 截止日期yyyy-MM-dd
+jyin string 经营活动现金流入小计（万元）
+jyout string 经营活动现金流出小计（万元）
+jyfinal string 经营活动产生的现金流量净额（万元）
+tzin string 投资活动现金流入小计（万元）
+tzout string 投资活动现金流出小计（万元）
+tzfinal string 投资活动产生的现金流量净额（万元）
+czin string 筹资活动现金流入小计（万元）
+czout string 筹资活动现金流出小计（万元）
+czfinal string 筹资活动产生的现金流量净额（万元）
+hl string 汇率变动对现金及现金等价物的影响（万元）
+cashinc string 现金及现金等价物净增加额（万元）
+cashs string 期初现金及现金等价物余额（万元）
+cashe string 期末现金及现金等价物余额（万元）
+示例：
+https://ig507.com/data/time/f10/cf/000001?licence=您的licence
+[{"date":"2024-12-31","jyin":"53,080,700.00","jyout":"46,747,100.00","jyfinal":"6,333,600.00","tzin":"64,687,700.00","tzout":"67,873,600.00","tzfinal":"-3,185,900.00","czin":"73,399,700.00","czout":"80,793,000.00","czfinal":"-7,393,300.00","hl":"118,300.00","cashinc":"-4,127,300.00","cashs":"29,821,900.00","cashe":"25,694,600.00"}]
+
+近年业绩预告
+API：https://ig507.com/data/time/f10/ep/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司近年来的业绩预告。按公告日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}]
+返回字段说明：
+字段 类型 说明
+pdate string 公告日期yyyy-MM-dd
+rdate string 报告期yyyy-MM-dd
+type string 类型
+abs string 业绩预告摘要
+old string 上年同期每股收益(元)
+示例：
+https://ig507.com/data/time/f10/ep/000001?licence=您的licence
+[{"pdate":"2023-01-17","rdate":"2022-12-31","type":"预升","abs":"预计2022年1-12月归属于上市公司股东的净利润为：45516百万，与上年同期相比变动幅度：25.3%。","old":"1.7300"}]
+
+财务指标
+API：https://ig507.com/data/time/f10/fi/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司近四个季度的主要财务指标。按报告日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}]
+返回字段说明：
+字段 类型 说明
+date string 报告日期yyyy-MM-dd
+tbmg string 摊薄每股收益(元)d
+jqmg string 加权每股收益(元)型
+mgsy string 每股收益_调整后(元)
+kfmg string 扣除非经常性损益后的每股收益(元)
+mgjz string 每股净资产_调整前(元)
+mgjzad string 每股净资产_调整后(元)
+mgjy string 每股经营性现金流(元)
+mggjj string 每股资本公积金(元)
+mgwly string 每股未分配利润(元)
+zclr string 总资产利润率(%)
+zylr string 主营业务利润率(%)
+zzlr string 总资产净利润率(%)
+cblr string 成本费用利润率(%)
+yylr string 营业利润率(%)
+zycb string 主营业务成本率(%)
+xsjl string 销售净利率(%)
+gbbc string 股本报酬率(%)
+jzbc string 净资产报酬率(%)
+zcbc string 资产报酬率(%)
+xsml string 销售毛利率(%)
+xxbz string 三项费用比重
+fzy string 非主营比重
+zybz string 主营利润比重
+gxff string 股息发放率(%)
+tzsy string 投资收益率(%)
+zyyw string 主营业务利润(元)
+jzsy string 净资产收益率(%)
+jqjz string 加权净资产收益率(%)
+kflr string 扣除非经常性损益后的净利润(元)
+zysr string 主营业务收入增长率(%)
+jlzz string 净利润增长率(%)
+jzzz string 净资产增长率(%)
+zzzz string 总资产增长率(%)
+yszz string 应收账款周转率(次)
+yszzt string 应收账款周转天数(天)
+chzz string 存货周转天数(天)
+chzzl string 存货周转率(次)
+gzzz string 固定资产周转率(次)
+zzzzl string 总资产周转率(次)
+zzzzt string 总资产周转天数(天)
+ldzz string 流动资产周转率(次)
+ldzzt string 流动资产周转天数(天)
+gdzz string 股东权益周转率(次)
+ldbl string 流动比率
+sdbl string 速动比率
+xjbl string 现金比率(%)
+lxzf string 利息支付倍数
+zjbl string 长期债务与营运资金比率(%)
+gdqy string 股东权益比率(%)
+cqfz string 长期负债比率(%)
+gdgd string 股东权益与固定资产比率(%)
+fzqy string 负债与所有者权益比率(%)
+zczjbl string 长期资产与长期资金比率(%)
+zblv string 资本化比率(%)
+gdzcjz string 固定资产净值率(%)
+zbgdh string 资本固定化比率(%)
+cqbl string 产权比率(%)
+qxjzb string 清算价值比率(%)
+gdzcbz string 固定资产比重(%)
+zcfzl string 资产负债率(%)
+zzc string 总资产(元)
+jyxj string 经营现金净流量对销售收入比率(%)
+zcjyxj string 资产的经营现金流量回报率(%)
+jylrb string 经营现金净流量与净利润的比率(%)
+jyfzl string 经营现金净流量对负债比率(%)
+xjlbl string 现金流量比率(%)
+dqgptz string 短期股票投资(元)
+dqzctz string 短期债券投资(元)
+dqjytz string 短期其它经营性投资(元)
+qcgptz string 长期股票投资(元)
+cqzqtz string 长期债券投资(元)
+cqjyxtz string 长期其它经营性投资(元)
+yszk1 string 1年以内应收帐款(元)
+yszk12 string 1-2年以内应收帐款(元)
+yszk23 string 2-3年以内应收帐款(元)
+yszk3 string 3年以内应收帐款(元)
+yfhk1 string 1年以内预付货款(元)
+yfhk12 string 1-2年以内预付货款(元)
+yfhk23 string 2-3年以内预付货款(元)
+yfhk3 string 3年以内预付货款(元)
+ysk1 string 1年以内其它应收款(元)
+ysk12 string 1-2年以内其它应收款(元)
+ysk23 string 2-3年以内其它应收款(元)
+ysk3 string 3年以内其它应收款(元)
+示例：
+https://ig507.com/data/time/f10/fi/000001?licence=您的licence
+[{"date":"2024-12-31","tbmg":"2.2935","jqmg":"2.15","mgsy":"2.15","kfmg":"2.16","mgjz":"25.4995","mgjzad":"21.89","mgjy":"3.2637","mggjj":"4.1592","mgwly":"12.5531","zclr":"0.7715","zylr":"--","zzlr":"0.7838","cblr":"130.1396","yylr":"--","zycb":"--","xsjl":"--","gbbc":"289.6797","jzbc":"11.3602","zcbc":"0.9744","xsml":"--","xxbz":"--","fzy":"44.0937","zybz":"-2.702","gxff":"--","tzsy":"--","zyyw":"-1479000000","jzsy":"8.99","jqjz":"10.08","kflr":"44838000000","zysr":"--","jlzz":"-4.1912","jzzz":"4.7666","zzzz":"3.2603","yszz":"--","yszzt":"--","chzz":"--","chzzl":"--","gzzz":"--","zzzzl":"--","zzzzt":"--","ldzz":"--","ldzzt":"--","gdzz":"--","ldbl":"--","sdbl":"--","xjbl":"--","lxzf":"--","zjbl":"--","gdqy":"8.5772","cqfz":"--","gdgd":"5731.318","fzqy":"1065.8812","zczjbl":"--","zblv":"--","gdzcjz":"42.4463","zbgdh":"1165.8812","cqbl":"0","qxjzb":"--","gdzcbz":"0.1497","zcfzl":"91.4228","zzc":"5769270000000","jyxj":"--","zcjyxj":"0.011","jylrb":"1.423","jyfzl":"0.012","xjlbl":"--","dqgptz":null,"dqzctz":"--","dqjytz":"--","qcgptz":null,"cqzqtz":"785075000000","cqjyxtz":"--","yszk1":"--","yszk12":"--","yszk23":"--","yszk3":"--","yfhk1":"--","yfhk12":"--","yfhk23":"--","yfhk3":"--","ysk1":"--","ysk12":"--","ysk23":"--","ysk3":"--"}]
+
+十大股东
+API：https://ig507.com/data/time/f10/zygd/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司的十大股东数据。按截止日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+jzrq string 截止日期 yyyy-MM-dd
+ggrq string 公告日期 yyyy-MM-dd
+gdsm string 股东说明
+gdzs number 股东总数
+pjcg number 平均持股(单位：股，按总股本计算)
+sdgd
+array<ZygdSdgd>
+十大股东，其中ZygdSdgd对象见下方说明
+ZygdSdgd对象说明：
+字段 类型 说明
+pm number 排名（1-10）
+gdmc string 股东名称
+cgsl number 持股数量(股)
+cgbl number 持股比例(%)
+gbxz string 股本性质
+示例：
+https://ig507.com/data/time/f10/zygd/000001?licence=您的licence
+[{"jzrq":"2024-12-31","ggrq":"2025-03-15","gdsm":"","gdzs":486258,"pjcg":39913,"sdgd":[{"pm":1,"gdmc":"中国平安保险(集团)股份有限公司－集团本级－自有资金","cgsl":9618540236,"cgbl":49.56,"gbxz":"流通A股"},{"pm":2,"gdmc":"中国平安人寿保险股份有限公司－自有资金","cgsl":1186100488,"cgbl":6.11,"gbxz":"流通A股"},{"pm":3,"gdmc":"香港中央结算有限公司","cgsl":746881723,"cgbl":3.85,"gbxz":"流通A股"},{"pm":4,"gdmc":"中国平安人寿保险股份有限公司－传统－普通保险产品","cgsl":440478714,"cgbl":2.27,"gbxz":"流通A股"},{"pm":5,"gdmc":"中国证券金融股份有限公司","cgsl":429232688,"cgbl":2.21,"gbxz":"流通A股"},{"pm":6,"gdmc":"中国工商银行股份有限公司－华泰柏瑞沪深300交易型开放式指数证券投资基金","cgsl":167517503,"cgbl":0.86,"gbxz":"流通A股"},{"pm":7,"gdmc":"中国建设银行股份有限公司－易方达沪深300交易型开放式指数发起式证券投资基金","cgsl":115550844,"cgbl":0.6,"gbxz":"流通A股"},{"pm":8,"gdmc":"中国工商银行股份有限公司－华夏沪深300交易型开放式指数证券投资基金","cgsl":76811077,"cgbl":0.4,"gbxz":"流通A股"},{"pm":9,"gdmc":"中国银行股份有限公司－嘉实沪深300交易型开放式指数证券投资基金","cgsl":72772262,"cgbl":0.38,"gbxz":"流通A股"},{"pm":10,"gdmc":"深圳中电投资有限公司","cgsl":62523366,"cgbl":0.32,"gbxz":"流通A股"}]}]
+
+十大流通股东
+API：https://ig507.com/data/time/f10/zygdlt/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司的十大流通股东数据。按公告日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+jzrq string 截止日期 yyyy-MM-dd
+ggrq string 公告日期 yyyy-MM-dd
+sdgd
+array<ZygdSdgd>
+十大流通股东，其中ZygdSdgd对象见下方说明
+ZygdSdgd对象说明：
+字段 类型 说明
+pm number 排名（1-10）
+gdmc string 股东名称
+cgsl number 持股数量(股)
+cgbl number 持股比例(%)
+gbxz string 股本性质
+示例：
+https://ig507.com/data/time/f10/zygdlt/000001?licence=您的licence
+[{"jzrq":"2024-12-31","ggrq":"2025-03-15","sdgd":[{"pm":1,"gdmc":"中国平安保险(集团)股份有限公司-集团本级-自有资金","cgsl":9618540236,"cgbl":49.566,"gbxz":"境内法人股"},{"pm":2,"gdmc":"中国平安人寿保险股份有限公司-自有资金","cgsl":1186100488,"cgbl":6.112,"gbxz":"境内法人股"},{"pm":3,"gdmc":"香港中央结算有限公司","cgsl":746881723,"cgbl":3.849,"gbxz":"境外法人股"},{"pm":4,"gdmc":"中国平安人寿保险股份有限公司-传统-普通保险产品","cgsl":440478714,"cgbl":2.27,"gbxz":"境内法人股"},{"pm":5,"gdmc":"中国证券金融股份有限公司","cgsl":429232688,"cgbl":2.212,"gbxz":"国有股"},{"pm":6,"gdmc":"中国工商银行股份有限公司-华泰柏瑞沪深300交易型开放式指数证券投资基金","cgsl":167517503,"cgbl":0.863,"gbxz":"境内法人股"},{"pm":7,"gdmc":"中国建设银行股份有限公司-易方达沪深300交易型开放式指数发起式证券投资基金","cgsl":115550844,"cgbl":0.595,"gbxz":"境内法人股"},{"pm":8,"gdmc":"中国工商银行股份有限公司-华夏沪深300交易型开放式指数证券投资基金","cgsl":76811077,"cgbl":0.396,"gbxz":"境内法人股"},{"pm":9,"gdmc":"中国银行股份有限公司-嘉实沪深300交易型开放式指数证券投资基金","cgsl":72772262,"cgbl":0.375,"gbxz":"境内法人股"},{"pm":10,"gdmc":"深圳中电投资有限公司","cgsl":62523366,"cgbl":0.322,"gbxz":"国有股"}]}]
+
+股东变化趋势
+API：https://ig507.com/data/time/f10/gdbh/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取上市公司的股东变化趋势数据。按截止日期倒序。
+更新频率：每天15:30（更新完成约12小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+jzrq string 截止日期 yyyy-MM-dd
+gdhs string 股东户数
+bh string 比上期变化情况
+示例：
+https://ig507.com/data/time/f10/gdbh/000001?licence=您的licence
+[{"jzrq":"2025-02-28","gdhs":"479969","bh":"减少6289"}]
+
+基金持股
+API：https://ig507.com/data/time/f10/jjcg/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码获取该股票最近500家左右的基金持股情况。按截止日期倒序。
+更新频率：每周六9点更新（耗时约9小时）。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+jzrq string 截止日期 yyyy-MM-dd
+jjmc string 基金名称
+jjdm string 基金代码
+ccsl number 持仓数量(股)
+ltbl number 占流通股比例(%)
+cgsz number 持股市值（元）
+jzbl number 占净值比例（%）
+示例：
+https://ig507.com/data/time/f10/jjcg/000001?licence=您的licence
+[{"jzrq":"2024-12-31","jjmc":"易方达上证50增强A","jjdm":"110003","ccsl":50383468,"ltbl":0.2596,"cgsz":589487000,"jzbl":2.95}]
+
+所属板块
+API：https://ig507.com/data/time/f10/ssbk/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码作为参数，获取该股票的所属板块。
+更新频率：每天20:30更新。
+完成更新耗时：约30分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+keyword string 关键字
+content string 内容，多个板块用空格隔开
+示例：
+https://ig507.com/data/time/f10/ssbk/000001?licence=您的licence
+[{"keyword":"所属板块","content":"银行 广东板块 破净股 标准普尔 富时罗素 深证100R MSCI中国 深股通 证金持股 融资融券 深成500 机构重仓 HS300_ 跨境支付 区块链 互联金融 深圳特区"}]
+
+经营范围
+API：https://ig507.com/data/time/f10/jyfw/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码作为参数，获取该股票的经营范围。
+更新频率：每天20:30更新。
+完成更新耗时：约30分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+keyword string 关键字
+content string 内容
+示例：
+https://ig507.com/data/time/f10/jyfw/000001?licence=您的licence
+[{"keyword":"经营范围","content":"办理人民币存、贷、结算、汇兑业务;人民币票据承兑和贴现;各项信托业务;经监管机构批准发行或买卖人民币有价证券;发行金融债券;代理发行、代理兑付、承销政府债券;买卖政府债券;外汇存款、汇款;境内境外借款;从事同业拆借;外汇借款;外汇担保;在境内境外发行或代理发行外币有价证券;买卖或代客买卖外汇及外币有价证券、自营外汇买卖;贸易、非贸易结算;办理国内结算;国际结算;外币票据的承兑和贴现;外汇贷款;资信调查、咨询、见证业务;保险兼业代理业务;代理收付款项;黄金进口业务;提供信用证服务及担保;提供保管箱服务;外币兑换;结汇、售汇;信用卡业务;经有关监管机构批准或允许的其他业务。"}]
+
+主营业务
+API：https://ig507.com/data/time/f10/zyyw/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码作为参数，获取该股票的主营业务。
+更新频率：每天20:30更新。
+完成更新耗时：约30分钟。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{}...]
+返回字段说明：
+字段 类型 说明
+keyword string 关键字
+content string 内容
+示例：
+https://ig507.com/data/time/f10/zyyw/000001?licence=您的licence
+[{"keyword":"商业银行","content":"本行是中国内地首家公开上市的全国性股份制商业银行。经过多年发展,本行已逐渐成长为一家金融服务种类齐全、机构网点覆盖面广、经营管理成熟稳健、品牌影响市场领先的股份制商业银行。同时,本行着力打造独特竞争力,在零售转型、科技引领、综合金融三大领域形成了鲜明的经营特色。"}]
+
+指数、行业、概念树
+API：https://ig507.com/data/base/it?licence=您的licence
+描述：获取指数、行业、概念（包括基金，债券，美股，外汇，期货，黄金等的代码），其中isleaf为1（叶子节点）的记录的code（代码）可以作为下方接口的参数传入，从而得到某个指数、行业、概念下的相关股票。
+更新频率：每周六凌晨3点。
+完成更新耗时：约1分钟。
+请求频率限制：1分钟10次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+name string 名称
+code string 代码
+type1 number 一级分类（0:A股,1:创业板,2:科创板,3:基金,4:香港股市,5:债券,6:美国股市,7:外汇,8:期货,9:黄金,10:英国股市）
+type2 number 二级分类（0:A股-申万行业,1:A股-申万二级,2:A股-热门概念,3:A股-概念板块,4:A股-地域板块,5:A股-证监会行业,6:A股-分类,7:A股-指数成分,8:A股-风险警示,9:A股-大盘指数,10:A股-次新股,11:A股-沪港通,12:A股-深港通,13:基金-封闭式基金,14:基金-开放式基金,15:基金-货币型基金,16:基金-ETF基金净值,17:基金-ETF基金行情,18:基金-LOF基金行情,21:基金-科创板基金,22:香港股市-恒生行业,23:香港股市-全部港股,24:香港股市-热门港股,25:香港股市-蓝筹股,26:香港股市-红筹股,27:香港股市-国企股,28:香港股市-创业板,29:香港股市-指数,30:香港股市-A+H,31:香港股市-窝轮,32:香港股市-ADR,33:香港股市-沪港通,34:香港股市-深港通,35:香港股市-中华系列指数,36:债券-沪深债券,37:债券-深市债券,38:债券-沪市债券,39:债券-沪深可转债,40:美国股市-中国概念股,41:美国股市-科技类,42:美国股市-金融类,43:美国股市-制造零售类,44:美国股市-汽车能源类,45:美国股市-媒体类,46:美国股市-医药食品类,48:外汇-基本汇率,49:外汇-热门汇率,50:外汇-所有汇率,51:外汇-交叉盘汇率,52:外汇-美元相关汇率,53:外汇-人民币相关汇率,54:期货-全球期货,55:期货-中国金融期货交易所,56:期货-上海期货交易所,57:期货-大连商品交易所,58:期货-郑州商品交易所,59:黄金-黄金现货,60:黄金-黄金期货
+level number 层级，从0开始，根节点为0，二级节点为1，以此类推
+pcode string 父节点代码
+pname string 父节点名称
+isleaf number 是否为叶子节点，0：否，1：是
+示例：
+https://ig507.com/data/base/it?licence=您的licence
+[{"name":"A股-申万行业-煤炭","code":"sw_mt","type1":0,"type2":0,"level":2,"pcode":"swhy","pname":"A股-申万行业","isleaf":1}]
+
+根据指数、行业、概念找相关股票
+API：https://ig507.com/data/time/indextree/指数、行业、概念代码?licence=您的licence
+描述：根据“指数、行业、概念树”接口得到的代码作为参数，得到相关的股票。
+更新频率：每周六凌晨3点。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 代码（根据接口参数可能是A股股票代码，也可能是其他指数、行业、概念的股票代码）
+mc string 名称（根据接口参数可能是A股股票代码，也可能是其他指数、行业、概念的股票名称）
+jys string 交易所，"sh"表示上证，"sz"表示深证（如果返回的是A股的股票，那么有值，否则是null）
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/indextree/sw2_110600?licence=您的licence
+[{"dm":"300021","mc":"大禹节水","jys":"sz"}]
+
+根据股票找相关指数、行业、概念
+API：https://ig507.com/data/time/iii/股票代码?licence=您的licence
+描述：根据《股票列表》得到的股票代码作为参数，得到相关的指数、行业、概念。
+更新频率：每周六凌晨3点。
+完成更新耗时：约8小时。
+请求频率限制：基础版2秒1次，专业版上限1秒50次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+code string 指数、行业、概念代码，如：sw2_650300
+name string 指数、行业、概念名称，如：沪深股市-申万二级-国防军工-地面兵装
+示例（下方为假数据，请使用licence获取真实数据）：
+https://ig507.com/data/time/iii/688788?licence=您的licence
+[{"code":"sw2_650300","name":"A股-申万二级-国防军工-地面兵装"},{"code":"chgn_700787","name":"A股-热门概念-无人机"},{"code":"chgn_700016","name":"A股-热门概念-小盘"},{"code":"chgn_700095","name":"A股-热门概念-融资融券"},{"code":"chgn_700004","name":"A股-热门概念-次新股"},{"code":"chgn_700071","name":"A股-热门概念-航天军工"},{"code":"sw2_650300","name":"A股-申万二级-国防军工-地面兵装"},{"code":"chgn_700787","name":"A股-热门概念-无人机"}]
+
+融资融券标的股
+API：https://ig507.com/data/base/rzrqGpList ?licence=您的licence
+描述：沪深两市融资融券标的股，得到的结果用于下方接口参数传入。
+更新频率：每天上午8:50。
+完成更新耗时：约20分钟。
+请求频率限制：1分钟10次。
+返回格式：[{},...]
+返回字段说明：
+字段 类型 说明
+dm string 股票代码，如：000001
+mc string 股票名称，如：平安银行
+jys string 交易所，"sh"表示上证，"sz"表示深证
+示例：
+https://ig507.com/data/base/rzrqGpList?licence=您的licence
+[{"dm":"300690","mc":"双一科技","jys":"sz"}]

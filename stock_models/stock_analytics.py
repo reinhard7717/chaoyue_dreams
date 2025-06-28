@@ -1,6 +1,14 @@
 # stock_models/stock_analytics.py
+import json
+from decimal import Decimal
 from django.db import models
 from .stock_basic import StockInfo
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
 
 class StockScoreAnalysis(models.Model):
     """
@@ -69,7 +77,7 @@ class StockScoreAnalysis(models.Model):
     div_rsi_regular_bullish = models.SmallIntegerField(null=True, blank=True, verbose_name='RSI常规看涨背离')
     div_macd_hist_hidden_bearish = models.SmallIntegerField(null=True, blank=True, verbose_name='MACD隐藏看跌背离')
 
-    # === TrendFollowingStrategy (趋势跟踪策略) 相关中间结果 ===
+    # === TrendFollowStrategy (趋势跟踪策略) 相关中间结果 ===
     alignment_signal = models.SmallIntegerField(
         null=True, blank=True,
         verbose_name='EMA排列信号'      # 基于评分EMA计算的排列信号 (-3 到 +3)
@@ -414,14 +422,14 @@ class StockAnalysisResultTrendFollowing(models.Model):
         help_text="分析时的收盘价格"
     )
     # --- 放量起涨 识别信号 ---
-    volume_breakout_signal = models.BooleanField(
-        default=False,
+    volume_breakout_signal = models.FloatField(
+        null=True, blank=True,
         verbose_name="处于底部区间",
         help_text="当前是否处于底部区间"
     )
     # --- 底部放量起涨 识别信号 ---
-    bottom_volume_breakout_signal = models.BooleanField(
-        default=False,
+    bottom_volume_breakout_signal = models.FloatField(
+        null=True, blank=True,
         verbose_name="底部起涨信号",
         help_text="是否出现底部起涨信号"
     )
@@ -530,16 +538,238 @@ class StockAnalysisResultTrendFollowing(models.Model):
         stock_info = self.stock
         return f"{stock_info.stock_code}-{stock_info.stock_name} - {self.timestamp.strftime('%Y-%m-%d %H:%M')} 趋势分析"
 
+class MonthlyTrendStrategyReport(models.Model):
+    """
+    【最终版】月线趋势跟踪策略信号与分析报告合并模型
+    """
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='monthly_trend_strategy_report')
+    trade_time = models.DateField(db_index=True, verbose_name="信号日期")
 
+    # --- 信号相关字段 (全面升级) ---
+    # 观察信号
+    signal_breakout_trigger = models.BooleanField(default=False, verbose_name="突破触发信号")
+    
+    # 【修改】买入信号细分
+    signal_pullback_entry = models.BooleanField(default=False, verbose_name="回踩买入信号") # 原 signal_buy_entry，现明确为回踩
+    signal_continuation_entry = models.BooleanField(default=False, verbose_name="强势追击信号") # params记录不回踩的追击买入
 
+    # 风险/过滤信号
+    signal_ma_rejection = models.IntegerField(default=0, verbose_name="均线拒绝信号")
+    signal_box_rejection = models.IntegerField(default=0, verbose_name="箱体拒绝信号")
+    
+    # 止盈信号
+    signal_take_profit = models.IntegerField(default=0, verbose_name="止盈信号")
 
+    # --- 行情与分析快照 ---
+    open_D = models.FloatField(verbose_name="开盘价", null=True, blank=True)
+    high_D = models.FloatField(verbose_name="最高价", null=True, blank=True)
+    low_D = models.FloatField(verbose_name="最低价", null=True, blank=True)
+    close_D = models.FloatField(verbose_name="收盘价", null=True, blank=True)
+    EMA_5_D = models.FloatField(verbose_name="5日EMA(追击支撑)", null=True, blank=True) # params强势追击的生命线
+    EMA_10_D = models.FloatField(verbose_name="10日EMA(回踩支撑)", null=True, blank=True)
+    EMA_20_D = models.FloatField(verbose_name="20日EMA", null=True, blank=True)
+    volume_D = models.FloatField(verbose_name="成交量", null=True, blank=True)
+    VOL_MA_20_D = models.FloatField(verbose_name="20日成交量均线", null=True, blank=True)
+    
+    # --- 分析与评分 ---
+    washout_score = models.IntegerField(default=0, verbose_name="洗盘评分")
+    buy_score = models.IntegerField(verbose_name="买入评分")
+    analysis_text = models.TextField(verbose_name="分析报告")
+    signal_type = models.CharField(max_length=32, verbose_name="信号类型")
 
+    class Meta:
+        db_table = 'monthly_trend_strategy_report'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+        verbose_name = "月线趋势信号与报告"
+        verbose_name_plural = "月线趋势信号与报告"
+        indexes = [
+            # 核心索引，用于高效地按股票查找最新日期
+            models.Index(fields=['stock', '-trade_time'], name='stock_trade_time_idx'),
+            # 排序优化索引
+            models.Index(fields=['-buy_score', '-trade_time'], name='buy_score_trade_time_idx'),
+        ]
 
+    def __str__(self):
+        return f"{self.stock.code} {self.trade_time} {self.signal_type} {self.buy_score}"
 
+class TrendFollowStrategyReport(models.Model):
+    """
+    趋势跟踪策略每日分析报告模型。
+    
+    该模型用于存储 TrendFollowStrategy 对每只股票在每个交易日的详细分析结果。
+    为了优化存储，通常只保存那些产生了明确买入或卖出信号的记录。
+    """
+    id = models.BigAutoField(primary_key=True, help_text="报告ID")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='trend_follow_reports', help_text="关联的股票")
+    trade_time = models.DateTimeField(help_text="交易时间（通常为日线收盘时间）")
+    close_price = models.FloatField(null=True, blank=True, help_text="报告生成当日的收盘价")
+    
+    # --- 核心信号字段 ---
+    entry_signal = models.BooleanField(default=False, help_text="最终是否产生买入信号")
+    exit_signal_code = models.IntegerField(default=0, help_text="最终的卖出信号代码 (0:无, >0:对应不同卖出规则)")
+    entry_score = models.FloatField(default=0.0, help_text="当日的综合买入得分")
+    
+    # --- 趋势背景字段 ---
+    is_long_term_bullish = models.BooleanField(default=False, help_text="是否处于长期牛市背景")
+    is_mid_term_bullish = models.BooleanField(default=False, help_text="是否处于中期牛市背景（均线+动态箱体）")
+    
+    # --- 细节追溯字段 ---
+    triggered_playbooks = models.JSONField(default=dict, help_text="触发的具体买入剧本列表 (JSON格式)")
 
+    # 为盘中监控添加新字段
+    is_pullback_setup = models.BooleanField(default=False, db_index=True, verbose_name="是否回撤预备")
+    pullback_target_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="回撤目标价"
+    )
+    
+    # --- 元数据 ---
+    created_at = models.DateTimeField(auto_now_add=True, help_text="记录创建时间")
+    updated_at = models.DateTimeField(auto_now=True, help_text="记录更新时间")
 
+    class Meta:
+        # 确保每只股票在同一时间只有一条记录，这是批量更新/插入的关键
+        db_table = "trend_follow_strategy_report"
+        unique_together = [['stock', 'trade_time']]
+        verbose_name = "趋势跟踪策略报告"
+        verbose_name_plural = verbose_name
+        ordering = ['-trade_time', 'stock']
 
+    def __str__(self):
+        signal_str = "买入" if self.entry_signal else f"卖出({self.exit_signal_code})" if self.exit_signal_code > 0 else "无信号"
+        return f"{self.stock.stock_code} 在 {self.trade_time.strftime('%Y-%m-%d')} - {signal_str} (得分: {self.entry_score})"
 
+class TrendFollowStrategySignalLog(models.Model):
+    """
+    【V3.2 优化版】策略信号日志模型。
+    
+    - (优化) 使用 DecimalField 替代 FloatField 存储价格，保证金融数据精度。
+    - (优化) 使用 UniqueConstraint 替代旧的 unique_together，符合现代Django规范。
+    - (优化) 移除了冗余的数据库索引，提升写入性能。
+    - 整合了所有策略 (`monthly_trend_follow`, `trend_following`) 
+      产生的所有可查询字段，形成统一的数据存储标准。
+    """
+    id = models.BigAutoField(primary_key=True, help_text="信号ID")
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='trend_follow_strategy_signal_log', help_text="关联的股票")
+    
+    # --- 核心信号与上下文信息 ---
+    trade_time = models.DateTimeField(db_index=True, help_text="信号生成时的精确时间戳 (K线收盘时间)")
+    timeframe = models.CharField(max_length=10, db_index=True, help_text="信号所在的时间周期 (例如 'D', '60', '30')")
+    strategy_name = models.CharField(max_length=100, db_index=True, help_text="产生信号的策略名称")
+    
+    # --- 信号详情 (通用) ---
+    # ▼▼▼ 修改行 ▼▼▼
+    # 解释: 使用DecimalField替代FloatField以保证金融数据计算的精确性。
+    close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
+    # ▲▲▲ 修改行 ▲▲▲
+    entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
+    
+    # --- 信号类型 (细分) ---
+    entry_signal = models.BooleanField(default=False, help_text="是否为最终的买入信号 (得分超过阈值)")
+    exit_signal_code = models.IntegerField(default=0, help_text="卖出信号代码 (0:无, 1:压力位, 2:移动止盈, 3:指标)")
+    
+    # --- 【月线策略】核心买入剧本 ---
+    is_pullback_entry = models.BooleanField(default=False, help_text="[月线策略]是否为回踩买入信号")
+    is_continuation_entry = models.BooleanField(default=False, help_text="[月线策略]是否为追击买入信号")
+    is_breakout_trigger = models.BooleanField(default=False, help_text="[月线策略]是否为突破观察信号")
+
+    # --- 【月线策略】核心风险与状态信号 ---
+    rejection_code = models.IntegerField(default=0, help_text="[月线策略]压力位拒绝代码 (0:无, 1:MA, 2:箱体, 3:两者)")
+    washout_score = models.IntegerField(default=0, help_text="[月线策略]洗盘强度得分")
+
+    # --- 【趋势策略】核心状态信号 ---
+    is_long_term_bullish = models.BooleanField(default=False, help_text="[趋势策略]是否处于长期牛市背景")
+    is_mid_term_bullish = models.BooleanField(default=False, help_text="[趋势策略]是否处于中期上升趋势")
+
+    # --- 【趋势策略】核心买入剧本 ---
+    is_pullback_setup = models.BooleanField(default=False, help_text="[趋势策略]是否为回撤预备信号")
+    # ▼▼▼ 修改行 ▼▼▼
+    # 解释: 同样使用DecimalField替代FloatField。
+    pullback_target_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, default=None, help_text="[趋势/月线]回踩买入剧本的目标价格")
+    # ▲▲▲ 修改行 ▲▲▲
+
+    # --- 信号追溯与元数据 ---
+    triggered_playbooks = models.JSONField(default=list, help_text="触发信号的所有原子规则列表 (用于详细分析)", encoder=DecimalEncoder)
+    context_snapshot = models.JSONField(default=dict, help_text="信号生成时的关键指标快照 (用于调试)", encoder=DecimalEncoder)
+    created_at = models.DateTimeField(auto_now_add=True, help_text="记录创建时间")
+
+    class Meta:
+        db_table = "trend_follow_strategy_signal_log"
+        ordering = ['-trade_time', 'stock']
+        
+        # 解释: 整合了索引和唯一约束的定义。
+        indexes = [
+            # 这个索引可以高效地查询特定策略和时间周期下的信号，并按时间排序。
+            models.Index(fields=['strategy_name', 'timeframe', 'trade_time']),
+            # 这个索引可以快速筛选出所有买入信号。
+            models.Index(fields=['entry_signal', 'trade_time']),
+            # 这个索引用于快速筛选符合特定趋势背景的记录。
+            models.Index(fields=['is_long_term_bullish', 'is_mid_term_bullish', 'trade_time']),
+            # 这个索引用于快速查找所有回撤预备信号。
+            models.Index(fields=['is_pullback_setup', 'trade_time']),
+        ]
+        constraints = [
+            # 解释: 使用 UniqueConstraint 替代旧的 unique_together，这是Django 5.0的推荐做法。
+            # 这个约束保证了同一股票、同一时间、同一策略和周期的信号只会被记录一次。
+            # 它自动创建的唯一索引 (stock, trade_time, strategy_name, timeframe)
+            # 已经覆盖了原先独立的 (stock, trade_time) 索引的功能，因此独立的索引被移除以避免冗余。
+            models.UniqueConstraint(
+                fields=['stock', 'trade_time', 'strategy_name', 'timeframe'], 
+                name='unique_signal_log_entry'
+            )
+        ]
+        
+        verbose_name = "策略信号日志"
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        signal_type = "买入" if self.entry_signal else f"卖出({self.exit_signal_code})" if self.exit_signal_code > 0 else "观察"
+        return (f"[{self.strategy_name}/{self.timeframe}] {self.stock.stock_code} @ "
+                f"{self.trade_time.strftime('%Y-%m-%d %H:%M')} - {signal_type}")
+
+class TrendFollowStrategyState(models.Model):
+    """
+    【V1.0】策略状态摘要模型
+    
+    设计目的:
+    - 为前端仪表盘提供一个高效、快速的数据源。
+    - 每只股票/每种策略在这里只保留一条记录，存储最新的状态。
+    - 由Celery任务在每次信号计算后自动更新，避免了前端的复杂实时计算。
+    """
+    id = models.BigAutoField(primary_key=True, help_text="状态ID")
+    
+    # 核心关联
+    stock = models.ForeignKey(StockInfo, to_field='stock_code', db_column='stock_code',on_delete=models.CASCADE, related_name='strategy_states', help_text="关联的股票")
+    strategy_name = models.CharField(max_length=100, db_index=True, help_text="策略名称")
+    time_level = models.CharField(max_length=10, db_index=True, help_text="策略运行的时间框架 (例如 'D', '60', '30')")
+
+    # 最新状态摘要
+    latest_score = models.FloatField(default=0.0, help_text="最新的策略综合得分")
+    latest_trade_time = models.DateTimeField(null=True, blank=True, help_text="最新信号的K线时间")
+    last_buy_time = models.DateTimeField(null=True, blank=True, help_text="最近一次有效买入信号的时间")
+    last_sell_time = models.DateTimeField(null=True, blank=True, help_text="最近一次有效卖出信号的时间")
+    
+    # 激活的剧本详情
+    active_playbooks = models.JSONField(default=list, help_text="最新信号触发的剧本/规则列表")
+
+    # 元数据
+    updated_at = models.DateTimeField(auto_now=True, help_text="状态更新时间")
+
+    class Meta:
+        db_table = "trend_follow_strategy_state_summary"
+        ordering = ['-latest_score', 'stock']
+        # 确保每只股票对于每种策略只有一条状态记录
+        constraints = [
+            models.UniqueConstraint(
+                fields=['stock', 'strategy_name', 'time_level'], 
+                name='unique_stock_strategy_state'
+            )
+        ]
+        verbose_name = "策略状态摘要"
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return f"[{self.strategy_name}] {self.stock.stock_code} - Score: {self.latest_score:.0f}"
 
 
 

@@ -10,7 +10,7 @@ from datetime import timedelta
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-your-secret-key-here'
+SECRET_KEY = '6AEE029A-44A4-3404-A405-FB2C20085521'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 ALLOWED_HOSTS = [
@@ -25,6 +25,13 @@ CSRF_TRUSTED_ORIGINS = [
     "https://chaoyuedreams.top",  # 你的正式域名
     "https://www.chaoyuedreams.top",
 ]
+SECURE_HSTS_SECONDS = 31536000  # 强制HTTPS
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+X_FRAME_OPTIONS = 'DENY'
 
 # --- 开始: 动态获取本机IP并设置Redis主机 ---
 def get_local_ip():
@@ -80,9 +87,9 @@ INSTALLED_APPS = [
     'users',          # 你的用户 app
     'stock_models',   # 你的模型 app
     'dashboard',      # 新创建的主控台 app
-    'api_manager',
     'dao_manager',
     'utils',
+    'api_manager',
     'core',
     'strategies',
     'tasks',  # 添加任务应用
@@ -98,6 +105,7 @@ LOGIN_REDIRECT_URL = '/dashboard/' # 登录后重定向到主控台
 LOGOUT_REDIRECT_URL = '/'
 
 MIDDLEWARE = [
+    'core.middleware.SecurityMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -228,16 +236,6 @@ INDICATOR_PARAMETERS_CONFIG_PATH = str(BASE_DIR / 'config' / 'indicator_paramete
 
 # 默认主键字段类型
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# API配置
-API_BASE_URL = 'http://ig507.com'  # 修改为http方式
-API_LICENCES_IG507 = ['6AEE029A-44A4-3404-A405-FB2C20085521', '03B3418F-04F6-5C44-A700-A245F74B8D77', '6AEE029A-44A4-3404-A405-FB2C20085521', '03B3418F-04F6-5C44-A700-A245F74B8D77']
-API_LICENCES_TUSHARE = '0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c'
-API_REQUEST_TIMEOUT = 10  # 请求超时时间(秒)
-API_RATE_LIMIT = {
-    'default': {'times': 10, 'seconds': 60},  # 默认每分钟10次
-    'professional': {'times': 50, 'seconds': 1},  # 专业版每秒50次
-}
 
 # 日志配置
 LOGGING = {
@@ -426,10 +424,19 @@ INDEX_CACHE_TIMEOUT = {
     'technical_indicators': 300,  # 技术指标缓存5分钟
 }
 
+API_LICENCES_TUSHARE = '0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c'
+
 # Celery基础配置
 # 使用动态获取的 Redis 主机地址和密码变量
 CELERY_BROKER_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/1'  # 使用Redis作为消息代理
 CELERY_RESULT_BACKEND = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST_DYNAMIC}:{REDIS_PORT}/2'  # 使用Redis作为结果后端
+CELERY_RESULT_EXPIRES = 3
+
+# CELERY_RESULT_BACKEND = None
+# CELERY_IGNORE_RESULT = True
+# CELERY_STORE_ERRORS_EVEN_IF_IGNORED = True
+task_ignore_result = True  # 新版推荐
+task_store_errors_even_if_ignored = True
 
 # 定义队列
 CELERY_TASK_QUEUES = (
@@ -447,66 +454,617 @@ CELERY_TASK_QUEUES = (
     # Queue('default_tasks', routing_key='default.#'),
 )
 
-
 # Celery Beat配置
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器
 CELERY_BEAT_SCHEDULE = {
     ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
-    '每 5 秒运行一次所有股票的实时Tick数据获取': {
+    '每 15 秒运行一次所有股票的实时Tick数据获取': {
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task',
-        'schedule': timedelta(seconds=5),  # 每5秒执行一次
+        'schedule': timedelta(seconds=15),  # 每5秒执行一次
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    # '每 1 分钟运行一次所有股票的K线数据获取任务': {
-    #     # 这里包含了获得最新数据、计算指标、执行策略等步骤
-    #     'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-    #     'schedule': crontab(minute='*/1', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
-    #     'kwargs': {'time_level': '1'},
-    #     'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
-    # },
-    '每 5 分钟运行一次所有股票的K线数据获取任务': {
+    'run-60min-strategy-1030': {
+        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'schedule': crontab(hour=10, minute=31, day_of_week='1-5'), # 周一到周五10:31执行
+        # 在实际应用中，您会有一个任务来分发所有需要监控的股票
+    },
+    'run-60min-strategy-1130': {
+        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'schedule': crontab(hour=11, minute=31, day_of_week='1-5'), # 周一到周五11:31执行
+        # 在实际应用中，您会有一个任务来分发所有需要监控的股票
+    },
+    'run-60min-strategy-1330': {
+        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'schedule': crontab(hour=13, minute=31, day_of_week='1-5'), # 周一到周五13:31执行
+        # 在实际应用中，您会有一个任务来分发所有需要监控的股票
+    },
+    'run-60min-strategy-1430': {
+        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'schedule': crontab(hour=14, minute=31, day_of_week='1-5'), # 周一到周五14:31执行
+        # 在实际应用中，您会有一个任务来分发所有需要监控的股票
+    },    
+    'save_stocks_minute_data_realtime_task-0925': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-        'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'schedule': crontab(hour=9, minute=26, day_of_week='1-5'),
         'kwargs': {'time_level': '5'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    '每 15 分钟运行一次所有股票的K线数据获取任务': {
+    'save_stocks_minute_data_realtime_task-0930': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-        'schedule': crontab(minute='*/15', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'schedule': crontab(hour=9, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-0935': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=36, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-0940': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=41, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-0945': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-0950': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=51, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-0955': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=56, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1000': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1006': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=6, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1010': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=11, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1015': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1020': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=21, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1025': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=26, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1030': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1035': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=36, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1040': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=41, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1045': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1050': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=51, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1055': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=56, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1100': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1105': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=6, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1110': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=11, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1115': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1120': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=21, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1125': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=26, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1130': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1300': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1305': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=6, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1310': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=11, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1315': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1320': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=21, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1325': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=26, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1330': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1335': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=36, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1340': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=41, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1345': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1350': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=51, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1355': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=56, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1400': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1405': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=6, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1410': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=11, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1415': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1420': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=21, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1425': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=26, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1430': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1435': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=36, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1440': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=41, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1445': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1450': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=51, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1455': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=56, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task-1500': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=15, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '5'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-0945': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=46, day_of_week='1-5'),
         'kwargs': {'time_level': '15'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    '每 30 分钟运行一次所有股票的K线数据获取任务': {
+    'save_stocks_minute_data_realtime_task_15min-1000': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-        'schedule': crontab(minute='*/30', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'schedule': crontab(hour=10, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1015': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1030': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1045': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1100': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1115': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1130': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1300': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1315': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1330': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1345': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1400': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1415': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=16, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1430': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1445': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=46, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_15min-1500': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=15, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '15'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-0930': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=31, day_of_week='1-5'),
         'kwargs': {'time_level': '30'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    '每 60 分钟运行一次所有股票的K线数据获取任务': {
+    'save_stocks_minute_data_realtime_task_30min-1000': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-        'schedule': crontab(minute='*/60', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
+        'schedule': crontab(hour=10, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1030': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1100': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1130': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+
+    'save_stocks_minute_data_realtime_task_30min-1300': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1330': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=13, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1400': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1430': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_30min-1500': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=15, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '30'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+
+    'save_stocks_minute_data_realtime_task_60min-1030': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=10, minute=31, day_of_week='1-5'),
         'kwargs': {'time_level': '60'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    # '每 5 分钟运行一次所有股票的策略计算任务': {
-    #     # 这里包含了获得最新数据、计算指标、执行策略等步骤
-    #     'task': 'tasks.stock_analysis.analyze_all_stocks', # 任务函数名
-    #     'schedule': crontab(minute='*/5', hour='9,10,11,13,14,15', day_of_week='mon,tue,wed,thu,fri'), # 交易时段每 5 分钟执行
-    # },
+    'save_stocks_minute_data_realtime_task_60min-1130': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=11, minute=31, day_of_week='1-5'),
+        'kwargs': {'time_level': '60'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_60min-1400': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=14, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '60'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+    'save_stocks_minute_data_realtime_task_60min-1500': {
+        # 这里包含了获得最新数据、计算指标、执行策略等步骤
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=15, minute=1, day_of_week='1-5'),
+        'kwargs': {'time_level': '60'},
+        'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
+    },
+
     '每天运行一次保存股票列表数据任务': {
         'task': 'tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task',
-        'schedule': crontab(minute=0, hour=19, day_of_week='mon,tue,wed,thu,fri'),  # 每天凌晨1点执行
+        'schedule': crontab(minute=1, hour=19, day_of_week='mon,tue,wed,thu,fri'),  # 每天凌晨1点执行
         'options': {'queue': 'celery'}, # 指定队列为 celery
     },
-    # '每天运行一次保存股票列表数据任务': {
-    #     'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task',
-    #     'schedule': crontab(minute=30, hour=17, day_of_week='mon,tue,wed,thu,fri'),  # 每天凌晨1点执行
-    #     'options': {'queue': 'celery'}, # 指定队列为 celery
-    # },
 }
 
 # 结果存储设置

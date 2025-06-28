@@ -13,7 +13,7 @@ urlpatterns = [
     # # 可以设置一个根路径重定向到 dashboard
     # path('', RedirectView.as_view(url='/dashboard/', permanent=False), name='go-to-dashboard'),
 
-    path('admin/', admin.site.urls),
+    path('reinhard7717_admin/', admin.site.urls),
     path('users/', include('users.urls', namespace='users')),  # 用户相关URL
     
     path('dashboard/', include('dashboard.urls', namespace='dashboard')), # dashboard URLs

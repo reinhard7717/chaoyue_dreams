@@ -274,12 +274,6 @@ class StockDailyBasicSerializer(serializers.ModelSerializer):
         model = StockDailyBasic
         fields = '__all__'
 
-class StockDailyDataSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.time_trade import StockDailyData
-        model = StockDailyData
-        fields = '__all__'
-
 class StockMinuteDataSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.time_trade import StockMinuteData

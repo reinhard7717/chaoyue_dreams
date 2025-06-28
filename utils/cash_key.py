@@ -252,8 +252,8 @@ class StockCashKey(CashKey):
             cache_type=cc.TYPE_REALTIME,
             entity_type=cc.ENTITY_STOCK,
             entity_id=stock_code,
-            subtype=cc.SUBTYPE_KLINE,        # 子类型为报价/实时行情
-            params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
+            subtype=time_level,        # 子类型为报价/实时行情
+            # params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
 

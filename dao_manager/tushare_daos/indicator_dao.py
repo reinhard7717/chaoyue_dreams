@@ -14,8 +14,8 @@ from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
-from stock_models.industry import ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
-from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockMinuteData, StockMonthlyData, StockTimeTrade, StockWeeklyData
+from stock_models.industry import ThsIndexDaily # 导入 ThsIndexMember 模型
+from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
 # 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC, FundFlowCntTHS, FundFlowIndustryTHS
 from utils.cache_get import  StockTimeTradeCacheGet
@@ -23,8 +23,6 @@ from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 
 logger = logging.getLogger("dao")
-
-main_indices = ['000300.SH', '000001.SH', '000905.SH'] # 沪深300, 上证指数, 中证500
 
 # 假设 FINTA_OHLCV_MAP 包含必要的列名映射，例如 {'vol': 'volume'}
 # 请确保您的 constants.py 文件中 FINTA_OHLCV_MAP 包含了 'vol': 'volume'
@@ -182,20 +180,16 @@ class IndicatorDAO(BaseDAO):
                     logger.warning(f"传入的trade_time无法解析为有效时间: {trade_time}")
             except Exception as e:
                 logger.error(f"解析trade_time失败: {trade_time}, 错误: {e}")
-
         # 确保缓存对象已初始化
         if self.cache_get is None or self.stock_basic_dao is None:
             await self.initialize_cache_objects()
-
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
-
         # 统一时间级别字符串格式
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level)
         time_level_str = time_level_str.lower()
-
         cache_data: Optional[List[Dict]] = None
         try:
             # 尝试从 Redis 缓存获取数据
@@ -207,7 +201,6 @@ class IndicatorDAO(BaseDAO):
                 # 尝试将缓存数据（字典列表）转换为模型实例列表
                 model_instances = []
                 conversion_errors = 0
-                # TODO: 优化缓存反序列化和模型转换，避免手动处理每个字段
                 for item_dict_raw in cache_data:
                     try:
                         # 确保 item_dict_raw 是字典类型
@@ -220,18 +213,55 @@ class IndicatorDAO(BaseDAO):
                                 logger.warning(f"缓存反序列化结果不是字典: {type(item_dict_raw).__name__}, raw: {item_dict_raw[:100]}")
                                 conversion_errors += 1
                                 continue
-
                         # 根据时间级别选择对应的模型类
                         ModelClass: Type[models.Model] # Django Model 类型提示
                         if time_level_str.lower() == 'd':
-                            ModelClass = StockDailyData
+                            if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+                                ModelClass =  StockDailyData_CY
+                            elif stock_code.endswith('.SZ'):
+                                ModelClass =  StockDailyData_SZ
+                            elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+                                ModelClass =  StockDailyData_KC
+                            elif stock_code.endswith('.SH'):
+                                ModelClass =  StockDailyData_SH
+                            elif stock_code.endswith('.BJ'):
+                                ModelClass =  StockDailyData_BJ
+                            else:
+                                logger.warning(f"未识别的股票代码: {stock_code}，默认使用SZ主板日线表") # 修改行: print改为logger.warning
+                                ModelClass =  StockDailyData_SZ  # 默认返回深市主板
                         elif time_level_str.lower() == 'w':
                             ModelClass = StockWeeklyData
                         elif time_level_str.lower() == 'm':
                             ModelClass = StockMonthlyData
                         else:
-                            ModelClass = StockMinuteData # 分钟线模型
-
+                            # 分钟线模型选择逻辑
+                            if time_level_str not in ['5', '15', '30', '60']:
+                                ModelClass = StockMinuteData # 1min默认用原表
+                            elif stock_code.endswith('.SZ'):
+                                if stock_code.startswith('3'):
+                                    ModelClass = {
+                                        '5': StockMinuteData_5_CY, '15': StockMinuteData_15_CY, '30': StockMinuteData_30_CY, '60': StockMinuteData_60_CY
+                                    }[time_level_str]
+                                else:
+                                    ModelClass = {
+                                        '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ
+                                    }[time_level_str]
+                            elif stock_code.endswith('.SH'):
+                                if stock_code.startswith('68'):
+                                    ModelClass = {
+                                        '5': StockMinuteData_5_KC, '15': StockMinuteData_15_KC, '30': StockMinuteData_30_KC, '60': StockMinuteData_60_KC
+                                    }[time_level_str]
+                                else:
+                                    ModelClass = {
+                                        '5': StockMinuteData_5_SH, '15': StockMinuteData_15_SH, '30': StockMinuteData_30_SH, '60': StockMinuteData_60_SH
+                                    }[time_level_str]
+                            elif stock_code.endswith('.BJ'):
+                                ModelClass = {
+                                    '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ
+                                }[time_level_str]
+                            else:
+                                logger.warning(f"未识别的股票代码或分钟级别: {stock_code}, {time_level_str}，默认使用通用分钟表 StockMinuteData") # 修改行: print改为logger.warning
+                                ModelClass = StockMinuteData
                         # 安全获取并转换字段值
                         # 确保这里使用的键名与缓存中存储的字段名一致
                         trade_time = self._safe_datetime(item_dict.get('trade_time'))
@@ -242,14 +272,12 @@ class IndicatorDAO(BaseDAO):
                         volume = self._safe_int(item_dict.get('vol')) # 缓存中存储的字段名是 'vol'
                         amount = self._safe_decimal(item_dict.get('amount'))
                         # 添加其他字段根据模型实际情况添加，确保键名一致
-
                         if trade_time is None: # trade_time 是关键字段，如果为 None 则跳过此条
                             logger.warning(f"缓存数据中发现无效或缺失的 trade_time for {stock_code} {time_level_str}")
                             conversion_errors += 1
                             continue
-
                         # 实例化模型，分钟线需要 time_level 字段
-                        if time_level_str in ['day', 'week', 'month']:
+                        if time_level_str in ['d', 'w', 'm']: # 修改行: 'day', 'week', 'month' 改为 'd', 'w', 'm'
                             instance = ModelClass(
                                 stock=stock,
                                 trade_time=trade_time,
@@ -261,32 +289,42 @@ class IndicatorDAO(BaseDAO):
                                 amount=amount,
                                 # 添加其他日/周/月模型特有的字段
                             )
-                        # 日/周/月模型没有 time_level 字段
                         else:
-                            instance = ModelClass(
-                                stock=stock,
-                                trade_time=trade_time,
-                                time_level=time_level_str, # 分钟线需要 time_level 字段
-                                open=open_price,
-                                high=high_price,
-                                low=low_price,
-                                close=close_price,
-                                vol=volume,
-                                amount=amount,
-                                # 添加其他分钟线模型特有的字段
-                            )
+                            # 对于拆分后的分钟表，ModelClass 已经包含了时间级别信息，不需要 time_level 字段
+                            # 只有当 ModelClass 是 StockMinuteData (即1分钟或未识别的通用分钟表) 时，才需要 time_level 字段
+                            if ModelClass == StockMinuteData: # 修改行: 增加判断，只有通用分钟表才需要 time_level 字段
+                                instance = ModelClass(
+                                    stock=stock,
+                                    trade_time=trade_time,
+                                    time_level=time_level_str, # 分钟线需要 time_level 字段
+                                    open=open_price,
+                                    high=high_price,
+                                    low=low_price,
+                                    close=close_price,
+                                    vol=volume,
+                                    amount=amount,
+                                    # 添加其他分钟线模型特有的字段
+                                )
+                            else: # 拆分后的分钟表
+                                instance = ModelClass(
+                                    stock=stock,
+                                    trade_time=trade_time,
+                                    open=open_price,
+                                    high=high_price,
+                                    low=low_price,
+                                    close=close_price,
+                                    vol=volume,
+                                    amount=amount,
+                                )
                         model_instances.append(instance)
-
                     except Exception as e_conv:
                         conversion_errors += 1
                         # 仅记录错误类型和少量信息，避免日志过长
                         # 尝试打印导致错误的字典键，如果 item_dict 是字典
                         sample_keys = list(item_dict.keys()) if isinstance(item_dict, dict) else 'N/A'
                         logger.error(f"转换缓存字典为 Model 实例时出错 ({type(e_conv).__name__}) for {stock_code} {time_level_str}. Sample Dict Keys: {sample_keys}", exc_info=True)
-
                 if conversion_errors > 0:
                     logger.warning(f"从缓存转换 {stock_code} {time_level_str} 数据时遇到 {conversion_errors} 个错误。")
-
                 if model_instances:
                     # 按时间排序（尽管缓存应该是排序好的，再次排序确保万无一失）
                     model_instances.sort(key=lambda x: x.trade_time)
@@ -300,17 +338,71 @@ class IndicatorDAO(BaseDAO):
             # 捕获缓存获取或初步处理时的异常
             logger.error(f"从 Redis 获取缓存数据时出错 for {stock_code} {time_level_str}: {e}", exc_info=True)
             # 缓存出错，继续从数据库获取
-
         # 选择数据库查询集时，加入时间过滤条件
         try:
+            ModelClass: Type[models.Model] # 新增行: 声明 ModelClass 类型
             if time_level_str.lower() == "d":
-                qs = StockDailyData.objects.filter(stock=stock)
+                # 修改行: 根据股票代码选择日线模型
+                if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+                    ModelClass = StockDailyData_CY
+                elif stock_code.endswith('.SZ'):
+                    ModelClass = StockDailyData_SZ
+                elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+                    ModelClass = StockDailyData_KC
+                elif stock_code.endswith('.SH'):
+                    ModelClass = StockDailyData_SH
+                elif stock_code.endswith('.BJ'):
+                    ModelClass = StockDailyData_BJ
+                else:
+                    logger.warning(f"未识别的股票代码: {stock_code}，默认使用SZ主板日线表") # 修改行: print改为logger.warning
+                    ModelClass = StockDailyData_SZ  # 默认返回深市主板
+                qs = ModelClass.objects.filter(stock=stock)
             elif time_level_str.lower() == "w":
-                qs = StockWeeklyData.objects.filter(stock=stock)
+                # 修改行: 周线数据，假设未拆表
+                ModelClass = StockWeeklyData
+                qs = ModelClass.objects.filter(stock=stock)
             elif time_level_str.lower() == "m":
-                qs = StockMonthlyData.objects.filter(stock=stock)
-            else:
-                qs = StockMinuteData.objects.filter(stock=stock, time_level=time_level_str)
+                # 修改行: 月线数据，假设未拆表
+                ModelClass = StockMonthlyData
+                qs = ModelClass.objects.filter(stock=stock)
+            else: # 修改行: 分钟线数据
+                # 修改行: 根据股票代码和时间级别选择分钟线模型
+                # 这里的逻辑与 get_minute_model 保持一致
+                if time_level_str not in ['5', '15', '30', '60']:
+                    # 修改行: 1min 或其他未拆分的分钟级别，使用原表
+                    ModelClass = StockMinuteData
+                    qs = ModelClass.objects.filter(stock=stock, time_level=time_level_str)
+                elif stock_code.endswith('.SZ'):
+                    if stock_code.startswith('3'):
+                        ModelClass = {
+                            '5': StockMinuteData_5_CY, '15': StockMinuteData_15_CY, '30': StockMinuteData_30_CY, '60': StockMinuteData_60_CY
+                        }[time_level_str]
+                    else:
+                        ModelClass = {
+                            '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ
+                        }[time_level_str]
+                    qs = ModelClass.objects.filter(stock=stock) # 修改行: 拆分表不再需要 time_level 字段过滤
+                elif stock_code.endswith('.SH'):
+                    if stock_code.startswith('68'):
+                        ModelClass = {
+                            '5': StockMinuteData_5_KC, '15': StockMinuteData_15_KC, '30': StockMinuteData_30_KC, '60': StockMinuteData_60_KC
+                        }[time_level_str]
+                    else:
+                        ModelClass = {
+                            '5': StockMinuteData_5_SH, '15': StockMinuteData_15_SH, '30': StockMinuteData_30_SH, '60': StockMinuteData_60_SH
+                        }[time_level_str]
+                    qs = ModelClass.objects.filter(stock=stock) # 修改行: 拆分表不再需要 time_level 字段过滤
+                elif stock_code.endswith('.BJ'):
+                    ModelClass = {
+                        '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ
+                    }[time_level_str]
+                    qs = ModelClass.objects.filter(stock=stock) # 修改行: 拆分表不再需要 time_level 字段过滤
+                else:
+                    # 修改行: 未识别的股票代码，或者 time_level_str 不在 ['5', '15', '30', '60'] 且未被前面的 if 捕获
+                    # 修改行: 默认使用原 StockMinuteData 表，并带上 time_level 过滤
+                    logger.warning(f"未识别的股票代码或分钟级别: {stock_code}, {time_level_str}，默认使用通用分钟表 StockMinuteData") # 修改行: print改为logger.warning
+                    ModelClass = StockMinuteData
+                    qs = ModelClass.objects.filter(stock=stock, time_level=time_level_str)
             # 如果提供了起点时间，加入过滤条件
             if start_trade_time:
                 qs = qs.filter(trade_time__lte=start_trade_time)
@@ -320,7 +412,6 @@ class IndicatorDAO(BaseDAO):
             # 升序排列
             data_list = list(data_list)[::-1]
             # print(f"{stock} data_list_count: {len(data_list)}")
-
             # --- 以下是原始数据缺失检查部分 ---
             # 1. 获取实际有的数据时间点，并转换为时区感知的 datetime 对象
             trade_times_aware = []
@@ -332,9 +423,7 @@ class IndicatorDAO(BaseDAO):
                         trade_times_aware.append(safe_dt)
                     else:
                         logger.warning(f"从数据库获取的数据中发现无效或无法转换的 trade_time: {t_raw}")
-
             trade_times_aware.sort() # 确保时间排序
-
             # 2. 记录实际数据时间范围
             min_time: Optional[datetime.datetime] = None
             max_time: Optional[datetime.datetime] = None
@@ -348,21 +437,17 @@ class IndicatorDAO(BaseDAO):
                 logger.warning(f"无法确定实际数据时间范围，从数据库获取的 trade_times_aware 列表为空，股票: {stock_code} {time_level_str}")
                 # 如果没有有效时间点，数据无效
                 return None
-
             # 3. 获取应有的交易日，基于实际数据日期范围
             index_basic_dao = IndexBasicDAO()
             # 使用实际获取数据的日期范围来确定交易日历
             start_date_str = min_time.strftime('%Y%m%d') if min_time else (timezone.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
             end_date_str = max_time.strftime('%Y%m%d') if max_time else timezone.now().strftime('%Y%m%d')
-
             trade_days = await index_basic_dao.get_trade_cal_open(start_date_str, end_date_str)
             trade_days_date = [pd.to_datetime(day).date() for day in trade_days]  # 转为date对象
-
             # 4. 生成应有的K线标准结束时间点（基于实际交易日）
             # 注意：这里生成的仍然是标准的 K 线结束时间点，可能与实际数据的时间戳不匹配
             expected_times = get_china_a_stock_kline_times(trade_days_date, time_level_str)
             # expected_times 函数已经会生成在交易日内的标准时间点 (pd.Timestamp, Asia/Shanghai)
-
             # 5. 进一步过滤应有的时间点，使其落在实际获取数据的最小到最大时间范围内
             # 使用 Pandas Timestamp 转换为 datetime.datetime 对象进行比较，确保类型一致
             if min_time and max_time: # 确保 min_time 和 max_time 有效
@@ -371,7 +456,6 @@ class IndicatorDAO(BaseDAO):
                  max_ts = pd.Timestamp(max_time)
                  # 使用转换后的 pd.Timestamp 进行范围过滤
                  expected_times_filtered = [t for t in expected_times if min_ts <= t <= max_ts]
-
                  # 记录调整后的预期时间点数量
                  if expected_times_filtered:
                      logger.debug(f"预期时间点范围调整为: {expected_times_filtered[0]} 至 {expected_times_filtered[-1]}，调整后预期时间点数量: {len(expected_times_filtered)}，股票: {stock_code} {time_level_str}")
@@ -379,29 +463,22 @@ class IndicatorDAO(BaseDAO):
                      # 如果过滤后为空，说明获取到的数据的时间范围内没有任何标准的 K 线结束时间点
                      logger.warning(f"在实际数据时间范围 {min_time} 至 {max_time} 内没有找到预期的标准K线结束时间点，股票: {stock_code} {time_level_str}")
                      expected_times = [] # 将预期时间点列表设为空，后续缺失检查将跳过
-
                  expected_times = expected_times_filtered # 使用过滤后的预期时间点列表
-
             # 6. 检查缺失比例 (基于时间点集合差异，只记录警告)
             if not expected_times:
                 logger.warning(f"无法生成任何预期时间点，跳过缺失检查。股票: {stock_code} {time_level_str}")
                 # 即使无法检查缺失，如果 data_list 有数据，仍然返回
                 return data_list
-
             # 将实际获取的时间点转换为 Pandas DatetimeIndex
             actual_times_index = pd.DatetimeIndex(trade_times_aware)
             expected_times_index = pd.DatetimeIndex(expected_times)
-
             # 找到缺失的时间点
             # 直接比较 DatetimeIndex 的集合差异，这将反映实际数据时间戳与标准时间戳的匹配程度
             missing_index = expected_times_index.difference(actual_times_index)
-
             missing_count = len(missing_index)
             expected_count = len(expected_times_index)
             missing_ratio = missing_count / expected_count if expected_count else 0
-
             return data_list
-
         except Exception as e_db:
             logger.error(f"从数据库获取股票[{stock_code}] {time_level_str} 级别分时成交数据失败: {str(e_db)}", exc_info=True)
             return None
@@ -513,7 +590,7 @@ class IndicatorDAO(BaseDAO):
             # 7. 按时间升序排序索引
             df.sort_index(ascending=True, inplace=True)
             # --- 记录应用重命名和排序后的最终列名 ---
-            logger.debug(f"转换并重命名后的 DataFrame 列名: {df.columns.tolist()} for {stock_code} {time_level_val}")
+            # print(f"get_history_ohlcv_df.转换并重命名后的 DataFrame 列名: {df.columns.tolist()} for {stock_code} {time_level_val}")
             # 8. 校验必要列是否存在
             required_cols = ['open', 'high', 'low', 'close', 'volume'] # 注意这里用的是小写标准列名
             if not all(col in df.columns for col in required_cols):
@@ -1112,7 +1189,7 @@ class IndicatorDAO(BaseDAO):
                  # 如果已经是 datetime.datetime
                  if dt_obj.tzinfo is None:
                      # Naive datetime，根据我们对数据库存储的理解，标记为 UTC 再转换
-                     aware_dt = timezone.make_aware(dt_obj, timezone.utc)
+                     aware_dt = timezone.make_aware(dt_obj, datetime.timezone.utc)
                      return aware_dt.astimezone(timezone.get_default_timezone())
                  else:
                      # Already aware datetime，直接转换为默认时区

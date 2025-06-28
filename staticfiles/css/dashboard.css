@@ -1,0 +1,356 @@
+/* === Dashboard Specific Styles === */
+
+.dashboard-container {
+    /* 可以为整个仪表盘内容区域添加内边距或样式 */
+}
+
+/* --- Section Styling --- */
+.message-section,
+.search-add-section,
+.favorites-list-section {
+    margin-bottom: 30px; /* 调整区域间距 */
+    /* 不再需要独立背景和边框，让内容直接在主背景上 */
+    /* background-color: var(--semi-color-bg-1); */
+    /* padding: 24px; */
+    /* border-radius: var(--semi-border-radius); */
+    /* border: 1px solid var(--semi-color-border); */
+    /* box-shadow: var(--semi-shadow); */
+}
+
+section h2 {
+    font-size: 1.25rem; /* 20px */
+    color: var(--semi-color-text-0);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--semi-color-border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 500; /* 标题不一定非常粗 */
+}
+section h2 .icon {
+    font-size: 1.2em;
+    color: var(--semi-color-primary); /* 标题图标颜色 */
+    line-height: 1; /* 确保图标垂直居中 */
+}
+
+
+/* --- Message Banners --- */
+.message-banner {
+    background-color: var(--semi-color-bg-1); /* 使用稍亮背景 */
+    border: 1px solid var(--semi-color-border);
+    border-radius: var(--semi-border-radius);
+    padding: 16px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; /* 更好的等宽字体栈 */
+    color: var(--semi-color-text-1);
+    overflow-y: auto;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); /* 轻微内阴影增加层次感 */
+}
+
+#favorite-stock-messages {
+    max-height: 320px; /* 调整高度 */
+}
+
+#strategy-messages {
+    max-height: 480px; /* 调整高度 */
+}
+
+.message-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.message-list li {
+    margin-bottom: 6px;
+    line-height: 1.6; /* 增加行高 */
+    font-size: 1.05em; /* 字体稍大 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 0; /* 轻微垂直内边距 */
+}
+
+.message-list .timestamp {
+    color: var(--semi-color-text-2); /* 更浅的时间戳 */
+    margin-right: 12px;
+    font-size: 0.9em; /* 时间戳小一点 */
+}
+
+.message-list .stock-code {
+    color: var(--semi-color-success); /* 股票代码用成功色 */
+    font-weight: 500;
+    margin-right: 8px;
+}
+
+/* 信号样式 (使用 tag 样式) */
+.message-list .signal {
+    /* 继承 .tag 的基础样式 */
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    border-radius: var(--semi-border-radius);
+    border: 1px solid transparent;
+    white-space: nowrap;
+    margin-left: 8px;
+    vertical-align: middle; /* 垂直对齐 */
+}
+.message-list .signal-buy {
+    background-color: rgba(255, 80, 80, 0.1);   /* 红色背景，透明度0.1 */
+    color: #ff2d2d;                             /* 鲜明红色字体 */
+    border-color: rgba(255, 80, 80, 0.2);       /* 红色边框，透明度0.2 */
+}
+
+.message-list .signal-sell {
+    background-color: rgba(0, 204, 102, 0.1);   /* 绿色背景，透明度0.1 */
+    color: #00b96b;                             /* 鲜明绿色字体 */
+    border-color: rgba(0, 204, 102, 0.2);       /* 绿色边框，透明度0.2 */
+}
+
+.message-list .signal-alert {
+    background-color: rgba(255, 197, 61, 0.1);  /* 黄色背景，透明度0.1 */
+    color: #ffc53d;                             /* 黄色字体 */
+    border-color: rgba(255, 197, 61, 0.2);      /* 黄色边框，透明度0.2 */
+}
+
+.message-list .signal-hold {
+    background-color: rgba(255, 255, 255, 0.1); /* 白色背景，透明度0.1 */
+    color: var(--semi-color-text-1);            /* 默认字体色 */
+    border-color: rgba(255, 255, 255, 0.15);    /* 白色边框，透明度0.15 */
+}
+
+.message-list .signal-info {
+    background-color: rgba(99, 164, 255, 0.1);  /* 蓝色背景，透明度0.1 */
+    color: #81b9ff;                             /* 蓝色字体 */
+    border-color: rgba(99, 164, 255, 0.2);      /* 蓝色边框，透明度0.2 */
+}
+
+/* --- Search and Add Section --- */
+.search-form .search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.search-input {
+    flex-grow: 1;
+    /* 继承 .form-control 样式 */
+}
+
+.add-button {
+    /* 继承 .btn .btn-primary 样式 */
+    flex-shrink: 0; /* 防止按钮被压缩 */
+}
+.add-button .icon {
+    font-weight: bold;
+    margin-right: 4px; /* 图标和文字间距 */
+}
+
+.search-results-container {
+    max-height: 250px;
+    overflow-y: auto;
+    background-color: var(--semi-color-bg-2); /* 搜索结果用更亮的背景 */
+    border: 1px solid var(--semi-color-border);
+    border-radius: var(--semi-border-radius);
+    margin-top: 8px; /* 调整与输入框的距离 */
+    box-shadow: var(--semi-shadow);
+    position: absolute; /* 让结果浮动，避免推开下方内容 */
+    z-index: 100; /* 确保在上方 */
+    width: calc(100% - 32px); /* 宽度适应父容器减去内边距 */
+    display: none; /* 默认隐藏 */
+}
+.search-result-item {
+    padding: 10px 16px; /* 增加内边距 */
+    cursor: pointer;
+    border-bottom: 1px solid var(--semi-color-border);
+    color: var(--semi-color-text-1);
+    transition: background-color 0.1s ease;
+}
+.search-result-item:last-child {
+    border-bottom: none;
+}
+.search-result-item:hover {
+    background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.1); /* 悬停时淡蓝色 */
+    color: var(--semi-color-text-0);
+}
+.search-result-item strong { /* 股票代码 */
+    color: var(--semi-color-success);
+    margin-right: 10px;
+    font-weight: 500;
+}
+.search-result-item.error,
+.search-result-item.empty {
+    color: var(--semi-color-text-2);
+    cursor: default;
+}
+.search-result-item.error:hover,
+.search-result-item.empty:hover {
+    background-color: transparent;
+}
+
+
+/* --- Favorites Table --- */
+/* .favorites-table-wrapper 继承 .table-wrapper 样式 */
+
+.favorites-table {
+    /* 继承 .data-table 样式 */
+}
+
+/* 特定列样式 */
+.favorites-table .stock-code {
+    color: var(--semi-color-success);
+    font-weight: 500;
+}
+.favorites-table .stock-name {
+    color: var(--semi-color-text-0); /* 名称用主要文字颜色 */
+}
+.favorites-table .price {
+    font-weight: bold;
+    color: #ffffff; /* 价格更突出 */
+}
+.favorites-table .change-percent.positive {
+    color: #e60000;  /* 红色，A股涨 */
+    font-weight: 500;
+}
+.favorites-table .change-percent.negative {
+    color: #009933;  /* 绿色，A股跌 */
+    font-weight: 500;
+}
+.favorites-table .change-percent {
+    color: #ffffff;     /* 默认颜色 */
+}
+.favorites-table .volume {
+    color: var(--semi-color-text-1);
+    font-size: 1em;
+    font-weight: 500;
+}
+.favorites-table .strategy-signal .signal {
+    /* 继承 .tag 样式 */
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    border-radius: var(--semi-border-radius);
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+/* 在表格中应用 tag 颜色 */
+.favorites-table .strategy-signal .signal-buy {
+    background-color: rgba(255, 80, 80, 0.1);   /* 红色背景，透明度0.1 */
+    color: #ff2d2d;                             /* 鲜明红色字体 */
+    border-color: rgba(255, 80, 80, 0.2);       /* 红色边框，透明度0.2 */
+}
+
+.favorites-table .strategy-signal .signal-sell {
+    background-color: rgba(0, 204, 102, 0.1);   /* 绿色背景，透明度0.1 */
+    color: #00b96b;                             /* 鲜明绿色字体 */
+    border-color: rgba(0, 204, 102, 0.2);       /* 绿色边框，透明度0.2 */
+}
+
+.favorites-table .strategy-signal .signal-alert {
+    background-color: rgba(255, 197, 61, 0.1);  /* 黄色背景，透明度0.1 */
+    color: #ffc53d;                             /* 黄色字体 */
+    border-color: rgba(255, 197, 61, 0.2);      /* 黄色边框，透明度0.2 */
+}
+
+.favorites-table .strategy-signal .signal-hold {
+    background-color: rgba(255, 255, 255, 0.1); /* 白色背景，透明度0.1 */
+    color: var(--semi-color-text-1);            /* 默认字体色 */
+    border-color: rgba(255, 255, 255, 0.15);    /* 白色边框，透明度0.15 */
+}
+
+.favorites-table .strategy-signal .signal-info {
+    background-color: rgba(99, 164, 255, 0.1);  /* 蓝色背景，透明度0.1 */
+    color: #81b9ff;                             /* 蓝色字体 */
+    border-color: rgba(99, 164, 255, 0.2);      /* 蓝色边框，透明度0.2 */
+}
+
+
+.favorites-table .actions {
+    white-space: nowrap;
+    text-align: right;
+}
+.favorites-table .actions .action-btn {
+    margin-left: 8px;
+    /* 继承 .btn .btn-sm 样式 */
+}
+/* 表格内次要按钮可以更柔和 */
+.favorites-table .actions .btn-secondary {
+     background-color: transparent;
+     color: var(--semi-color-text-1);
+     border-color: transparent;
+}
+.favorites-table .actions .btn-secondary:hover {
+     background-color: var(--semi-color-bg-2);
+     color: var(--semi-color-text-0);
+}
+/* 表格内危险按钮 */
+.favorites-table .actions .btn-danger {
+    background-color: transparent;
+    color: var(--semi-color-danger);
+    border-color: transparent;
+}
+.favorites-table .actions .btn-danger:hover {
+    background-color: rgba(var(--semi-color-danger-rgb, 255, 120, 117), 0.1);
+}
+
+
+/* 加载和空状态 */
+.table-loading, .table-empty {
+    text-align: center;
+    padding: 40px 20px; /* 增加内边距 */
+    color: var(--semi-color-text-2);
+    /* background-color: var(--semi-color-bg-1); */ /* 可以不需要独立背景 */
+    border: 1px dashed var(--semi-color-border); /* 虚线边框 */
+    border-radius: var(--semi-border-radius);
+    margin-top: 16px;
+}
+.table-loading p, .table-empty p {
+    margin: 0;
+}
+
+/* --- Flash Animation --- */
+@keyframes flash-animation {
+    0% { background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.2); } /* 闪烁颜色 */
+    100% { background-color: transparent; }
+}
+.flash {
+    animation: flash-animation 0.6s ease-out; /* 动画时间稍长 */
+}
+
+/* --- Notifications --- */
+#notification-area {
+    position: fixed;
+    top: 80px; /* 距离顶部距离 */
+    right: 24px; /* 距离右侧距离 */
+    z-index: 1050;
+    width: 320px; /* 通知宽度 */
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* 通知间距 */
+}
+.notification {
+    padding: 12px 16px;
+    border-radius: var(--semi-border-radius);
+    color: #fff;
+    background-color: var(--semi-color-bg-2); /* 通知背景 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0.95;
+    border-left: 4px solid transparent; /* 左侧彩色边框 */
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.notification-success { border-left-color: var(--semi-color-success); }
+.notification-error { border-left-color: var(--semi-color-danger); }
+.notification-info { border-left-color: var(--semi-color-primary); }
+.notification-warning { border-left-color: var(--semi-color-warning); }
+
+/* 可以添加简单的进入/退出动画 */
+.notification.fade-out {
+    opacity: 0;
+    transform: translateX(100%);
+}
+

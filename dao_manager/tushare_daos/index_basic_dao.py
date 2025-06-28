@@ -339,12 +339,14 @@ class IndexBasicDAO(BaseDAO):
             index_code: 指数代码
         """
         # 从数据库获取
-        index_daily_basic = await sync_to_async(lambda: IndexDaily.objects.filter(index__index_code=index_code, trade_time__range=[start_date, end_date]).all())()
+        index_daily_basic = await sync_to_async(
+                    lambda: list(IndexDaily.objects.filter(index__index_code=index_code, trade_time__range=[start_date, end_date]).all())
+                )()
         if index_daily_basic:
             return index_daily_basic
         else:
             return None
-    
+
     async def get_index_daily_by_limit(self, index_code: str, limit: int) -> List['IndexDaily']:
         """
         获得指数每日指标
@@ -352,9 +354,11 @@ class IndexBasicDAO(BaseDAO):
             index_code: 指数代码
         """
         # 从数据库获取
-        index_daily_basic = await sync_to_async(lambda: IndexDaily.objects.filter(index__index_code=index_code).order_by('-trade_time')[:limit])()
+        index_daily_basic = await sync_to_async(
+            lambda: list(IndexDaily.objects.filter(index__index_code=index_code).order_by('-trade_time')[:limit])
+        )()
         return index_daily_basic
-    
+
     async def save_index_daily_today(self) -> Dict:
         """
         保存指数每日指标到数据库

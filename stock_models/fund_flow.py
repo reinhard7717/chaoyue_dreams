@@ -317,7 +317,7 @@ class TopList(models.Model):
         unique_together = ('trade_date', 'stock', 'reason')  # 防止重复
 
     def __str__(self):
-        return f"{self.trade_date} {self.stock_id} {self.name}"
+        return f"{self.trade_date} {self.stock} {self.name}"
 
 # 龙虎榜机构成交明细
 class TopInst(models.Model):
@@ -343,6 +343,6 @@ class TopInst(models.Model):
         unique_together = ('trade_date', 'stock', 'exalter', 'side', 'reason')
 
     def __str__(self):
-        return f"{self.trade_date} {self.stock_id} {self.exalter} {self.side}"
+        return f"{self.trade_date} {self.stock} {self.exalter} {self.side}"
 
 

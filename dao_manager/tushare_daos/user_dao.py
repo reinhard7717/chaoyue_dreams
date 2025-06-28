@@ -24,35 +24,32 @@ class UserDAO(BaseDAO):
         self.cache_get = UserCacheGet()
 
     async def get_user_favorites(self, user_id: int) -> List[FavoriteStock]:
+        """
+        仅从数据库获取用户自选股列表，不使用缓存
+        """
         try:
-            if self.cache_get is None:
-                await self.initialize_cache_objects()
-            cached_favorites = await self.cache_get.user_favorites(user_id)
-            if cached_favorites is not None:
-                return cached_favorites
-            favorite_stocks_list = [fav async for fav in FavoriteStock.objects.select_related('stock').filter(user_id=user_id).order_by('added_at')]
-            data_to_cache_list = [self.data_format_process.set_user_favorites(user_id, fav) for fav in favorite_stocks_list]
-            if self.cache_set is None:
-                await self.initialize_cache_objects()
-            await self.cache_set.user_favorites(user_id, data_to_cache_list)
+            # 直接异步查询数据库，获取自选股列表
+            favorite_stocks_list = [
+                fav async for fav in FavoriteStock.objects.select_related('stock').filter(user_id=user_id).order_by('added_at')
+            ]
+            print(f"从数据库获取用户{user_id}自选股数量: {len(favorite_stocks_list)}")  # 调试信息
             return favorite_stocks_list
         except Exception as e:
             logger.error(f"获取用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
+            print(f"获取用户 {user_id} 自选股列表失败: {str(e)}")  # 调试信息
             return []
 
     async def get_all_favorite_stocks(self) -> List[FavoriteStock]:
+        """
+        仅从数据库获取所有用户的自选股列表，不使用缓存
+        """
         try:
-            if self.cache_get is None:
-                await self.initialize_cache_objects()
-            cached_favorites = await self.cache_get.all_favorites()
-            if cached_favorites:
-                return cached_favorites
+            # 直接异步查询数据库，获取所有自选股
             all_favorite_stocks = [fav async for fav in FavoriteStock.objects.all()]
-            if self.cache_set is None:
-                await self.initialize_cache_objects()
-            await self.cache_set.all_favorites(all_favorite_stocks)
+            print(f"从数据库获取所有用户自选股数量: {len(all_favorite_stocks)}")  # 调试信息
             return all_favorite_stocks
         except Exception as e:
             logger.error(f"获取所有用户自选股列表失败: {str(e)}", exc_info=True)
+            print(f"获取所有用户自选股列表失败: {str(e)}")  # 调试信息
             return []
     

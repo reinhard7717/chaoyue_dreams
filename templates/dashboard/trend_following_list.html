@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
+
+{% block head_extra %}
+{# --- 代码修改: 增加一些简单的CSS样式来美化剧本标签 --- #}
+<style>
+    .playbook-list {
+        list-style-type: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .playbook-tag {
+        background-color: #e0eafc;
+        color: #3d5afe;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+    .playbook-tag.king-signal {
+        background-color: #ffd700; /* 金色 */
+        color: #4d4000;
+        font-weight: bold;
+        border: 1px solid #ffc107;
+    }
+</style>
+{% endblock %}
+
+
+{% block sidebar %}
+    <aside class="site-sidebar">
+        <nav class="sidebar-nav">
+             <h3>导航菜单</h3>
+            <ul>
+                <li><a href="{% url 'users:home' %}">主控台</a></li>
+                {# --- 代码修改: 将此页面的链接设为 active --- #}
+                <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">多时间框架策略</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选-日线</a></li>
+                <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
+                <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li>
+            </ul>
+        </nav>
+    </aside>
+{% endblock sidebar %}
+
+{% block content %}
+<div class="dashboard-container">
+    <section class="trend-list-section">
+        <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 只)</h2>
+        <div class="table-wrapper">
+            <table class="data-table" id="trend-table">
+                <thead>
+                    {# --- 代码修改: 更新表头以反映新信息 --- #}
+                    <tr>
+                        <th>股票</th>
+                        <th>最新分数</th>
+                        <th>激活剧本</th>
+                        <th>最新信号时间</th>
+                        <th>最新买入</th>
+                        <th>最新卖出</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in page_obj.object_list %}
+                    <tr>
+                        {# --- 代码修改: 使用新模型(StrategyState)的字段 --- #}
+                        <td>
+                            <strong>{{ item.stock.stock_code }}</strong>
+                            <br>
+                            <small>{{ item.stock.stock_name|default:"-" }}</small>
+                        </td>
+                        <td>
+                            <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
+                        </td>
+                        <td>
+                            {# 优雅地展示激活的剧本列表 #}
+                            {% if item.active_playbooks %}
+                                <ul class="playbook-list">
+                                {% for playbook in item.active_playbooks %}
+                                    {# 特别高亮王牌信号 #}
+                                    {% if 'SIGNAL_BREAKOUT_TRIGGER' in playbook %}
+                                        <li class="playbook-tag king-signal">👑 {{ playbook }}</li>
+                                    {% else %}
+                                        <li class="playbook-tag">{{ playbook }}</li>
+                                    {% endif %}
+                                {% endfor %}
+                                </ul>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{{ item.latest_signal_time|date:"Y-m-d"|default:"-" }}</td>
+                        <td>{{ item.last_buy_time|date:"Y-m-d"|default:"-" }}</td>
+                        <td>{{ item.last_sell_time|date:"Y-m-d"|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="pagination">
+            {% if page_obj.has_other_pages %}
+                {% if page_obj.has_previous %}
+                    <a href="?page=1">&laquo; 首页</a>
+                    <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
+                {% endif %}
+
+                <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+
+                {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}">下一页</a>
+                    <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}
