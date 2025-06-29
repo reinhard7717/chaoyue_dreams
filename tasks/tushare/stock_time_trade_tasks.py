@@ -6,6 +6,7 @@ from django.utils import timezone
 import time
 from typing import List
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
+from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from stock_models.index import TradeCalendar
@@ -488,7 +489,7 @@ def save_cyq_data_yesterday_task(self):
 #                      本周任务
 # ===================================================
 
-#  ================ 分钟数据任务 ================
+#  ================ （本周）分钟数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_minute_data_this_week_batch', queue='SaveData_TimeTrade')
 def save_minute_data_this_week_batch(self, stock_codes: str):
     """
@@ -544,7 +545,7 @@ def save_stocks_minute_data_this_week_task(self, batch_size: int = 50): # 限量
         logger.error(f"执行 save_stocks_minute_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
-#  ================ 日线数据任务 ================
+#  ================ （本周）日线数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_this_week_batch', queue='SaveData_TimeTrade')
 def save_day_data_this_week_batch(self):
     """
@@ -563,7 +564,7 @@ def save_day_data_this_week_batch(self):
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-#  ================ 每日基本信息数据任务 ================
+#  ================ （本周）每日基本信息数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_this_week_task', queue='SaveData_TimeTrade')
 def save_stocks_daily_basic_data_this_week_task(self):
     """
@@ -651,6 +652,32 @@ def save_cyq_data_this_week_task(self):
     except Exception as e:
         logger.error(f"执行 save_cyq_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
+# ============== （本周）资金流向数据 - 同花顺 ==============
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_fund_flow_data_this_week_task', queue='SaveData_TimeTrade')
+def save_fund_flow_data_this_week_task(self):
+    """
+    调度器任务：
+    1. 获取自选股和非自选股代码。
+    2. 将代码分成批次。
+    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
+    这个任务由 Celery Beat 调度。
+    """
+    logger.info(f"任务启动: save_fund_flow_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
+    stock_basic_dao = StockBasicInfoDao()
+    ff_dao = FundFlowDao()
+    this_monday, this_friday = get_this_monday_and_friday()
+    try:
+        ff_dao.save_history_fund_flow_daily_data_by_trade_date(start_date=this_monday, end_date=this_friday)
+        ff_dao.save_history_fund_flow_daily_ths_data_by_trade_date(start_date=this_monday, end_date=this_friday)
+        ff_dao.save_history_fund_flow_cnt_ths_data(start_date=this_monday, end_date=this_friday)
+        ff_dao.save_history_fund_flow_industry_ths_data(start_date=this_monday, end_date=this_friday)
+        logger.info(f"任务结束: save_fund_flow_data_this_week_task (调度器模式)")
+    except Exception as e:
+        logger.error(f"执行 save_fund_flow_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+
+
 
 # ===================================================
 #                      历史任务
