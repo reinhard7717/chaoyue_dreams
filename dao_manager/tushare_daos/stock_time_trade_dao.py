@@ -484,45 +484,80 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
         """
-        保存股票的历史分钟级交易数据
+        保存股票的历史分钟级交易数据 (已优化)
         """
         stock_codes_str = ",".join(stock_codes)
+        # 遍历不同的分钟级别
         for time_level in ['5', '15', '30', '60']:
             offset = 0
-            limit = 8000
-            # 新增：模型分组字典
-            model_grouped_data_dicts = {}
+            limit = 8000 # Tushare Pro单次最大返回8000条
+            # 循环拉取分页数据
             while True:
-                if offset >= 100000:
+                # 新增：模型分组字典在循环内部初始化，处理每个批次的数据
+                model_grouped_data_dicts = {}
+                if offset >= 100000: # Tushare Pro对stk_mins接口的offset有10万的限制
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
+                
+                # 调试信息：打印当前拉取的参数
+                print(f"调试: 正在拉取 {time_level}min 数据, stock_codes: {len(stock_codes)}个, offset: {offset}, limit: {limit}")
+
                 df = self.ts_pro.stk_mins(**{
                     "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                     "limit": limit, "offset": offset
                 }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
+                
+                # 如果返回的DataFrame为空，说明没有更多数据，结束循环
                 if df.empty:
+                    print(f"调试: 拉取到空数据帧，结束 {time_level}min 的拉取。")
                     break
-                else:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)
-                    df = df.where(pd.notnull(df), None)
-                    for row in df.itertuples():
-                        stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                        if stock:
-                            data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                            model_class = self.get_minute_model(row.ts_code, time_level)
-                            if model_class not in model_grouped_data_dicts:
-                                model_grouped_data_dicts[model_class] = []
-                            model_grouped_data_dicts[model_class].append(data_dict)
-                    if len(df) < limit:
-                        break
-                    offset += limit
-            for model_class, data_list in model_grouped_data_dicts.items():
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=model_class,
-                    data_list=data_list,
-                    unique_fields=['stock', 'trade_time']
-                )
-                logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级交易数据 offset={offset} 完成. 结果: {result}")
+                
+                # --- 核心效率优化 ---
+                # 新增：从当前批次数据中提取所有唯一的股票代码
+                unique_ts_codes = df['ts_code'].unique().tolist()
+                # 新增：一次性从数据库查询所有相关的股票基础信息，避免在循环中逐条查询
+                # 假设 stock_basic_dao 中有一个 get_stocks_by_codes 的方法进行批量查询
+                related_stocks = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+                # 新增：创建一个从股票代码到股票对象的映射，便于快速查找
+                stock_map = {stock.stock_code: stock for stock in related_stocks}
+                print(f"调试: 批量获取了 {len(stock_map)} 个相关的股票信息对象。")
+                # --- 优化结束 ---
+
+                # 数据清洗
+                df = df.replace(['nan', 'NaN', ''], np.nan)
+                df = df.where(pd.notnull(df), None)
+
+                # 遍历处理后的DataFrame数据
+                for row in df.itertuples():
+                    # 修改：从预先查好的映射中获取股票对象，避免了N+1查询
+                    stock = stock_map.get(row.ts_code)
+                    if stock:
+                        # 格式化数据
+                        data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                        # 根据股票代码和时间级别获取对应的模型类
+                        model_class = self.get_minute_model(row.ts_code, time_level)
+                        # 将数据按模型分组
+                        if model_class not in model_grouped_data_dicts:
+                            model_grouped_data_dicts[model_class] = []
+                        model_grouped_data_dicts[model_class].append(data_dict)
+                
+                # 批量保存分组后的数据
+                for model_class, data_list in model_grouped_data_dicts.items():
+                    if not data_list:
+                        continue
+                    result = await self._save_all_to_db_native_upsert(
+                        model_class=model_class,
+                        data_list=data_list,
+                        unique_fields=['stock', 'trade_time']
+                    )
+                    logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级交易数据 offset={offset} 完成. 插入/更新了 {len(data_list)} 条记录。")
+                
+                # 如果本次返回的数据量小于请求的limit，说明是最后一页，结束循环
+                if len(df) < limit:
+                    break
+                # 否则，增加offset以拉取下一页数据
+                offset += limit
+
         logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
         return
 
@@ -564,177 +599,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
-        return result
-
-    async def save_minute_time_trade_history_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
-        """
-        保存股票的历史分钟级交易数据
-        """
-        stock_codes_str = ",".join(stock_codes)
-        # 新增：模型分组字典
-        model_grouped_data_dicts = {}
-        df = self.ts_pro.stk_mins(**{
-                "ts_code": stock_codes_str, "freq": time_level + "MIN", "start_date": "2020-01-01 00:00:00", "end_date": "", "limit": "", "offset": ""
-            }, fields=[
-                "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"
-            ])           
-        if df.empty:
-            return []
-        else:
-            df = df.replace(['nan', 'NaN', ''], np.nan)
-            df = df.where(pd.notnull(df), None)
-            for row in df.itertuples():
-                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                    model_class = self.get_minute_model(row.ts_code, time_level)
-                    if model_class not in model_grouped_data_dicts:
-                        model_grouped_data_dicts[model_class] = []
-                    model_grouped_data_dicts[model_class].append(data_dict)
-        for model_class, data_list in model_grouped_data_dicts.items():
-            result = await self._save_all_to_db_native_upsert(
-                model_class=model_class,
-                data_list=data_list,
-                unique_fields=['stock', 'trade_time']
-            )
-            logger.info(f"保存 {model_class.__name__} 的分钟级交易数据完成. 结果: {result}")
-        return result
-
-    async def save_minute_time_trade_history_all(self) -> None:
-        """
-        保存股票的历史分钟级交易数据
-        """
-        stocks = self.stock_basic_dao.get_stock_list()
-        for stock in stocks:
-            for time_level in ['5', '15', '30', '60']:
-                # 新增：模型分组字典
-                model_grouped_data_dicts = {}
-                df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock.stock_code, "freq": time_level + "min", "start_date": "", "end_date": "", "limit": "", "offset": ""
-                    }, fields=["ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount"])
-                if df is not None and not df.empty:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)
-                    df = df.where(pd.notnull(df), None)
-                    for row in df.itertuples():
-                        data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                        model_class = self.get_minute_model(row.ts_code, time_level)
-                        if model_class not in model_grouped_data_dicts:
-                            model_grouped_data_dicts[model_class] = []
-                        model_grouped_data_dicts[model_class].append(data_dict)
-                for model_class, data_list in model_grouped_data_dicts.items():
-                    result = await self._save_all_to_db_native_upsert(
-                        model_class=model_class,
-                        data_list=data_list,
-                        unique_fields=['stock', 'trade_time']
-                    )
-        return result
-
-    async def save_minute_time_trade_history_today(self, stock_codes, trade_time_str=None) -> None:
-        """
-        保存股票的历史分钟级交易数据，分批每1000个stock_code循环一次
-        """
-        stock_codes_str = ",".join(stock_codes)
-        if trade_time_str:
-            today_str = trade_time_str
-        else:
-            today = datetime.today()
-            today_str = today.strftime('%Y-%m-%d')
-        result = {}
-        for time_level in ['5', '15', '30', '60']:
-            # 新增：模型分组字典
-            model_grouped_data_dicts = {}
-            offset = 0
-            limit = 8000
-            while True:
-                if offset >= 100000:
-                    logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
-                    break
-                df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": today_str + " 09:30:00",
-                    "end_date": today_str + " 15:00:00", "limit": limit, "offset": offset
-                }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
-                if df.empty:
-                    break
-                else:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)
-                    df = df.where(pd.notnull(df), None)
-                    for row in df.itertuples():
-                        stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                        if stock:
-                            data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                            # 新增：获取模型并分组
-                            model_class = self.get_minute_model(row.ts_code, time_level)
-                            if model_class not in model_grouped_data_dicts:
-                                model_grouped_data_dicts[model_class] = []
-                            model_grouped_data_dicts[model_class].append(data_dict)
-                if len(df) < limit:
-                    break
-                offset += limit
-            # 直接对每个model_class的data_list整体批量写入，不再按stock分组
-            for model_class, data_list in model_grouped_data_dicts.items():
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=model_class,
-                    data_list=data_list,
-                    unique_fields=['stock', 'trade_time']
-                )
-            for stock_code in stock_codes:
-                cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-                await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        await asyncio.sleep(10)  # 新增：结尾等待2秒
-        return result
-
-    async def save_minute_time_trade_yesterday(self, stock_codes) -> None:
-        """
-        保存股票的历史分钟级交易数据，分批每1000个stock_code循环一次，此处min需要小写
-        """
-        stock_codes_str = ",".join(stock_codes)
-        today = datetime.today()
-        yesterday = today - timedelta(days=1)
-        yesterday_str = yesterday.strftime('%Y-%m-%d')
-        result = {}
-        for time_level in ['5', '15', '30', '60']:
-            # 新增：模型分组字典
-            model_grouped_data_dicts = {}
-            offset = 0
-            limit = 8000
-            while True:
-                if offset >= 100000:
-                    logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
-                    break
-                df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": yesterday_str + " 09:00:00",
-                    "end_date": yesterday_str + " 19:00:00", "limit": limit, "offset": offset
-                }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
-                if df.empty:
-                    break
-                else:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)
-                    df = df.where(pd.notnull(df), None)
-                    for row in df.itertuples():
-                        stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                        if stock:
-                            data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                            # 新增：获取模型并分组
-                            model_class = self.get_minute_model(row.ts_code, time_level)
-                            if model_class not in model_grouped_data_dicts:
-                                model_grouped_data_dicts[model_class] = []
-                            model_grouped_data_dicts[model_class].append(data_dict)
-                if len(df) < limit:
-                    break
-                offset += limit
-            # 修改：直接批量写入，不再按stock分组
-            for model_class, data_list in model_grouped_data_dicts.items():
-                # 直接批量写入，无需再按stock分组
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=model_class,
-                    data_list=data_list,
-                    unique_fields=['stock', 'trade_time']
-                )
-                print(f"{model_class} - 批量写入{len(data_list)}条数据")  # 输出写入条数
-            # for stock_code in stock_codes:
-            #     cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-            #     await self.cache_manager.ztrim_by_rank(cache_key, self.cache_limit)
-        await asyncio.sleep(10)  # 新增：结尾等待2秒
         return result
 
     # =============== A股分钟行情(实时) ===============

@@ -91,6 +91,36 @@ class TradeCalendar(models.Model):
         null=True,
         blank=True
     )
+
+    @classmethod
+    def is_trade_date(cls, check_date: datetime.date = None, exchange: str = 'SSE') -> bool:
+        """
+        检查指定日期是否为交易日。
+        :param check_date: datetime.date, 需要检查的日期。如果为None，则默认为今天。
+        :param exchange: str, 交易所代码，默认为'SSE'。
+        :return: bool, 如果是交易日则返回True，否则返回False。
+        """
+        # 如果未提供检查日期，则使用当前服务器日期
+        if check_date is None:
+            check_date = timezone.now().date()
+        
+        # 调试信息：打印输入的参数
+        print(f"调试: is_trade_date - 检查日期: {check_date}, 交易所: {exchange}")
+
+        # 使用 .exists() 高效地检查记录是否存在，这比获取整个对象更快
+        # 筛选条件：
+        # 1. 交易所匹配
+        # 2. 日期匹配
+        # 3. is_open 字段为 True
+        is_open = cls.objects.filter(
+            exchange=exchange,
+            cal_date=check_date,
+            is_open=True
+        ).exists()
+
+        print(f"调试: {check_date} 是否为交易日: {is_open}")
+        return is_open
+
     @classmethod
     def get_latest_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
         """

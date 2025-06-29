@@ -372,7 +372,7 @@ def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/mon
             favorite_list.append(code)
         elif code in non_favorite_stock_codes_set:
             non_favorite_list.append(code)
-        print(f"自选股{len(favorite_list)}个，非自选股{len(non_favorite_list)}个")
+        # print(f"自选股{len(favorite_list)}个，非自选股{len(non_favorite_list)}个")
     
     # --- 为任务传递 is_favorite=True ---
     if favorite_list:

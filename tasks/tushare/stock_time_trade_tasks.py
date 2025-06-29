@@ -2,11 +2,13 @@
 import asyncio
 import logging
 import datetime
+from django.utils import timezone
 import time
 from typing import List
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from stock_models.index import TradeCalendar
 from stock_models.stock_basic import StockInfo
 
 # 自选股队列
@@ -88,47 +90,66 @@ async def _get_all_relevant_stock_codes_for_processing():
 #  ================ 分钟数据任务（当日收盘后） ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch', queue='SaveData_TimeTrade')
 def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
-    """
-    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
-    """
-    # 在任务开始时创建一次 DAO 实例
+    # ... (此任务代码与上一步相同，无需修改) ...
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        print("开始保存 分钟数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_today(stock_codes=stock_codes,trade_time_str=trade_time_str))
-        print(f"保存股票 {len(stock_codes)} 个的分钟级交易数据完成。结果: {result}")
+        today_date = timezone.now().date()
+        if trade_time_str:
+            start_date_str = trade_time_str
+            end_date_str = trade_time_str
+            print(f"开始保存 分钟数据任务（当日特定时间: {trade_time_str}）...")
+        else:
+            start_date_str = f"{today_date} 00:00:00"
+            end_date_str = f"{today_date} 23:59:59"
+            print(f"开始保存 分钟数据任务（当日全天）...")
+        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
+            stock_codes=stock_codes,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str
+        ))
+        print(f"保存股票 {len(stock_codes)} 个的当日分钟级交易数据完成。")
     except Exception as e:
         logger.error(f"save_stocks_minute_data_today_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task', queue='celery')
-def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: int = 310): # 最大循环10万个，每310个一组循环一次是99510个
+def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: int = 310):
     """
-    调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
+    调度器任务（已优化）：
+    1. 修改：使用 TradeCalendar.is_trade_date() 检查今天是否为交易日。
+    2. 获取所有股票代码。
+    3. 将代码分成批次。
+    4. 为每个批次分派 save_stocks_minute_data_today_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_stocks_minute_data_today_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
+    logger.info(f"任务启动: save_stocks_minute_data_today_task (调度器模式) - 批次大小: {batch_size}")
     try:
+        # 修改：调用新的类方法来检查今天是否为交易日，代码更清晰、更符合封装原则
+        # 因为 is_trade_date 默认检查当天，所以无需传递参数
+        if not TradeCalendar.is_trade_date():
+            # is_trade_date() 方法内部已经包含了调试用的print语句
+            message = f"今天 ({timezone.now().date()}) 不是交易日，跳过所有分钟数据获取任务。"
+            logger.info(message)
+            return {"status": "skipped", "message": message}
+
         total_dispatched_batches = 0
         stock_basic_dao = StockBasicInfoDao()
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
         all_stock_codes = [stock.stock_code for stock in all_stocks]
-        if not all_stocks:
+        
+        if not all_stock_codes:
             logger.warning("未找到任何股票代码，跳过任务")
             return {"status": "skipped", "message": "未找到任何股票代码"}
-        total_codes_count = len(all_stocks)  # 用于统计总代码数量
-        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
+            
+        total_codes_count = len(all_stock_codes)
+        logger.info(f"今天是交易日，准备为 {total_codes_count} 个股票分派批量任务...")
+        
         for i in range(0, total_codes_count, batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
             if batch_codes:
-                # 使用新的批量任务，并指定队列
                 save_stocks_minute_data_today_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str).set().apply_async()
                 total_dispatched_batches += 1
+                
         logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
     except Exception as e:
@@ -136,18 +157,42 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_yesterday_batch', queue='SaveData_TimeTrade')
-def save_stocks_minute_data_yesterday_batch(self, stock_codes):
+def save_stocks_minute_data_yesterday_batch(self, stock_codes: list):
     """
-    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
+    从Tushare批量获取并保存上一个交易日的分钟级交易数据（异步并发处理）
     Args:
         stock_codes: 股票代码列表
     """
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        print("开始保存 分钟数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_minute_time_trade_yesterday(stock_codes=stock_codes))
-        print(f"保存股票 {len(stock_codes)} 个的分钟级交易数据完成。结果: {result}")
+        # 新增：调用TradeCalendar模型的方法获取今天之前的最近一个交易日
+        # print("调试: 正在查询上一个交易日...")
+        latest_trade_date = TradeCalendar.get_latest_trade_date()
+
+        if not latest_trade_date:
+            logger.warning("未能从交易日历中获取到上一个交易日，任务终止。")
+            print("调试: 未能获取到上一个交易日，任务终止。")
+            return
+
+        # print(f"调试: 获取到上一个交易日为: {latest_trade_date}")
+
+        # 新增：根据获取到的交易日，构建开始和结束时间字符串
+        start_date_str = f"{latest_trade_date} 00:00:00"
+        end_date_str = f"{latest_trade_date} 23:59:59"
+        
+        print(f"开始保存 {len(stock_codes)} 个股票, 交易日 {latest_trade_date} 的分钟数据任务...")
+        
+        # 修改：调用重构后的历史数据保存方法，传入精确的日期范围
+        # 这样就替代了原有的 save_minute_time_trade_yesterday 方法
+        asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
+            stock_codes=stock_codes,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str
+        ))
+        
+        print(f"保存股票 {len(stock_codes)} 个的上一个交易日 ({latest_trade_date}) 分钟级交易数据完成。")
+
     except Exception as e:
         logger.error(f"save_stocks_minute_data_yesterday_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
