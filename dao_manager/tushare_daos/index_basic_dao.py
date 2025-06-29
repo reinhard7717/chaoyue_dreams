@@ -1,4 +1,5 @@
 # dao_manager\tushare_daos\index_basic_dao.py
+import asyncio
 import logging
 import time
 from django.utils import timezone
@@ -420,72 +421,110 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, index_codes: list = None) -> Dict:
         """
-        保存指数每日指标到数据库
-        接口：index_daily，可以通过数据工具调试和查看数据。
-        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
-        数据来源：Tushare社区统计计算
+        【优化版】保存指数每日指标到数据库
+        接口：index_daily
+        描述：获取指定指数列表或全部指数的每日行情数据并保存。
+        
+        优化点:
+        1.  **消除N+1查询**: 在循环前一次性获取所有需要的IndexInfo对象，存入字典中快速查找，避免循环查询数据库。
+        2.  **代码结构优化**: 将常量提取出来，提高可读性和可维护性。
+        3.  **日志改进**: 使用更详细的日志记录代替部分print，便于追踪。
+        4.  **输入处理**: 优化了当 index_codes 未提供时的处理逻辑，直接调用高效的 get_all_index_codes 方法。
         """
-        if index_codes is None:
-            index_list = await self.get_index_list()  # index_list 是 List[IndexInfo]
-            index_codes = [index.index_code for index in index_list]
-        else:
-            index_codes = index_codes
-        today = datetime.datetime.today()
-        today_str = today.strftime('%Y%m%d')
-        print(f"指数数量: {len(index_codes)}")
+        # --- 1. 定义常量和初始化 ---
+        BATCH_SAVE_SIZE = 100000  # 每10万条数据保存一次
+        API_REQUEST_LIMIT = 8000  # Tushare API单次请求最大行数
+        API_CALL_DELAY_SECONDS = 0.7 # Tushare API调用间隔，避免频率超限
+        
+        today = datetime.date.today() # 代码修改处: 使用 date 对象，与 start_date/end_date 类型统一
+        
+        # --- 2. 获取并准备指数代码和信息 ---
+        if not index_codes:
+            logger.info("未提供指数代码列表，将获取所有指数代码。")
+            index_codes = await self.get_all_index_codes() # 代码修改处: 调用您新增的高效方法
+        
+        if not index_codes:
+            logger.warning("数据库中无任何指数信息，任务提前结束。")
+            return {"status": "warning", "message": "No index codes found."}
+
+        # 代码修改处: (核心优化) 一次性查询所有需要的 IndexInfo 对象
+        logger.info(f"准备处理 {len(index_codes)} 个指数。正在一次性从数据库获取其详细信息...")
+        index_info_queryset = IndexInfo.objects.filter(index_code__in=index_codes)
+        # 代码修改处: 将查询结果构建成字典以便O(1)复杂度快速查找
+        index_info_map = {info.index_code: info async for info in index_info_queryset}
+        logger.info(f"成功获取并映射了 {len(index_info_map)} 个指数的详细信息。")
+
+        # --- 3. 循环处理每个指数 ---
         index_daily_dicts = []
-        batch_size = 100000  # 每10万条保存一次
-        result = None  # 初始化result，防止未保存时未定义
-        for i,index_code in enumerate(index_codes):
-            index_info = await self.get_index_by_code(index_code)
-            start_date_str = index_info.list_date
-            end_date_str = today_str
-            if start_date is not None:
-                start_date_str = start_date.strftime('%Y%m%d')
-            if end_date is not None:
-                end_date_str = end_date.strftime('%Y%m%d')
+        final_result = None
+        
+        for i, index_code in enumerate(index_codes):
+            index_info = index_info_map.get(index_code) # 代码修改处: 从字典中快速获取，无DB查询
+            if not index_info:
+                logger.warning(f"跳过处理: 在数据库中未找到代码为 {index_code} 的指数信息。")
+                continue
+
+            # 确定查询的起止日期
+            start_date_str = start_date.strftime('%Y%m%d') if start_date else index_info.list_date
+            end_date_str = end_date.strftime('%Y%m%d') if end_date else today.strftime('%Y%m%d')
+            
             offset = 0
-            limit = 8000
             while True:
-                if offset >= batch_size:
-                    logger.warning(f"offset已达10万，停止拉取。{index_info} 指数日线行情, freq=Day")
+                # Tushare的offset有10万的上限，这里做一个保护
+                if offset >= 100000:
+                    logger.warning(f"Tushare API offset达到10万上限，已停止为指数 {index_code} 继续拉取更早的数据。")
                     break
-                df = self.ts_pro.index_daily(**{
-                    "trade_date": "", "ts_code": index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-                }, fields=[
-                    "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol", "amount"
-                ])
-                if not df.empty:
-                    print(f"获取指数日线行情: {i+1}/{len(index_codes)} {index_info}, start_date: {start_date_str}, end_date: {end_date_str}，数据长度: {len(df)}")
-                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                    for row in df.itertuples():
+                
+                # 调用Tushare API
+                df = self.ts_pro.index_daily(
+                    ts_code=index_code, 
+                    start_date=start_date_str, 
+                    end_date=end_date_str, 
+                    limit=API_REQUEST_LIMIT, 
+                    offset=offset
+                )
+                
+                if df is not None and not df.empty:
+                    logger.info(f"进度: {i+1}/{len(index_codes)} | 指数: {index_code} | 日期: {start_date_str}-{end_date_str} | 本次获取: {len(df)}条 | 累计待存: {len(index_daily_dicts) + len(df)}条")
+                    
+                    # 数据清洗和格式化
+                    df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+                    df.where(pd.notnull(df), None, inplace=True)
+                    for row in df.itertuples(index=False):
                         index_daily_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
                         index_daily_dicts.append(index_daily_dict)
-                    # 每累计10万条数据就保存一次
-                    if len(index_daily_dicts) >= batch_size:
-                        print(f"已累计{len(index_daily_dicts)}条数据，开始批量保存到数据库。")
-                        result = await self._save_all_to_db_native_upsert(
+                    
+                    # --- 4. 批量保存数据 ---
+                    if len(index_daily_dicts) >= BATCH_SAVE_SIZE:
+                        logger.info(f"数据缓存池达到 {len(index_daily_dicts)} 条，开始批量写入数据库...")
+                        final_result = await self._save_all_to_db_native_upsert(
                             model_class=IndexDaily,
                             data_list=index_daily_dicts,
                             unique_fields=['index_code', 'trade_time']
                         )
-                        print(f"批量保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
-                        index_daily_dicts.clear()  # 清空缓存，继续累计
-                time.sleep(0.7)
-                if len(df) < limit:
-                    break
-                offset += limit
-        # 循环结束后，若还有未保存的数据，最后再保存一次
+                        logger.info(f"批量写入完成。结果: {final_result}")
+                        index_daily_dicts.clear()
+                
+                # API调用延迟
+                await asyncio.sleep(API_CALL_DELAY_SECONDS) # 代码修改处: 使用 asyncio.sleep 替代 time.sleep
+                
+                if df is None or len(df) < API_REQUEST_LIMIT:
+                    break # 如果返回数据为空或小于limit，说明已获取完所有数据
+                
+                offset += API_REQUEST_LIMIT
+
+        # --- 5. 保存循环结束后剩余的数据 ---
         if index_daily_dicts:
-            print(f"最后剩余{len(index_daily_dicts)}条数据，开始批量保存到数据库。")
-            result = await self._save_all_to_db_native_upsert(
+            logger.info(f"所有指数处理完毕，正在保存最后剩余的 {len(index_daily_dicts)} 条数据...")
+            final_result = await self._save_all_to_db_native_upsert(
                 model_class=IndexDaily,
                 data_list=index_daily_dicts,
                 unique_fields=['index_code', 'trade_time']
             )
-            print(f"保存指数日线行情到数据库，start_date: {start_date_str}, end_date: {end_date_str}, result: {result}")
-        return result
+            logger.info(f"最后的批量写入完成。结果: {final_result}")
+
+        logger.info("指数每日指标历史数据保存任务全部完成。")
+        return final_result
 
     # ============== 大盘指数每日指标 ==============
     async def get_index_daily_basic_by_limit(self, index_code: str, limit: int) -> List['IndexDailyBasic']:
