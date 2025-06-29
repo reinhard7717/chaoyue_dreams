@@ -2,12 +2,10 @@
 import asyncio
 import logging
 import datetime
-import time
+from celery import group
 from django.db.models import Q
 from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
-# from celery import chain # 不再需要 chain，除非有后续步骤
-from celery.utils.log import get_task_logger
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -87,66 +85,187 @@ async def _get_all_relevant_stock_codes_for_processing():
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
 #  ================ （当日）个股日级资金流向数据 （三种渠道） ================
+# [新增] 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_save_today_fund_flow_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
+def execute_save_today_fund_flow_method(self, method_name: str):
+    """
+    通用子任务：执行FundFlowDao中的指定异步方法来保存当日数据。
+    此任务是原子化的，专注于单一的数据保存操作。
+    :param method_name: FundFlowDao中需要被调用的异步方法名 (字符串格式)。
+    """
+    logger.info(f"子任务启动: {method_name}")
+    print(f"调试信息：子任务 {self.request.id} 启动，执行异步方法: {method_name}")
+    try:
+        fund_flow_dao = FundFlowDao()
+        # 使用getattr动态获取DAO实例的异步方法
+        save_method = getattr(fund_flow_dao, method_name)
+        # [关键修改] 在独立的子任务中正确使用 asyncio.run()
+        asyncio.run(save_method())
+        logger.info(f"子任务成功: {method_name}")
+        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
+        return {"status": "success", "method": method_name}
+    except Exception as e:
+        logger.error(f"执行子任务 {method_name} 时出错: {e}", exc_info=True)
+        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
+        # 触发Celery的重试机制
+        raise self.retry(exc=e, countdown=60, max_retries=3)
+
+# [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_today(self):
     """
-    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
+    [修改] 调度器任务（编排者）：
+    负责并行分派获取当日三种渠道资金流数据的子任务。
     """
-    logger.info(f"开始处理（当日）日级资金流向数据 （三种渠道）...")
-    # 在任务开始时创建一次 DAO 实例
-    fund_flow_dao = FundFlowDao()
+    logger.info(f"任务启动: save_fund_flow_daily_data_today (编排者模式) - 准备分派并行子任务")
+    print(f"调试信息：主任务 {self.request.id} 启动，准备分派当日资金流数据获取任务组。")
     try:
-        # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_today_fund_flow_daily_data())
-        asyncio.run(fund_flow_dao.save_today_fund_flow_daily_ths_data())
-        asyncio.run(fund_flow_dao.save_today_fund_flow_daily_dc_data())
+        # [修改] 定义需要并行执行的所有异步数据保存方法名
+        target_methods = [
+            'save_today_fund_flow_daily_data',
+            'save_today_fund_flow_daily_ths_data',
+            'save_today_fund_flow_daily_dc_data'
+        ]
+        # [修改] 使用列表推导式和 .s() 方法创建一组任务签名
+        task_signatures = [
+            execute_save_today_fund_flow_method.s(method_name=method)
+            for method in target_methods
+        ]
+        # [修改] 使用 group 将所有任务签名组合成一个可并行执行的任务组
+        task_group = group(task_signatures)
+        # [修改] 异步执行任务组
+        result = task_group.apply_async()
+        logger.info(f"任务组成功分派. Group ID: {result.id}. 包含 {len(target_methods)} 个子任务.")
+        print(f"调试信息：任务组 {result.id} 已成功分派，包含 {len(target_methods)} 个子任务。")
+        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(target_methods)}
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"执行 save_fund_flow_daily_data_today (编排者模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
+
 
 #  ================ （昨日）个股日级资金流向数据 （三种渠道） ================
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_fund_flow_dao_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
+def execute_fund_flow_dao_method(self, method_name: str):
+    """
+    [重构] 通用执行者子任务：
+    执行FundFlowDao中的指定异步方法。此任务是原子化的，可重试的，并且可被任何编排者任务调用。
+    :param method_name: FundFlowDao中需要被调用的异步方法名 (字符串格式)。
+    """
+    logger.info(f"通用子任务启动: {method_name}")
+    print(f"调试信息：子任务 {self.request.id} 启动，执行异步方法: {method_name}")
+    try:
+        fund_flow_dao = FundFlowDao()
+        # 使用getattr动态获取DAO实例的异步方法
+        save_method = getattr(fund_flow_dao, method_name)
+        # 在独立的子任务中正确使用 asyncio.run() 来桥接同步和异步
+        asyncio.run(save_method())
+        logger.info(f"通用子任务成功: {method_name}")
+        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
+        return {"status": "success", "method": method_name}
+    except Exception as e:
+        logger.error(f"执行通用子任务 {method_name} 时出错: {e}", exc_info=True)
+        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
+        # 触发Celery的重试机制，例如60秒后重试，最多3次
+        raise self.retry(exc=e, countdown=60, max_retries=3)
+
+# [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_yesterday(self):
     """
-    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
+    [修改] 调度器任务（编排者）：
+    负责并行分派获取【昨日】三种渠道资金流数据的子任务。
     """
-    logger.info(f"开始处理（当日）日级资金流向数据 （三种渠道）...")
-    # 在任务开始时创建一次 DAO 实例
-    fund_flow_dao = FundFlowDao()
+    logger.info(f"任务启动: save_fund_flow_daily_data_yesterday (编排者模式) - 准备分派并行子任务")
+    print(f"调试信息：主任务 {self.request.id} 启动，准备分派【昨日】资金流数据获取任务组。")
     try:
-        # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_daily_data())
-        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_daily_ths_data())
-        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_daily_dc_data())
+        # [修改] 定义需要并行执行的所有【昨日】数据保存方法名
+        target_methods = [
+            'save_yesterday_fund_flow_daily_data',
+            'save_yesterday_fund_flow_daily_ths_data',
+            'save_yesterday_fund_flow_daily_dc_data'
+        ]
+        # [修改] 使用列表推导式和 .s() 方法创建一组对【通用执行者】的任务签名
+        task_signatures = [
+            execute_fund_flow_dao_method.s(method_name=method)
+            for method in target_methods
+        ]
+        # [修改] 使用 group 将所有任务签名组合成一个可并行执行的任务组
+        task_group = group(task_signatures)
+        # [修改] 异步执行任务组
+        result = task_group.apply_async()
+        logger.info(f"任务组成功分派. Group ID: {result.id}. 包含 {len(target_methods)} 个子任务.")
+        print(f"调试信息：任务组 {result.id} 已成功分派，包含 {len(target_methods)} 个子任务。")
+        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(target_methods)}
     except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        logger.error(f"执行 save_fund_flow_daily_data_yesterday (编排者模式) 时出错: {e}", exc_info=True)
+        return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
 
 #  ================ （本周）日级资金流向数据（三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_data_this_week_task', queue='SaveData_TimeTrade')
+# [新增] 创建一个通用的、原子化的子任务，用于执行具体的数据保存操作
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_save_fund_flow_method', queue='SaveData_TimeTrade', acks_late=True)
+def execute_save_fund_flow_method(self, method_name: str, start_date: str, end_date: str):
+    """
+    通用子任务：执行FundFlowDao中的指定方法来保存数据。
+    这个任务是原子化的，专注于单一的数据保存操作，便于重试和并发。
+    :param method_name: FundFlowDao中需要被调用的方法名 (字符串格式)。
+    :param start_date: 开始日期。
+    :param end_date: 结束日期。
+    """
+    logger.info(f"子任务启动: {method_name}, 日期范围: {start_date} 到 {end_date}")
+    print(f"调试信息：子任务 {self.request.id} 启动，执行方法: {method_name}")
+    try:
+        ff_dao = FundFlowDao()
+        # 使用getattr动态获取并调用DAO实例的方法
+        save_method = getattr(ff_dao, method_name)
+        save_method(start_date=start_date, end_date=end_date)
+        logger.info(f"子任务成功: {method_name}")
+        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
+        return {"status": "success", "method": method_name}
+    except Exception as e:
+        logger.error(f"执行子任务 {method_name} 时出错: {e}", exc_info=True)
+        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
+        # 触发Celery的重试机制，例如在60秒后重试，最多3次
+        raise self.retry(exc=e, countdown=60, max_retries=3)
+
+# [修改] 原任务被重构为编排和分派任务
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_data_this_week_task', queue='celery')
 def save_fund_flow_data_this_week_task(self):
     """
-    调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
-    这个任务由 Celery Beat 调度。
+    [修改] 调度器任务（编排者）：
+    1. 获取本周的起止日期。
+    2. 定义所有需要执行的数据保存任务列表。
+    3. 使用 Celery group 将这些任务作为一组并行分派到队列中。
+    这个任务由 Celery Beat 调度，负责启动一周数据的并行更新流程。
     """
-    logger.info(f"任务启动: save_fund_flow_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
-    stock_basic_dao = StockBasicInfoDao()
-    ff_dao = FundFlowDao()
-    this_monday, this_friday = get_this_monday_and_friday()
+    logger.info(f"任务启动: save_fund_flow_data_this_week_task (编排者模式) - 准备分派并行子任务")
     try:
-        ff_dao.save_history_fund_flow_daily_data_by_trade_date(start_date=this_monday, end_date=this_friday)
-        ff_dao.save_history_fund_flow_daily_ths_data_by_trade_date(start_date=this_monday, end_date=this_friday)
-        ff_dao.save_history_fund_flow_cnt_ths_data(start_date=this_monday, end_date=this_friday)
-        ff_dao.save_history_fund_flow_industry_ths_data(start_date=this_monday, end_date=this_friday)
-        logger.info(f"任务结束: save_fund_flow_data_this_week_task (调度器模式)")
+        this_monday, this_friday = get_this_monday_and_friday()
+        # [修改] 定义需要并行执行的所有数据保存方法名
+        target_methods = [
+            'save_history_fund_flow_daily_data_by_trade_date',
+            'save_history_fund_flow_daily_ths_data_by_trade_date',
+            'save_history_fund_flow_cnt_ths_data',
+            'save_history_fund_flow_industry_ths_data'
+        ]
+        # [修改] 使用列表推导式和 .s() 方法创建一组任务签名 (signature)
+        # .s() 创建了一个任务的“签名”，它包含了任务名和所有参数，但不会立即执行
+        task_signatures = [
+            execute_save_fund_flow_method.s(method_name=method, start_date=this_monday, end_date=this_friday)
+            for method in target_methods
+        ]
+        # [修改] 使用 group 将所有任务签名组合成一个可并行执行的任务组
+        task_group = group(task_signatures)
+        print(f"调试信息：准备分派 {len(target_methods)} 个资金流数据保存子任务...")
+        # [修改] 异步执行任务组
+        result = task_group.apply_async()
+        logger.info(f"任务组成功分派. Group ID: {result.id}. 包含 {len(target_methods)} 个子任务.")
+        print(f"调试信息：任务组 {result.id} 已成功分派。")
+        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(target_methods)}
     except Exception as e:
-        logger.error(f"执行 save_fund_flow_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
-        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+        logger.error(f"执行 save_fund_flow_data_this_week_task (编排者模式) 时出错: {e}", exc_info=True)
+        # [修改] 返回值更清晰地反映了错误情况
+        return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
+
 
 #  ================ （历史）日级资金流向数据（三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
