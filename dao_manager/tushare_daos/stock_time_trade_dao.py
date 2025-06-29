@@ -1078,7 +1078,7 @@ class StockTimeTradeDAO(BaseDAO):
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockDailyBasic,
                     data_list=data_dicts,
-                    unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+                    unique_fields=['stock_code', 'trade_time'] # ORM 能处理 stock 实例
                 )
                 print(f"保存 {trade_date_str} 股票重要的基本面指标 完成。result: {result}")
         else:
@@ -1116,7 +1116,7 @@ class StockTimeTradeDAO(BaseDAO):
                 result = await self._save_all_to_db_native_upsert(
                     model_class=StockDailyBasic,
                     data_list=data_dicts,
-                    unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+                    unique_fields=['stock_code', 'trade_time'] # ORM 能处理 stock 实例
                 )
             return result
         else:
@@ -1160,7 +1160,7 @@ class StockTimeTradeDAO(BaseDAO):
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockDailyBasic,
                 data_list=data_dicts,
-                unique_fields=['stock_code', 'trade_date'] # ORM 能处理 stock 实例
+                unique_fields=['stock_code', 'trade_time'] # ORM 能处理 stock 实例
             )
         else:
             result = []
