@@ -326,6 +326,7 @@ class TrendFollowStrategy:
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params)
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
         cond_cmf_confirm = self._check_cmf_confirmation(df, params)
+        cond_vwap_support = self._check_vwap_confirmation(df_dict, params)
         cond_gap_support_state = self._check_upward_gap_support(df, params)
         board_patterns = self._identify_board_patterns(df, params)
         cond_earth_heaven_board, cond_turnover_board, cond_heaven_earth_board = board_patterns.get('earth_heaven_board', pd.Series(False, index=df.index)), board_patterns.get('turnover_board', pd.Series(False, index=df.index)), board_patterns.get('heaven_earth_board', pd.Series(False, index=df.index))
@@ -403,6 +404,7 @@ class TrendFollowStrategy:
         has_positive_score = score_details_df.sum(axis=1) > 0
 
         # 协同奖励（加法）
+        add_score(cond_vwap_support & has_positive_score, 'BONUS_VWAP_SUPPORT', points.get('BONUS_VWAP_SUPPORT', 40))
         add_score(cond_cmf_confirm & has_positive_score, 'BONUS_CMF_CONFIRM', points.get('CMF_CONFIRMATION_BONUS', 20))
         add_score(cond_fund_flow_confirm & has_positive_score, 'BONUS_FUND_FLOW_CONFIRM', points.get('FUND_FLOW_CONFIRM_BONUS', 25))
         add_score(cond_turnover_board.shift(1).fillna(False) & has_positive_score, 'BONUS_TURNOVER_BOARD', points.get('TURNOVER_BOARD_BONUS', 45))
@@ -437,6 +439,55 @@ class TrendFollowStrategy:
 
         # --- 步骤6: 计算总分并应用最终过滤器 ---
         final_score = score_details_df.fillna(0).sum(axis=1)
+
+        # --- 步骤7: 应用行业强度奖励 ---
+        print("    [调试-计分V22.0] 步骤7: 应用行业强度奖励与惩罚...")
+        # 从配置中读取新的、更详细的行业参数块
+        industry_params = self._get_params_block(params, 'industry_context_params', {})
+        
+        # 检查功能是否启用，以及关键数据列是否存在
+        if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
+            # 获取配置参数
+            weak_rank_threshold = industry_params.get('weak_rank_threshold', 0.3)
+            weak_penalty_multiplier = industry_params.get('weak_industry_penalty_multiplier', 0.7)
+            strength_multiplier_factor = industry_params.get('strength_rank_multiplier', 0.5)
+            top_tier_rank_threshold = industry_params.get('top_tier_rank_threshold', 0.9)
+            top_tier_bonus = industry_params.get('top_tier_bonus', 30)
+
+            # 获取行业排名序列
+            rank_series = df['industry_strength_rank_D']
+            
+            # 创建一个掩码，标记哪些日子有正分，奖励和惩罚只对这些日子生效
+            has_entry_score = final_score > 0
+            
+            # 1. 应用惩罚和奖励乘数
+            # 初始化乘数序列，默认为1（无影响）
+            multiplier = pd.Series(1.0, index=df.index)
+            
+            # 对弱势行业应用惩罚
+            is_weak = (rank_series < weak_rank_threshold) & has_entry_score
+            multiplier.loc[is_weak] = weak_penalty_multiplier
+            
+            # 对非弱势行业应用奖励
+            is_strong = (rank_series >= weak_rank_threshold) & has_entry_score
+            multiplier.loc[is_strong] = 1 + (rank_series * strength_multiplier_factor)
+            
+            # 应用乘数
+            original_score_for_bonus_calc = final_score.copy()
+            final_score *= multiplier
+            
+            # 记录乘数带来的分数变化，用于调试
+            score_change_from_multiplier = final_score - original_score_for_bonus_calc
+            score_details_df['INDUSTRY_MULTIPLIER_ADJ'] = score_change_from_multiplier.where(score_change_from_multiplier != 0)
+
+            # 2. 对龙头板块应用额外固定奖励
+            is_top_tier = (rank_series >= top_tier_rank_threshold) & has_entry_score
+            final_score.loc[is_top_tier] += top_tier_bonus
+            
+            # 记录固定奖励分数，用于调试
+            score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
+            
+            print(f"    - [行业协同] 已根据行业排名应用奖惩。弱势惩罚阈值: {weak_rank_threshold:.0%}, 龙头奖励阈值: {top_tier_rank_threshold:.0%}")
 
         # 风险否决
         final_score.loc[kline_strong_bearish] = 0
@@ -2020,5 +2071,48 @@ class TrendFollowStrategy:
         is_confirmed = (df['fund_buy_lg_amount_D'] > threshold) & (df.get('fund_net_d5_amount_D', 0) > 0)
         return is_confirmed
 
+    def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
+        """
+        【新增】检查VWAP支撑确认信号。
+        当价格在指定的分钟图上站稳VWAP时，返回True。
+        """
+        vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
+        if not vwap_params.get('enabled', False):
+            # 如果禁用或df_dict为空，返回一个全为False的Series
+            if 'D' in df_dict and not df_dict['D'].empty:
+                return pd.Series(False, index=df_dict['D'].index)
+            return pd.Series([])
 
+        tf = vwap_params.get('timeframe', '5')
+        buffer = vwap_params.get('confirmation_buffer', 0.001)
+        
+        df_minute = df_dict.get(tf)
+        df_daily = df_dict.get('D')
+
+        # 检查所需数据是否存在
+        if df_minute is None or df_minute.empty or 'VWAP_D' not in df_minute.columns:
+             if not hasattr(self, '_warned_missing_vwap_col'):
+                logger.warning(f"缺少 {tf} 分钟线的 'VWAP_D' 列，VWAP确认功能将不生效。")
+                self._warned_missing_vwap_col = True
+             return pd.Series(False, index=df_daily.index)
+
+        # 核心逻辑：价格上穿并站稳VWAP
+        # close_col的后缀需要根据df_minute的列名动态确定
+        close_col = f'close_{tf}'
+        vwap_col = 'VWAP_D' # pandas_ta默认列名
+        
+        # 1. 识别在分钟线上，价格高于VWAP的时刻
+        is_above_vwap = df_minute[close_col] > df_minute[vwap_col] * (1 + buffer)
+        
+        # 2. 将这个分钟线信号聚合到日线级别
+        # 只要当天有任何一个分钟K线满足条件，就认为当天获得了VWAP支撑
+        daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.date).any()
+        
+        # 3. 将结果映射回日线DataFrame的索引
+        # 创建一个与日线df对齐的Series
+        final_signal = pd.Series(False, index=df_daily.index)
+        # 使用日线索引的日期部分去匹配聚合后的结果
+        final_signal.loc[final_signal.index.date_อยู่ใน(daily_confirmation.index)] = daily_confirmation.values
+        
+        return final_signal
 

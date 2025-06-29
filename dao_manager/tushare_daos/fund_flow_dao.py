@@ -10,6 +10,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyDC, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
+from stock_models.market import LimitListThs
 from utils.data_format_process import FundFlowFormatProcess
 
 logger = logging.getLogger("dao")
@@ -1035,7 +1036,104 @@ class FundFlowDao(BaseDAO):
             )
         return result
 
+    # ============== 涨跌停榜单 - 同花顺 ==============
+    async def save_limit_list_ths(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
+        """
+        【修改】保存同花顺涨跌停榜单数据 (limit_list_ths接口)
+        """
+        # --- 参数处理，保持不变 ---
+        # 优雅地处理日期参数，如果为None则生成空字符串
+        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+        
+        # --- 分页拉取逻辑，保持并优化 ---
+        offset = 0
+        limit = 500  # Tushare单次最大返回5000，这里用500作为分页大小是稳妥的
+        data_dicts = []
+        
+        print(f"开始拉取同花顺涨跌停榜单数据... trade_date: {trade_date_str}, start_date: {start_date_str}, end_date: {end_date_str}")
 
+        while True:
+            # 【新增】增加安全退出机制，防止意外的无限循环
+            if offset >= 100000:
+                logger.warning(f"同花顺涨跌停榜单 offset已达10万，为安全起见停止拉取。")
+                break
+            
+            try:
+                # 【修改】调用正确的Tushare接口：limit_list_ths
+                df = self.ts_pro.limit_list_ths(**{
+                    "trade_date": trade_date_str,
+                    "start_date": start_date_str,
+                    "end_date": end_date_str,
+                    "limit": limit,
+                    "offset": offset
+                    # ts_code, limit_type, market 等参数留空，表示获取全部
+                }, fields=[
+                    "trade_date", "ts_code", "name", "price", "pct_chg", "open_num",
+                    "lu_desc", "limit_type", "tag", "status", "limit_order", "limit_amount",
+                    "turnover_rate", "free_float", "lu_limit_order", "limit_up_suc_rate",
+                    "turnover", "market_type", "first_lu_time", "last_lu_time",
+                    "first_ld_time", "last_ld_time", "rise_rate", "sum_float"
+                ])
+            except Exception as e:
+                # 【新增】增加异常捕获，防止因API问题导致程序崩溃
+                logger.error(f"拉取同花顺涨跌停榜单时发生异常: {e}")
+                break # 发生异常时，终止循环
+
+            # --- 数据处理逻辑，保持并优化 ---
+            if df.empty:
+                # 如果当前分页返回数据为空，说明已经拉取完毕
+                print(f"拉取完成，在 offset={offset} 处未获取到更多数据。")
+                break
+            else:
+                print(f"成功拉取到 {len(df)} 条数据，offset={offset}, limit={limit}")
+                # 【保持】优秀的数据清洗逻辑：将各种空值统一处理为None，便于数据库存储
+                df = df.replace(['nan', 'NaN', ''], np.nan)
+                df = df.where(pd.notnull(df), None)
+                
+                # 遍历DataFrame，准备存入数据库的数据
+                for row in df.itertuples(index=False):
+                    # 【保持】通过缓存高效获取关联的StockInfo对象
+                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
+                    if stock:
+                        # 【修改】调用与LimitListThs模型匹配的数据格式化方法
+                        # 你需要确保有一个 `set_limit_list_ths_data` 方法来处理数据转换
+                        data_dict = self.data_format_process.set_limit_list_ths_data(stock, row)
+                        data_dicts.append(data_dict)
+                    else:
+                        # 【新增】增加日志，记录未找到对应股票信息的情况
+                        logger.warning(f"在涨跌停榜单中找到股票 {row.ts_code}，但在StockInfo表中未找到，已跳过。")
+
+            # 【保持】礼貌地请求API，避免请求过于频繁
+            time.sleep(0.2)
+            
+            # 如果返回的数据量小于请求的limit，说明是最后一页，可以提前退出循环
+            if len(df) < limit:
+                print("已到达数据末尾，退出循环。")
+                break
+            
+            # 准备下一次分页请求
+            offset += limit
+
+        # --- 批量入库逻辑，保持并优化 ---
+        if not data_dicts:
+            # 【新增】如果没有任何数据需要保存，提前告知并返回
+            msg = f"没有需要保存的同花顺涨跌停榜单数据。查询参数: trade_date={trade_date_str}, start_date={start_date_str}, end_date={end_date_str}"
+            print(msg)
+            return {"status": "success", "message": msg, "saved_count": 0}
+
+        # 【修改】调用批量保存方法，并使用正确的模型和唯一键
+        result = await self._save_all_to_db_native_upsert(
+            model_class=LimitListThs,  # 【修改】使用正确的模型 LimitListThs
+            data_list=data_dicts,
+            # 【修改】使用与模型定义匹配的联合唯一键
+            unique_fields=['trade_date', 'stock', 'limit_type'] 
+        )
+        
+        # 打印最终结果
+        print(f"完成同花顺涨跌停榜单数据保存，结果: {result}")
+        return result
 
 
 

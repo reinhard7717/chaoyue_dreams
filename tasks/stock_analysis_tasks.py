@@ -173,6 +173,81 @@ def run_multi_timeframe_strategy_task(self, stock_code: str, trade_time_str: str
         logger.error(f"执行 'run_multi_timeframe_strategy_task' on {stock_code} 时出错: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
+# --- 调度任务 (修改以传递 is_favorite 标志) ---
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
+def analyze_all_stocks(self, day_count: int = -1, params_file: str = "config/monthly_trend_follow_strategy.json"):
+    try:
+        logger.info("开始调度所有股票的分析任务")
+        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        if not non_favorite_codes and not favorite_codes:
+            logger.warning("未找到任何股票数据，任务终止")
+            return {"status": "failed", "reason": "no stocks found"}
+        stock_count = len(favorite_codes) + len(non_favorite_codes)
+        logger.info(f"找到 {stock_count} 只股票待分析，使用统一参数文件: {params_file}")
+        
+        # ▼▼▼ 修改/新增 ▼▼▼
+        # 核心修复：获取当前日期字符串，并将其传递给子任务
+        trade_time_str = datetime.now().strftime('%Y-%m-%d')
+        logger.info(f"所有任务将使用统一的分析截止日期: {trade_time_str}")
+        # ▲▲▲ 修改/新增 ▲▲▲
+        
+        # --- 为任务传递 is_favorite=True ---
+        for stock_code in favorite_codes:
+            # ▼▼▼ 修改/新增 ▼▼▼
+            # 核心修复：现在传递两个参数 stock_code 和 trade_time_str
+            run_multi_timeframe_strategy_task.s(stock_code, trade_time_str).set(queue='favorite_calculate_strategy').apply_async()
+            # ▲▲▲ 修改/新增 ▲▲▲
+        
+        # --- 为任务传递 is_favorite=False ---
+        for stock_code in non_favorite_codes:
+            # ▼▼▼ 修改/新增 ▼▼▼
+            # 核心修复：现在传递两个参数 stock_code 和 trade_time_str
+            run_multi_timeframe_strategy_task.s(stock_code, trade_time_str).set(queue='calculate_strategy').apply_async()
+            # ▲▲▲ 修改/新增 ▲▲▲
+        
+        logger.info(f"已调度 {len(favorite_codes)} 只股票的favorite分析任务")
+        logger.info(f"已调度 {len(non_favorite_codes)} 只股票的non_favorite分析任务")
+        return {"status": "started",  "stock_count": stock_count}
+    except Exception as e:
+        logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='celery')
+def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/monthly_trend_follow_strategy.json", day_count: int = -1):
+    # 注意：此处的 params_file 必须包含所有要运行策略的指标配置
+    print(f"批量分析任务启动，传入股票数: {len(stock_codes)}，使用统一参数文件: {params_file}")
+    # 获取关注和非关注股票代码集合
+    favorite_stock_codes, non_favorite_stock_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+    favorite_stock_codes_set = set(favorite_stock_codes)
+    non_favorite_stock_codes_set = set(non_favorite_stock_codes)
+
+    # 优化：只遍历一次stock_codes，归类到两个列表
+    favorite_list = []
+    non_favorite_list = []
+    for code in stock_codes:
+        if code in favorite_stock_codes_set:
+            favorite_list.append(code)
+        elif code in non_favorite_stock_codes_set:
+            non_favorite_list.append(code)
+        # print(f"自选股{len(favorite_list)}个，非自选股{len(non_favorite_list)}个")
+    
+    # --- 为任务传递 is_favorite=True ---
+    if favorite_list:
+        favorite_group = group(analyze_single_stock.s(code, params_file, day_count, is_favorite=True).set(queue='favorite_calculate_strategy') for code in favorite_list)
+        favorite_result = favorite_group.apply_async()
+        print(f"已分发{len(favorite_list)}个自选股分析子任务")
+        
+    # --- 为任务传递 is_favorite=False ---
+    if non_favorite_list:
+        non_favorite_group = group(analyze_single_stock.s(code, params_file, day_count, is_favorite=False).set(queue='calculate_strategy') for code in non_favorite_list)
+        non_favorite_result = non_favorite_group.apply_async()
+        print(f"已分发{len(non_favorite_list)}个非自选股分析子任务")    
+    
+    return {"status": "dispatched", "favorite_count": len(favorite_list), "non_favorite_count": len(non_favorite_list)}
+
+
+
+
 # 新增辅助函数 1: 负责执行【新版】月线趋势跟踪策略 (自包含数据准备)
 def _run_monthly_strategy(stock_code: str, trade_time_str: str) -> Dict:
     """
@@ -315,75 +390,3 @@ def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_tim
     
     logger.info(f"--- 完成股票 {stock_code} 在 {trade_time} 的所有策略分析 ---")
     return {"stock_code": stock_code, "status": "completed", "results": results}
-
-# --- 调度任务 (修改以传递 is_favorite 标志) ---
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
-def analyze_all_stocks(self, day_count: int = -1, params_file: str = "config/monthly_trend_follow_strategy.json"):
-    try:
-        logger.info("开始调度所有股票的分析任务")
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-        if not non_favorite_codes and not favorite_codes:
-            logger.warning("未找到任何股票数据，任务终止")
-            return {"status": "failed", "reason": "no stocks found"}
-        stock_count = len(favorite_codes) + len(non_favorite_codes)
-        logger.info(f"找到 {stock_count} 只股票待分析，使用统一参数文件: {params_file}")
-        
-        # ▼▼▼ 修改/新增 ▼▼▼
-        # 核心修复：获取当前日期字符串，并将其传递给子任务
-        trade_time_str = datetime.now().strftime('%Y-%m-%d')
-        logger.info(f"所有任务将使用统一的分析截止日期: {trade_time_str}")
-        # ▲▲▲ 修改/新增 ▲▲▲
-        
-        # --- 为任务传递 is_favorite=True ---
-        for stock_code in favorite_codes:
-            # ▼▼▼ 修改/新增 ▼▼▼
-            # 核心修复：现在传递两个参数 stock_code 和 trade_time_str
-            run_multi_timeframe_strategy_task.s(stock_code, trade_time_str).set(queue='favorite_calculate_strategy').apply_async()
-            # ▲▲▲ 修改/新增 ▲▲▲
-        
-        # --- 为任务传递 is_favorite=False ---
-        for stock_code in non_favorite_codes:
-            # ▼▼▼ 修改/新增 ▼▼▼
-            # 核心修复：现在传递两个参数 stock_code 和 trade_time_str
-            run_multi_timeframe_strategy_task.s(stock_code, trade_time_str).set(queue='calculate_strategy').apply_async()
-            # ▲▲▲ 修改/新增 ▲▲▲
-        
-        logger.info(f"已调度 {len(favorite_codes)} 只股票的favorite分析任务")
-        logger.info(f"已调度 {len(non_favorite_codes)} 只股票的non_favorite分析任务")
-        return {"status": "started",  "stock_count": stock_count}
-    except Exception as e:
-        logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
-        return {"status": "failed", "reason": str(e)}
-    
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_batch_stocks', queue='celery')
-def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/monthly_trend_follow_strategy.json", day_count: int = -1):
-    # 注意：此处的 params_file 必须包含所有要运行策略的指标配置
-    print(f"批量分析任务启动，传入股票数: {len(stock_codes)}，使用统一参数文件: {params_file}")
-    # 获取关注和非关注股票代码集合
-    favorite_stock_codes, non_favorite_stock_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
-    favorite_stock_codes_set = set(favorite_stock_codes)
-    non_favorite_stock_codes_set = set(non_favorite_stock_codes)
-
-    # 优化：只遍历一次stock_codes，归类到两个列表
-    favorite_list = []
-    non_favorite_list = []
-    for code in stock_codes:
-        if code in favorite_stock_codes_set:
-            favorite_list.append(code)
-        elif code in non_favorite_stock_codes_set:
-            non_favorite_list.append(code)
-        # print(f"自选股{len(favorite_list)}个，非自选股{len(non_favorite_list)}个")
-    
-    # --- 为任务传递 is_favorite=True ---
-    if favorite_list:
-        favorite_group = group(analyze_single_stock.s(code, params_file, day_count, is_favorite=True).set(queue='favorite_calculate_strategy') for code in favorite_list)
-        favorite_result = favorite_group.apply_async()
-        print(f"已分发{len(favorite_list)}个自选股分析子任务")
-        
-    # --- 为任务传递 is_favorite=False ---
-    if non_favorite_list:
-        non_favorite_group = group(analyze_single_stock.s(code, params_file, day_count, is_favorite=False).set(queue='calculate_strategy') for code in non_favorite_list)
-        non_favorite_result = non_favorite_group.apply_async()
-        print(f"已分发{len(non_favorite_list)}个非自选股分析子任务")    
-    
-    return {"status": "dispatched", "favorite_count": len(favorite_list), "non_favorite_count": len(non_favorite_list)}

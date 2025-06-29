@@ -16,7 +16,7 @@ from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from stock_models.industry import ThsIndex, ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
-from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
+from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyBasic, StockDailyData, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
 # 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC, FundFlowCntTHS, FundFlowIndustryTHS
 from utils.cache_get import  StockTimeTradeCacheGet
@@ -766,6 +766,176 @@ class IndicatorDAO(BaseDAO):
             
         df = pd.DataFrame(list(data))
         print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
+        return df
+
+    @sync_to_async
+    def get_latest_industry_fund_flow(self, industry_code: str, trade_date: datetime.date) -> Optional[FundFlowIndustryTHS]:
+        """
+        【已实现】获取单个行业在指定日期或之前的最新一条资金流数据。
+        这对于获取当日的“领涨股”等信息至关重要。
+
+        Args:
+            industry_code (str): 同花顺行业代码。
+            trade_date (datetime.date): 交易日期。
+
+        Returns:
+            Optional[FundFlowIndustryTHS]: 最新的行业资金流模型实例，或在找不到时返回 None。
+        """
+        print(f"    [DAO] 正在查询行业 {industry_code} 在 {trade_date} 或之前的最新资金流...")
+        try:
+            # 筛选小于等于指定日期的记录，按日期降序排列，取第一个
+            # .select_related('ths_index') 可以优化性能，如果后续需要访问行业名称
+            flow_data = FundFlowIndustryTHS.objects.filter(
+                ths_index__ts_code=industry_code,
+                trade_time__lte=trade_date
+            ).order_by('-trade_time').select_related('ths_index').first()
+            if flow_data:
+                print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
+            else:
+                print(f"    [DAO] 未找到行业 {industry_code} 在 {trade_date} 之前的资金流数据。")
+            return flow_data
+        except Exception as e:
+            logger.error(f"查询行业 {industry_code} 最新资金流时出错: {e}")
+            return None
+
+    @sync_to_async
+    def get_industry_members(self, industry_code: str) -> List[ThsIndexMember]:
+        """
+        【已实现】获取指定行业的所有当前成分股。
+
+        Args:
+            industry_code (str): 同花顺行业代码。
+
+        Returns:
+            List[ThsIndexMember]: 该行业的成分股模型实例列表。
+        """
+        print(f"    [DAO] 正在查询行业 {industry_code} 的所有成分股...")
+        try:
+            # 假设 is_new='Y' 或类似字段表示当前成分股，如果模型没有该字段，则移除该过滤条件
+            # .select_related('stock') 是关键的性能优化，避免 N+1 查询
+            members = list(
+                ThsIndexMember.objects.filter(
+                    ths_index__ts_code=industry_code,
+                    # is_new='Y' # 如果有该字段用于标识最新成分股，请取消注释
+                ).select_related('stock')
+            )
+            print(f"    [DAO] 成功查询到行业 {industry_code} 的 {len(members)} 只成分股。")
+            return members
+        except Exception as e:
+            logger.error(f"查询行业 {industry_code} 成分股时出错: {e}")
+            return []
+
+    @sync_to_async
+    def get_stocks_daily_data(self, stock_codes: List[str], trade_date: datetime.date) -> List[StockDailyData_SZ]:
+        """
+        【已实现】批量获取多支股票在指定日期的日线行情数据。
+
+        Args:
+            stock_codes (List[str]): 股票代码列表。
+            trade_date (datetime.date): 交易日期。
+
+        Returns:
+            List[StockDailyData_SZ]: 日线行情模型实例列表。
+        """
+        if not stock_codes:
+            return []
+        print(f"    [DAO] 正在批量查询 {len(stock_codes)} 支股票在 {trade_date} 的日线行情...")
+        try:
+            # 使用 __in 查询进行高效的批量获取
+            daily_data = list(
+                StockDailyData_SZ.objects.filter(
+                    stock__stock_code__in=stock_codes,
+                    trade_time=trade_date
+                )
+            )
+            print(f"    [DAO] 成功查询到 {len(daily_data)} 条日线行情数据。")
+            return daily_data
+        except Exception as e:
+            logger.error(f"批量查询股票日线行情时出错: {e}")
+            return []
+
+    @sync_to_async
+    def get_stocks_daily_basic(self, stock_codes: List[str], trade_date: datetime.date) -> List[StockDailyBasic]:
+        """
+        【已实现】批量获取多支股票在指定日期的每日基本面指标（包含涨停状态）。
+
+        Args:
+            stock_codes (List[str]): 股票代码列表。
+            trade_date (datetime.date): 交易日期。
+
+        Returns:
+            List[StockDailyBasic]: 每日基本面指标模型实例列表。
+        """
+        if not stock_codes:
+            return []
+        print(f"    [DAO] 正在批量查询 {len(stock_codes)} 支股票在 {trade_date} 的基本面指标（含涨停状态）...")
+        try:
+            # 使用 __in 查询进行高效的批量获取
+            basic_data = list(
+                StockDailyBasic.objects.filter(
+                    stock__stock_code__in=stock_codes,
+                    trade_time=trade_date
+                )
+            )
+            print(f"    [DAO] 成功查询到 {len(basic_data)} 条基本面指标数据。")
+            return basic_data
+        except Exception as e:
+            logger.error(f"批量查询股票每日基本面指标时出错: {e}")
+            return []
+
+    # --- 为了让之前的代码能跑通，还需要补齐这两个方法 ---
+    @sync_to_async
+    def get_all_industries(self) -> List[ThsIndex]:
+        """获取所有同花顺行业/概念指数列表"""
+        print("    [DAO] 正在获取所有行业列表...")
+        # 假设 type='N' 代表行业, 'C' 代表概念，根据你的实际情况调整
+        return list(ThsIndex.objects.filter(type='N'))
+
+    @sync_to_async
+    def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
+        """获取行业指数的历史日线行情"""
+        print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的指数行情...")
+        qs = ThsIndexDaily.objects.filter(
+            ths_index__ts_code=industry_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        ).order_by('trade_time')
+        df = pd.DataFrame(list(qs.values()))
+        if not df.empty:
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df.set_index('trade_time', inplace=True)
+        return df
+
+    @sync_to_async
+    def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
+        """获取行业的历史资金流数据"""
+        print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的资金流...")
+        qs = FundFlowIndustryTHS.objects.filter(
+            ths_index__ts_code=industry_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        ).order_by('trade_time')
+        df = pd.DataFrame(list(qs.values()))
+        if not df.empty:
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df.set_index('trade_time', inplace=True)
+        return df
+
+    @sync_to_async
+    def get_market_index_daily_data(self, market_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
+        """【新增】获取大盘基准指数的历史日线行情"""
+        print(f"    [DAO] 正在获取大盘指数 {market_code} 从 {start_date} 到 {end_date} 的行情...")
+        # 假设大盘指数也存储在 ThsIndexDaily 中
+        qs = ThsIndexDaily.objects.filter(
+            ths_index__ts_code=market_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        ).order_by('trade_time')
+        df = pd.DataFrame(list(qs.values('trade_time', 'close')))
+        if not df.empty:
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df.set_index('trade_time', inplace=True)
+            df.rename(columns={'close': 'market_close'}, inplace=True)
         return df
 
     # 添加安全转换辅助函数（确保存在且正确）

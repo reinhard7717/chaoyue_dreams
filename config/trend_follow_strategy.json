@@ -69,6 +69,11 @@
           }
         ]
       },
+      "vwap": {
+        "enabled": true,
+        "apply_on": ["5", "15", "30"],
+        "说明": "【新增】计算分钟线级别的VWAP（日内成交量加权平均价），作为短线强弱的核心分界线。"
+      },
       "boll_bands_and_width": { "enabled": true, "apply_on": ["D"], "periods": [21], "std_dev": 2.0, "说明": "计算21日布林带及宽度。" },
       "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算21日蔡金资金流。" },
       "bias": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算21日乖离率。" },
@@ -149,6 +154,14 @@
       "relative_strength_params": { "enabled": true, "lookback_period": 5 },
       "upthrust_distribution_params": { "enabled": true, "lookback_period": 34, "upper_shadow_ratio": 0.6, "high_volume_quantile": 0.8 },
       "volume_breakdown_params": { "enabled": true, "support_ma_period": 55, "volume_surge_ratio": 2.0, "vol_ma_period": 21 },
+      "vwap_confirmation_params": {
+        "enabled": true,
+        "timeframe": "5",
+        "confirmation_buffer": 0.001,
+        "说明": "【新增】VWAP确认剧本。在5分钟级别，当价格上穿VWAP时，视为有效的短线买入确认信号。",
+        "说明_timeframe": "使用哪个分钟级别图的VWAP作为基准。",
+        "说明_confirmation_buffer": "价格需要高于VWAP多少百分比才算有效站稳，例如0.001代表0.1%。"
+      },
       "take_profit_params": { "rsi_period": 13, "rsi_overbought": 75, "atr_period": 13, "atr_multiplier": 2.5, "max_holding_days": 21, "profit_target_pct": 0.20, "trailing_stop_pct": 0.05, "divergence_distance": 34, "divergence_prominence": 0.1 },
       "v_reversal_entry_params": {
         "enabled": true,
@@ -240,6 +253,20 @@
           "box_breakout": 120,
           "bias_rebound": 70
         },
+        "industry_context_params": {
+          "enabled": true,
+          "说明": "【行业协同-V2.0 奖惩版】根据个股所属行业的强度排名，对最终得分进行动态的奖励与惩罚，而非硬性过滤。",
+          "weak_rank_threshold": 0.3,
+          "说明_weak_rank_threshold": "定义“弱势行业”的强度排名分界线(0.0-1.0)。当行业排名低于此值时，将被施加惩罚性乘数。",
+          "weak_industry_penalty_multiplier": 0.7,
+          "说明_weak_industry_penalty_multiplier": "当股票处于“弱势行业”时，对其最终得分施加的惩罚乘数。例如0.7代表得分打7折。这降低了弱势行业股票的吸引力，但允许极强的个体信号（如地天板）仍有机会入选。",
+          "strength_rank_multiplier": 0.5,
+          "说明_strength_rank_multiplier": "行业强度排名对总分的奖励乘数因子。最终乘数 = 1 + (rank * multiplier)。例如，rank=0.8, multiplier=0.5 -> 1.4倍奖励。此奖励仅对非弱势行业生效。",
+          "top_tier_rank_threshold": 0.9,
+          "说明_top_tier_rank_threshold": "定义“龙头板块”的强度排名阈值(0.0-1.0)。排名高于此值的行业被视为市场核心热点。",
+          "top_tier_bonus": 30,
+          "说明_top_tier_bonus": "当股票处于“龙头板块”时，在应用完乘数奖励后，再给予的额外固定分数奖励，使其在竞争中拥有绝对优势。"
+        },
         "points": {
           "说明": "各项看涨条件/剧本对应的基础分数和奖励分数。",
           "__CATEGORY_ULTIMATE_SIGNAL__": "--- 终极信号/市场反转 ---",
@@ -280,6 +307,7 @@
           "PULLBACK_KLINE_DECENT_BONUS": 40, "说明_PULLBACK_KLINE_DECENT_BONUS": "【K线协同】回踩 + 标准看涨形态(吞没/刺透/锤子)的基础奖励分。",
           "PULLBACK_KLINE_PERFECT_BONUS": 35, "说明_PULLBACK_KLINE_PERFECT_BONUS": "【K线协同】如果上述形态为'完美级'，再额外追加的奖励分。",
           "__CATEGORY_BONUS_PENALTY__": "--- 协同奖励与冲突惩罚 ---",
+          "BONUS_VWAP_SUPPORT": 40, "说明_BONUS_VWAP_SUPPORT": "【协同奖励】当价格在5分钟图上站稳VWAP时，对其他买入信号的额外加分。",
           "TURNOVER_BOARD_BONUS": 45, "说明_TURNOVER_BOARD_BONUS": "【协同奖励】昨日出现换手板后，对今日买入信号的额外加分。",
           "GAP_SUPPORT_MULTIPLIER": 1.3, "说明_GAP_SUPPORT_MULTIPLIER": "【协同奖励】当处于'缺口支撑'强势状态时，对总分的奖励乘数。",
           "CMF_CONFIRMATION_MULTIPLIER": 1.2, "说明_CMF_CONFIRMATION_MULTIPLIER": "【协同奖励】当有资金确认(CMF>0)时，对总分的奖励乘数。",

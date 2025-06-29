@@ -245,6 +245,65 @@ class IndicatorService:
         print(f"--- [数据准备V5.0] 数据准备完成，最终字典包含的周期: {list(processed_dfs.keys())} ---")
         return processed_dfs
 
+    async def prepare_data_with_industry_context(
+        self,
+        stock_code: str,
+        config: dict,
+        trade_time: Optional[str] = None
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        【V6.0 行业背景版】准备数据，并自动注入行业强度上下文。
+        这是策略总指挥应该调用的主要入口。
+
+        Args:
+            stock_code (str): 股票代码。
+            config (dict): 策略配置文件字典。
+            trade_time (Optional[str]): 交易时间。
+
+        Returns:
+            Dict[str, pd.DataFrame]: 包含所有时间周期DataFrame的字典，
+                                     其中日线数据已注入 'industry_strength_rank_D' 列。
+        """
+        print(f"--- [数据准备V6.0-行业版] 开始为 {stock_code} 准备数据及行业背景... ---")
+        
+        # --- 步骤 1: 调用现有的 prepare_data 获取基础K线和指标数据 ---
+        all_dfs = await self.prepare_data(stock_code, config, trade_time)
+
+        if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
+            logger.warning(f"[{stock_code}] 基础数据准备失败，无法注入行业背景。")
+            return all_dfs # 返回空字典或不完整的字典
+
+        # --- 步骤 2: 获取并注入行业强度数据 ---
+        logger.info(f"    - [行业背景注入] 开始为 {stock_code} 获取行业强度...")
+        
+        # 解析交易日期
+        current_trade_date = pd.to_datetime(trade_time).date() if trade_time else datetime.now().date()
+
+        # 1. 计算所有行业的强度排名 (注：在批量执行时，此结果应由外部调用者缓存)
+        #    这里假设调用者会处理缓存，Service只负责计算。
+        industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
+
+        # 2. 查询当前股票所属的行业代码 (使用 self.stock_basic_dao)
+        #    假设 StockBasicInfoDao 有 get_stock_industry_info 方法
+        stock_industry_info = await self.stock_basic_dao.get_stock_industry_info(stock_code)
+        stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
+        stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
+
+        # 3. 从排名中找到该行业的强度排名
+        stock_industry_rank = 0.0 # 默认为0 (无行业或未找到排名)
+        if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
+            stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
+            print(f"    - [行业背景注入] 股票 {stock_code} 所属行业 '{stock_industry_name}'({stock_industry_code}) 当日强度排名: {stock_industry_rank:.2%}")
+        else:
+            print(f"    - [行业背景注入] 股票 {stock_code} ({stock_industry_name}) 未找到行业排名，默认排名为 0.0。")
+
+        # 4. 将行业强度排名作为一个新特征，合并到日线DataFrame中
+        all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
+        print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列 ({stock_industry_rank:.2f}) 添加到日线数据。")
+        
+        print(f"--- [数据准备V6.0-行业版] {stock_code} 数据准备完成。 ---")
+        return all_dfs
+
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
         【V5.0 参数精细化版】根据配置为指定时间周期计算所有技术指标。
@@ -287,6 +346,7 @@ class IndicatorService:
             'uo': self.calculate_uo,
             'consolidation_period': self.calculate_consolidation_period,
             'advanced_fund_features': self.calculate_advanced_fund_features,
+            'vwap': self.calculate_vwap,
         }
         
         composite_indicator_keys = ['consolidation_period', 'advanced_fund_features']
@@ -321,6 +381,24 @@ class IndicatorService:
                 apply_on_list = sub_config.get("apply_on", [])
                 if not apply_on_list or timeframe_key not in apply_on_list:
                     continue # 如果不适用，则跳过此子配置
+
+                # 解释: VWAP使用'anchor'参数而不是'periods'，因此需要一个专门的处理分支。
+                if indicator_name == 'vwap':
+                    print(f"    - [匹配成功] 周期 '{timeframe_key}' 将计算 VWAP")
+                    try:
+                        # VWAP的计算锚点通常是'D' (日内)，'W' (周内)等。
+                        # 我们直接使用当前的时间周期key作为anchor。
+                        anchor = timeframe_key
+                        result_df = await self.calculate_vwap(df=df_for_calc, anchor=anchor)
+                        if result_df is not None and not result_df.empty:
+                            for col in result_df.columns:
+                                # pandas_ta的vwap列名已经是VWAP_D, VWAP_W等，不需要再加后缀
+                                df_for_calc[col] = result_df[col]
+                                df[col] = result_df[col]
+                    except Exception as e:
+                        logger.error(f"    - 计算指标 VWAP (周期: {timeframe_key}) 时出错: {e}")
+                        traceback.print_exc()
+                    continue # 处理完VWAP后，跳过后续的通用逻辑
 
                 print(f"    - [匹配成功] 周期 '{timeframe_key}' 将使用参数 {sub_config.get('periods')} 计算 {indicator_name.upper()}")
                 
@@ -402,69 +480,138 @@ class IndicatorService:
         print(f"  [指标计算V5.0] 周期 '{timeframe_key}' 指标计算完成。")
         return df
 
-    async def calculate_industry_strength_rank(self, trade_date: datetime.date) -> pd.DataFrame:
+    async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """
-        计算指定交易日所有行业的强度分及排名。
-        这是整个行业分析引擎的核心。
+        【V2.0 结构分析版】计算指定交易日所有行业的强度分及排名。
+        综合了价量趋势、资金流向、龙头效应、板块协同性和涨停梯队。
         """
-        print(f"\n--- [IndustryService] Starting industry strength calculation for {trade_date} ---")
+        print(f"--- [IndustryService V2.1] 开始计算 {trade_date} 的行业结构化强度 (对比基准: {market_code}) ---")
+        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
+        market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
+        if market_daily_df.empty:
+            print(f"    - 严重警告: 无法获取大盘基准 {market_code} 数据，相对强度分析将跳过。")
         
         # 1. 获取所有行业列表
         all_industries = await self.indicator_dao.get_all_industries()
         if not all_industries:
-            print("    - Warning: No industries found. Aborting calculation.")
+            print("    - 警告: 未找到任何行业，计算中止。")
             return pd.DataFrame()
 
         strength_data = []
-        for industry in all_industries:
-            print(f"  - Processing industry: {industry.name} ({industry.ts_code})")
-            
-            # 2. 并行获取所需数据
-            start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30) # 多获取一些数据以计算MA
-            
-            # 获取行业指数行情
-            industry_daily_df = await self.indicator_dao.get_industry_daily_data(
-                industry.ts_code, start_date, trade_date
-            )
-            # 获取行业资金流
-            industry_fund_flow_df = await self.indicator_dao.get_industry_fund_flow(
-                industry.ts_code, start_date, trade_date
-            )
-            
-            if industry_daily_df.empty:
-                print(f"    - Skipping {industry.name}: No daily data available.")
-                continue
-
-            # 3. 计算各项得分
-            momentum_score = self._calculate_momentum_score(industry_daily_df, trade_date)
-            fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date)
-            breadth_score = await self._calculate_breadth_score(industry.ts_code, trade_date)
-            
-            # 4. 加权合成总分 (权重可配置)
-            total_score = (
-                0.4 * momentum_score + 
-                0.4 * fund_flow_score + 
-                0.2 * breadth_score
-            )
-            
-            strength_data.append({
-                'industry_code': industry.ts_code,
-                'industry_name': industry.name,
-                'strength_score': total_score
-            })
+        # 使用 asyncio.gather 并行处理所有行业
+        tasks = [self._process_single_industry_strength(industry, trade_date, market_daily_df) for industry in all_industries]
+        results = await asyncio.gather(*tasks)
+        
+        # 过滤掉计算失败的结果
+        strength_data = [res for res in results if res is not None]
 
         if not strength_data:
-            print("--- [IndustryService] Calculation finished. No valid industry data found. ---")
+            print("--- [IndustryService V2.0] 计算完成，未找到有效的行业数据。 ---")
             return pd.DataFrame()
 
         # 5. 归一化排名
         df = pd.DataFrame(strength_data)
-        df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True) # ascending=True, 分数越高排名越接近1
+        # strength_score 已经是0-100分，可以直接用。rank(pct=True)是相对排名。
+        df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True) 
         
-        print(f"--- [IndustryService] Industry strength calculation finished for {trade_date}. ---")
+        print(f"--- [IndustryService V2.0] {trade_date} 的行业结构化强度计算完成。 ---")
         return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
 
+    async def _process_single_industry_strength(self, industry, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
+        """
+        【新增】处理单个行业的强度计算，便于并行化。
+        """
+        print(f"  - 正在处理行业: {industry.name} ({industry.ts_code})")
+        
+        # 2. 并行获取该行业所需的所有数据
+        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
+        
+        try:
+            # 使用 asyncio.gather 获取一个行业的所有数据
+            data_tasks = {
+                "daily": self.indicator_dao.get_industry_daily_data(industry.ts_code, start_date, trade_date),
+                "flow": self.indicator_dao.get_industry_fund_flow(industry.ts_code, start_date, trade_date)
+            }
+            data_results = await asyncio.gather(*data_tasks.values())
+            
+            industry_daily_df = data_results[0]
+            industry_fund_flow_df = data_results[1]
 
+            if industry_daily_df.empty:
+                print(f"    - 跳过 {industry.name}: 无有效的日线行情数据。")
+                return None
+
+            # 3. 计算各项基础得分 (0-1分制)
+            momentum_score = self._calculate_momentum_score(industry_daily_df, trade_date) # 沿用旧方法
+            fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date) # 沿用旧方法
+            volume_score = await self._calculate_volume_profile_score(industry_daily_df)
+            rs_score = await self._calculate_relative_strength_score(industry_daily_df, market_daily_df)
+            
+            # 4. 【核心升级】计算结构化得分 (0-1分制)
+            leader_score = await self._calculate_leader_score(industry.ts_code, trade_date)
+            cohesion_score = await self._calculate_cohesion_score(industry.ts_code, trade_date)
+            echelon_score = await self._calculate_limit_up_echelon_score(industry.ts_code, trade_date)
+            
+            # 5. 加权合成总分 (总分100分)
+            # 权重分配：结构 > 资金 > 趋势
+            # 涨停梯队是最高优先级信号，给予一票否决权的权重
+            total_score = (
+                10 * momentum_score +          # 趋势基础分
+                15 * fund_flow_score +         # 资金跟随分
+                10 * volume_score +            # 成交活跃分
+                15 * rs_score +                # 【新增】相对强度分
+                15 * leader_score +            # 龙头效应分
+                15 * cohesion_score +          # 板块协同分
+                30 * echelon_score             # 【核心】涨停梯队分
+            )
+            # echelon_score 的权重可以更高，比如40，其他相应降低，以体现其重要性
+            
+            return {
+                'industry_code': industry.ts_code,
+                'industry_name': industry.name,
+                'strength_score': total_score
+            }
+        except Exception as e:
+            print(f"    - 处理行业 {industry.name} 时发生错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
+        """
+        【新增】计算行业成交活跃度得分。
+        结合了成交额的短期爆发强度和中期趋势。
+        """
+        if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns:
+            return 0.0
+
+        df = industry_daily_df.copy()
+        
+        # 1. 计算短期爆发强度：当日换手率在过去60个交易日中的百分位排名
+        # rank(pct=True) 会返回一个 0.0 到 1.0 之间的值，表示当前值在窗口期内的相对位置
+        turnover_rank_60d = df['turnover_rate'].rolling(60).rank(pct=True).iloc[-1]
+        
+        # 2. 计算中期趋势：5日均线是否上穿20日均线
+        df['turnover_ma5'] = df['turnover_rate'].rolling(5).mean()
+        df['turnover_ma20'] = df['turnover_rate'].rolling(20).mean()
+        
+        # 判断金叉发生在最近3天内
+        was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
+        is_above = df['turnover_ma5'] > df['turnover_ma20']
+        is_cross_today = was_below & is_above
+        is_recent_cross = is_cross_today.rolling(3).sum().iloc[-1] > 0
+
+        # 3. 综合评分
+        score = 0.0
+        # 如果短期爆发力极强 (排名前10%)，给予高分
+        if turnover_rank_60d > 0.9:
+            score += 0.6
+        # 如果中期趋势向好 (近期金叉)，给予加分
+        if is_recent_cross:
+            score += 0.4
+            
+        print(f"      - [成交活跃度] 当日换手率排名: {turnover_rank_60d:.2%}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
+        return score
 
     # --- 所有指标计算函数 async def calculate_* ---
     async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1148,18 +1295,30 @@ class IndicatorService:
             logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_vwap(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close', volume_col='volume', anchor: Optional[str] = None) -> Optional[pd.DataFrame]:
-        """计算 VWAP (成交量加权平均价)"""
+    async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """
+        【新增】计算 VWAP (成交量加权平均价)。
+        使用 pandas-ta 库，并将其放入线程中以避免阻塞事件循环。
+        """
+        # pandas-ta 需要标准的列名
+        high_col, low_col, close_col, volume_col = 'high', 'low', 'close', 'volume'
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
+            logger.warning(f"计算 VWAP (anchor={anchor}) 时缺少必要的列。")
             return None
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_vwap():
+                # 调用 pandas_ta 的 vwap 方法
                 return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=anchor, append=False)
+            
             vwap_series = await asyncio.to_thread(_sync_vwap)
-            if vwap_series is None or vwap_series.empty: return None
-            col_name = 'VWAP' if anchor is None else f'VWAP_{anchor}'
-            return pd.DataFrame({col_name: vwap_series})
+            
+            if vwap_series is None or vwap_series.empty:
+                return None
+            
+            # pandas_ta 会根据 anchor 自动生成列名，例如 VWAP_D, VWAP_W
+            # 我们直接使用它返回的 Series，其 name 就是列名
+            return pd.DataFrame(vwap_series)
         except Exception as e:
             logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
             return None
@@ -1560,6 +1719,171 @@ class IndicatorService:
         score = up_ratio * 10
         return score
 
+    async def _calculate_leader_score(self, industry_code: str, trade_date: datetime.date) -> float:
+        """
+        【新增】计算龙头效应得分。
+        简易版：直接使用数据源提供的领涨股。
+        如果领涨股当天涨幅 > 5%，则认为龙头效应强。
+        """
+        # 假设 indicator_dao 有方法可以获取最新的行业资金流数据
+        latest_flow = await self.indicator_dao.get_latest_industry_fund_flow(industry_code, trade_date)
+        if latest_flow and latest_flow.pct_change_stock and latest_flow.pct_change_stock > 5.0:
+            print(f"      - [龙头效应] 发现领涨股 {latest_flow.lead_stock} 大涨 ({latest_flow.pct_change_stock}%)，得分: 1.0")
+            return 1.0 # 强龙头效应
+        elif latest_flow and latest_flow.pct_change_stock:
+            print(f"      - [龙头效应] 领涨股 {latest_flow.lead_stock} 涨幅 ({latest_flow.pct_change_stock}%) 未达阈值，得分: 0.5")
+            return 0.5 # 弱龙头效应
+        print(f"      - [龙头效应] 未找到领涨股数据，得分: 0.0")
+        return 0.0 # 无龙头效应
+
+    async def _calculate_cohesion_score(self, industry_code: str, trade_date: datetime.date) -> float:
+        """
+        【新增】计算板块协同性（上涨广度）得分。
+        统计板块内上涨家数占比和涨幅超过5%的家数。
+        """
+        # 1. 获取板块成分股
+        members = await self.indicator_dao.get_industry_members(industry_code)
+        if not members:
+            return 0.0
+        
+        member_codes = [m.stock_code for m in members]
+        
+        # 2. 批量获取成分股当日行情
+        # 假设 indicator_dao 有方法可以批量获取多只股票的单日行情
+        daily_data = await self.indicator_dao.get_stocks_daily_data(member_codes, trade_date)
+        if not daily_data:
+            return 0.0
+
+        total_count = len(members)
+        rising_count = sum(1 for d in daily_data if d.pct_change > 0)
+        strong_rising_count = sum(1 for d in daily_data if d.pct_change > 5.0)
+        
+        rising_ratio = rising_count / total_count if total_count > 0 else 0
+        
+        score = 0.0
+        if rising_ratio > 0.7 and strong_rising_count >= 2:
+            score = 1.0 # 极强协同性：普涨且有攻击梯队
+        elif rising_ratio > 0.5:
+            score = 0.6 # 较强协同性：大部分上涨
+        elif rising_ratio > 0.3:
+            score = 0.2 # 弱协同性：部分上涨
+            
+        print(f"      - [协同性] 上涨家数/总数: {rising_count}/{total_count} (占比: {rising_ratio:.2%}), 大涨家数: {strong_rising_count}，得分: {score}")
+        return score
+
+    async def _calculate_limit_up_echelon_score(self, industry_code: str, trade_date: datetime.date) -> float:
+        """
+        【新增-核心】计算涨停梯队得分。
+        这是A股市场最强的信号之一。
+        """
+        # 1. 获取板块成分股
+        members = await self.indicator_dao.get_industry_members(industry_code)
+        if not members:
+            return 0.0
+            
+        member_codes = [m.stock_code for m in members]
+        
+        # 2. 批量获取成分股当日基本面数据（包含涨停状态）
+        # 假设 indicator_dao 有方法可以批量获取多只股票的单日基本面
+        daily_basics = await self.indicator_dao.get_stocks_daily_basic(member_codes, trade_date)
+        if not daily_basics:
+            return 0.0
+
+        # 假设 limit_status=1 为涨停
+        limit_up_count = sum(1 for b in daily_basics if b.limit_status == 1)
+        
+        score = 0.0
+        if limit_up_count >= 5:
+            score = 1.0 # 板块高潮
+        elif limit_up_count >= 3:
+            score = 0.8 # 梯队形成
+        elif limit_up_count >= 1:
+            score = 0.4 # 有涨停股，热点发酵
+            
+        print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
+        return score
+
+    async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
+        """
+        【新增】计算行业相对大盘的强度得分。
+        """
+        if industry_daily_df.empty or market_daily_df.empty:
+            return 0.0
+
+        # 合并行业与大盘数据
+        df = pd.merge(industry_daily_df[['close']], market_daily_df, left_index=True, right_index=True, how='inner')
+        if df.empty:
+            return 0.0
+            
+        # 1. 计算RS（相对强度）曲线
+        df['rs'] = df['close'] / df['market_close']
+        
+        # 2. 计算RS的20日均线，用于判断短期趋势
+        df['rs_ma20'] = df['rs'].rolling(20).mean()
+        
+        # 3. 评分逻辑
+        latest = df.iloc[-1]
+        score = 0.0
+        # 如果RS值在均线之上，说明短期强势
+        if latest['rs'] > latest['rs_ma20']:
+            score = 1.0
+        
+        print(f"      - [相对强度] RS值: {latest['rs']:.2f}, RS_MA20: {latest['rs_ma20']:.2f}, 得分: {score:.2f}")
+        return score
+
+    async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 10, market_code: str = '000300.SH') -> pd.DataFrame:
+        """
+        【新增】分析行业轮动，识别强度排名持续上升的板块。
+        这是一个高阶扫描器，用于发现潜在的市场新主线。
+        """
+        print(f"\n--- [行业轮动分析] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
+        
+        # 1. 获取过去N个交易日的日期列表 (需要一个交易日历工具)
+        # 此处简化处理，实际应从交易日历服务获取
+        trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)]
+        
+        # 2. 并行计算每一天的行业排名
+        tasks = [self.calculate_industry_strength_rank(td, market_code) for td in trade_dates]
+        daily_rank_results = await asyncio.gather(*tasks)
+        
+        # 3. 合并所有日期的排名数据
+        all_ranks = []
+        for i, df_rank in enumerate(daily_rank_results):
+            if not df_rank.empty:
+                df_rank['trade_date'] = trade_dates[i]
+                all_ranks.append(df_rank.reset_index())
+        
+        if not all_ranks:
+            print("    - [行业轮动分析] 未能获取任何历史排名数据，分析中止。")
+            return pd.DataFrame()
+            
+        rotation_df = pd.concat(all_ranks, ignore_index=True)
+        
+        # 4. 为每个行业计算其排名的时间序列趋势
+        def calculate_rank_momentum(group):
+            # 确保数据按时间升序排列
+            group = group.sort_values('trade_date')
+            if len(group) < 3: # 数据点太少，无法计算趋势
+                return pd.Series({'rank_momentum': 0, 'latest_rank': group['strength_rank'].iloc[-1]})
+            
+            # 使用线性回归计算斜率来代表动量
+            # x轴是时间（天数），y轴是排名
+            x = np.arange(len(group))
+            y = group['strength_rank'].values
+            slope, _ = np.polyfit(x, y, 1)
+            
+            return pd.Series({'rank_momentum': slope, 'latest_rank': y[-1]})
+
+        # 按行业分组，计算动量
+        rotation_momentum = rotation_df.groupby('industry_code').apply(calculate_rank_momentum)
+        
+        # 合并行业名称
+        industry_names = rotation_df[['industry_code', 'industry_name']].drop_duplicates().set_index('industry_code')
+        final_report = pd.merge(rotation_momentum, industry_names, left_index=True, right_index=True)
+        
+        print("--- [行业轮动分析] 分析完成 ---")
+        # 按动量降序排序，动量为正且越大，说明排名上升越快
+        return final_report.sort_values('rank_momentum', ascending=False)
 
     # # 修改方法: 重构 prepare_multi_timeframe_data 以提高效率和正确性
     # async def prepare_multi_timeframe_data(

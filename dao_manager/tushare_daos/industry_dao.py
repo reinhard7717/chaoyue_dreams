@@ -281,6 +281,20 @@ class IndustryDao(BaseDAO):
             ThsIndexMember.objects.filter(stock__stock_code=stock_code, is_new='Y').select_related('ths_index')
         )
 
+    @sync_to_async
+    def get_stock_codes_by_industry(self, industry_code: str) -> List[str]:
+        """【新增】根据同花顺行业代码获取所有成分股代码列表"""
+        print(f"    [DAO] 正在查询行业 {industry_code} 的所有成分股代码...")
+        try:
+            # 假设 ThsIndexMember 模型通过外键 ths_index 和 stock 关联
+            members = ThsIndexMember.objects.filter(
+                ths_index__ts_code=industry_code, is_new='Y'
+            ).select_related('stock').values_list('stock__stock_code', flat=True)
+            return list(members)
+        except Exception as e:
+            logger.error(f"查询行业 {industry_code} 成分股代码时出错: {e}")
+            return []
+
     async def save_ths_index_member(self) -> Dict:
         """
         接口：ths_member

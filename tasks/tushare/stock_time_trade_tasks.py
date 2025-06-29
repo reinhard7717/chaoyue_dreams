@@ -9,6 +9,7 @@ from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from stock_models.stock_basic import StockInfo
 
@@ -238,12 +239,17 @@ def save_stocks_daily_basic_data_today_task(self):
     logger.info(f"开始处理今日股票重要的基本面指标...")
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
+    # service = IndicatorService()
     try:
         print("开始保存 今日股票重要的基本面指标...")
         result = asyncio.run(stock_time_trade_dao.save_today_stock_basic_info())
         print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
     except Exception as e:
         logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    service = IndicatorService()
+    rotation_report = asyncio.run(service.analyze_industry_rotation(datetime.date.today(), lookback_days=10))
+    print("--- 行业轮动强度报告 ---")
+    print(rotation_report.head(10)) # 打印出动量最强的10个板块
 
 #  ================ 昨日基本信息 数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task', queue='SaveData_TimeTrade')

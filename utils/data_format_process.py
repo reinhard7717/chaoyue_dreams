@@ -568,6 +568,48 @@ class FundFlowFormatProcess(BaseDAO):
             "buy_sm_amount_rate": getattr(df_data, "buy_sm_amount_rate", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
+    
+    def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        """
+        【新增】将Tushare的limit_list_ths接口返回的单行数据，格式化为准备入库的字典。
+        此方法参照 set_fund_flow_data 的健壮性设计。
+        :param stock: 关联的股票信息StockInfo对象。
+        :param df_data: Tushare接口返回的DataFrame中的一行数据 (通常是NamedTuple)。
+        :return: 一个可以用于创建或更新LimitListThs模型实例的字典。
+        """
+        # 1. 构建一个字典，键名与LimitListThs模型的字段名完全对应
+        #    使用 getattr(df_data, 'field_name', None) 来安全地获取每个字段的值
+        data_dict = {
+            "stock": stock,  # 关联的StockInfo实例
+            # 使用辅助函数处理日期，确保格式正确
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "price": getattr(df_data, "price", None),
+            "pct_chg": getattr(df_data, "pct_chg", None),
+            "open_num": getattr(df_data, "open_num", None),
+            "lu_desc": getattr(df_data, "lu_desc", None),
+            "limit_type": getattr(df_data, "limit_type", None),
+            "tag": getattr(df_data, "tag", None),
+            "status": getattr(df_data, "status", None),
+            "first_lu_time": getattr(df_data, "first_lu_time", None),
+            "last_lu_time": getattr(df_data, "last_lu_time", None),
+            "first_ld_time": getattr(df_data, "first_ld_time", None),
+            "last_ld_time": getattr(df_data, "last_ld_time", None),
+            "limit_order": getattr(df_data, "limit_order", None),
+            "limit_amount": getattr(df_data, "limit_amount", None),
+            "turnover_rate": getattr(df_data, "turnover_rate", None),
+            "free_float": getattr(df_data, "free_float", None),
+            "lu_limit_order": getattr(df_data, "lu_limit_order", None),
+            "limit_up_suc_rate": getattr(df_data, "limit_up_suc_rate", None),
+            "turnover": getattr(df_data, "turnover", None),
+            "rise_rate": getattr(df_data, "rise_rate", None),
+            "sum_float": getattr(df_data, "sum_float", None),
+            "market_type": getattr(df_data, "market_type", None),
+        }
+
+        # 2. 使用与 set_fund_flow_data 相同的最终清洗流程
+        #    确保所有值（特别是None和NaN）都经过处理，变为数据库友好的格式
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 class IndustryFormatProcess(BaseDAO):
     # 申万行业分类

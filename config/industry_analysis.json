@@ -1,0 +1,45 @@
+{
+    "file_name": "config/industry_analysis.json",
+    "说明": "【A股特色】行业与板块分析模块的配置文件，用于识别真正的市场主线和龙头。",
+    "sentiment_leader_params": {
+      "enabled": true,
+      "说明": "【人气龙头】识别板块的'人气龙头'而非'市值龙头'。",
+      "lookback_period": 10,
+      "说明_lookback_period": "计算人气分的回看周期（交易日）。",
+      "num_leaders_to_track": 3,
+      "说明_num_leaders_to_track": "追踪每个板块中人气分排名前几的股票。",
+      "leader_pct_change_threshold": 5.0,
+      "说明_leader_pct_change_threshold": "人气龙头在当天需要达到的最低涨幅(%)才算'确认引领'。",
+      "min_leaders_confirming": 1,
+      "说明_min_leaders_confirming": "至少需要多少只人气龙头确认强势，才认为板块上涨健康。",
+      "confirmation_bonus": 35,
+      "说明_confirmation_bonus": "当人气龙头确认引领板块上涨时，给予的额外高额奖励分数。"
+    },
+    "cohesion_analysis_params": {
+      "enabled": true,
+      "说明": "【板块协同性】分析板块上涨的广度，判断是整体行情还是个别股行情。",
+      "min_rising_pct_threshold": 0.6,
+      "说明_min_rising_pct_threshold": "板块内上涨家数占比的最低要求(0.0-1.0)，低于此值认为协同性不足。",
+      "strong_rising_threshold": 0.05,
+      "说明_strong_rising_threshold": "定义为'大涨'的涨幅阈值(5% -> 0.05)。",
+      "min_strong_rising_count": 3,
+      "说明_min_strong_rising_count": "板块内至少需要多少只股票'大涨'，才认为具备攻击梯队。",
+      "cohesion_bonus": 25,
+      "说明_cohesion_bonus": "当板块协同性满足条件时，给予的额外奖励分数。"
+    },
+    "limit_up_echelon_params": {
+      "enabled": true,
+      "说明": "【涨停梯队】识别最强风口的核心指标——涨停梯队。",
+      "min_limit_up_count": 3,
+      "说明_min_limit_up_count": "板块内至少需要多少家涨停，才被视为形成梯队。",
+      "require_consecutive_leader": true,
+      "说明_require_consecutive_leader": "是否要求梯队中必须包含至少一只连板股（2连板及以上）。",
+      "echelon_bonus": 60,
+      "说明_echelon_bonus": "【最高奖励】当侦测到清晰的涨停梯队时，给予的爆炸性奖励分数，这通常是主线行情的标志。"
+    },
+    "debug_params": {
+      "enabled": true,
+      "verbose_logging": true
+    }
+  }
+  
