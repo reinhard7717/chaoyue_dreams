@@ -536,7 +536,105 @@ class StockIndicatorsCacheSet(CacheSet):
 
 class StockRealtimeCacheSet(CacheSet):
     def __init__(self):
-        self.cache_key_stock = StockCashKey()
+        """
+        初始化方法。
+        修改点:
+        1. 调用 super().__init__() 继承父类初始化。
+        2. 创建并持有 CacheManager 的实例，供所有方法使用。
+        """
+        super().__init__()
+        self.cache_manager = CacheManager()
+
+    async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
+        """
+        使用 Redis Pipeline 批量缓存最新的实时行情数据。
+        
+        Args:
+            cache_payload (Dict[str, dict]): 一个字典，键是股票代码，值是待缓存的实时行情数据。
+        Returns:
+            bool: 批量缓存操作是否成功提交。
+        """
+        if not cache_payload:
+            return True
+
+        mset_data = {}
+        keys_to_expire = []
+        
+        print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条实时行情数据...")
+        for stock_code, data_to_cache in cache_payload.items():
+            formatted_data = await self._format_conversion(data_to_cache)
+            if formatted_data is None:
+                logger.warning(f"批量缓存实时行情中，股票 {stock_code} 的数据格式化失败，已跳过。")
+                continue
+
+            cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
+            keys_to_expire.append(cache_key)
+            serialized_value = self.cache_manager._serialize(formatted_data)
+            mset_data[cache_key] = serialized_value
+
+        if not mset_data:
+            logger.warning("批量缓存实时行情任务中，所有数据均处理失败，无数据写入。")
+            return False
+
+        try:
+            await self.cache_manager._ensure_client()
+            async with self.cache_manager.redis_client.pipeline() as pipe:
+                pipe.mset(mset_data)
+                timeout = self.cache_manager.get_timeout('rt') # 实时数据使用 'rt' 类型超时
+                for key in keys_to_expire:
+                    pipe.expire(key, timeout)
+                await pipe.execute()
+            print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条实时行情数据到Redis。")
+            return True
+        except Exception as e:
+            logger.error(f"批量写入实时行情缓存时发生异常: {e}", exc_info=True)
+            return False
+
+    # 【代码新增处】批量设置最新Level5数据
+    async def batch_set_latest_level5_data(self, cache_payload: Dict[str, dict]) -> bool:
+        """
+        使用 Redis Pipeline 批量缓存最新的Level5盘口数据。
+        
+        Args:
+            cache_payload (Dict[str, dict]): 一个字典，键是股票代码，值是待缓存的Level5数据。
+        Returns:
+            bool: 批量缓存操作是否成功提交。
+        """
+        if not cache_payload:
+            return True
+
+        mset_data = {}
+        keys_to_expire = []
+        
+        print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条Level5数据...")
+        for stock_code, data_to_cache in cache_payload.items():
+            formatted_data = await self._format_conversion(data_to_cache)
+            if formatted_data is None:
+                logger.warning(f"批量缓存Level5数据中，股票 {stock_code} 的数据格式化失败，已跳过。")
+                continue
+
+            cache_key = self.cache_key_stock.latest_level5_data(stock_code)
+            keys_to_expire.append(cache_key)
+            serialized_value = self.cache_manager._serialize(formatted_data)
+            mset_data[cache_key] = serialized_value
+
+        if not mset_data:
+            logger.warning("批量缓存Level5数据任务中，所有数据均处理失败，无数据写入。")
+            return False
+
+        try:
+            await self.cache_manager._ensure_client()
+            async with self.cache_manager.redis_client.pipeline() as pipe:
+                pipe.mset(mset_data)
+                timeout = self.cache_manager.get_timeout('rt') # 实时数据使用 'rt' 类型超时
+                for key in keys_to_expire:
+                    pipe.expire(key, timeout)
+                await pipe.execute()
+            print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条Level5数据到Redis。")
+            return True
+        except Exception as e:
+            logger.error(f"批量写入Level5缓存时发生异常: {e}", exc_info=True)
+            return False
 
     async def latest_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
@@ -544,25 +642,24 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"latest_realtime_data.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
-        # logger.info(f"latest_realtime_data.cache_key: {cache_key}")
-        return await self._realtime_data(stock_code, data_to_cache, cache_key)
-    
-    async def history_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_key = self.cache_key_stock.history_realtime_data(stock_code)
-        return await self._history_data(stock_code, data_to_cache, cache_key)
-    
+        return await self.cache_manager.set(cache_key, data_to_cache)
+
     async def latest_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_level5_data.data_to_cache转换失败。")
             return False
         cache_key = self.cache_key_stock.latest_level5_data(stock_code)
-        return await self._stock_latest_data(stock_code, "Day", data_to_cache, cache_key)
+        return await self.cache_manager.set(cache_key, data_to_cache)
+    
+    async def history_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
+        cache_key = self.cache_key_stock.history_realtime_data(stock_code)
+        return await self._history_data(stock_code, data_to_cache, cache_key)
     
     async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
-    
+
 class StrategyCacheSet(CacheSet):
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str, data_to_cache: Dict[str, Any]):
         data_to_cache = await self._format_conversion(data_to_cache)

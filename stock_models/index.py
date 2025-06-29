@@ -1,3 +1,4 @@
+import datetime
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -90,6 +91,75 @@ class TradeCalendar(models.Model):
         null=True,
         blank=True
     )
+    @classmethod
+    def get_latest_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
+        """
+        查询指定日期之前的最近一个交易日。
+        :param reference_date: datetime.date, 查询的参考日期，如果为None，则默认为今天。
+        :param exchange: str, 交易所代码，默认为'SSE'。
+        :return: datetime.date, 最近的交易日；如果不存在则返回None。
+        """
+        # 如果未提供参考日期，则使用当前服务器日期
+        if reference_date is None:
+            reference_date = timezone.now().date()
+        
+        # 调试信息：打印输入的参数
+        print(f"调试: get_latest_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
+
+        # 查询数据库
+        # 筛选条件：
+        # 1. 交易所匹配
+        # 2. 是交易日 (is_open=True)
+        # 3. 日期在参考日期之前 (cal_date < reference_date)
+        # 按照日期降序排列，获取第一个，即为最近的交易日
+        trade_day = cls.objects.filter(
+            exchange=exchange,
+            is_open=True,
+            cal_date__lt=reference_date
+        ).order_by('-cal_date').first()
+
+        # 如果找到了交易日，则返回其日历日期，否则返回None
+        if trade_day:
+            print(f"调试: 找到最近交易日: {trade_day.cal_date}")
+            return trade_day.cal_date
+        else:
+            print("调试: 未找到符合条件的交易日")
+            return None
+
+    @classmethod
+    def get_latest_n_trade_dates(cls, n: int, reference_date: datetime.date = None, exchange: str = 'SSE') -> list[datetime.date]:
+        """
+        查询指定日期（包含当天）之前的最近N个交易日。
+        :param n: int, 需要获取的交易日数量。
+        :param reference_date: datetime.date, 查询的参考日期，如果为None，则默认为今天。
+        :param exchange: str, 交易所代码，默认为'SSE'。
+        :return: list[datetime.date], 最近N个交易日的日期列表（按日期从近到远排序）。
+        """
+        # 如果未提供参考日期，则使用当前服务器日期
+        if reference_date is None:
+            reference_date = timezone.now().date()
+        
+        # 调试信息：打印输入的参数
+        print(f"调试: get_latest_n_trade_dates - 获取数量: {n}, 参考日期: {reference_date}, 交易所: {exchange}")
+
+        # 查询数据库
+        # 筛选条件：
+        # 1. 交易所匹配
+        # 2. 是交易日 (is_open=True)
+        # 3. 日期小于或等于参考日期 (cal_date <= reference_date)
+        # 按照日期降序排列
+        # 使用 .values_list('cal_date', flat=True) 可以更高效地只获取日期字段，而不是整个对象
+        # 使用切片 [:n] 获取前N个结果
+        trade_dates_queryset = cls.objects.filter(
+            exchange=exchange,
+            is_open=True,
+            cal_date__lte=reference_date
+        ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
+
+        # 将查询结果QuerySet转换为列表
+        trade_dates_list = list(trade_dates_queryset)
+        print(f"调试: 找到 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
+        return trade_dates_list
 
     class Meta:
         db_table = 'trade_calendar'
