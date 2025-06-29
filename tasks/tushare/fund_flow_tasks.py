@@ -125,60 +125,28 @@ def save_fund_flow_daily_data_yesterday(self):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 #  ================ （本周）日级资金流向数据（三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_this_week_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
-def save_fund_flow_daily_data_this_week_batch(self, trade_date: datetime.date):
-    """
-    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
-    """
-    logger.info(f"开始处理 {trade_date} 的 （历史）日级资金流向数据 （三种渠道）...")
-    """
-    从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
-    """
-    # 在任务开始时创建一次 DAO 实例
-    fund_flow_dao = FundFlowDao()
-    try:
-        # 异步获取数据并保存
-        result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_data_by_trade_date(trade_date=trade_date))
-        print(f"{trade_date} 日级资金流向数据 保存完成。{result}")
-        # 同花顺
-        result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_ths_data_by_trade_date(trade_date=trade_date))
-        print(f"{trade_date} 日级资金流向数据(同花顺) 保存完成。{result}")
-        # 东方财富
-        result = asyncio.run(fund_flow_dao.save_history_fund_flow_daily_dc_data_trade_date(trade_date=trade_date))
-        print(f"{trade_date} 日级资金流向数据(东方财富) 保存完成。{result}")
-    except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
-
-# --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_this_week_task')
-def save_fund_flow_daily_data_this_week_task(self): 
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_data_this_week_task', queue='SaveData_TimeTrade')
+def save_fund_flow_data_this_week_task(self):
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
     2. 将代码分成批次。
-    3. 为每个批次分派 save_fund_flow_daily_data_history_batch 任务到指定队列。
+    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_fund_flow_daily_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
+    logger.info(f"任务启动: save_fund_flow_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
+    stock_basic_dao = StockBasicInfoDao()
+    ff_dao = FundFlowDao()
+    this_monday, this_friday = get_this_monday_and_friday()
     try:
-        total_dispatched_batches = 0
-        index_basic_dao = IndexBasicDAO()
-        trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open(n=5))
-        for trade_date in trade_days_list:
-            # 使用新的批量任务，并指定队列
-            save_fund_flow_daily_data_this_week_batch.s(trade_date).set().apply_async()
-            total_dispatched_batches += 1
-        logger.info(f"已分派了 {total_dispatched_batches} 个批次任务。")
-        logger.info(f"任务结束: save_fund_flow_daily_data_this_week_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
-        return {"status": "success", "dispatched_batches": total_dispatched_batches}
+        ff_dao.save_history_fund_flow_daily_data_by_trade_date(start_date=this_monday, end_date=this_friday)
+        ff_dao.save_history_fund_flow_daily_ths_data_by_trade_date(start_date=this_monday, end_date=this_friday)
+        ff_dao.save_history_fund_flow_cnt_ths_data(start_date=this_monday, end_date=this_friday)
+        ff_dao.save_history_fund_flow_industry_ths_data(start_date=this_monday, end_date=this_friday)
+        logger.info(f"任务结束: save_fund_flow_data_this_week_task (调度器模式)")
     except Exception as e:
-        logger.error(f"执行 save_fund_flow_daily_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
+        logger.error(f"执行 save_fund_flow_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
-
 
 #  ================ （历史）日级资金流向数据（三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
