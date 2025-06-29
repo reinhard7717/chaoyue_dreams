@@ -1,12 +1,8 @@
 # services\indicator_services.py
 import asyncio
-from collections import defaultdict
-from copy import deepcopy
 import datetime
-from functools import reduce
 import json
-import os
-import sys
+from scipy.signal import find_peaks, peak_prominences
 import traceback
 import warnings
 import logging
@@ -14,19 +10,13 @@ from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.indicator_dao import IndicatorDAO
 import numpy as np
 import pandas as pd
-import math
-from django.utils import timezone
-from typing import Any, Callable, List, Optional, Set, Tuple, Union, Dict
-from django.db import models
+from typing import List, Optional, Set, Union, Dict
 import pandas_ta as ta
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from core.constants import TimeLevel
-from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from stock_models.time_trade import IndexDaily
-from utils.config_loader import load_strategy_config
 
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
 warnings.filterwarnings(action='ignore', category=FutureWarning, message=".*Passing 'suffixes' which cause duplicate columns.*")
@@ -347,9 +337,10 @@ class IndicatorService:
             'consolidation_period': self.calculate_consolidation_period,
             'advanced_fund_features': self.calculate_advanced_fund_features,
             'vwap': self.calculate_vwap,
+            'fibonacci_levels': self.calculate_fibonacci_levels,
         }
         
-        composite_indicator_keys = ['consolidation_period', 'advanced_fund_features']
+        composite_indicator_keys = ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']
         composite_indicators_config = {}
 
         # 遍历总配置中的每一个指标项
@@ -1655,6 +1646,89 @@ class IndicatorService:
             # 使用Django的logger或您自己的日志系统
             print(f"    - [严重错误] 计算资金流和筹码衍生特征时发生意外: {e}")
             return None
+
+    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, **kwargs) -> Optional[pd.DataFrame]:
+        """
+        【新增】计算斐波那契回撤和扩展水平。
+        通过识别重要的波段高点和低点，动态计算出潜在的支撑和阻力位。
+        """
+        fib_params = params.get('fibonacci_analysis_params', {})
+        if not fib_params.get('enabled', False):
+            return None
+
+        print("    - [斐波那契分析] 开始计算斐波那契水平...")
+        
+        # 使用scipy.signal.find_peaks识别波段高低点
+        distance = fib_params.get('peak_distance', 13)
+        prominence = fib_params.get('peak_prominence', 0.05)
+        
+        # 为了能传入 prominence 序列，我们需要在线程中执行
+        def _find_peaks_sync(data, prominence_series):
+            # 找出所有候选波峰/波谷
+            candidate_indices, _ = find_peaks(data, distance=distance)
+            if len(candidate_indices) == 0:
+                return []
+            # 计算实际突起并与动态阈值比较
+            actual_prominences, _, _ = peak_prominences(data, candidate_indices)
+            custom_thresholds = prominence_series.iloc[candidate_indices]
+            valid_mask = actual_prominences >= custom_thresholds.values
+            return candidate_indices[valid_mask]
+
+        # 准备动态prominence阈值
+        peak_prominence_series = df['close'] * prominence
+        trough_prominence_series = df['close'] * prominence
+
+        # 在线程中异步执行
+        peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'], peak_prominence_series)
+        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'], trough_prominence_series)
+
+        # 创建记录最新高低点的列
+        df['swing_high_price'] = np.nan
+        df.iloc[peak_indices, df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
+        df['swing_high_price'].ffill(inplace=True)
+
+        df['swing_low_price'] = np.nan
+        df.iloc[trough_indices, df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
+        df['swing_low_price'].ffill(inplace=True)
+        
+        # 确定当前波段是上升还是下降
+        df['swing_high_date'] = pd.NaT
+        df.iloc[peak_indices, df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
+        df['swing_high_date'].ffill(inplace=True)
+        
+        df['swing_low_date'] = pd.NaT
+        df.iloc[trough_indices, df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
+        df['swing_low_date'].ffill(inplace=True)
+
+        # 如果高点比低点新，则当前处于上升波段后的回撤阶段
+        is_uptrend_pullback = df['swing_high_date'] > df['swing_low_date']
+        
+        # 计算波段范围
+        swing_range = abs(df['swing_high_price'] - df['swing_low_price'])
+
+        result_df = pd.DataFrame(index=df.index)
+        
+        # 计算回撤位
+        retr_levels = fib_params.get('retracement_levels', [])
+        for level in retr_levels:
+            col_name = f'fib_retr_{str(level).replace(".", "")}'
+            # 上升波段的回撤位 = 高点 - 范围 * 百分比
+            retr_price = df['swing_high_price'] - swing_range * level
+            result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
+
+        # 计算扩展位
+        ext_levels = fib_params.get('extension_levels', [])
+        for level in ext_levels:
+            col_name = f'fib_ext_{str(level).replace(".", "")}'
+            # 上升波段的扩展位 = 高点 + 范围 * (扩展百分比 - 1)
+            ext_price = df['swing_high_price'] + swing_range * (level - 1.0)
+            result_df[col_name] = np.where(is_uptrend_pullback, ext_price, np.nan)
+            
+        print("    - [斐波那契分析] 计算完成。")
+        # 清理临时列
+        df.drop(columns=['swing_high_price', 'swing_low_price', 'swing_high_date', 'swing_low_date'], inplace=True)
+        
+        return result_df
 
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
         """计算动量分"""

@@ -113,7 +113,10 @@ class TrendFollowStrategy:
         
         # 列名处理逻辑保持不变，确保所有日线原生列都有 _D 后缀
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
-        rename_map = {col: f"{col}_D" for col in df.columns if not any(col.endswith(suffix) for suffix in timeframe_suffixes)}
+        # ▼▼▼【代码修改】: 修正VWAP列名不被添加后缀的问题 ▼▼▼
+        # 解释: VWAP列名(如VWAP_D)已经包含了周期信息，不应再被添加_D后缀。
+        rename_map = {col: f"{col}_D" for col in df.columns if not any(col.endswith(suffix) for suffix in timeframe_suffixes) and not col.startswith('VWAP_')}
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         if rename_map:
             df = df.rename(columns=rename_map)
         
@@ -334,6 +337,10 @@ class TrendFollowStrategy:
         cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, strict_precondition, params)
         cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
         cond_fund_flow_confirm = self._check_fund_flow_confirmation(df, params)
+        # ▼▼▼【代码修改】: 计算斐波那契回撤买入信号 ▼▼▼
+        # 解释: 调用新增的斐波那契回撤买入剧本。
+        cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         steady_climb_params = self._get_params_block(params, 'steady_climb_params')
         is_low_volatility = pd.Series(False, index=df.index)
         if steady_climb_params.get('enabled', False):
@@ -382,6 +389,10 @@ class TrendFollowStrategy:
         add_score(cond_energy_compression_breakout, 'ENERGY_COMPRESSION_BREAKOUT', 140)
         add_score(cond_capital_flow_divergence, 'CAPITAL_FLOW_DIVERGENCE', 135)
         add_score(cond_relative_strength_maverick, 'RELATIVE_STRENGTH_MAVERICK', 100)
+        # ▼▼▼【代码修改】: 为斐波那契回撤买入信号计分 ▼▼▼
+        # 解释: 将新的斐波那契剧本加入计分板。
+        add_score(cond_fib_pullback, 'PULLBACK_FIBONACCI', points.get('PULLBACK_FIBONACCI', 120))
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         add_score(cond_dmi_cross, 'DMI_CROSS', 30)
         add_score(cond_macd_low_cross, 'MACD_LOW_CROSS', 40)
         add_score(cond_macd_zero_cross, 'MACD_ZERO_CROSS', 60)
@@ -1845,6 +1856,46 @@ class TrendFollowStrategy:
 
         return resonance_signals
 
+    # ▼▼▼【代码修改】: 新增斐波那契回撤买入剧本方法 ▼▼▼
+    def _find_fibonacci_pullback_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【新增剧本】识别斐波那契回撤支撑买点。
+        当价格在上升趋势中回踩到关键斐波那契支撑位并企稳时，产生信号。
+        """
+        # 从配置中获取斐波那契分析参数
+        fib_params = self._get_params_block(params, 'fibonacci_analysis_params')
+        if not fib_params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        # 获取要检查的回撤水平和缓冲区域
+        retr_levels = fib_params.get('retracement_levels', [0.618])
+        buffer = fib_params.get('pullback_buffer', 0.01)
+        
+        final_signal = pd.Series(False, index=df.index)
+
+        # 遍历所有配置的回撤水平
+        for level in retr_levels:
+            # 构建斐波那契回撤列名，例如 'fib_retr_0618_D'
+            col_name = f'fib_retr_{str(level).replace(".", "")}_D'
+            if col_name not in df.columns:
+                # 如果数据列不存在，跳过此水平的检查
+                continue
+            
+            support_price = df[col_name]
+            
+            # 条件1: 当日最低价触及或短暂跌破支撑位（考虑缓冲）
+            touched_support = df['low_D'] <= support_price * (1 + buffer)
+            
+            # 条件2: 当日收盘价收回支撑位之上，形成企稳信号
+            recovered_above_support = df['close_D'] > support_price
+            
+            # 组合信号：满足趋势前提 + 触及支撑 + 收盘企稳
+            signal = touched_support & recovered_above_support & precondition
+            final_signal |= signal # 将当前水平的信号合并到最终信号中
+
+        return final_signal.fillna(False)
+    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
     def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str) -> Dict:
         """【V2.0 升级】对最新信号进行评分并生成报告"""
         signal_type = "无明确信号"
@@ -1963,13 +2014,12 @@ class TrendFollowStrategy:
     # 引入状态机，重构止盈逻辑以支持连续交易模拟
     def _apply_take_profit_rules(self, df: pd.DataFrame, entry_signals: pd.Series, top_divergence_signals: pd.Series, params: dict) -> pd.Series:
         """
-        【V3.3 动态箱体集成版】使用 cumsum 技巧，完全消除状态机循环。
-        - 【修正】明确注释了 top_divergence_signals 是从 apply_strategy 传入的参数。
-        - 【新增】集成了“跌破动态箱体下轨”作为高优先级卖出信号 (代码9)。
+        【V3.4 斐波那契止盈版】使用 cumsum 技巧，完全消除状态机循环。
+        - 【新增】集成了“斐波那契扩展位”作为最高优先级的动态止盈信号 (代码10)。
         """
         # top_divergence_signals 是一个布尔序列，由 apply_strategy 方法计算并作为参数传入此函数。
         # 它代表了任何一天是否出现了顶背离信号。
-        final_tp_signal = pd.Series(0, index=df.index)
+        final_tp_signal = pd.Series(0, index=df.index, dtype=int)
         tp_params = self._get_params_block(params, 'take_profit_params')
         
         # 步骤1: 计算所有潜在的止盈信号，无论是否持仓
@@ -1987,9 +2037,27 @@ class TrendFollowStrategy:
         if box_params.get('breakdown_sell_enabled', True): # 默认启用
             tp_signal_box_breakdown = self.signals.get('dynamic_box_breakdown', pd.Series(False, index=df.index))
 
+        # ▼▼▼【代码修改】: 新增斐波那契扩展位止盈逻辑 ▼▼▼
+        # 解释: 计算是否触及斐波那契扩展目标位。
+        fib_params = self._get_params_block(params, 'fibonacci_analysis_params')
+        tp_signal_fib_extension = pd.Series(False, index=df.index)
+        if fib_params.get('enabled', False):
+            ext_levels = fib_params.get('extension_levels', [1.618])
+            # 通常只关心第一个最重要的扩展目标
+            if ext_levels:
+                first_target_level = ext_levels[0]
+                col_name = f'fib_ext_{str(first_target_level).replace(".", "")}_D'
+                if col_name in df.columns:
+                    target_price = df[col_name]
+                    # 当日最高价触及或超过目标价时，触发止盈
+                    hit_target = (df['high_D'] >= target_price) & target_price.notna()
+                    tp_signal_fib_extension[hit_target] = True
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
         # 步骤2: 将所有止盈信号按优先级合并到一个布尔序列中
-        # 优先级: 砸盘(8) > 天地板(6) > 派发(7) > 动态箱体跌破(9) > 顶背离(4) > 指标(5,3) > 移动止损(2) > 阻力位(1)
+        # 优先级: 斐波那契(10) > 砸盘(8) > 天地板(6) > 派发(7) > 动态箱体跌破(9) > 顶背离(4) > 指标(5,3) > 移动止损(2) > 阻力位(1)
         any_tp_signal = (
+            tp_signal_fib_extension | # 新增斐波那契止盈
             tp_signal_breakdown |
             tp_signal_heaven_earth |
             tp_signal_upthrust |
@@ -2004,22 +2072,29 @@ class TrendFollowStrategy:
         is_new_entry = entry_signals & ~any_tp_signal.shift(1).fillna(False)
         is_exit = any_tp_signal
         trade_block_id = is_new_entry.cumsum()
-        first_exit_in_block = is_exit & ~is_exit.duplicated(keep='first')
+        # ▼▼▼【代码修改】: 修正 first_exit_in_block 的计算逻辑 ▼▼▼
+        # 解释: 原有逻辑在某些情况下可能不准确，修正为更健壮的 groupby().cumcount() 方式。
+        # first_exit_in_block = is_exit & ~is_exit.duplicated(keep='first')
+        first_exit_in_block = is_exit & (is_exit.groupby(trade_block_id).cumcount() == 0)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         reset_points = first_exit_in_block.cumsum()
         active_trade_block_id = trade_block_id - reset_points.shift(1).fillna(0)
         is_holding_vectorized = active_trade_block_id > 0
         
         # 步骤4: 在持仓期内，根据优先级应用止盈规则
-        final_tp_signal.loc[is_holding_vectorized & tp_signal_breakdown] = 8
+        # ▼▼▼【代码修改】: 将斐波那契止盈信号以最高优先级合并 ▼▼▼
+        # 解释: 为斐波那契目标止盈分配一个新的代码10，并赋予最高优先级。
+        final_tp_signal.loc[is_holding_vectorized & tp_signal_fib_extension] = 10
+        final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_breakdown] = 8
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_heaven_earth] = 6
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_upthrust] = 7
-        # 为新的跌破信号分配一个唯一的止盈码(例如9)
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_box_breakdown] = 9
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & top_divergence_signals] = 4
         indicator_tp_mask = (final_tp_signal == 0) & is_holding_vectorized & (tp_signal_indicator > 0)
         final_tp_signal.loc[indicator_tp_mask] = tp_signal_indicator[indicator_tp_mask]
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_trailing] = 2
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_resistance] = 1
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         return final_tp_signal
 
@@ -2090,16 +2165,27 @@ class TrendFollowStrategy:
         df_daily = df_dict.get('D')
 
         # 检查所需数据是否存在
-        if df_minute is None or df_minute.empty or 'VWAP_D' not in df_minute.columns:
-             if not hasattr(self, '_warned_missing_vwap_col'):
-                logger.warning(f"缺少 {tf} 分钟线的 'VWAP_D' 列，VWAP确认功能将不生效。")
-                self._warned_missing_vwap_col = True
+        if df_minute is None or df_minute.empty:
+             if not hasattr(self, '_warned_missing_minute_df_vwap'):
+                logger.warning(f"缺少 {tf} 分钟线 DataFrame，VWAP确认功能将不生效。")
+                self._warned_missing_minute_df_vwap = True
              return pd.Series(False, index=df_daily.index)
+        
+        # VWAP列名由IndicatorService计算时确定，通常是 VWAP_D, VWAP_W 等
+        # 我们需要找到对应分钟周期的VWAP列
+        vwap_col = f'VWAP_{tf}' # 假设分钟线VWAP列名是 VWAP_5, VWAP_15...
+        if vwap_col not in df_minute.columns:
+            # 兼容日内VWAP的通用列名 VWAP_D
+            vwap_col = 'VWAP_D'
+            if vwap_col not in df_minute.columns:
+                if not hasattr(self, '_warned_missing_vwap_col'):
+                    logger.warning(f"缺少 {tf} 分钟线的 'VWAP_{tf}' 或 'VWAP_D' 列，VWAP确认功能将不生效。")
+                    self._warned_missing_vwap_col = True
+                return pd.Series(False, index=df_daily.index)
 
         # 核心逻辑：价格上穿并站稳VWAP
-        # close_col的后缀需要根据df_minute的列名动态确定
-        close_col = f'close_{tf}'
-        vwap_col = 'VWAP_D' # pandas_ta默认列名
+        # 分钟线df的列名没有后缀
+        close_col = 'close'
         
         # 1. 识别在分钟线上，价格高于VWAP的时刻
         is_above_vwap = df_minute[close_col] > df_minute[vwap_col] * (1 + buffer)
@@ -2112,7 +2198,12 @@ class TrendFollowStrategy:
         # 创建一个与日线df对齐的Series
         final_signal = pd.Series(False, index=df_daily.index)
         # 使用日线索引的日期部分去匹配聚合后的结果
-        final_signal.loc[final_signal.index.date_อยู่ใน(daily_confirmation.index)] = daily_confirmation.values
+        # 修正 Series.index.date 和 DatetimeIndex 的比较问题
+        daily_dates_in_index = [d for d in daily_confirmation.index if d in df_daily.index.date]
+        if daily_dates_in_index:
+            matching_daily_indices = df_daily.index[np.isin(df_daily.index.date, daily_dates_in_index)]
+            final_signal.loc[matching_daily_indices] = daily_confirmation[daily_dates_in_index].values
         
         return final_signal
+
 

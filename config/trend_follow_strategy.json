@@ -87,6 +87,11 @@
         },
         "说明": "【新增】计算资金流和筹码的衍生特征，如大单净买入的移动平均趋势、收盘价相对筹码成本的偏离度等。"
       },
+      "fibonacci_levels": {
+        "enabled": true,
+        "apply_on": ["D"],
+        "说明": "【新增】执行斐波那契空间分析，计算关键的回撤和扩展位。"
+      },
       "index_sync": { "index_code": "000300.SH", "rename_to": "index_close", "说明": "同步沪深300指数的收盘价。" }
     },
     "consolidation_period": {
@@ -135,6 +140,20 @@
         "bias_lower_bound": -8.0,
         "bias_upper_bound": 3.0,
         "setup_proximity_threshold": 0.03
+      },
+      "fibonacci_analysis_params": {
+        "enabled": true,
+        "peak_distance": 13,
+        "peak_prominence": 0.05,
+        "retracement_levels": [0.382, 0.5, 0.618],
+        "extension_levels": [1.272, 1.618, 2.0],
+        "pullback_buffer": 0.01,
+        "说明": "【新增】斐波那契空间分析参数。",
+        "说明_peak_distance": "识别波段高/低点的最小间隔天数（斐波那契数13）。",
+        "说明_peak_prominence": "波段高/低点的突起程度（相对于自身价格的百分比），用于过滤无效波动。",
+        "说明_retracement_levels": "要计算和关注的回撤支撑位列表。",
+        "说明_extension_levels": "要计算和关注的扩展目标位列表。",
+        "说明_pullback_buffer": "价格可以短暂跌破支撑位多少百分比（例如0.01代表1%）仍视为有效支撑。"
       },
       "pullback_structure_entry_params": { "enabled": true, "confirmation_days": 2 },
       "momentum_entry_params": { "enabled": true, "lookback_period": 21, "vol_ma_period": 21, "volume_ratio": 1.5 },
@@ -285,6 +304,7 @@
           "BULLISH_FLAG": 110, "说明_BULLISH_FLAG": "【主力剧本】上升三法（旗形整理），主力空中加油强力吸筹的信号。",
           "RELATIVE_STRENGTH_MAVERICK": 100, "说明_RELATIVE_STRENGTH_MAVERICK": "【专家剧本】逆市强人：大盘下跌但个股坚挺，大盘企稳后的龙头备选。",
           "__CATEGORY_HIGH_CERTAINTY__": "--- 高确定性/核心剧本 ---",
+          "PULLBACK_FIBONACCI": 120, "说明_PULLBACK_FIBONACCI": "【专家剧本】黄金分割回撤：价格精准回踩至关键斐波那契支撑位（如0.618）并企稳，是极佳的右侧买点。",
           "OLD_DUCK_HEAD": 120, "说明_OLD_DUCK_HEAD": "【专家剧本】老鸭头形态，主力深度控盘后的二次启动信号。",
           "BOTTOM_DIVERGENCE": 120, "说明_BOTTOM_DIVERGENCE": "复合底背离信号，最高权重的左侧反转信号。",
           "WASHOUT_REVERSAL": 115, "说明_WASHOUT_REVERSAL": "巨阴洗盘后的回马枪，极强的反转博弈信号。",
