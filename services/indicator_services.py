@@ -620,8 +620,8 @@ class IndicatorService:
             score += 0.4
             
         # ▼▼▼【代码修改】: 格式化输出前也进行 NaN 检查，使日志更清晰 ▼▼▼
-        rank_str = f"{turnover_rank_60d:.2%}" if pd.notna(turnover_rank_60d) else "N/A"
-        print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
+        # rank_str = f"{turnover_rank_60d:.2%}" if pd.notna(turnover_rank_60d) else "N/A"
+        # print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         return score
 

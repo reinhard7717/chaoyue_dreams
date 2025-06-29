@@ -781,7 +781,7 @@ class IndicatorDAO(BaseDAO):
         Returns:
             Optional[FundFlowIndustryTHS]: 最新的行业资金流模型实例，或在找不到时返回 None。
         """
-        print(f"    [DAO] 正在查询行业 {industry_code} 在 {trade_date} 或之前的最新资金流...")
+        # print(f"    [DAO] 正在查询行业 {industry_code} 在 {trade_date} 或之前的最新资金流...")
         try:
             # 筛选小于等于指定日期的记录，按日期降序排列，取第一个
             # .select_related('ths_index') 可以优化性能，如果后续需要访问行业名称
@@ -809,7 +809,7 @@ class IndicatorDAO(BaseDAO):
         Returns:
             List[ThsIndexMember]: 该行业的成分股模型实例列表。
         """
-        print(f"    [DAO] 正在查询行业 {industry_code} 的所有成分股...")
+        # print(f"    [DAO] 正在查询行业 {industry_code} 的所有成分股...")
         try:
             # 假设 is_new='Y' 或类似字段表示当前成分股，如果模型没有该字段，则移除该过滤条件
             # .select_related('stock') 是关键的性能优化，避免 N+1 查询

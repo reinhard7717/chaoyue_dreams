@@ -284,7 +284,7 @@ class IndustryDao(BaseDAO):
     @sync_to_async
     def get_stock_codes_by_industry(self, industry_code: str) -> List[str]:
         """【新增】根据同花顺行业代码获取所有成分股代码列表"""
-        print(f"    [DAO] 正在查询行业 {industry_code} 的所有成分股代码...")
+        # print(f"    [DAO] 正在查询行业 {industry_code} 的所有成分股代码...")
         try:
             # 假设 ThsIndexMember 模型通过外键 ths_index 和 stock 关联
             members = ThsIndexMember.objects.filter(
