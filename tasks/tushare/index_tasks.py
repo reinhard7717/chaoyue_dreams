@@ -147,7 +147,7 @@ def save_index_daily_history_task(self):
     """
     # 在任务开始时创建一次 DAO 实例 (仅用于获取所有指数代码)
     index_basic_dao = IndexBasicDAO()
-    slice_size = 500 # 定义切片大小，每500个指数一个切片
+    slice_size = 10 # 定义切片大小，每500个指数一个切片
     try:
         print(f"开始调度 指数每日指标任务...")
         # 获取所有需要处理的指数列表，只需要代码
