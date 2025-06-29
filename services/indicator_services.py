@@ -208,7 +208,7 @@ class IndicatorService:
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
-            print(f"    - 开始为 {tf} 周期数据计算技术指标...")
+            # print(f"    - 开始为 {tf} 周期数据计算技术指标...")
             # 如果是日线，并且成功获取了资金流数据，则先合并
             if tf == 'D' and df_fund_chips is not None and not df_fund_chips.empty:
                 if df.index.tz is not None: df.index = df.index.tz_localize(None)
@@ -217,7 +217,7 @@ class IndicatorService:
                 df[list(df_fund_chips.columns)] = df[list(df_fund_chips.columns)].fillna(0)
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            print(f"      - {tf} 周期指标计算完成。")
+            # print(f"      - {tf} 周期指标计算完成。")
             return tf, df_with_indicators
 
         for tf, df in raw_dfs.items():
@@ -570,38 +570,59 @@ class IndicatorService:
 
     async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
         """
-        【新增】计算行业成交活跃度得分。
-        结合了成交额的短期爆发强度和中期趋势。
+        【V1.1 健壮性修正版】计算行业成交活跃度得分。
+        - 修正了在数据量不足时 rolling 操作返回 NaN 的问题。
+        - 增加了对计算结果的 NaN 值检查，避免程序异常。
         """
-        if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns:
+        # ▼▼▼【代码修改】: 增加数据长度检查，如果数据太少则直接返回0分 ▼▼▼
+        # 解释: 至少需要5天数据才能计算5日均线，否则分析无意义。
+        if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
+            print(f"      - [成交活跃度] 数据不足 (行数: {len(industry_daily_df)})，无法计算得分。")
             return 0.0
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         df = industry_daily_df.copy()
         
         # 1. 计算短期爆发强度：当日换手率在过去60个交易日中的百分位排名
-        # rank(pct=True) 会返回一个 0.0 到 1.0 之间的值，表示当前值在窗口期内的相对位置
-        turnover_rank_60d = df['turnover_rate'].rolling(60).rank(pct=True).iloc[-1]
+        # ▼▼▼【代码修改】: 新增 min_periods 参数 ▼▼▼
+        # 解释: 设置 min_periods=20 确保即使数据不足60天，只要超过20天也能计算出排名。
+        turnover_rank_60d = df['turnover_rate'].rolling(60, min_periods=20).rank(pct=True).iloc[-1]
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         # 2. 计算中期趋势：5日均线是否上穿20日均线
-        df['turnover_ma5'] = df['turnover_rate'].rolling(5).mean()
-        df['turnover_ma20'] = df['turnover_rate'].rolling(20).mean()
+        # ▼▼▼【代码修改】: 新增 min_periods 参数 ▼▼▼
+        # 解释: 设置 min_periods=1 确保均线计算从一开始就有值。
+        df['turnover_ma5'] = df['turnover_rate'].rolling(5, min_periods=1).mean()
+        df['turnover_ma20'] = df['turnover_rate'].rolling(20, min_periods=1).mean()
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         # 判断金叉发生在最近3天内
         was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
         is_above = df['turnover_ma5'] > df['turnover_ma20']
         is_cross_today = was_below & is_above
-        is_recent_cross = is_cross_today.rolling(3).sum().iloc[-1] > 0
+        # ▼▼▼【代码修改】: 新增 min_periods 参数 ▼▼▼
+        is_recent_cross_series = is_cross_today.rolling(3, min_periods=1).sum()
+        is_recent_cross = is_recent_cross_series.iloc[-1] > 0 if not is_recent_cross_series.empty else False
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # 3. 综合评分
         score = 0.0
-        # 如果短期爆发力极强 (排名前10%)，给予高分
-        if turnover_rank_60d > 0.9:
-            score += 0.6
+        # ▼▼▼【代码修改】: 增加对 turnover_rank_60d 的 NaN 检查 ▼▼▼
+        # 解释: 在进行比较和评分前，必须确保值不是 NaN。
+        if pd.notna(turnover_rank_60d):
+            # 如果短期爆发力极强 (排名前10%)，给予高分
+            if turnover_rank_60d > 0.9:
+                score += 0.6
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        
         # 如果中期趋势向好 (近期金叉)，给予加分
         if is_recent_cross:
             score += 0.4
             
-        print(f"      - [成交活跃度] 当日换手率排名: {turnover_rank_60d:.2%}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
+        # ▼▼▼【代码修改】: 格式化输出前也进行 NaN 检查，使日志更清晰 ▼▼▼
+        rank_str = f"{turnover_rank_60d:.2%}" if pd.notna(turnover_rank_60d) else "N/A"
+        print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         return score
 
     # --- 所有指标计算函数 async def calculate_* ---
@@ -1304,7 +1325,7 @@ class IndicatorService:
         processed_anchor = anchor
         if anchor and str(anchor).isdigit():
             processed_anchor = f"{anchor}T"
-            print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
+            # print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         try:
