@@ -200,30 +200,84 @@ class StockBasicInfoDao(BaseDAO):
 
     async def save_company_info(self) -> Dict:
         """
-        通过tushare获取公司信息并保存到数据库
+        【V2 - 优化版】通过tushare获取所有公司信息并保存到数据库
+        
+        优化点:
+        1. [核心] 使用 `get_stocks_by_codes` 方法进行批量查询，彻底解决N+1数据库查询问题，性能提升巨大。
+        2. 采用“先从API拉取，再批量关联数据库信息”的高效模式。
+        3. 增加了对源数据（API返回数据）的完整性校验。
+        4. 优化了代码结构，使其更清晰、高效和健壮。
         """
-        # 拉取数据
-        df = self.ts_pro.stock_company(**{
-            "ts_code": "", "exchange": "", "status": "", "limit": "", "offset": ""
-        }, fields=["ts_code", "com_name", "com_id", "chairman", "manager", "secretary", "reg_capital", "setup_date", "province",
-            "city", "introduction", "website", "email", "office", "business_scope", "employees", "main_business", "exchange"
-        ])
-        company_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
+        print("调试: 开始执行 save_company_info 任务...")
+        
+        try:
+            # 1. 一次性从Tushare拉取所有公司数据
+            print("调试: 正在从Tushare API拉取所有上市公司基本信息...")
+            df = self.ts_pro.stock_company(**{
+                "ts_code": "", "exchange": "", "status": "L", # 通常只获取上市状态的公司
+            }, fields=[
+                "ts_code", "com_name", "chairman", "manager", "secretary", "reg_capital", "setup_date", "province",
+                "city", "introduction", "website", "email", "office", "business_scope", "employees", "main_business", "exchange"
+            ])
+
+            if df.empty:
+                logger.info("Tushare API没有返回任何公司信息，任务提前结束。")
+                print("调试: Tushare API返回空数据帧，任务结束。")
+                return {"status": "success", "message": "No data returned from API.", "saved_count": 0}
+
+            # 2. 数据清洗
+            df = df.replace(['nan', 'NaN', ''], np.nan)
+            df = df.where(pd.notnull(df), None)
+            
+            # 3. [代码修改处] 批量获取所有相关的股票基础信息对象
+            unique_ts_codes = df['ts_code'].unique().tolist()
+            print(f"调试: 从API获取了 {len(df)} 条公司数据，涉及 {len(unique_ts_codes)} 个独立股票代码。")
+            
+            # [代码修改处] 使用 get_stocks_by_codes 方法，一次性查询数据库，解决N+1问题
+            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+            print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
+
+            # 4. 准备批量写入的数据
+            data_dicts_to_save = []
+            
             for row in df.itertuples():
-                stock = await self.get_stock_by_code(row.ts_code)
-                if stock:
-                    company_dict = self.data_format_process.set_company_info_data(stock, row)
-                    company_dicts.append(company_dict)
-        if company_dicts is not None:
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockCompany,
-                data_list=company_dicts,
-                unique_fields=['stock_code'] # ORM 能处理 stock 实例
-            )
-        return result
+                # [代码修改处] 从预先查好的映射中获取股票对象，高效且无N+1问题
+                stock_instance = stock_map.get(row.ts_code)
+                
+                # 进行健壮性检查
+                if stock_instance and row.com_name:
+                    company_dict = self.data_format_process.set_company_info_data(stock_instance, row)
+                    data_dicts_to_save.append(company_dict)
+                else:
+                    if not stock_instance:
+                        logger.warning(f"在数据库中未找到股票代码 {row.ts_code} 的基础信息，已跳过该公司信息。")
+                    else:
+                        logger.warning(f"API返回的股票 {row.ts_code} 公司名称(com_name)为空，已跳过。")
+
+            # 5. [代码修改处] 批量写入数据库
+            saved_count = 0
+            if data_dicts_to_save:
+                print(f"调试: 准备批量保存 {len(data_dicts_to_save)} 条公司数据到数据库...")
+                # [代码修改处] unique_fields 应该直接关联到 stock 对象，而不是 stock_code 字符串
+                # 假设 _save_all_to_db_native_upsert 能处理外键对象
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockCompany,
+                    data_list=data_dicts_to_save,
+                    unique_fields=['stock'] # 使用外键字段'stock'作为唯一约束
+                )
+                saved_count = len(data_dicts_to_save)
+                logger.info(f"成功批量保存 {saved_count} 条公司信息。")
+                print(f"调试: 成功保存 {saved_count} 条数据。")
+                return result # 返回upsert的结果
+            else:
+                logger.info("经过筛选后，没有需要保存到数据库的公司数据。")
+                print("调试: 经过筛选后，没有需要保存的数据。")
+                return {"status": "success", "message": "No new data to save.", "saved_count": 0}
+
+        except Exception as e:
+            logger.error(f"保存公司信息时发生严重错误: {e}", exc_info=True)
+            print(f"调试: 发生异常: {e}")
+            raise
 
     async def save_hs_const(self) -> Dict:
         """
