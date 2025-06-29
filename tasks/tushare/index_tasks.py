@@ -124,7 +124,7 @@ def save_index_daily_this_week_task(self):
 
 INDEX_SLICE_SIZE = 100 # 优化：将切片大小从10增加到100，减少任务总数，降低系统开销
 
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_slice', queue='SaveData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_slice', queue='SaveData_TimeTrade', rate_limit='180/m')
 def save_index_daily_history_slice(self, index_codes_slice: List[str]):
     """
     【优化版】执行保存单个指数切片的历史日级指标数据到数据库
