@@ -83,7 +83,7 @@ class IndicatorService:
         Returns:
             Optional[pd.DataFrame]: 包含原始 OHLCV 数据的 DataFrame，如果获取失败则为 None。
         """
-        print(f"    [底层数据获取] 正在为 {stock_code} 获取 {time_level} 级别数据，请求 {needed_bars} 条...")
+        # print(f"    [底层数据获取] 正在为 {stock_code} 获取 {time_level} 级别数据，请求 {needed_bars} 条...")
         df = await self.indicator_dao.get_history_ohlcv_df(
             stock_code=stock_code, 
             time_level=time_level, 
@@ -111,7 +111,7 @@ class IndicatorService:
             if time_col:
                 df[time_col] = pd.to_datetime(df[time_col])
                 df.set_index(time_col, inplace=True)
-                print(f"    [底层数据获取] 已将 '{time_col}' 列设置为 DatetimeIndex。")
+                # print(f"    [底层数据获取] 已将 '{time_col}' 列设置为 DatetimeIndex。")
             else:
                 logger.error(f"[{stock_code}] {time_level} 数据既没有 DatetimeIndex，也没有 'trade_date'/'trade_time' 列。")
                 return None
@@ -302,7 +302,7 @@ class IndicatorService:
         - 逻辑统一: 不再使用'suffix'参数，而是统一使用'timeframe_key' (如 'D', 'W', '60', '15')。
         - 健壮性: 增加了详细的异常捕获和日志记录。
         """
-        print(f"  [指标计算V5.0] 开始为周期 '{timeframe_key}' 计算指标...")
+        # print(f"  [指标计算V5.0] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -375,7 +375,7 @@ class IndicatorService:
 
                 # 解释: VWAP使用'anchor'参数而不是'periods'，因此需要一个专门的处理分支。
                 if indicator_name == 'vwap':
-                    print(f"    - [匹配成功] 周期 '{timeframe_key}' 将计算 VWAP")
+                    # print(f"    - [匹配成功] 周期 '{timeframe_key}' 将计算 VWAP")
                     try:
                         # VWAP的计算锚点通常是'D' (日内)，'W' (周内)等。
                         # 我们直接使用当前的时间周期key作为anchor。
@@ -391,7 +391,7 @@ class IndicatorService:
                         traceback.print_exc()
                     continue # 处理完VWAP后，跳过后续的通用逻辑
 
-                print(f"    - [匹配成功] 周期 '{timeframe_key}' 将使用参数 {sub_config.get('periods')} 计算 {indicator_name.upper()}")
+                # print(f"    - [匹配成功] 周期 '{timeframe_key}' 将使用参数 {sub_config.get('periods')} 计算 {indicator_name.upper()}")
                 
                 method_to_call = indicator_method_map[indicator_name]
                 try:
@@ -440,7 +440,7 @@ class IndicatorService:
 
         # 循环计算所有复合指标
         if composite_indicators_config:
-            print("    - [复合指标] 准备计算复合指标...")
+            # print("    - [复合指标] 准备计算复合指标...")
             for indicator_name, params in composite_indicators_config.items():
                 if not params.get('enabled', False): continue
                 
@@ -468,7 +468,7 @@ class IndicatorService:
                     logger.error(f"    - [严重警告] 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算过程中发生异常: {e}")
                     traceback.print_exc()
 
-        print(f"  [指标计算V5.0] 周期 '{timeframe_key}' 指标计算完成。")
+        # print(f"  [指标计算V5.0] 周期 '{timeframe_key}' 指标计算完成。")
         return df
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
@@ -476,7 +476,7 @@ class IndicatorService:
         【V2.0 结构分析版】计算指定交易日所有行业的强度分及排名。
         综合了价量趋势、资金流向、龙头效应、板块协同性和涨停梯队。
         """
-        print(f"--- [IndustryService V2.1] 开始计算 {trade_date} 的行业结构化强度 (对比基准: {market_code}) ---")
+        # print(f"--- [IndustryService V2.1] 开始计算 {trade_date} 的行业结构化强度 (对比基准: {market_code}) ---")
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
         market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
         if market_daily_df.empty:
@@ -733,8 +733,8 @@ class IndicatorService:
             
             # 2. 检查该列是否存在，然后进行标准化
             if bbw_source_col in bbands_df.columns:
-                print(f"  [指标标准化] 检测到 pandas-ta 的 '{bbw_source_col}' 列。")
-                print(f"  [指标标准化] 将其值除以 100.0 以从百分比转换为标准比率。")
+                # print(f"  [指标标准化] 检测到 pandas-ta 的 '{bbw_source_col}' 列。")
+                # print(f"  [指标标准化] 将其值除以 100.0 以从百分比转换为标准比率。")
                 # 核心操作：将百分比转换为比率
                 bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
             # ▲▲▲【核心修正】▲▲▲

@@ -487,7 +487,7 @@ class StrategiesDAO(BaseDAO):
         【优化版】获取指定股票的日线资金流和筹码性能数据。
         - 整个方法被异步化，避免了内部嵌套。
         """
-        print(f"调试信息: [DAO] 正在获取 {stock_code} 的资金流与筹码数据...")
+        # print(f"调试信息: [DAO] 正在获取 {stock_code} 的资金流与筹码数据...")
         
         # 获取资金流数据
         fund_flow_qs = FundFlowDailyTHS.objects.filter(stock__stock_code=stock_code).order_by('trade_time')
@@ -520,7 +520,7 @@ class StrategiesDAO(BaseDAO):
         df_merged.ffill(inplace=True)
         df_merged.set_index('trade_time', inplace=True)
         
-        print(f"调试信息: [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条资金筹码数据。")
+        # print(f"调试信息: [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条资金筹码数据。")
         return df_merged
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:

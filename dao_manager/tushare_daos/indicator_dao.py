@@ -887,7 +887,7 @@ class IndicatorDAO(BaseDAO):
     @sync_to_async
     def get_all_industries(self) -> List[ThsIndex]:
         """获取所有同花顺行业/概念指数列表"""
-        print("    [DAO] 正在获取所有行业列表...")
+        # print("    [DAO] 正在获取所有行业列表...")
         # 假设 type='N' 代表行业, 'C' 代表概念，根据你的实际情况调整
         return list(ThsIndex.objects.filter(type='N'))
 
@@ -923,19 +923,33 @@ class IndicatorDAO(BaseDAO):
 
     @sync_to_async
     def get_market_index_daily_data(self, market_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
-        """【新增】获取大盘基准指数的历史日线行情"""
+        """
+        【修改版】获取大盘基准指数的历史日线行情
+        
+        修改点:
+        1. 查询的数据模型由 ThsIndexDaily 更改为 IndexDaily。
+        2. 查询条件根据 IndexDaily 的外键关系调整为 'index__index_code'。
+        """
         # print(f"    [DAO] 正在获取大盘指数 {market_code} 从 {start_date} 到 {end_date} 的行情...")
-        # 假设大盘指数也存储在 ThsIndexDaily 中
-        qs = ThsIndexDaily.objects.filter(
-            ths_index__ts_code=market_code,
+        
+        # 代码修改处: 使用新的 IndexDaily 模型进行查询
+        # 根据 IndexDaily 的外键 'index' 和其关联字段 'index_code' 进行过滤
+        qs = IndexDaily.objects.filter(
+            index__index_code=market_code, # 代码修改处: 过滤条件从 ths_index__ts_code 调整为 index__index_code
             trade_time__gte=start_date,
             trade_time__lte=end_date
         ).order_by('trade_time')
+        
+        # 从查询结果中仅选择需要的字段，以提高效率
         df = pd.DataFrame(list(qs.values('trade_time', 'close')))
+        
+        # 后续数据处理逻辑保持不变
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'close': 'market_close'}, inplace=True)
+            
+        # print(f"    [DAO] 获取到 {len(df)} 条指数 {market_code} 的行情数据。")
         return df
 
     # 添加安全转换辅助函数（确保存在且正确）
