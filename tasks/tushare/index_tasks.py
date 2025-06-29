@@ -122,61 +122,76 @@ def save_index_daily_this_week_task(self):
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
 
+INDEX_SLICE_SIZE = 100 # 优化：将切片大小从10增加到100，减少任务总数，降低系统开销
+
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_slice', queue='SaveData_TimeTrade')
 def save_index_daily_history_slice(self, index_codes_slice: List[str]):
     """
-    执行保存单个指数切片的历史日级指标数据到数据库
+    【优化版】执行保存单个指数切片的历史日级指标数据到数据库
     Args:
         index_codes_slice: 指数代码列表切片
     """
     # 在任务开始时创建 DAO 实例
-    index_basic_dao = IndexBasicDAO() # 修改：在执行任务内部创建DAO实例
+    index_basic_dao = IndexBasicDAO()
+    task_id = self.request.id # 代码修改处: 获取任务ID用于日志追踪
+    
     try:
-        print(f"执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个指数代码: {index_codes_slice[:5]}...") # 修改：打印正在处理的切片信息
-        asyncio.run(index_basic_dao.save_index_daily_history(index_codes=index_codes_slice)) # 修改：调用DAO方法处理获取到的IndexInfo列表
+        # 代码修改处: 使用Celery logger记录信息，并包含任务ID
+        logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
+        
+        # 调用DAO方法处理获取到的IndexInfo列表
+        asyncio.run(index_basic_dao.save_index_daily_history(index_codes=index_codes_slice))
 
-        print(f"任务完成 - 指数切片处理完成，包含 {len(index_codes_slice)} 个指数代码。") # 修改：打印切片处理完成信息
+        logger.info(f"[{task_id}] 任务成功 - 指数切片处理完成，包含 {len(index_codes_slice)} 个代码。")
     except Exception as e:
-        logger.error(f"执行 指数切片任务时发生意外错误 (切片: {index_codes_slice[:5]}...): {e}", exc_info=True) # 修改：记录切片任务错误
+        # 代码修改处: 使用Celery logger记录错误，并包含任务ID
+        logger.error(f"[{task_id}] 执行指数切片任务时发生错误 (切片: {index_codes_slice[:3]}...): {e}", exc_info=True)
+        # 可以选择重新抛出异常，让Celery根据配置进行重试
+        # raise self.retry(exc=e, countdown=60)
 
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery')
+
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery') # 代码修改处: 任务名修改为 dispatch_... 更清晰
 def save_index_daily_history_task(self):
     """
-    从Tushare批量获取历史日级资金流向数据并保存到数据库（调度任务）
-    将指数列表切片后分配给执行任务处理。
+    【优化版】从数据库获取所有指数代码，切片后分发给执行器任务进行处理（调度任务）
     """
-    # 在任务开始时创建一次 DAO 实例 (仅用于获取所有指数代码)
+    # 在任务开始时创建一次 DAO 实例
     index_basic_dao = IndexBasicDAO()
-    slice_size = 10 # 定义切片大小，每500个指数一个切片
+    task_id = self.request.id
+    
     try:
-        print(f"开始调度 指数每日指标任务...")
-        # 获取所有需要处理的指数列表，只需要代码
-        print("正在获取所有指数代码列表...")
-        # 注意：这里需要在同步任务中运行异步方法获取所有指数
-        async def get_all_index_codes_async():
-             all_indices = await index_basic_dao.get_index_list() # 假设这个方法是异步的
-             return [idx.index_code for idx in all_indices]
-
-        # 在同步任务中运行异步代码获取所有指数代码
-        all_index_codes = asyncio.run(get_all_index_codes_async()) # 修改：先获取所有指数代码列表
-        print(f"共获取到 {len(all_index_codes)} 个指数代码，将按每 {slice_size} 个进行切片并分配任务。")
-
+        logger.info(f"[{task_id}] 开始调度 [指数每日指标] 任务...")
+        
+        # 代码修改处: 直接调用高效的DAO方法获取所有指数代码列表
+        # 无需在Celery任务中再嵌套一层 asyncio.run
+        logger.info(f"[{task_id}] 正在从数据库获取所有指数代码列表...")
+        all_index_codes = asyncio.run(index_basic_dao.get_all_index_codes())
+        
         if not all_index_codes:
-            print("未获取到任何指数代码，调度任务结束。")
+            logger.warning(f"[{task_id}] 未获取到任何指数代码，调度任务结束。")
             return
 
-        # 对指数代码列表进行切片并分配执行任务
-        # 导入执行任务函数
-        # from . import save_index_basic_daily_slice # 假设执行任务函数在同一个文件或可导入路径
-        for i in range(0, len(all_index_codes), slice_size): # 修改：循环遍历指数代码切片
-            index_codes_slice = all_index_codes[i:i + slice_size] # 修改：获取当前指数代码切片
-            print(f"调度任务 - 分配第 {i // slice_size + 1} 个切片任务 (索引 {i} 到 {min(i + slice_size, len(all_index_codes)) - 1})，包含 {len(index_codes_slice)} 个指数代码...") # 修改：打印切片分配信息
-            # 分配执行任务
-            save_index_daily_history_slice.delay(index_codes_slice) # 修改：调用执行任务并传递切片参数
+        logger.info(f"[{task_id}] 共获取到 {len(all_index_codes)} 个指数代码，将按每 {INDEX_SLICE_SIZE} 个进行切片并分配任务。")
 
-        print("调度任务完成 - 所有指数切片任务已分配。") # 修改：打印调度任务完成信息
+        # 对指数代码列表进行切片并分配执行任务
+        for i in range(0, len(all_index_codes), INDEX_SLICE_SIZE):
+            index_codes_slice = all_index_codes[i:i + INDEX_SLICE_SIZE]
+            
+            # 代码修改处: 优化日志输出，使其更清晰
+            log_msg = (
+                f"[{task_id}] 调度中: 分配第 {i // INDEX_SLICE_SIZE + 1} 个切片 "
+                f"(含 {len(index_codes_slice)} 个代码) 到执行队列 [SaveData_TimeTrade]..."
+            )
+            logger.info(log_msg)
+            
+            # 分配执行任务
+            save_index_daily_history_slice.delay(index_codes_slice)
+
+        logger.info(f"[{task_id}] 调度任务完成 - 所有 {len(range(0, len(all_index_codes), INDEX_SLICE_SIZE))} 个指数切片任务已成功分配。")
     except Exception as e:
-        logger.error(f"执行 指数每日指标调度任务时发生意外错误: {e}", exc_info=True) # 修改：记录调度任务错误
+        logger.error(f"[{task_id}] 执行 [指数每日指标] 调度任务时发生严重错误: {e}", exc_info=True)
+        # 调度任务失败通常需要手动干预，可以根据需要设置重试
+        # raise self.retry(exc=e, countdown=300, max_retries=3)
 
 
 #  ================ 指数历史指标 ================

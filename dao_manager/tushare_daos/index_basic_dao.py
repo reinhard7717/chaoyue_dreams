@@ -225,6 +225,18 @@ class IndexBasicDAO(BaseDAO):
         else:
             return None
 
+    @sync_to_async
+    def get_all_index_codes(self) -> list[str]:
+        """
+        【新增优化方法】高效地从数据库获取所有指数的代码列表。
+        使用 values_list('index_code', flat=True) 避免加载整个对象，极大提升性能和降低内存消耗。
+        """
+        print("    [DAO] 正在从数据库高效获取所有指数代码...")
+        # 使用 values_list 和 flat=True 直接返回一个字符串列表 ['000001.SH', '399001.SZ', ...]
+        codes = list(IndexInfo.objects.values_list('index_code', flat=True))
+        print(f"    [DAO] 成功获取 {len(codes)} 个指数代码。")
+        return codes
+
     async def save_indexs(self) -> Dict:
         """
         保存指数信息到数据库
