@@ -598,7 +598,7 @@ def save_cyq_chips_this_week_batch(self, ts_code: str, start_date: datetime.date
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         # [新增] 根据ts_code从数据库获取StockInfo对象
-        stock = asyncio.run(stock_basic_dao.get_stock_by_ts_code(ts_code=ts_code))
+        stock = asyncio.run(stock_basic_dao.get_stock_by_code(stock_code=ts_code))
         if not stock:
             logger.warning(f"在数据库中未找到代码为 {ts_code} 的股票，跳过此任务。")
             return
