@@ -50,6 +50,9 @@ class IndicatorService:
         self.stock_basic_dao = StockBasicInfoDao()
         self.index_dao = IndexBasicDAO()
         self.strategies_dao = StrategiesDAO() # 实例化DAO
+
+        self.momentum_lookback = 60 # 动量计算回看周期
+        self.fund_flow_lookback = 5   # 资金流计算回看周期
         
         try:
             global ta
@@ -398,6 +401,70 @@ class IndicatorService:
 
         print(f"  [指标计算V5.0] 周期 '{timeframe_key}' 指标计算完成。")
         return df
+
+    async def calculate_industry_strength_rank(self, trade_date: datetime.date) -> pd.DataFrame:
+        """
+        计算指定交易日所有行业的强度分及排名。
+        这是整个行业分析引擎的核心。
+        """
+        print(f"\n--- [IndustryService] Starting industry strength calculation for {trade_date} ---")
+        
+        # 1. 获取所有行业列表
+        all_industries = await self.indicator_dao.get_all_industries()
+        if not all_industries:
+            print("    - Warning: No industries found. Aborting calculation.")
+            return pd.DataFrame()
+
+        strength_data = []
+        for industry in all_industries:
+            print(f"  - Processing industry: {industry.name} ({industry.ts_code})")
+            
+            # 2. 并行获取所需数据
+            start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30) # 多获取一些数据以计算MA
+            
+            # 获取行业指数行情
+            industry_daily_df = await self.indicator_dao.get_industry_daily_data(
+                industry.ts_code, start_date, trade_date
+            )
+            # 获取行业资金流
+            industry_fund_flow_df = await self.indicator_dao.get_industry_fund_flow(
+                industry.ts_code, start_date, trade_date
+            )
+            
+            if industry_daily_df.empty:
+                print(f"    - Skipping {industry.name}: No daily data available.")
+                continue
+
+            # 3. 计算各项得分
+            momentum_score = self._calculate_momentum_score(industry_daily_df, trade_date)
+            fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date)
+            breadth_score = await self._calculate_breadth_score(industry.ts_code, trade_date)
+            
+            # 4. 加权合成总分 (权重可配置)
+            total_score = (
+                0.4 * momentum_score + 
+                0.4 * fund_flow_score + 
+                0.2 * breadth_score
+            )
+            
+            strength_data.append({
+                'industry_code': industry.ts_code,
+                'industry_name': industry.name,
+                'strength_score': total_score
+            })
+
+        if not strength_data:
+            print("--- [IndustryService] Calculation finished. No valid industry data found. ---")
+            return pd.DataFrame()
+
+        # 5. 归一化排名
+        df = pd.DataFrame(strength_data)
+        df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True) # ascending=True, 分数越高排名越接近1
+        
+        print(f"--- [IndustryService] Industry strength calculation finished for {trade_date}. ---")
+        return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
+
+
 
     # --- 所有指标计算函数 async def calculate_* ---
     async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -1429,6 +1496,70 @@ class IndicatorService:
             # 使用Django的logger或您自己的日志系统
             print(f"    - [严重错误] 计算资金流和筹码衍生特征时发生意外: {e}")
             return None
+
+    def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
+        """计算动量分"""
+        if df.empty or trade_date not in df.index:
+            return 0.0
+        
+        # 计算均线
+        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
+        
+        today = df.loc[trade_date]
+        
+        # 条件1: 价格高于关键均线
+        price_above_ema20 = 1 if today['close'] > today['ema20'] else 0
+        price_above_ema60 = 1 if today['close'] > today['ema60'] else 0
+        
+        # 条件2: 均线多头排列
+        ema_bullish = 1 if today['ema20'] > today['ema60'] else 0
+        
+        # 条件3: 近期涨幅
+        pct_change_5d = (today['close'] / df['close'].shift(5).loc[trade_date]) - 1 if len(df) > 5 else 0
+        
+        # 综合打分
+        score = (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
+        return score
+
+    def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
+        """计算资金流分"""
+        if df.empty or trade_date not in df.index:
+            return 0.0
+            
+        # 截取近期数据
+        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
+        if recent_df.empty:
+            return 0.0
+            
+        # 条件1: 近期累计净流入
+        net_inflow_sum = recent_df['net_amount'].sum()
+        
+        # 条件2: 净流入天数占比
+        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
+        
+        # 综合打分
+        score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
+        return score
+
+    async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:
+        """计算内部强度分"""
+        members = await self.indicator_dao.get_industry_members(industry_code)
+        if not members:
+            return 0.0
+            
+        members_df = await self.indicator_dao.get_stocks_daily_close(members, trade_date)
+        if members_df.empty:
+            return 0.0
+            
+        # 计算上涨家数占比
+        members_df['is_up'] = members_df['close'] > members_df['pre_close']
+        up_ratio = members_df['is_up'].sum() / len(members_df)
+        
+        # 综合打分
+        score = up_ratio * 10
+        return score
+
 
     # # 修改方法: 重构 prepare_multi_timeframe_data 以提高效率和正确性
     # async def prepare_multi_timeframe_data(

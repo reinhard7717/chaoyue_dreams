@@ -4,6 +4,7 @@ import datetime
 import logging
 from typing import Any, List, Optional, Set, Union, Dict, Type
 import pandas as pd
+from django.db.models import F
 import pandas_ta as ta
 from django.db.models import Max
 from django.db import models # 确保导入 models
@@ -14,8 +15,8 @@ from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
-from stock_models.industry import ThsIndexDaily # 导入 ThsIndexMember 模型
-from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
+from stock_models.industry import ThsIndex, ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
+from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyData, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
 # 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC, FundFlowCntTHS, FundFlowIndustryTHS
 from utils.cache_get import  StockTimeTradeCacheGet
@@ -620,489 +621,152 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None
 
-    # 新增方法：获取指数日线数据并转为 DataFrame
-    async def get_index_daily_df(self, index_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+    # ▼▼▼【代码修改】: 新增行业分析相关的所有DAO方法 ▼▼▼
+    async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
-        获取指定指数列表在日期范围内（包含起止日）的日线数据，并转换为 DataFrame。
-        返回 DataFrame 包含 'index_code', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_chg', 'vol', 'amount' 等列。
-        DataFrame 的索引是时区感知的 pd.Timestamp。
-        """
-        if not index_codes:
-            return None
-        try:
-            # 使用 filter(index__index_code__in=index_codes) 批量查询
-            # 注意 IndexDaily 模型的外键关联 IndexInfo 的 index_code 字段
-            # 用 sync_to_async 包裹整个 ORM 查询过程，保证异步安全
-            data_list = await sync_to_async(
-                lambda: list(
-                    IndexDaily.objects.filter(
-                        index__index_code__in=index_codes,
-                        trade_time__gte=start_date,
-                        trade_time__lte=end_date
-                    ).select_related('index')
-                )
-            )()
-            if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到指数 {index_codes} 的日线数据")
-                return None
-            # 将模型实例列表转换为字典列表
-            data = []
-            for item in data_list:
-                data.append({
-                    'index_code': getattr(item.index, 'index_code', None), # 获取关联 IndexInfo 的 index_code
-                    'trade_time': getattr(item, 'trade_time', None),
-                    'open': self._safe_float(getattr(item, 'open', None)),
-                    'high': self._safe_float(getattr(item, 'high', None)),
-                    'low': self._safe_float(getattr(item, 'low', None)),
-                    'close': self._safe_float(getattr(item, 'close', None)),
-                    'pre_close': self._safe_float(getattr(item, 'pre_close', None)),
-                    'change': self._safe_float(getattr(item, 'change', None)),
-                    'pct_chg': self._safe_float(getattr(item, 'pct_chg', None)),
-                    'vol': self._safe_float(getattr(item, 'vol', None)), # 指数 vol 是浮点型
-                    'amount': self._safe_float(getattr(item, 'amount', None)),
-                    # 添加其他需要的字段
-                })
-            if not data:
-                 logger.warning(f"从 IndexDaily Model 转换的数据列表为空 for {index_codes}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 IndexDaily DataFrame 为空 for {index_codes}")
-                return None
-            # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
-            default_tz = timezone.get_default_timezone()
-            # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True) # 丢弃无效时间行
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 IndexDaily DataFrame 为空 for {index_codes}")
-                 return None
-            df.index = df['trade_time']
-            df.drop(columns=['trade_time'], inplace=True)
-            # 按时间升序排序索引
-            df.sort_index(ascending=True, inplace=True)
-            # logger.info(f"成功获取并处理指数 {index_codes} 的日线数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取指数日线数据失败 for {index_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        获取所有同花顺行业指数的基本信息。
 
-    # 新增方法：获取同花顺板块日线数据并转为 DataFrame
-    async def get_ths_index_daily_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
-        """
-        获取指定同花顺指数列表在日期范围内（包含起止日）的日线数据，并转换为 DataFrame。
-        返回 DataFrame 包含 'ts_code', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_change', 'vol', 'turnover_rate', 'total_mv', 'float_mv', 'pe_ttm', 'pb_mrq' 等列。
-        DataFrame 的索引是时区感知的 pd.Timestamp。
-        """
-        if not ths_codes:
-            return None
-        try:
-            # 使用 filter(ths_index__ts_code__in=ths_codes) 批量查询
-            # 注意 ThsIndexDaily 模型的外键关联 ThsIndex 的 ts_code 字段
-            data_list = await sync_to_async(
-                lambda: list(
-                    ThsIndexDaily.objects.filter(
-                        ths_index__ts_code__in=ths_codes,
-                        trade_time__gte=start_date,
-                        trade_time__lte=end_date
-                    ).select_related('ths_index')
-                )
-            )()
-            if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺指数 {ths_codes} 的日线数据")
-                return None
-            # 将模型实例列表转换为字典列表
-            data = []
-            for item in data_list:
-                 data.append({
-                    'ts_code': getattr(item.ths_index, 'ts_code', None), # 获取关联 ThsIndex 的 ts_code
-                    'trade_time': getattr(item, 'trade_time', None),
-                    'open': self._safe_float(getattr(item, 'open', None)),
-                    'high': self._safe_float(getattr(item, 'high', None)),
-                    'low': self._safe_float(getattr(item, 'low', None)),
-                    'close': self._safe_float(getattr(item, 'close', None)),
-                    'pre_close': self._safe_float(getattr(item, 'pre_close', None)),
-                    'change': self._safe_float(getattr(item, 'change', None)),
-                    'pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 注意字段名不同于 IndexDaily
-                    'vol': self._safe_float(getattr(item, 'vol', None)),
-                    'turnover_rate': self._safe_float(getattr(item, 'turnover_rate', None)),
-                    'total_mv': self._safe_float(getattr(item, 'total_mv', None)),
-                    'float_mv': self._safe_float(getattr(item, 'float_mv', None)),
-                    'pe_ttm': self._safe_float(getattr(item, 'pe_ttm', None)),
-                    'pb_mrq': self._safe_float(getattr(item, 'pb_mrq', None)),
-                     # 添加其他需要的字段
-                })
-            if not data:
-                 logger.warning(f"从 ThsIndexDaily Model 转换的数据列表为空 for {ths_codes}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 ThsIndexDaily DataFrame 为空 for {ths_codes}")
-                return None
-            # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
-            default_tz = timezone.get_default_timezone()
-            # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True) # 丢弃无效时间行
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 ThsIndexDaily DataFrame 为空 for {ths_codes}")
-                 return None
-            df.index = df['trade_time']
-            df.drop(columns=['trade_time'], inplace=True)
-            # 按时间升序排序索引
-            df.sort_index(ascending=True, inplace=True)
-            # logger.info(f"成功获取并处理同花顺指数 {ths_codes} 的日线数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取同花顺指数日线数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        Args:
+            industry_type (str): 指数类型，默认为'行业'，也可以是'概念'。
 
-    # 新增方法：获取股票筹码分布汇总数据并转为 DataFrame
-    async def get_stock_cyq_perf_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        Returns:
+            List[ThsIndex]: ThsIndex模型对象的列表。
         """
-        获取指定股票在日期范围内（包含起止日）的筹码分布汇总数据，并转换为 DataFrame。
-        返回 DataFrame 包含 'stock_code', 'trade_time', 'his_low', 'his_high', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg', 'winner_rate' 等列。
-        DataFrame 的索引是时区感知的 pd.Timestamp。
-        """
-        try:
-            # 获取股票对象 (假设 get_stock_by_code 返回的是 StockInfo 模型实例)
-            stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-            if not stock:
-                 logger.warning(f"无法找到股票信息: {stock_code}，无法获取筹码数据")
-                 return None
-            # 用 sync_to_async 包裹 ORM 查询
-            data_list = await sync_to_async(
-                lambda: list(
-                    StockCyqPerf.objects.filter( stock=stock, trade_time__gte=start_date, trade_time__lte=end_date ).select_related('stock')
-                )
-            )()
-            if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的筹码分布汇总数据")
-                return None
-            # 将模型实例列表转换为字典列表
-            data = []
-            for item in data_list:
-                 data.append({
-                    'stock_code': getattr(item.stock, 'stock_code', None), # 获取关联 StockInfo 的 stock_code
-                    'trade_time': getattr(item, 'trade_time', None),
-                    'his_low': self._safe_float(getattr(item, 'his_low', None)),
-                    'his_high': self._safe_float(getattr(item, 'his_high', None)),
-                    'cost_5pct': self._safe_float(getattr(item, 'cost_5pct', None)),
-                    'cost_15pct': self._safe_float(getattr(item, 'cost_15pct', None)),
-                    'cost_50pct': self._safe_float(getattr(item, 'cost_50pct', None)),
-                    'cost_85pct': self._safe_float(getattr(item, 'cost_85pct', None)),
-                    'cost_95pct': self._safe_float(getattr(item, 'cost_95pct', None)),
-                    'weight_avg': self._safe_float(getattr(item, 'weight_avg', None)),
-                    'winner_rate': self._safe_float(getattr(item, 'winner_rate', None)),
-                    # 添加其他需要的字段
-                 })
-            if not data:
-                 logger.warning(f"从 StockCyqPerf Model 转换的数据列表为空 for {stock_code}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 StockCyqPerf DataFrame 为空 for {stock_code}")
-                return None
-            # 处理 trade_time 列并设置为索引 (日线数据的时间点视为默认时区下的日期开始)
-            default_tz = timezone.get_default_timezone()
-            # 日线 trade_time 是 date 对象，转为 datetime.datetime 再标记时区
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True) # 丢弃无效时间行
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 StockCyqPerf DataFrame 为空 for {stock_code}")
-                 return None
-            df.index = df['trade_time']
-            df.drop(columns=['trade_time'], inplace=True)
-            # 按时间升序排序索引
-            df.sort_index(ascending=True, inplace=True)
-            logger.debug(f"成功获取并处理股票 {stock_code} 的筹码分布汇总数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取股票 {stock_code} 筹码分布汇总数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        print(f"    [DAO] Fetching all industries with type: {industry_type}...")
+        # 使用 Django ORM 的异步接口 afilter 和 alist
+        industries = await self.sync_to_async_iterable(
+            ThsIndex.objects.filter(type=industry_type)
+        )
+        print(f"    [DAO] Found {len(industries)} industries.")
+        return industries
 
-    # 新增获取 FundFlowDaily 数据的异步方法
-    async def get_fund_flow_daily_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+    async def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
-        获取指定股票在日期范围内（包含起止日）的日级资金流向数据，并转换为 DataFrame。
-        """
-        try:
-            # 使用 filter(stock__stock_code=stock_code) 过滤股票
-            data_list = await sync_to_async(
-                lambda: list(
-                    FundFlowDaily.objects.filter(
-                        stock__stock_code=stock_code,
-                        trade_time__gte=start_date,
-                        trade_time__lte=end_date
-                    ).select_related('stock')
-                )
-            )()
-            if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的日级资金流向数据")
-                return None
-            data = []
-            for item in data_list:
-                data.append({
-                    'trade_time': getattr(item, 'trade_time', None),
-                    'ff_daily_buy_sm_vol': self._safe_int(getattr(item, 'buy_sm_vol', None)), # 添加前缀
-                    'ff_daily_buy_sm_amount': self._safe_float(getattr(item, 'buy_sm_amount', None)), # 添加前缀
-                    'ff_daily_sell_sm_vol': self._safe_int(getattr(item, 'sell_sm_vol', None)), # 添加前缀
-                    'ff_daily_sell_sm_amount': self._safe_float(getattr(item, 'sell_sm_amount', None)), # 添加前缀
-                    'ff_daily_buy_md_vol': self._safe_int(getattr(item, 'buy_md_vol', None)), # 添加前缀
-                    'ff_daily_buy_md_amount': self._safe_float(getattr(item, 'buy_md_amount', None)), # 添加前缀
-                    'ff_daily_sell_md_vol': self._safe_int(getattr(item, 'sell_md_vol', None)), # 添加前缀
-                    'ff_daily_sell_md_amount': self._safe_float(getattr(item, 'sell_md_amount', None)), # 添加前缀
-                    'ff_daily_buy_lg_vol': self._safe_int(getattr(item, 'buy_lg_vol', None)), # 添加前缀
-                    'ff_daily_buy_lg_amount': self._safe_float(getattr(item, 'buy_lg_amount', None)), # 添加前缀
-                    'ff_daily_sell_lg_vol': self._safe_int(getattr(item, 'sell_lg_vol', None)), # 添加前缀
-                    'ff_daily_sell_lg_amount': self._safe_float(getattr(item, 'sell_lg_amount', None)), # 添加前缀
-                    'ff_daily_buy_elg_vol': self._safe_int(getattr(item, 'buy_elg_vol', None)), # 添加前缀
-                    'ff_daily_buy_elg_amount': self._safe_float(getattr(item, 'buy_elg_amount', None)), # 添加前缀
-                    'ff_daily_sell_elg_vol': self._safe_int(getattr(item, 'sell_elg_vol', None)), # 添加前缀
-                    'ff_daily_sell_elg_amount': self._safe_float(getattr(item, 'sell_elg_amount', None)), # 添加前缀
-                    'ff_daily_net_mf_vol': self._safe_int(getattr(item, 'net_mf_vol', None)), # 添加前缀
-                    'ff_daily_net_mf_amount': self._safe_float(getattr(item, 'net_mf_amount', None)), # 添加前缀
-                })
-            if not data:
-                 logger.warning(f"从 FundFlowDaily Model 转换的数据列表为空 for {stock_code}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 FundFlowDaily DataFrame 为空 for {stock_code}")
-                return None
-            default_tz = timezone.get_default_timezone()
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True)
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 FundFlowDaily DataFrame 为空 for {stock_code}")
-                 return None
-            df.index = df['trade_time']
-            df.drop(columns=['trade_time'], inplace=True)
-            df.sort_index(ascending=True, inplace=True)
-            logger.debug(f"成功获取并处理股票 {stock_code} 的日级资金流向数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取股票 {stock_code} 日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        获取单个行业指数在指定时间范围内的日线行情数据。
 
-    # 新增获取 FundFlowDailyTHS 数据的异步方法
-    async def get_fund_flow_daily_ths_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
-        """
-        获取指定股票在日期范围内（包含起止日）的同花顺日级资金流向数据，并转换为 DataFrame。
-        """
-        try:
-            data_list = await sync_to_async(
-                lambda: list(
-                    FundFlowDailyTHS.objects.filter(
-                        stock__stock_code=stock_code,
-                        trade_time__gte=start_date,
-                        trade_time__lte=end_date
-                    ).select_related('stock')
-                )
-            )()
-            if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的同花顺日级资金流向数据")
-                return None
-            data = []
-            for item in data_list:
-                data.append({
-                    'trade_time': getattr(item, 'trade_time', None),
-                    'ff_ths_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
-                    'ff_ths_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
-                    'ff_ths_net_d5_amount': self._safe_float(getattr(item, 'net_d5_amount', None)), # 添加前缀
-                    'ff_ths_buy_lg_amount': self._safe_float(getattr(item, 'buy_lg_amount', None)), # 添加前缀
-                    'ff_ths_buy_lg_amount_rate': self._safe_float(getattr(item, 'buy_lg_amount_rate', None)), # 添加前缀
-                    'ff_ths_buy_md_amount': self._safe_float(getattr(item, 'buy_md_amount', None)), # 添加前缀
-                    'ff_ths_buy_md_amount_rate': self._safe_float(getattr(item, 'buy_md_amount_rate', None)), # 添加前缀
-                    'ff_ths_buy_sm_amount': self._safe_float(getattr(item, 'buy_sm_amount', None)), # 添加前缀
-                    'ff_ths_buy_sm_amount_rate': self._safe_float(getattr(item, 'buy_sm_amount_rate', None)), # 添加前缀
-                })
-            if not data:
-                 logger.warning(f"从 FundFlowDailyTHS Model 转换的数据列表为空 for {stock_code}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 FundFlowDailyTHS DataFrame 为空 for {stock_code}")
-                return None
-            default_tz = timezone.get_default_timezone()
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True)
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 FundFlowDailyTHS DataFrame 为空 for {stock_code}")
-                 return None
-            df.index = df['trade_time']
-            df.drop(columns=['trade_time'], inplace=True)
-            df.sort_index(ascending=True, inplace=True)
-            logger.debug(f"成功获取并处理股票 {stock_code} 的同花顺日级资金流向数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取股票 {stock_code} 同花顺日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        Args:
+            industry_code (str): 行业代码 (e.g., '881101')。
+            start_date (date): 开始日期。
+            end_date (date): 结束日期。
 
-    # 新增获取 FundFlowDailyDC 数据的异步方法
-    async def get_fund_flow_daily_dc_df(self, stock_code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        Returns:
+            pd.DataFrame: 包含行业日线行情的DataFrame，按日期升序排列。
         """
-        获取指定股票在日期范围内（包含起止日）的东方财富日级资金流向数据，并转换为 DataFrame。
-        """
-        try:
-            data_list = await sync_to_async(lambda: list(
-                FundFlowDailyDC.objects.filter(
-                    stock__stock_code=stock_code,
-                    trade_time__gte=start_date,
-                    trade_time__lte=end_date
-                ).select_related('stock') # 优化查询
-            ))()
-            if not data_list:
-                logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到股票 {stock_code} 的东方财富日级资金流向数据")
-                return None
-            data = []
-            for item in data_list:
-                data.append({
-                    'trade_time': getattr(item, 'trade_time', None),
-                    # 'name': getattr(item, 'name', None), # 名称字段通常不需要合并到数值特征中
-                    'ff_dc_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
-                    'ff_dc_close': self._safe_float(getattr(item, 'close', None)), # 添加前缀
-                    'ff_dc_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
-                    'ff_dc_net_amount_rate': self._safe_float(getattr(item, 'net_amount_rate', None)), # 添加前缀
-                    'ff_dc_buy_elg_amount': self._safe_float(getattr(item, 'buy_elg_amount', None)), # 添加前缀
-                    'ff_dc_buy_elg_amount_rate': self._safe_float(getattr(item, 'buy_elg_amount_rate', None)), # 添加前缀
-                    'ff_dc_buy_lg_amount': self._safe_float(getattr(item, 'buy_lg_amount', None)), # 添加前缀
-                    'ff_dc_buy_lg_amount_rate': self._safe_float(getattr(item, 'buy_lg_amount_rate', None)), # 添加前缀
-                    'ff_dc_buy_md_amount': self._safe_float(getattr(item, 'buy_md_amount', None)), # 添加前缀
-                    'ff_dc_buy_md_amount_rate': self._safe_float(getattr(item, 'buy_md_amount_rate', None)), # 添加前缀
-                    'ff_dc_buy_sm_amount': self._safe_float(getattr(item, 'buy_sm_amount', None)), # 添加前缀
-                    'ff_dc_buy_sm_amount_rate': self._safe_float(getattr(item, 'buy_sm_amount_rate', None)), # 添加前缀
-                })
-            if not data:
-                 logger.warning(f"从 FundFlowDailyDC Model 转换的数据列表为空 for {stock_code}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 FundFlowDailyDC DataFrame 为空 for {stock_code}")
-                return None
-            default_tz = timezone.get_default_timezone()
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True)
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 FundFlowDailyDC DataFrame 为空 for {stock_code}")
-                 return None
-            df.index = df['trade_time']
-            df.drop(columns=['trade_time'], inplace=True)
-            df.sort_index(ascending=True, inplace=True)
-            logger.debug(f"成功获取并处理股票 {stock_code} 的东方财富日级资金流向数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取股票 {stock_code} 东方财富日级资金流向数据失败在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        print(f"    [DAO] Fetching daily data for industry '{industry_code}' from {start_date} to {end_date}...")
+        query_set = ThsIndexDaily.objects.filter(
+            ths_index__ts_code=industry_code,
+            trade_time__range=(start_date, end_date)
+        ).order_by('trade_time')
+        
+        # 使用 .values() 直接获取字典列表，性能更优
+        data = await self.sync_to_async_iterable(
+            query_set.values(
+                'trade_time', 'open', 'high', 'low', 'close', 'pct_change', 'vol'
+            )
+        )
+        
+        if not data:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(list(data))
+        # 将 trade_time 设置为索引，方便后续时间序列分析
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df.set_index('trade_time', inplace=True)
+        print(f"    [DAO] Fetched {len(df)} daily records for industry '{industry_code}'.")
+        return df
 
-    # 新增获取 FundFlowCntTHS 数据的异步方法
-    async def get_fund_flow_cnt_ths_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+    async def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
-        获取指定同花顺板块列表在日期范围内（包含起止日）的资金流向统计数据，并转换为 DataFrame。
-        """
-        if not ths_codes:
-            return None
-        try:
-            data_list = await sync_to_async(lambda: list(
-                FundFlowCntTHS.objects.filter(
-                    ths_index__ts_code__in=ths_codes,
-                    trade_time__gte=start_date,
-                    trade_time__lte=end_date
-                ).select_related('ths_index') # 优化查询
-            ))()
-            if not data_list:
-                # logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺板块 {ths_codes} 的资金流向统计数据")
-                return None
-            data = []
-            for item in data_list:
-                data.append({
-                    'ts_code': getattr(item.ths_index, 'ts_code', None), # 保留板块代码用于后续处理
-                    'trade_time': getattr(item, 'trade_time', None),
-                    # 'lead_stock': getattr(item, 'lead_stock', None), # 领涨股名称通常不需要合并
-                    'ff_cnt_ths_close_price': self._safe_float(getattr(item, 'close_price', None)), # 添加前缀
-                    'ff_cnt_ths_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
-                    'ff_cnt_ths_industry_index': self._safe_float(getattr(item, 'industry_index', None)), # 添加前缀
-                    'ff_cnt_ths_company_num': self._safe_int(getattr(item, 'company_num', None)), # 添加前缀
-                    'ff_cnt_ths_pct_change_stock': self._safe_float(getattr(item, 'pct_change_stock', None)), # 添加前缀
-                    'ff_cnt_ths_net_buy_amount': self._safe_float(getattr(item, 'net_buy_amount', None)), # 添加前缀
-                    'ff_cnt_ths_net_sell_amount': self._safe_float(getattr(item, 'net_sell_amount', None)), # 添加前缀
-                    'ff_cnt_ths_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
-                })
-            if not data:
-                 logger.warning(f"从 FundFlowCntTHS Model 转换的数据列表为空 for {ths_codes}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 FundFlowCntTHS DataFrame 为空 for {ths_codes}")
-                return None
-            default_tz = timezone.get_default_timezone()
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True)
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 FundFlowCntTHS DataFrame 为空 for {ths_codes}")
-                 return None
-            # 不在这里设置索引，保留 ts_code 列用于后续分组和合并
-            df.sort_values(by=['ts_code', 'trade_time'], ascending=True, inplace=True)
-            logger.info(f"成功获取并处理同花顺板块 {ths_codes} 的资金流向统计数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取同花顺板块资金流向统计数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        获取单个行业在指定时间范围内的资金流数据。
 
-    # 新增获取 FundFlowIndustryTHS 数据的异步方法
-    async def get_fund_flow_industry_ths_df(self, ths_codes: List[str], start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        Args:
+            industry_code (str): 行业代码。
+            start_date (date): 开始日期。
+            end_date (date): 结束日期。
+
+        Returns:
+            pd.DataFrame: 包含行业资金流数据的DataFrame，按日期升序排列。
         """
-        获取指定同花顺行业列表在日期范围内（包含起止日）的资金流向统计数据，并转换为 DataFrame。
+        print(f"    [DAO] Fetching fund flow for industry '{industry_code}' from {start_date} to {end_date}...")
+        query_set = FundFlowIndustryTHS.objects.filter(
+            ths_index__ts_code=industry_code,
+            trade_time__range=(start_date, end_date)
+        ).order_by('trade_time')
+
+        data = await self.sync_to_async_iterable(
+            query_set.values(
+                'trade_time', 'net_amount', 'lead_stock', 'pct_change_stock'
+            )
+        )
+
+        if not data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(list(data))
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df.set_index('trade_time', inplace=True)
+        print(f"    [DAO] Fetched {len(df)} fund flow records for industry '{industry_code}'.")
+        return df
+
+    async def get_industry_members(self, industry_code: str) -> List[str]:
         """
-        if not ths_codes:
-            return None
-        try:
-            data_list = await sync_to_async(lambda: list(
-                FundFlowIndustryTHS.objects.filter(
-                    ths_index__ts_code__in=ths_codes,
-                    trade_time__gte=start_date,
-                    trade_time__lte=end_date
-                ).select_related('ths_index') # 优化查询
-            ))()
-            if not data_list:
-                # logger.warning(f"在日期范围 {start_date} 到 {end_date} 未找到同花顺行业 {ths_codes} 的资金流向统计数据")
-                return None
-            data = []
-            for item in data_list:
-                data.append({
-                    'ts_code': getattr(item.ths_index, 'ts_code', None), # 保留行业代码用于后续处理
-                    'trade_time': getattr(item, 'trade_time', None),
-                    # 'industry': getattr(item, 'industry', None), # 行业名称通常不需要合并
-                    # 'lead_stock': getattr(item, 'lead_stock', None), # 领涨股名称通常不需要合并
-                    'ff_ind_ths_close': self._safe_float(getattr(item, 'close', None)), # 添加前缀
-                    'ff_ind_ths_pct_change': self._safe_float(getattr(item, 'pct_change', None)), # 添加前缀
-                    'ff_ind_ths_company_num': self._safe_int(getattr(item, 'company_num', None)), # 添加前缀
-                    'ff_ind_ths_pct_change_stock': self._safe_float(getattr(item, 'pct_change_stock', None)), # 添加前缀
-                    'ff_ind_ths_close_price': self._safe_float(getattr(item, 'close_price', None)), # 添加前缀
-                    'ff_ind_ths_net_buy_amount': self._safe_float(getattr(item, 'net_buy_amount', None)), # 添加前缀
-                    'ff_ind_ths_net_sell_amount': self._safe_float(getattr(item, 'net_sell_amount', None)), # 添加前缀
-                    'ff_ind_ths_net_amount': self._safe_float(getattr(item, 'net_amount', None)), # 添加前缀
-                })
-            if not data:
-                 logger.warning(f"从 FundFlowIndustryTHS Model 转换的数据列表为空 for {ths_codes}")
-                 return None
-            df = pd.DataFrame(data)
-            if df.empty:
-                logger.warning(f"转换后的 FundFlowIndustryTHS DataFrame 为空 for {ths_codes}")
-                return None
-            default_tz = timezone.get_default_timezone()
-            df['trade_time'] = df['trade_time'].apply(lambda x: timezone.make_aware(datetime.datetime.combine(x, datetime.time(0,0)), default_tz) if isinstance(x, datetime.date) else pd.NaT)
-            df.dropna(subset=['trade_time'], inplace=True)
-            if df.empty:
-                 logger.warning(f"处理无效 trade_time 后 FundFlowIndustryTHS DataFrame 为空 for {ths_codes}")
-                 return None
-            # 不在这里设置索引，保留 ts_code 列用于后续分组和合并
-            df.sort_values(by=['ts_code', 'trade_time'], ascending=True, inplace=True)
-            logger.info(f"成功获取并处理同花顺行业 {ths_codes} 的资金流向统计数据，数据量: {len(df)} 条")
-            return df
-        except Exception as e:
-            logger.error(f"获取同花顺行业资金流向统计数据失败 for {ths_codes} 在日期范围 {start_date} 到 {end_date}: {str(e)}", exc_info=True)
-            return None
+        获取指定行业的所有当前成分股代码。
+
+        Args:
+            industry_code (str): 行业代码。
+
+        Returns:
+            List[str]: 股票代码列表 (e.g., ['000001.SZ', '600000.SH']).
+        """
+        print(f"    [DAO] Fetching members for industry '{industry_code}'...")
+        # 假设 is_new='Y' 表示当前最新的成分股
+        query_set = ThsIndexMember.objects.filter(
+            ths_index__ts_code=industry_code,
+            is_new='Y'
+        ).select_related('stock') # 优化查询，避免N+1问题
+
+        # 使用 values_list 直接获取股票代码列表，性能最高
+        members = await self.sync_to_async_iterable(
+            query_set.values_list('stock__stock_code', flat=True)
+        )
+        
+        member_list = list(members)
+        print(f"    [DAO] Found {len(member_list)} members for industry '{industry_code}'.")
+        return member_list
+
+    async def get_stocks_daily_close(self, stock_codes: List[str], trade_date: datetime.date) -> pd.DataFrame:
+        """
+        获取一批股票在指定交易日的收盘价和前收盘价。
+        注意：这个方法需要一个日线行情表，这里假设它叫 `StockDailyData`。
+        如果你的个股日线行情表是别的名字，请修改 `StockDailyData`。
+
+        Args:
+            stock_codes (List[str]): 股票代码列表。
+            trade_date (date): 交易日期。
+
+        Returns:
+            pd.DataFrame: 包含 'stock_code', 'close', 'pre_close' 的DataFrame。
+        """
+        print(f"    [DAO] Fetching daily close for {len(stock_codes)} stocks on {trade_date}...")
+        query_set = StockDailyData.objects.filter(
+            stock__stock_code__in=stock_codes,
+            trade_time=trade_date
+        )
+
+        data = await self.sync_to_async_iterable(
+            query_set.values(
+                stock_code=F('stock__stock_code'), # 通过外键获取股票代码
+                close=F('close'),
+                pre_close=F('pre_close')
+            )
+        )
+
+        if not data:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(list(data))
+        print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
+        return df
 
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:

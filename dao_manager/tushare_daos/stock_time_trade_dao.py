@@ -1079,14 +1079,106 @@ class StockTimeTradeDAO(BaseDAO):
             result = []
         return result
 
-    async def save_stock_daily_basic_history_by_stock_code(self, stock_code: str, start_date: date=None, end_date: date=None) -> None:
+    async def save_stock_daily_basic_history_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> dict:
+        """
+        【V3 - 最终优化版】保存所有股票的日线基本信息
+        
+        优化点:
+        1. 修复了原始代码的致命逻辑错误。
+        2. [核心] 使用现有的 `get_stocks_by_codes` 方法进行批量查询，彻底解决N+1数据库查询问题。
+        3. 采用“先从API拉取，再批量关联数据库信息”的高效模式。
+        4. 优化了数据准备和批量写入数据库的流程。
+        5. 增加了健壮的异常处理和清晰的调试日志。
+        """
+        print(f"调试: 开始执行 save_stock_daily_basic_history_by_trade_date, trade_date={trade_date}, start_date={start_date}, end_date={end_date}")
+        
+        try:
+            # 1. 准备API请求参数
+            params = {
+                "ts_code": "", # 获取所有股票的数据
+                "trade_date": trade_date.strftime('%Y%m%d') if trade_date else "",
+                "start_date": start_date.strftime('%Y%m%d') if start_date else "",
+                "end_date": end_date.strftime('%Y%m%d') if end_date else ""
+            }
+            fields_to_fetch = [
+                "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+                "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv"
+            ]
+
+            # 2. 一次性从Tushare拉取所有数据
+            print(f"调试: 正在从Tushare API拉取日线基本数据，参数: {params}")
+            df = self.ts_pro.daily_basic(**params, fields=fields_to_fetch)
+
+            if df.empty:
+                logger.info("Tushare API没有返回任何日线基本数据，任务提前结束。")
+                print("调试: Tushare API返回空数据帧，任务结束。")
+                return {"status": "success", "message": "No data returned from API.", "saved_count": 0}
+
+            # 3. 数据清洗
+            df = df.replace(['nan', 'NaN', ''], np.nan)
+            df = df.where(pd.notnull(df), None)
+            
+            # 4. [代码修改处] 批量获取所有相关的股票信息
+            unique_ts_codes = df['ts_code'].unique().tolist()
+            print(f"调试: 从API获取了 {len(df)} 条数据，涉及 {len(unique_ts_codes)} 个独立股票代码。")
+            
+            # [代码修改处] 使用您提供的 get_stocks_by_codes 方法，一次性查询数据库，返回一个映射字典
+            # 这是解决N+1问题的关键，将多次查询合并为一次
+            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+            print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
+
+            # 5. 准备批量写入的数据
+            data_dicts_to_save = []
+            
+            for row in df.itertuples():
+                # [代码修改处] 从预先查好的映射中获取股票对象，高效且无N+1问题
+                stock_instance = stock_map.get(row.ts_code)
+                
+                if stock_instance:
+                    # 格式化数据用于数据库存储
+                    db_data_dict = self.data_format_process_trade.set_stock_daily_basic_data(stock=stock_instance, df_data=row)
+                    data_dicts_to_save.append(db_data_dict)
+                else:
+                    # 对于在返回数据中，但我们自己数据库里没有的股票，进行日志记录
+                    logger.warning(f"在数据库中未找到股票代码 {row.ts_code} 的基础信息，已跳过该条日线数据。")
+
+            # 6. [代码修改处] 批量写入数据库
+            saved_count = 0
+            if data_dicts_to_save:
+                print(f"调试: 准备批量保存 {len(data_dicts_to_save)} 条数据到数据库...")
+                # 注意：unique_fields 需要与模型字段匹配。
+                # 如果 set_stock_daily_basic_data 返回的字典中 'stock' 键对应的是 StockInfo 对象，
+                # 那么 unique_fields 就应该是 ['stock', 'trade_date']
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=StockDailyBasic,
+                    data_list=data_dicts_to_save,
+                    unique_fields=['stock', 'trade_date'] 
+                )
+                saved_count = len(data_dicts_to_save)
+                logger.info(f"成功批量保存 {saved_count} 条股票日线基本数据。")
+                print(f"调试: 成功保存 {saved_count} 条数据。")
+            else:
+                logger.info("没有需要保存到数据库的数据。")
+                print("调试: 没有需要保存的数据。")
+
+            return {"status": "success", "message": f"Processed {saved_count} records.", "saved_count": saved_count}
+
+        except Exception as e:
+            logger.error(f"保存股票日线基本数据时发生严重错误: {e}", exc_info=True)
+            print(f"调试: 发生异常: {e}")
+            raise # 重新抛出异常，让上层调用者（如Celery）知道任务失败
+
+    async def save_stock_daily_basic_history_by_stock_code(self, stock_code: str, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
         """
         保存股票的日线基本信息
         """
         stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
         if stock:
+            trade_date_str = ""
             start_date_str = ""
             end_date_str = ""
+            if trade_date is not None:
+                trade_date_str = trade_date.strftime('%Y%m%d')
             if start_date is not None:
                 start_date_str = start_date.strftime('%Y%m%d')
             if end_date is not None:
@@ -1094,7 +1186,7 @@ class StockTimeTradeDAO(BaseDAO):
             data_dicts = []
             # 拉取数据
             df = self.ts_pro.daily_basic(**{
-                "ts_code": stock_code, "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
+                "ts_code": stock_code, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
             }, fields=[
                 "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
                 "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"

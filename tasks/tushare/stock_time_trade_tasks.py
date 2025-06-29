@@ -578,7 +578,7 @@ def save_stocks_daily_basic_data_this_week_task(self):
         day = this_monday + datetime.timedelta(days=i)
         try:
             print(f"开始保存 {day} 股票重要的基本面指标...")
-            result = asyncio.run(stock_time_trade_dao.save_today_stock_basic_info(trade_date=day))
+            result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=day))
         except Exception as e:
             logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
