@@ -487,61 +487,58 @@ class StockTimeTradeDAO(BaseDAO):
         保存股票的历史分钟级交易数据 (已优化)
         """
         stock_codes_str = ",".join(stock_codes)
-        # 遍历不同的分钟级别
         for time_level in ['5', '15', '30', '60']:
             offset = 0
-            limit = 8000 # Tushare Pro单次最大返回8000条
-            # 循环拉取分页数据
+            limit = 8000
             while True:
-                # 新增：模型分组字典在循环内部初始化，处理每个批次的数据
                 model_grouped_data_dicts = {}
-                if offset >= 100000: # Tushare Pro对stk_mins接口的offset有10万的限制
+                if offset >= 100000:
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
                 
-                # 调试信息：打印当前拉取的参数
                 print(f"调试: 正在拉取 {time_level}min 数据, stock_codes: {len(stock_codes)}个, offset: {offset}, limit: {limit}")
-
                 df = self.ts_pro.stk_mins(**{
                     "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                     "limit": limit, "offset": offset
                 }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 
-                # 如果返回的DataFrame为空，说明没有更多数据，结束循环
                 if df.empty:
                     print(f"调试: 拉取到空数据帧，结束 {time_level}min 的拉取。")
                     break
                 
-                # --- 核心效率优化 ---
-                # 新增：从当前批次数据中提取所有唯一的股票代码
                 unique_ts_codes = df['ts_code'].unique().tolist()
-                # 新增：一次性从数据库查询所有相关的股票基础信息，避免在循环中逐条查询
-                # 假设 stock_basic_dao 中有一个 get_stocks_by_codes 的方法进行批量查询
-                related_stocks = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
-                # 新增：创建一个从股票代码到股票对象的映射，便于快速查找
-                stock_map = {stock.stock_code: stock for stock in related_stocks}
-                print(f"调试: 批量获取了 {len(stock_map)} 个相关的股票信息对象。")
-                # --- 优化结束 ---
+                
+                # --- [代码修改处] ---
+                # get_stocks_by_codes 方法现在直接返回一个以 stock_code 为键的字典，我们可以直接使用。
+                # 将接收变量直接命名为 stock_map，更符合其内容。
+                stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+                
+                # [修改] 删除下面这行多余且错误的代码。
+                # 因为 stock_map 已经是我们需要的字典了，无需再从一个字典里创建另一个字典。
+                # stock_map = {stock.stock_code: stock for stock in related_stocks} # <--- 删除此行
+                
+                print(f"调试: 批量获取了 {len(stock_map)} 个相关的股票信息对象（已映射为字典）。")
+                # --- 修改结束 ---
 
-                # 数据清洗
+                if not stock_map:
+                    print(f"调试: 未能从数据库中找到与 {unique_ts_codes} 相关的股票基础信息，跳过此批次。")
+                    if len(df) < limit:
+                        break
+                    offset += limit
+                    continue
+
                 df = df.replace(['nan', 'NaN', ''], np.nan)
                 df = df.where(pd.notnull(df), None)
-
-                # 遍历处理后的DataFrame数据
                 for row in df.itertuples():
-                    # 修改：从预先查好的映射中获取股票对象，避免了N+1查询
+                    # 现在 stock_map 是一个字典，.get() 方法可以完美工作
                     stock = stock_map.get(row.ts_code)
                     if stock:
-                        # 格式化数据
                         data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                        # 根据股票代码和时间级别获取对应的模型类
                         model_class = self.get_minute_model(row.ts_code, time_level)
-                        # 将数据按模型分组
                         if model_class not in model_grouped_data_dicts:
                             model_grouped_data_dicts[model_class] = []
                         model_grouped_data_dicts[model_class].append(data_dict)
                 
-                # 批量保存分组后的数据
                 for model_class, data_list in model_grouped_data_dicts.items():
                     if not data_list:
                         continue
@@ -552,12 +549,9 @@ class StockTimeTradeDAO(BaseDAO):
                     )
                     logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级交易数据 offset={offset} 完成. 插入/更新了 {len(data_list)} 条记录。")
                 
-                # 如果本次返回的数据量小于请求的limit，说明是最后一页，结束循环
                 if len(df) < limit:
                     break
-                # 否则，增加offset以拉取下一页数据
                 offset += limit
-
         logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
         return
 
