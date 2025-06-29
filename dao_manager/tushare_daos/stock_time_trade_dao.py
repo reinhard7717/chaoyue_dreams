@@ -496,7 +496,7 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
                 
-                print(f"调试: 正在拉取 {time_level}min 数据, stock_codes: {len(stock_codes)}个, offset: {offset}, limit: {limit}")
+                # print(f"调试: 正在拉取 {time_level}min 数据, stock_codes: {len(stock_codes)}个, offset: {offset}, limit: {limit}")
                 df = self.ts_pro.stk_mins(**{
                     "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                     "limit": limit, "offset": offset
@@ -517,7 +517,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 因为 stock_map 已经是我们需要的字典了，无需再从一个字典里创建另一个字典。
                 # stock_map = {stock.stock_code: stock for stock in related_stocks} # <--- 删除此行
                 
-                print(f"调试: 批量获取了 {len(stock_map)} 个相关的股票信息对象（已映射为字典）。")
+                # print(f"调试: 批量获取了 {len(stock_map)} 个相关的股票信息对象（已映射为字典）。")
                 # --- 修改结束 ---
 
                 if not stock_map:
