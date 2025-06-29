@@ -583,26 +583,39 @@ def save_stocks_daily_basic_data_this_week_task(self):
 
 # ============== （本周）每日筹码分布任务 ==============
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveData_TimeTrade')
-def save_cyq_chips_this_week_batch(self, stock: StockInfo, start_date: datetime.date, end_date: datetime.date):
+# [修改] 函数签名变更：不再接收整个StockInfo对象，而是接收可序列化的ts_code字符串
+def save_cyq_chips_this_week_batch(self, ts_code: str, start_date: datetime.date, end_date: datetime.date):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:
-        stock_codes: 股票代码列表
+        ts_code: 股票代码
+        start_date: 开始日期
+        end_date: 结束日期
     """
-    # 在任务开始时创建一次 DAO 实例
+    print(f"开始处理 ts_code: {ts_code} 的每日筹码分布数据...")
+    # [新增] 在任务开始时创建 DAO 实例
+    stock_basic_dao = StockBasicInfoDao()
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
+        # [新增] 根据ts_code从数据库获取StockInfo对象
+        stock = asyncio.run(stock_basic_dao.get_stock_by_ts_code(ts_code=ts_code))
+        if not stock:
+            logger.warning(f"在数据库中未找到代码为 {ts_code} 的股票，跳过此任务。")
+            return
+        # [修改] 使用从数据库获取的stock对象进行后续操作
         result = asyncio.run(stock_time_trade_dao.save_cyq_chips_history(stock=stock, start_date=start_date, end_date=end_date))
-        print(f"保存 （本周）每日筹码分布 数据完成。 result: {result} ")
+        print(f"保存 {ts_code} （本周）每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
-        logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+        # [修改] 日志信息中加入ts_code，方便定位问题
+        logger.error(f"save_cyq_chips_this_week_batch.执行批量保存任务时发生意外错误 (ts_code: {ts_code}): {e}", exc_info=True)
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_perf_this_week_batch', queue='SaveData_TimeTrade')
 def save_cyq_perf_this_week_batch(self, start_date: datetime.date, end_date: datetime.date):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     Args:
-        stock_codes: 股票代码列表
+        start_date: 开始日期
+        end_date: 结束日期
     """
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
@@ -616,9 +629,9 @@ def save_cyq_perf_this_week_batch(self, start_date: datetime.date, end_date: dat
 def save_cyq_data_this_week_task(self):
     """
     调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
+    1. 获取所有股票列表。
+    2. 为每只股票分派 save_cyq_chips_this_week_batch 任务。
+    3. 所有股票任务分派完成后，分派一次性的 save_cyq_perf_this_week_batch 任务。
     这个任务由 Celery Beat 调度。
     """
     logger.info(f"任务启动: save_cyq_data_this_week_task (调度器模式) - 获取股票列表并分派批量任务")
@@ -626,14 +639,18 @@ def save_cyq_data_this_week_task(self):
     try:
         this_monday, this_friday = get_this_monday_and_friday()
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        logger.info(f"获取到 {len(all_stocks)} 只股票，开始为每只股票分派筹码分布任务...")
         for stock in all_stocks:
-            save_cyq_chips_this_week_batch.s(stock=stock, start_date=this_monday, end_date=this_friday).set().apply_async()
-            save_cyq_perf_this_week_batch.s(start_date=this_monday, end_date=this_friday).set().apply_async()
+            # [修改] 传递可序列化的 ts_code 而不是整个 stock 对象
+            save_cyq_chips_this_week_batch.s(ts_code=stock.ts_code, start_date=this_monday, end_date=this_friday).set(queue='SaveData_TimeTrade').apply_async()
+        logger.info(f"所有股票的筹码分布任务已分派完毕。")
+        # [修改] 将此任务调用移出循环，因为它与单只股票无关，只需执行一次
+        logger.info(f"开始分派 （本周）每日筹码及胜率 任务...")
+        save_cyq_perf_this_week_batch.s(start_date=this_monday, end_date=this_friday).set(queue='SaveData_TimeTrade').apply_async()
         logger.info(f"任务结束: save_cyq_data_this_week_task (调度器模式)")
     except Exception as e:
         logger.error(f"执行 save_cyq_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
-
 
 # ===================================================
 #                      历史任务
