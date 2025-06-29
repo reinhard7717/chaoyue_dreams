@@ -805,49 +805,106 @@ class StockTimeTradeDAO(BaseDAO):
                     )
         return result if data_dicts else {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-    async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str) -> None:
+    async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
-        保存股票的实时分钟级交易数据（指定分钟级别）
+        【V2 - 优化版】保存股票的实时分钟级交易数据（指定分钟级别）
+        
+        核心优化:
+        1.  【解决N+1查询】在循环外一次性获取所有stock对象，避免循环内数据库查询。
+        2.  【批量写入缓存】在循环外一次性将所有数据写入Redis，减少网络I/O。
+        3.  【并发执行】使用 asyncio.gather 并发执行数据库和缓存的写入操作。
         """
+        if not stock_codes:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+        # 1. 从API获取数据 (保持不变)
         stock_codes_str = ",".join(stock_codes)
-        # 用于分模型分组存储数据
-        model_grouped_data_dicts = {}  # 新增：模型分组字典
         df = self.ts_pro.rt_min(**{
             "topic": "", "freq": time_level + "MIN", "ts_code": stock_codes_str, "limit": "", "offset": ""
         }, fields=[
             "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
         ])
-        if not df.empty:
-            df = df.replace(['nan', 'NaN', ''], np.nan)
-            df = df.where(pd.notnull(df), None)
-            for row in df.itertuples():
-                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
-                    if data_dict.get('trade_time'):
-                        model_class = self.get_minute_model(row.ts_code, time_level)
-                        # 按模型分组
-                        if model_class not in model_grouped_data_dicts:
-                            model_grouped_data_dicts[model_class] = []
-                        model_grouped_data_dicts[model_class].append(data_dict)
-                        cache_dict = data_dict.copy()
-                        await self.cache_set.latest_time_trade(stock_code=row.ts_code, time_level=time_level, data_to_cache=cache_dict)
-        if model_grouped_data_dicts:
-            result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}  # 统计结果
-            for model_class, data_list in model_grouped_data_dicts.items():
-                # 直接整体批量写入，不再按stock分组
-                save_result = await self._save_all_to_db_native_upsert(
-                    model_class=model_class,
-                    data_list=data_list,
-                    unique_fields=['stock', 'trade_time']
-                )
-                # 统计结果合并
-                for k in result:
-                    if k in save_result:
-                        result[k] += save_result[k]
-            return result
-        else:
+
+        if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+        # 2. 数据准备阶段 (核心优化)
+        
+        # 【代码优化处】一次性获取所有相关的stock对象，存入字典以便快速查找
+        stocks_map = await self.stock_basic_dao.get_stocks_by_codes(
+            [row.ts_code for row in df.itertuples()]
+        )
+        
+        model_grouped_data_dicts = {}
+        cache_payload = {} # 【代码新增处】用于存储待写入缓存的数据
+
+        # 清理DataFrame (保持不变)
+        df = df.replace(['nan', 'NaN', ''], np.nan)
+        df = df.where(pd.notnull(df), None)
+
+        # 循环内只做CPU密集型的数据准备工作，不做任何 await I/O 操作
+        for row in df.itertuples():
+            # 【代码优化处】从内存中的字典直接获取stock对象，速度极快
+            stock = stocks_map.get(row.ts_code)
+            
+            if stock:
+                data_dict = self.data_format_process_trade.set_time_trade_minute_data(stock=stock, df_data=row)
+                if data_dict.get('trade_time'):
+                    model_class = self.get_minute_model(row.ts_code, time_level)
+                    
+                    # 按模型分组，准备数据库数据
+                    if model_class not in model_grouped_data_dicts:
+                        model_grouped_data_dicts[model_class] = []
+                    model_grouped_data_dicts[model_class].append(data_dict)
+                    
+                    # 【代码优化处】准备缓存数据，暂不写入
+                    cache_payload[row.ts_code] = data_dict.copy()
+
+        # 3. 数据持久化阶段 (核心优化)
+        if not model_grouped_data_dicts:
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+        # 创建数据库保存任务
+        db_save_tasks = []
+        for model_class, data_list in model_grouped_data_dicts.items():
+            task = self._save_all_to_db_native_upsert(
+                model_class=model_class,
+                data_list=data_list,
+                unique_fields=['stock', 'trade_time']
+            )
+            db_save_tasks.append(task)
+
+        # 【代码优化处】创建缓存批量写入任务
+        cache_save_task = self.cache_set.batch_set_latest_time_trade(cache_payload, time_level)
+
+        # 【代码优化处】使用 asyncio.gather 并发执行所有数据库保存任务和缓存写入任务
+        all_tasks = db_save_tasks + [cache_save_task]
+        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+        # 4. 结果统计
+        final_result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        total_records = sum(len(data) for data in model_grouped_data_dicts.values())
+        final_result["尝试处理"] = total_records
+
+        # 遍历数据库保存任务的结果
+        for i in range(len(db_save_tasks)):
+            res = results[i]
+            if isinstance(res, Exception):
+                # 如果某个批次保存失败，需要知道是哪个批次
+                model_class = list(model_grouped_data_dicts.keys())[i]
+                batch_size = len(list(model_grouped_data_dicts.values())[i])
+                final_result["失败"] += batch_size
+                logger.error(f"保存模型 {model_class.__name__} 的批次时发生异常: {res}", exc_info=res)
+            elif isinstance(res, dict):
+                final_result["失败"] += res.get("失败", 0)
+                final_result["创建/更新成功"] += res.get("创建/更新成功", 0)
+        
+        # 检查缓存任务的结果
+        cache_result = results[-1]
+        if isinstance(cache_result, Exception):
+            logger.error(f"批量写入分钟线缓存时发生异常: {cache_result}", exc_info=cache_result)
+
+        return final_result
 
     async def get_minute_time_trade_history(self, stock_code: str, time_level: str) -> None:
         """

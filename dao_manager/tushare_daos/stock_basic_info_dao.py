@@ -83,26 +83,47 @@ class StockBasicInfoDao(BaseDAO):
                 print(f"数据库连接丢失，重试第{i+1}次: {e}")
                 time.sleep(0.2)
         return None
-    
+
     async def get_stocks_by_codes(self, stock_codes: List[str]) -> Dict[str, 'StockInfo']:
         """
-        批量获取股票信息，返回以stock_code为key的字典，增加数据库连接丢失重试机制
+        【V2 - 最佳实践版】批量获取股票信息，返回以stock_code为key的字典。
+        
+        优化点:
+        1. 使用Django 5原生异步ORM，避免sync_to_async的开销。
+        2. 使用异步字典推导式，一步完成查询和字典构建。
+        3. 增强了异常处理，只对可恢复的OperationalError进行重试，其他错误则向上抛出。
         """
-        retry = 3
-        for i in range(retry):
+        if not stock_codes:
+            return {}
+
+        retry_count = 3
+        for attempt in range(retry_count):
             try:
-                stocks = await sync_to_async(lambda: list(StockInfo.objects.filter(stock_code__in=stock_codes)))()
-                if stocks:
-                    return {stock.stock_code: stock for stock in stocks}
-                else:
-                    return {}  # 没查到直接返回空字典
+                # 【代码修改处】使用异步字典推导式，直接查询并构建字典
+                # StockInfo.objects.filter(...) 返回一个异步查询集 (QuerySet)
+                # 'async for' 会异步地从数据库获取每一条记录
+                # 整个表达式一步到位，高效且优雅
+                return {
+                    stock.stock_code: stock
+                    async for stock in StockInfo.objects.filter(stock_code__in=stock_codes)
+                }
             except OperationalError as e:
-                print(f"数据库连接丢失，重试第{i+1}次: {e}")
-                await asyncio.sleep(0.2)  # 用异步sleep
+                # 数据库连接错误是可重试的
+                logger.warning(f"数据库连接丢失，正在进行第 {attempt + 1}/{retry_count} 次重试... 错误: {e}")
+                if attempt + 1 == retry_count:
+                    # 如果是最后一次重试，则记录错误并向上抛出异常
+                    logger.error("数据库连接重试失败，放弃操作。")
+                    raise  # 重新抛出异常，让上层调用者知道操作失败了
+                await asyncio.sleep(0.5 * (attempt + 1))  # 增加重试等待时间
             except Exception as e:
-                print(f"批量查找股票信息发生其他异常: {e}")
-                break
-        return {}  # 所有重试失败，返回空字典
+                # 【代码修改处】对于其他所有非预期的异常，直接记录并向上抛出
+                # 这可以防止隐藏如字段错误、类型错误等编程错误
+                logger.error(f"批量查找股票信息时发生未知异常: {e}", exc_info=True)
+                raise # 向上抛出，让调用方知道发生了严重错误
+
+        # 理论上，由于上面的逻辑总会返回或抛出异常，代码不会执行到这里。
+        # 但为了代码完整性，保留一个返回。
+        return {}
 
     async def get_favorite_stocks_by_user(self, user: 'User') -> List['FavoriteStock']:  
         """

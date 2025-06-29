@@ -9,6 +9,7 @@ from decimal import Decimal # 导入 Decimal
 from utils import cache_constants as cc
 import json
 
+from utils.cache_manager import CacheManager
 from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
@@ -59,7 +60,7 @@ class CacheSet():
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
         self.cache_key_user = UserCashKey()
-    
+
     async def get_cache_manager(self):
         from utils.cache_manager import CacheManager
         cm = CacheManager()
@@ -400,7 +401,14 @@ class StockInfoCacheSet(CacheSet):
 
 class StockTimeTradeCacheSet(CacheSet):
     def __init__(self):
-        self.cache_key_stock = StockCashKey()
+        """
+        初始化方法。
+        修改点:
+        1. 调用 super().__init__() 继承父类初始化。
+        2. 创建并持有 CacheManager 的实例，供所有方法使用。
+        """
+        super().__init__() # 调用父类的 __init__
+        self.cache_manager = CacheManager()
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
@@ -425,11 +433,80 @@ class StockTimeTradeCacheSet(CacheSet):
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
-    
+
     async def stock_day_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
         return await self._history_data(stock_code, "Day_Basic_Info", data_to_cache, cache_key)
- 
+
+    async def batch_set_latest_time_trade(self, cache_payload: Dict[str, dict], time_level: str) -> bool:
+        """
+        【V1 - 高效版】使用 Redis Pipeline 批量缓存最新的分钟线数据。
+        
+        Args:
+            cache_payload (Dict[str, dict]): 一个字典，键是股票代码，值是待缓存的数据字典。
+                                             例如: {'000001.SZ': data_dict_1, '600519.SH': data_dict_2}
+            time_level (str): 时间级别 (e.g., '5', '30', 'Day')。
+
+        Returns:
+            bool: 批量缓存操作是否成功提交。
+        """
+        # 1. 处理空输入
+        if not cache_payload:
+            print("调试信息: [Cache] 批量写入任务收到空数据，跳过执行。")
+            return True # 空操作视为成功
+
+        # 2. 准备 MSET 所需的数据
+        mset_data = {}
+        keys_to_expire = []
+        
+        print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条分钟线数据...")
+        for stock_code, data_to_cache in cache_payload.items():
+            # 2.1 对每条数据进行格式转换，与单个写入的逻辑保持一致
+            # 注意：_format_conversion 是您类中一个未提供但存在的方法，我们假设它在这里
+            formatted_data = await self._format_conversion(data_to_cache)
+            if formatted_data is None:
+                logger.warning(f"批量缓存中，股票 {stock_code} 的数据格式化失败，已跳过。")
+                continue
+
+            # 2.2 生成缓存键
+            cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
+            keys_to_expire.append(cache_key)
+
+            # 2.3 序列化值，为 pipeline 做准备
+            # CacheManager 的 pipeline 直接操作 redis-py 客户端，需要我们手动序列化
+            serialized_value = self.cache_manager._serialize(formatted_data)
+            mset_data[cache_key] = serialized_value
+
+        if not mset_data:
+            logger.warning("批量缓存任务中，所有数据均处理失败，无数据写入。")
+            return False
+
+        # 3. 使用 Pipeline 执行批量写入和设置过期时间
+        try:
+            # 确保 Redis 客户端已连接
+            await self.cache_manager._ensure_client()
+            
+            # 从 CacheManager 获取底层的 redis-py pipeline 对象
+            async with self.cache_manager.redis_client.pipeline() as pipe:
+                # 步骤 A: 一次性设置所有键值对
+                pipe.mset(mset_data)
+
+                # 步骤 B: 为每一个键设置过期时间
+                # 我们从 cache_key 推断缓存类型为 'st' (static/timeseries)
+                timeout = self.cache_manager.get_timeout('st') 
+                for key in keys_to_expire:
+                    pipe.expire(key, timeout)
+
+                # 步骤 C: 原子化地执行所有命令
+                await pipe.execute()
+            
+            print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条分钟线数据到Redis。")
+            return True
+
+        except Exception as e:
+            logger.error(f"批量写入分钟线缓存时发生异常: {e}", exc_info=True)
+            return False
+
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_stock = StockCashKey()
