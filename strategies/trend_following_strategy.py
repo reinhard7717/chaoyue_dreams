@@ -1,36 +1,43 @@
-# 文件: strategies/trend_follow_strategy.py
-import asyncio
-import json
+# 文件: strategies/trend_following_strategy.py
+# 版本: V21.0 - 适配新架构版
 import logging
 from utils.data_sanitizer import sanitize_for_json
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks, peak_prominences
-from services.indicator_services import IndicatorService
-from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+# ▼▼▼【代码修改】: 移除不再需要的依赖 ▼▼▼
+# 解释: IndicatorService 和 asyncio 的职责已上移至总指挥，本类变为纯计算单元。
+# import asyncio
+# from services.indicator_services import IndicatorService
+# from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+# ▲▲▲【代码修改】: 修改结束 ▲▲▲
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
-from utils.config_loader import load_strategy_config # 导入我们新的加载函数
+from utils.config_loader import load_strategy_config
 
 logger = logging.getLogger(__name__)
 
 class TrendFollowStrategy:
     """
-    趋势跟踪策略 (V5.0 - 参数精细化适配版)
-    - 核心适配: 策略逻辑现在能够正确解析和使用按时间周期精细化配置的指标参数。
+    趋势跟踪策略 (V21.0 - 适配新架构版)
+    - 核心修改: 移除 IndicatorService 和 asyncio 依赖，变为纯粹的同步计算类。
+    - 职责定位: 接收一个包含所有时间框架数据的字典，应用复杂的战术剧本和计分系统，输出最终决策。
     """
 
+    # ▼▼▼【代码修改】: 简化__init__方法 ▼▼▼
     def __init__(self,
                  daily_config_path: str = 'config/trend_follow_strategy.json',
                  tactical_configs: Optional[Dict[str, str]] = None):
         """
-        【V5.0 适配版】构造函数
+        【V21.0 适配版】构造函数
+        - 移除 IndicatorService 和 asyncio loop 的初始化。
         """
-        self.indicator_service = IndicatorService()
+        # self.indicator_service = IndicatorService() # 不再需要
         self.daily_config_path = daily_config_path
-        print(f"--- [策略初始化] 正在加载日线配置: {self.daily_config_path} ---")
+        print(f"--- [战术策略初始化] 正在加载日线/分钟线主配置: {self.daily_config_path} ---")
         self.daily_params = load_strategy_config(self.daily_config_path)
 
+        # 分钟线配置逻辑保持不变，因为它们共享同一个配置文件
         if tactical_configs is None:
             self.tactical_configs = {
                 '5': 'config/trend_follow_strategy.json',
@@ -40,17 +47,15 @@ class TrendFollowStrategy:
             }
         else:
             self.tactical_configs = tactical_configs
-
-        # 注意：分钟线现在也使用主配置文件，因为IndicatorService会根据timeframe_key自动选择参数
         self.tactical_params = {}
         for tf in self.tactical_configs.keys():
             self.tactical_params[tf] = self.daily_params
-
-        try:
-            self.loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
+        
+        # try: # 不再需要 asyncio loop
+        #     self.loop = asyncio.get_running_loop()
+        # except RuntimeError:
+        #     self.loop = asyncio.new_event_loop()
+        #     asyncio.set_event_loop(self.loop)
 
         kline_params = self._get_params_block(self.daily_params, 'kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
@@ -59,7 +64,8 @@ class TrendFollowStrategy:
         self._last_score_details_df = None
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
- 
+        print(f"    - 战术策略配置 '{self.daily_config_path}' 加载完成。")
+
     # 参数解析辅助函数
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
         """
@@ -95,15 +101,17 @@ class TrendFollowStrategy:
         
         return None
 
-    async def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
+    def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V16.0 多时间框架共振版】
+        【V21.0 同步版】
         - 将完整的 df_dict 传递给计分函数，以支持分钟线分析。
+        - 变为同步方法，因为它不再执行任何IO操作。
         """
         df = df_dict.get('D')
         if df is None or df.empty:
             return pd.DataFrame(), {}
         
+        # 列名处理逻辑保持不变，确保所有日线原生列都有 _D 后缀
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
         rename_map = {col: f"{col}_D" for col in df.columns if not any(col.endswith(suffix) for suffix in timeframe_suffixes)}
         if rename_map:
@@ -114,16 +122,16 @@ class TrendFollowStrategy:
         df.loc[:, 'signal_top_divergence'] = self._find_top_divergence_exit(df, params)
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
-        # 解释: 将包含所有时间周期数据的字典传递下去，而不仅仅是日线df。
+        # 核心计分函数调用，逻辑不变
         df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, df_dict, params)
-        self._last_score_details_df = score_details_df # 存储计分详情以备后用
+        self._last_score_details_df = score_details_df
         
         score_threshold = self._get_params_block(params, 'entry_scoring_params').get('score_threshold', 100)
         df.loc[:, 'signal_entry'] = df['entry_score'] >= score_threshold
         df.loc[:, 'take_profit_signal'] = self._apply_take_profit_rules(df, df['signal_entry'], df['signal_top_divergence'], params)
 
-        # --- 打印详细的“得分小票” ---
-        print("\n---【多时间框架协同策略(V15.3 融合版)逻辑链调试】---")
+        # 调试输出逻辑保持不变
+        print("\n---【多时间框架协同策略(V21.0 融合版)逻辑链调试】---")
         entry_signals = df[df['signal_entry']]
         print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)}")
         if not entry_signals.empty:
@@ -131,7 +139,6 @@ class TrendFollowStrategy:
             last_entry_score = df.loc[last_entry_date, 'entry_score']
             print(f"  - 最近一次买入: {last_entry_date.date()} (当日总分: {last_entry_score})")
             
-            # 打印得分构成
             print(f"  --- 得分小票 for {last_entry_date.date()} ---")
             score_breakdown = score_details_df.loc[last_entry_date].dropna()
             base_score_items = {k: v for k, v in score_breakdown.items() if k.startswith('BASE_')}
@@ -142,14 +149,14 @@ class TrendFollowStrategy:
             if not base_score_items:
                 print("      - (无)")
             for item, score in base_score_items.items():
-                print(f"      - {item}: {score:.2f} pts")
+                if score > 0: print(f"      - {item}: {score:.2f} pts")
 
             tactical_total = sum(tactical_score_items.values())
             print(f"    [战术叠加分: {tactical_total:.2f} pts]")
             if not tactical_score_items:
                 print("      - (无)")
             for item, score in tactical_score_items.items():
-                print(f"      - {item}: {score:.2f} pts")
+                if score != 0: print(f"      - {item}: {score:.2f} pts")
             
             print(f"    ------------------------------------")
             print(f"    [核算总分: {base_total + tactical_total:.2f} pts]")

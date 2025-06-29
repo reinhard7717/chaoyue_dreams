@@ -14,28 +14,29 @@ logger = logging.getLogger(__name__)
 
 class WeeklyTrendFollowStrategy:
     """
-    周线趋势跟踪策略 (V18.2 - 箱体突破逻辑重构版)
-    - 核心修正: 重构 _playbook_box_consolidation_breakout 函数，使其不再依赖外部计算的
-                'consolidation_period' 指标，而是内部实现与洗盘评分一致的动态波动率识别逻辑。
-    - 升级目标: 统一策略内部对“盘整”的定义，提升箱体突破信号的有效性和捕获率。
+    周线趋势跟踪策略 (V21.0 - 适配新架构版)
+    - 核心修改: 移除对 IndicatorService 的依赖，变为一个纯粹的同步计算类。
+    - 职责定位: 接收一个已包含所有周线指标的DataFrame，应用策略逻辑，并返回带有战略信号的DataFrame。
     """
 
     def __init__(self, config_path: str = 'config/weekly_trend_follow_strategy.json'):
-        self.indicator_service = IndicatorService()
+        """
+        初始化周线策略。
+        - 移除 IndicatorService 和 asyncio loop 的初始化。
+        - 仅加载策略逻辑所需的配置文件。
+        """
+        print("--- [周线策略初始化] 正在加载周线策略配置文件... ---")
+        # self.indicator_service = IndicatorService() # 不再需要
         self.params = load_strategy_config(config_path)
         self.indicator_cfg = self.params.get('feature_engineering_params', {}).get('indicators', {})
         self.playbook_params = self.params.get('strategy_playbooks', {})
-        try:
-            self.loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
+        print(f"    - 周线策略配置 '{config_path}' 加载完成。")
 
-    # ▼▼▼【核心重构】V18.0 新增的 apply_strategy，负责信号合成 ▼▼▼
-    async def apply_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
+    def apply_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【核心策略应用函数 V18.0】
+        【核心策略应用函数 V21.0 同步版】
         - 引入信号合成层，将独立的剧本信号提纯为高质量的“突破观察”信号。
+        - 变为同步方法，因为它不再执行任何IO操作。
         """
         if df is None or df.empty:
             logger.warning("周线策略输入DataFrame为空，无法应用。")
@@ -44,11 +45,10 @@ class WeeklyTrendFollowStrategy:
         # --- 步骤 1: 计算所有基础剧本和诊断信号 ---
         context_df = self._calculate_all_playbooks(df)
         
-        print("\n---【周线战略层(V18.0 信号合成与提纯)诊断】---")
+        print("\n---【周线战略层(V21.0 信号合成与提纯)诊断】---")
 
-        # --- 步骤 2: 信号合成层 (移植自月线策略核心逻辑) ---
+        # --- 步骤 2: 信号合成层 (逻辑保持不变) ---
         # 2.1 定义“近期有吸筹”状态 (背景)
-        # 新定义：将“高分洗盘”归类为吸筹背景，因为它本质是主力建仓行为。
         washout_threshold = self.playbook_params.get('washout_score_playbook', {}).get('score_threshold', 2)
         
         accumulation_playbooks = [
@@ -56,14 +56,12 @@ class WeeklyTrendFollowStrategy:
             'playbook_bias_rebound_W',
             'playbook_ma20_turn_up_W'
         ]
-        # 将独立的布尔信号和高分洗盘信号合并
         is_accumulation_signal = (
             context_df[accumulation_playbooks].any(axis=1) |
             (context_df['washout_score_W'] >= washout_threshold)
         )
         print(f"    - [吸筹定义] 使用的剧本: {accumulation_playbooks} + 洗盘分数(>={washout_threshold})")
 
-        # 检查过去12周(约一个季度)内是否出现过吸筹信号
         recent_accumulation_window = 12 
         had_recent_accumulation = is_accumulation_signal.rolling(
             window=recent_accumulation_window, min_periods=1
@@ -71,7 +69,6 @@ class WeeklyTrendFollowStrategy:
         context_df['state_had_recent_accumulation_W'] = had_recent_accumulation.fillna(False)
 
         # 2.2 定义“周线突破事件” (事件)
-        # 新定义：突破事件必须是纯粹的、向上的攻击性行为。
         is_breakout_event = (
             context_df['playbook_classic_breakout_W'] |
             context_df['playbook_box_breakout_W']
@@ -81,20 +78,17 @@ class WeeklyTrendFollowStrategy:
 
         # 2.3 合成“突破启动”信号 (状态 + 事件 = 启动)
         is_breakout_initiation = context_df['state_had_recent_accumulation_W'] & context_df['event_is_breakout_week_W']
-        # 只取启动的第一个周
         signal_breakout_initiation = (is_breakout_initiation) & (is_breakout_initiation.shift(1) == False)
         context_df['signal_breakout_initiation_W'] = signal_breakout_initiation
 
         # 2.4 应用“无拒绝”过滤器 (风险过滤)
         is_rejection_week = context_df['rejection_signal_W'] < 0
         breakout_event_group = context_df['signal_breakout_initiation_W'].cumsum()
-        # 检查自上次启动信号以来，是否出现过拒绝信号
         rejections_in_group_so_far = is_rejection_week.groupby(breakout_event_group).cumsum()
         has_no_rejection_yet = (rejections_in_group_so_far == 0)
         context_df['filter_has_no_rejection_yet_W'] = has_no_rejection_yet
 
         # 2.5 生成最终的“突破观察”信号 (高质量信号)
-        # 必须是突破周，且至今未被拒绝
         signal_breakout_trigger = is_breakout_initiation & has_no_rejection_yet
         context_df['signal_breakout_trigger_W'] = signal_breakout_trigger
 
@@ -110,7 +104,7 @@ class WeeklyTrendFollowStrategy:
         """
         【V18.0】计算所有独立的剧本和诊断信号，作为信号合成的原材料。
         """
-        print("\n---【周线战略层(V18.0) - 步骤1: 计算所有基础剧本】---")
+        print("\n---【周线战略层(V21.0) - 步骤1: 计算所有基础剧本】---")
         playbook_ma20_turn_up = self._playbook_ma20_turn_up(df, self.playbook_params.get('ma20_turn_up_playbook', {}))
         playbook_early_uptrend = self._playbook_early_uptrend(df, self.playbook_params.get('early_uptrend_playbook', {}))
         playbook_classic = self._playbook_classic_breakout(df, self.playbook_params.get('classic_breakout_playbook', {}))
@@ -130,7 +124,7 @@ class WeeklyTrendFollowStrategy:
         context_df['washout_score_W'] = washout_score
         context_df['rejection_signal_W'] = rejection_signal
         
-        print("---【周线战略层(V18.1) - 剧本计算总结】---")
+        print("---【周线战略层(V21.0) - 剧本计算总结】---")
         print(f"【剧本-趋势】稳定上升趋势 最终触发周数: {playbook_ma_uptrend.sum()}")
         print(f"【剧本-箱体】专业箱体突破 最终触发周数: {playbook_box_breakout.sum()}")
         print(f"【剧本-反弹】BIAS超跌反弹 最终触发周数: {playbook_bias_rebound.sum()}")
@@ -200,8 +194,6 @@ class WeeklyTrendFollowStrategy:
         p_fast, p_slow, p_signal = macd_params[0], macd_params[1], macd_params[2]
         macd_col = f'MACD_{p_fast}_{p_slow}_{p_signal}_W'
         macd_hist_col = f'MACDh_{p_fast}_{p_slow}_{p_signal}_W'
-        # print(f"    - 动态构建EMA列名: {short_ma_col}, {mid_ma_col}")
-        # print(f"    - 动态构建MACD列名: {macd_hist_col} (基于配置 {macd_params})")
 
         required_cols = [short_ma_col, mid_ma_col, macd_col, macd_hist_col, 'close_W']
         if not all(col in df.columns for col in required_cols):

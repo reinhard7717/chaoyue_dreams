@@ -34,15 +34,6 @@ pd.options.mode.chained_assignment = None
 
 logger = logging.getLogger("services")
 
-DERIVATIVE_BASE_TO_REGISTERED_INDICATOR_MAP = {
-    'K': 'KDJ',
-    'D': 'KDJ',
-    'J': 'KDJ',
-    'ADX': 'DMI',
-    'PDI': 'DMI',
-    'NDI': 'DMI',
-}
-
 class IndicatorService:
     """
     技术指标计算服务 (使用 pandas-ta)
@@ -135,303 +126,121 @@ class IndicatorService:
         logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据。")
         return df
 
-    # 修改方法: 重构 prepare_multi_timeframe_data 以提高效率和正确性
-    async def prepare_multi_timeframe_data(
+    async def prepare_data(
         self,
         stock_code: str,
-        config_paths: List[str],
+        config: dict, # 修改点: 直接接收加载好的配置字典，而不是路径列表
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V3.1 务实版】根据多个配置文件，智能合并需求，准备所有时间周期数据。
-        - 核心逻辑:
-          1. 遍历所有配置文件路径，读取并合并 'feature_engineering_params'。
-          2. 从合并后的配置中，自动扫描并识别所有需要的时间周期 (e.g., D, W, 60, 15, 5)。
-          3. 并行获取所有周期的原始K线数据。
-          4. 为每个周期的数据独立计算其所需的指标（使用合并后的总配置）。
-          5. 将周线/月线战略指标数据合并到日线数据中，并执行前向填充。
-          6. 返回一个包含所有处理后DataFrame的字典。
+        【V5.0 终极实用版 - 纯粹数据准备入口】
+        根据【单个】策略配置文件，精确、高效地准备其所需的所有数据。
+        - 清晰: 职责单一，只根据传入的config准备数据，不合并、不猜测。
+        - 高效: 只获取config中明确要求的时间周期和辅助数据(如资金流)。
+        - 实用: 逻辑完全由配置文件驱动，具备真正的通用性。
         """
-        print(f"    [调试-数据服务 V3.1] 开始为 {stock_code} 准备多时间框架数据...")
-        print(f"    [调试-数据服务 V3.1] 使用的配置文件: {config_paths}")
-
-        # --- 步骤 1: 读取并合并所有配置文件中的指标需求 ---
-        merged_feature_params = {"indicators": {}}
+        print(f"--- [数据准备V5.0] 开始为 {stock_code} 准备数据... ---")
         
-        for path in config_paths:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    params = json.load(f)
-                
-                current_indicators = params.get('feature_engineering_params', {}).get('indicators', {})
-                
-                # 智能合并指标配置
-                for key, value in current_indicators.items():
-                    if key not in merged_feature_params["indicators"]:
-                        merged_feature_params["indicators"][key] = deepcopy(value)
-                    else:
-                        # 如果指标已存在，合并 apply_on 列表，去重
-                        if isinstance(value, dict) and 'apply_on' in value:
-                            existing_apply_on = set(merged_feature_params["indicators"][key].get('apply_on', []))
-                            new_apply_on = set(value.get('apply_on', []))
-                            merged_feature_params["indicators"][key]['apply_on'] = sorted(list(existing_apply_on.union(new_apply_on)))
+        # --- 步骤 1: 从【单个】配置中识别所有需要的时间周期和数据类型 ---
+        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
+        base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
 
-            except Exception as e:
-                logger.error(f"[{stock_code}] 读取或解析配置文件 {path} 失败: {e}")
-                return {}
-
-        # --- 步骤 2: 从合并后的配置中识别所有需要的时间周期 ---
         required_tfs: Set[str] = set()
-        for indicator_config in merged_feature_params["indicators"].values():
-            if isinstance(indicator_config, dict) and indicator_config.get('enabled', False):
-                apply_on = indicator_config.get('apply_on', [])
-                for tf in apply_on:
-                    required_tfs.add(str(tf))
+        needs_fund_chips_data = False # 修改点: 默认不需要资金流数据
 
-        # 确保日线和周线作为基础周期存在
-        required_tfs.add('D')
-        required_tfs.add('W')
-        print(f"    [调试-数据服务 V3.1] 合并配置后，识别出需要的数据周期: {sorted(list(required_tfs))}")
-
-        # --- 步骤 3: 并行获取所有周期的原始K线数据 ---
-        async def _fetch_raw_data(tf: str):
-            print(f"      - 开始获取 {tf} 周期原始数据...")
-            df = await self.get_data(stock_code, tf, trade_time=trade_time)
-            if df is None or df.empty:
-                logger.warning(f"[{stock_code}] 获取 {tf} 周期数据失败或为空。")
-                return tf, None
-            print(f"      - 成功获取 {tf} 周期原始数据 {len(df)} 条。")
-            return tf, df
-
-        tasks = [_fetch_raw_data(tf) for tf in required_tfs]
-        raw_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        raw_dfs: Dict[str, pd.DataFrame] = {}
-        for res in raw_data_results:
-            if isinstance(res, Exception) or res[1] is None:
-                logger.error(f"[{stock_code}] 获取数据时发生错误: {res}")
+        for indicator_key, params in indicators_config.items():
+            if not isinstance(params, dict) or not params.get('enabled', False):
                 continue
-            tf, df = res
-            raw_dfs[tf] = df
+            
+            # 检查是否需要资金流/筹码数据
+            if indicator_key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']:
+                needs_fund_chips_data = True
 
-        if 'D' not in raw_dfs or raw_dfs['D'].empty:
-            logger.error(f"[{stock_code}] 核心的日线数据获取失败，无法继续分析。")
+            # 扫描所有 apply_on 来确定需要的时间周期
+            if 'configs' in params: # 新版列表式配置
+                for sub_config in params.get('configs', []):
+                    for tf in sub_config.get('apply_on', []):
+                        required_tfs.add(str(tf))
+            elif 'apply_on' in params: # 兼容旧版配置
+                for tf in params.get('apply_on', []):
+                    required_tfs.add(str(tf))
+        
+        # 如果没有任何指标被启用，则直接返回空字典
+        if not required_tfs:
+            logger.warning(f"[{stock_code}] 配置文件中没有启用任何指标或指定apply_on，无需准备数据。")
             return {}
+
+        print(f"    - 根据配置，识别出需要的数据周期: {sorted(list(required_tfs))}")
+        if needs_fund_chips_data:
+            print("    - 根据配置，需要额外获取资金流和筹码数据。")
+
+        # --- 步骤 2: 【高效】按需并行获取所有数据 ---
+        tasks = []
+        # 任务1: 获取所有必需的OHLCV数据
+        for tf in required_tfs:
+            bars_to_fetch = base_needed_bars if tf not in ['W', 'M'] else 200
+            tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
+        
+        # 任务2: 如果需要，才获取资金流数据
+        df_fund_chips: Optional[pd.DataFrame] = None
+        if needs_fund_chips_data:
+            trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+            tasks.append(self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt))
+
+        all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # --- 步骤 3: 【清晰】解包并行任务的结果 ---
+        raw_dfs: Dict[str, pd.DataFrame] = {}
+        
+        # 根据任务数量判断资金流数据是否存在于结果中
+        ohlcv_results = all_data_results[:len(required_tfs)]
+        if needs_fund_chips_data:
+            fund_chips_result = all_data_results[-1]
+            if isinstance(fund_chips_result, pd.DataFrame):
+                df_fund_chips = fund_chips_result
+            elif isinstance(fund_chips_result, Exception):
+                logger.error(f"[{stock_code}] 获取资金流数据时发生错误: {fund_chips_result}")
+
+        for i, res in enumerate(ohlcv_results):
+            tf = sorted(list(required_tfs))[i] # 按顺序取回时间周期
+            if isinstance(res, pd.DataFrame) and not res.empty:
+                raw_dfs[tf] = res
+            else:
+                logger.error(f"[{stock_code}] 获取 {tf} 周期OHLCV数据时发生错误或数据为空: {res}")
+                # 如果核心的日线或周线没有获取到，可以提前终止
+                if tf in ['D', 'W']: return {}
 
         # --- 步骤 4: 为每个周期的数据独立计算指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
-        for tf, df in raw_dfs.items():
-            print(f"    [调试-数据服务 V3.1] 开始为 {tf} 周期数据计算技术指标...")
-            # 使用合并后的总配置来计算指标
-            df_with_indicators, _ = self.calculate_indicators_for_dataframe(df, merged_feature_params["indicators"], tf)
-            processed_dfs[tf] = df_with_indicators
+        calc_tasks = []
+
+        async def _calculate_for_tf(tf, df):
+            print(f"    - 开始为 {tf} 周期数据计算技术指标...")
+            # 如果是日线，并且成功获取了资金流数据，则先合并
+            if tf == 'D' and df_fund_chips is not None and not df_fund_chips.empty:
+                if df.index.tz is not None: df.index = df.index.tz_localize(None)
+                if df_fund_chips.index.tz is not None: df_fund_chips.index = df_fund_chips.tz_localize(None)
+                df = pd.merge(df, df_fund_chips, left_index=True, right_index=True, how='left')
+                df[list(df_fund_chips.columns)] = df[list(df_fund_chips.columns)].fillna(0)
+            
+            df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             print(f"      - {tf} 周期指标计算完成。")
+            return tf, df_with_indicators
 
-        # --- 步骤 5: 将战略数据(周/月)指标合并到日线数据中 ---
-        df_daily_final = processed_dfs['D'].copy()
-
-        for strategic_tf in ['W', 'M']:
-            if strategic_tf in processed_dfs:
-                df_strategic = processed_dfs[strategic_tf]
-                # 仅选择指标列，避免合并OHLC等基础列
-                strategic_indicator_cols = [col for col in df_strategic.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'amount']]
-                df_strategic_indicators = df_strategic[strategic_indicator_cols]
-                
-                # 添加后缀以便区分
-                df_strategic_indicators = df_strategic_indicators.add_suffix(f'_{strategic_tf}')
-                
-                # 合并
-                df_daily_final = pd.merge(df_daily_final, df_strategic_indicators, left_index=True, right_index=True, how='left')
-                print(f"    [调试-数据服务 V3.1] 已将 {strategic_tf} 周期指标数据合并到日线数据。")
-
-                # 前向填充
-                strategic_cols_to_fill = [col for col in df_daily_final.columns if col.endswith(f'_{strategic_tf}')]
-                if strategic_cols_to_fill:
-                    df_daily_final[strategic_cols_to_fill] = df_daily_final[strategic_cols_to_fill].ffill()
-                    for col in strategic_cols_to_fill:
-                        # 检查列是否存在，因为ffill后可能全为NaN而被删除
-                        if col in df_daily_final.columns:
-                            if pd.api.types.is_bool_dtype(df_daily_final[col]):
-                                df_daily_final[col].fillna(False, inplace=True)
-                            elif pd.api.types.is_numeric_dtype(df_daily_final[col]):
-                                df_daily_final[col].fillna(0, inplace=True)
-                    print(f"      - 已对 {len(strategic_cols_to_fill)} 个 {strategic_tf} 周期列执行前向填充(ffill)。")
-
-        # --- 步骤 6: 组装最终的返回字典 ---
-        final_dfs: Dict[str, pd.DataFrame] = {}
-        # 将处理好的、带有战略背景的日线数据放入字典
-        final_dfs['D'] = df_daily_final
-
-        # 将其他分钟级别的数据放入字典
-        for tf in required_tfs:
-            # 不再需要单独放入 W 和 M，因为它们的信息已经在 D 中了
-            if tf not in ['D', 'W', 'M'] and tf in processed_dfs:
-                final_dfs[tf] = processed_dfs[tf]
-
-        print(f"    [调试-数据服务 V3.1] 数据准备完成，最终字典包含的周期: {list(final_dfs.keys())}")
-        return final_dfs
-
-    async def prepare_daily_centric_dataframe(
-        self,
-        stock_code: str,
-        trade_time: str,
-        daily_config_path: Optional[str] = None,
-        weekly_config_path: Optional[str] = None,
-        monthly_config_path: Optional[str] = None
-    ) -> Optional[pd.DataFrame]:
-        """
-        【V2.2 适配V5.0配置】准备以日线为中心，融合了周线/月线指标的DataFrame。
-        - 此方法本身无需修改，因为它调用的 _calculate_indicators_for_timescale 已升级。
-        """
-        # 1. 加载所有需要的配置
-        # (此部分代码与您提供的版本完全一致，保持不变)
-        daily_config = self._load_config(daily_config_path) if daily_config_path else {}
-        weekly_config = self._load_config(weekly_config_path) if weekly_config_path else {}
-        monthly_config = self._load_config(monthly_config_path) if monthly_config_path else {}
+        for tf, df in raw_dfs.items():
+            calc_tasks.append(_calculate_for_tf(tf, df))
         
-        daily_indicators = daily_config.get('feature_engineering_params', {}).get('indicators', {})
-        weekly_indicators = weekly_config.get('feature_engineering_params', {}).get('indicators', {})
-        monthly_indicators = monthly_config.get('feature_engineering_params', {}).get('indicators', {})
-        print(f"--- [数据准备V5.0] 开始为 {stock_code} 构建多时间框架数据 ---")
+        processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
 
-        # 2. 获取基础日线数据及资金流数据
-        # (此部分代码与您提供的版本完全一致，保持不变)
-        df_daily = await self._get_ohlcv_data(stock_code, 'D', 500, trade_time)
-        if df_daily is None or df_daily.empty:
-            logger.error(f"[{stock_code}] 获取日线基础数据失败。")
-            return None
-        
-        # 步骤 2.5: 获取并合并资金流和筹码数据
-        print(f"--- [数据准备V2.3] 正在调用整合DAO获取资金流和筹码信息... ---")
-        
-        # 将字符串格式的 trade_time 转换为 datetime 对象，以匹配DAO方法的类型提示
-        trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+        for res in processed_results:
+            if isinstance(res, Exception):
+                logger.error(f"[{stock_code}] 计算指标时发生错误: {res}")
+                continue
+            tf, df_processed = res
+            processed_dfs[tf] = df_processed
 
-        # 单次调用新的DAO方法
-        df_fund_chips = await self.strategies_dao.get_fund_flow_and_chips_data(
-            stock_code=stock_code,
-            trade_time=trade_time_dt
-        )
-
-        # 将获取到的整合数据合并到日线DataFrame中
-        if df_fund_chips is not None and not df_fund_chips.empty:
-            if df_daily.index.tz is not None:
-                print(f"    - [时区统一] 检测到 df_daily 索引带有时区 ({df_daily.index.tz})，正在移除...")
-                df_daily.index = df_daily.index.tz_localize(None)
-            
-            if df_fund_chips.index.tz is not None:
-                print(f"    - [时区统一] 检测到 df_fund_chips 索引带有时区 ({df_fund_chips.index.tz})，正在移除...")
-                df_fund_chips.index = df_fund_chips.index.tz_localize(None)
-            # 使用左连接将资金筹码数据合并到日线数据上
-            df_daily = pd.merge(df_daily, df_fund_chips, left_index=True, right_index=True, how='left')
-            print("    - [信息] 已成功合并资金流与筹码的整合数据。")
-            
-            # 对新合并的列中因左连接产生的NaN值进行填充
-            # DAO内部的ffill处理了数据内部的缺失，这里的fillna(0)处理因对齐产生的头部缺失
-            new_cols = list(df_fund_chips.columns)
-            df_daily[new_cols] = df_daily[new_cols].fillna(0)
-            print(f"    - [信息] 已对 {len(new_cols)} 个新增资金/筹码列的NaN值填充为0。")
-        else:
-            print("    - [警告] 未能获取到资金流和筹码数据。")
-
-        # 3. 计算日线指标
-        # (独立计算) 调用通用计算器，传入日线数据、日线配置和 "_D" 后缀
-        df_daily = await self._calculate_indicators_for_timescale(df_daily, daily_indicators, 'D')
-
-        # 4. 聚合为周线
-        # (数据转换) 将日线数据聚合为周线
-        if weekly_indicators:
-            df_weekly = self._resample_to_weekly(df_daily.copy())
-            df_weekly = await self._calculate_indicators_for_timescale(df_weekly, weekly_indicators, 'W')
-            
-            df_daily.sort_index(inplace=True)
-            df_weekly.sort_index(inplace=True)
-            df_daily = pd.merge_asof(df_daily, df_weekly, left_index=True, right_index=True, direction='backward')
-            print(f"    - [数据准备-战略层] 已成功合并周线指标。")
-
-        # 5. 准备并合并月线数据 (未来扩展点)
-        if monthly_indicators:
-            df_monthly = self._resample_to_monthly(df_daily.copy())
-            df_monthly = await self._calculate_indicators_for_timescale(df_monthly, monthly_indicators, 'M')
-            
-            df_daily.sort_index(inplace=True)
-            df_monthly.sort_index(inplace=True)
-            df_daily = pd.merge_asof(df_daily, df_monthly, left_index=True, right_index=True, direction='backward')
-            print(f"    - [数据准备-战略层] 已成功合并月线指标。")
-
-        # 6. 数据清洗和返回
-        # (此部分代码与您提供的版本完全一致，保持不变)
-        reliable_col = next((col for col in df_daily.columns if col.endswith('_W')), None)
-        if reliable_col:
-            df_daily.dropna(subset=[reliable_col], inplace=True)
-        
-        print(f"--- [数据准备V5.0] 数据准备完成 ---")
-        return df_daily
-
-
-    async def prepare_minute_centric_dataframe(self, stock_code: str, params_file: str, timeframe: str, trade_time: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[Dict]]:
-        """
-        【V2.1 适配V5.0配置】为指定的分钟线周期准备DataFrame。
-        - 此方法本身无需修改，因为它调用的 _calculate_indicators_for_timescale 已升级。
-        """
-        print(f"--- [数据准备-分钟线] 开始为 {stock_code} ({timeframe}周期) 准备数据 ---")
-        try:
-            params = self._load_config(params_file)
-            fe_params = params.get('feature_engineering_params', {})
-            indicators_to_calc = fe_params.get('indicators', {})
-            
-            needed_bars = fe_params.get('base_needed_bars', 1000)
-            df_minute = await self._get_ohlcv_data(stock_code, timeframe, needed_bars, trade_time)
-            
-            if df_minute is None or df_minute.empty:
-                logger.warning(f"[{stock_code}] 无法获取周期 '{timeframe}' 的数据，跳过。")
-                return None, None
-            
-            print(f"    - [数据准备-分钟线] 成功获取 {len(df_minute)} 条 {timeframe} 周期K线。")
-
-            # 【核心】调用已升级的通用指标计算器
-            df_final = await self._calculate_indicators_for_timescale(
-                df=df_minute, 
-                config=indicators_to_calc, 
-                timeframe_key=timeframe # 传递分钟线标识，如 '60', '15'
-            )
-            
-            print(f"    - [数据准备-分钟线] 指标计算完成，最终DataFrame包含列: {df_final.columns.to_list()}")
-            return df_final, params
-
-        except FileNotFoundError:
-            logger.error(f"[{stock_code}] 分钟线配置文件未找到: {params_file}")
-            return None, None
-        except Exception as e:
-            logger.error(f"[{stock_code}] 为周期 '{timeframe}' 准备数据时出错: {e}", exc_info=True)
-            traceback.print_exc()
-            return None, None
-
-    def _resample_to_weekly(self, df_daily: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V2.0 修正版】将日线数据聚合为周线数据。
-        - 修正：在聚合后，为所有列统一添加 '_W' 后缀，确保数据一致性。
-        - 优化：使用 dropna(how='all')，仅在某一周完全没有数据时才删除，更加健壮。
-        """
-        print("  [步骤3] 正在将日线聚合为周线...")
-        # 'W-FRI' 表示以周五为每周的结束点，更符合A股交易习惯
-        ohlc_dict = {
-            'open': 'first', 
-            'high': 'max', 
-            'low': 'min', 
-            'close': 'last', 
-            'volume': 'sum'
-        }
-        df_weekly = df_daily.resample('W-FRI').agg(ohlc_dict)
-
-        # 1. 为所有聚合后的列添加 '_W' 后缀，实现命名统一
-        df_weekly.columns = [f"{col}_W" for col in df_weekly.columns]
-        print(f"    - 已将周线基础列重命名为: {list(df_weekly.columns)}") # 增加一条调试信息
-
-        # 2. 优化dropna逻辑，只删除所有数据都为NaN的行（例如国庆长假所在的周）
-        df_weekly.dropna(how='all', inplace=True)
-
-        return df_weekly
+        print(f"--- [数据准备V5.0] 数据准备完成，最终字典包含的周期: {list(processed_dfs.keys())} ---")
+        return processed_dfs
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
@@ -1621,6 +1430,302 @@ class IndicatorService:
             print(f"    - [严重错误] 计算资金流和筹码衍生特征时发生意外: {e}")
             return None
 
+    # # 修改方法: 重构 prepare_multi_timeframe_data 以提高效率和正确性
+    # async def prepare_multi_timeframe_data(
+    #     self,
+    #     stock_code: str,
+    #     config_paths: List[str],
+    #     trade_time: Optional[str] = None
+    # ) -> Dict[str, pd.DataFrame]:
+    #     """
+    #     【V3.1 务实版】根据多个配置文件，智能合并需求，准备所有时间周期数据。
+    #     - 核心逻辑:
+    #       1. 遍历所有配置文件路径，读取并合并 'feature_engineering_params'。
+    #       2. 从合并后的配置中，自动扫描并识别所有需要的时间周期 (e.g., D, W, 60, 15, 5)。
+    #       3. 并行获取所有周期的原始K线数据。
+    #       4. 为每个周期的数据独立计算其所需的指标（使用合并后的总配置）。
+    #       5. 将周线/月线战略指标数据合并到日线数据中，并执行前向填充。
+    #       6. 返回一个包含所有处理后DataFrame的字典。
+    #     """
+    #     print(f"    [调试-数据服务 V3.1] 开始为 {stock_code} 准备多时间框架数据...")
+    #     print(f"    [调试-数据服务 V3.1] 使用的配置文件: {config_paths}")
+
+    #     # --- 步骤 1: 读取并合并所有配置文件中的指标需求 ---
+    #     merged_feature_params = {"indicators": {}}
+        
+    #     for path in config_paths:
+    #         try:
+    #             with open(path, 'r', encoding='utf-8') as f:
+    #                 params = json.load(f)
+                
+    #             current_indicators = params.get('feature_engineering_params', {}).get('indicators', {})
+                
+    #             # 智能合并指标配置
+    #             for key, value in current_indicators.items():
+    #                 if key not in merged_feature_params["indicators"]:
+    #                     merged_feature_params["indicators"][key] = deepcopy(value)
+    #                 else:
+    #                     # 如果指标已存在，合并 apply_on 列表，去重
+    #                     if isinstance(value, dict) and 'apply_on' in value:
+    #                         existing_apply_on = set(merged_feature_params["indicators"][key].get('apply_on', []))
+    #                         new_apply_on = set(value.get('apply_on', []))
+    #                         merged_feature_params["indicators"][key]['apply_on'] = sorted(list(existing_apply_on.union(new_apply_on)))
+
+    #         except Exception as e:
+    #             logger.error(f"[{stock_code}] 读取或解析配置文件 {path} 失败: {e}")
+    #             return {}
+
+    #     # --- 步骤 2: 从合并后的配置中识别所有需要的时间周期 ---
+    #     required_tfs: Set[str] = set()
+    #     for indicator_config in merged_feature_params["indicators"].values():
+    #         if isinstance(indicator_config, dict) and indicator_config.get('enabled', False):
+    #             apply_on = indicator_config.get('apply_on', [])
+    #             for tf in apply_on:
+    #                 required_tfs.add(str(tf))
+
+    #     # 确保日线和周线作为基础周期存在
+    #     required_tfs.add('D')
+    #     required_tfs.add('W')
+    #     print(f"    [调试-数据服务 V3.1] 合并配置后，识别出需要的数据周期: {sorted(list(required_tfs))}")
+
+    #     # --- 步骤 3: 并行获取所有周期的原始K线数据 ---
+    #     async def _fetch_raw_data(tf: str):
+    #         print(f"      - 开始获取 {tf} 周期原始数据...")
+    #         df = await self.get_data(stock_code, tf, trade_time=trade_time)
+    #         if df is None or df.empty:
+    #             logger.warning(f"[{stock_code}] 获取 {tf} 周期数据失败或为空。")
+    #             return tf, None
+    #         print(f"      - 成功获取 {tf} 周期原始数据 {len(df)} 条。")
+    #         return tf, df
+
+    #     tasks = [_fetch_raw_data(tf) for tf in required_tfs]
+    #     raw_data_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    #     raw_dfs: Dict[str, pd.DataFrame] = {}
+    #     for res in raw_data_results:
+    #         if isinstance(res, Exception) or res[1] is None:
+    #             logger.error(f"[{stock_code}] 获取数据时发生错误: {res}")
+    #             continue
+    #         tf, df = res
+    #         raw_dfs[tf] = df
+
+    #     if 'D' not in raw_dfs or raw_dfs['D'].empty:
+    #         logger.error(f"[{stock_code}] 核心的日线数据获取失败，无法继续分析。")
+    #         return {}
+
+    #     # --- 步骤 4: 为每个周期的数据独立计算指标 ---
+    #     processed_dfs: Dict[str, pd.DataFrame] = {}
+    #     for tf, df in raw_dfs.items():
+    #         print(f"    [调试-数据服务 V3.1] 开始为 {tf} 周期数据计算技术指标...")
+    #         # 使用合并后的总配置来计算指标
+    #         df_with_indicators, _ = self.calculate_indicators_for_dataframe(df, merged_feature_params["indicators"], tf)
+    #         processed_dfs[tf] = df_with_indicators
+    #         print(f"      - {tf} 周期指标计算完成。")
+
+    #     # --- 步骤 5: 将战略数据(周/月)指标合并到日线数据中 ---
+    #     df_daily_final = processed_dfs['D'].copy()
+
+    #     for strategic_tf in ['W', 'M']:
+    #         if strategic_tf in processed_dfs:
+    #             df_strategic = processed_dfs[strategic_tf]
+    #             # 仅选择指标列，避免合并OHLC等基础列
+    #             strategic_indicator_cols = [col for col in df_strategic.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'amount']]
+    #             df_strategic_indicators = df_strategic[strategic_indicator_cols]
+                
+    #             # 添加后缀以便区分
+    #             df_strategic_indicators = df_strategic_indicators.add_suffix(f'_{strategic_tf}')
+                
+    #             # 合并
+    #             df_daily_final = pd.merge(df_daily_final, df_strategic_indicators, left_index=True, right_index=True, how='left')
+    #             print(f"    [调试-数据服务 V3.1] 已将 {strategic_tf} 周期指标数据合并到日线数据。")
+
+    #             # 前向填充
+    #             strategic_cols_to_fill = [col for col in df_daily_final.columns if col.endswith(f'_{strategic_tf}')]
+    #             if strategic_cols_to_fill:
+    #                 df_daily_final[strategic_cols_to_fill] = df_daily_final[strategic_cols_to_fill].ffill()
+    #                 for col in strategic_cols_to_fill:
+    #                     # 检查列是否存在，因为ffill后可能全为NaN而被删除
+    #                     if col in df_daily_final.columns:
+    #                         if pd.api.types.is_bool_dtype(df_daily_final[col]):
+    #                             df_daily_final[col].fillna(False, inplace=True)
+    #                         elif pd.api.types.is_numeric_dtype(df_daily_final[col]):
+    #                             df_daily_final[col].fillna(0, inplace=True)
+    #                 print(f"      - 已对 {len(strategic_cols_to_fill)} 个 {strategic_tf} 周期列执行前向填充(ffill)。")
+
+    #     # --- 步骤 6: 组装最终的返回字典 ---
+    #     final_dfs: Dict[str, pd.DataFrame] = {}
+    #     # 将处理好的、带有战略背景的日线数据放入字典
+    #     final_dfs['D'] = df_daily_final
+
+    #     # 将其他分钟级别的数据放入字典
+    #     for tf in required_tfs:
+    #         # 不再需要单独放入 W 和 M，因为它们的信息已经在 D 中了
+    #         if tf not in ['D', 'W', 'M'] and tf in processed_dfs:
+    #             final_dfs[tf] = processed_dfs[tf]
+
+    #     print(f"    [调试-数据服务 V3.1] 数据准备完成，最终字典包含的周期: {list(final_dfs.keys())}")
+    #     return final_dfs
+
+    # async def prepare_daily_centric_dataframe(
+    #     self,
+    #     stock_code: str,
+    #     trade_time: str,
+    #     daily_config_path: Optional[str] = None,
+    #     weekly_config_path: Optional[str] = None,
+    #     monthly_config_path: Optional[str] = None
+    # ) -> Optional[pd.DataFrame]:
+    #     """
+    #     【V2.2 适配V5.0配置】准备以日线为中心，融合了周线/月线指标的DataFrame。
+    #     - 此方法本身无需修改，因为它调用的 _calculate_indicators_for_timescale 已升级。
+    #     """
+    #     # 1. 加载所有需要的配置
+    #     # (此部分代码与您提供的版本完全一致，保持不变)
+    #     daily_config = self._load_config(daily_config_path) if daily_config_path else {}
+    #     weekly_config = self._load_config(weekly_config_path) if weekly_config_path else {}
+    #     monthly_config = self._load_config(monthly_config_path) if monthly_config_path else {}
+        
+    #     daily_indicators = daily_config.get('feature_engineering_params', {}).get('indicators', {})
+    #     weekly_indicators = weekly_config.get('feature_engineering_params', {}).get('indicators', {})
+    #     monthly_indicators = monthly_config.get('feature_engineering_params', {}).get('indicators', {})
+    #     print(f"--- [数据准备V5.0] 开始为 {stock_code} 构建多时间框架数据 ---")
+
+    #     # 2. 获取基础日线数据及资金流数据
+    #     # (此部分代码与您提供的版本完全一致，保持不变)
+    #     df_daily = await self._get_ohlcv_data(stock_code, 'D', 500, trade_time)
+    #     if df_daily is None or df_daily.empty:
+    #         logger.error(f"[{stock_code}] 获取日线基础数据失败。")
+    #         return None
+        
+    #     # 步骤 2.5: 获取并合并资金流和筹码数据
+    #     print(f"--- [数据准备V2.3] 正在调用整合DAO获取资金流和筹码信息... ---")
+        
+    #     # 将字符串格式的 trade_time 转换为 datetime 对象，以匹配DAO方法的类型提示
+    #     trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+
+    #     # 单次调用新的DAO方法
+    #     df_fund_chips = await self.strategies_dao.get_fund_flow_and_chips_data(
+    #         stock_code=stock_code,
+    #         trade_time=trade_time_dt
+    #     )
+
+    #     # 将获取到的整合数据合并到日线DataFrame中
+    #     if df_fund_chips is not None and not df_fund_chips.empty:
+    #         if df_daily.index.tz is not None:
+    #             print(f"    - [时区统一] 检测到 df_daily 索引带有时区 ({df_daily.index.tz})，正在移除...")
+    #             df_daily.index = df_daily.index.tz_localize(None)
+            
+    #         if df_fund_chips.index.tz is not None:
+    #             print(f"    - [时区统一] 检测到 df_fund_chips 索引带有时区 ({df_fund_chips.index.tz})，正在移除...")
+    #             df_fund_chips.index = df_fund_chips.index.tz_localize(None)
+    #         # 使用左连接将资金筹码数据合并到日线数据上
+    #         df_daily = pd.merge(df_daily, df_fund_chips, left_index=True, right_index=True, how='left')
+    #         print("    - [信息] 已成功合并资金流与筹码的整合数据。")
+            
+    #         # 对新合并的列中因左连接产生的NaN值进行填充
+    #         # DAO内部的ffill处理了数据内部的缺失，这里的fillna(0)处理因对齐产生的头部缺失
+    #         new_cols = list(df_fund_chips.columns)
+    #         df_daily[new_cols] = df_daily[new_cols].fillna(0)
+    #         print(f"    - [信息] 已对 {len(new_cols)} 个新增资金/筹码列的NaN值填充为0。")
+    #     else:
+    #         print("    - [警告] 未能获取到资金流和筹码数据。")
+
+    #     # 3. 计算日线指标
+    #     # (独立计算) 调用通用计算器，传入日线数据、日线配置和 "_D" 后缀
+    #     df_daily = await self._calculate_indicators_for_timescale(df_daily, daily_indicators, 'D')
+
+    #     # 4. 聚合为周线
+    #     # (数据转换) 将日线数据聚合为周线
+    #     if weekly_indicators:
+    #         df_weekly = self._resample_to_weekly(df_daily.copy())
+    #         df_weekly = await self._calculate_indicators_for_timescale(df_weekly, weekly_indicators, 'W')
+            
+    #         df_daily.sort_index(inplace=True)
+    #         df_weekly.sort_index(inplace=True)
+    #         df_daily = pd.merge_asof(df_daily, df_weekly, left_index=True, right_index=True, direction='backward')
+    #         print(f"    - [数据准备-战略层] 已成功合并周线指标。")
+
+    #     # 5. 准备并合并月线数据 (未来扩展点)
+    #     if monthly_indicators:
+    #         df_monthly = self._resample_to_monthly(df_daily.copy())
+    #         df_monthly = await self._calculate_indicators_for_timescale(df_monthly, monthly_indicators, 'M')
+            
+    #         df_daily.sort_index(inplace=True)
+    #         df_monthly.sort_index(inplace=True)
+    #         df_daily = pd.merge_asof(df_daily, df_monthly, left_index=True, right_index=True, direction='backward')
+    #         print(f"    - [数据准备-战略层] 已成功合并月线指标。")
+
+    #     # 6. 数据清洗和返回
+    #     # (此部分代码与您提供的版本完全一致，保持不变)
+    #     reliable_col = next((col for col in df_daily.columns if col.endswith('_W')), None)
+    #     if reliable_col:
+    #         df_daily.dropna(subset=[reliable_col], inplace=True)
+        
+    #     print(f"--- [数据准备V5.0] 数据准备完成 ---")
+    #     return df_daily
+
+    # async def prepare_minute_centric_dataframe(self, stock_code: str, params_file: str, timeframe: str, trade_time: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[Dict]]:
+    #     """
+    #     【V2.1 适配V5.0配置】为指定的分钟线周期准备DataFrame。
+    #     - 此方法本身无需修改，因为它调用的 _calculate_indicators_for_timescale 已升级。
+    #     """
+    #     print(f"--- [数据准备-分钟线] 开始为 {stock_code} ({timeframe}周期) 准备数据 ---")
+    #     try:
+    #         params = self._load_config(params_file)
+    #         fe_params = params.get('feature_engineering_params', {})
+    #         indicators_to_calc = fe_params.get('indicators', {})
+            
+    #         needed_bars = fe_params.get('base_needed_bars', 1000)
+    #         df_minute = await self._get_ohlcv_data(stock_code, timeframe, needed_bars, trade_time)
+            
+    #         if df_minute is None or df_minute.empty:
+    #             logger.warning(f"[{stock_code}] 无法获取周期 '{timeframe}' 的数据，跳过。")
+    #             return None, None
+            
+    #         print(f"    - [数据准备-分钟线] 成功获取 {len(df_minute)} 条 {timeframe} 周期K线。")
+
+    #         # 【核心】调用已升级的通用指标计算器
+    #         df_final = await self._calculate_indicators_for_timescale(
+    #             df=df_minute, 
+    #             config=indicators_to_calc, 
+    #             timeframe_key=timeframe # 传递分钟线标识，如 '60', '15'
+    #         )
+            
+    #         print(f"    - [数据准备-分钟线] 指标计算完成，最终DataFrame包含列: {df_final.columns.to_list()}")
+    #         return df_final, params
+
+    #     except FileNotFoundError:
+    #         logger.error(f"[{stock_code}] 分钟线配置文件未找到: {params_file}")
+    #         return None, None
+    #     except Exception as e:
+    #         logger.error(f"[{stock_code}] 为周期 '{timeframe}' 准备数据时出错: {e}", exc_info=True)
+    #         traceback.print_exc()
+    #         return None, None
+
+    # def _resample_to_weekly(self, df_daily: pd.DataFrame) -> pd.DataFrame:
+    #     """
+    #     【V2.0 修正版】将日线数据聚合为周线数据。
+    #     - 修正：在聚合后，为所有列统一添加 '_W' 后缀，确保数据一致性。
+    #     - 优化：使用 dropna(how='all')，仅在某一周完全没有数据时才删除，更加健壮。
+    #     """
+    #     print("  [步骤3] 正在将日线聚合为周线...")
+    #     # 'W-FRI' 表示以周五为每周的结束点，更符合A股交易习惯
+    #     ohlc_dict = {
+    #         'open': 'first', 
+    #         'high': 'max', 
+    #         'low': 'min', 
+    #         'close': 'last', 
+    #         'volume': 'sum'
+    #     }
+    #     df_weekly = df_daily.resample('W-FRI').agg(ohlc_dict)
+
+    #     # 1. 为所有聚合后的列添加 '_W' 后缀，实现命名统一
+    #     df_weekly.columns = [f"{col}_W" for col in df_weekly.columns]
+    #     print(f"    - 已将周线基础列重命名为: {list(df_weekly.columns)}") # 增加一条调试信息
+
+    #     # 2. 优化dropna逻辑，只删除所有数据都为NaN的行（例如国庆长假所在的周）
+    #     df_weekly.dropna(how='all', inplace=True)
+
+    #     return df_weekly
 
 
     # logger.info(f"[{stock_code}] 开始补充外部特征 (指数、板块、筹码、资金流向)...")

@@ -628,7 +628,7 @@ def save_cyq_data_this_week_task(self):
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
         for stock in all_stocks:
             save_cyq_chips_this_week_batch.s(stock=stock, start_date=this_monday, end_date=this_friday).set().apply_async()
-        save_cyq_perf_this_week_batch.s(start_date=this_monday, end_date=this_friday).set().apply_async()
+            save_cyq_perf_this_week_batch.s(start_date=this_monday, end_date=this_friday).set().apply_async()
         logger.info(f"任务结束: save_cyq_data_this_week_task (调度器模式)")
     except Exception as e:
         logger.error(f"执行 save_cyq_data_this_week_task (调度器模式) 时出错: {e}", exc_info=True)
