@@ -589,7 +589,7 @@ def save_stocks_daily_basic_data_this_week_task(self):
             logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # ============== （本周）每日筹码分布任务 ==============
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveData_TimeTrade', rate_limit='180/m')
 # [修改] 函数签名变更：不再接收整个StockInfo对象，而是接收可序列化的ts_code字符串
 def save_cyq_chips_this_week_batch(self, ts_code: str, start_date: datetime.date, end_date: datetime.date):
     """
