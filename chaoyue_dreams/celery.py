@@ -26,7 +26,6 @@ app.conf.update(
 
     # ****** 添加 include 配置 ******
     include=[
-        'tasks.management.commands.test_strategy_signals',
         'tasks.tushare.stock_time_trade_tasks',
         'tasks.tushare.stock_tasks',
         'tasks.tushare.stock_realtime_tasks',
@@ -37,9 +36,6 @@ app.conf.update(
         'tasks.tushare.industry_tasks',
         'tasks.tushare.cal_daily_tasks',
         'dashboard.tasks',
-        
-        # 如果还有其他文件包含 Celery 任务，也一并添加到这里
-        # 例如: 'tasks.other_tasks'
     ],
     worker_concurrency=5,                 # Worker并发数
     worker_prefetch_multiplier=1,          # Worker预取因子 (设置为1，结合acks_late=True，确保worker完成当前任务后再取下一个)

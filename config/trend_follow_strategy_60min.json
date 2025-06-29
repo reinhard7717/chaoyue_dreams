@@ -14,7 +14,12 @@
             "trix": { "apply_on": ["M"], "periods": [13, 8], "说明": "长期趋势判断，依然使用月线TRIX。" },
             "coppock": { "apply_on": ["M"], "periods": [14, 11, 10], "说明": "长期底部判断，依然使用月线Coppock。" },
             "rsi": { "apply_on": ["60"], "periods": [13], "说明": "计算60分钟级别的13周期RSI。" },
-            "macd": { "apply_on": ["60"], "periods": [52, 136, 32], "说明": "计算60分钟级别的MACD，参数约为日线(13,34,8)的4倍。" },
+            "macd": { 
+                "enabled": true,
+                "apply_on": ["60"],
+                "periods": [13, 34, 8],
+                "说明": "计算60分钟级别的MACD(13,34,8)，用于捕捉日内波段和共振信号。" 
+            },
             "dmi": { "apply_on": ["60"], "periods": [13], "说明": "计算60分钟级别的DMI。" },
             "boll_bands_and_width": { "apply_on": ["60"], "periods": [84], "std_dev": 2.0, "说明": "计算60分钟的84周期布林带，约等于日线21周期。" },
             "cmf": { "apply_on": ["60"], "periods": [84], "说明": "计算60分钟的84周期蔡金资金流。" },
@@ -95,6 +100,17 @@
                 "lower_shadow_to_body_ratio": 2.0,
                 "upper_shadow_to_body_ratio": 1.0
             },
+            "multi_timeframe_resonance_params": {
+                "enabled": true,
+                "说明": "【执行层】用于配置分钟线级别的共振确认信号。",
+                "check_macd_cross": true,
+                "说明_check_macd_cross": "是否检查MACD金叉作为日线预备信号的确认买点。",
+                "check_kdj_cross": true,
+                "kdj_low_level": 50,
+                "check_rsi_reversal": true,
+                "rsi_oversold_level": 30,
+                "check_vwap_support": true
+            },
             "debug_params": {
                 "enabled": true,
                 "verbose_logging": false,
@@ -116,6 +132,8 @@
                     "说明": "各项看涨条件/剧本对应的基础分数和奖励分数。",
                     "__CATEGORY_ULTIMATE_SIGNAL__": "--- 终极信号/市场反转 ---",
                     "EARTH_HEAVEN_BOARD": 200, "说明_EARTH_HEAVEN_BOARD": "【终极信号】地天板，市场最强反转，给予压倒性高分。",
+                    "RESONANCE_60MIN_MACD_CROSS": 160,
+                    "说明_RESONANCE_60MIN_MACD_CROSS": "【核心共振】日线回踩预备 + 60分钟MACD金叉，确定性极高的买点，给予最高级别的战术分。",
                     "__CATEGORY_SYSTEM_COLLABORATION__": "--- 系统协同信号 ---",
                     "MULTI_TIMEFRAME_ENTRY": 150, "说明_MULTI_TIMEFRAME_ENTRY": "【最高权重】周线战略许可+多分钟线战术确认的协同信号，确定性极高。",
                     "__CATEGORY_HIDDEN_GEMS__": "--- 隐蔽信号/先手博弈 ---",

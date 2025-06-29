@@ -6,24 +6,76 @@
     "indicators": {
       "说明": "定义需要计算的各项技术指标。key为指标缩写，value为具体配置。",
       "ema": {
-        "enabled": true, 
-        "apply_on": ["D", "M", "60"],
+        "enabled": true,
+        "apply_on": ["D", "M", "60", "30", "15", "5"],
         "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233],
         "说明": "【斐波那契周期】计算EMA。5,8,13为短周期; 21,34为中短周期; 55,89为中期核心; 144,233为长期核心。"
       },
       "vol_ma": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算日线级别的21日成交量均线，约等于一个月。" },
       "trix": { "enabled": true, "apply_on": ["M"], "periods": [13, 8], "说明": "计算月线级别的TRIX指标(13,8)，用于判断长期趋势。" },
       "coppock": { "enabled": true, "apply_on": ["M"], "periods": [14, 11, 10], "说明": "计算月线级别的Coppock曲线，使用经典参数以捕捉长期底部。" },
-      "rsi": { "enabled": true, "apply_on": ["D"], "periods": [13], "说明": "计算日线级别的13日RSI，使其更灵敏。" },
-      "macd": { "enabled": true, "apply_on": ["D"], "periods": [13, 34, 8], "说明": "计算日线级别的MACD(13,34,8)，用于捕捉中期波段。" },
-      "dmi": { "enabled": true, "apply_on": ["D"], "periods": [13], "说明": "计算日线级别的13日DMI动向指标。" },
+      "rsi": {
+        "enabled": true,
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "periods": [13],
+            "说明": "日线RSI，使用13周期，用于判断超买（止盈）和背离。"
+          },
+          {
+            "apply_on": ["5"],
+            "periods": [9],
+            "说明": "5分钟RSI，使用更快的9周期，用于捕捉超卖反转的点火信号。"
+          }
+        ]
+      },
+      "macd": {
+        "enabled": true,
+        "configs": [
+          {
+            "apply_on": ["D", "60"],
+            "periods": [13, 34, 8],
+            "说明": "日线和60分钟，使用较慢的斐波那契周期，判断宏观和战术环境。"
+          },
+          {
+            "apply_on": ["30", "15"],
+            "periods": [12, 26, 9],
+            "说明": "30和15分钟，使用经典参数，捕捉攻击意图的启动。"
+          }
+        ]
+      },
+      "dmi": {
+        "enabled": true,
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "periods": [14],
+            "说明": "日线DMI，使用经典14周期，判断趋势强度。"
+          },
+          {
+            "apply_on": ["30", "15"],
+            "periods": [13],
+            "说明": "30和15分钟DMI，使用稍快的13周期，捕捉动能交叉。"
+          }
+        ]
+      },
+      "kdj": {
+        "enabled": true,
+        "configs": [
+          {
+            "apply_on": ["5"],
+            "periods": [9, 3, 3],
+            "说明": "5分钟KDJ，使用经典的快速参数(9,3,3)，用于精确点火。"
+          }
+        ]
+      },
       "boll_bands_and_width": { "enabled": true, "apply_on": ["D"], "periods": [21], "std_dev": 2.0, "说明": "计算21日布林带及宽度。" },
       "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算21日蔡金资金流。" },
       "bias": { "enabled": true, "apply_on": ["D"], "periods": [21], "说明": "计算21日乖离率。" },
       "atrn": { "enabled": true, "apply_on": ["D"], "periods": [13], "说明": "计算13日归一化平均真实波幅。" },
       "obv": { "enabled": true, "apply_on": ["D"], "说明": "计算能量潮(On-Balance Volume)，无周期参数。" },
       "advanced_fund_features": {
-        "enabled": true, 
+        "enabled": true,
         "apply_on": ["D"],
         "params": {
           "ma_periods": [5, 10, 20]
@@ -104,6 +156,54 @@
         "lower_shadow_to_body_ratio": 2.0,
         "upper_shadow_to_body_ratio": 1.0
       },
+      "multi_level_resonance_params": {
+        "enabled": true,
+        "signal_name": "RESONANCE_FRACTAL_ROCKET",
+        "score": 160,
+        "说明": "【V4.1 四级火箭版】定义一个层层递进的分钟线确认系统，每一层都有不同的'使命'。",
+        "levels": [
+          {
+            "level_name": "TacticalEnv_60min",
+            "mission": "确认小时级战术环境，判断'风向'",
+            "tf": "60",
+            "logic": "OR",
+            "conditions": [
+              { "type": "ema_above", "period": 34, "close_col": "close", "说明": "状态指标：价格位于60分钟EMA34之上，代表小时级趋势健康。" },
+              { "type": "macd_above_zero", "periods": [13, 34, 8], "说明": "状态指标：MACD在0轴之上，代表处于小时级多头动能区。" }
+            ]
+          },
+          {
+            "level_name": "AttackPosture_30min",
+            "mission": "捕捉30分钟级别攻击意图，判断'主引擎启动'",
+            "tf": "30",
+            "logic": "OR",
+            "conditions": [
+              { "type": "macd_cross", "periods": [12, 26, 9], "说明": "事件指标：30分钟MACD金叉，代表中期动能开始启动。" },
+              { "type": "dmi_cross", "period": 13, "说明": "事件指标：30分钟DMI金叉，是另一种中期动能启动信号。" }
+            ]
+          },
+          {
+            "level_name": "AttackPosture_15min",
+            "mission": "捕捉15分钟级别攻击意图，判断'助推引擎启动'",
+            "tf": "15",
+            "logic": "OR",
+            "conditions": [
+              { "type": "macd_cross", "periods": [12, 26, 9], "说明": "事件指标：15分钟MACD金叉，代表短期动能开始启动。" },
+              { "type": "dmi_cross", "period": 13, "说明": "事件指标：15分钟DMI金叉，是另一种动能启动信号。" }
+            ]
+          },
+          {
+            "level_name": "IgnitionTrigger_5min",
+            "mission": "精确定时点火，追求'最佳时机'",
+            "tf": "5",
+            "logic": "OR",
+            "conditions": [
+              { "type": "kdj_cross", "periods": [9, 3, 3], "low_level": 50, "说明": "摆动指标：5分钟KDJ在50下方金叉，捕捉回调低点。" },
+              { "type": "rsi_reversal", "period": 13, "oversold_level": 35, "说明": "摆动指标：5分钟RSI从35下方反转向上，是经典的超卖反转信号。" }
+            ]
+          }
+        ]
+      },
       "debug_params": {
         "enabled": true,
         "verbose_logging": false,
@@ -131,10 +231,22 @@
       },
       "entry_scoring_params": {
         "score_threshold": 100,
+        "playbook_scores": {
+          "说明": "【战略层计分】为周线策略(WeeklyTrendFollowStrategy)产出的战略信号配置基础分。这些分数构成了日线交易的前提。",
+          "ma20_turn_up": 80,
+          "early_uptrend": 90,
+          "classic_breakout": 100,
+          "ma_uptrend": 60,
+          "box_breakout": 120,
+          "bias_rebound": 70
+        },
         "points": {
           "说明": "各项看涨条件/剧本对应的基础分数和奖励分数。",
           "__CATEGORY_ULTIMATE_SIGNAL__": "--- 终极信号/市场反转 ---",
           "EARTH_HEAVEN_BOARD": 200, "说明_EARTH_HEAVEN_BOARD": "【终极信号】地天板，市场最强反转，给予压倒性高分。",
+          "RESONANCE_FRACTAL_ROCKET": 160, "说明_RESONANCE_FRACTAL_ROCKET": "【王牌剧本】分形共振信号，四级火箭全部点火成功，给予极高分。",
+          "__CATEGORY_STRATEGIC_ACE__": "--- 战略王牌信号 ---",
+          "BREAKOUT_TRIGGER_SCORE": 150, "说明_BREAKOUT_TRIGGER_SCORE": "【战略王牌】周线突破启动信号(signal_breakout_trigger_W)，拥有最高优先级的基础分，出现时会覆盖其他所有基础分。",
           "__CATEGORY_HIDDEN_GEMS__": "--- 隐蔽信号/先手博弈 ---",
           "ENERGY_COMPRESSION_BREAKOUT": 140, "说明_ENERGY_COMPRESSION_BREAKOUT": "【专家剧本】潜龙在渊：成交量与波动率双重压缩后的首次放量突破，可能是大行情起点。",
           "CAPITAL_FLOW_DIVERGENCE": 135, "说明_CAPITAL_FLOW_DIVERGENCE": "【专家剧本】资金暗流：价格新低但OBV未新低，主力左侧吸筹的明确信号。",
@@ -181,6 +293,19 @@
           "FUND_FLOW_CONFIRM_MULTIPLIER": 1.25
         }
       }
+    }
+  },
+  "multi_minute_resonance_params": {
+    "enabled": true,
+    "major_tf": "60",
+    "major_conditions": {
+        "check_ema_above": { "enabled": true, "period": 30 },
+        "check_macd_above_zero": { "enabled": true, "periods": [13, 34, 8] }
+    },
+    "minor_tf": "5",
+    "minor_triggers": {
+        "check_kdj_cross": { "enabled": true, "periods": [9, 3, 3], "low_level": 50 },
+        "check_rsi_reversal": { "enabled": true, "period": 13, "oversold_level": 30 }
     }
   }
 }

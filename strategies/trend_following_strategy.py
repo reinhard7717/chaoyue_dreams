@@ -16,54 +16,36 @@ logger = logging.getLogger(__name__)
 
 class TrendFollowStrategy:
     """
-    趋势跟踪策略 (V2.5 - 多配置适配版)
-
-    核心逻辑:
-    1.  **定义长期/中期趋势**: (逻辑不变) 确认股票处于宏观上升趋势中，作为所有信号的前置过滤器。
-    2.  **寻找多维买点**: 在满足趋势前提下，并行寻找四种独立的买入机会：
-        - **【升级】均线回踩 (高精度)**: 利用更小周期(如60m)的最低价判断是否触及支撑，日线收盘确认。
-        - **【升级】结构回踩 (高精度)**: 同上，利用更小周期判断是否触及前期水平支撑。
-        - **【新增】动能追击**: 捕捉股价放量突破N日新高，持续走强的信号。
-        - **【新增】指标共振**: 捕捉MACD金叉、DMI(ADX)多头排列等技术指标发出的买入信号。
-    
-    此策略从单一的回调模式，升级为“回调+追击+指标”三位一体的综合趋势跟踪系统。
+    趋势跟踪策略 (V5.0 - 参数精细化适配版)
+    - 核心适配: 策略逻辑现在能够正确解析和使用按时间周期精细化配置的指标参数。
     """
 
     def __init__(self,
                  daily_config_path: str = 'config/trend_follow_strategy.json',
                  tactical_configs: Optional[Dict[str, str]] = None):
         """
-        【V3.1 修正版】构造函数，加载日线和多套战术周期(分钟线)配置。
+        【V5.0 适配版】构造函数
         """
         self.indicator_service = IndicatorService()
-
-        # 1. 加载日线配置 (只加载一次)
         self.daily_config_path = daily_config_path
         print(f"--- [策略初始化] 正在加载日线配置: {self.daily_config_path} ---")
         self.daily_params = load_strategy_config(self.daily_config_path)
 
-        # 2. 加载战术配置 (修正了致命的初始化逻辑)
         if tactical_configs is None:
-            # 修改行: 使用不含'min'的键，并指向您实际的配置文件名。
             self.tactical_configs = {
-                '5': 'config/trend_follow_strategy_5min.json',
-                '15': 'config/trend_follow_strategy_15min.json',
-                '30': 'config/trend_follow_strategy_30min.json',
-                '60': 'config/trend_follow_strategy_60min.json',
+                '5': 'config/trend_follow_strategy.json',
+                '15': 'config/trend_follow_strategy.json',
+                '30': 'config/trend_follow_strategy.json',
+                '60': 'config/trend_follow_strategy.json',
             }
         else:
             self.tactical_configs = tactical_configs
 
+        # 注意：分钟线现在也使用主配置文件，因为IndicatorService会根据timeframe_key自动选择参数
         self.tactical_params = {}
-        for tf, path in self.tactical_configs.items():
-            try:
-                # print(f"--- [策略初始化] 正在加载 {tf} 分钟战术配置: {path} ---")
-                self.tactical_params[tf] = load_strategy_config(path)
-            except FileNotFoundError:
-                logger.warning(f"战术配置文件未找到: {path}。周期 '{tf}' 的特定参数将不可用。")
-                self.tactical_params[tf] = {} # 提供一个空字典以避免后续错误
+        for tf in self.tactical_configs.keys():
+            self.tactical_params[tf] = self.daily_params
 
-        # 3. 初始化其他组件
         try:
             self.loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -72,18 +54,51 @@ class TrendFollowStrategy:
 
         kline_params = self._get_params_block(self.daily_params, 'kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
-
         self.signals = {}
         self.scores = {}
         self._last_score_details_df = None
-
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
+ 
+    # 参数解析辅助函数
+    def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
+        """
+        【V5.0 新增】根据时间周期从指标配置中智能获取正确的'periods'。
+        能够处理新旧两种配置格式。
+
+        Args:
+            indicator_params (dict): 单个指标的完整配置字典 (例如，params['macd'])。
+            timeframe (str): 需要获取参数的时间周期，如 'D', '60', '15'。
+
+        Returns:
+            Optional[list]: 找到的周期参数列表，或None。
+        """
+        if not indicator_params:
+            return None
+
+        # 优先处理新的 'configs' 列表格式
+        if 'configs' in indicator_params and isinstance(indicator_params['configs'], list):
+            for config_item in indicator_params['configs']:
+                if timeframe in config_item.get('apply_on', []):
+                    return config_item.get('periods')
+            # 如果在configs列表中循环后没找到，返回None
+            return None
+        
+        # 向后兼容旧的单一格式
+        elif 'periods' in indicator_params:
+            # 检查旧格式的apply_on，如果存在且不匹配则返回None
+            apply_on = indicator_params.get('apply_on', [])
+            if not apply_on or timeframe in apply_on:
+                return indicator_params.get('periods')
+            else:
+                return None
+        
+        return None
 
     async def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V15.3 调试增强版】
-        - 调用返回得分明细的计分函数，并打印详细的“得分小票”。
+        【V16.0 多时间框架共振版】
+        - 将完整的 df_dict 传递给计分函数，以支持分钟线分析。
         """
         df = df_dict.get('D')
         if df is None or df.empty:
@@ -99,8 +114,9 @@ class TrendFollowStrategy:
         df.loc[:, 'signal_top_divergence'] = self._find_top_divergence_exit(df, params)
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
-        # 调用返回得分明细的计分函数
-        df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, params)
+        # 解释: 将包含所有时间周期数据的字典传递下去，而不仅仅是日线df。
+        df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, df_dict, params)
+        self._last_score_details_df = score_details_df # 存储计分详情以备后用
         
         score_threshold = self._get_params_block(params, 'entry_scoring_params').get('score_threshold', 100)
         df.loc[:, 'signal_entry'] = df['entry_score'] >= score_threshold
@@ -198,19 +214,19 @@ class TrendFollowStrategy:
             
         return records
 
-    def _calculate_entry_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
+    def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
         """
-        【V15.3 调试增强版 - 完整修正版】计算综合买入得分，并返回详细的得分构成。
-        - 修正了返回元组数量不匹配的 ValueError。
-        - 所有得分项均记录在 score_details_df 中，实现透明的“得分小票”功能。
+        【V16.0 多时间框架共振版】计算综合买入得分，并返回详细的得分构成。
+        - 新增: 接收 df_dict，用于分钟线分析。
+        - 新增: 调用 _find_multi_timeframe_resonance 方法，将分钟线确认信号加入计分。
         """
         atomic_signals = {}
-        score_details_df = pd.DataFrame(index=df.index) # 新增：用于存储得分明细
+        score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
 
         # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V15.3] 步骤1: 计算并记录周线战略背景基础分...")
+        print("    [调试-计分V16.1] 步骤1: 计算并记录周线战略背景基础分...")
         playbook_scores = self._get_params_block(params, 'playbook_scores', default_return={
             'ma20_turn_up': 100, 'early_uptrend': 80, 'classic_breakout': 50, 
             'ma_uptrend': 30, 'bottom_consolidation': 50
@@ -277,8 +293,9 @@ class TrendFollowStrategy:
         tactical_precondition = base_score > 0
         strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index))
 
+
         # --- 步骤3: 计算所有独立的日线战术原子信号 ---
-        print("    [调试-计分V15.3] 步骤2: 计算日线战术原子信号...")
+        print("    [调试-计分V16.1] 步骤2: 计算日线战术原子信号...")
         # (此部分计算逻辑保持不变，仅为完整性展示)
         cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params)
         cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params)
@@ -323,9 +340,15 @@ class TrendFollowStrategy:
         cond_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
+        # 步骤3.5，计算分钟线共振信号
+        print("    [调试-计分V16.1] 步骤3.5: 计算分钟线共振信号...")
+        # 解释: 我们将“回踩预备信号”作为分钟线分析的前提条件。
+        #       这意味着，只有当股票进入了我们日线级别的“观察区”，我们才去分钟线寻找精确买点。
+        resonance_precondition = cond_pullback_setup
+        resonance_signals = self._find_multi_timeframe_resonance(df_dict, resonance_precondition)
+
         # --- 步骤4: 记录所有战术信号得分 ---
-        print("    [调试-计分V15.3] 步骤3: 记录日线战术信号得分...")
-        # 辅助函数，用于简化计分逻辑
+        print("    [调试-计分V16.1] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
             if condition.any():
                 score_details_df.loc[condition, name] = points.get(name, default_score)
@@ -359,8 +382,17 @@ class TrendFollowStrategy:
         add_score(cond_morning_star, 'KLINE_MORNING_STAR', 140)
         add_score(cond_three_soldiers & strict_precondition, 'KLINE_THREE_SOLDIERS', 100)
 
+        # 步骤4.5，记录分钟线共振信号得分
+        # 解释: 将分钟线共振信号作为高分项加入计分板。
+        print("    [调试-计分V16.1] 步骤4.5: 记录分钟线共振信号得分...")
+        for signal_name, signal_series in resonance_signals.items():
+            # 分数可以从主配置文件读取，或在这里硬编码一个默认值
+            # 例如，一个60分钟的确认信号可能比30分钟的更可靠，得分更高
+            default_score = 150 # 给予一个非常高的默认分
+            add_score(signal_series, signal_name, default_score)
+
         # --- 步骤5: 记录协同/冲突规则得分 ---
-        print("    [调试-计分V15.3] 步骤4: 记录协同/冲突规则得分...")
+        print("    [调试-计分V16.1] 步骤5: 记录协同/冲突规则得分...")
         has_positive_score = score_details_df.sum(axis=1) > 0
 
         # 协同奖励（加法）
@@ -1076,14 +1108,20 @@ class TrendFollowStrategy:
         fe_params = params.get('feature_engineering_params', {})
         indicators_config = fe_params.get('indicators', {})
         rsi_config = indicators_config.get('rsi', {})
-        rsi_period = rsi_config.get('periods', [14])[0]
+        # 注意：RSI的periods是单个数字，但我们的函数返回列表，所以取第一个元素
+        rsi_periods_list = self._get_periods_for_timeframe(rsi_config, 'D')
+        if not rsi_periods_list:
+            logger.warning("日线RSI周期未配置，跳过底背离检测。")
+            return pd.Series(False, index=df.index)
+        rsi_period = rsi_periods_list[0]
         rsi_col = f"RSI_{rsi_period}_D"
+
         macd_config = indicators_config.get('macd', {})
-        macd_periods = macd_config.get('periods', [12, 26, 9])
-        try:
-            fast, slow, signal_line = macd_periods
-        except (ValueError, TypeError):
-            fast, slow, signal_line = 12, 26, 9
+        macd_periods = self._get_periods_for_timeframe(macd_config, 'D')
+        if not macd_periods:
+            logger.warning("日线MACD周期未配置，跳过底背离检测。")
+            return pd.Series(False, index=df.index)
+        fast, slow, signal_line = macd_periods
         macd_hist_col = f"MACDh_{fast}_{slow}_{signal_line}_D"
         
         required_cols = ['low_D', 'close_D', 'open_D', rsi_col, macd_hist_col]
@@ -1161,21 +1199,16 @@ class TrendFollowStrategy:
         return precondition & is_breakout & is_volume_surge
 
     def _find_indicator_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> Dict[str, pd.Series]:
-        """【V2.8 MACD深化版】区分低位、零轴、高位金叉，并返回一个信号字典。"""
-        params = self._get_params_block(params, 'indicator_entry_params')
-        if not params.get('enabled', False): 
-            return {
-                'dmi_cross': pd.Series(False, index=df.index),
-                'macd_low_cross': pd.Series(False, index=df.index),
-                'macd_zero_cross': pd.Series(False, index=df.index),
-                'macd_high_cross': pd.Series(False, index=df.index),
-            }
+        """【V5.0 参数适配版】使用新的辅助函数获取正确的指标周期。"""
+        indicator_params = self._get_params_block(params, 'indicator_entry_params')
+        if not indicator_params.get('enabled', False): 
+            return { 'dmi_cross': pd.Series(False, index=df.index), 'macd_low_cross': pd.Series(False, index=df.index), 'macd_zero_cross': pd.Series(False, index=df.index), 'macd_high_cross': pd.Series(False, index=df.index) }
         
-        # 初始化所有信号
+        fe_params = params.get('feature_engineering_params', {})
+        indicators_config = fe_params.get('indicators', {})
+        
         dmi_signal = pd.Series(False, index=df.index)
-        macd_low_signal = pd.Series(False, index=df.index)
-        macd_zero_signal = pd.Series(False, index=df.index)
-        macd_high_signal = pd.Series(False, index=df.index)
+        macd_low_signal, macd_zero_signal, macd_high_signal = [pd.Series(False, index=df.index)] * 3
         
         # 价格稳定性过滤器 (逻辑不变)
         mid_term_params = self._get_params_block(params, 'mid_term_trend_params')
@@ -1187,21 +1220,27 @@ class TrendFollowStrategy:
         final_precondition = precondition & is_stable_above_ma
 
         # --- DMI 信号计算 (逻辑不变) ---
-        if params.get('use_dmi_adx', False):
-            dmi_period = params.get('dmi_period', 14)
-            pdi_col, ndi_col, adx_col = f'PDI_{dmi_period}_D', f'NDI_{dmi_period}_D', f'ADX_{dmi_period}_D'
-            if all(c in df.columns for c in [pdi_col, ndi_col, adx_col]):
-                dmi_cross = (df[pdi_col] > df[ndi_col]) & (df[pdi_col].shift(1) <= df[ndi_col].shift(1))
-                dmi_signal = dmi_cross & (df[adx_col] > params.get('adx_threshold', 25)) & final_precondition
-        
+        if indicator_params.get('use_dmi_adx', False):
+            # ▼▼▼使用新的辅助函数获取周期参数 ▼▼▼
+            dmi_config = indicators_config.get('dmi', {})
+            dmi_periods_list = self._get_periods_for_timeframe(dmi_config, 'D')
+            if dmi_periods_list:
+                dmi_period = dmi_periods_list[0]
+
+                pdi_col, ndi_col, adx_col = f'PDI_{dmi_period}_D', f'NDI_{dmi_period}_D', f'ADX_{dmi_period}_D'
+                if all(c in df.columns for c in [pdi_col, ndi_col, adx_col]):
+                    dmi_cross = (df[pdi_col] > df[ndi_col]) & (df[pdi_col].shift(1) <= df[ndi_col].shift(1))
+                    dmi_signal = dmi_cross & (df[adx_col] > indicator_params.get('adx_threshold', 25)) & final_precondition
+
         # --- MACD 信号分类计算 ---
-        if params.get('use_macd_cross', False):
-            macd_fast = params.get('macd_fast', 12)
-            macd_slow = params.get('macd_slow', 26)
-            macd_signal_p = params.get('macd_signal', 9)
-            
-            dif_col = f"MACD_{macd_fast}_{macd_slow}_{macd_signal_p}_D"
-            dea_col = f"MACDs_{macd_fast}_{macd_slow}_{macd_signal_p}_D"
+        if indicator_params.get('use_macd_cross', False):
+            # ▼▼▼使用新的辅助函数获取周期参数 ▼▼▼
+            macd_config = indicators_config.get('macd', {})
+            macd_periods = self._get_periods_for_timeframe(macd_config, 'D')
+            if macd_periods:
+                macd_fast, macd_slow, macd_signal_p = macd_periods
+                dif_col = f"MACD_{macd_fast}_{macd_slow}_{macd_signal_p}_D"
+                dea_col = f"MACDs_{macd_fast}_{macd_slow}_{macd_signal_p}_D"
             
             if dif_col in df.columns and dea_col in df.columns:
                 # 1. 找到所有基础金叉点
@@ -1232,27 +1271,42 @@ class TrendFollowStrategy:
         }
 
     def _find_bband_squeeze_breakout(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【V2.5 新增】寻找布林带收缩突破的买点。"""
-        params = self._get_params_block(params, 'bband_squeeze_params')
-        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+        """【V5.0 参数适配版】寻找布林带收缩突破的买点。"""
+        bband_params = self._get_params_block(params, 'bband_squeeze_params')
+        if not bband_params.get('enabled', False): return pd.Series(False, index=df.index)
         
-        bb_period = params.get('bb_period', 20)
-        bb_std = params.get('bb_std', 2.0)
-        squeeze_lookback = params.get('squeeze_lookback', 60)
+        fe_params = params.get('feature_engineering_params', {})
+        indicators_config = fe_params.get('indicators', {})
         
+        # ▼▼▼【修改】: 使用新的辅助函数获取周期参数 ▼▼▼
+        # 布林带的参数比较特殊，periods是周期，std是标准差，需要单独处理
+        boll_config = indicators_config.get('boll_bands_and_width', {})
+        boll_periods_list = self._get_periods_for_timeframe(boll_config, 'D')
+        if not boll_periods_list:
+            logger.warning("日线BOLL周期未配置，跳过布林带收缩突破检测。")
+            return pd.Series(False, index=df.index)
+        bb_period = boll_periods_list[0]
+        # std 通常不在 periods 里，需要从子配置中单独获取
+        bb_std = 2.0 # 默认值
+        if 'configs' in boll_config:
+            for config_item in boll_config['configs']:
+                if 'D' in config_item.get('apply_on', []):
+                    bb_std = config_item.get('std_dev', 2.0)
+                    break
+        else:
+            bb_std = boll_config.get('std_dev', 2.0)
+        # ▲▲▲【修改】: 修改结束 ▲▲▲
+
+        squeeze_lookback = bband_params.get('squeeze_lookback', 60)
+
         bbw_col = f'BBW_{bb_period}_{bb_std:.1f}_D'
         bbu_col = f'BBU_{bb_period}_{bb_std:.1f}_D'
-        
+
         required_cols = [bbw_col, bbu_col, 'close_D']
         if not all(col in df.columns for col in required_cols): return pd.Series(False, index=df.index)
 
-        # 条件1: 布林带宽度处于近期低位 (Squeeze)
         is_squeeze = df[bbw_col] <= df[bbw_col].rolling(window=squeeze_lookback).min()
-        
-        # 条件2: 价格收盘突破上轨 (Breakout)
         is_breakout = df['close_D'] > df[bbu_col]
-        
-        # 信号：当天的突破，必须是由前一天的“Squeeze”状态所引发的
         signal = is_breakout & is_squeeze.shift(1).fillna(False)
         return signal & precondition
 
@@ -1327,7 +1381,7 @@ class TrendFollowStrategy:
 
     # 寻找复合顶背离卖点
     def _find_top_divergence_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """【V3.1 向量化版】调用新的向量化背离函数来计算顶背离。"""
+        """【V5.0 参数适配版】调用新的辅助函数获取正确的指标周期。"""
         # 简化此函数，使其专注于调用和组合结果
         divergence_params = self._get_params_block(params, 'divergence_params')
         if not divergence_params.get('enabled', False): return pd.Series(False, index=df.index)
@@ -1336,15 +1390,19 @@ class TrendFollowStrategy:
         fe_params = params.get('feature_engineering_params', {})
         indicators_config = fe_params.get('indicators', {})
         macd_config = indicators_config.get('macd', {})
-        macd_periods = macd_config.get('periods', [12, 26, 9])
-        try:
-            fast, slow, signal_line = macd_periods
-        except (ValueError, TypeError):
-            fast, slow, signal_line = 12, 26, 9
+        macd_periods = self._get_periods_for_timeframe(macd_config, 'D')
+        if not macd_periods:
+            logger.warning("日线MACD周期未配置，跳过顶背离检测。")
+            return pd.Series(False, index=df.index)
+        fast, slow, signal_line = macd_periods
         macd_hist_col = f"MACDh_{fast}_{slow}_{signal_line}_D"
         
         rsi_config = indicators_config.get('rsi', {})
-        rsi_period = rsi_config.get('periods', [14])[0]
+        rsi_periods_list = self._get_periods_for_timeframe(rsi_config, 'D')
+        if not rsi_periods_list:
+            logger.warning("日线RSI周期未配置，跳过顶背离检测。")
+            return pd.Series(False, index=df.index)
+        rsi_period = rsi_periods_list[0]
         rsi_col = f"RSI_{rsi_period}_D"
 
         if macd_hist_col not in df.columns or rsi_col not in df.columns:
@@ -1592,6 +1650,142 @@ class TrendFollowStrategy:
         # 信号：收盘价突破95分位成本线
         signal = df['close_D'] > df['cyq_cost_95pct_D']
         return signal & precondition
+
+    def _find_multi_timeframe_resonance(self, df_dict: Dict[str, pd.DataFrame], precondition: pd.Series) -> Dict[str, pd.Series]:
+        """
+        【V4.1 动态配置版】实现可配置的、任意层级递进的多分钟级别共振判断。
+        - 核心逻辑: 动态解析 'multi_level_resonance_params' 配置，逐级生成并合并信号。
+        - 健壮性: 自动处理数据缺失、配置错误等异常情况。
+        """
+        print(f"    [调试-MTA V4.1] 开始执行'分形共振'模型...")
+        
+        resonance_signals = {}
+        # 获取日线前提为True的日期，这是我们进行分钟线分析的目标日期
+        days_to_check = precondition[precondition].index
+        if days_to_check.empty:
+            print("    [调试-MTA V4.1] 无满足日线前提的日子，跳过共振分析。")
+            return resonance_signals
+
+        # 从主策略配置中获取多级别共振参数
+        params = self._get_params_block(self.daily_params, 'multi_level_resonance_params')
+        if not params.get('enabled', False):
+            return resonance_signals
+
+        levels = params.get('levels', [])
+        if not levels:
+            logger.warning("    [警告-MTA V4.1] 'multi_level_resonance_params' 已启用，但 'levels' 列表为空。")
+            return resonance_signals
+
+        # --- 辅助函数：聚合分钟信号到日线 ---
+        def aggregate_to_daily(minute_signal: pd.Series, daily_index: pd.Index) -> pd.Series:
+            # 确保分钟信号不为空且有True值
+            if minute_signal is None or minute_signal.empty or not minute_signal.any():
+                return pd.Series(False, index=daily_index)
+            # 获取分钟信号触发的日期（去重）
+            daily_dates = minute_signal[minute_signal].index.normalize().unique()
+            # 创建一个与日线索引对齐的布尔序列
+            final_signal = pd.Series(False, index=daily_index)
+            # 仅在日线前提和分钟信号都满足的日子设置为True
+            triggered_days = daily_index.intersection(daily_dates)
+            final_signal.loc[triggered_days] = True
+            return final_signal
+
+        # 初始化最终的日线级别信号，初始为所有满足前提的日子
+        final_daily_signal = precondition.copy()
+
+        # --- 逐级处理共振信号 ---
+        for i, level_config in enumerate(levels):
+            level_name = level_config.get('level_name', f'Level_{i+1}')
+            tf = level_config.get('tf')
+            logic = level_config.get('logic', 'OR').upper()
+            conditions = level_config.get('conditions', [])
+
+            # 检查数据是否存在
+            if not tf or tf not in df_dict or df_dict[tf].empty:
+                print(f"    [错误-MTA V4.1] {level_name}: 配置的时间周期 '{tf}' 数据不存在或为空，终止共振链。")
+                return {} # 一旦某一层数据缺失，整个链条中断
+
+            df_minute = df_dict[tf]
+            print(f"    [调试-MTA V4.1] 正在处理第 {i + 1} 层: '{level_name}' (周期: {tf}min, 逻辑: {logic})")
+
+            # 初始化当前层级的分钟信号
+            # 如果逻辑是AND，初始值为True；如果是OR，初始值为False
+            level_minute_signal = pd.Series(logic == 'AND', index=df_minute.index)
+
+            for cond in conditions:
+                cond_type = cond.get('type')
+                current_cond_signal = pd.Series(False, index=df_minute.index)
+                
+                # --- 根据类型动态计算条件 ---
+                try:
+                    if cond_type == 'ema_above':
+                        p = cond.get('period')
+                        col = f"EMA_{p}"
+                        if col in df_minute.columns:
+                            current_cond_signal = df_minute[cond.get('close_col', 'close')] > df_minute[col]
+                    
+                    elif cond_type == 'macd_above_zero':
+                        p = cond.get('periods')
+                        col = f"MACD_{p[0]}_{p[1]}_{p[2]}"
+                        if col in df_minute.columns:
+                            current_cond_signal = df_minute[col] > 0
+
+                    elif cond_type == 'macd_cross':
+                        p = cond.get('periods')
+                        macd_col, macds_col = f"MACD_{p[0]}_{p[1]}_{p[2]}", f"MACDs_{p[0]}_{p[1]}_{p[2]}"
+                        if macd_col in df_minute.columns and macds_col in df_minute.columns:
+                            current_cond_signal = (df_minute[macd_col].shift(1) <= df_minute[macds_col].shift(1)) & \
+                                                (df_minute[macd_col] > df_minute[macds_col])
+                    
+                    elif cond_type == 'dmi_cross':
+                        p = cond.get('period')
+                        pdi_col, ndi_col = f"PDI_{p}", f"NDI_{p}"
+                        if pdi_col in df_minute.columns and ndi_col in df_minute.columns:
+                            current_cond_signal = (df_minute[pdi_col].shift(1) <= df_minute[ndi_col].shift(1)) & \
+                                                (df_minute[pdi_col] > df_minute[ndi_col])
+
+                    elif cond_type == 'kdj_cross':
+                        p = cond.get('periods')
+                        k_col, d_col = f"K_{p[0]}_{p[1]}_{p[2]}", f"D_{p[0]}_{p[1]}_{p[2]}"
+                        if k_col in df_minute.columns and d_col in df_minute.columns:
+                            is_cross = (df_minute[k_col].shift(1) <= df_minute[d_col].shift(1)) & \
+                                    (df_minute[k_col] > df_minute[d_col])
+                            is_low = df_minute[k_col] < cond.get('low_level', 50)
+                            current_cond_signal = is_cross & is_low
+
+                    elif cond_type == 'rsi_reversal':
+                        p = cond.get('period')
+                        col = f"RSI_{p}"
+                        if col in df_minute.columns:
+                            level = cond.get('oversold_level', 30)
+                            current_cond_signal = (df_minute[col].shift(1) < level) & (df_minute[col] >= level)
+                    
+                    else:
+                        logger.warning(f"    [警告-MTA V4.1] 在 {level_name} 中遇到未知的条件类型: '{cond_type}'")
+
+                except Exception as e:
+                    logger.error(f"    [错误-MTA V4.1] 在计算 {level_name} 的条件 '{cond_type}' 时出错: {e}")
+                    current_cond_signal = pd.Series(False, index=df_minute.index)
+
+                # --- 合并当前层级的条件 ---
+                if logic == 'OR':
+                    level_minute_signal |= current_cond_signal.fillna(False)
+                else: # AND
+                    level_minute_signal &= current_cond_signal.fillna(False)
+            
+            # 将当前层级的分钟信号聚合到日线
+            daily_level_signal = aggregate_to_daily(level_minute_signal, precondition.index)
+            print(f"      - {level_name} 检查完成。共 {daily_level_signal.sum()} 天满足该层级条件。")
+
+            # --- 关键：将当前层级的日线信号与总信号进行“与”运算，实现逐级过滤 ---
+            final_daily_signal &= daily_level_signal
+
+        # --- 循环结束，生成最终信号 ---
+        signal_name = params.get('signal_name', 'RESONANCE_MULTI_LEVEL')
+        resonance_signals[signal_name] = final_daily_signal
+        print(f"    [成功-MTA V4.1] '{signal_name}' 最终共振信号已生成，共触发 {final_daily_signal.sum()} 次！")
+
+        return resonance_signals
 
     def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str) -> Dict:
         """【V2.0 升级】对最新信号进行评分并生成报告"""

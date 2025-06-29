@@ -14,7 +14,7 @@ from functools import reduce
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
 from datetime import datetime, date, timedelta
 import dateutil.parser
-from django.db import models # Django 模型
+from django.db import connection, models # Django 模型
 from decimal import Decimal
 
 import numpy as np
@@ -634,11 +634,10 @@ class BaseDAO(Generic[T]):
             return []
 
     # ==================== 批量保存方法 ====================
-    # 保留 Django 5 原生 Upsert 方法作为推荐实现
     async def _save_all_to_db_native_upsert(self, model_class, data_list, unique_fields, batch_size=5000):
         """
-        【V5 - 修复外键映射（健壮版）】使用 Django 4.1+ 的原生 bulk_create(update_conflicts=True) 
-        实现高效的批量更新或插入（Upsert）。
+        【V5 - 修复外键映射（健壮版）】使用原生SQL实现高效的批量更新或插入（Upsert）。
+        此方法保持不变，因为它负责通用的数据准备和批处理调度。
         """
         if not data_list:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
@@ -662,18 +661,12 @@ class BaseDAO(Generic[T]):
         
         # print(f"调试信息: [BaseDAO-Upsert] 计算出的待更新字段 (update_fields): {update_fields}")
 
-        # 【关键修改处】
-        # 解释: 采纳您的建议，对外键映射逻辑进行加固。
-        # 旧逻辑 f"{f.name}_code" 无法处理模型中字段名本身就是 'stock_id' 的情况。
-        # 新逻辑先移除字段名末尾可能的 '_id'，再拼接 '_code'，更加健壮。
-        # 例如: 'stock' -> 'stock_code', 'stock_id' -> 'stock_code'
+        # 外键映射逻辑保持不变，非常健壮
         fk_fields_map = {}
         for f in model_class._meta.fields:
             if isinstance(f, models.ForeignKey):
-                field_name = f.name  # 模型中的外键字段名，如 'stock' 或 'stock_id'
-                # 使用 removesuffix (Python 3.9+) 移除末尾的 '_id' (如果存在)，得到基础名，如 'stock'
+                field_name = f.name
                 base_name = field_name.removesuffix('_id')
-                # 约定数据源中的列名为 '基础名_code'，如 'stock_code'
                 code_field_name = f"{base_name}_code"
                 fk_fields_map[field_name] = code_field_name
         # print(f"调试信息: [BaseDAO-Upsert] 生成的健壮版外键映射 (fk_fields_map): {fk_fields_map}")
@@ -683,7 +676,8 @@ class BaseDAO(Generic[T]):
         failed_records = []
         for record in data_list:
             try:
-                sanitized_record = self._sanitize_for_json(record)
+                # 注意：这里的 _sanitize_for_json 和 get_or_create_fk_instance 是您已有的方法，此处假设它们存在
+                sanitized_record = self._sanitize_for_json(record) 
                 instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
                 objects_to_create.append(model_class(**instance_data))
             except Exception as e:
@@ -695,8 +689,9 @@ class BaseDAO(Generic[T]):
         # 分批处理
         for i in range(0, len(objects_to_create), batch_size):
             batch = objects_to_create[i:i + batch_size]
+            # 【代码修改处】调用重构后的异步处理方法
             batch_success_count, batch_failed_count = await self.process_batch_async(
-                model_class, batch, unique_fields, update_fields
+                model_class, batch, update_fields
             )
             success_count += batch_success_count
             failed_count += batch_failed_count
@@ -705,149 +700,145 @@ class BaseDAO(Generic[T]):
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
-        【V6 - 终极健壮版】
+        【V6 - 终极健壮版】- 此方法保持不变
         准备单个模型实例的数据字典。
         核心功能：处理外键，将 'stock_code' 这样的字段或 {'stock': {'stock_code': ...}} 这样的结构，统一转换为实际的 'stock' 对象。
-
-        (本次修改) 增加了对外键字段本身就是字典（嵌套结构）的处理逻辑，使其更加健壮。
         """
-        # 遍历所有定义的外键映射, e.g., {'stock': 'stock_code'}
         for fk_field_name, code_field_name in fk_fields_map.items():
             code_value = None
-            # --- 新增逻辑：优先处理外键字段本身就是字典的情况 ---
-            # 检查 'stock' 这样的键是否存在，并且其值是否为字典
             if fk_field_name in prepared_data and isinstance(prepared_data[fk_field_name], dict):
-                # 从嵌套的字典中提取 'stock_code' 的值
                 fk_dict = prepared_data[fk_field_name]
                 code_value = fk_dict.get(code_field_name)
-                # print(f"调试信息: [Prepare Instance] 在嵌套字典 '{fk_field_name}' 中找到外键代码: '{code_value}'")
-            # --- 原有逻辑：处理 'stock_code' 这样的键直接存在于数据顶层的情况 ---
             elif code_field_name in prepared_data:
-                # 从数据中弹出 'stock_code'
                 code_value = prepared_data.pop(code_field_name)
-                # print(f"调试信息: [Prepare Instance] 在顶层字段 '{code_field_name}' 中找到外键代码: '{code_value}'")
 
-            # 如果通过上述任一方式找到了 code_value，则进行处理
             if code_value is not None:
-                # 如果传入的 code 本身就是 None，则直接将外键字段设为 None
-                # 这要求模型定义中该外键字段允许 null=True
                 if code_value is None:
                     prepared_data[fk_field_name] = None
                     continue
 
-                # 获取外键关联的模型，例如 StockInfo 模型
                 fk_model = model_class._meta.get_field(fk_field_name).related_model
-                
-                # 调用辅助方法获取或创建外键实例
                 fk_instance = await self.get_or_create_fk_instance(fk_model, code_value, prepared_data)
 
-                # --- 关键检查 ---
                 if fk_instance is None:
-                    # 如果返回 None，说明无法找到或创建对应的外键记录，立即抛出异常。
                     error_msg = (
                         f"为外键字段 '{fk_field_name}' 准备实例失败！"
                         f"无法为代码 '{code_value}' 找到或创建对应的 '{fk_model.__name__}' 实例。"
-                        f"请检查数据源或 'get_or_create_fk_instance' 方法的逻辑。"
                     )
                     raise ValueError(error_msg)
                 
-                # 【关键赋值】将获取或创建的 StockInfo 对象实例赋值给 'stock' 键
-                # 这会覆盖掉原来的嵌套字典（如果存在的话）
                 prepared_data[fk_field_name] = fk_instance
-                # print(f"调试信息: [Prepare Instance] 成功将外键字段 '{fk_field_name}' 设置为 '{fk_model.__name__}' 实例: {fk_instance}")
 
-        # 移除数据字典中所有在模型中不存在的字段
         model_field_names = {f.name for f in model_class._meta.get_fields()}
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
-
         return cleaned_data
 
-    async def process_batch_async(self, model_class, batch, unique_fields, update_fields):
+    # 【代码修改处】重构了异步处理方法，以调用新的同步原生SQL方法
+    async def process_batch_async(self, model_class, batch, update_fields):
         """
-        【V5 最终修正版】异步执行数据库批处理操作。
-        将为 MySQL 重构的同步方法包装在 sync_to_async 中。
+        【V6 重构版】异步执行数据库批处理操作。
+        将使用原生SQL `ON DUPLICATE KEY UPDATE` 的同步方法包装在 sync_to_async 中。
         """
+        if not batch:
+            return 0, 0
         try:
-            # 调用重构后的同步方法，参数保持一致
-            await sync_to_async(self.process_batch_sync_for_mysql)(
-                model_class, batch, unique_fields, update_fields
+            # 调用新的同步方法，参数已更新
+            await sync_to_async(self._process_batch_mysql_upsert_sync)(
+                model_class, batch, update_fields
             )
-            return len(batch), 0  # 假设整个批次都成功，因为内部有详细处理
+            # 成功时，整个批次都成功
+            return len(batch), 0
         except Exception as e:
-            logger.error(f"批次处理时遇到意外错误: {e}", exc_info=True)
+            logger.error(f"原生SQL批处理时遇到意外错误: {e}", exc_info=True)
+            # 失败时，整个批次都失败
             return 0, len(batch)
-        
-    def process_batch_sync_for_mysql(self, model_class, batch, unique_fields, update_fields):
+
+    # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
+    def _process_batch_mysql_upsert_sync(self, model_class, batch, update_fields):
         """
-        【V5 最终修正版 - 兼容 MySQL】同步的数据库批处理操作。
+        【V6 重构版 - 原生SQL for MySQL】使用原生SQL "INSERT ... ON DUPLICATE KEY UPDATE" 实现高效Upsert。
         
-        本方法专门为 MySQL 数据库设计，实现了 "Upsert" (更新或插入) 逻辑。
-        由于 MySQL 不支持 Django 的 `update_conflicts` 参数，本方法采用以下步骤：
-        1. 根据唯一键 (unique_fields) 查询数据库，找出批次中已存在的记录。
-        2. 将批次数据分为 `to_create` (待创建) 和 `to_update` (待更新) 两个列表。
-        3. 使用 `bulk_create` 批量插入新记录。
-        4. 使用 `bulk_update` 批量更新已存在的记录。
-        5. 整个过程在数据库事务中执行，保证数据一致性。
+        本方法专门为 MySQL 设计，解决了 Django ORM 不支持 MySQL Upsert 的问题。
+        它通过动态构建单条原生SQL语句来处理整个批次，极大提升了性能。
+        
+        工作流程:
+        1. 从模型元数据(_meta)动态获取表名和列名，避免硬编码。
+        2. 构建 `INSERT INTO ...` 部分，包含所有需要插入的字段。
+        3. 构建 `ON DUPLICATE KEY UPDATE ...` 部分，仅包含需要更新的字段。
+        4. 将批次中所有对象的数据准备成一个扁平化的参数列表。
+        5. 在单个数据库事务中，使用 `connection.cursor()` 执行这条包含所有数据的原生SQL语句。
         """
         if not batch:
             return
+
+        meta = model_class._meta
+        table_name = meta.db_table
         
-        model_name = model_class.__name__
-
-        # 假设 unique_fields 列表的第一个字段是用于查询的主唯一键
-        # 注意：Django 的 bulk_update 要求被更新的对象必须已设置主键 (pk)
-        # 我们的逻辑通过查询现有对象来确保这一点。
-        unique_field_name = unique_fields[0]
+        # 获取所有需要插入的字段对象，并构建字段名到数据库列名的映射
+        # attname 会正确处理外键字段，例如 'stock' 字段的 attname 是 'stock_id'
+        field_map = {f.name: f for f in meta.fields}
+        all_batch_fields = list(batch[0].__dict__.keys())
+        # 过滤掉Django内部状态字段 '_state'
+        insert_field_names = [f for f in all_batch_fields if f != '_state' and f in field_map]
         
-        # 1. 提取批次中所有记录的唯一键的值
-        lookup_values = [getattr(obj, unique_field_name) for obj in batch]
-
-        # 2. 一次性查询出数据库中所有已存在的对象
-        existing_objects = model_class.objects.filter(**{f"{unique_field_name}__in": lookup_values})
+        # 获取数据库列名
+        db_cols = [field_map[name].column for name in insert_field_names]
         
-        # 3. 创建一个从唯一键值到已存在对象实例的映射，方便快速查找
-        #    这个对象实例是带有主键(pk)的，可以直接用于 bulk_update
-        existing_map = {getattr(obj, unique_field_name): obj for obj in existing_objects}
+        # 1. 构建 SQL 的 INSERT 部分
+        insert_cols_sql = f"`{'`, `'.join(db_cols)}`"
+        
+        # 2. 构建 SQL 的 VALUES 部分的占位符
+        # 例如："(%s, %s, %s), (%s, %s, %s)"
+        value_placeholders = f"({', '.join(['%s'] * len(db_cols))})"
+        all_placeholders = ', '.join([value_placeholders] * len(batch))
 
-        instances_to_create = []
-        instances_to_update = []
+        # 3. 构建 SQL 的 ON DUPLICATE KEY UPDATE 部分
+        # 例如：`col1`=VALUES(`col1`), `col2`=VALUES(`col2`)
+        update_assignments = []
+        for field_name in update_fields:
+            if field_name in field_map: # 确保更新的字段在模型中
+                db_col = field_map[field_name].column
+                update_assignments.append(f"`{db_col}`=VALUES(`{db_col}`)")
+        update_sql = ', '.join(update_assignments)
 
-        # 4. 遍历传入的批次，将数据分配到 to_create 或 to_update 列表
-        for new_instance in batch:
-            lookup_key = getattr(new_instance, unique_field_name)
-            
-            if lookup_key in existing_map:
-                # 如果记录已存在，准备更新
-                existing_instance = existing_map[lookup_key]
-                
-                # 将新数据中的待更新字段值，复制到从数据库查出的实例上
-                for field in update_fields:
-                    setattr(existing_instance, field, getattr(new_instance, field))
-                
-                instances_to_update.append(existing_instance)
-            else:
-                # 如果记录不存在，准备创建
-                instances_to_create.append(new_instance)
+        # 4. 准备所有参数值
+        # 将所有对象的所有字段值扁平化到一个列表中
+        params = []
+        for obj in batch:
+            for field_name in insert_field_names:
+                params.append(getattr(obj, field_name))
 
+        # 5. 组合成最终的SQL语句
+        # 只有在有可更新字段时才添加 ON DUPLICATE KEY UPDATE 子句
+        if update_sql:
+            final_sql = (
+                f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
+                f"VALUES {all_placeholders} "
+                f"ON DUPLICATE KEY UPDATE {update_sql}"
+            )
+        else: # 如果没有指定更新字段，则只进行插入，重复的会报错（取决于唯一约束）
+             final_sql = (
+                f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
+                f"VALUES {all_placeholders}"
+            )
+
+        print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 准备执行原生SQL Upsert。")
+        print(f"调试信息: [BaseDAO-MySQL-Upsert] 批次大小: {len(batch)} 条记录。")
+        # print(f"调试信息: [Base-SQL]: {final_sql[:500]}...") # 打印部分SQL用于调试
+        
         try:
-            # 5. 在一个事务中执行所有数据库操作
+            # 6. 在事务中执行原生SQL
             with transaction.atomic():
-                # 批量创建新记录
-                if instances_to_create:
-                    print(f"调试信息: [BaseDAO-MySQL] 模型 '{model_name}': 准备批量创建 {len(instances_to_create)} 条新记录。")
-                    model_class.objects.bulk_create(instances_to_create, batch_size=500)
-
-                # 批量更新已存在的记录
-                if instances_to_update:
-                    print(f"调试信息: [BaseDAO-MySQL] 模型 '{model_name}': 准备批量更新 {len(instances_to_update)} 条记录。更新字段: {update_fields}")
-                    model_class.objects.bulk_update(instances_to_update, fields=update_fields, batch_size=500)
+                with connection.cursor() as cursor:
+                    cursor.execute(final_sql, params)
             
-            print(f"调试信息: [BaseDAO-MySQL] 成功处理批次: 创建 {len(instances_to_create)}, 更新 {len(instances_to_update)}。")
+            print(f"调试信息: [BaseDAO-MySQL-Upsert] 成功处理批次，影响行数: {cursor.rowcount}。")
 
         except Exception as e:
-            logger.error(f"数据库批处理 (大小: {len(batch)}) 时遇到错误: {e}", exc_info=True)
+            logger.error(f"原生SQL批处理 (大小: {len(batch)}) 时遇到错误: {e}", exc_info=True)
             # 重新抛出异常，让上层调用者 (process_batch_async) 能够捕获
             raise
+
 
     @staticmethod
     @sync_to_async

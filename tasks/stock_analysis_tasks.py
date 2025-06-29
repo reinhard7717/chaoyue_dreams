@@ -290,44 +290,6 @@ def _run_trend_follow_strategy(stock_code: str, trade_time_str: str) -> Dict[str
         logger.error(f"执行 'trend_follow_strategy' on {stock_code} 时出错: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
-# 新增辅助函数 2: 负责执行【旧版】传统趋势跟踪策略 (自包含数据准备)
-def _run_legacy_strategy(stock_code: str, params_file: str, trade_time_str: str, timestamp: pd.Timestamp, is_favorite: bool) -> Dict:
-    """
-    辅助函数：完整执行传统趋势跟踪策略，包括其专属的数据准备。
-    它继续使用旧的 `prepare_strategy_dataframe` 方法。
-    """
-    logger.info(f"[{stock_code}] 开始执行 '传统趋势跟踪策略'...")
-    try:
-        # 步骤 1: 使用旧方法准备数据
-        indicator_service = IndicatorService()
-        # 重要: 此处调用的是旧的数据准备方法，以保证兼容性
-        data_df, indicator_configs = asyncio.run(indicator_service.prepare_strategy_dataframe(
-            stock_code=stock_code,
-            params_file=params_file,
-            trade_time=trade_time_str
-        ))
-
-        if data_df is None or data_df.empty:
-            logger.warning(f"[{stock_code}] 传统策略数据准备失败，跳过执行。")
-            return {"status": "skipped", "reason": "data preparation failed"}
-
-        # 步骤 2: 执行策略分析
-        legacy_strategy = TrendFollowStrategy(params_file=params_file)
-        if not is_favorite and not legacy_strategy._pre_screen_signals(data_df, stock_code):
-            return {"status": "skipped", "reason": "pre-screening failed"}
-        
-        signals = legacy_strategy.generate_signals(data=data_df, stock_code=stock_code, indicator_configs=indicator_configs)
-        if signals is not None and not signals.empty:
-            analysis_result = legacy_strategy.analyze_signals(stock_code)
-            if analysis_result is not None:
-                legacy_strategy.save_analysis_results(stock_code=stock_code, timestamp=timestamp, data=data_df)
-                return {"status": "success", "signal": signals.iloc[-1].to_dict()}
-        
-        return {"status": "failed", "reason": "no signal generated"}
-    except Exception as e:
-        logger.error(f"执行 '传统趋势跟踪策略' on {stock_code} 时出错: {e}", exc_info=True)
-        return {"status": "error", "reason": str(e)}
-
 # 【最终重构版】主协调函数
 def execute_strategy_for_trade_time(stock_code: str, params_file: str, trade_time: datetime, is_favorite: bool = False):
     """
