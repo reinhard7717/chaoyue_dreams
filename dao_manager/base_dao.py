@@ -756,17 +756,11 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, model_class, batch, update_fields):
         """
-        【V6 重构版 - 原生SQL for MySQL】使用原生SQL "INSERT ... ON DUPLICATE KEY UPDATE" 实现高效Upsert。
+        【V7 健壮版 - 原生SQL for MySQL】使用原生SQL "INSERT ... ON DUPLICATE KEY UPDATE" 实现高效Upsert。
         
-        本方法专门为 MySQL 设计，解决了 Django ORM 不支持 MySQL Upsert 的问题。
-        它通过动态构建单条原生SQL语句来处理整个批次，极大提升了性能。
-        
-        工作流程:
-        1. 从模型元数据(_meta)动态获取表名和列名，避免硬编码。
-        2. 构建 `INSERT INTO ...` 部分，包含所有需要插入的字段。
-        3. 构建 `ON DUPLICATE KEY UPDATE ...` 部分，仅包含需要更新的字段。
-        4. 将批次中所有对象的数据准备成一个扁平化的参数列表。
-        5. 在单个数据库事务中，使用 `connection.cursor()` 执行这条包含所有数据的原生SQL语句。
+        本次修改修复了 "Field '...' doesn't have a default value" 的错误。
+        错误原因：之前通过 `batch[0].__dict__` 获取字段列表的方式不可靠。
+        解决方案：改为从模型的 `_meta.concrete_fields` 获取所有需要持久化的字段，确保所有字段都被包含在INSERT语句中。
         """
         if not batch:
             return
@@ -774,49 +768,49 @@ class BaseDAO(Generic[T]):
         meta = model_class._meta
         table_name = meta.db_table
         
-        # 获取所有需要插入的字段对象，并构建字段名到数据库列名的映射
-        # attname 会正确处理外键字段，例如 'stock' 字段的 attname 是 'stock_id'
-        field_map = {f.name: f for f in meta.fields}
-        all_batch_fields = list(batch[0].__dict__.keys())
-        # 过滤掉Django内部状态字段 '_state'
-        insert_field_names = [f for f in all_batch_fields if f != '_state' and f in field_map]
+        # 【代码修改处】使用 model._meta.concrete_fields 作为字段的唯一真实来源，不再使用 __dict__
+        # concrete_fields 包含了模型中所有实际映射到数据库列的字段（包括主键、普通字段和外键）
+        insert_fields = meta.concrete_fields
         
-        # 获取数据库列名
-        db_cols = [field_map[name].column for name in insert_field_names]
-        
+        # 【代码修改处】从字段对象中获取数据库列名 (e.g., 'open_price') 和 ORM属性名 (e.g., 'stock_id')
+        # 使用 f.column 获取数据库中的真实列名
+        db_cols = [f.column for f in insert_fields]
+        # 使用 f.attname 获取在模型实例上获取值的属性名。对于外键'stock'，其attname是'stock_id'，这正是我们需要的。
+        field_attnames = [f.attname for f in insert_fields]
+
         # 1. 构建 SQL 的 INSERT 部分
         insert_cols_sql = f"`{'`, `'.join(db_cols)}`"
         
         # 2. 构建 SQL 的 VALUES 部分的占位符
-        # 例如："(%s, %s, %s), (%s, %s, %s)"
         value_placeholders = f"({', '.join(['%s'] * len(db_cols))})"
         all_placeholders = ', '.join([value_placeholders] * len(batch))
 
         # 3. 构建 SQL 的 ON DUPLICATE KEY UPDATE 部分
-        # 例如：`col1`=VALUES(`col1`), `col2`=VALUES(`col2`)
+        # 此处逻辑保持不变，但需要一个从字段名到字段对象的映射以便查找列名
+        field_map = {f.name: f for f in meta.fields}
         update_assignments = []
         for field_name in update_fields:
-            if field_name in field_map: # 确保更新的字段在模型中
+            if field_name in field_map:
                 db_col = field_map[field_name].column
                 update_assignments.append(f"`{db_col}`=VALUES(`{db_col}`)")
         update_sql = ', '.join(update_assignments)
 
         # 4. 准备所有参数值
-        # 将所有对象的所有字段值扁平化到一个列表中
         params = []
         for obj in batch:
-            for field_name in insert_field_names:
-                params.append(getattr(obj, field_name))
+            # 【代码修改处】遍历我们从_meta中获取的可靠的属性名列表 (field_attnames)
+            for attname in field_attnames:
+                # 使用 getattr(obj, attname) 安全地获取每个字段的值
+                params.append(getattr(obj, attname))
 
         # 5. 组合成最终的SQL语句
-        # 只有在有可更新字段时才添加 ON DUPLICATE KEY UPDATE 子句
         if update_sql:
             final_sql = (
                 f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
                 f"VALUES {all_placeholders} "
                 f"ON DUPLICATE KEY UPDATE {update_sql}"
             )
-        else: # 如果没有指定更新字段，则只进行插入，重复的会报错（取决于唯一约束）
+        else:
              final_sql = (
                 f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
                 f"VALUES {all_placeholders}"
@@ -825,18 +819,21 @@ class BaseDAO(Generic[T]):
         print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 准备执行原生SQL Upsert。")
         print(f"调试信息: [BaseDAO-MySQL-Upsert] 批次大小: {len(batch)} 条记录。")
         # print(f"调试信息: [Base-SQL]: {final_sql[:500]}...") # 打印部分SQL用于调试
-        
+
         try:
             # 6. 在事务中执行原生SQL
             with transaction.atomic():
                 with connection.cursor() as cursor:
                     cursor.execute(final_sql, params)
-            
-            print(f"调试信息: [BaseDAO-MySQL-Upsert] 成功处理批次，影响行数: {cursor.rowcount}。")
+
+            # cursor.rowcount 在 ON DUPLICATE KEY UPDATE 语法下有特殊含义：
+            # 1 for each row that is inserted as a new row,
+            # 2 for each existing row that is updated,
+            # 0 for each existing row that is set to its current values.
+            print(f"调试信息: [BaseDAO-MySQL-Upsert] 成功处理批次，MySQL报告的影响行数: {cursor.rowcount}。")
 
         except Exception as e:
             logger.error(f"原生SQL批处理 (大小: {len(batch)}) 时遇到错误: {e}", exc_info=True)
-            # 重新抛出异常，让上层调用者 (process_batch_async) 能够捕获
             raise
 
 
