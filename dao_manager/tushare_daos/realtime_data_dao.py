@@ -94,7 +94,7 @@ class StockRealtimeDAO(BaseDAO):
             level5_cache_payload = {}
 
             # 3. 循环处理数据（仅在内存中，无IO操作）
-            print(f"调试信息: 开始在内存中处理 {len(df)} 条从Tushare返回的数据...")
+            # print(f"调试信息: 开始在内存中处理 {len(df)} 条从Tushare返回的数据...")
             for row in df.itertuples():
                 stock = stocks_dict.get(row.TS_CODE)
                 if stock:
@@ -115,7 +115,7 @@ class StockRealtimeDAO(BaseDAO):
                 return []
 
             # 4. 并发执行所有IO密集型任务（数据库和缓存的批量写入）
-            print(f"调试信息: 准备并发执行 {len(realtime_data_list)} 条数据的数据库和缓存写入...")
+            # print(f"调试信息: 准备并发执行 {len(realtime_data_list)} 条数据的数据库和缓存写入...")
             
             # 创建所有需要并发执行的异步任务
             tasks = [
@@ -148,7 +148,7 @@ class StockRealtimeDAO(BaseDAO):
                 if isinstance(result, Exception):
                     logger.error(f"并发任务 {i} 执行失败: {result}", exc_info=result)
 
-            print("调试信息: 所有数据库和缓存写入任务已完成。")
+            # print("调试信息: 所有数据库和缓存写入任务已完成。")
             
             # 返回数据库保存的结果，可以根据业务需求调整返回值
             # 这里我们返回第一个数据库操作的结果作为示例

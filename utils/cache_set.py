@@ -459,7 +459,7 @@ class StockTimeTradeCacheSet(CacheSet):
         mset_data = {}
         keys_to_expire = []
         
-        print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条分钟线数据...")
+        # print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条分钟线数据...")
         for stock_code, data_to_cache in cache_payload.items():
             # 2.1 对每条数据进行格式转换，与单个写入的逻辑保持一致
             # 注意：_format_conversion 是您类中一个未提供但存在的方法，我们假设它在这里
@@ -500,7 +500,7 @@ class StockTimeTradeCacheSet(CacheSet):
                 # 步骤 C: 原子化地执行所有命令
                 await pipe.execute()
             
-            print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条分钟线数据到Redis。")
+            # print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条分钟线数据到Redis。")
             return True
 
         except Exception as e:
@@ -560,7 +560,7 @@ class StockRealtimeCacheSet(CacheSet):
         mset_data = {}
         keys_to_expire = []
         
-        print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条实时行情数据...")
+        # print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条实时行情数据...")
         for stock_code, data_to_cache in cache_payload.items():
             formatted_data = await self._format_conversion(data_to_cache)
             if formatted_data is None:
@@ -584,7 +584,7 @@ class StockRealtimeCacheSet(CacheSet):
                 for key in keys_to_expire:
                     pipe.expire(key, timeout)
                 await pipe.execute()
-            print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条实时行情数据到Redis。")
+            # print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条实时行情数据到Redis。")
             return True
         except Exception as e:
             logger.error(f"批量写入实时行情缓存时发生异常: {e}", exc_info=True)
@@ -606,7 +606,7 @@ class StockRealtimeCacheSet(CacheSet):
         mset_data = {}
         keys_to_expire = []
         
-        print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条Level5数据...")
+        # print(f"调试信息: [Cache] 准备批量处理 {len(cache_payload)} 条Level5数据...")
         for stock_code, data_to_cache in cache_payload.items():
             formatted_data = await self._format_conversion(data_to_cache)
             if formatted_data is None:
@@ -630,7 +630,7 @@ class StockRealtimeCacheSet(CacheSet):
                 for key in keys_to_expire:
                     pipe.expire(key, timeout)
                 await pipe.execute()
-            print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条Level5数据到Redis。")
+            # print(f"调试信息: [Cache] 成功批量写入 {len(mset_data)} 条Level5数据到Redis。")
             return True
         except Exception as e:
             logger.error(f"批量写入Level5缓存时发生异常: {e}", exc_info=True)
