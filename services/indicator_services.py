@@ -512,7 +512,7 @@ class IndicatorService:
         """
         【新增】处理单个行业的强度计算，便于并行化。
         """
-        print(f"  - 正在处理行业: {industry.name} ({industry.ts_code})")
+        # print(f"  - 正在处理行业: {industry.name} ({industry.ts_code})")
         
         # 2. 并行获取该行业所需的所有数据
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
@@ -1288,30 +1288,45 @@ class IndicatorService:
 
     async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【新增】计算 VWAP (成交量加权平均价)。
-        使用 pandas-ta 库，并将其放入线程中以避免阻塞事件循环。
+        【V1.1 锚点修正版】计算 VWAP (成交量加权平均价)。
+        - 修正了对分钟级别锚点（如 '30', '60'）的处理，将其转换为 pandas 可识别的频率字符串（如 '30T'）。
         """
         # pandas-ta 需要标准的列名
         high_col, low_col, close_col, volume_col = 'high', 'low', 'close', 'volume'
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
             logger.warning(f"计算 VWAP (anchor={anchor}) 时缺少必要的列。")
             return None
+        
+        # ▼▼▼【代码修改】: 转换分钟级别锚点为pandas兼容格式 ▼▼▼
+        # 解释: pandas-ta的vwap函数要求锚点(anchor)是pandas的频率字符串。
+        # 对于分钟级别，'30' 是无效的，必须是 '30T' 或 '30min'。
+        # 此处对纯数字的锚点进行转换，而 'D', 'W' 等则保持不变。
+        processed_anchor = anchor
+        if anchor and str(anchor).isdigit():
+            processed_anchor = f"{anchor}T"
+            print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_vwap():
+                # ▼▼▼【代码修改】: 使用处理后的锚点 ▼▼▼
                 # 调用 pandas_ta 的 vwap 方法
-                return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=anchor, append=False)
+                return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=processed_anchor, append=False)
+                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
             
             vwap_series = await asyncio.to_thread(_sync_vwap)
             
             if vwap_series is None or vwap_series.empty:
                 return None
             
-            # pandas_ta 会根据 anchor 自动生成列名，例如 VWAP_D, VWAP_W
+            # pandas_ta 会根据 anchor 自动生成列名，例如 VWAP_D, VWAP_W, VWAP_30T
             # 我们直接使用它返回的 Series，其 name 就是列名
             return pd.DataFrame(vwap_series)
         except Exception as e:
+            # ▼▼▼【代码修改】: 在日志中也使用原始锚点，方便追溯 ▼▼▼
             logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
             return None
 
     async def calculate_willr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:

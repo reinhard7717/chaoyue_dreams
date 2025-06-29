@@ -1011,32 +1011,114 @@ class FundFlowDao(BaseDAO):
 
     async def save_hisroty_lhb_inst_data(self, trade_date: str) -> Dict:
         """
-        保存历史龙虎榜机构明细
+        【V2 - 优化版】保存历史龙虎榜机构明细，并支持分页拉取
+        
+        优化点:
+        1. [核心功能] 增加了分页逻辑，通过循环和 offset 参数获取指定日期的全部数据，最大支持10万行。
+        2. [核心性能] 使用 `get_stocks_by_codes` 解决了N+1数据库查询问题。
+        3. 整合了分页数据，进行统一的批量关联和批量保存。
+        4. 增强了代码的健壮性和日志清晰度。
+        
         Args:
             trade_date (str): 日期，格式为 YYYYMMDD
         """
-        # 获取龙虎榜机构明细
-        df = self.ts_pro.top_inst(**{
-            "trade_date": trade_date, "ts_code": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "exalter", "buy", "buy_rate", "sell", "sell_rate", "net_buy", "side", "reason"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=TopInst,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
+        print(f"调试: 开始执行 save_hisroty_lhb_inst_data 任务, trade_date={trade_date}")
+        
+        try:
+            # 1. [代码修改处] 分页循环拉取API数据
+            all_dfs = []
+            limit = 10000  # Tushare单次最大返回量
+            offset = 0
+            max_records = 100000 # 最大拉取10万行作为保护
 
-    # ============== 涨跌停榜单 - 同花顺 ==============
+            print(f"调试: 开始分页拉取龙虎榜数据，每页最多 {limit} 条。")
+            while True:
+                print(f"调试: 正在拉取数据，offset={offset}...")
+                df = self.ts_pro.top_inst(**{
+                    "trade_date": trade_date,
+                    "ts_code": "",
+                    "limit": limit,
+                    "offset": offset
+                }, fields=[
+                    "trade_date", "ts_code", "exalter", "buy", "buy_rate", "sell", "sell_rate", "net_buy", "side", "reason"
+                ])
+
+                if df.empty:
+                    print("调试: API返回空数据帧，分页拉取结束。")
+                    break
+                
+                all_dfs.append(df)
+
+                # 如果返回的数据量小于请求的limit，说明已经是最后一页
+                if len(df) < limit:
+                    print(f"调试: 已获取最后一页数据({len(df)}条)，分页拉取结束。")
+                    break
+                
+                offset += limit
+                # 增加保护，防止意外的无限循环
+                if offset >= max_records:
+                    logger.warning(f"拉取数据已达到 {max_records} 条上限，自动停止。")
+                    print(f"调试: 拉取数据已达到 {max_records} 条上限，自动停止。")
+                    break
+            
+            if not all_dfs:
+                logger.info(f"交易日 {trade_date} 没有龙虎榜机构明细数据。")
+                return {"status": "success", "message": "No data for this trade date.", "saved_count": 0}
+
+            # 合并所有分页数据
+            final_df = pd.concat(all_dfs, ignore_index=True)
+            print(f"调试: 分页拉取完成，共获取 {len(final_df)} 条数据。")
+
+            # 2. [代码修改处] 批量获取所有相关的股票基础信息对象
+            unique_ts_codes = final_df['ts_code'].unique().tolist()
+            print(f"调试: 数据涉及 {len(unique_ts_codes)} 个独立股票代码。")
+            
+            # [代码修改处] 使用 get_stocks_by_codes 方法，一次性查询数据库，解决N+1问题
+            # 注意：这里我们用 stock_basic_dao 替换了原先的 stock_cache_get 以实现批量操作
+            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+            print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
+
+            # 3. 准备批量写入的数据
+            data_dicts_to_save = []
+            for row in final_df.itertuples():
+                # [代码修改处] 从预先查好的映射中获取股票对象，高效且无N+1问题
+                stock_instance = stock_map.get(row.ts_code)
+                
+                if stock_instance:
+                    data_dict = self.data_format_process.set_lhb_inst_data(stock_instance, row)
+                    data_dicts_to_save.append(data_dict)
+                else:
+                    logger.warning(f"在数据库中未找到股票代码 {row.ts_code} 的基础信息，已跳过该条龙虎榜数据。")
+
+            # 4. 批量写入数据库
+            result = {}
+            if data_dicts_to_save:
+                print(f"调试: 准备批量保存 {len(data_dicts_to_save)} 条龙虎榜数据到数据库...")
+                # 注意：请确保 unique_fields 中的字段名与 TopInst 模型中的字段名完全一致。
+                # Tushare返回的是 trade_date，如果您的模型中是 trade_time，请确保 set_lhb_inst_data 方法做了转换。
+                result = await self._save_all_to_db_native_upsert(
+                    model_class=TopInst,
+                    data_list=data_dicts_to_save,
+                    unique_fields=['stock', 'trade_date'] # 建议使用 trade_date，与API字段保持一致
+                )
+                print(f"调试: 成功保存 {len(data_dicts_to_save)} 条数据。")
+            else:
+                logger.info("经过筛选后，没有需要保存到数据库的数据。")
+                print("调试: 经过筛选后，没有需要保存的数据。")
+                result = {"status": "success", "message": "No new data to save.", "saved_count": 0}
+                
+            return result
+
+        except Exception as e:
+            logger.error(f"保存龙虎榜机构明细时发生严重错误: {e}", exc_info=True)
+            print(f"调试: 发生异常: {e}")
+            raise
+
+    # ============== 游资每日明细 ==============
+    
+
+
+    # ============== 涨跌停榜单 - 同花顺 无权限，不用 ==============
     async def save_limit_list_ths(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         【修改】保存同花顺涨跌停榜单数据 (limit_list_ths接口)

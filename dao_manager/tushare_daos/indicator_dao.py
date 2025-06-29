@@ -894,7 +894,7 @@ class IndicatorDAO(BaseDAO):
     @sync_to_async
     def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """获取行业指数的历史日线行情"""
-        print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的指数行情...")
+        # print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的指数行情...")
         qs = ThsIndexDaily.objects.filter(
             ths_index__ts_code=industry_code,
             trade_time__gte=start_date,
@@ -909,7 +909,7 @@ class IndicatorDAO(BaseDAO):
     @sync_to_async
     def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """获取行业的历史资金流数据"""
-        print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的资金流...")
+        # print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的资金流...")
         qs = FundFlowIndustryTHS.objects.filter(
             ths_index__ts_code=industry_code,
             trade_time__gte=start_date,
@@ -924,7 +924,7 @@ class IndicatorDAO(BaseDAO):
     @sync_to_async
     def get_market_index_daily_data(self, market_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """【新增】获取大盘基准指数的历史日线行情"""
-        print(f"    [DAO] 正在获取大盘指数 {market_code} 从 {start_date} 到 {end_date} 的行情...")
+        # print(f"    [DAO] 正在获取大盘指数 {market_code} 从 {start_date} 到 {end_date} 的行情...")
         # 假设大盘指数也存储在 ThsIndexDaily 中
         qs = ThsIndexDaily.objects.filter(
             ths_index__ts_code=market_code,
