@@ -815,27 +815,22 @@ class BaseDAO(Generic[T]):
                 f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
                 f"VALUES {all_placeholders}"
             )
-
-        print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 准备执行原生SQL Upsert。")
-        print(f"调试信息: [BaseDAO-MySQL-Upsert] 批次大小: {len(batch)} 条记录。")
+        # print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 准备执行原生SQL Upsert。")
+        # print(f"调试信息: [BaseDAO-MySQL-Upsert] 批次大小: {len(batch)} 条记录。")
         # print(f"调试信息: [Base-SQL]: {final_sql[:500]}...") # 打印部分SQL用于调试
-
         try:
             # 6. 在事务中执行原生SQL
             with transaction.atomic():
                 with connection.cursor() as cursor:
                     cursor.execute(final_sql, params)
-
             # cursor.rowcount 在 ON DUPLICATE KEY UPDATE 语法下有特殊含义：
             # 1 for each row that is inserted as a new row,
             # 2 for each existing row that is updated,
             # 0 for each existing row that is set to its current values.
-            print(f"调试信息: [BaseDAO-MySQL-Upsert] 成功处理批次，MySQL报告的影响行数: {cursor.rowcount}。")
-
+            print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 批次大小: {len(batch)} 条记录。成功处理批次，MySQL报告的影响行数: {cursor.rowcount}。")
         except Exception as e:
             logger.error(f"原生SQL批处理 (大小: {len(batch)}) 时遇到错误: {e}", exc_info=True)
             raise
-
 
     @staticmethod
     @sync_to_async
@@ -875,7 +870,6 @@ class BaseDAO(Generic[T]):
         """
         # 调用我们上面定义的、被包装的同步方法
         return await self._get_or_create_fk_sync(fk_model, code_value)
-
 
     # ==================== 更新和删除操作 ====================
 
