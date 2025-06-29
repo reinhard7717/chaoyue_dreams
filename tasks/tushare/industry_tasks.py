@@ -31,7 +31,7 @@ def get_last_monday_and_friday():
     last_friday = last_monday + datetime.timedelta(days=4)
     return last_monday, last_friday
 
-@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_member_task', queue='SaveData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_member_task', queue='SaveData_TimeTrade', rate_limit='180/m')
 def save_ths_index_member_task(self):
     industry_dao = IndustryDao()
     logger.info(f"开始获取同花顺概念板块成分...")
