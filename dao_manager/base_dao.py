@@ -793,40 +793,39 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V18 - 终极生产版】在同步环境中，使用原生SQL处理一个批次的数据。
-        此版本在V17的基础上，增加了对 auto_now_add 和 auto_now 字段的自动处理，解决了(1364)错误。
-        - 背景: 由于使用原生SQL绕过了Django ORM，ORM提供的 auto_now_add 和 auto_now 功能不会自动触发。
+        【V19 - 终极生产健壮版】在同步环境中，使用原生SQL处理一个批次的数据。
+        此版本在V18的基础上，增加了 `hasattr` 检查，解决了因遍历不同字段类型而引发的 `AttributeError`。
         - 策略:
-          1. 自动识别模型中的 auto_now_add 和 auto_now 字段。
-          2. 如果DataFrame中缺少这些列，则使用当前时间(timezone.now())进行填充。
-          3. 强制将 auto_now 字段加入到 ON DUPLICATE KEY UPDATE 子句中，确保每次更新都会刷新时间戳。
-        - 结果: 实现了与Django ORM完全一致的行为，是功能最完整、最健壮的最终版本。
+          1. 在检查 `field.auto_now_add` 和 `field.auto_now` 之前，先使用 `hasattr()` 判断字段对象是否存在这些属性。
+          2. 这可以确保代码只对 `DateTimeField` 等拥有这些属性的字段进行操作，安全地跳过 `BigAutoField`、`CharField` 等其他字段。
+        - 结果: 修复了V18的崩溃缺陷，是功能完整且代码健壮的最终版本。
         """
         if df.empty:
             return 0
 
         table_name = model_class._meta.db_table
         
-        # ▼▼▼【核心代码修改】: 自动处理 auto_now_add 和 auto_now 字段 ▼▼▼
-        now = timezone.now() # 获取一次当前时间，保证批次内时间戳一致
-        
+        now = timezone.now()
         auto_now_fields = []
+        
+        # ▼▼▼【核心代码修改】: 增加 hasattr 属性存在性检查 ▼▼▼
         for field in model_class._meta.fields:
-            # 处理 auto_now_add 字段 (如 created_at)
-            if field.auto_now_add and field.column not in df.columns:
+            # 检查 auto_now_add 字段 (如 created_at)
+            # 必须先检查属性是否存在，再访问该属性
+            if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
                 print(f"--- [DAO调试] 发现 auto_now_add 字段 '{field.column}' 在DataFrame中缺失，将使用当前时间填充。 ---")
                 df[field.column] = now
             
-            # 识别所有 auto_now 字段 (如 updated_at)
-            if field.auto_now:
+            # 检查 auto_now 字段 (如 updated_at)
+            # 必须先检查属性是否存在，再访问该属性
+            if hasattr(field, 'auto_now') and field.auto_now:
                 auto_now_fields.append(field.column)
                 print(f"--- [DAO调试] 发现 auto_now 字段 '{field.column}'，将使用当前时间填充并强制更新。 ---")
                 df[field.column] = now
         # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
-        all_columns = list(df.columns) # 从可能已修改的df获取最终列
+        all_columns = list(df.columns)
 
-        # 数据预处理步骤 (保持对NULL值和JSON字段的处理)
         print("--- [DAO调试] 开始数据预处理：填充默认值和序列化JSON ---")
         json_field_names = []
         for field in model_class._meta.fields:
@@ -844,12 +843,9 @@ class BaseDAO(Generic[T]):
                 )
         print("--- [DAO调试] 数据预处理完成 ---")
 
-        # 构建用于单行操作的SQL模板
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
         placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})"
         
-        # ▼▼▼【核心代码修改】: 强制更新 auto_now 字段 ▼▼▼
-        # 使用集合操作，确保 auto_now 字段一定在更新列表中
         update_fields_set = set(update_fields)
         update_fields_set.update(auto_now_fields)
         
@@ -857,7 +853,6 @@ class BaseDAO(Generic[T]):
             update_sql = f"`{model_class._meta.pk.name}` = `{model_class._meta.pk.name}`"
         else:
             update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields_set])
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
         final_sql_template = (
             f"INSERT INTO `{table_name}` ({cols_sql}) "
