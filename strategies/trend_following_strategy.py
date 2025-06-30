@@ -276,10 +276,11 @@ class TrendFollowStrategy:
         if king_signal_col in score_details_df.columns:
             king_signal_mask = (score_details_df[king_signal_col] > 0)
             if king_signal_mask.any():
-                print(f"    - [计分-互斥逻辑] 检测到 {king_signal_mask.sum()} 天王牌信号，将对这些天执行其他基础分清零...")
-                # 获取除王牌信号外的所有其他基础分列
+                # ▼▼▼【代码修改】: 优化日志输出，避免刷屏 ▼▼▼
+                # 解释: 不再循环打印每一天，只打印一条总结性日志。
+                print(f"    - [计分-互斥逻辑] 检测到 {king_signal_mask.sum()} 天王牌信号，已执行其他基础分清零。")
+                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
-                # 对王牌日，将其他所有基础分强制设为0
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
                 
                 # 1c. 【最终调试日志】打印王牌信号日的最终、纯净分数
