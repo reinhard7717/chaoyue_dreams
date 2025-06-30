@@ -124,60 +124,73 @@ class IndicatorService:
     async def prepare_data(
         self,
         stock_code: str,
-        config: dict, # 修改点: 直接接收加载好的配置字典，而不是路径列表
+        config: dict, # 直接接收加载好的配置字典
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V5.0 终极实用版 - 纯粹数据准备入口】
-        根据【单个】策略配置文件，精确、高效地准备其所需的所有数据。
-        - 清晰: 职责单一，只根据传入的config准备数据，不合并、不猜测。
-        - 高效: 只获取config中明确要求的时间周期和辅助数据(如资金流)。
-        - 实用: 逻辑完全由配置文件驱动，具备真正的通用性。
+        【V5.1 智能重采样版】
+        根据单个策略配置文件，精确、高效地准备其所需的所有数据。
+        - 核心升级: 增加了智能重采样逻辑，能够根据日线数据生成周线和月线数据。
+        - 健壮性: 不再依赖数据库中必须存在周线/月线表，保证了数据一致性。
         """
-        print(f"--- [数据准备V5.0] 开始为 {stock_code} 准备数据... ---")
+        print(f"--- [数据准备V5.1-重采样版] 开始为 {stock_code} 准备数据... ---")
         
-        # --- 步骤 1: 从【单个】配置中识别所有需要的时间周期和数据类型 ---
+        # --- 步骤 1: 从配置中识别所有需要的时间周期和数据类型 ---
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
 
         required_tfs: Set[str] = set()
-        needs_fund_chips_data = False # 修改点: 默认不需要资金流数据
+        needs_fund_chips_data = False
 
         for indicator_key, params in indicators_config.items():
             if not isinstance(params, dict) or not params.get('enabled', False):
                 continue
             
-            # 检查是否需要资金流/筹码数据
             if indicator_key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']:
                 needs_fund_chips_data = True
 
-            # 扫描所有 apply_on 来确定需要的时间周期
-            if 'configs' in params: # 新版列表式配置
+            if 'configs' in params:
                 for sub_config in params.get('configs', []):
                     for tf in sub_config.get('apply_on', []):
                         required_tfs.add(str(tf))
-            elif 'apply_on' in params: # 兼容旧版配置
+            elif 'apply_on' in params:
                 for tf in params.get('apply_on', []):
                     required_tfs.add(str(tf))
         
-        # 如果没有任何指标被启用，则直接返回空字典
         if not required_tfs:
             logger.warning(f"[{stock_code}] 配置文件中没有启用任何指标或指定apply_on，无需准备数据。")
             return {}
 
-        print(f"    - 根据配置，识别出需要的数据周期: {sorted(list(required_tfs))}")
-        if needs_fund_chips_data:
-            print("    - 根据配置，需要额外获取资金流和筹码数据。")
+        print(f"    - 原始请求周期: {sorted(list(required_tfs))}")
+        
+        # ▼▼▼【代码修改】: 引入智能重采样逻辑的核心部分 ▼▼▼
+        # --- 步骤 1.5: 识别真正的基础数据需求，并准备重采样 ---
+        base_tfs_to_fetch = set()
+        resample_map = {} # 记录需要进行的重采样任务, e.g., {'W': 'D', 'M': 'D'}
 
-        # --- 步骤 2: 【高效】按需并行获取所有数据 ---
-        tasks = []
-        # 任务1: 获取所有必需的OHLCV数据
         for tf in required_tfs:
-            bars_to_fetch = base_needed_bars if tf not in ['W', 'M'] else 200
+            if tf in ['W', 'M']:
+                # 如果需要周线或月线，我们真正需要的是日线数据
+                base_tfs_to_fetch.add('D')
+                resample_map[tf] = 'D'
+            else:
+                # 其他周期（如 'D', '60', '30'）直接获取
+                base_tfs_to_fetch.add(tf)
+        
+        print(f"    - 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
+        if resample_map:
+            print(f"    - 将执行的重采样任务: {resample_map}")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
+        # --- 步骤 2: 【高效】按需并行获取所有【基础】数据 ---
+        tasks = []
+        # 任务1: 获取所有必需的【基础】OHLCV数据
+        for tf in base_tfs_to_fetch:
+            # 为日线获取更多数据，以确保重采样到周线/月线后有足够长度
+            bars_to_fetch = base_needed_bars * 5 if tf == 'D' and resample_map else base_needed_bars
             tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
         
         # 任务2: 如果需要，才获取资金流数据
-        df_fund_chips: Optional[pd.DataFrame] = None
         if needs_fund_chips_data:
             trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
             tasks.append(self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt))
@@ -186,9 +199,9 @@ class IndicatorService:
 
         # --- 步骤 3: 【清晰】解包并行任务的结果 ---
         raw_dfs: Dict[str, pd.DataFrame] = {}
+        df_fund_chips: Optional[pd.DataFrame] = None
         
-        # 根据任务数量判断资金流数据是否存在于结果中
-        ohlcv_results = all_data_results[:len(required_tfs)]
+        ohlcv_results = all_data_results[:len(base_tfs_to_fetch)]
         if needs_fund_chips_data:
             fund_chips_result = all_data_results[-1]
             if isinstance(fund_chips_result, pd.DataFrame):
@@ -196,22 +209,47 @@ class IndicatorService:
             elif isinstance(fund_chips_result, Exception):
                 logger.error(f"[{stock_code}] 获取资金流数据时发生错误: {fund_chips_result}")
 
+        sorted_base_tfs = sorted(list(base_tfs_to_fetch))
         for i, res in enumerate(ohlcv_results):
-            tf = sorted(list(required_tfs))[i] # 按顺序取回时间周期
+            tf = sorted_base_tfs[i]
             if isinstance(res, pd.DataFrame) and not res.empty:
                 raw_dfs[tf] = res
             else:
-                logger.error(f"[{stock_code}] 获取 {tf} 周期OHLCV数据时发生错误或数据为空: {res}")
-                # 如果核心的日线或周线没有获取到，可以提前终止
-                if tf in ['D', 'W']: return {}
+                logger.error(f"[{stock_code}] 获取基础周期 {tf} 数据时发生错误或数据为空: {res}")
+                if tf == 'D': return {} # 如果最核心的日线数据都没有，直接终止
+
+        # ▼▼▼【代码修改】: 执行重采样，生成周线/月线数据 ▼▼▼
+        # --- 步骤 3.5: 执行重采样 ---
+        if 'D' in raw_dfs and resample_map:
+            df_daily = raw_dfs['D']
+            for target_tf, source_tf in resample_map.items():
+                if source_tf == 'D':
+                    print(f"    - 正在从日线数据重采样生成 {target_tf} 线数据...")
+                    # 定义重采样规则
+                    ohlc_rule = {
+                        'open': 'first',
+                        'high': 'max',
+                        'low': 'min',
+                        'close': 'last',
+                        'volume': 'sum'
+                    }
+                    # 'W-FRI' 表示以周五为每周的结束点，更符合A股习惯
+                    resample_period = 'W-FRI' if target_tf == 'W' else 'M'
+                    df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
+                    df_resampled.dropna(inplace=True) # 删除不完整的周期数据
+                    
+                    if not df_resampled.empty:
+                        raw_dfs[target_tf] = df_resampled
+                        print(f"    - [成功] {target_tf} 线数据已生成，共 {len(df_resampled)} 条。")
+                    else:
+                        logger.warning(f"[{stock_code}] 从日线重采样到 {target_tf} 后数据为空。")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # --- 步骤 4: 为每个周期的数据独立计算指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
-            # print(f"    - 开始为 {tf} 周期数据计算技术指标...")
-            # 如果是日线，并且成功获取了资金流数据，则先合并
             if tf == 'D' and df_fund_chips is not None and not df_fund_chips.empty:
                 if df.index.tz is not None: df.index = df.index.tz_localize(None)
                 if df_fund_chips.index.tz is not None: df_fund_chips.index = df_fund_chips.tz_localize(None)
@@ -219,11 +257,13 @@ class IndicatorService:
                 df[list(df_fund_chips.columns)] = df[list(df_fund_chips.columns)].fillna(0)
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            # print(f"      - {tf} 周期指标计算完成。")
             return tf, df_with_indicators
 
+        # 只为那些成功获取或生成了数据的周期计算指标
         for tf, df in raw_dfs.items():
-            calc_tasks.append(_calculate_for_tf(tf, df))
+            # 确保这个周期是原始请求需要的，避免不必要的计算
+            if tf in required_tfs:
+                calc_tasks.append(_calculate_for_tf(tf, df))
         
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
 
@@ -231,10 +271,11 @@ class IndicatorService:
             if isinstance(res, Exception):
                 logger.error(f"[{stock_code}] 计算指标时发生错误: {res}")
                 continue
-            tf, df_processed = res
-            processed_dfs[tf] = df_processed
+            if res:
+                tf, df_processed = res
+                processed_dfs[tf] = df_processed
 
-        print(f"--- [数据准备V5.0] 数据准备完成，最终字典包含的周期: {list(processed_dfs.keys())} ---")
+        print(f"--- [数据准备V5.1-重采样版] 数据准备完成，最终字典包含的周期: {list(processed_dfs.keys())} ---")
         return processed_dfs
 
     async def prepare_data_with_industry_context(
