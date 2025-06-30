@@ -1840,12 +1840,12 @@ class IndicatorService:
         # 假设 indicator_dao 有方法可以获取最新的行业资金流数据
         latest_flow = await self.indicator_dao.get_latest_industry_fund_flow(industry_code, trade_date)
         if latest_flow and latest_flow.pct_change_stock and latest_flow.pct_change_stock > 5.0:
-            print(f"      - [龙头效应] 发现领涨股 {latest_flow.lead_stock} 大涨 ({latest_flow.pct_change_stock}%)，得分: 1.0")
+            # print(f"      - [龙头效应] 发现领涨股 {latest_flow.lead_stock} 大涨 ({latest_flow.pct_change_stock}%)，得分: 1.0")
             return 1.0 # 强龙头效应
         elif latest_flow and latest_flow.pct_change_stock:
-            print(f"      - [龙头效应] 领涨股 {latest_flow.lead_stock} 涨幅 ({latest_flow.pct_change_stock}%) 未达阈值，得分: 0.5")
+            # print(f"      - [龙头效应] 领涨股 {latest_flow.lead_stock} 涨幅 ({latest_flow.pct_change_stock}%) 未达阈值，得分: 0.5")
             return 0.5 # 弱龙头效应
-        print(f"      - [龙头效应] 未找到领涨股数据，得分: 0.0")
+        # print(f"      - [龙头效应] 未找到领涨股数据，得分: 0.0")
         return 0.0 # 无龙头效应
 
     async def _calculate_cohesion_score(self, industry_code: str, trade_date: datetime.date) -> float:

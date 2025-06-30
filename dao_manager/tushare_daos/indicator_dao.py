@@ -731,7 +731,7 @@ class IndicatorDAO(BaseDAO):
                     # is_new='Y' # 如果有该字段用于标识最新成分股，请取消注释
                 ).select_related('stock')
             )
-            print(f"    [DAO] 成功查询到行业 {industry_code} 的 {len(members)} 只成分股。")
+            # print(f"    [DAO] 成功查询到行业 {industry_code} 的 {len(members)} 只成分股。")
             return members
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 成分股时出错: {e}")
