@@ -774,64 +774,80 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list):
         """
-        【中文调试版】同步处理MySQL的批量upsert操作，并处理NaN值。
+        【中文调试版 V2 - 修复数据类型错误】同步处理MySQL的批量upsert操作。
+        此版本修复了因处理列表/字典类型数据而导致的ValueError。
         """
         if df.empty:
             return 0
 
         table_name = model_class._meta.db_table
+        # 确保我们只处理DataFrame中存在的列
         columns = [field.column for field in model_class._meta.fields if field.column in df.columns]
         
-        # 构建SQL语句 (这部分逻辑保持不变)
         sql_start = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
         placeholders = f"({', '.join(['%s'] * len(columns))})"
         
         sql_on_duplicate = ""
         if update_fields:
-            update_statements = [f"{field} = VALUES({field})" for field in update_fields]
-            sql_on_duplicate = f" ON DUPLICATE KEY UPDATE {', '.join(update_statements)}"
+            # 确保更新字段也在最终的列列表中，避免引用不存在的列
+            valid_update_fields = [f for f in update_fields if f in df.columns]
+            update_statements = [f"{field} = VALUES({field})" for field in valid_update_fields]
+            if update_statements:
+                sql_on_duplicate = f" ON DUPLICATE KEY UPDATE {', '.join(update_statements)}"
 
-        # --- 核心逻辑：处理NaN值 ---
         params = []
+        # 代码修改处: 使用更健壮的循环代替列表推导式，以处理复杂数据类型
         for index, row in df.iterrows():
-            # 如果值是 NaN (pd.isna()可以同时检查np.nan和pd.NA)，则替换为None
-            row_values = [row[col] if pd.notna(row[col]) else None for col in columns]
+            row_values = []
+            for col in columns:
+                value = row[col]
+                # 1. 首先检查值是否是列表或字典，如果是，则序列化为JSON字符串
+                if isinstance(value, (list, dict)):
+                    row_values.append(json.dumps(value, ensure_ascii=False))
+                # 2. 然后检查值是否为NaN或None (pd.isna能同时处理这两种情况)
+                elif pd.isna(value):
+                    row_values.append(None)
+                # 3. 如果都不是，则直接使用该值
+                else:
+                    row_values.append(value)
             params.extend(row_values)
 
-        # --- 代码修改处: 将调试信息的print语句改为中文 ---
-        # 为了调试，我们可以打印出最终的SQL和部分参数
-        # 注意：不要在生产环境中一直开着，会产生大量日志
-        # print("--- [DAO调试] 开始执行批量更新插入 ---")
-        # print(f"SQL起始模板: {sql_start}")
-        # print(f"SQL重复键更新部分: {sql_on_duplicate}")
-        # 只打印前两行的参数，避免刷屏
-        # print(f"总行数: {len(df)}, 前2行(或更少)的参数: {params[:len(columns)*2]}")
+        # 调试信息保持不变
+        print("--- [DAO调试] 开始执行批量更新插入 ---")
+        print(f"SQL起始模板: {sql_start}")
+        print(f"SQL重复键更新部分: {sql_on_duplicate}")
+        print(f"总行数: {len(df)}, 前2行(或更少)的参数: {params[:len(columns)*2]}")
         
+        if not params:
+            logger.warning("没有生成任何用于SQL执行的参数，操作已跳过。")
+            return 0
+            
         final_sql = sql_start + ", ".join([placeholders] * len(df)) + sql_on_duplicate
 
         try:
             with connection.cursor() as cursor:
-                # cursor.execute() 会自动处理参数的拼接和转义
                 cursor.execute(final_sql, params)
+                # cursor.rowcount 在 ON DUPLICATE KEY UPDATE 语句下的行为：
+                # 0: 没有行被影响 (记录已存在且数据完全相同)
+                # 1: 插入了一行新记录
+                # 2: 更新了一行现有记录
+                # 我们返回受影响的总行数，这更直观地反映了操作。
                 return cursor.rowcount
         except Exception as e:
-            # --- 代码修改处: 将错误信息的print语句改为中文 ---
             print(f"--- [DAO错误] SQL执行失败！ ---")
-            # 尝试手动格式化SQL，这不完全准确，但有助于调试
-            # 注意：这只是为了调试查看，不要在生产代码中这样执行SQL！
             try:
-                # 将参数格式化为字符串以便打印，对None值特殊处理
+                # 调试SQL的逻辑保持不变
                 debug_params = tuple(
                     f"'{p}'" if isinstance(p, str) else ('NULL' if p is None else str(p))
                     for p in params
                 )
                 debug_sql = final_sql % debug_params
-                print(f"失败的SQL语句(预估): {debug_sql[:2000]}...") # 打印前2000个字符
+                print(f"失败的SQL语句(预估): {debug_sql[:2000]}...")
             except Exception as format_exc:
                 print(f"无法格式化用于调试的SQL语句: {format_exc}")
             
             logger.error(f"执行批量Upsert时发生数据库错误: {e}", exc_info=True)
-            raise # 重新抛出异常，让上层调用者知道操作失败
+            raise
 
     @staticmethod
     @sync_to_async
