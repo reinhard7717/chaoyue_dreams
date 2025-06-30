@@ -1893,7 +1893,7 @@ class IndicatorService:
         if not members:
             return 0.0
             
-        member_codes = [m.stock_code for m in members]
+        member_codes = [m.stock_id for m in members]
         
         # 2. 批量获取成分股当日基本面数据（包含涨停状态）
         # 假设 indicator_dao 有方法可以批量获取多只股票的单日基本面
