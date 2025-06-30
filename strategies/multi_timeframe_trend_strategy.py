@@ -126,7 +126,7 @@ class MultiTimeframeTrendStrategy:
 
         # --- 步骤 3: 运行战略层策略 (周线) ---
         logger.info(f"--- 步骤3: 运行周线战略策略，生成'战略信号'... ---")
-        strategic_context_df = await self.weekly_strategy.apply_strategy(df_daily_centric)
+        strategic_context_df = self.weekly_strategy.apply_strategy(df_daily_centric)
 
         if strategic_context_df is None or strategic_context_df.empty:
             logger.warning(f"[{stock_code}] 周线战略策略未能生成战略背景，后续流程终止。")
