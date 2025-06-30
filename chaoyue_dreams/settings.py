@@ -17,7 +17,7 @@ ALLOWED_HOSTS = [
     "chaoyuedreams.top",  # 你的域名
     "www.chaoyuedreams.top",
     "39.101.65.133",      # 你的服务器公网IP
-    "172.30.93.156",      # 内网IP
+    "172.30.93.158",      # 内网IP
     "localhost",          # 本地调试
     "127.0.0.1",          # 本地回环
 ]
@@ -60,7 +60,7 @@ REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
 REDIS_PORT = '6379'
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.156':
+if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.158':
     REDIS_HOST_DYNAMIC = '127.0.0.1'
     MYSQL_HOST_DYNAMIC = '127.0.0.1'
     STRATEGY_DATA_DIR = '/data/chaoyue_dreams/models'
