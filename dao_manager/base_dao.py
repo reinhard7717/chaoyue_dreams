@@ -793,12 +793,13 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V20 - 终极生产完备版】在同步环境中，使用原生SQL处理一个批次的数据。
-        此版本在V19的基础上，提供了对模型所有 `default` 值的完整处理，解决了(1364)完整性错误。
+        【V21 - 终极生产稳定版】在同步环境中，使用原生SQL处理一个批次的数据。
+        此版本在V20的基础上，增加了对 `None` 默认值的特殊处理，解决了 `fillna` 传入 `None` 导致的 `ValueError`。
         - 策略:
-          1. 扩展了默认值处理逻辑，使其不仅能填充已存在列的空值，还能为DataFrame中完全缺失的、但在模型中定义了 `default` 的列创建新列并填充默认值。
-          2. 调整了代码顺序，确保在所有列（包括自动创建的列）都准备好之后，再生成最终的列清单。
-        - 结果: 完整模拟了Django ORM在数据准备阶段的行为，是功能最完备、逻辑最严谨的最终版本。
+          1. 在调用 `fillna()` 之前，检查从模型获取的 `default_value` 是否为 `None`。
+          2. 如果 `default_value` 是 `None`，则跳过 `fillna` 操作。因为这些 `NaN` 值将在最后一步被 `df.replace({np.nan: None})` 统一处理为 `None` (对应数据库的NULL)，无需提前填充。
+          3. 只有当 `default_value` 是一个具体的值（如 `False`, `0`, `''`）时，才执行 `fillna`。
+        - 结果: 解决了数据准备阶段的最后一个边缘情况，是功能完备且运行稳定的最终版本。
         """
         if df.empty:
             return 0
@@ -808,7 +809,7 @@ class BaseDAO(Generic[T]):
         auto_now_fields = []
 
         # --- 数据准备阶段 ---
-        # 1. 处理 auto_now 和 auto_now_add 字段 (逻辑同V19)
+        # 1. 处理 auto_now 和 auto_now_add 字段
         for field in model_class._meta.fields:
             if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
                 df[field.column] = now
@@ -816,24 +817,25 @@ class BaseDAO(Generic[T]):
                 auto_now_fields.append(field.column)
                 df[field.column] = now
         
-        # ▼▼▼【核心代码修改】: 全面处理所有带 `default` 值的字段 ▼▼▼
+        # 2. 全面处理所有带 `default` 值的字段
         print("--- [DAO调试] 开始数据预处理：填充所有模型定义的默认值 ---")
         for field in model_class._meta.fields:
-            # 检查字段是否有 `default` 属性且不是特殊值 NOT_PROVIDED
             if field.default is not models.NOT_PROVIDED:
-                default_value = field.get_default() # 使用 get_default() 以处理可调用对象
+                default_value = field.get_default()
                 
-                # 情况一：DataFrame中完全没有这一列 -> 创建新列并填充默认值
                 if field.column not in df.columns:
                     print(f"--- [DAO调试] 发现带默认值的字段 '{field.column}' 在DataFrame中缺失，将使用默认值 '{default_value}' 创建该列。 ---")
                     df[field.column] = default_value
-                # 情况二：列存在，但包含空值 -> 填充这些空值
                 elif df[field.column].isnull().any():
-                    print(f"--- [DAO调试] 发现带默认值的字段 '{field.column}' 存在空值，将使用默认值 '{default_value}' 填充。 ---")
-                    df[field.column].fillna(default_value, inplace=True)
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
+                    # ▼▼▼【核心代码修改】: 只有当默认值不是None时才执行fillna ▼▼▼
+                    if default_value is not None:
+                        print(f"--- [DAO调试] 发现带默认值的字段 '{field.column}' 存在空值，将使用非None默认值 '{default_value}' 填充。 ---")
+                        df[field.column].fillna(default_value, inplace=True)
+                    else:
+                        print(f"--- [DAO调试] 字段 '{field.column}' 的默认值为 None，跳过 fillna，将由最终步骤统一处理为数据库NULL。 ---")
+                    # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
-        # 3. 序列化JSON字段 (逻辑同V19)
+        # 3. 序列化JSON字段
         json_field_names = [f.column for f in model_class._meta.fields if isinstance(f, models.JSONField)]
         for col_name in json_field_names:
             if col_name in df.columns:
@@ -842,9 +844,7 @@ class BaseDAO(Generic[T]):
                 )
         print("--- [DAO调试] 数据预处理完成 ---")
 
-        # ▼▼▼【核心代码修改】: 在所有列都添加完毕后，再获取最终的列名列表 ▼▼▼
         all_columns = list(df.columns)
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
         # --- SQL构建与执行阶段 ---
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
@@ -865,6 +865,7 @@ class BaseDAO(Generic[T]):
         )
         print(f"--- [DAO调试] 生成的单行SQL模板: {final_sql_template} ---")
 
+        # 最终将所有 NaN 转换为 None，以适应数据库的 NULL
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
         
         total_affected_rows = 0
