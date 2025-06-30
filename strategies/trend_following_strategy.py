@@ -110,7 +110,11 @@ class TrendFollowStrategy:
             return pd.DataFrame(), {}
         
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
-        rename_map = {col: f"{col}_D" for col in df.columns if not any(col.endswith(suffix) for suffix in timeframe_suffixes) and not col.startswith('VWAP_')}
+        rename_map = {
+            col: f"{col}_D" for col in df.columns 
+            if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
+            and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_'))
+        }
         if rename_map:
             df = df.rename(columns=rename_map)
             print(f"    - [信息] 已为 {len(rename_map)} 个日线原生列添加 '_D' 后缀。")
