@@ -160,7 +160,7 @@ class MultiTimeframeTrendStrategy:
 
         # --- 步骤 6: 运行战术层策略 (日线/分钟线) ---
         logger.info(f"--- 步骤6: 运行多时间框架战术策略... ---")
-        final_df, atomic_signals = await self.tactical_strategy.apply_strategy(
+        final_df, atomic_signals = self.tactical_strategy.apply_strategy(
             all_dfs, self.tactical_config
         )
 
