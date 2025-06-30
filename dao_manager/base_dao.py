@@ -810,6 +810,42 @@ class BaseDAO(Generic[T]):
             logger.error(f"执行批量Upsert (executemany) 时数据库出错。SQL模板: {final_sql_template[:500]}... Error: {e}", exc_info=True)
             raise
 
+    async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
+        """
+        【V6 - 终极健壮版】- 此方法保持不变
+        准备单个模型实例的数据字典。
+        核心功能：处理外键，将 'stock_code' 这样的字段或 {'stock': {'stock_code': ...}} 这样的结构，统一转换为实际的 'stock' 对象。
+        """
+        for fk_field_name, code_field_name in fk_fields_map.items():
+            code_value = None
+            if fk_field_name in prepared_data and isinstance(prepared_data[fk_field_name], dict):
+                fk_dict = prepared_data[fk_field_name]
+                code_value = fk_dict.get(code_field_name)
+            elif code_field_name in prepared_data:
+                code_value = prepared_data.pop(code_field_name)
+
+            if code_value is not None:
+                if code_value is None:
+                    prepared_data[fk_field_name] = None
+                    continue
+
+                fk_model = model_class._meta.get_field(fk_field_name).related_model
+                fk_instance = await self.get_or_create_fk_instance(fk_model, code_value, prepared_data)
+
+                if fk_instance is None:
+                    error_msg = (
+                        f"为外键字段 '{fk_field_name}' 准备实例失败！"
+                        f"无法为代码 '{code_value}' 找到或创建对应的 '{fk_model.__name__}' 实例。"
+                    )
+                    raise ValueError(error_msg)
+                
+                prepared_data[fk_field_name] = fk_instance
+
+        model_field_names = {f.name for f in model_class._meta.get_fields()}
+        cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
+        return cleaned_data
+
+
     @staticmethod
     @sync_to_async
     def _get_or_create_fk_sync(fk_model: Type[models.Model], code_value: str) -> models.Model | None:
