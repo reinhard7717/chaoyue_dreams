@@ -715,7 +715,7 @@ class BaseDAO(Generic[T]):
         if df.empty:
             return 0
         total_processed = 0
-        logger.info(f"开始异步批处理 {len(df)} 条数据到表 {model_class._meta.db_table}。更新字段: {update_fields}, 唯一键: {unique_key_fields}")
+        # logger.info(f"开始异步批处理 {len(df)} 条数据到表 {model_class._meta.db_table}。更新字段: {update_fields}, 唯一键: {unique_key_fields}")
         for i in range(0, len(df), batch_size):
             batch_df = df.iloc[i:i + batch_size]
             try:
@@ -729,7 +729,7 @@ class BaseDAO(Generic[T]):
                     total_processed += processed_count
             except Exception as e:
                 logger.error(f"原生SQL批处理时遇到意外错误: {e}", exc_info=True)
-        logger.info(f"异步批处理完成，共处理 {total_processed} 条记录。")
+        logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
         return total_processed
 
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
