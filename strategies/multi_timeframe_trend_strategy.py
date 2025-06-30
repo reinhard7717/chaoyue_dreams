@@ -88,6 +88,9 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"--- 步骤2: 整合战略(周)指标到战术(日)数据... ---")
         df_daily = tactical_dfs['D'] # 这个df_daily可能不包含 industry_strength_rank_D
         df_weekly = strategic_dfs['W']
+
+        df_daily.index = df_daily.index.tz_localize(None)
+        df_weekly.index = df_weekly.index.tz_localize(None)
         
         df_daily_centric = pd.merge_asof(
             left=df_daily.sort_index(),
