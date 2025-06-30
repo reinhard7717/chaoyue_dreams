@@ -662,15 +662,15 @@ class BaseDAO(Generic[T]):
         #      无论 ForeignKey 是否定义了 `to_field` 参数，`f.target_field` 都会正确地指向目标字段（自定义字段或默认主键）。
         #      `.name` 则获取该字段的名称字符串。
         fk_fields_map = {}
-        print("--- [DAO调试] 开始动态构建外键映射 ---")
+        # print("--- [DAO调试] 开始动态构建外键映射 ---")
         for f in model_class._meta.fields:
             if isinstance(f, models.ForeignKey):
                 # 旧的错误代码: target_field_name = f.to_field or f.related_model._meta.pk.name
                 # 新的正确代码:
                 target_field_name = f.target_field.name
                 fk_fields_map[f.name] = target_field_name
-                print(f"调试信息: [BaseDAO] 发现外键 '{f.name}'，映射到原始数据键 '{target_field_name}'。")
-        print("--- [DAO调试] 外键映射构建完成 ---")
+                # print(f"调试信息: [BaseDAO] 发现外键 '{f.name}'，映射到原始数据键 '{target_field_name}'。")
+        # print("--- [DAO调试] 外键映射构建完成 ---")
         # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
         # 3. 准备数据记录，将字典转换为包含ORM对象的字典
