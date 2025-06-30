@@ -413,61 +413,60 @@ class WeeklyTrendFollowStrategy:
 
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【战略剧本-箱体 V2.1 逻辑修正版】: 使用内部实现的动态波动率识别逻辑判断箱体突破。
-        - 核心修复: 修正了盘整期识别逻辑，确保其能有效触发。
-        - 完整流程: 1.识别低波动期 -> 2.定义箱体上沿 -> 3.判断放量突破。
+        【战略剧本-箱体 V2.2 状态机逻辑版】: 使用更稳健的状态定义来识别箱体突破。
+        - 核心修复: 引入“持续盘整状态”概念，避免单点波动误判。
+        - 完整流程: 1.识别低波动周 -> 2.定义持续盘整状态 -> 3.判断状态后的放量突破。
         """
-        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.1 逻辑修正版)")
+        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.2 状态机逻辑版)")
         if not params.get('enabled', True): 
             return pd.Series(False, index=df.index)
 
         # --- 步骤 1: 获取参数 ---
-        volatility_method = params.get('volatility_method', 'QUANTILE').upper()
-        quantile_level = params.get('quantile_level', 0.25)
+        quantile_level = params.get('quantile_level', 0.30) # 适当放宽分位数要求
         boll_period = params.get('boll_period', 20)
         boll_std = params.get('boll_std', 2.0)
         box_period = params.get('box_period', 26)
         volume_multiplier = params.get('volume_multiplier', 1.5)
+        # 新增参数：定义“持续盘整状态”
+        state_window = params.get('state_window', 4) # 观察窗口4周
+        state_threshold = params.get('state_threshold', 3) # 窗口内至少3周是低波动
 
         # --- 步骤 2: 依赖检查 ---
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_W"
-        vol_ma_col = f"VOL_MA_{params.get('vol_ma_period', 20)}_W" # 增加成交量均线依赖
+        vol_ma_period = self.indicator_cfg.get('vol_ma', {}).get('periods', [20])[0]
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_W"
         required_cols = ['close_W', 'high_W', 'volume_W', bbw_col, vol_ma_col]
         if not self._check_dependencies(df, required_cols):
             return pd.Series(False, index=df.index)
 
-        # --- 步骤 3: 识别低波动盘整期 (核心逻辑修正) ---
-        threshold = 0.0
-        if volatility_method == 'QUANTILE':
-            # 使用滚动分位数来识别相对低波动，而不是全局分位数
-            rolling_quantile = df[bbw_col].rolling(window=box_period * 2, min_periods=box_period).quantile(quantile_level)
-            is_consolidating = df[bbw_col] < rolling_quantile
-            print(f"    - [箱体突破分析] 使用 'ROLLING QUANTILE' 模式 (level={quantile_level}) 进行动态识别。")
-        else: # 假设为 STATIC
-            threshold = params.get('static_threshold', 0.15) # 提供一个更合理的静态阈值
-            is_consolidating = df[bbw_col] < threshold
-            print(f"    - [箱体突破分析] 使用 'STATIC' 模式，固定阈值: {threshold:.4f}")
-        
-        print(f"    - [箱体突破分析] 识别出 {is_consolidating.sum()} 个低波动盘整周期。")
+        # --- 步骤 3A: 识别单个的低波动周 ---
+        # 使用滚动分位数来识别相对低波动，这比全局分位数更具适应性
+        rolling_quantile = df[bbw_col].rolling(window=box_period * 2, min_periods=box_period).quantile(quantile_level)
+        is_low_volatility_week = df[bbw_col] < rolling_quantile
+        print(f"    - [箱体突破分析] 识别出 {is_low_volatility_week.sum()} 个单独的低波动周。")
+
+        # --- 步骤 3B: 定义“持续盘整状态” (核心逻辑新增) ---
+        # 如果在过去 state_window 周内，有 state_threshold 周以上是低波动，则认为进入了盘整状态
+        consolidation_state_count = is_low_volatility_week.rolling(window=state_window).sum()
+        state_is_in_consolidation = consolidation_state_count >= state_threshold
+        print(f"    - [箱体突破分析] 识别出 {state_is_in_consolidation.sum()} 个周处于'持续盘整状态'。")
 
         # --- 步骤 4: 定义箱体上沿和判断突破 ---
         # 箱体上沿定义为过去 N 周的最高价
-        # shift(1) 是为了防止未来函数，确保我们用的是“昨天”及以前的数据来定义今天的箱体
         box_high = df['high_W'].shift(1).rolling(window=box_period).max()
         
         # 条件1: 价格突破箱体上沿
         is_price_breakout = df['close_W'] > box_high
         
-        # 条件2: 突破必须发源于一个盘整状态
-        # 我们要求突破前的一周是盘整状态，这样更有意义
-        was_consolidating = is_consolidating.shift(1).fillna(False)
+        # 条件2: 突破必须发源于一个“持续盘整状态”
+        # 我们要求突破前的一周处于这个状态，这样信号更可靠
+        was_in_consolidation_state = state_is_in_consolidation.shift(1).fillna(False)
         
         # 条件3: 突破必须放量
-        # 使用成交量均线来判断放量，比用历史平均更稳健
-        is_volume_breakout = df['volume_W'] > (df[vol_ma_col] * volume_multiplier)
+        is_volume_breakout = df['volume_W'] > (df[vol_ma_col].shift(1) * volume_multiplier)
 
         # 合成最终信号
-        final_signal = (was_consolidating & is_price_breakout & is_volume_breakout).fillna(False)
+        final_signal = (was_in_consolidation_state & is_price_breakout & is_volume_breakout).fillna(False)
         print(f"    - [专业箱体突破] 最终信号: {final_signal.sum()} 次")
         return final_signal
 
