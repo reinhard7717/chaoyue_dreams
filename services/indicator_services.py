@@ -121,10 +121,89 @@ class IndicatorService:
         logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据。")
         return df
 
-    async def prepare_data(
+    def _find_params_recursively(self, config_dict: Dict, key_to_find: str) -> Optional[Dict]:
+        """
+        在配置字典中递归查找指定的键。
+
+        Args:
+            config_dict (Dict): 要搜索的配置字典。
+            key_to_find (str): 要查找的键名 (例如 'industry_context_params')。
+
+        Returns:
+            Optional[Dict]: 如果找到，返回对应的子字典；否则返回 None。
+        """
+        if key_to_find in config_dict:
+            return config_dict[key_to_find]
+        
+        for key, value in config_dict.items():
+            if isinstance(value, dict):
+                result = self._find_params_recursively(value, key_to_find)
+                if result is not None:
+                    return result
+        return None
+
+    async def prepare_data_for_strategy(
         self,
         stock_code: str,
-        config: dict, # 直接接收加载好的配置字典
+        config: dict,
+        trade_time: Optional[str] = None
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        【V6.2 终极自适应版】为策略准备数据的统一入口。
+        该方法会递归搜索配置，自适应地决定是否附加行业背景数据。
+
+        Args:
+            stock_code (str): 股票代码。
+            config (dict): 任何策略的完整配置文件字典。
+            trade_time (Optional[str]): 交易时间。
+
+        Returns:
+            Dict[str, pd.DataFrame]: 包含所有时间周期DataFrame的字典。
+        """
+        print(f"--- [数据准备V6.2-自适应版] 开始为 {stock_code} 准备数据... ---")
+
+        # --- 步骤 1: 始终执行基础数据和指标的准备 ---
+        all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time)
+
+        if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
+            logger.warning(f"[{stock_code}] 基础数据准备失败，无法继续。")
+            return all_dfs
+
+        # --- 步骤 2: 【核心升级】使用递归搜索来检查配置 ---
+        industry_params = self._find_params_recursively(config, 'industry_context_params')
+        is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
+
+        if not is_industry_enabled:
+            print("    - [配置信息] 在策略配置中未找到启用的 'industry_context_params'，跳过行业强度计算。")
+            print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（无行业背景）。 ---")
+            return all_dfs
+
+        # --- 步骤 3: 如果启用，则执行行业数据注入 (此部分逻辑不变) ---
+        print(f"    - [配置信息] 检测到行业协同已启用，开始获取行业强度...")
+        
+        current_trade_date = pd.to_datetime(trade_time).date() if trade_time else datetime.datetime.now().date()
+        industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
+        stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
+        stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
+        stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
+
+        stock_industry_rank = 0.0
+        if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
+            stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
+            print(f"    - [行业背景注入] 股票 {stock_code} 所属行业 '{stock_industry_name}'({stock_industry_code}) 当日强度排名: {stock_industry_rank:.2%}")
+        else:
+            print(f"    - [行业背景注入] 股票 {stock_code} ({stock_industry_name}) 未找到行业排名，默认排名为 0.0。")
+
+        all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
+        print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列 ({stock_industry_rank:.2f}) 添加到日线数据。")
+        
+        print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（含行业背景）。 ---")
+        return all_dfs
+
+    async def _prepare_base_data_and_indicators(
+        self,
+        stock_code: str,
+        config: dict,
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
@@ -275,65 +354,6 @@ class IndicatorService:
 
         print(f"--- [数据准备V5.1-重采样版] 数据准备完成，最终字典包含的周期: {list(processed_dfs.keys())} ---")
         return processed_dfs
-
-    async def prepare_data_with_industry_context(
-        self,
-        stock_code: str,
-        config: dict,
-        trade_time: Optional[str] = None
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        【V6.0 行业背景版】准备数据，并自动注入行业强度上下文。
-        这是策略总指挥应该调用的主要入口。
-
-        Args:
-            stock_code (str): 股票代码。
-            config (dict): 策略配置文件字典。
-            trade_time (Optional[str]): 交易时间。
-
-        Returns:
-            Dict[str, pd.DataFrame]: 包含所有时间周期DataFrame的字典，
-                                     其中日线数据已注入 'industry_strength_rank_D' 列。
-        """
-        print(f"--- [数据准备V6.0-行业版] 开始为 {stock_code} 准备数据及行业背景... ---")
-        
-        # --- 步骤 1: 调用现有的 prepare_data 获取基础K线和指标数据 ---
-        all_dfs = await self.prepare_data(stock_code, config, trade_time)
-
-        if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
-            logger.warning(f"[{stock_code}] 基础数据准备失败，无法注入行业背景。")
-            return all_dfs # 返回空字典或不完整的字典
-
-        # --- 步骤 2: 获取并注入行业强度数据 ---
-        logger.info(f"    - [行业背景注入] 开始为 {stock_code} 获取行业强度...")
-        
-        # 解析交易日期
-        current_trade_date = pd.to_datetime(trade_time).date() if trade_time else datetime.now().date()
-
-        # 1. 计算所有行业的强度排名 (注：在批量执行时，此结果应由外部调用者缓存)
-        #    这里假设调用者会处理缓存，Service只负责计算。
-        industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
-
-        # 2. 查询当前股票所属的行业代码 (使用 self.stock_basic_dao)
-        #    假设 StockBasicInfoDao 有 get_stock_industry_info 方法
-        stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
-        stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
-        stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
-
-        # 3. 从排名中找到该行业的强度排名
-        stock_industry_rank = 0.0 # 默认为0 (无行业或未找到排名)
-        if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
-            stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
-            print(f"    - [行业背景注入] 股票 {stock_code} 所属行业 '{stock_industry_name}'({stock_industry_code}) 当日强度排名: {stock_industry_rank:.2%}")
-        else:
-            print(f"    - [行业背景注入] 股票 {stock_code} ({stock_industry_name}) 未找到行业排名，默认排名为 0.0。")
-
-        # 4. 将行业强度排名作为一个新特征，合并到日线DataFrame中
-        all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
-        print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列 ({stock_industry_rank:.2f}) 添加到日线数据。")
-        
-        print(f"--- [数据准备V6.0-行业版] {stock_code} 数据准备完成。 ---")
-        return all_dfs
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
@@ -2051,6 +2071,67 @@ class IndicatorService:
         print("--- [行业轮动分析] 分析完成 ---")
         # 按动量降序排序，动量为正且越大，说明排名上升越快
         return final_report.sort_values('rank_momentum', ascending=False)
+
+
+    # async def prepare_data_with_industry_context(
+    #     self,
+    #     stock_code: str,
+    #     config: dict,
+    #     trade_time: Optional[str] = None
+    # ) -> Dict[str, pd.DataFrame]:
+    #     """
+    #     【V6.0 行业背景版】准备数据，并自动注入行业强度上下文。
+    #     这是策略总指挥应该调用的主要入口。
+
+    #     Args:
+    #         stock_code (str): 股票代码。
+    #         config (dict): 策略配置文件字典。
+    #         trade_time (Optional[str]): 交易时间。
+
+    #     Returns:
+    #         Dict[str, pd.DataFrame]: 包含所有时间周期DataFrame的字典，
+    #                                  其中日线数据已注入 'industry_strength_rank_D' 列。
+    #     """
+    #     print(f"--- [数据准备V6.0-行业版] 开始为 {stock_code} 准备数据及行业背景... ---")
+        
+    #     # --- 步骤 1: 调用现有的 prepare_data 获取基础K线和指标数据 ---
+    #     all_dfs = await self.prepare_data(stock_code, config, trade_time)
+
+    #     if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
+    #         logger.warning(f"[{stock_code}] 基础数据准备失败，无法注入行业背景。")
+    #         return all_dfs # 返回空字典或不完整的字典
+
+    #     # --- 步骤 2: 获取并注入行业强度数据 ---
+    #     logger.info(f"    - [行业背景注入] 开始为 {stock_code} 获取行业强度...")
+        
+    #     # 解析交易日期
+    #     current_trade_date = pd.to_datetime(trade_time).date() if trade_time else datetime.now().date()
+
+    #     # 1. 计算所有行业的强度排名 (注：在批量执行时，此结果应由外部调用者缓存)
+    #     #    这里假设调用者会处理缓存，Service只负责计算。
+    #     industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
+
+    #     # 2. 查询当前股票所属的行业代码 (使用 self.stock_basic_dao)
+    #     #    假设 StockBasicInfoDao 有 get_stock_industry_info 方法
+    #     stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
+    #     stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
+    #     stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
+
+    #     # 3. 从排名中找到该行业的强度排名
+    #     stock_industry_rank = 0.0 # 默认为0 (无行业或未找到排名)
+    #     if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
+    #         stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
+    #         print(f"    - [行业背景注入] 股票 {stock_code} 所属行业 '{stock_industry_name}'({stock_industry_code}) 当日强度排名: {stock_industry_rank:.2%}")
+    #     else:
+    #         print(f"    - [行业背景注入] 股票 {stock_code} ({stock_industry_name}) 未找到行业排名，默认排名为 0.0。")
+
+    #     # 4. 将行业强度排名作为一个新特征，合并到日线DataFrame中
+    #     all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
+    #     print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列 ({stock_industry_rank:.2f}) 添加到日线数据。")
+        
+    #     print(f"--- [数据准备V6.0-行业版] {stock_code} 数据准备完成。 ---")
+    #     return all_dfs
+
 
     # # 修改方法: 重构 prepare_multi_timeframe_data 以提高效率和正确性
     # async def prepare_multi_timeframe_data(

@@ -48,10 +48,10 @@ class MultiTimeframeTrendStrategy:
 
         # --- 步骤 1: 并行准备战略(周)和战术(日/分钟)数据 ---
         logger.info(f"--- 步骤1: 调用 IndicatorService 并行准备所有数据... ---")
-        task_strategic = self.indicator_service.prepare_data(
+        task_strategic = self.indicator_service.prepare_data_for_strategy(
             stock_code=stock_code, config=self.strategic_config, trade_time=trade_time
         )
-        task_tactical = self.indicator_service.prepare_data(
+        task_tactical = self.indicator_service.prepare_data_for_strategy(
             stock_code=stock_code, config=self.tactical_config, trade_time=trade_time
         )
         strategic_dfs, tactical_dfs = await asyncio.gather(task_strategic, task_tactical)
