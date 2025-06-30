@@ -377,17 +377,25 @@ class IndicatorService:
 
                 # 解释: VWAP使用'anchor'参数而不是'periods'，因此需要一个专门的处理分支。
                 if indicator_name == 'vwap':
-                    # print(f"    - [匹配成功] 周期 '{timeframe_key}' 将计算 VWAP")
+                    # print(f"    - [VWAP计算] 正在为周期 '{timeframe_key}' 处理VWAP...")
                     try:
-                        # VWAP的计算锚点通常是'D' (日内)，'W' (周内)等。
-                        # 我们直接使用当前的时间周期key作为anchor。
-                        anchor = timeframe_key
+                        # 核心修正：如果时间周期是数字（代表分钟线），则锚点必须是'D'（日内VWAP）。
+                        # 否则，对于 'D', 'W', 'M' 等，锚点就是其本身。
+                        anchor = 'D' if timeframe_key.isdigit() else timeframe_key
+                        # print(f"    - [VWAP修正] 周期 '{timeframe_key}' 将使用锚点 '{anchor}' 计算 VWAP。")
+                        
                         result_df = await self.calculate_vwap(df=df_for_calc, anchor=anchor)
+                        
                         if result_df is not None and not result_df.empty:
                             for col in result_df.columns:
-                                # pandas_ta的vwap列名已经是VWAP_D, VWAP_W等，不需要再加后缀
+                                # pandas_ta的vwap列名是根据anchor生成的，例如 VWAP_D, VWAP_W
+                                # 我们直接使用这个列名，因为它已经包含了周期信息，不需要再加后缀
                                 df_for_calc[col] = result_df[col]
                                 df[col] = result_df[col]
+                                # print(f"    - [VWAP成功] 已将列 '{col}' 添加到周期 '{timeframe_key}' 的DataFrame中。")
+                        else:
+                            print(f"    - [VWAP警告] 周期 '{timeframe_key}' 的VWAP计算未返回有效结果。")
+
                     except Exception as e:
                         logger.error(f"    - 计算指标 VWAP (周期: {timeframe_key}) 时出错: {e}")
                         traceback.print_exc()

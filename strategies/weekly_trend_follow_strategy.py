@@ -411,44 +411,43 @@ class WeeklyTrendFollowStrategy:
 
         return (is_near_resistance & is_long_upper_shadow & is_high_volume & is_closing_lower).fillna(False)
 
-    # ▼▼▼【代码修改】: 这是本次修改的核心，重构整个函数 ▼▼▼
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【战略剧本-箱体 V2.0 自洽逻辑版】: 使用内部实现的动态波动率识别逻辑判断箱体突破。
-        - 不再依赖外部计算的 'consolidation_period' 指标。
-        - 内部实现了与 _get_weekly_support_level 一致的动态波动率识别方法。
+        【战略剧本-箱体 V2.1 逻辑修正版】: 使用内部实现的动态波动率识别逻辑判断箱体突破。
+        - 核心修复: 修正了盘整期识别逻辑，确保其能有效触发。
         - 完整流程: 1.识别低波动期 -> 2.定义箱体上沿 -> 3.判断放量突破。
         """
-        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.0 自洽逻辑版)")
+        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.1 逻辑修正版)")
         if not params.get('enabled', True): 
             return pd.Series(False, index=df.index)
 
-        # --- 步骤 1: 获取参数，与洗盘评分逻辑保持一致 ---
-        # 用于识别盘整期的参数
+        # --- 步骤 1: 获取参数 ---
         volatility_method = params.get('volatility_method', 'QUANTILE').upper()
         quantile_level = params.get('quantile_level', 0.25)
         boll_period = params.get('boll_period', 20)
         boll_std = params.get('boll_std', 2.0)
-        # 用于定义箱体和突破的参数
-        box_period = params.get('box_period', 26) # 定义箱体的时间窗口
+        box_period = params.get('box_period', 26)
         volume_multiplier = params.get('volume_multiplier', 1.5)
 
         # --- 步骤 2: 依赖检查 ---
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_W"
-        required_cols = ['close_W', 'high_W', 'volume_W', bbw_col]
+        vol_ma_col = f"VOL_MA_{params.get('vol_ma_period', 20)}_W" # 增加成交量均线依赖
+        required_cols = ['close_W', 'high_W', 'volume_W', bbw_col, vol_ma_col]
         if not self._check_dependencies(df, required_cols):
             return pd.Series(False, index=df.index)
 
-        # --- 步骤 3: 识别低波动盘整期 (核心逻辑移植) ---
+        # --- 步骤 3: 识别低波动盘整期 (核心逻辑修正) ---
         threshold = 0.0
         if volatility_method == 'QUANTILE':
-            threshold = df[bbw_col].quantile(quantile_level)
-            print(f"    - [箱体突破分析] 使用 'QUANTILE' 模式 (level={quantile_level})，动态阈值: {threshold:.4f}")
+            # 使用滚动分位数来识别相对低波动，而不是全局分位数
+            rolling_quantile = df[bbw_col].rolling(window=box_period * 2, min_periods=box_period).quantile(quantile_level)
+            is_consolidating = df[bbw_col] < rolling_quantile
+            print(f"    - [箱体突破分析] 使用 'ROLLING QUANTILE' 模式 (level={quantile_level}) 进行动态识别。")
         else: # 假设为 STATIC
-            threshold = params.get('static_threshold', 0.25) # 提供一个备用静态阈值
+            threshold = params.get('static_threshold', 0.15) # 提供一个更合理的静态阈值
+            is_consolidating = df[bbw_col] < threshold
             print(f"    - [箱体突破分析] 使用 'STATIC' 模式，固定阈值: {threshold:.4f}")
         
-        is_consolidating = df[bbw_col] < threshold
         print(f"    - [箱体突破分析] 识别出 {is_consolidating.sum()} 个低波动盘整周期。")
 
         # --- 步骤 4: 定义箱体上沿和判断突破 ---
@@ -464,14 +463,13 @@ class WeeklyTrendFollowStrategy:
         was_consolidating = is_consolidating.shift(1).fillna(False)
         
         # 条件3: 突破必须放量
-        avg_volume = df['volume_W'].shift(1).rolling(window=box_period).mean()
-        is_volume_breakout = df['volume_W'] > (avg_volume * volume_multiplier)
+        # 使用成交量均线来判断放量，比用历史平均更稳健
+        is_volume_breakout = df['volume_W'] > (df[vol_ma_col] * volume_multiplier)
 
         # 合成最终信号
         final_signal = (was_consolidating & is_price_breakout & is_volume_breakout).fillna(False)
         print(f"    - [专业箱体突破] 最终信号: {final_signal.sum()} 次")
         return final_signal
-    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _get_dynamic_col_names(self) -> dict:
         """【V17.0】集中动态构建所有可能用到的列名"""
