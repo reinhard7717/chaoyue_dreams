@@ -793,55 +793,71 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V17 - 终极完美版】在同步环境中，使用原生SQL处理一个批次的数据。
-        此版本在V16的可靠执行策略基础上，增加了对JSON字段的显式序列化处理，解决了(3140)错误。
-        - 策略: 保持V16的事务中逐行执行策略，确保执行的健壮性。
-        - 新增: 在数据准备阶段，自动识别模型中的JSONField，并使用 `json.dumps` 将对应的DataFrame列中的Python对象（list/dict）转换为JSON字符串。
-        - 结果: 保证了传递给数据库驱动的每一种数据类型都完全符合MySQL的期望，是功能最完整、最可靠的最终版本。
+        【V18 - 终极生产版】在同步环境中，使用原生SQL处理一个批次的数据。
+        此版本在V17的基础上，增加了对 auto_now_add 和 auto_now 字段的自动处理，解决了(1364)错误。
+        - 背景: 由于使用原生SQL绕过了Django ORM，ORM提供的 auto_now_add 和 auto_now 功能不会自动触发。
+        - 策略:
+          1. 自动识别模型中的 auto_now_add 和 auto_now 字段。
+          2. 如果DataFrame中缺少这些列，则使用当前时间(timezone.now())进行填充。
+          3. 强制将 auto_now 字段加入到 ON DUPLICATE KEY UPDATE 子句中，确保每次更新都会刷新时间戳。
+        - 结果: 实现了与Django ORM完全一致的行为，是功能最完整、最健壮的最终版本。
         """
         if df.empty:
             return 0
 
         table_name = model_class._meta.db_table
-        all_columns = list(df.columns)
-
-        # 数据预处理步骤 (保持对NULL值的处理)
-        print("--- [DAO调试] 开始数据预处理：使用模型默认值填充缺失数据 ---")
+        
+        # ▼▼▼【核心代码修改】: 自动处理 auto_now_add 和 auto_now 字段 ▼▼▼
+        now = timezone.now() # 获取一次当前时间，保证批次内时间戳一致
+        
+        auto_now_fields = []
         for field in model_class._meta.fields:
+            # 处理 auto_now_add 字段 (如 created_at)
+            if field.auto_now_add and field.column not in df.columns:
+                print(f"--- [DAO调试] 发现 auto_now_add 字段 '{field.column}' 在DataFrame中缺失，将使用当前时间填充。 ---")
+                df[field.column] = now
+            
+            # 识别所有 auto_now 字段 (如 updated_at)
+            if field.auto_now:
+                auto_now_fields.append(field.column)
+                print(f"--- [DAO调试] 发现 auto_now 字段 '{field.column}'，将使用当前时间填充并强制更新。 ---")
+                df[field.column] = now
+        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
+
+        all_columns = list(df.columns) # 从可能已修改的df获取最终列
+
+        # 数据预处理步骤 (保持对NULL值和JSON字段的处理)
+        print("--- [DAO调试] 开始数据预处理：填充默认值和序列化JSON ---")
+        json_field_names = []
+        for field in model_class._meta.fields:
+            if isinstance(field, models.JSONField):
+                json_field_names.append(field.column)
             if field.default is not models.NOT_PROVIDED and field.column in df.columns and df[field.column].isnull().any():
                 default_value = field.get_default()
                 if default_value is not None:
                     df[field.column].fillna(default_value, inplace=True)
-                    print(f"调试信息: [BaseDAO] 在列 '{field.column}' 中发现缺失值，已使用模型默认值 '{default_value}' 进行填充。")
         
-        # ▼▼▼【核心代码修改】: 显式进行JSON序列化 ▼▼▼
-        # 1. 识别模型中所有的JSON字段
-        json_field_names = [
-            field.column for field in model_class._meta.fields
-            if isinstance(field, models.JSONField)
-        ]
-        print(f"--- [DAO调试] 发现模型中的JSON字段: {json_field_names} ---")
-
-        # 2. 对DataFrame中对应的JSON列进行序列化
         for col_name in json_field_names:
             if col_name in df.columns:
-                print(f"--- [DAO调试] 正在对JSON字段 '{col_name}' 进行序列化处理... ---")
-                # 使用.apply()将非空的、非字符串的列表或字典对象转换为JSON字符串
-                # `ensure_ascii=False` 保证中文字符能被正确处理
                 df[col_name] = df[col_name].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
-        print("--- [DAO调试] JSON字段序列化完成 ---")
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
+        print("--- [DAO调试] 数据预处理完成 ---")
 
-        # 构建用于单行操作的SQL模板 (逻辑同V16)
+        # 构建用于单行操作的SQL模板
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
         placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})"
         
-        if not update_fields:
+        # ▼▼▼【核心代码修改】: 强制更新 auto_now 字段 ▼▼▼
+        # 使用集合操作，确保 auto_now 字段一定在更新列表中
+        update_fields_set = set(update_fields)
+        update_fields_set.update(auto_now_fields)
+        
+        if not update_fields_set:
             update_sql = f"`{model_class._meta.pk.name}` = `{model_class._meta.pk.name}`"
         else:
-            update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields])
+            update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields_set])
+        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
         final_sql_template = (
             f"INSERT INTO `{table_name}` ({cols_sql}) "
@@ -850,12 +866,10 @@ class BaseDAO(Generic[T]):
         )
         print(f"--- [DAO调试] 生成的单行SQL模板: {final_sql_template} ---")
 
-        # 准备参数列表，现在DataFrame中的JSON列已经是字符串了
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
         
         total_affected_rows = 0
         try:
-            # 在事务中逐行执行 (逻辑同V16)
             with transaction.atomic():
                 with connection.cursor() as cursor:
                     for i, params_tuple in enumerate(params_list_of_tuples):
@@ -863,9 +877,8 @@ class BaseDAO(Generic[T]):
                             cursor.execute(final_sql_template, params_tuple)
                             total_affected_rows += cursor.rowcount
                         except Exception as inner_e:
-                            # 增加行内错误调试信息
                             print(f"--- [DAO调试] 在处理第 {i+1} 行数据时出错。数据: {params_tuple} ---")
-                            raise inner_e # 重新抛出内部异常
+                            raise inner_e
             return total_affected_rows
         except Exception as e:
             logger.error(f"执行批量Upsert时数据库出错。SQL模板: {final_sql_template[:500]}... Error: {e}", exc_info=True)
