@@ -636,8 +636,9 @@ class BaseDAO(Generic[T]):
     # ==================== 批量保存方法 ====================
     async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=5000):
         """
-        【V9 - 完全动态版】使用原生SQL实现高效的批量更新或插入（Upsert）。
-        此版本彻底移除了外键字段映射的硬编码，通过读取模型的 to_field 属性实现完全动态。
+        【V10 - 修正版】使用原生SQL实现高效的批量更新或插入（Upsert）。
+        此版本修正了获取外键目标字段名的错误，使用 Django 提供的 f.target_field 属性，
+        使其真正健壮和正确。
         """
         # 1. 初始检查和准备
         if not data_list:
@@ -654,18 +655,19 @@ class BaseDAO(Generic[T]):
         pk_name = model_class._meta.pk.name
         update_fields = [f for f in all_model_fields if f not in unique_field_set and f != pk_name]
 
-        # ▼▼▼【核心代码修改】: 动态构建外键映射，移除硬编码 ▼▼▼
-        # 解释: 旧代码假设 ForeignKey 'stock' 对应原始数据中的 'stock_code'。
-        #      新代码通过读取字段的 to_field 属性，动态地找出关联的字段名。
-        #      这使得代码能正确处理任何外键定义，无需遵守命名约定。
+        # ▼▼▼【核心代码修改】: 修正获取外键目标字段名的方式 ▼▼▼
+        # 解释: 旧代码使用了不存在的 `f.to_field` 属性，导致了 AttributeError。
+        #      新的正确代码使用 `f.target_field.name`。
+        #      `f.target_field` 是 Django 提供的标准API，它直接返回外键所指向的目标字段对象。
+        #      无论 ForeignKey 是否定义了 `to_field` 参数，`f.target_field` 都会正确地指向目标字段（自定义字段或默认主键）。
+        #      `.name` 则获取该字段的名称字符串。
         fk_fields_map = {}
         print("--- [DAO调试] 开始动态构建外键映射 ---")
         for f in model_class._meta.fields:
             if isinstance(f, models.ForeignKey):
-                # f.name 是本模型中的字段名, e.g., 'stock'
-                # f.to_field 是关联到目标模型的哪个字段, e.g., 'stock_code'
-                # 如果 to_field 未指定(为None)，则关联的是目标模型的主键
-                target_field_name = f.to_field or f.related_model._meta.pk.name
+                # 旧的错误代码: target_field_name = f.to_field or f.related_model._meta.pk.name
+                # 新的正确代码:
+                target_field_name = f.target_field.name
                 fk_fields_map[f.name] = target_field_name
                 print(f"调试信息: [BaseDAO] 发现外键 '{f.name}'，映射到原始数据键 '{target_field_name}'。")
         print("--- [DAO调试] 外键映射构建完成 ---")
@@ -677,7 +679,6 @@ class BaseDAO(Generic[T]):
         for record in data_list:
             try:
                 sanitized_record = self._sanitize_for_json(record)
-                # _prepare_model_instance 现在使用完全动态的 fk_fields_map
                 instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
                 prepared_data_list.append(instance_data)
             except Exception as e:
@@ -701,7 +702,7 @@ class BaseDAO(Generic[T]):
                     print(f"调试信息: [BaseDAO] 发现关系列 '{field_name}'，将转换为数据库列 '{column_name}'。")
                     df[column_name] = df[field_name].apply(lambda x: x.pk if pd.notna(x) else None)
                     df = df.drop(columns=[field_name])
-                    print(f"调试信息: [BaseDAO] 转换完成。新列 '{column_name}' 已创建，旧列 '{field_name}' 已删除。")
+                    # print(f"调试信息: [BaseDAO] 转换完成。新列 '{column_name}' 已创建，旧列 '{field_name}' 已删除。")
         print("--- [DAO调试] DataFrame关系字段转换完成 ---")
 
         # 6. 调用下游异步批处理方法
