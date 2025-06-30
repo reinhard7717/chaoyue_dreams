@@ -634,34 +634,26 @@ class BaseDAO(Generic[T]):
             return []
 
     # ==================== 批量保存方法 ====================
-    async def _save_all_to_db_native_upsert(self, model_class, data_list, unique_fields, batch_size=5000):
+    async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=5000):
         """
-        【V5 - 修复外键映射（健壮版）】使用原生SQL实现高效的批量更新或插入（Upsert）。
-        此方法保持不变，因为它负责通用的数据准备和批处理调度。
+        【V6 - 修复参数传递和数据结构】使用原生SQL实现高效的批量更新或插入（Upsert）。
+        此版本将数据准备为DataFrame，并正确调用下游的批处理方法。
         """
         if not data_list:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
         total_records = len(data_list)
-        success_count = 0
         failed_count = 0
 
-        # 1. 获取模型的所有可写字段名。
+        # --- 这部分逻辑保持不变 ---
         all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
-        
-        # 2. 创建一个包含 unique_fields 及其对象形式（如 'stock'）的集合，用于排除。
         unique_field_set = set(unique_fields)
         for field_name in unique_fields:
             if field_name.endswith('_id'):
                 unique_field_set.add(field_name[:-3])
-
-        # 3. 要更新的字段 = 所有模型字段 - 唯一约束字段 - 主键。
         pk_name = model_class._meta.pk.name
         update_fields = [f for f in all_model_fields if f not in unique_field_set and f != pk_name]
         
-        # print(f"调试信息: [BaseDAO-Upsert] 计算出的待更新字段 (update_fields): {update_fields}")
-
-        # 外键映射逻辑保持不变，非常健壮
         fk_fields_map = {}
         for f in model_class._meta.fields:
             if isinstance(f, models.ForeignKey):
@@ -669,32 +661,45 @@ class BaseDAO(Generic[T]):
                 base_name = field_name.removesuffix('_id')
                 code_field_name = f"{base_name}_code"
                 fk_fields_map[field_name] = code_field_name
-        # print(f"调试信息: [BaseDAO-Upsert] 生成的健壮版外键映射 (fk_fields_map): {fk_fields_map}")
+        # --- 逻辑不变部分结束 ---
 
-        # 准备待处理的对象列表
-        objects_to_create = []
+        # 代码修改处: 不再创建模型对象，而是创建数据字典列表
+        prepared_data_list = []
         failed_records = []
         for record in data_list:
             try:
-                # 注意：这里的 _sanitize_for_json 和 get_or_create_fk_instance 是您已有的方法，此处假设它们存在
                 sanitized_record = self._sanitize_for_json(record) 
                 instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
-                objects_to_create.append(model_class(**instance_data))
+                prepared_data_list.append(instance_data) # 将准备好的数据字典添加到列表
             except Exception as e:
-                logger.error(f"在准备模型实例时出错: {e}, 记录: {record}", exc_info=True)
+                logger.error(f"在准备模型实例数据时出错: {e}, 记录: {record}", exc_info=True)
                 failed_records.append(record)
         
         failed_count += len(failed_records)
 
-        # 分批处理
-        for i in range(0, len(objects_to_create), batch_size):
-            batch = objects_to_create[i:i + batch_size]
-            # 【代码修改处】调用重构后的异步处理方法
-            batch_success_count, batch_failed_count = await self.process_batch_async(
-                model_class, batch, update_fields
+        # 代码修改处: 将数据字典列表转换为DataFrame，并处理空数据情况
+        if not prepared_data_list:
+            logger.warning("所有记录在准备阶段均失败，不执行数据库操作。")
+            return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": 0}
+
+        df = pd.DataFrame(prepared_data_list)
+
+        # 代码修改处: 移除内部的批处理循环，直接调用 process_batch_async
+        # process_batch_async 内部会处理分批逻辑
+        try:
+            # 【关键修改】正确调用 process_batch_async，并传递所有必需的参数
+            success_count = await self.process_batch_async(
+                df=df,
+                model_class=model_class,
+                update_fields=update_fields,
+                unique_key_fields=unique_fields, # 传递唯一键参数
+                batch_size=batch_size
             )
-            success_count += batch_success_count
-            failed_count += batch_failed_count
+        except Exception as e:
+            logger.error(f"调用 process_batch_async 时发生未知错误: {e}", exc_info=True)
+            # 如果 process_batch_async 整体失败，我们将剩余记录数计为失败
+            failed_count += len(df)
+            success_count = 0
 
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
 
