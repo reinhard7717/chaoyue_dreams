@@ -413,9 +413,9 @@ class WeeklyTrendFollowStrategy:
 
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【战略剧本-箱体 V2.4 深度调试版】: 增加详细的日志输出，诊断为何无法产生信号。
+        【战略剧本-箱体 V2.5 最终诊断版】: 强制打印依赖检查结果，定位周线信号为0的根源。
         """
-        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.4 深度调试版)")
+        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.5 最终诊断版)")
         if not params.get('enabled', True): 
             return pd.Series(False, index=df.index)
 
@@ -428,15 +428,22 @@ class WeeklyTrendFollowStrategy:
         state_window = params.get('state_window', 5)
         state_threshold = params.get('state_threshold', 2)
 
-        # --- 依赖检查 ---
+        # --- 步骤 2: 依赖检查 (增加强制日志) ---
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_W"
         vol_ma_period = self.indicator_cfg.get('vol_ma', {}).get('periods', [20])[0]
         vol_ma_col = f"VOL_MA_{vol_ma_period}_W"
         required_cols = ['close_W', 'high_W', 'volume_W', bbw_col, vol_ma_col]
-        if not self._check_dependencies(df, required_cols):
+        
+        # ▼▼▼【代码修改】: 增加强制日志输出 ▼▼▼
+        print("    - [箱体突破分析] 开始依赖检查...")
+        dependencies_met = self._check_dependencies(df, required_cols, log_details=True)
+        if not dependencies_met:
+            print("    - [箱体突破分析] 依赖检查失败，策略提前退出。")
             return pd.Series(False, index=df.index)
+        print("    - [箱体突破分析] 依赖检查通过。")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
-        # --- 核心计算部分保持不变 ---
+        # --- 核心计算部分 ---
         rolling_quantile = df[bbw_col].rolling(window=box_period * 2, min_periods=box_period).quantile(quantile_level)
         is_low_volatility_week = df[bbw_col] < rolling_quantile
         consolidation_state_count = is_low_volatility_week.rolling(window=state_window).sum()
@@ -447,32 +454,34 @@ class WeeklyTrendFollowStrategy:
         is_volume_breakout = df['volume_W'] > (df[vol_ma_col].shift(1) * volume_multiplier)
         final_signal = (was_in_consolidation_state & is_price_breakout & is_volume_breakout).fillna(False)
 
-        # ▼▼▼【代码修改】: 增加深度调试日志 ▼▼▼
-        # 如果最终没有产生任何信号，就打印最后10周的详细状态，以便分析
         if not final_signal.any():
             print("    - [箱体突破分析] 未找到任何突破信号。打印最后10周的状态进行诊断:")
-            
-            # 创建一个临时的DataFrame用于展示
             debug_df = pd.DataFrame({
-                'Close': df['close_W'],
-                'BBW': df[bbw_col],
-                'BBW_Quantile': rolling_quantile,
-                'Is_Low_Vol': is_low_volatility_week,
-                'Consol_Count': consolidation_state_count,
-                'In_Consol_State': state_is_in_consolidation,
-                'Was_In_Consol': was_in_consolidation_state,
-                'Box_High': box_high,
-                'Price_Breakout': is_price_breakout,
-                'Volume_Breakout': is_volume_breakout,
-                'FINAL_SIGNAL': final_signal
+                'Close': df['close_W'], 'BBW': df[bbw_col], 'BBW_Quantile': rolling_quantile,
+                'Is_Low_Vol': is_low_volatility_week, 'Consol_Count': consolidation_state_count,
+                'In_Consol_State': state_is_in_consolidation, 'Was_In_Consol': was_in_consolidation_state,
+                'Box_High': box_high, 'Price_Breakout': is_price_breakout,
+                'Volume_Breakout': is_volume_breakout, 'FINAL_SIGNAL': final_signal
             })
-            # 使用 to_string() 保证所有列都能显示出来
             print(debug_df.tail(10).to_string())
         else:
             print(f"    - [专业箱体突破] 成功找到 {final_signal.sum()} 个突破信号!")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
             
         return final_signal
+
+    def _check_dependencies(self, df: pd.DataFrame, cols: list, log_details: bool = False) -> bool:
+        """检查DataFrame中是否存在所有必需的列。"""
+        missing_cols = [col for col in cols if col not in df.columns]
+        if missing_cols:
+            # ▼▼▼【代码修改】: 增加详细日志开关 ▼▼▼
+            if log_details:
+                print(f"      - [依赖检查] 失败! 缺少以下必需列: {missing_cols}")
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            if not hasattr(self, '_warned_missing_cols_weekly'):
+                logger.warning(f"周线策略缺少必需列: {missing_cols}，相关剧本将跳过。")
+                self._warned_missing_cols_weekly = True
+            return False
+        return True
 
     def _get_dynamic_col_names(self) -> dict:
         """【V17.0】集中动态构建所有可能用到的列名"""

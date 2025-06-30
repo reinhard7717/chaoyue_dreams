@@ -2146,10 +2146,10 @@ class TrendFollowStrategy:
 
     def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
         """
-        【V2.4 深度调试版】检查VWAP支撑确认信号。
-        - 核心修改: 增加了大量的 print 语句，用于诊断为何日期无法对齐。
+        【V2.5 最终修复版】检查VWAP支撑确认信号。
+        - 核心修复: 使用 .tz_localize(None) 强制移除所有索引的时区信息，确保可以正确对齐和比较。
         """
-        print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.4 深度调试版)...")
+        print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...")
         vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
         if not vwap_params.get('enabled', False):
             if 'D' in df_dict and not df_dict['D'].empty:
@@ -2168,48 +2168,60 @@ class TrendFollowStrategy:
                 self._warned_missing_minute_df_vwap = True
              return pd.Series(False, index=df_daily.index if df_daily is not None else None)
         
-        # ▼▼▼【代码修改】: 增加深度调试日志 ▼▼▼
-        print(f"      - [VWAP调试] 日线数据范围: {df_daily.index.min()} -> {df_daily.index.max()}")
-        print(f"      - [VWAP调试] 分钟线数据范围: {df_minute.index.min()} -> {df_minute.index.max()}")
+        # ▼▼▼【代码修改】: 这是本次修改的核心，釜底抽薪解决时区问题 ▼▼▼
+        # 步骤 A: 强制移除时区信息，创建副本以避免SettingWithCopyWarning
+        try:
+            df_minute_no_tz = df_minute.copy()
+            df_minute_no_tz.index = df_minute_no_tz.index.tz_localize(None)
+            
+            df_daily_no_tz = df_daily.copy()
+            df_daily_no_tz.index = df_daily_no_tz.index.tz_localize(None)
+            
+            print("      - [VWAP确认] 已成功移除日线和分钟线索引的时区信息。")
+        except TypeError:
+            # 如果某个索引本来就没有时区，tz_localize(None)会报错，说明它已经是我们想要的状态
+            df_minute_no_tz = df_minute.copy()
+            df_daily_no_tz = df_daily.copy()
+            if df_minute_no_tz.index.tz is not None:
+                 df_minute_no_tz.index = df_minute_no_tz.index.tz_convert(None)
+            if df_daily_no_tz.index.tz is not None:
+                 df_daily_no_tz.index = df_daily_no_tz.index.tz_convert(None)
+            print("      - [VWAP确认] 索引已经是无时区状态，继续执行。")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
-        
+
         vwap_col = f'VWAP_{tf}'
-        if vwap_col not in df_minute.columns:
+        if vwap_col not in df_minute_no_tz.columns:
             vwap_col = 'VWAP_D'
-            if vwap_col not in df_minute.columns:
+            if vwap_col not in df_minute_no_tz.columns:
                 if not hasattr(self, '_warned_missing_vwap_col'):
                     logger.warning(f"缺少 {tf} 分钟线的 'VWAP_{tf}' 或 'VWAP_D' 列，VWAP确认功能将不生效。")
                     self._warned_missing_vwap_col = True
-                return pd.Series(False, index=df_daily.index)
+                return pd.Series(False, index=df_daily_no_tz.index)
 
         close_col = 'close'
-        is_above_vwap = df_minute[close_col] > df_minute[vwap_col] * (1 + buffer)
+        is_above_vwap = df_minute_no_tz[close_col] > df_minute_no_tz[vwap_col] * (1 + buffer)
         
+        # 现在所有操作都基于无时区的DataFrame
         daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
         
-        final_signal = pd.Series(False, index=df_daily.index)
+        final_signal = pd.Series(False, index=df_daily_no_tz.index)
         
         if not daily_confirmation.empty:
-            normalized_daily_index = df_daily.index.normalize()
-            
-            # ▼▼▼【代码修改】: 增加深度调试日志 ▼▼▼
-            print(f"      - [VWAP调试] 日线标准化后索引 (后5): {normalized_daily_index[-5:]}")
-            print(f"      - [VWAP调试] 分钟线聚合后索引 (后5): {daily_confirmation.index[-5:]}")
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
-            
+            normalized_daily_index = df_daily_no_tz.index.normalize()
             matching_mask = normalized_daily_index.isin(daily_confirmation.index)
             
             if matching_mask.any():
-                matching_indices = df_daily.index[matching_mask]
+                matching_indices = df_daily_no_tz.index[matching_mask]
                 normalized_matching_indices = normalized_daily_index[matching_mask]
-                print(f"      - [VWAP确认] 找到 {len(matching_indices)} 个共有的交易日用于VWAP状态更新。")
+                print(f"      - [VWAP确认] 成功找到 {len(matching_indices)} 个共有的交易日用于VWAP状态更新。")
                 final_signal.loc[matching_indices] = daily_confirmation.loc[normalized_matching_indices].values
             else:
-                print("      - [VWAP确认] 警告: 标准化后，日线数据与分钟线聚合信号之间仍没有共同的日期。")
+                print("      - [VWAP确认] 警告: 移除时区后，日线与分钟线聚合信号之间仍没有共同日期。")
         
+        # 最后，将信号的索引设置回原始的日线索引，以保持与其他信号的兼容性
+        final_signal.index = df_daily.index
         print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。")
         return final_signal
-
 
 
 
