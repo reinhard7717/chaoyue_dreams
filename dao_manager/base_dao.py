@@ -636,9 +636,8 @@ class BaseDAO(Generic[T]):
     # ==================== 批量保存方法 ====================
     async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=5000):
         """
-        【V8 - 关系字段终极版】使用原生SQL实现高效的批量更新或插入（Upsert）。
-        此版本使用 field.is_relation 来通用地处理所有关系字段（ForeignKey, OneToOneField等），
-        将DataFrame中的ORM对象列转换为数据库ID列，从根本上解决原生SQL执行错误。
+        【V9 - 完全动态版】使用原生SQL实现高效的批量更新或插入（Upsert）。
+        此版本彻底移除了外键字段映射的硬编码，通过读取模型的 to_field 属性实现完全动态。
         """
         # 1. 初始检查和准备
         if not data_list:
@@ -646,30 +645,39 @@ class BaseDAO(Generic[T]):
         total_records = len(data_list)
         failed_count = 0
 
-        # 2. 字段元数据分析 (这部分逻辑保持不变)
+        # 2. 字段元数据分析
         all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
         unique_field_set = set(unique_fields)
-        # 兼容 unique_fields 传入 'stock' 或 'stock_id' 的情况
         for field_name in unique_fields:
             if field_name.endswith('_id'):
                 unique_field_set.add(field_name[:-3])
         pk_name = model_class._meta.pk.name
         update_fields = [f for f in all_model_fields if f not in unique_field_set and f != pk_name]
+
+        # ▼▼▼【核心代码修改】: 动态构建外键映射，移除硬编码 ▼▼▼
+        # 解释: 旧代码假设 ForeignKey 'stock' 对应原始数据中的 'stock_code'。
+        #      新代码通过读取字段的 to_field 属性，动态地找出关联的字段名。
+        #      这使得代码能正确处理任何外键定义，无需遵守命名约定。
         fk_fields_map = {}
+        print("--- [DAO调试] 开始动态构建外键映射 ---")
         for f in model_class._meta.fields:
             if isinstance(f, models.ForeignKey):
-                field_name = f.name
-                base_name = field_name.removesuffix('_id')
-                code_field_name = f"{base_name}_code"
-                fk_fields_map[field_name] = code_field_name
+                # f.name 是本模型中的字段名, e.g., 'stock'
+                # f.to_field 是关联到目标模型的哪个字段, e.g., 'stock_code'
+                # 如果 to_field 未指定(为None)，则关联的是目标模型的主键
+                target_field_name = f.to_field or f.related_model._meta.pk.name
+                fk_fields_map[f.name] = target_field_name
+                print(f"调试信息: [BaseDAO] 发现外键 '{f.name}'，映射到原始数据键 '{target_field_name}'。")
+        print("--- [DAO调试] 外键映射构建完成 ---")
+        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
-        # 3. 准备数据记录，将字典转换为包含ORM对象的字典 (这部分逻辑保持不变)
+        # 3. 准备数据记录，将字典转换为包含ORM对象的字典
         prepared_data_list = []
         failed_records = []
         for record in data_list:
             try:
                 sanitized_record = self._sanitize_for_json(record)
-                # _prepare_model_instance 会处理外键，返回的字典中外键值是ORM对象
+                # _prepare_model_instance 现在使用完全动态的 fk_fields_map
                 instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
                 prepared_data_list.append(instance_data)
             except Exception as e:
@@ -683,32 +691,21 @@ class BaseDAO(Generic[T]):
         # 4. 将准备好的数据转换为DataFrame
         df = pd.DataFrame(prepared_data_list)
 
-        # ▼▼▼【核心代码修改】: 转换关系字段列 ▼▼▼
-        # 解释: 底层原生SQL需要的是数据库列名（如 'stock_id'）和主键值。
-        #      而此时的DataFrame包含的是模型字段名（如 'stock'）和ORM对象。
-        #      此代码块遍历模型的所有关系字段，将对象列转换为ID列，以桥接ORM和原生SQL。
+        # 5. 转换关系字段列 (这部分逻辑已是动态的，无需修改)
         print("--- [DAO调试] 开始转换DataFrame中的关系字段 ---")
         for field in model_class._meta.get_fields():
-            # field.is_relation 对 ForeignKey, OneToOneField 等都为True
-            # not field.auto_created 确保我们只处理正向关系，排除Django自动生成的反向关系
             if field.is_relation and not field.auto_created:
-                field_name = field.name   # 模型中的字段名, e.g., 'stock'
-                column_name = field.column # 数据库中的列名, e.g., 'stock_id'
-                # 检查DataFrame中是否存在以模型字段名命名的列
+                field_name = field.name
+                column_name = field.column
                 if field_name in df.columns:
                     print(f"调试信息: [BaseDAO] 发现关系列 '{field_name}'，将转换为数据库列 '{column_name}'。")
-                    # 使用 .pk 属性从外键对象实例中提取主键值。
-                    # 使用 pd.notna() 来安全地处理可能存在的None值。
                     df[column_name] = df[field_name].apply(lambda x: x.pk if pd.notna(x) else None)
-                    # 移除旧的、包含对象的列，因为它不能直接用于原生SQL
                     df = df.drop(columns=[field_name])
-                    # print(f"调试信息: [BaseDAO] 转换完成。新列 '{column_name}' 已创建，旧列 '{field_name}' 已删除。")
+                    print(f"调试信息: [BaseDAO] 转换完成。新列 '{column_name}' 已创建，旧列 '{field_name}' 已删除。")
         print("--- [DAO调试] DataFrame关系字段转换完成 ---")
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
-        # 5. 调用下游异步批处理方法
+        # 6. 调用下游异步批处理方法
         try:
-            # 此时传递给下游的 df 已经包含了正确的 'stock_id' 列和值
             success_count = await self.process_batch_async(
                 df=df,
                 model_class=model_class,
@@ -721,7 +718,7 @@ class BaseDAO(Generic[T]):
             failed_count += len(df)
             success_count = 0
 
-        # 6. 返回结果
+        # 7. 返回结果
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
