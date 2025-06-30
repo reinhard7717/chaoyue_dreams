@@ -66,7 +66,7 @@ def load_playbook_map():
 
     # 遍历所有配置文件
     for config_file in config_files:
-        config_path = os.path.join(settings.BASE_DIR, 'dashboard', config_file)
+        config_path = os.path.join(settings.BASE_DIR, 'config', config_file)
         print(f"  -> 正在读取文件: {config_file}")
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
