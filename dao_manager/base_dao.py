@@ -793,9 +793,8 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V11 - 健壮版】在同步环境中，使用原生SQL"INSERT ... ON DUPLICATE KEY UPDATE"处理一个批次的数据。
-        此版本增加了关键的数据预处理步骤：使用模型定义的默认值填充DataFrame中的缺失数据(NaN/None)，
-        从而避免了 "Field doesn't have a default value" 的 IntegrityError。
+        【V12 - 精确版】在同步环境中，使用原生SQL"INSERT ... ON DUPLICATE KEY UPDATE"处理一个批次的数据。
+        此版本修正了对 `default=None` 字段的处理逻辑，避免了向 pandas.fillna 传递 None 而导致的 ValueError。
         """
         if df.empty:
             return 0
@@ -803,40 +802,39 @@ class BaseDAO(Generic[T]):
         table_name = model_class._meta.db_table
         all_columns = list(df.columns)
 
-        # ▼▼▼【核心代码修改】: 增加数据预处理步骤，填充缺失值 ▼▼▼
-        # print("--- [DAO调试] 开始数据预处理：使用模型默认值填充缺失数据 ---")
-        # 解释: 遍历模型的所有字段，如果字段定义了 default 值，
-        #      我们就用这个 default 值去填充 DataFrame 中对应列的 NaN/None 值。
-        #      这可以防止因输入数据不完整而导致的数据库 IntegrityError。
+        print("--- [DAO调试] 开始数据预处理：使用模型默认值填充缺失数据 ---")
         for field in model_class._meta.fields:
-            # 检查字段是否有在模型中定义的默认值 (field.default 不是 models.NOT_PROVIDED)
+            # 检查字段是否有在模型中定义的默认值
             if field.default is not models.NOT_PROVIDED:
                 # 检查DataFrame中是否存在对应的列
                 if field.column in df.columns:
-                    # 如果存在缺失值 (NaN/None)，则进行填充
+                    # 如果存在缺失值 (NaN/None)，则考虑进行填充
                     if df[field.column].isnull().any():
                         default_value = field.get_default()
-                        df[field.column].fillna(default_value, inplace=True)
-                        # print(f"调试信息: [BaseDAO] 在列 '{field.column}' 中发现缺失值，已使用模型默认值 '{default_value}' 进行填充。")
+                        
+                        # ▼▼▼【核心代码修改】: 增加对 default_value 是否为 None 的判断 ▼▼▼
+                        # 解释: pandas 的 fillna 不接受 None 作为填充值。
+                        #      如果模型的默认值是 None，我们就不需要做任何操作，
+                        #      因为 DataFrame 中的 NaN 在写入数据库时会自动变成 NULL，这正是期望的行为。
+                        if default_value is not None:
+                            df[field.column].fillna(default_value, inplace=True)
+                            print(f"调试信息: [BaseDAO] 在列 '{field.column}' 中发现缺失值，已使用模型默认值 '{default_value}' 进行填充。")
+                        else:
+                            # 当模型的默认值是 None 时，我们跳过填充，并打印一条信息以便调试
+                            print(f"调试信息: [BaseDAO] 字段 '{field.name}' 的默认值为 None，跳过填充操作（NaN将作为NULL插入）。")
+                        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
         print("--- [DAO调试] 数据预处理完成 ---")
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
         # 准备SQL语句
-        # 确保列名被反引号包围，以防止SQL关键字冲突
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
-        # 为VALUES子句生成占位符
         placeholders_sql = ", ".join(["%s"] * len(all_columns))
 
-        # 准备ON DUPLICATE KEY UPDATE子句
         if not update_fields:
-            # 如果没有指定更新字段，则执行一个不会产生实际变更的更新操作
-            # 这确保了即使记录已存在，语句也能成功执行，并返回受影响的行数
             pk_name = model_class._meta.pk.name
             update_sql = f"`{pk_name}` = `{pk_name}`"
         else:
             update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields])
 
-        # 组合成最终的SQL语句
         final_sql = (
             f"INSERT INTO `{table_name}` ({cols_sql}) "
             f"VALUES ({placeholders_sql}) "
@@ -845,24 +843,15 @@ class BaseDAO(Generic[T]):
         print(f"--- [DAO调试] 生成的SQL模板: {final_sql} ---")
 
         # 准备数据参数
-        # 将DataFrame转换为元组列表，并将NaN替换为None，以兼容数据库驱动
-        # 使用 to_numpy() 比 itertuples() 更快
         params = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
 
         # 执行批量操作
         with connection.cursor() as cursor:
             try:
-                # MySQL的 executemany 对于 INSERT ... ON DUPLICATE KEY UPDATE 的返回值可能不准确
-                # 它返回的是每次操作影响的行数之和（INSERT返回1，UPDATE返回2，无操作返回0）
-                # 因此，我们逐条执行以获得精确的成功计数，或者直接执行并返回一个近似值
-                # 这里为了性能，我们使用 executemany，并假设它成功处理了所有行
-                # 如果需要精确计数，需要改成 for 循环 cursor.execute()
                 cursor.executemany(final_sql, params)
-                # executemany 不返回有意义的行数，所以我们返回批次大小作为成功计数
                 return len(params)
             except Exception as e:
                 logger.error(f"执行批量Upsert时数据库出错。SQL: {final_sql[:500]}... Error: {e}", exc_info=True)
-                # 在出错时，可以考虑逐条重试，但这里为了简化，直接抛出异常
                 raise
 
     @staticmethod
