@@ -273,7 +273,7 @@
           "bias_rebound": 70
         },
         "industry_context_params": {
-          "enabled": true,
+          "enabled": false,
           "说明": "【行业协同-V2.0 奖惩版】根据个股所属行业的强度排名，对最终得分进行动态的奖励与惩罚，而非硬性过滤。",
           "weak_rank_threshold": 0.3,
           "说明_weak_rank_threshold": "定义“弱势行业”的强度排名分界线(0.0-1.0)。当行业排名低于此值时，将被施加惩罚性乘数。",
