@@ -754,83 +754,66 @@ class BaseDAO(Generic[T]):
             return 0, len(batch)
 
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
-    def _process_batch_mysql_upsert_sync(self, model_class, batch, update_fields):
+    def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list):
         """
-        【V7 健壮版 - 原生SQL for MySQL】使用原生SQL "INSERT ... ON DUPLICATE KEY UPDATE" 实现高效Upsert。
-        
-        本次修改修复了 "Field '...' doesn't have a default value" 的错误。
-        错误原因：之前通过 `batch[0].__dict__` 获取字段列表的方式不可靠。
-        解决方案：改为从模型的 `_meta.concrete_fields` 获取所有需要持久化的字段，确保所有字段都被包含在INSERT语句中。
+        【中文调试版】同步处理MySQL的批量upsert操作，并处理NaN值。
         """
-        if not batch:
-            return
+        if df.empty:
+            return 0
 
-        meta = model_class._meta
-        table_name = meta.db_table
+        table_name = model_class._meta.db_table
+        columns = [field.column for field in model_class._meta.fields if field.column in df.columns]
         
-        # 【代码修改处】使用 model._meta.concrete_fields 作为字段的唯一真实来源，不再使用 __dict__
-        # concrete_fields 包含了模型中所有实际映射到数据库列的字段（包括主键、普通字段和外键）
-        insert_fields = meta.concrete_fields
+        # 构建SQL语句 (这部分逻辑保持不变)
+        sql_start = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
+        placeholders = f"({', '.join(['%s'] * len(columns))})"
         
-        # 【代码修改处】从字段对象中获取数据库列名 (e.g., 'open_price') 和 ORM属性名 (e.g., 'stock_id')
-        # 使用 f.column 获取数据库中的真实列名
-        db_cols = [f.column for f in insert_fields]
-        # 使用 f.attname 获取在模型实例上获取值的属性名。对于外键'stock'，其attname是'stock_id'，这正是我们需要的。
-        field_attnames = [f.attname for f in insert_fields]
+        sql_on_duplicate = ""
+        if update_fields:
+            update_statements = [f"{field} = VALUES({field})" for field in update_fields]
+            sql_on_duplicate = f" ON DUPLICATE KEY UPDATE {', '.join(update_statements)}"
 
-        # 1. 构建 SQL 的 INSERT 部分
-        insert_cols_sql = f"`{'`, `'.join(db_cols)}`"
-        
-        # 2. 构建 SQL 的 VALUES 部分的占位符
-        value_placeholders = f"({', '.join(['%s'] * len(db_cols))})"
-        all_placeholders = ', '.join([value_placeholders] * len(batch))
-
-        # 3. 构建 SQL 的 ON DUPLICATE KEY UPDATE 部分
-        # 此处逻辑保持不变，但需要一个从字段名到字段对象的映射以便查找列名
-        field_map = {f.name: f for f in meta.fields}
-        update_assignments = []
-        for field_name in update_fields:
-            if field_name in field_map:
-                db_col = field_map[field_name].column
-                update_assignments.append(f"`{db_col}`=VALUES(`{db_col}`)")
-        update_sql = ', '.join(update_assignments)
-
-        # 4. 准备所有参数值
+        # --- 核心逻辑：处理NaN值 ---
         params = []
-        for obj in batch:
-            # 【代码修改处】遍历我们从_meta中获取的可靠的属性名列表 (field_attnames)
-            for attname in field_attnames:
-                # 使用 getattr(obj, attname) 安全地获取每个字段的值
-                params.append(getattr(obj, attname))
+        for index, row in df.iterrows():
+            # 如果值是 NaN (pd.isna()可以同时检查np.nan和pd.NA)，则替换为None
+            row_values = [row[col] if pd.notna(row[col]) else None for col in columns]
+            params.extend(row_values)
 
-        # 5. 组合成最终的SQL语句
-        if update_sql:
-            final_sql = (
-                f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
-                f"VALUES {all_placeholders} "
-                f"ON DUPLICATE KEY UPDATE {update_sql}"
-            )
-        else:
-             final_sql = (
-                f"INSERT INTO `{table_name}` ({insert_cols_sql}) "
-                f"VALUES {all_placeholders}"
-            )
-        # print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 准备执行原生SQL Upsert。")
-        # print(f"调试信息: [BaseDAO-MySQL-Upsert] 批次大小: {len(batch)} 条记录。")
-        # print(f"调试信息: [Base-SQL]: {final_sql[:500]}...") # 打印部分SQL用于调试
+        # --- 代码修改处: 将调试信息的print语句改为中文 ---
+        # 为了调试，我们可以打印出最终的SQL和部分参数
+        # 注意：不要在生产环境中一直开着，会产生大量日志
+        # print("--- [DAO调试] 开始执行批量更新插入 ---")
+        # print(f"SQL起始模板: {sql_start}")
+        # print(f"SQL重复键更新部分: {sql_on_duplicate}")
+        # 只打印前两行的参数，避免刷屏
+        # print(f"总行数: {len(df)}, 前2行(或更少)的参数: {params[:len(columns)*2]}")
+        
+        final_sql = sql_start + ", ".join([placeholders] * len(df)) + sql_on_duplicate
+
         try:
-            # 6. 在事务中执行原生SQL
-            with transaction.atomic():
-                with connection.cursor() as cursor:
-                    cursor.execute(final_sql, params)
-            # cursor.rowcount 在 ON DUPLICATE KEY UPDATE 语法下有特殊含义：
-            # 1 for each row that is inserted as a new row,
-            # 2 for each existing row that is updated,
-            # 0 for each existing row that is set to its current values.
-            print(f"调试信息: [BaseDAO-MySQL-Upsert] 模型 '{meta.model_name}': 批次大小: {len(batch)} 条记录。成功处理批次，MySQL报告的影响行数: {cursor.rowcount}。")
+            with connection.cursor() as cursor:
+                # cursor.execute() 会自动处理参数的拼接和转义
+                cursor.execute(final_sql, params)
+                return cursor.rowcount
         except Exception as e:
-            logger.error(f"原生SQL批处理 (大小: {len(batch)}) 时遇到错误: {e}", exc_info=True)
-            raise
+            # --- 代码修改处: 将错误信息的print语句改为中文 ---
+            print(f"--- [DAO错误] SQL执行失败！ ---")
+            # 尝试手动格式化SQL，这不完全准确，但有助于调试
+            # 注意：这只是为了调试查看，不要在生产代码中这样执行SQL！
+            try:
+                # 将参数格式化为字符串以便打印，对None值特殊处理
+                debug_params = tuple(
+                    f"'{p}'" if isinstance(p, str) else ('NULL' if p is None else str(p))
+                    for p in params
+                )
+                debug_sql = final_sql % debug_params
+                print(f"失败的SQL语句(预估): {debug_sql[:2000]}...") # 打印前2000个字符
+            except Exception as format_exc:
+                print(f"无法格式化用于调试的SQL语句: {format_exc}")
+            
+            logger.error(f"执行批量Upsert时发生数据库错误: {e}", exc_info=True)
+            raise # 重新抛出异常，让上层调用者知道操作失败
 
     @staticmethod
     @sync_to_async
