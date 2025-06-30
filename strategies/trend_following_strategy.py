@@ -2146,10 +2146,10 @@ class TrendFollowStrategy:
 
     def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
         """
-        【V2.2 索引健壮版】检查VWAP支撑确认信号。
-        - 核心修复: 采用 pandas.Index.intersection 方法，从根本上解决了因数据不对齐导致的索引长度不匹配问题。
+        【V2.3 最终健壮版】检查VWAP支撑确认信号。
+        - 核心修复: 在聚合和匹配前，强制使用 .dt.normalize() 来统一日期，消除时间部分差异，确保日线和分钟线数据能正确对齐。
         """
-        print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.2)...")
+        print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.3)...")
         vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
         if not vwap_params.get('enabled', False):
             if 'D' in df_dict and not df_dict['D'].empty:
@@ -2162,11 +2162,11 @@ class TrendFollowStrategy:
         df_minute = df_dict.get(tf)
         df_daily = df_dict.get('D')
 
-        if df_minute is None or df_minute.empty:
+        if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
              if not hasattr(self, '_warned_missing_minute_df_vwap'):
-                logger.warning(f"缺少 {tf} 分钟线 DataFrame，VWAP确认功能将不生效。")
+                logger.warning(f"缺少 {tf} 分钟线或日线 DataFrame，VWAP确认功能将不生效。")
                 self._warned_missing_minute_df_vwap = True
-             return pd.Series(False, index=df_daily.index)
+             return pd.Series(False, index=df_daily.index if df_daily is not None else None)
         
         vwap_col = f'VWAP_{tf}'
         if vwap_col not in df_minute.columns:
@@ -2182,27 +2182,33 @@ class TrendFollowStrategy:
         # 1. 识别在分钟线上，价格高于VWAP的时刻
         is_above_vwap = df_minute[close_col] > df_minute[vwap_col] * (1 + buffer)
         
-        # 2. 将这个分钟线信号聚合到日线级别
-        daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.date).any()
+        # ▼▼▼ 强制对齐日期 ▼▼▼
+        # 2. 将分钟线信号聚合到日线级别，使用标准化的日期作为分组依据
+        # .dt.normalize() 会将所有时间戳的时间部分清零 (例如 '2025-06-20 14:30:00' -> '2025-06-20 00:00:00')
+        daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
         
-        # ▼▼▼ 用更健壮的逻辑替换了原来的索引匹配部分 ▼▼▼
         # 3. 将结果安全地映射回日线DataFrame的索引
         final_signal = pd.Series(False, index=df_daily.index)
         
         if not daily_confirmation.empty:
-            # 步骤 A: 将 daily_confirmation 的索引从 date 对象转为 DatetimeIndex，以便进行标准对齐
-            daily_confirmation.index = pd.to_datetime(daily_confirmation.index)
+            # 同样对日线索引进行标准化，以确保可以正确匹配
+            normalized_daily_index = df_daily.index.normalize()
             
-            # 步骤 B: 使用 .intersection() 找到日线和聚合信号共有的索引，这是最安全、最健壮的方法
-            matching_indices = df_daily.index.intersection(daily_confirmation.index)
+            # 使用 isin 进行高效匹配，找到 daily_confirmation 中存在的日期在日线索引中的位置
+            # 这种方法比 intersection 更灵活，能直接返回布尔掩码
+            matching_mask = normalized_daily_index.isin(daily_confirmation.index)
             
-            if not matching_indices.empty:
+            if matching_mask.any():
+                # 获取匹配上的日线索引
+                matching_indices = df_daily.index[matching_mask]
+                # 获取这些索引对应的标准化日期，用于从 daily_confirmation 中取值
+                normalized_matching_indices = normalized_daily_index[matching_mask]
+                
                 print(f"      - [VWAP确认] 找到 {len(matching_indices)} 个共有的交易日用于VWAP状态更新。")
-                # 步骤 C: 使用完全相同的索引对赋值操作的左右两边进行切片，保证长度绝对一致
-                final_signal.loc[matching_indices] = daily_confirmation[matching_indices].values
+                # 使用 .loc 进行安全赋值
+                final_signal.loc[matching_indices] = daily_confirmation.loc[normalized_matching_indices].values
             else:
-                # 增加一个调试分支，以防万一没有匹配到任何日期
-                print("      - [VWAP确认] 警告: 日线数据与分钟线聚合信号之间没有共同的日期。")
+                print("      - [VWAP确认] 警告: 标准化后，日线数据与分钟线聚合信号之间仍没有共同的日期。")
         
         print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。")
         return final_signal

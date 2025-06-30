@@ -413,23 +413,24 @@ class WeeklyTrendFollowStrategy:
 
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【战略剧本-箱体 V2.2 状态机逻辑版】: 使用更稳健的状态定义来识别箱体突破。
-        - 核心修复: 引入“持续盘整状态”概念，避免单点波动误判。
-        - 完整流程: 1.识别低波动周 -> 2.定义持续盘整状态 -> 3.判断状态后的放量突破。
+        【战略剧本-箱体 V2.3 参数优化版】: 使用更稳健的状态定义来识别箱体突破。
+        - 核心修复: 放宽了盘整状态的识别参数，使其更容易在真实数据中触发。
         """
-        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.2 状态机逻辑版)")
+        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.3 参数优化版)")
         if not params.get('enabled', True): 
             return pd.Series(False, index=df.index)
 
-        # --- 步骤 1: 获取参数 ---
-        quantile_level = params.get('quantile_level', 0.30) # 适当放宽分位数要求
+        # --- 步骤 1: 获取参数 (参数已优化) ---
+        # ▼▼▼【代码修改】: 放宽参数 ▼▼▼
+        quantile_level = params.get('quantile_level', 0.40) # 从0.3放宽到0.4，允许更多周被视为低波动
         boll_period = params.get('boll_period', 20)
         boll_std = params.get('boll_std', 2.0)
         box_period = params.get('box_period', 26)
-        volume_multiplier = params.get('volume_multiplier', 1.5)
-        # 新增参数：定义“持续盘整状态”
-        state_window = params.get('state_window', 4) # 观察窗口4周
-        state_threshold = params.get('state_threshold', 3) # 窗口内至少3周是低波动
+        volume_multiplier = params.get('volume_multiplier', 1.3) # 从1.5降低到1.3，放宽对放量的要求
+        # 新增参数：定义“持续盘整状态” (参数已优化)
+        state_window = params.get('state_window', 5) # 观察窗口5周
+        state_threshold = params.get('state_threshold', 2) # 窗口内至少2周是低波动即可 (原为4周内3周)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # --- 步骤 2: 依赖检查 ---
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_W"
@@ -440,32 +441,21 @@ class WeeklyTrendFollowStrategy:
             return pd.Series(False, index=df.index)
 
         # --- 步骤 3A: 识别单个的低波动周 ---
-        # 使用滚动分位数来识别相对低波动，这比全局分位数更具适应性
         rolling_quantile = df[bbw_col].rolling(window=box_period * 2, min_periods=box_period).quantile(quantile_level)
         is_low_volatility_week = df[bbw_col] < rolling_quantile
         print(f"    - [箱体突破分析] 识别出 {is_low_volatility_week.sum()} 个单独的低波动周。")
 
         # --- 步骤 3B: 定义“持续盘整状态” (核心逻辑新增) ---
-        # 如果在过去 state_window 周内，有 state_threshold 周以上是低波动，则认为进入了盘整状态
         consolidation_state_count = is_low_volatility_week.rolling(window=state_window).sum()
         state_is_in_consolidation = consolidation_state_count >= state_threshold
         print(f"    - [箱体突破分析] 识别出 {state_is_in_consolidation.sum()} 个周处于'持续盘整状态'。")
 
         # --- 步骤 4: 定义箱体上沿和判断突破 ---
-        # 箱体上沿定义为过去 N 周的最高价
         box_high = df['high_W'].shift(1).rolling(window=box_period).max()
-        
-        # 条件1: 价格突破箱体上沿
         is_price_breakout = df['close_W'] > box_high
-        
-        # 条件2: 突破必须发源于一个“持续盘整状态”
-        # 我们要求突破前的一周处于这个状态，这样信号更可靠
         was_in_consolidation_state = state_is_in_consolidation.shift(1).fillna(False)
-        
-        # 条件3: 突破必须放量
         is_volume_breakout = df['volume_W'] > (df[vol_ma_col].shift(1) * volume_multiplier)
 
-        # 合成最终信号
         final_signal = (was_in_consolidation_state & is_price_breakout & is_volume_breakout).fillna(False)
         print(f"    - [专业箱体突破] 最终信号: {final_signal.sum()} 次")
         return final_signal
