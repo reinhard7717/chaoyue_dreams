@@ -302,7 +302,7 @@ def _run_trend_follow_strategy(stock_code: str, trade_time_str: str) -> Dict[str
     try:
         # --- 步骤 1: 实例化所有需要的服务和DAO ---
         # 实例化策略类，其 __init__ 方法会自动加载所需配置
-        trend_follow_strategy = TrendFollowStrategy(min_config_path='config/trend_follow_strategy.json')
+        trend_follow_strategy = TrendFollowStrategy(daily_config_path='config/trend_follow_strategy.json')
         # 从策略实例中获取已经初始化好的 indicator_service
         indicator_service = trend_follow_strategy.indicator_service
         # 实例化DAO，用于后续数据存储
