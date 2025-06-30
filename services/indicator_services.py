@@ -315,8 +315,16 @@ class IndicatorService:
         df_for_calc = df.copy()
         # 为日/周/月线数据准备计算副本，移除后缀以便于pandas_ta调用
         if suffix:
-            rename_map = {col: col.replace(suffix, '') for col in df_for_calc.columns if col.endswith(suffix)}
-            df_for_calc.rename(columns=rename_map, inplace=True)
+            base_cols = ['open', 'high', 'low', 'close', 'volume']
+            # 创建一个重命名映射，只对那些还没有相应后缀的列进行操作
+            rename_map = {
+                col: f"{col}{suffix}" 
+                for col in base_cols 
+                if col in df.columns and f"{col}{suffix}" not in df.columns
+            }
+            if rename_map:
+                df.rename(columns=rename_map, inplace=True)
+                print(f"    - [成功] 已为周期 '{timeframe_key}' 的基础OHLCV列添加后缀: {list(rename_map.values())}")
 
         # 假设所有指标计算方法都已定义在类中
         indicator_method_map = {

@@ -2149,7 +2149,7 @@ class TrendFollowStrategy:
         【V2.5 最终修复版】检查VWAP支撑确认信号。
         - 核心修复: 使用 .tz_localize(None) 强制移除所有索引的时区信息，确保可以正确对齐和比较。
         """
-        print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...")
+        # print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...") # 可以注释掉常规日志
         vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
         if not vwap_params.get('enabled', False):
             if 'D' in df_dict and not df_dict['D'].empty:
@@ -2163,45 +2163,24 @@ class TrendFollowStrategy:
         df_daily = df_dict.get('D')
 
         if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
-             if not hasattr(self, '_warned_missing_minute_df_vwap'):
-                logger.warning(f"缺少 {tf} 分钟线或日线 DataFrame，VWAP确认功能将不生效。")
-                self._warned_missing_minute_df_vwap = True
              return pd.Series(False, index=df_daily.index if df_daily is not None else None)
         
-        # ▼▼▼【代码修改】: 这是本次修改的核心，釜底抽薪解决时区问题 ▼▼▼
-        # 步骤 A: 强制移除时区信息，创建副本以避免SettingWithCopyWarning
         try:
             df_minute_no_tz = df_minute.copy()
-            df_minute_no_tz.index = df_minute_no_tz.index.tz_localize(None)
-            
-            df_daily_no_tz = df_daily.copy()
-            df_daily_no_tz.index = df_daily_no_tz.index.tz_localize(None)
-            
-            print("      - [VWAP确认] 已成功移除日线和分钟线索引的时区信息。")
-        except TypeError:
-            # 如果某个索引本来就没有时区，tz_localize(None)会报错，说明它已经是我们想要的状态
-            df_minute_no_tz = df_minute.copy()
-            df_daily_no_tz = df_daily.copy()
             if df_minute_no_tz.index.tz is not None:
-                 df_minute_no_tz.index = df_minute_no_tz.index.tz_convert(None)
+                df_minute_no_tz.index = df_minute_no_tz.index.tz_localize(None)
+            
+            df_daily_no_tz = df_daily.copy()
             if df_daily_no_tz.index.tz is not None:
-                 df_daily_no_tz.index = df_daily_no_tz.index.tz_convert(None)
-            print("      - [VWAP确认] 索引已经是无时区状态，继续执行。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+                df_daily_no_tz.index = df_daily_no_tz.index.tz_localize(None)
+        except Exception: # 捕获所有可能的时区转换异常
+            return pd.Series(False, index=df_daily.index)
 
         vwap_col = f'VWAP_{tf}'
-        if vwap_col not in df_minute_no_tz.columns:
-            vwap_col = 'VWAP_D'
-            if vwap_col not in df_minute_no_tz.columns:
-                if not hasattr(self, '_warned_missing_vwap_col'):
-                    logger.warning(f"缺少 {tf} 分钟线的 'VWAP_{tf}' 或 'VWAP_D' 列，VWAP确认功能将不生效。")
-                    self._warned_missing_vwap_col = True
-                return pd.Series(False, index=df_daily_no_tz.index)
+        if vwap_col not in df_minute_no_tz.columns: vwap_col = 'VWAP_D'
+        if vwap_col not in df_minute_no_tz.columns: return pd.Series(False, index=df_daily.index)
 
-        close_col = 'close'
-        is_above_vwap = df_minute_no_tz[close_col] > df_minute_no_tz[vwap_col] * (1 + buffer)
-        
-        # 现在所有操作都基于无时区的DataFrame
+        is_above_vwap = df_minute_no_tz['close'] > df_minute_no_tz[vwap_col] * (1 + buffer)
         daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
         
         final_signal = pd.Series(False, index=df_daily_no_tz.index)
@@ -2213,16 +2192,11 @@ class TrendFollowStrategy:
             if matching_mask.any():
                 matching_indices = df_daily_no_tz.index[matching_mask]
                 normalized_matching_indices = normalized_daily_index[matching_mask]
-                print(f"      - [VWAP确认] 成功找到 {len(matching_indices)} 个共有的交易日用于VWAP状态更新。")
                 final_signal.loc[matching_indices] = daily_confirmation.loc[normalized_matching_indices].values
-            else:
-                print("      - [VWAP确认] 警告: 移除时区后，日线与分钟线聚合信号之间仍没有共同日期。")
         
-        # 最后，将信号的索引设置回原始的日线索引，以保持与其他信号的兼容性
         final_signal.index = df_daily.index
-        print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。")
+        # print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。") # 可以注释掉常规日志
         return final_signal
-
 
 
 
