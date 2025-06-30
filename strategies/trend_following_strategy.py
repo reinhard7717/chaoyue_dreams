@@ -25,39 +25,35 @@ class TrendFollowStrategy:
     - 职责定位: 接收一个包含所有时间框架数据的字典，应用复杂的战术剧本和计分系统，输出最终决策。
     """
 
-    # ▼▼▼【代码修改】: 简化__init__方法 ▼▼▼
     def __init__(self,
-                 daily_config_path: str = 'config/trend_follow_strategy.json',
+                 config: dict, # 参数名从 daily_config_path 改为 config，类型为 dict
                  tactical_configs: Optional[Dict[str, str]] = None):
         """
-        【V21.0 适配版】构造函数
-        - 移除 IndicatorService 和 asyncio loop 的初始化。
+        【V22.0 依赖注入版】构造函数
+        - 直接接收一个加载好的配置字典 `config`。
         """
-        # self.indicator_service = IndicatorService() # 不再需要
-        self.daily_config_path = daily_config_path
-        # print(f"--- [战术策略初始化] 正在加载日线/分钟线主配置: {self.daily_config_path} ---")
-        self.daily_params = load_strategy_config(self.daily_config_path)
+        # 不再需要 self.daily_config_path
+        # 不再需要内部加载配置，直接使用传入的字典
+        self.daily_params = config
+        # print("--- [战术策略初始化] 已接收并应用传入的配置字典。 ---")
+        
+        # 这一行在旧代码中存在，但根据其作为纯计算单元的定位，可能也需要移除。
+        # 为了最小化改动，暂时保留。如果 IndicatorService 在此类中没有其他用途，可以删除。
         self.indicator_service = IndicatorService()
 
-        # 分钟线配置逻辑保持不变，因为它们共享同一个配置文件
+        # 分钟线配置逻辑保持不变，但现在都基于传入的主配置
         if tactical_configs is None:
+            # 这里的逻辑可能需要根据您的实际需求调整，
+            # 但目前我们假设所有分钟线都复用日线配置。
             self.tactical_configs = {
-                '5': 'config/trend_follow_strategy.json',
-                '15': 'config/trend_follow_strategy.json',
-                '30': 'config/trend_follow_strategy.json',
-                '60': 'config/trend_follow_strategy.json',
+                '5': 'reuse', '15': 'reuse', '30': 'reuse', '60': 'reuse',
             }
         else:
             self.tactical_configs = tactical_configs
+        
         self.tactical_params = {}
         for tf in self.tactical_configs.keys():
-            self.tactical_params[tf] = self.daily_params
-        
-        # try: # 不再需要 asyncio loop
-        #     self.loop = asyncio.get_running_loop()
-        # except RuntimeError:
-        #     self.loop = asyncio.new_event_loop()
-        #     asyncio.set_event_loop(self.loop)
+            self.tactical_params[tf] = self.daily_params # 所有周期都使用主配置
 
         kline_params = self._get_params_block(self.daily_params, 'kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
@@ -66,7 +62,7 @@ class TrendFollowStrategy:
         self._last_score_details_df = None
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        # print(f"    - 战术策略配置 '{self.daily_config_path}' 加载完成。")
+        # print(f"    - 战术策略(TrendFollowStrategy)初始化完成。")
 
     # 参数解析辅助函数
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
