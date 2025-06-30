@@ -238,7 +238,7 @@ class IndicatorService:
                     
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
-                        print(f"    - [成功] {target_tf} 线数据已生成，共 {len(df_resampled)} 条。")
+                        # print(f"    - [成功] {target_tf} 线数据已生成，共 {len(df_resampled)} 条。")
                     else:
                         logger.warning(f"[{stock_code}] 从日线重采样到 {target_tf} 后数据为空。")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
@@ -363,7 +363,7 @@ class IndicatorService:
             }
             if rename_map:
                 df.rename(columns=rename_map, inplace=True)
-                print(f"    - [成功] 已为周期 '{timeframe_key}' 的基础OHLCV列添加后缀: {list(rename_map.values())}")
+                # print(f"    - [成功] 已为周期 '{timeframe_key}' 的基础OHLCV列添加后缀: {list(rename_map.values())}")
 
         # 假设所有指标计算方法都已定义在类中
         indicator_method_map = {
@@ -519,7 +519,7 @@ class IndicatorService:
                                 df[final_col_name] = result_df[col]
                             else:
                                 df[final_col_name].update(result_df[col])
-                        print(f"    - [成功] 复合指标 {indicator_name.upper()} 计算完成。")
+                        # print(f"    - [成功] 复合指标 {indicator_name.upper()} 计算完成。")
 
                 except Exception as e:
                     logger.error(f"    - [严重警告] 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算过程中发生异常: {e}")
@@ -1689,7 +1689,7 @@ class IndicatorService:
         result_df[fill_cols] = result_df[fill_cols].ffill()
         
         # 8. 返回包含新列的DataFrame
-        print(f"    - [成功] V2.0箱体计算完成，共识别出 {is_consolidating.sum()} 个盘整周期点。")
+        # print(f"    - [成功] V2.0箱体计算完成，共识别出 {is_consolidating.sum()} 个盘整周期点。")
         return result_df
 
     async def calculate_advanced_fund_features(self, df: pd.DataFrame, params: dict, suffix: str) -> Optional[pd.DataFrame]:

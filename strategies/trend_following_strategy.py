@@ -101,63 +101,63 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V21.0 同步版】
-        - 将完整的 df_dict 传递给计分函数，以支持分钟线分析。
-        - 变为同步方法，因为它不再执行任何IO操作。
+        【V22.0 调试增强版】
         """
+        print("\n--- [战术策略层 apply_strategy V22.0] 开始执行 ---")
         df = df_dict.get('D')
         if df is None or df.empty:
+            print("    - [错误] 日线数据(D)为空，无法执行策略。")
             return pd.DataFrame(), {}
         
-        # 列名处理逻辑保持不变，确保所有日线原生列都有 _D 后缀
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
-        # ▼▼▼【代码修改】: 修正VWAP列名不被添加后缀的问题 ▼▼▼
-        # 解释: VWAP列名(如VWAP_D)已经包含了周期信息，不应再被添加_D后缀。
         rename_map = {col: f"{col}_D" for col in df.columns if not any(col.endswith(suffix) for suffix in timeframe_suffixes) and not col.startswith('VWAP_')}
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         if rename_map:
             df = df.rename(columns=rename_map)
+            print(f"    - [信息] 已为 {len(rename_map)} 个日线原生列添加 '_D' 后缀。")
         
         self.signals, self.scores = {}, {}
         df = self.pattern_recognizer.identify_all(df)
         df.loc[:, 'signal_top_divergence'] = self._find_top_divergence_exit(df, params)
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
-        # 核心计分函数调用，逻辑不变
+        print("    - [信息] 核心计分流程开始...")
         df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, df_dict, params)
         self._last_score_details_df = score_details_df
         
         score_threshold = self._get_params_block(params, 'entry_scoring_params').get('score_threshold', 100)
         df.loc[:, 'signal_entry'] = df['entry_score'] >= score_threshold
+        
+        print("    - [信息] 止盈逻辑判断开始...")
         df.loc[:, 'take_profit_signal'] = self._apply_take_profit_rules(df, df['signal_entry'], df['signal_top_divergence'], params)
 
-        # 调试输出逻辑保持不变
-        print("\n---【多时间框架协同策略(V21.0 融合版)逻辑链调试】---")
+        print("\n---【多时间框架协同策略(V22.0 融合版) 逻辑链调试】---")
         entry_signals = df[df['signal_entry']]
         print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)}")
         if not entry_signals.empty:
             last_entry_date = entry_signals.index[-1]
             last_entry_score = df.loc[last_entry_date, 'entry_score']
-            print(f"  - 最近一次买入: {last_entry_date.date()} (当日总分: {last_entry_score})")
+            print(f"  - 最近一次买入: {last_entry_date.date()} (当日总分: {last_entry_score:.2f})")
             
             print(f"  --- 得分小票 for {last_entry_date.date()} ---")
             score_breakdown = score_details_df.loc[last_entry_date].dropna()
-            base_score_items = {k: v for k, v in score_breakdown.items() if k.startswith('BASE_')}
-            tactical_score_items = {k: v for k, v in score_breakdown.items() if not k.startswith('BASE_')}
+            base_score_items = {k: v for k, v in score_breakdown.items() if k.startswith('BASE_') and v > 0}
+            tactical_score_items = {k: v for k, v in score_breakdown.items() if not k.startswith('BASE_') and v != 0}
             
             base_total = sum(base_score_items.values())
             print(f"    [战略基础分: {base_total:.2f} pts]")
             if not base_score_items:
                 print("      - (无)")
-            for item, score in base_score_items.items():
-                if score > 0: print(f"      - {item}: {score:.2f} pts")
+            else:
+                for item, score in base_score_items.items():
+                    print(f"      - {item}: {score:.2f} pts")
 
             tactical_total = sum(tactical_score_items.values())
             print(f"    [战术叠加分: {tactical_total:.2f} pts]")
             if not tactical_score_items:
                 print("      - (无)")
-            for item, score in tactical_score_items.items():
-                if score != 0: print(f"      - {item}: {score:.2f} pts")
+            else:
+                for item, score in tactical_score_items.items():
+                    print(f"      - {item}: {score:.2f} pts")
             
             print(f"    ------------------------------------")
             print(f"    [核算总分: {base_total + tactical_total:.2f} pts]")
@@ -224,9 +224,9 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
         """
-        【V16.0 多时间框架共振版】计算综合买入得分，并返回详细的得分构成。
-        - 新增: 接收 df_dict，用于分钟线分析。
-        - 新增: 调用 _find_multi_timeframe_resonance 方法，将分钟线确认信号加入计分。
+        【V22.0 核心修复版】计算综合买入得分。
+        - 修复: 直接使用 'BASE_SIGNAL_BREAKOUT_TRIGGER' 作为王牌信号列，解决识别错误问题。
+        - 增强: 增加了更详细的调试日志，清晰展示王牌信号的互斥计分逻辑。
         """
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
@@ -234,77 +234,68 @@ class TrendFollowStrategy:
         points = scoring_params.get('points', {})
 
         # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V16.1] 步骤1: 计算并记录周线战略背景基础分...")
-        playbook_scores = self._get_params_block(params, 'playbook_scores', default_return={
-            'ma20_turn_up': 100, 'early_uptrend': 80, 'classic_breakout': 50, 
-            'ma_uptrend': 30, 'bottom_consolidation': 50
-        })
-        playbook_cols = [col for col in df.columns if col.startswith('playbook_') and col.endswith('_W')]
-        for col in playbook_cols:
-            playbook_name = col.replace('playbook_', '').replace('_W', '')
-            score = playbook_scores.get(playbook_name, 0)
-            if score > 0 and df[col].any():
-                base_score_col_name = f"BASE_{playbook_name.upper()}"
-                score_details_df.loc[df[col], base_score_col_name] = score
-
+        print("    [调试-计分V22.0] 步骤1: 计算并记录周线战略背景基础分...")
+        
+        # ▼▼▼【代码修改】: 这是本次修复的核心 ▼▼▼
+        # 解释: 我们重构了基础分的计算逻辑，使其更健壮，并修复了王牌信号的识别问题。
+        
         # 1a. 【全面填充】将所有候选分数（包括王牌和原始剧本）全部写入DataFrame
         all_base_score_cols = []
         
-        # 王牌信号
-        king_signal_col = 'signal_breakout_trigger_W'
-        king_base_col_name = f"BASE_{king_signal_col.replace('_W', '').upper()}"
-        all_base_score_cols.append(king_base_col_name)
+        # 王牌信号: 直接使用最终列名 BASE_SIGNAL_BREAKOUT_TRIGGER
+        king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
+        all_base_score_cols.append(king_signal_col) # 记录列名
         king_score = points.get('BREAKOUT_TRIGGER_SCORE', 150)
         if king_signal_col in df.columns and df[king_signal_col].any():
-            score_details_df.loc[df[king_signal_col], king_base_col_name] = king_score
+            score_details_df.loc[df[king_signal_col], king_signal_col] = king_score
+            print(f"    - [计分-基础分] 检测到 '{king_signal_col}' 王牌信号 {df[king_signal_col].sum()} 次。")
 
         # 原始剧本
         playbook_scores_map = self._get_params_block(params, 'playbook_scores', default_return={
             'ma20_turn_up': 100, 'early_uptrend': 80, 'classic_breakout': 50,
             'ma_uptrend': 30, 'box_breakout': 60
         })
+        # 查找所有以 playbook_ 开头、以 _W 结尾的列
         playbook_cols = [col for col in df.columns if col.startswith('playbook_') and col.endswith('_W')]
         for col in playbook_cols:
             playbook_name = col.replace('playbook_', '').replace('_W', '')
             score = playbook_scores_map.get(playbook_name, 0)
             base_col_name = f"BASE_{playbook_name.upper()}"
-            all_base_score_cols.append(base_col_name)
+            all_base_score_cols.append(base_col_name) # 记录列名
             if score > 0 and df[col].any():
                 score_details_df.loc[df[col], base_col_name] = score
+                print(f"    - [计分-基础分] 检测到 '{col}' 剧本信号 {df[col].sum()} 次，计为 '{base_col_name}'。")
         
         score_details_df.fillna(0, inplace=True)
 
-        if king_base_col_name in score_details_df.columns:
-            # 列存在，正常生成掩码
-            king_signal_mask = (score_details_df[king_base_col_name] > 0)
-        else:
-            # 列不存在，创建一个安全的、全为 False 的掩码
-            print(f"    [调试-计分] 警告: 王牌信号列 '{king_base_col_name}' 未在得分详情中找到，本次计算将不执行互斥清零。")
-            king_signal_mask = pd.Series(False, index=df.index)
-
         # 1b. 【铁腕清零】在王牌信号日，将所有其他基础分清零
-        if king_signal_mask.any():
-            # 获取除王牌信号外的所有其他基础分列
-            other_base_score_cols = [col for col in all_base_score_cols if col != king_base_col_name]
-            # 对王牌日，将其他所有基础分强制设为0
-            score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
-            
-            # 1c. 【最终调试日志】打印王牌信号日的最终、纯净分数
-            print(f"    [调试-计分V16.1] 检测到 {king_signal_mask.sum()} 次“王牌信号”，执行互斥计分:")
-            king_day_scores = score_details_df.loc[king_signal_mask]
-            for date, row in king_day_scores.iterrows():
-                final_scores = {k: v for k, v in row.to_dict().items() if v > 0}
-                print(f"      - 日期: {date.strftime('%Y-%m-%d')}, 最终基础分: {final_scores}")
+        if king_signal_col in score_details_df.columns:
+            king_signal_mask = (score_details_df[king_signal_col] > 0)
+            if king_signal_mask.any():
+                print(f"    - [计分-互斥逻辑] 检测到 {king_signal_mask.sum()} 天王牌信号，将对这些天执行其他基础分清零...")
+                # 获取除王牌信号外的所有其他基础分列
+                other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
+                # 对王牌日，将其他所有基础分强制设为0
+                score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
+                
+                # 1c. 【最终调试日志】打印王牌信号日的最终、纯净分数
+                king_day_scores = score_details_df.loc[king_signal_mask]
+                for date, row in king_day_scores.iterrows():
+                    final_scores = {k: v for k, v in row.to_dict().items() if k.startswith('BASE_') and v > 0}
+                    print(f"      - 日期: {date.strftime('%Y-%m-%d')}, 互斥后最终基础分: {final_scores}")
+        else:
+            # 这个 else 理论上不应该被触发了，但作为保险留下
+            print(f"    - [计分-警告] 王牌信号列 '{king_signal_col}' 未在数据中找到，无法执行互斥计分逻辑。")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # --- 步骤2: 定义战术信号的前提条件 ---
         base_score = score_details_df.sum(axis=1)
         tactical_precondition = base_score > 0
         strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index))
-
+        print(f"    [调试-计分V22.0] 步骤2: 定义战术前提... 满足基础分天数: {tactical_precondition.sum()}, 满足严格趋势天数: {strict_precondition.sum()}")
 
         # --- 步骤3: 计算所有独立的日线战术原子信号 ---
-        print("    [调试-计分V16.1] 步骤2: 计算日线战术原子信号...")
-        # (此部分计算逻辑保持不变，仅为完整性展示)
+        print("    [调试-计分V22.0] 步骤3: 计算日线战术原子信号...")
         cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params)
         cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params)
         cond_v_reversal = self._find_v_reversal_entry(df, tactical_precondition, params)
@@ -335,10 +326,7 @@ class TrendFollowStrategy:
         cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, strict_precondition, params)
         cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
         cond_fund_flow_confirm = self._check_fund_flow_confirmation(df, params)
-        # ▼▼▼【代码修改】: 计算斐波那契回撤买入信号 ▼▼▼
-        # 解释: 调用新增的斐波那契回撤买入剧本。
         cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params)
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         steady_climb_params = self._get_params_block(params, 'steady_climb_params')
         is_low_volatility = pd.Series(False, index=df.index)
         if steady_climb_params.get('enabled', False):
@@ -354,17 +342,16 @@ class TrendFollowStrategy:
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
         # 步骤3.5，计算分钟线共振信号
-        print("    [调试-计分V16.1] 步骤3.5: 计算分钟线共振信号...")
-        # 解释: 我们将“回踩预备信号”作为分钟线分析的前提条件。
-        #       这意味着，只有当股票进入了我们日线级别的“观察区”，我们才去分钟线寻找精确买点。
+        print("    [调试-计分V22.0] 步骤3.5: 计算分钟线共振信号...")
         resonance_precondition = cond_pullback_setup
         resonance_signals = self._find_multi_timeframe_resonance(df_dict, resonance_precondition)
 
         # --- 步骤4: 记录所有战术信号得分 ---
-        print("    [调试-计分V16.1] 步骤4: 记录日线战术信号得分...")
+        print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
             if condition.any():
                 score_details_df.loc[condition, name] = points.get(name, default_score)
+                print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次。")
             atomic_signals[name] = condition
 
         add_score(cond_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150)
@@ -387,10 +374,7 @@ class TrendFollowStrategy:
         add_score(cond_energy_compression_breakout, 'ENERGY_COMPRESSION_BREAKOUT', 140)
         add_score(cond_capital_flow_divergence, 'CAPITAL_FLOW_DIVERGENCE', 135)
         add_score(cond_relative_strength_maverick, 'RELATIVE_STRENGTH_MAVERICK', 100)
-        # ▼▼▼【代码修改】: 为斐波那契回撤买入信号计分 ▼▼▼
-        # 解释: 将新的斐波那契剧本加入计分板。
         add_score(cond_fib_pullback, 'PULLBACK_FIBONACCI', points.get('PULLBACK_FIBONACCI', 120))
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         add_score(cond_dmi_cross, 'DMI_CROSS', 30)
         add_score(cond_macd_low_cross, 'MACD_LOW_CROSS', 40)
         add_score(cond_macd_zero_cross, 'MACD_ZERO_CROSS', 60)
@@ -400,19 +384,15 @@ class TrendFollowStrategy:
         add_score(cond_three_soldiers & strict_precondition, 'KLINE_THREE_SOLDIERS', 100)
 
         # 步骤4.5，记录分钟线共振信号得分
-        # 解释: 将分钟线共振信号作为高分项加入计分板。
-        print("    [调试-计分V16.1] 步骤4.5: 记录分钟线共振信号得分...")
+        print("    [调试-计分V22.0] 步骤4.5: 记录分钟线共振信号得分...")
         for signal_name, signal_series in resonance_signals.items():
-            # 分数可以从主配置文件读取，或在这里硬编码一个默认值
-            # 例如，一个60分钟的确认信号可能比30分钟的更可靠，得分更高
-            default_score = 150 # 给予一个非常高的默认分
+            default_score = 150
             add_score(signal_series, signal_name, default_score)
 
         # --- 步骤5: 记录协同/冲突规则得分 ---
-        print("    [调试-计分V16.1] 步骤5: 记录协同/冲突规则得分...")
+        print("    [调试-计分V22.0] 步骤5: 记录协同/冲突规则得分...")
         has_positive_score = score_details_df.sum(axis=1) > 0
 
-        # 协同奖励（加法）
         add_score(cond_vwap_support & has_positive_score, 'BONUS_VWAP_SUPPORT', points.get('BONUS_VWAP_SUPPORT', 40))
         add_score(cond_cmf_confirm & has_positive_score, 'BONUS_CMF_CONFIRM', points.get('CMF_CONFIRMATION_BONUS', 20))
         add_score(cond_fund_flow_confirm & has_positive_score, 'BONUS_FUND_FLOW_CONFIRM', points.get('FUND_FLOW_CONFIRM_BONUS', 25))
@@ -425,7 +405,6 @@ class TrendFollowStrategy:
         is_perfect_entry = is_steady_climb_pullback & cond_macd_zero_cross
         add_score(is_perfect_entry, 'BONUS_STEADY_CLIMB_MACD_ZERO', points.get('STEADY_CLIMB_MACD_ZERO_BONUS', 40))
 
-        # 协同奖励（乘法）- 转换为加法项
         current_score = score_details_df.fillna(0).sum(axis=1)
         multiplier_bonus = pd.Series(0.0, index=df.index)
         cmf_multiplier = points.get('CMF_CONFIRMATION_MULTIPLIER', 1.2)
@@ -437,7 +416,6 @@ class TrendFollowStrategy:
         multiplier_bonus.loc[cond_gap_support_state & has_positive_score] += current_score * (gap_multiplier - 1)
         score_details_df['BONUS_MULTIPLIER'] = multiplier_bonus.where(multiplier_bonus > 0)
 
-        # 冲突惩罚（乘法）- 转换为减法项
         penalty_score = pd.Series(0.0, index=df.index)
         is_reversal_play_conflict = cond_bottom_divergence | cond_bias_reversal
         is_breakout_play_conflict = cond_momentum | cond_first_breakout | cond_bb_squeeze_breakout
@@ -451,63 +429,45 @@ class TrendFollowStrategy:
 
         # --- 步骤7: 应用行业强度奖励 ---
         print("    [调试-计分V22.0] 步骤7: 应用行业强度奖励与惩罚...")
-        # 从配置中读取新的、更详细的行业参数块
         industry_params = self._get_params_block(params, 'industry_context_params', {})
         
-        # 检查功能是否启用，以及关键数据列是否存在
         if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
-            # 获取配置参数
             weak_rank_threshold = industry_params.get('weak_rank_threshold', 0.3)
             weak_penalty_multiplier = industry_params.get('weak_industry_penalty_multiplier', 0.7)
             strength_multiplier_factor = industry_params.get('strength_rank_multiplier', 0.5)
             top_tier_rank_threshold = industry_params.get('top_tier_rank_threshold', 0.9)
             top_tier_bonus = industry_params.get('top_tier_bonus', 30)
-
-            # 获取行业排名序列
             rank_series = df['industry_strength_rank_D']
-            
-            # 创建一个掩码，标记哪些日子有正分，奖励和惩罚只对这些日子生效
             has_entry_score = final_score > 0
             
-            # 1. 应用惩罚和奖励乘数
-            # 初始化乘数序列，默认为1（无影响）
             multiplier = pd.Series(1.0, index=df.index)
-            
-            # 对弱势行业应用惩罚
             is_weak = (rank_series < weak_rank_threshold) & has_entry_score
             multiplier.loc[is_weak] = weak_penalty_multiplier
-            
-            # 对非弱势行业应用奖励
             is_strong = (rank_series >= weak_rank_threshold) & has_entry_score
             multiplier.loc[is_strong] = 1 + (rank_series * strength_multiplier_factor)
             
-            # 应用乘数
             original_score_for_bonus_calc = final_score.copy()
             final_score *= multiplier
             
-            # 记录乘数带来的分数变化，用于调试
             score_change_from_multiplier = final_score - original_score_for_bonus_calc
             score_details_df['INDUSTRY_MULTIPLIER_ADJ'] = score_change_from_multiplier.where(score_change_from_multiplier != 0)
 
-            # 2. 对龙头板块应用额外固定奖励
             is_top_tier = (rank_series >= top_tier_rank_threshold) & has_entry_score
             final_score.loc[is_top_tier] += top_tier_bonus
-            
-            # 记录固定奖励分数，用于调试
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
             
-            print(f"    - [行业协同] 已根据行业排名应用奖惩。弱势惩罚阈值: {weak_rank_threshold:.0%}, 龙头奖励阈值: {top_tier_rank_threshold:.0%}")
+            print(f"    - [行业协同] 已根据行业排名应用奖惩。弱势惩罚({(is_weak).sum()}天), 强势奖励({(is_strong).sum()}天), 龙头奖励({(is_top_tier).sum()}天)。")
+        else:
+            print("    - [行业协同] 未启用或缺少 'industry_strength_rank_D' 列，跳过此步骤。")
 
         # 风险否决
         final_score.loc[kline_strong_bearish] = 0
         final_score.loc[cond_volume_breakdown] = 0
         final_score.loc[cond_heaven_earth_board] = 0
 
-        # 最终过滤器
         is_reversal_play_final = cond_bottom_divergence | cond_bias_reversal | cond_capital_flow_divergence | cond_morning_star
         final_score = final_score.where(tactical_precondition | is_reversal_play_final, 0)
-
-        # --- 步骤7: 正确返回三元组 ---
+        print("    [调试-计分V22.0] 计分流程结束。")
         return final_score.round(0), atomic_signals, score_details_df.fillna(0)
 
     def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> dict:
@@ -1854,45 +1814,24 @@ class TrendFollowStrategy:
 
         return resonance_signals
 
-    # ▼▼▼【代码修改】: 新增斐波那契回撤买入剧本方法 ▼▼▼
     def _find_fibonacci_pullback_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """
-        【新增剧本】识别斐波那契回撤支撑买点。
-        当价格在上升趋势中回踩到关键斐波那契支撑位并企稳时，产生信号。
-        """
-        # 从配置中获取斐波那契分析参数
         fib_params = self._get_params_block(params, 'fibonacci_analysis_params')
         if not fib_params.get('enabled', False):
             return pd.Series(False, index=df.index)
-
-        # 获取要检查的回撤水平和缓冲区域
+        print("    - [计分-战术] 正在执行斐波那契回撤买入剧本...")
         retr_levels = fib_params.get('retracement_levels', [0.618])
         buffer = fib_params.get('pullback_buffer', 0.01)
-        
         final_signal = pd.Series(False, index=df.index)
-
-        # 遍历所有配置的回撤水平
         for level in retr_levels:
-            # 构建斐波那契回撤列名，例如 'fib_retr_0618_D'
             col_name = f'fib_retr_{str(level).replace(".", "")}_D'
             if col_name not in df.columns:
-                # 如果数据列不存在，跳过此水平的检查
                 continue
-            
             support_price = df[col_name]
-            
-            # 条件1: 当日最低价触及或短暂跌破支撑位（考虑缓冲）
             touched_support = df['low_D'] <= support_price * (1 + buffer)
-            
-            # 条件2: 当日收盘价收回支撑位之上，形成企稳信号
             recovered_above_support = df['close_D'] > support_price
-            
-            # 组合信号：满足趋势前提 + 触及支撑 + 收盘企稳
             signal = touched_support & recovered_above_support & precondition
-            final_signal |= signal # 将当前水平的信号合并到最终信号中
-
+            final_signal |= signal
         return final_signal.fillna(False)
-    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str) -> Dict:
         """【V2.0 升级】对最新信号进行评分并生成报告"""
@@ -2012,15 +1951,12 @@ class TrendFollowStrategy:
     # 引入状态机，重构止盈逻辑以支持连续交易模拟
     def _apply_take_profit_rules(self, df: pd.DataFrame, entry_signals: pd.Series, top_divergence_signals: pd.Series, params: dict) -> pd.Series:
         """
-        【V3.4 斐波那契止盈版】使用 cumsum 技巧，完全消除状态机循环。
-        - 【新增】集成了“斐波那契扩展位”作为最高优先级的动态止盈信号 (代码10)。
+        【V22.0 调试增强版】
         """
-        # top_divergence_signals 是一个布尔序列，由 apply_strategy 方法计算并作为参数传入此函数。
-        # 它代表了任何一天是否出现了顶背离信号。
         final_tp_signal = pd.Series(0, index=df.index, dtype=int)
         tp_params = self._get_params_block(params, 'take_profit_params')
         
-        # 步骤1: 计算所有潜在的止盈信号，无论是否持仓
+        print("    - [止盈-调试] 步骤1: 计算所有潜在止盈条件...")
         tp_signal_resistance = self._check_resistance_take_profit(df, tp_params.get('resistance_exit', {}))
         tp_signal_trailing = self._check_trailing_stop_take_profit(df, tp_params.get('trailing_stop_exit', {}))
         tp_signal_indicator = self._check_indicator_take_profit(df, tp_params.get('indicator_exit', {}))
@@ -2028,60 +1964,53 @@ class TrendFollowStrategy:
         tp_signal_heaven_earth = board_patterns.get('heaven_earth_board', pd.Series(False, index=df.index))
         tp_signal_upthrust = self._find_upthrust_distribution_exit(df, params)
         tp_signal_breakdown = self._find_volume_breakdown_exit(df, params)
-
-        # 新增动态箱体跌破作为止盈/止损信号
         box_params = self._get_params_block(params, 'dynamic_box_params')
         tp_signal_box_breakdown = pd.Series(False, index=df.index)
-        if box_params.get('breakdown_sell_enabled', True): # 默认启用
+        if box_params.get('breakdown_sell_enabled', True):
             tp_signal_box_breakdown = self.signals.get('dynamic_box_breakdown', pd.Series(False, index=df.index))
 
-        # ▼▼▼【代码修改】: 新增斐波那契扩展位止盈逻辑 ▼▼▼
-        # 解释: 计算是否触及斐波那契扩展目标位。
         fib_params = self._get_params_block(params, 'fibonacci_analysis_params')
         tp_signal_fib_extension = pd.Series(False, index=df.index)
         if fib_params.get('enabled', False):
             ext_levels = fib_params.get('extension_levels', [1.618])
-            # 通常只关心第一个最重要的扩展目标
             if ext_levels:
                 first_target_level = ext_levels[0]
                 col_name = f'fib_ext_{str(first_target_level).replace(".", "")}_D'
                 if col_name in df.columns:
                     target_price = df[col_name]
-                    # 当日最高价触及或超过目标价时，触发止盈
                     hit_target = (df['high_D'] >= target_price) & target_price.notna()
                     tp_signal_fib_extension[hit_target] = True
+        
+        # ▼▼▼【代码修改】: 增加详细的止盈条件触发统计 ▼▼▼
+        print("    - [止盈-调试] 原始止盈条件触发统计:")
+        print(f"      - 阻力位(1): {tp_signal_resistance.sum()} 次")
+        print(f"      - 移动止损(2): {tp_signal_trailing.sum()} 次")
+        print(f"      - 指标超买(3/5): {(tp_signal_indicator > 0).sum()} 次")
+        print(f"      - 顶背离(4): {top_divergence_signals.sum()} 次")
+        print(f"      - 天地板(6): {tp_signal_heaven_earth.sum()} 次")
+        print(f"      - 高位派发(7): {tp_signal_upthrust.sum()} 次")
+        print(f"      - 放量破位(8): {tp_signal_breakdown.sum()} 次")
+        print(f"      - 箱体跌破(9): {tp_signal_box_breakdown.sum()} 次")
+        print(f"      - 斐波那契扩展(10): {tp_signal_fib_extension.sum()} 次")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
-        # 步骤2: 将所有止盈信号按优先级合并到一个布尔序列中
-        # 优先级: 斐波那契(10) > 砸盘(8) > 天地板(6) > 派发(7) > 动态箱体跌破(9) > 顶背离(4) > 指标(5,3) > 移动止损(2) > 阻力位(1)
         any_tp_signal = (
-            tp_signal_fib_extension | # 新增斐波那契止盈
-            tp_signal_breakdown |
-            tp_signal_heaven_earth |
-            tp_signal_upthrust |
-            tp_signal_box_breakdown |
-            top_divergence_signals |
-            (tp_signal_indicator > 0) |
-            tp_signal_trailing |
-            tp_signal_resistance
+            tp_signal_fib_extension | tp_signal_breakdown | tp_signal_heaven_earth |
+            tp_signal_upthrust | tp_signal_box_breakdown | top_divergence_signals |
+            (tp_signal_indicator > 0) | tp_signal_trailing | tp_signal_resistance
         )
 
-        # 步骤3: 使用 cumsum 技巧创建“持仓区块”
+        print("    - [止盈-调试] 步骤2: 使用向量化状态机判断持仓...")
         is_new_entry = entry_signals & ~any_tp_signal.shift(1).fillna(False)
         is_exit = any_tp_signal
         trade_block_id = is_new_entry.cumsum()
-        # ▼▼▼【代码修改】: 修正 first_exit_in_block 的计算逻辑 ▼▼▼
-        # 解释: 原有逻辑在某些情况下可能不准确，修正为更健壮的 groupby().cumcount() 方式。
-        # first_exit_in_block = is_exit & ~is_exit.duplicated(keep='first')
         first_exit_in_block = is_exit & (is_exit.groupby(trade_block_id).cumcount() == 0)
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         reset_points = first_exit_in_block.cumsum()
         active_trade_block_id = trade_block_id - reset_points.shift(1).fillna(0)
         is_holding_vectorized = active_trade_block_id > 0
-        
-        # 步骤4: 在持仓期内，根据优先级应用止盈规则
-        # ▼▼▼【代码修改】: 将斐波那契止盈信号以最高优先级合并 ▼▼▼
-        # 解释: 为斐波那契目标止盈分配一个新的代码10，并赋予最高优先级。
+        print(f"    - [止盈-调试] 识别出 {is_new_entry.sum()} 个交易区块，最终持仓天数共 {is_holding_vectorized.sum()} 天。")
+
+        print("    - [止盈-调试] 步骤3: 应用优先级规则生成最终止盈信号...")
         final_tp_signal.loc[is_holding_vectorized & tp_signal_fib_extension] = 10
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_breakdown] = 8
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_heaven_earth] = 6
@@ -2092,8 +2021,8 @@ class TrendFollowStrategy:
         final_tp_signal.loc[indicator_tp_mask] = tp_signal_indicator[indicator_tp_mask]
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_trailing] = 2
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_resistance] = 1
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
+        print(f"    - [止盈-调试] 止盈逻辑判断完成，共产生 {(final_tp_signal > 0).sum()} 个最终止盈信号。")
         return final_tp_signal
 
     def _check_resistance_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:

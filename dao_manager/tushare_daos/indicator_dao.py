@@ -170,7 +170,7 @@ class IndicatorDAO(BaseDAO):
         # 1. 统一时间级别 (代码无变化)
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
         
-        print(f"    [DAO-数据库 V4.1] 正在为 {stock_code} ({time_level_str}) 从数据库查询 {limit} 条数据...")
+        # print(f"    [DAO-数据库 V4.1] 正在为 {stock_code} ({time_level_str}) 从数据库查询 {limit} 条数据...")
 
         # 2. 获取股票实例 (代码无变化)
         if self.stock_basic_dao is None:
@@ -251,7 +251,7 @@ class IndicatorDAO(BaseDAO):
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str}")
                 return None
             
-            print(f"    [DAO-数据库] 成功从数据库获取 {len(data_values)} 条数据。")
+            # print(f"    [DAO-数据库] 成功从数据库获取 {len(data_values)} 条数据。")
 
             df = pd.DataFrame.from_records(data_values)
             df = df.iloc[::-1].reset_index(drop=True)
@@ -275,7 +275,7 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
             
-            print(f"    [DAO-DataFrame] 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
+            # print(f"    [DAO-DataFrame] 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
             return df
 
         except Exception as e:
