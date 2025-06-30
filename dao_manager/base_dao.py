@@ -793,49 +793,48 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V19 - 终极生产健壮版】在同步环境中，使用原生SQL处理一个批次的数据。
-        此版本在V18的基础上，增加了 `hasattr` 检查，解决了因遍历不同字段类型而引发的 `AttributeError`。
+        【V20 - 终极生产完备版】在同步环境中，使用原生SQL处理一个批次的数据。
+        此版本在V19的基础上，提供了对模型所有 `default` 值的完整处理，解决了(1364)完整性错误。
         - 策略:
-          1. 在检查 `field.auto_now_add` 和 `field.auto_now` 之前，先使用 `hasattr()` 判断字段对象是否存在这些属性。
-          2. 这可以确保代码只对 `DateTimeField` 等拥有这些属性的字段进行操作，安全地跳过 `BigAutoField`、`CharField` 等其他字段。
-        - 结果: 修复了V18的崩溃缺陷，是功能完整且代码健壮的最终版本。
+          1. 扩展了默认值处理逻辑，使其不仅能填充已存在列的空值，还能为DataFrame中完全缺失的、但在模型中定义了 `default` 的列创建新列并填充默认值。
+          2. 调整了代码顺序，确保在所有列（包括自动创建的列）都准备好之后，再生成最终的列清单。
+        - 结果: 完整模拟了Django ORM在数据准备阶段的行为，是功能最完备、逻辑最严谨的最终版本。
         """
         if df.empty:
             return 0
 
         table_name = model_class._meta.db_table
-        
         now = timezone.now()
         auto_now_fields = []
-        
-        # ▼▼▼【核心代码修改】: 增加 hasattr 属性存在性检查 ▼▼▼
+
+        # --- 数据准备阶段 ---
+        # 1. 处理 auto_now 和 auto_now_add 字段 (逻辑同V19)
         for field in model_class._meta.fields:
-            # 检查 auto_now_add 字段 (如 created_at)
-            # 必须先检查属性是否存在，再访问该属性
             if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
-                print(f"--- [DAO调试] 发现 auto_now_add 字段 '{field.column}' 在DataFrame中缺失，将使用当前时间填充。 ---")
                 df[field.column] = now
-            
-            # 检查 auto_now 字段 (如 updated_at)
-            # 必须先检查属性是否存在，再访问该属性
             if hasattr(field, 'auto_now') and field.auto_now:
                 auto_now_fields.append(field.column)
-                print(f"--- [DAO调试] 发现 auto_now 字段 '{field.column}'，将使用当前时间填充并强制更新。 ---")
                 df[field.column] = now
+        
+        # ▼▼▼【核心代码修改】: 全面处理所有带 `default` 值的字段 ▼▼▼
+        print("--- [DAO调试] 开始数据预处理：填充所有模型定义的默认值 ---")
+        for field in model_class._meta.fields:
+            # 检查字段是否有 `default` 属性且不是特殊值 NOT_PROVIDED
+            if field.default is not models.NOT_PROVIDED:
+                default_value = field.get_default() # 使用 get_default() 以处理可调用对象
+                
+                # 情况一：DataFrame中完全没有这一列 -> 创建新列并填充默认值
+                if field.column not in df.columns:
+                    print(f"--- [DAO调试] 发现带默认值的字段 '{field.column}' 在DataFrame中缺失，将使用默认值 '{default_value}' 创建该列。 ---")
+                    df[field.column] = default_value
+                # 情况二：列存在，但包含空值 -> 填充这些空值
+                elif df[field.column].isnull().any():
+                    print(f"--- [DAO调试] 发现带默认值的字段 '{field.column}' 存在空值，将使用默认值 '{default_value}' 填充。 ---")
+                    df[field.column].fillna(default_value, inplace=True)
         # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
-        all_columns = list(df.columns)
-
-        print("--- [DAO调试] 开始数据预处理：填充默认值和序列化JSON ---")
-        json_field_names = []
-        for field in model_class._meta.fields:
-            if isinstance(field, models.JSONField):
-                json_field_names.append(field.column)
-            if field.default is not models.NOT_PROVIDED and field.column in df.columns and df[field.column].isnull().any():
-                default_value = field.get_default()
-                if default_value is not None:
-                    df[field.column].fillna(default_value, inplace=True)
-        
+        # 3. 序列化JSON字段 (逻辑同V19)
+        json_field_names = [f.column for f in model_class._meta.fields if isinstance(f, models.JSONField)]
         for col_name in json_field_names:
             if col_name in df.columns:
                 df[col_name] = df[col_name].apply(
@@ -843,6 +842,11 @@ class BaseDAO(Generic[T]):
                 )
         print("--- [DAO调试] 数据预处理完成 ---")
 
+        # ▼▼▼【核心代码修改】: 在所有列都添加完毕后，再获取最终的列名列表 ▼▼▼
+        all_columns = list(df.columns)
+        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
+
+        # --- SQL构建与执行阶段 ---
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
         placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})"
         
