@@ -1,5 +1,5 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V2.0 - 逻辑修正与解耦版
+# 版本: V2.1 - 初始化依赖注入修复版
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
@@ -7,7 +7,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from services.indicator_services import IndicatorService
+# ▼▼▼【代码修改】: 导入 TrendFollowStrategy 以便实例化 ▼▼▼
 from strategies.trend_following_strategy import TrendFollowStrategy
+# ▲▲▲【代码修改】: 修改结束 ▲▲▲
 from strategies.weekly_trend_follow_strategy import WeeklyTrendFollowStrategy
 from utils.config_loader import load_strategy_config
 
@@ -16,20 +18,33 @@ logger = logging.getLogger(__name__)
 class MultiTimeframeTrendStrategy:
 
     def __init__(self):
-        self.weekly_strategy = WeeklyTrendFollowStrategy()
-        self.tactical_strategy = TrendFollowStrategy()
-        self.indicator_service = IndicatorService()
+        """
+        【V2.1 初始化依赖注入修复版】
+        - 修复: 在创建 TrendFollowStrategy 实例时，将已加载的战术配置字典传递给它。
+        """
+        # 1. 加载所有需要的配置文件
         self.tactical_config_path = 'config/trend_follow_strategy.json'
         self.strategic_config_path = 'config/weekly_trend_follow_strategy.json'
         self.tactical_config = load_strategy_config(self.tactical_config_path)
         self.strategic_config = load_strategy_config(self.strategic_config_path)
+
+        # 2. 实例化所有需要的服务和子策略
+        self.indicator_service = IndicatorService()
+        self.weekly_strategy = WeeklyTrendFollowStrategy() # 周线策略的__init__不需要参数
+
+        # ▼▼▼【代码修改】: 这是本次修复的核心 ▼▼▼
+        # 解释: TrendFollowStrategy的构造函数需要一个配置字典。
+        # 我们在这里将刚刚加载的 self.tactical_config 传递给它。
+        self.tactical_strategy = TrendFollowStrategy(config=self.tactical_config)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
         【V2.0 逻辑修正版】为单个股票执行完整的多时间框架分析。
         - 核心修正: 严格分离战略层和战术层的数据处理，确保周线策略在纯周线数据上运行。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行多时间框架分析 (V2.0 逻辑修正版) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行多时间框架分析 (V2.1 修复版) ---")
 
         # --- 步骤 1: 并行准备战略(周)和战术(日/分钟)数据 ---
         logger.info(f"--- 步骤1: 调用 IndicatorService 并行准备所有数据... ---")
@@ -51,40 +66,32 @@ class MultiTimeframeTrendStrategy:
         df_weekly = strategic_dfs['W']
         df_daily = tactical_dfs['D']
 
-        # ▼▼▼【代码修改】: 修正周线策略的调用逻辑 ▼▼▼
-        # 解释: 周线策略必须在纯粹的周线DataFrame上运行，以保证其内部计算（如diff, rolling）的正确性。
         # --- 步骤 2: 运行战略层策略 (在纯周线数据上) ---
         logger.info(f"--- 步骤2: 运行周线战略策略，生成'战略信号'... ---")
-        # self.weekly_strategy.apply_strategy 现在接收纯周线数据 df_weekly
         weekly_signals_df = self.weekly_strategy.apply_strategy(df_weekly)
 
         if weekly_signals_df is None or weekly_signals_df.empty:
             logger.warning(f"[{stock_code}] 周线战略策略未能生成战略背景，但将继续进行战术分析。")
-            # 即使没有周线信号，也创建一个空的DataFrame以便后续合并
             weekly_signals_df = pd.DataFrame(index=df_weekly.index)
 
         # --- 步骤 3: 将战略信号整合到日线数据中 ---
         logger.info(f"--- 步骤3: 整合战略信号到日线数据... ---")
-        # 确保索引没有时区信息，以便合并
         df_daily.index = pd.to_datetime(df_daily.index).tz_localize(None)
         weekly_signals_df.index = pd.to_datetime(weekly_signals_df.index).tz_localize(None)
         
-        # 使用 merge_asof 将周线信号“广播”到对应的每一天
         df_daily_with_signals = pd.merge_asof(
             left=df_daily.sort_index(),
             right=weekly_signals_df.sort_index(),
             left_index=True,
             right_index=True,
-            direction='backward' # 为每一天找到它所属的那一周的信号
+            direction='backward'
         )
         
-        # 重命名关键信号列，以供计分引擎使用
         if 'signal_breakout_trigger_W' in df_daily_with_signals.columns:
             df_daily_with_signals.rename(columns={'signal_breakout_trigger_W': 'BASE_SIGNAL_BREAKOUT_TRIGGER'}, inplace=True)
             print("    - [协同层] 已将周线王牌信号 'signal_breakout_trigger_W' 重命名为 'BASE_SIGNAL_BREAKOUT_TRIGGER'")
         
-        # 清理可能产生的NaN值
-        signal_cols = [col for col in weekly_signals_df.columns]
+        signal_cols = list(weekly_signals_df.columns)
         if 'BASE_SIGNAL_BREAKOUT_TRIGGER' in df_daily_with_signals.columns:
             signal_cols.append('BASE_SIGNAL_BREAKOUT_TRIGGER')
             
@@ -96,7 +103,6 @@ class MultiTimeframeTrendStrategy:
                     df_daily_with_signals[col] = df_daily_with_signals[col].fillna(0)
         
         print(f"    - [协同层] 已将 {len(weekly_signals_df.columns)} 个周线策略信号合并到日线。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # --- 步骤 4: 组装最终的数据字典 all_dfs ---
         all_dfs = {'D': df_daily_with_signals}
@@ -108,7 +114,6 @@ class MultiTimeframeTrendStrategy:
 
         # --- 步骤 5: 运行战术层策略 (日线/分钟线) ---
         logger.info(f"--- 步骤5: 运行多时间框架战术策略... ---")
-        # 注意：现在 tactical_strategy 的初始化和调用方式也需要统一
         final_df, atomic_signals = self.tactical_strategy.apply_strategy(
             all_dfs, self.tactical_config
         )

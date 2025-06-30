@@ -1,135 +1,123 @@
-# 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V2.1 - 初始化依赖注入修复版
+# 文件: tasks/stock_analysis_tasks.py
+# 版本: V2.0 - 引擎切换版
+
 import asyncio
+from datetime import datetime
 import logging
-from typing import Any, Dict, List, Optional
+from celery import Celery
+from asgiref.sync import async_to_sync
+from chaoyue_dreams.celery import app as celery_app
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
-import pandas as pd
-
-from services.indicator_services import IndicatorService
-# ▼▼▼【代码修改】: 导入 TrendFollowStrategy 以便实例化 ▼▼▼
-from strategies.trend_following_strategy import TrendFollowStrategy
+# ▼▼▼【代码修改】: 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
+from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
+# from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
 # ▲▲▲【代码修改】: 修改结束 ▲▲▲
-from strategies.weekly_trend_follow_strategy import WeeklyTrendFollowStrategy
-from utils.config_loader import load_strategy_config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('tasks')
 
-class MultiTimeframeTrendStrategy:
+async def _get_all_relevant_stock_codes_for_processing():
+    # ... 此函数保持不变 ...
+    stock_basic_dao = StockBasicInfoDao()
+    favorite_stock_codes = set()
+    all_stock_codes = set()
+    try:
+        favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
+        for fav in favorite_stocks:
+            favorite_stock_codes.add(fav.stock_id)
+    except Exception as e:
+        logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
+    try:
+        all_stocks = await stock_basic_dao.get_stock_list()
+        for stock in all_stocks:
+            if not stock.stock_code.endswith('.BJ'):
+                all_stock_codes.add(stock.stock_code)
+    except Exception as e:
+        logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
+    non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
+    favorite_stock_codes_list = list(favorite_stock_codes)
+    favorite_stock_codes_list = sorted(favorite_stock_codes_list)
+    non_favorite_stock_codes = sorted(non_favorite_stock_codes)
+    if not favorite_stock_codes_list and not non_favorite_stock_codes:
+        logger.warning("未能获取到任何需要处理的股票代码")
+    return favorite_stock_codes_list, non_favorite_stock_codes
 
-    def __init__(self):
-        """
-        【V2.1 初始化依赖注入修复版】
-        - 修复: 在创建 TrendFollowStrategy 实例时，将已加载的战术配置字典传递给它。
-        """
-        # 1. 加载所有需要的配置文件
-        self.tactical_config_path = 'config/trend_follow_strategy.json'
-        self.strategic_config_path = 'config/weekly_trend_follow_strategy.json'
-        self.tactical_config = load_strategy_config(self.tactical_config_path)
-        self.strategic_config = load_strategy_config(self.strategic_config_path)
+# ▼▼▼【代码修改】: 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
+def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
+    """
+    【V1.0 - 新版策略入口】
+    调用 MultiTimeframeTrendStrategy，执行包含周线、日线、分钟线的完整协同分析。
+    """
+    logger.info(f"[{stock_code}] 开始执行 'run_multi_timeframe_strategy' on {stock_code} for date {trade_date}")
+    try:
+        # 1. 实例化总指挥策略和DAO
+        #    MultiTimeframeTrendStrategy 在其内部处理所有配置加载和子策略实例化
+        strategy_orchestrator = MultiTimeframeTrendStrategy()
+        strategies_dao = StrategiesDAO()
 
-        # 2. 实例化所有需要的服务和子策略
-        self.indicator_service = IndicatorService()
-        self.weekly_strategy = WeeklyTrendFollowStrategy() # 周线策略的__init__不需要参数
+        # 2. 调用总指挥的 run_for_stock 方法
+        #    这是一个异步方法，所以需要用 async_to_sync 包装
+        db_records = async_to_sync(strategy_orchestrator.run_for_stock)(
+            stock_code=stock_code,
+            trade_time=trade_date
+        )
 
-        # ▼▼▼【代码修改】: 这是本次修复的核心 ▼▼▼
-        # 解释: TrendFollowStrategy的构造函数需要一个配置字典。
-        # 我们在这里将刚刚加载的 self.tactical_config 传递给它。
-        self.tactical_strategy = TrendFollowStrategy(config=self.tactical_config)
+        if not db_records:
+            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号。")
+            return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
+
+        # 3. 保存到数据库
+        save_count = async_to_sync(strategies_dao.save_strategy_signals)(db_records)
+        logger.info(f"[{stock_code}] 成功保存 {save_count} 条 'multi_timeframe_trend_strategy' 信号。")
+
+        return {"status": "success", "saved_count": save_count}
+
+    except Exception as e:
+        logger.error(f"执行 'run_multi_timeframe_strategy' on {stock_code} 时出错: {e}", exc_info=True)
+        return {"status": "error", "reason": str(e)}
+# ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
+def analyze_all_stocks(self):
+    """
+    【V2.0 引擎切换版】
+    调度所有股票分析任务，现在调用新的多时间框架策略入口。
+    """
+    try:
+        logger.info("开始调度所有股票的分析任务 (V2.0 引擎切换版)")
+        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        if not non_favorite_codes and not favorite_codes:
+            logger.warning("未找到任何股票数据，任务终止")
+            return {"status": "failed", "reason": "no stocks found"}
+        stock_count = len(favorite_codes) + len(non_favorite_codes)
+        logger.info(f"找到 {stock_count} 只股票待分析.")
+        
+        trade_time_str = datetime.now().strftime('%Y-%m-%d')
+        logger.info(f"所有任务将使用统一的分析截止日期: {trade_time_str}")
+        
+        # ▼▼▼【代码修改】: 将调度的任务从旧的 run_trend_follow_strategy 更换为新的 run_multi_timeframe_strategy ▼▼▼
+        # --- 为自选股调度新任务 ---
+        for stock_code in favorite_codes:
+            run_multi_timeframe_strategy.s(stock_code, trade_time_str).set(queue='favorite_calculate_strategy').apply_async()
+        
+        # --- 为非自选股调度新任务 ---
+        for stock_code in non_favorite_codes:
+            run_multi_timeframe_strategy.s(stock_code, trade_time_str).set(queue='calculate_strategy').apply_async()
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
-
-
-    async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        """
-        【V2.0 逻辑修正版】为单个股票执行完整的多时间框架分析。
-        - 核心修正: 严格分离战略层和战术层的数据处理，确保周线策略在纯周线数据上运行。
-        """
-        logger.info(f"--- 开始为【{stock_code}】执行多时间框架分析 (V2.1 修复版) ---")
-
-        # --- 步骤 1: 并行准备战略(周)和战术(日/分钟)数据 ---
-        logger.info(f"--- 步骤1: 调用 IndicatorService 并行准备所有数据... ---")
-        task_strategic = self.indicator_service.prepare_data(
-            stock_code=stock_code, config=self.strategic_config, trade_time=trade_time
-        )
-        task_tactical = self.indicator_service.prepare_data(
-            stock_code=stock_code, config=self.tactical_config, trade_time=trade_time
-        )
-        strategic_dfs, tactical_dfs = await asyncio.gather(task_strategic, task_tactical)
-
-        if not strategic_dfs or 'W' not in strategic_dfs:
-            logger.warning(f"[{stock_code}] 战略层(周线)数据准备失败，分析终止。")
-            return None
-        if not tactical_dfs or 'D' not in tactical_dfs:
-            logger.warning(f"[{stock_code}] 战术层(日线)数据准备失败，分析终止。")
-            return None
-
-        df_weekly = strategic_dfs['W']
-        df_daily = tactical_dfs['D']
-
-        # --- 步骤 2: 运行战略层策略 (在纯周线数据上) ---
-        logger.info(f"--- 步骤2: 运行周线战略策略，生成'战略信号'... ---")
-        weekly_signals_df = self.weekly_strategy.apply_strategy(df_weekly)
-
-        if weekly_signals_df is None or weekly_signals_df.empty:
-            logger.warning(f"[{stock_code}] 周线战略策略未能生成战略背景，但将继续进行战术分析。")
-            weekly_signals_df = pd.DataFrame(index=df_weekly.index)
-
-        # --- 步骤 3: 将战略信号整合到日线数据中 ---
-        logger.info(f"--- 步骤3: 整合战略信号到日线数据... ---")
-        df_daily.index = pd.to_datetime(df_daily.index).tz_localize(None)
-        weekly_signals_df.index = pd.to_datetime(weekly_signals_df.index).tz_localize(None)
         
-        df_daily_with_signals = pd.merge_asof(
-            left=df_daily.sort_index(),
-            right=weekly_signals_df.sort_index(),
-            left_index=True,
-            right_index=True,
-            direction='backward'
-        )
-        
-        if 'signal_breakout_trigger_W' in df_daily_with_signals.columns:
-            df_daily_with_signals.rename(columns={'signal_breakout_trigger_W': 'BASE_SIGNAL_BREAKOUT_TRIGGER'}, inplace=True)
-            print("    - [协同层] 已将周线王牌信号 'signal_breakout_trigger_W' 重命名为 'BASE_SIGNAL_BREAKOUT_TRIGGER'")
-        
-        signal_cols = list(weekly_signals_df.columns)
-        if 'BASE_SIGNAL_BREAKOUT_TRIGGER' in df_daily_with_signals.columns:
-            signal_cols.append('BASE_SIGNAL_BREAKOUT_TRIGGER')
-            
-        for col in signal_cols:
-            if col in df_daily_with_signals.columns:
-                if df_daily_with_signals[col].dtype == 'bool':
-                    df_daily_with_signals[col] = df_daily_with_signals[col].fillna(False)
-                else:
-                    df_daily_with_signals[col] = df_daily_with_signals[col].fillna(0)
-        
-        print(f"    - [协同层] 已将 {len(weekly_signals_df.columns)} 个周线策略信号合并到日线。")
+        logger.info(f"已为 {len(favorite_codes)} 只自选股调度 'run_multi_timeframe_strategy' 任务")
+        logger.info(f"已为 {len(non_favorite_codes)} 只非自选股调度 'run_multi_timeframe_strategy' 任务")
+        return {"status": "started",  "stock_count": stock_count}
+    except Exception as e:
+        logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
 
-        # --- 步骤 4: 组装最终的数据字典 all_dfs ---
-        all_dfs = {'D': df_daily_with_signals}
-        for tf, df_minute in tactical_dfs.items():
-            if tf != 'D':
-                all_dfs[tf] = df_minute
-        
-        print(f"    - [协同层] 最终数据集包含的周期: {list(all_dfs.keys())}")
-
-        # --- 步骤 5: 运行战术层策略 (日线/分钟线) ---
-        logger.info(f"--- 步骤5: 运行多时间框架战术策略... ---")
-        final_df, atomic_signals = self.tactical_strategy.apply_strategy(
-            all_dfs, self.tactical_config
-        )
-
-        # --- 步骤 6: 打包最终结果并返回 ---
-        if final_df is None or final_df.empty:
-            logger.info(f"\n--- 【{stock_code}】战术策略运行未产生有效结果DataFrame ---")
-            return None
-        
-        logger.info(f"[{stock_code}] 战术策略分析完成，准备数据库记录...")
-        db_records = self.tactical_strategy.prepare_db_records(
-            stock_code, 
-            final_df, 
-            atomic_signals, 
-            params=self.tactical_config
-        )
-        
-        logger.info(f"--- 【{stock_code}】多时间框架分析完成，共生成 {len(db_records) if db_records else 0} 条信号记录。 ---")
-        return db_records
+# 保留旧的任务入口以实现兼容性，但调度器不再调用它
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_trend_follow_strategy', queue='calculate_strategy')
+def run_trend_follow_strategy(self, stock_code: str, trade_date: str):
+    logger.warning(f"[{stock_code}] 正在调用已废弃的 'run_trend_follow_strategy' 任务入口。请尽快迁移到 'run_multi_timeframe_strategy'。")
+    # 为了避免意外，这里可以直接转发到新任务
+    return run_multi_timeframe_strategy.s(stock_code, trade_date).apply(task_id=self.request.id).get()
