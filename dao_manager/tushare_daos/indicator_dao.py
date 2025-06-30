@@ -791,6 +791,14 @@ class IndicatorDAO(BaseDAO):
             ).order_by('-trade_time').select_related('ths_index').first()
             if flow_data:
                 print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
+                return flow_data
+            flow_data = FundFlowCntTHS.objects.filter(
+                    ths_index__ts_code=industry_code,
+                    trade_time__lte=trade_date
+                ).order_by('-trade_time').select_related('ths_index').first()
+            if flow_data:
+                print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
+                return flow_data
             else:
                 print(f"    [DAO] 未找到行业 {industry_code} 在 {trade_date} 之前的资金流数据。")
             return flow_data
