@@ -4,6 +4,7 @@ import logging
 import time
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Optional
+from collections import defaultdict # 导入 defaultdict 以方便分组
 import numpy as np
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -61,6 +62,54 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
             return StockDailyData_SZ  # 默认返回深市主板
+
+    @sync_to_async
+    def get_stocks_daily_data(self, stock_codes: List[str], trade_date: datetime.date) -> List:
+        """
+        【优化版】批量获取多支股票在指定日期的日线行情数据。
+        此方法会根据股票代码自动从对应的分表中查询数据。
+        Args:
+            stock_codes (List[str]): 股票代码列表。
+            trade_date (datetime.date): 交易日期。
+        Returns:
+            List: 包含来自不同表的日线行情模型实例的混合列表。
+        """
+        if not stock_codes:
+            return []
+        
+        # 代码修改处: 整个方法的逻辑被重写以支持分表查询
+        # print(f"    [DAO] 准备按板块分表查询 {len(stock_codes)} 支股票在 {trade_date} 的日线行情...")
+
+        # 步骤1: 按模型对股票代码进行分组
+        # 使用 defaultdict 可以简化代码，无需检查key是否存在
+        model_to_codes_map = defaultdict(list)
+        for code in stock_codes:
+            model_class = self.get_daily_data_model_by_code(code)
+            model_to_codes_map[model_class].append(code)
+
+        all_daily_data = [] # 用于存储所有查询结果的列表
+
+        # 步骤2 & 3: 对每个分组进行批量查询并合并结果
+        for model_class, codes_for_this_model in model_to_codes_map.items():
+            # print(f"        -> 正在查询模型 {model_class.__name__} 中的 {len(codes_for_this_model)} 支股票...")
+            try:
+                # 对当前分组的股票代码执行一次高效的批量查询
+                daily_data_batch = list(
+                    model_class.objects.filter(
+                        stock__stock_code__in=codes_for_this_model,
+                        trade_time=trade_date
+                    )
+                )
+                # 将查询结果合并到总列表中
+                all_daily_data.extend(daily_data_batch)
+                # print(f"        <- 从 {model_class.__name__} 查询到 {len(daily_data_batch)} 条数据。")
+            except Exception as e:
+                logger.error(f"在模型 {model_class.__name__} 中批量查询股票日线行情时出错: {e}", exc_info=True)
+                # 即使一个分表查询失败，也继续查询其他表
+                continue
+        
+        # print(f"    [DAO] 查询完成，共获取到 {len(all_daily_data)} 条日线行情数据。")
+        return all_daily_data
 
     async def save_daily_time_trade_history_by_trade_date(self, trade_date: date) -> None:
         """

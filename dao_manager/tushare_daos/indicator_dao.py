@@ -18,7 +18,7 @@ from dao_manager.tushare_daos.industry_dao import IndustryDao
 from stock_models.industry import ThsIndex, ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
 from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyBasic, StockDailyData, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
 # 导入资金流向相关模型
-from stock_models.fund_flow import FundFlowDaily, FundFlowDailyTHS, FundFlowDailyDC, FundFlowCntTHS, FundFlowIndustryTHS
+from stock_models.fund_flow import FundFlowCntTHS, FundFlowIndustryTHS
 from utils.cache_get import  StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -640,100 +640,6 @@ class IndicatorDAO(BaseDAO):
         print(f"    [DAO] Found {len(industries)} industries.")
         return industries
 
-    async def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
-        """
-        获取单个行业指数在指定时间范围内的日线行情数据。
-
-        Args:
-            industry_code (str): 行业代码 (e.g., '881101')。
-            start_date (date): 开始日期。
-            end_date (date): 结束日期。
-
-        Returns:
-            pd.DataFrame: 包含行业日线行情的DataFrame，按日期升序排列。
-        """
-        print(f"    [DAO] Fetching daily data for industry '{industry_code}' from {start_date} to {end_date}...")
-        query_set = ThsIndexDaily.objects.filter(
-            ths_index__ts_code=industry_code,
-            trade_time__range=(start_date, end_date)
-        ).order_by('trade_time')
-        
-        # 使用 .values() 直接获取字典列表，性能更优
-        data = await self.sync_to_async_iterable(
-            query_set.values(
-                'trade_time', 'open', 'high', 'low', 'close', 'pct_change', 'vol'
-            )
-        )
-        
-        if not data:
-            return pd.DataFrame()
-            
-        df = pd.DataFrame(list(data))
-        # 将 trade_time 设置为索引，方便后续时间序列分析
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        df.set_index('trade_time', inplace=True)
-        print(f"    [DAO] Fetched {len(df)} daily records for industry '{industry_code}'.")
-        return df
-
-    async def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
-        """
-        获取单个行业在指定时间范围内的资金流数据。
-
-        Args:
-            industry_code (str): 行业代码。
-            start_date (date): 开始日期。
-            end_date (date): 结束日期。
-
-        Returns:
-            pd.DataFrame: 包含行业资金流数据的DataFrame，按日期升序排列。
-        """
-        print(f"    [DAO] Fetching fund flow for industry '{industry_code}' from {start_date} to {end_date}...")
-        query_set = FundFlowIndustryTHS.objects.filter(
-            ths_index__ts_code=industry_code,
-            trade_time__range=(start_date, end_date)
-        ).order_by('trade_time')
-
-        data = await self.sync_to_async_iterable(
-            query_set.values(
-                'trade_time', 'net_amount', 'lead_stock', 'pct_change_stock'
-            )
-        )
-
-        if not data:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(list(data))
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        df.set_index('trade_time', inplace=True)
-        print(f"    [DAO] Fetched {len(df)} fund flow records for industry '{industry_code}'.")
-        return df
-
-    async def get_industry_members(self, industry_code: str) -> List[str]:
-        """
-        获取指定行业的所有当前成分股代码。
-
-        Args:
-            industry_code (str): 行业代码。
-
-        Returns:
-            List[str]: 股票代码列表 (e.g., ['000001.SZ', '600000.SH']).
-        """
-        print(f"    [DAO] Fetching members for industry '{industry_code}'...")
-        # 假设 is_new='Y' 表示当前最新的成分股
-        query_set = ThsIndexMember.objects.filter(
-            ths_index__ts_code=industry_code,
-            is_new='Y'
-        ).select_related('stock') # 优化查询，避免N+1问题
-
-        # 使用 values_list 直接获取股票代码列表，性能最高
-        members = await self.sync_to_async_iterable(
-            query_set.values_list('stock__stock_code', flat=True)
-        )
-        
-        member_list = list(members)
-        print(f"    [DAO] Found {len(member_list)} members for industry '{industry_code}'.")
-        return member_list
-
     async def get_stocks_daily_close(self, stock_codes: List[str], trade_date: datetime.date) -> pd.DataFrame:
         """
         获取一批股票在指定交易日的收盘价和前收盘价。
@@ -790,14 +696,14 @@ class IndicatorDAO(BaseDAO):
                 trade_time__lte=trade_date
             ).order_by('-trade_time').select_related('ths_index').first()
             if flow_data:
-                print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
+                # print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
                 return flow_data
             flow_data = FundFlowCntTHS.objects.filter(
                     ths_index__ts_code=industry_code,
                     trade_time__lte=trade_date
                 ).order_by('-trade_time').select_related('ths_index').first()
             if flow_data:
-                print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
+                # print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
                 return flow_data
             else:
                 print(f"    [DAO] 未找到行业 {industry_code} 在 {trade_date} 之前的资金流数据。")
@@ -810,10 +716,8 @@ class IndicatorDAO(BaseDAO):
     def get_industry_members(self, industry_code: str) -> List[ThsIndexMember]:
         """
         【已实现】获取指定行业的所有当前成分股。
-
         Args:
             industry_code (str): 同花顺行业代码。
-
         Returns:
             List[ThsIndexMember]: 该行业的成分股模型实例列表。
         """
@@ -831,35 +735,6 @@ class IndicatorDAO(BaseDAO):
             return members
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 成分股时出错: {e}")
-            return []
-
-    @sync_to_async
-    def get_stocks_daily_data(self, stock_codes: List[str], trade_date: datetime.date) -> List[StockDailyData_SZ]:
-        """
-        【已实现】批量获取多支股票在指定日期的日线行情数据。
-
-        Args:
-            stock_codes (List[str]): 股票代码列表。
-            trade_date (datetime.date): 交易日期。
-
-        Returns:
-            List[StockDailyData_SZ]: 日线行情模型实例列表。
-        """
-        if not stock_codes:
-            return []
-        print(f"    [DAO] 正在批量查询 {len(stock_codes)} 支股票在 {trade_date} 的日线行情...")
-        try:
-            # 使用 __in 查询进行高效的批量获取
-            daily_data = list(
-                StockDailyData_SZ.objects.filter(
-                    stock__stock_code__in=stock_codes,
-                    trade_time=trade_date
-                )
-            )
-            print(f"    [DAO] 成功查询到 {len(daily_data)} 条日线行情数据。")
-            return daily_data
-        except Exception as e:
-            logger.error(f"批量查询股票日线行情时出错: {e}")
             return []
 
     @sync_to_async

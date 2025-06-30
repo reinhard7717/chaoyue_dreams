@@ -16,6 +16,7 @@ from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from core.constants import TimeLevel
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
@@ -38,6 +39,7 @@ class IndicatorService:
         self.indicator_dao = IndicatorDAO()
         self.industry_dao = IndustryDao()
         self.stock_basic_dao = StockBasicInfoDao()
+        self.stock_trade_dao = StockTimeTradeDAO()
         self.index_dao = IndexBasicDAO()
         self.strategies_dao = StrategiesDAO() # 实例化DAO
 
@@ -1856,11 +1858,11 @@ class IndicatorService:
         if not members:
             return 0.0
         
-        member_codes = [m.stock_code for m in members]
+        member_codes = [m.stock_id for m in members]
         
         # 2. 批量获取成分股当日行情
         # 假设 indicator_dao 有方法可以批量获取多只股票的单日行情
-        daily_data = await self.indicator_dao.get_stocks_daily_data(member_codes, trade_date)
+        daily_data = await self.stock_trade_dao.get_stocks_daily_data(member_codes, trade_date)
         if not daily_data:
             return 0.0
 
