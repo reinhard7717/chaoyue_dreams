@@ -9,18 +9,10 @@ import pandas as pd
 from asgiref.sync import async_to_sync # 导入 Django/Celery 中调用异步代码的正确工具
 from typing import Dict, Any
 from chaoyue_dreams.celery import app as celery_app
-from django.core.management.base import CommandError
-from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.indicator_services import IndicatorService
-from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from strategies.trend_following_strategy import TrendFollowStrategy
-from utils.cache_get import StrategyCacheGet
-
-# 导入新策略和其对应的DAO
-from strategies.monthly_trend_follow_strategy import MonthlyTrendFollowStrategy
 from utils.config_loader import load_strategy_config
 
 logger = logging.getLogger('tasks')

@@ -464,22 +464,22 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     'run-60min-strategy-1030': {
-        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         'schedule': crontab(hour=10, minute=31, day_of_week='1-5'), # 周一到周五10:31执行
         # 在实际应用中，您会有一个任务来分发所有需要监控的股票
     },
     'run-60min-strategy-1130': {
-        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         'schedule': crontab(hour=11, minute=31, day_of_week='1-5'), # 周一到周五11:31执行
         # 在实际应用中，您会有一个任务来分发所有需要监控的股票
     },
     'run-60min-strategy-1330': {
-        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         'schedule': crontab(hour=13, minute=31, day_of_week='1-5'), # 周一到周五13:31执行
         # 在实际应用中，您会有一个任务来分发所有需要监控的股票
     },
     'run-60min-strategy-1430': {
-        'task': 'tasks.stock_analysis_tasks.run_60min_strategy_all_stocks',
+        'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         'schedule': crontab(hour=14, minute=31, day_of_week='1-5'), # 周一到周五14:31执行
         # 在实际应用中，您会有一个任务来分发所有需要监控的股票
     },    

@@ -13,7 +13,6 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from tasks.stock_analysis_tasks import analyze_batch_stocks
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
@@ -233,12 +232,6 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
             batch = favorite_codes[i:i + batch_size]
             if batch:
                 save_minute_data_realtime_batch.s(batch, time_level).apply_async()
-                # 链式：先保存分钟数据，再分析
-                # task_chain = chain(
-                #     save_minute_data_realtime_batch.s(batch, time_level),
-                #     analyze_batch_stocks.s(params_file, -1)
-                # )
-                # task_chain.apply_async()
                 total_dispatched_batches += 1
         favorite_batches_dispatched = total_dispatched_batches
         # 2. 分派非自选股批量任务
@@ -247,11 +240,7 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
         for i in range(0, total_non_favorite_stocks, batch_size):
             batch = non_favorite_codes[i:i + batch_size]
             if batch:
-                task_chain = chain(
-                    save_minute_data_realtime_batch.s(batch, time_level),
-                    analyze_batch_stocks.s(params_file, -1)
-                )
-                task_chain.apply_async()
+                save_minute_data_realtime_batch.s(batch, time_level).apply_async()
                 total_dispatched_batches += 1
                 non_favorite_batches_dispatched += 1
                 logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
