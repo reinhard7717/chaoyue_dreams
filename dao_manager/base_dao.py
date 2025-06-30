@@ -793,10 +793,11 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V14 - 终极版】在同步环境中，使用原生SQL处理一个批次的数据。
-        此版本解决了 mysqlclient 驱动程序中 executemany 的实现缺陷。我们不再使用 executemany，
-        而是动态构建一个包含所有数据行的、单一的、巨大的 INSERT 语句，然后通过一次 cursor.execute() 调用执行。
-        这保证了 "AS alias" 语法的正确性，是性能和健壮性最佳的方案。
+        【V15 - 最终兼容版】在同步环境中，使用原生SQL处理一个批次的数据。
+        此版本是最终解决方案，它解决了MySQL版本兼容性问题。
+        - 它保留了V14的执行策略：构建一个包含所有数据行的单一巨大INSERT语句，并用一次 cursor.execute() 调用，以获得最佳性能并避免 executemany 的陷阱。
+        - 它放弃了V14中不兼容旧版MySQL的 "AS alias" 语法，回归使用具有广泛兼容性的 "VALUES(column)" 语法。
+        这个组合方案兼具了性能、健壮性和兼容性。
         """
         if df.empty:
             return 0
@@ -814,53 +815,37 @@ class BaseDAO(Generic[T]):
                     print(f"调试信息: [BaseDAO] 在列 '{field.column}' 中发现缺失值，已使用模型默认值 '{default_value}' 进行填充。")
         print("--- [DAO调试] 数据预处理完成 ---")
 
-        # ▼▼▼【核心代码修改】: 构建单条SQL语句和扁平化参数列表 ▼▼▼
-        
-        # 1. 为单行数据创建占位符字符串，例如 "(%s, %s, %s)"
+        # 构建单条SQL语句和扁平化参数列表 (策略同V14)
         placeholders_one_row_sql = f"({', '.join(['%s'] * len(all_columns))})"
-        
-        # 2. 为所有行重复此占位符，例如 "(%s, %s), (%s, %s), (%s, %s)"
         all_placeholders_sql = ", ".join([placeholders_one_row_sql] * len(df))
-
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
 
-        # 3. 准备ON DUPLICATE KEY UPDATE子句 (与V13相同，使用别名)
+        # ▼▼▼【核心代码修改】: 回归使用兼容性更强的 VALUES(column) 语法 ▼▼▼
         if not update_fields:
             update_sql = f"`{model_class._meta.pk.name}` = `{model_class._meta.pk.name}`"
-            # 组合成最终的SQL语句 (不带 AS new_values，因为无更新操作)
-            final_sql = (
-                f"INSERT INTO `{table_name}` ({cols_sql}) "
-                f"VALUES {all_placeholders_sql} "
-                f"ON DUPLICATE KEY UPDATE {update_sql}"
-            )
         else:
-            update_sql = ", ".join([f"`{field}` = new_values.`{field}`" for field in update_fields])
-            # 组合成最终的SQL语句 (带有 AS new_values)
-            final_sql = (
-                f"INSERT INTO `{table_name}` ({cols_sql}) "
-                f"VALUES {all_placeholders_sql} "
-                f"AS new_values "
-                f"ON DUPLICATE KEY UPDATE {update_sql}"
-            )
+            # 解释: 我们使用 VALUES(`field`) 来引用新行中对应列的值。
+            #      这个语法在所有支持 ON DUPLICATE KEY UPDATE 的MySQL版本中都有效。
+            update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields])
+
+        # 组合成最终的SQL语句 (注意：这里不再有 "AS new_values" 子句)
+        final_sql = (
+            f"INSERT INTO `{table_name}` ({cols_sql}) "
+            f"VALUES {all_placeholders_sql} "
+            f"ON DUPLICATE KEY UPDATE {update_sql}"
+        )
+        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
         
         print(f"--- [DAO调试] 生成的SQL模板: {final_sql} ---")
 
-        # 4. 准备参数列表
-        # 首先，将DataFrame转换为元组列表，并将NaN替换为None
+        # 准备扁平化的参数列表 (策略同V14)
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
-        
-        # 然后，将元组列表“扁平化”成一个单一的列表，以匹配SQL中的所有 %s 占位符
-        # 例如 [[1, 2], [3, 4]] -> [1, 2, 3, 4]
         flat_params = [item for row_tuple in params_list_of_tuples for item in row_tuple]
-        
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
 
         with connection.cursor() as cursor:
             try:
-                # 5. 使用 cursor.execute() 执行单条巨大的SQL语句
-                # 注意：这里必须用 execute，而不是 executemany
+                # 使用 cursor.execute() 执行单条巨大的SQL语句
                 affected_rows = cursor.execute(final_sql, flat_params)
-                # cursor.execute 对于这种批量INSERT...UPDATE的返回值是受影响的总行数，可以直接使用
                 return affected_rows
             except Exception as e:
                 logger.error(f"执行批量Upsert时数据库出错。SQL: {final_sql[:500]}... Error: {e}", exc_info=True)
