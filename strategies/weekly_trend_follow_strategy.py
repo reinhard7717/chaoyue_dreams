@@ -413,26 +413,22 @@ class WeeklyTrendFollowStrategy:
 
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【战略剧本-箱体 V2.3 参数优化版】: 使用更稳健的状态定义来识别箱体突破。
-        - 核心修复: 放宽了盘整状态的识别参数，使其更容易在真实数据中触发。
+        【战略剧本-箱体 V2.4 深度调试版】: 增加详细的日志输出，诊断为何无法产生信号。
         """
-        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.3 参数优化版)")
+        print("  [诊断] 剧本: _playbook_box_consolidation_breakout (V2.4 深度调试版)")
         if not params.get('enabled', True): 
             return pd.Series(False, index=df.index)
 
-        # --- 步骤 1: 获取参数 (参数已优化) ---
-        # ▼▼▼【代码修改】: 放宽参数 ▼▼▼
-        quantile_level = params.get('quantile_level', 0.40) # 从0.3放宽到0.4，允许更多周被视为低波动
+        # --- 参数部分保持不变 ---
+        quantile_level = params.get('quantile_level', 0.40)
         boll_period = params.get('boll_period', 20)
         boll_std = params.get('boll_std', 2.0)
         box_period = params.get('box_period', 26)
-        volume_multiplier = params.get('volume_multiplier', 1.3) # 从1.5降低到1.3，放宽对放量的要求
-        # 新增参数：定义“持续盘整状态” (参数已优化)
-        state_window = params.get('state_window', 5) # 观察窗口5周
-        state_threshold = params.get('state_threshold', 2) # 窗口内至少2周是低波动即可 (原为4周内3周)
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        volume_multiplier = params.get('volume_multiplier', 1.3)
+        state_window = params.get('state_window', 5)
+        state_threshold = params.get('state_threshold', 2)
 
-        # --- 步骤 2: 依赖检查 ---
+        # --- 依赖检查 ---
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_W"
         vol_ma_period = self.indicator_cfg.get('vol_ma', {}).get('periods', [20])[0]
         vol_ma_col = f"VOL_MA_{vol_ma_period}_W"
@@ -440,24 +436,42 @@ class WeeklyTrendFollowStrategy:
         if not self._check_dependencies(df, required_cols):
             return pd.Series(False, index=df.index)
 
-        # --- 步骤 3A: 识别单个的低波动周 ---
+        # --- 核心计算部分保持不变 ---
         rolling_quantile = df[bbw_col].rolling(window=box_period * 2, min_periods=box_period).quantile(quantile_level)
         is_low_volatility_week = df[bbw_col] < rolling_quantile
-        print(f"    - [箱体突破分析] 识别出 {is_low_volatility_week.sum()} 个单独的低波动周。")
-
-        # --- 步骤 3B: 定义“持续盘整状态” (核心逻辑新增) ---
         consolidation_state_count = is_low_volatility_week.rolling(window=state_window).sum()
         state_is_in_consolidation = consolidation_state_count >= state_threshold
-        print(f"    - [箱体突破分析] 识别出 {state_is_in_consolidation.sum()} 个周处于'持续盘整状态'。")
-
-        # --- 步骤 4: 定义箱体上沿和判断突破 ---
         box_high = df['high_W'].shift(1).rolling(window=box_period).max()
         is_price_breakout = df['close_W'] > box_high
         was_in_consolidation_state = state_is_in_consolidation.shift(1).fillna(False)
         is_volume_breakout = df['volume_W'] > (df[vol_ma_col].shift(1) * volume_multiplier)
-
         final_signal = (was_in_consolidation_state & is_price_breakout & is_volume_breakout).fillna(False)
-        print(f"    - [专业箱体突破] 最终信号: {final_signal.sum()} 次")
+
+        # ▼▼▼【代码修改】: 增加深度调试日志 ▼▼▼
+        # 如果最终没有产生任何信号，就打印最后10周的详细状态，以便分析
+        if not final_signal.any():
+            print("    - [箱体突破分析] 未找到任何突破信号。打印最后10周的状态进行诊断:")
+            
+            # 创建一个临时的DataFrame用于展示
+            debug_df = pd.DataFrame({
+                'Close': df['close_W'],
+                'BBW': df[bbw_col],
+                'BBW_Quantile': rolling_quantile,
+                'Is_Low_Vol': is_low_volatility_week,
+                'Consol_Count': consolidation_state_count,
+                'In_Consol_State': state_is_in_consolidation,
+                'Was_In_Consol': was_in_consolidation_state,
+                'Box_High': box_high,
+                'Price_Breakout': is_price_breakout,
+                'Volume_Breakout': is_volume_breakout,
+                'FINAL_SIGNAL': final_signal
+            })
+            # 使用 to_string() 保证所有列都能显示出来
+            print(debug_df.tail(10).to_string())
+        else:
+            print(f"    - [专业箱体突破] 成功找到 {final_signal.sum()} 个突破信号!")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            
         return final_signal
 
     def _get_dynamic_col_names(self) -> dict:
