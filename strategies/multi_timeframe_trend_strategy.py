@@ -33,11 +33,11 @@ class MultiTimeframeTrendStrategy:
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V23.0 架构优化版】为单个股票执行完整的多时间框架分析。
-        - 核心架构: 总指挥只与Service层交互，不直接调用DAO。
+        【V23.1 显式控制版】为单个股票执行完整的多时间框架分析。
+        - 核心架构: 总指挥读取配置，并根据配置显式决定是否调用行业背景服务。
         - 核心功能: Service层负责准备所有数据，包括K线、指标和行业背景。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行多时间框架分析 (V23.0 架构优化版) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行多时间框架分析 (V23.1 显式控制版) ---")
 
         # --- 步骤 1: 调用服务层，一站式准备所有数据（K线、指标、行业背景） ---
         logger.info(f"--- 步骤1: 调用 IndicatorService 准备所有数据... ---")
@@ -49,30 +49,44 @@ class MultiTimeframeTrendStrategy:
             trade_time=trade_time
         )
         
-        # ▼▼▼ 调用新的、能注入行业背景的服务方法 ▼▼▼
-        # 解释: 这里是关键的调用点。我们不再使用普通的 prepare_data，
-        # 而是调用 prepare_data_with_industry_context，它会自动完成行业强度的计算和注入。
-        task_tactical_with_context = self.indicator_service.prepare_data_with_industry_context(
-            stock_code=stock_code,
-            config=self.tactical_config,
-            trade_time=trade_time
-        )
+        # ▼▼▼【代码修改】: 在总指挥层面对配置进行判断，决定调用哪个服务方法 ▼▼▼
+        # 解释: 这是您提议的、更清晰的架构。总指挥读取配置，然后显式地决定是否要获取行业背景数据。
+        industry_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('entry_scoring_params', {}).get('industry_context_params', {})
+        is_industry_enabled = industry_params.get('enabled', False)
+
+        if is_industry_enabled:
+            print("    - [总指挥决策] 行业背景已开启，调用'带行业背景'的数据服务。")
+            # 调用新的、能注入行业背景的服务方法
+            task_tactical = self.indicator_service.prepare_data_with_industry_context(
+                stock_code=stock_code,
+                config=self.tactical_config,
+                trade_time=trade_time
+            )
+        else:
+            print("    - [总指挥决策] 行业背景已关闭，调用'基础'数据服务。")
+            # 调用普通的数据准备方法
+            task_tactical = self.indicator_service.prepare_data(
+                stock_code=stock_code,
+                config=self.tactical_config,
+                trade_time=trade_time
+            )
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         # 并行执行
-        strategic_dfs, tactical_dfs = await asyncio.gather(task_strategic, task_tactical_with_context)
+        strategic_dfs, tactical_dfs = await asyncio.gather(task_strategic, task_tactical)
 
         # 检查数据准备结果
         if not strategic_dfs or 'W' not in strategic_dfs:
             logger.warning(f"[{stock_code}] 战略层(周线)数据准备失败，分析终止。")
             return None
-        # 解释: tactical_dfs 现在已经包含了行业强度数据
+        # 解释: tactical_dfs 现在可能包含也可能不包含行业强度数据，后续逻辑需要能兼容这两种情况
         if not tactical_dfs or 'D' not in tactical_dfs:
-            logger.warning(f"[{stock_code}] 战术层(日线+行业背景)数据准备失败，分析终止。")
+            logger.warning(f"[{stock_code}] 战术层(日线)数据准备失败，分析终止。")
             return None
 
         # --- 步骤 2: 整合战略(周)指标到战术(日)数据 ---
         logger.info(f"--- 步骤2: 整合战略(周)指标到战术(日)数据... ---")
-        df_daily = tactical_dfs['D'] # 这个df_daily已经包含了 industry_strength_rank_D
+        df_daily = tactical_dfs['D'] # 这个df_daily可能不包含 industry_strength_rank_D
         df_weekly = strategic_dfs['W']
         
         df_daily_centric = pd.merge_asof(
@@ -87,9 +101,12 @@ class MultiTimeframeTrendStrategy:
             df_daily_centric.dropna(subset=[reliable_col], inplace=True)
         
         print(f"    [调试-协同层] 生成的日线中心DataFrame包含列: {df_daily_centric.columns.tolist()[:5]}... 等 {len(df_daily_centric.columns)} 列")
-        # 调试信息，确认行业数据已存在
+        # 调试信息，确认行业数据是否存在
         if 'industry_strength_rank_D' in df_daily_centric.columns:
             print(f"    [调试-协同层] 确认日线中心数据已包含 'industry_strength_rank_D'。")
+        else:
+            print(f"    [调试-协同层] 日线中心数据不包含 'industry_strength_rank_D' (符合预期)。")
+
 
         # --- 步骤 3: 运行战略层策略 (周线) ---
         logger.info(f"--- 步骤3: 运行周线战略策略，生成'战略信号'... ---")
@@ -152,3 +169,18 @@ class MultiTimeframeTrendStrategy:
         
         logger.info(f"--- 【{stock_code}】多时间框架分析完成，共生成 {len(db_records) if db_records else 0} 条信号记录。 ---")
         return db_records
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
