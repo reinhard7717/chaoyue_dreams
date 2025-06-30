@@ -26,25 +26,12 @@ class TrendFollowStrategy:
     """
 
     def __init__(self,
-                 config: dict, # 参数名从 daily_config_path 改为 config，类型为 dict
+                 config: dict,
                  tactical_configs: Optional[Dict[str, str]] = None):
-        """
-        【V22.0 依赖注入版】构造函数
-        - 直接接收一个加载好的配置字典 `config`。
-        """
-        # 不再需要 self.daily_config_path
-        # 不再需要内部加载配置，直接使用传入的字典
         self.daily_params = config
-        # print("--- [战术策略初始化] 已接收并应用传入的配置字典。 ---")
-        
-        # 这一行在旧代码中存在，但根据其作为纯计算单元的定位，可能也需要移除。
-        # 为了最小化改动，暂时保留。如果 IndicatorService 在此类中没有其他用途，可以删除。
         self.indicator_service = IndicatorService()
 
-        # 分钟线配置逻辑保持不变，但现在都基于传入的主配置
         if tactical_configs is None:
-            # 这里的逻辑可能需要根据您的实际需求调整，
-            # 但目前我们假设所有分钟线都复用日线配置。
             self.tactical_configs = {
                 '5': 'reuse', '15': 'reuse', '30': 'reuse', '60': 'reuse',
             }
@@ -53,7 +40,7 @@ class TrendFollowStrategy:
         
         self.tactical_params = {}
         for tf in self.tactical_configs.keys():
-            self.tactical_params[tf] = self.daily_params # 所有周期都使用主配置
+            self.tactical_params[tf] = self.daily_params
 
         kline_params = self._get_params_block(self.daily_params, 'kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
@@ -62,62 +49,32 @@ class TrendFollowStrategy:
         self._last_score_details_df = None
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        # print(f"    - 战术策略(TrendFollowStrategy)初始化完成。")
+        # 初始化日志只打印一次
+        # print("--- [战术策略 TrendFollowStrategy (V22.2)] 初始化完成。---")
 
-    # 参数解析辅助函数
-    def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
-        """
-        【V5.0 新增】根据时间周期从指标配置中智能获取正确的'periods'。
-        能够处理新旧两种配置格式。
-
-        Args:
-            indicator_params (dict): 单个指标的完整配置字典 (例如，params['macd'])。
-            timeframe (str): 需要获取参数的时间周期，如 'D', '60', '15'。
-
-        Returns:
-            Optional[list]: 找到的周期参数列表，或None。
-        """
-        if not indicator_params:
-            return None
-
-        # 优先处理新的 'configs' 列表格式
-        if 'configs' in indicator_params and isinstance(indicator_params['configs'], list):
-            for config_item in indicator_params['configs']:
-                if timeframe in config_item.get('apply_on', []):
-                    return config_item.get('periods')
-            # 如果在configs列表中循环后没找到，返回None
-            return None
-        
-        # 向后兼容旧的单一格式
-        elif 'periods' in indicator_params:
-            # 检查旧格式的apply_on，如果存在且不匹配则返回None
-            apply_on = indicator_params.get('apply_on', [])
-            if not apply_on or timeframe in apply_on:
-                return indicator_params.get('periods')
-            else:
-                return None
-        
-        return None
+    def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> Any:
+        """安全地从参数字典中获取一个配置块。"""
+        default = default_return if default_return is not None else {}
+        return params.get(block_name, default)
 
     def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
-        """
-        【V22.0 调试增强版】
-        """
-        print("\n--- [战术策略层 apply_strategy V22.0] 开始执行 ---")
+        # print("\n--- [战术策略层 apply_strategy V22.2] 开始执行 ---") # 日常运行时可注释
         df = df_dict.get('D')
         if df is None or df.empty:
-            print("    - [错误] 日线数据(D)为空，无法执行策略。")
             return pd.DataFrame(), {}
         
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
+        
+        # ▼▼▼【关键修复】: 精准的列名重命名逻辑 ▼▼▼
         rename_map = {
             col: f"{col}_D" for col in df.columns 
             if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
             and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_'))
         }
+        # ▲▲▲【关键修复】: 结束 ▲▲▲
+
         if rename_map:
             df = df.rename(columns=rename_map)
-            print(f"    - [信息] 已为 {len(rename_map)} 个日线原生列添加 '_D' 后缀。")
         
         self.signals, self.scores = {}, {}
         df = self.pattern_recognizer.identify_all(df)
@@ -276,22 +233,14 @@ class TrendFollowStrategy:
         if king_signal_col in score_details_df.columns:
             king_signal_mask = (score_details_df[king_signal_col] > 0)
             if king_signal_mask.any():
-                # ▼▼▼【代码修改】: 优化日志输出，避免刷屏 ▼▼▼
-                # 解释: 不再循环打印每一天，只打印一条总结性日志。
+                # 优化日志输出，避免刷屏
                 print(f"    - [计分-互斥逻辑] 检测到 {king_signal_mask.sum()} 天王牌信号，已执行其他基础分清零。")
-                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
-                
-                # 1c. 【最终调试日志】打印王牌信号日的最终、纯净分数
-                king_day_scores = score_details_df.loc[king_signal_mask]
-                for date, row in king_day_scores.iterrows():
-                    final_scores = {k: v for k, v in row.to_dict().items() if k.startswith('BASE_') and v > 0}
-                    print(f"      - 日期: {date.strftime('%Y-%m-%d')}, 互斥后最终基础分: {final_scores}")
         else:
-            # 这个 else 理论上不应该被触发了，但作为保险留下
-            print(f"    - [计分-警告] 王牌信号列 '{king_signal_col}' 未在数据中找到，无法执行互斥计分逻辑。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            # 这个日志现在代表“本股票从未触发过王牌信号”，是正常的信息
+            if self.verbose_logging:
+                print(f"    - [计分-信息] 王牌信号列 '{king_signal_col}' 在本股票历史中从未触发，跳过互斥计分。")
 
         # --- 步骤2: 定义战术信号的前提条件 ---
         base_score = score_details_df.sum(axis=1)
