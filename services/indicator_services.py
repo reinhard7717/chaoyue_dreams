@@ -163,7 +163,6 @@ class IndicatorService:
 
         print(f"    - 原始请求周期: {sorted(list(required_tfs))}")
         
-        # ▼▼▼【代码修改】: 引入智能重采样逻辑的核心部分 ▼▼▼
         # --- 步骤 1.5: 识别真正的基础数据需求，并准备重采样 ---
         base_tfs_to_fetch = set()
         resample_map = {} # 记录需要进行的重采样任务, e.g., {'W': 'D', 'M': 'D'}
@@ -180,19 +179,13 @@ class IndicatorService:
         print(f"    - 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
         if resample_map:
             print(f"    - 将执行的重采样任务: {resample_map}")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # --- 步骤 2: 【高效】按需并行获取所有【基础】数据 ---
         tasks = []
         # 任务1: 获取所有必需的【基础】OHLCV数据
         for tf in base_tfs_to_fetch:
             # 为日线获取更多数据，以确保重采样到周线/月线后有足够长度
-            if tf == 'D' and resample_map:
-                bars_to_fetch = 3800 
-                print(f"    - [数据量增强] 因需重采样，将获取 {bars_to_fetch} 条日线数据。")
-            else:
-                bars_to_fetch = base_needed_bars
-            
+            bars_to_fetch = base_needed_bars * 5 if tf == 'D' and resample_map else base_needed_bars
             tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
         
         # 任务2: 如果需要，才获取资金流数据
