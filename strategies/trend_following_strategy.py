@@ -34,7 +34,7 @@ class TrendFollowStrategy:
         """
         # self.indicator_service = IndicatorService() # 不再需要
         self.daily_config_path = daily_config_path
-        print(f"--- [战术策略初始化] 正在加载日线/分钟线主配置: {self.daily_config_path} ---")
+        # print(f"--- [战术策略初始化] 正在加载日线/分钟线主配置: {self.daily_config_path} ---")
         self.daily_params = load_strategy_config(self.daily_config_path)
 
         # 分钟线配置逻辑保持不变，因为它们共享同一个配置文件
@@ -64,7 +64,7 @@ class TrendFollowStrategy:
         self._last_score_details_df = None
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        print(f"    - 战术策略配置 '{self.daily_config_path}' 加载完成。")
+        # print(f"    - 战术策略配置 '{self.daily_config_path}' 加载完成。")
 
     # 参数解析辅助函数
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:

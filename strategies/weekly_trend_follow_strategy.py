@@ -25,12 +25,12 @@ class WeeklyTrendFollowStrategy:
         - 移除 IndicatorService 和 asyncio loop 的初始化。
         - 仅加载策略逻辑所需的配置文件。
         """
-        print("--- [周线策略初始化] 正在加载周线策略配置文件... ---")
+        # print("--- [周线策略初始化] 正在加载周线策略配置文件... ---")
         # self.indicator_service = IndicatorService() # 不再需要
         self.params = load_strategy_config(config_path)
         self.indicator_cfg = self.params.get('feature_engineering_params', {}).get('indicators', {})
         self.playbook_params = self.params.get('strategy_playbooks', {})
-        print(f"    - 周线策略配置 '{config_path}' 加载完成。")
+        # print(f"    - 周线策略配置 '{config_path}' 加载完成。")
 
     def apply_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
         """

@@ -692,7 +692,7 @@ class IndicatorDAO(BaseDAO):
             # 3. filter(out_date__isnull=True): 只选择当前有效的成分股关系 (尚未被剔除)。
             # 4. afirst(): 异步获取第一个匹配的记录。
             membership = await ThsIndexMember.objects.select_related('ths_index').filter(
-                stock__con_code=stock_code,
+                stock__stock_code=stock_code,
                 out_date__isnull=True
             ).afirst()
             # ▲▲▲【代码实现】: 核心逻辑结束 ▲▲▲
@@ -792,7 +792,7 @@ class IndicatorDAO(BaseDAO):
         """
         if not stock_codes:
             return []
-        print(f"    [DAO] 正在批量查询 {len(stock_codes)} 支股票在 {trade_date} 的基本面指标（含涨停状态）...")
+        # print(f"    [DAO] 正在批量查询 {len(stock_codes)} 支股票在 {trade_date} 的基本面指标（含涨停状态）...")
         try:
             # 使用 __in 查询进行高效的批量获取
             basic_data = list(
@@ -801,7 +801,7 @@ class IndicatorDAO(BaseDAO):
                     trade_time=trade_date
                 )
             )
-            print(f"    [DAO] 成功查询到 {len(basic_data)} 条基本面指标数据。")
+            # print(f"    [DAO] 成功查询到 {len(basic_data)} 条基本面指标数据。")
             return basic_data
         except Exception as e:
             logger.error(f"批量查询股票每日基本面指标时出错: {e}")

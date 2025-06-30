@@ -24,11 +24,11 @@ class MultiTimeframeTrendStrategy:
         self.strategic_config_path = 'config/weekly_trend_follow_strategy.json'
         # ▼▼▼【代码修改】: 在初始化时预加载配置，提高效率 ▼▼▼
         # 解释: 将配置加载从运行循环中提前到初始化阶段，避免重复IO操作。
-        print("--- [总指挥初始化] 正在预加载策略配置文件... ---")
+        # print("--- [总指挥初始化] 正在预加载策略配置文件... ---")
         self.tactical_config = load_strategy_config(self.tactical_config_path)
         self.strategic_config = load_strategy_config(self.strategic_config_path)
-        print(f"    - 战术配置 '{self.tactical_config_path}' 加载完成。")
-        print(f"    - 战略配置 '{self.strategic_config_path}' 加载完成。")
+        # print(f"    - 战术配置 '{self.tactical_config_path}' 加载完成。")
+        # print(f"    - 战略配置 '{self.strategic_config_path}' 加载完成。")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
