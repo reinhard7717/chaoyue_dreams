@@ -52,6 +52,41 @@ class TrendFollowStrategy:
         # 初始化日志只打印一次
         # print("--- [战术策略 TrendFollowStrategy (V22.2)] 初始化完成。---")
 
+    # 参数解析辅助函数
+    def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
+        """
+        【V5.0 新增】根据时间周期从指标配置中智能获取正确的'periods'。
+        能够处理新旧两种配置格式。
+
+        Args:
+            indicator_params (dict): 单个指标的完整配置字典 (例如，params['macd'])。
+            timeframe (str): 需要获取参数的时间周期，如 'D', '60', '15'。
+
+        Returns:
+            Optional[list]: 找到的周期参数列表，或None。
+        """
+        if not indicator_params:
+            return None
+
+        # 优先处理新的 'configs' 列表格式
+        if 'configs' in indicator_params and isinstance(indicator_params['configs'], list):
+            for config_item in indicator_params['configs']:
+                if timeframe in config_item.get('apply_on', []):
+                    return config_item.get('periods')
+            # 如果在configs列表中循环后没找到，返回None
+            return None
+        
+        # 向后兼容旧的单一格式
+        elif 'periods' in indicator_params:
+            # 检查旧格式的apply_on，如果存在且不匹配则返回None
+            apply_on = indicator_params.get('apply_on', [])
+            if not apply_on or timeframe in apply_on:
+                return indicator_params.get('periods')
+            else:
+                return None
+        
+        return None
+
     def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> Any:
         """安全地从参数字典中获取一个配置块。"""
         default = default_return if default_return is not None else {}
