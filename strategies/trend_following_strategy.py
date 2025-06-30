@@ -126,7 +126,7 @@ class TrendFollowStrategy:
         print("    - [信息] 止盈逻辑判断开始...")
         df.loc[:, 'take_profit_signal'] = self._apply_take_profit_rules(df, df['signal_entry'], df['signal_top_divergence'], params)
 
-        print("\n---【多时间框架协同策略(V22.0 融合版) 逻辑链调试】---")
+        print("\n---【多时间框架协同策略(V22.2 融合版) 逻辑链调试】---")
         entry_signals = df[df['signal_entry']]
         print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)}")
         if not entry_signals.empty:
@@ -230,7 +230,7 @@ class TrendFollowStrategy:
         points = scoring_params.get('points', {})
 
         # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V22.0] 步骤1: 计算并记录周线战略背景基础分...")
+        print("    [调试-计分V22.2] 步骤1: 计算并记录周线战略背景基础分...")
         
         # ▼▼▼【代码修改】: 这是本次修复的核心 ▼▼▼
         # 解释: 我们重构了基础分的计算逻辑，使其更健壮，并修复了王牌信号的识别问题。
