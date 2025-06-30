@@ -734,24 +734,37 @@ class BaseDAO(Generic[T]):
         return cleaned_data
 
     # 【代码修改处】重构了异步处理方法，以调用新的同步原生SQL方法
-    async def process_batch_async(self, model_class, batch, update_fields):
+    async def process_batch_async(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list, batch_size=1000):
         """
-        【V6 重构版】异步执行数据库批处理操作。
-        将使用原生SQL `ON DUPLICATE KEY UPDATE` 的同步方法包装在 sync_to_async 中。
+        【修改版】异步处理批量数据，确保所有参数都被正确传递。
         """
-        if not batch:
-            return 0, 0
-        try:
-            # 调用新的同步方法，参数已更新
-            await sync_to_async(self._process_batch_mysql_upsert_sync)(
-                model_class, batch, update_fields
-            )
-            # 成功时，整个批次都成功
-            return len(batch), 0
-        except Exception as e:
-            logger.error(f"原生SQL批处理时遇到意外错误: {e}", exc_info=True)
-            # 失败时，整个批次都失败
-            return 0, len(batch)
+        if df.empty:
+            return 0
+        
+        total_processed = 0
+        # 代码修改处: 在日志中也加入 unique_key_fields 的信息，便于调试
+        logger.info(f"开始异步批处理 {len(df)} 条数据到表 {model_class._meta.db_table}。更新字段: {update_fields}, 唯一键: {unique_key_fields}")
+        
+        for i in range(0, len(df), batch_size):
+            batch_df = df.iloc[i:i + batch_size]
+            try:
+                # 使用 sync_to_async 来在异步事件循环中运行同步的数据库操作
+                # 代码修改处: 将 unique_key_fields 参数传递给同步方法
+                processed_count = await sync_to_async(self._process_batch_mysql_upsert_sync)(
+                    df=batch_df,
+                    model_class=model_class,
+                    update_fields=update_fields,
+                    unique_key_fields=unique_key_fields  # 将参数传递下去
+                )
+                if processed_count is not None:
+                    total_processed += processed_count
+            except Exception as e:
+                logger.error(f"原生SQL批处理时遇到意外错误: {e}", exc_info=True)
+                # 根据业务需求，可以选择在这里继续处理下一个批次或直接中断
+                # continue or break
+        
+        logger.info(f"异步批处理完成，共处理 {total_processed} 条记录。")
+        return total_processed
 
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list):
