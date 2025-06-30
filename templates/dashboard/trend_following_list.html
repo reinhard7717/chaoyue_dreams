@@ -1,10 +1,13 @@
 {% extends 'base.html' %}
 {% load static %}
+{# ▼▼▼ 修改行 ▼▼▼ #}
+{# 解释: 加载我们刚刚创建的自定义模板标签模块 #}
+{% load dashboard_extras %}
+{# ▲▲▲ 修改行 ▲▲▲ #}
 
 {% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
 {% block head_extra %}
-{# --- 代码修改: 增加一些简单的CSS样式来美化剧本标签 --- #}
 <style>
     .playbook-list {
         list-style-type: none;
@@ -29,6 +32,12 @@
         font-weight: bold;
         border: 1px solid #ffc107;
     }
+    /* 新增一个专家剧本的样式 */
+    .playbook-tag.expert-signal {
+        background-color: #e1f5fe; /* 淡蓝色 */
+        color: #0277bd;
+        border: 1px solid #b3e5fc;
+    }
 </style>
 {% endblock %}
 
@@ -39,7 +48,6 @@
              <h3>导航菜单</h3>
             <ul>
                 <li><a href="{% url 'users:home' %}">主控台</a></li>
-                {# --- 代码修改: 将此页面的链接设为 active --- #}
                 <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">多时间框架策略</a></li>
                 <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选-日线</a></li>
                 <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
@@ -56,7 +64,6 @@
         <div class="table-wrapper">
             <table class="data-table" id="trend-table">
                 <thead>
-                    {# --- 代码修改: 更新表头以反映新信息 --- #}
                     <tr>
                         <th>股票</th>
                         <th>最新分数</th>
@@ -69,7 +76,6 @@
                 <tbody>
                     {% for item in page_obj.object_list %}
                     <tr>
-                        {# --- 代码修改: 使用新模型(StrategyState)的字段 --- #}
                         <td>
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
@@ -79,23 +85,30 @@
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
                         <td>
-                            {# 优雅地展示激活的剧本列表 #}
                             {% if item.active_playbooks %}
                                 <ul class="playbook-list">
                                 {% for playbook in item.active_playbooks %}
-                                    {# 特别高亮王牌信号 #}
-                                    {% if 'SIGNAL_BREAKOUT_TRIGGER' in playbook %}
-                                        <li class="playbook-tag king-signal">👑 {{ playbook }}</li>
-                                    {% else %}
-                                        <li class="playbook-tag">{{ playbook }}</li>
-                                    {% endif %}
+                                    {# ▼▼▼ 修改区域开始 ▼▼▼ #}
+                                    {# 解释: 使用新的 `playbook_display` 过滤器将英文key转换为中文描述。 #}
+                                    {% with playbook_display_name=playbook|playbook_display %}
+                                        {# 根据剧本的原始key或中文内容来决定样式 #}
+                                        {% if 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                            <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                        {% elif '【专家剧本】' in playbook_display_name %}
+                                            <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                        {% else %}
+                                            <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                        {% endif %}
+                                    {% endwith %}
+                                    {# ▲▲▲ 修改区域结束 ▲▲▲ #}
                                 {% endfor %}
                                 </ul>
                             {% else %}
                                 -
                             {% endif %}
                         </td>
-                        <td>{{ item.latest_signal_time|date:"Y-m-d"|default:"-" }}</td>
+                        {# 字段名修正：根据模型定义，应为 latest_trade_time #}
+                        <td>{{ item.latest_trade_time|date:"Y-m-d"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d"|default:"-" }}</td>
                     </tr>
