@@ -1,6 +1,7 @@
 # 文件: strategies/trend_following_strategy.py
 # 版本: V21.0 - 适配新架构版
 import logging
+from services.indicator_services import IndicatorService
 from utils.data_sanitizer import sanitize_for_json
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
@@ -36,6 +37,7 @@ class TrendFollowStrategy:
         self.daily_config_path = daily_config_path
         # print(f"--- [战术策略初始化] 正在加载日线/分钟线主配置: {self.daily_config_path} ---")
         self.daily_params = load_strategy_config(self.daily_config_path)
+        self.indicator_service = IndicatorService()
 
         # 分钟线配置逻辑保持不变，因为它们共享同一个配置文件
         if tactical_configs is None:

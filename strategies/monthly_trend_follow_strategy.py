@@ -289,7 +289,7 @@ class MonthlyTrendFollowStrategy:
             self.favorite_stock_set = {stock.stock_id for stock in favorite_stocks}
 
         if data_df is None:
-            df_base, _ = self.loop.run_until_complete(self.indicator_service.prepare_daily_centric_dataframe(stock_code=stock_code, params_file=params_file, trade_time=trade_time))
+            df_base, _ = self.loop.run_until_complete(self.indicator_service.prepare_data(stock_code=stock_code, params_file=params_file, trade_time=trade_time))
         else:
             df_base = data_df.copy()
 

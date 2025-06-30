@@ -249,14 +249,14 @@ def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/mon
 def _run_monthly_strategy(stock_code: str, trade_time_str: str) -> Dict:
     """
     辅助函数：完整执行月线趋势跟踪策略，包括其专属的数据准备。
-    它使用新的 `prepare_daily_centric_dataframe` 方法。
+    它使用新的 `prepare_data` 方法。
     """
     logger.info(f"[{stock_code}] 开始执行 '月线趋势跟踪策略'...")
     try:
         # 步骤 1: 使用新方法准备数据
         indicator_service = IndicatorService()
         params_file = "config/monthly_trend_follow_strategy.json"
-        data_df, _ = asyncio.run(indicator_service.prepare_daily_centric_dataframe(
+        data_df, _ = asyncio.run(indicator_service.prepare_data(
             stock_code=stock_code,
             params_file=params_file,
             trade_time=trade_time_str
@@ -310,9 +310,9 @@ def _run_trend_follow_strategy(stock_code: str, trade_time_str: str) -> Dict[str
 
         # --- 步骤 2: 准备策略所需的数据 ---
         # 使用 async_to_sync 包装器来调用异步的数据准备方法
-        # 假设 indicator_service 中有 prepare_daily_centric_dataframe 方法
+        # 假设 indicator_service 中有 prepare_data 方法
         logger.info(f"[{stock_code}] 正在为【日线】趋势跟踪策略准备数据...")
-        data_df, indicator_configs = async_to_sync(indicator_service.prepare_daily_centric_dataframe)(
+        data_df, indicator_configs = async_to_sync(indicator_service.prepare_data)(
             stock_code=stock_code,
             trade_time=trade_time_str,
             params_file=trend_follow_strategy.daily_config_path # 使用正确的日线配置路径
