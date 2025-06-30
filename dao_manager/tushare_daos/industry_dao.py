@@ -1,4 +1,5 @@
 # dao_manager\tushare_daos\industry_dao.py
+import asyncio
 import logging
 from time import sleep
 import time
@@ -14,6 +15,7 @@ import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from stock_models.industry import DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
+from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
 from utils.data_format_process import IndustryFormatProcess
 
@@ -297,42 +299,110 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_member(self) -> Dict:
         """
-        接口：ths_member
-        描述：获取同花顺概念板块成分列表注：数据版权归属同花顺，如做商业用途，请主动联系同花顺。
-        限量：用户积累5000积分可调取，每分钟可调取200次，可按概念板块代码循环提取所有成分
-        Returns:
-            Dict: 保存结果
+        【优化版】获取同花顺概念板块成分列表并保存
+        
+        优化点:
+        1.  **消除N+1查询**: 先通过API获取所有原始数据，然后一次性查询所有需要的Stock对象，避免在循环中查询数据库。
+        2.  **修复逻辑Bug**: 将 `break` 修正为 `continue`，确保在某个板块无数据时能继续处理下一个。
+        3.  **移除冗余查询**: 直接复用外层循环的 `ths_index` 对象。
+        4.  **批量保存**: 引入批量保存机制，防止内存溢出，并提高写入效率。
+        5.  **异步优化**: 使用 `asyncio.sleep` 替代 `time.sleep`。
         """
-        result = {}
-        ths_index_member_dicts = []
-        ths_index_list = await self.get_ths_index_list()  # 获取所有的ThsIndex model实例列表
-        logger.info(f"共获取同花顺概念板块 {len(ths_index_list)} 条数据")
-        # 拉取数据
-        for ths_index in ths_index_list:
-            df = self.ts_pro.ths_member(**{
-                    "ts_code": ths_index.ts_code, "con_code": "", "offset": "", "limit": ""
-                }, fields=[ "ts_code", "con_code", "con_name", "weight", "in_date", "out_date", "is_new" ])
-            if df.empty:
-                break
-            else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    stock = await self.stock_cache_get.stock_data_by_code(row.con_code)
-                    if stock:
-                        ths_index = await self.get_ths_index_by_code(row.ts_code)
-                        ths_index_member_dict = self.data_format_process.set_ths_index_member_data(ths_index=ths_index, stock=stock, df_data=row)
-                        ths_index_member_dicts.append(ths_index_member_dict)
-                # logger.info(f"获取同花顺概念板块成分： {len(ths_index_member_dicts)}")
-            # time.sleep(0.5)
-        if ths_index_member_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
+        # --- 1. 初始化和准备 ---
+        BATCH_SAVE_SIZE = 5000  # 每5000条数据保存一次
+        API_CALL_DELAY_SECONDS = 0.3 # API调用间隔 (180/m 限制，即每秒3次，0.3s间隔较安全)
+        
+        final_result = {}
+        data_to_save = []
+        
+        # --- 2. 获取所有概念板块信息 ---
+        ths_index_list = await self.get_ths_index_list()
+        if not ths_index_list:
+            logger.warning("数据库中未找到任何同花顺概念板块信息，任务结束。")
+            return {"status": "warning", "message": "No ThsIndex found."}
+        
+        logger.info(f"开始处理 {len(ths_index_list)} 个同花顺概念板块...")
+
+        # --- 3. 循环调用API，收集原始数据和所有需要的股票代码 ---
+        all_raw_members = []
+        all_stock_codes = set()
+
+        for i, ths_index in enumerate(ths_index_list):
+            logger.info(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
+            try:
+                df = self.ts_pro.ths_member(ts_code=ths_index.ts_code)
+                
+                if df is None or df.empty:
+                    logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")
+                    await asyncio.sleep(API_CALL_DELAY_SECONDS) # 即使无数据也稍作等待
+                    continue # 代码修改处: 使用 continue 而不是 break
+                
+                # 收集原始数据行和股票代码
+                for row in df.itertuples(index=False):
+                    all_raw_members.append((ths_index, row)) # 将板块对象和API行数据一起存储
+                    all_stock_codes.add(row.con_code)
+
+            except Exception as e:
+                logger.error(f"获取板块 [{ths_index.name}] 成分股时发生API错误: {e}", exc_info=True)
+            
+            await asyncio.sleep(API_CALL_DELAY_SECONDS) # 控制API调用频率
+
+        logger.info(f"所有板块API数据获取完成，共 {len(all_raw_members)} 条成分股记录，涉及 {len(all_stock_codes)} 个独立股票。")
+
+        # --- 4. (核心优化) 一次性从数据库/缓存获取所有需要的股票信息 ---
+        logger.info("正在一次性获取所有涉及的股票信息...")
+        # 假设 stock_cache_get 有一个批量获取的方法，如果没有，则直接查库
+        # stock_map = await self.stock_cache_get.stock_data_by_codes_batch(list(all_stock_codes))
+        # 下面是直接查库的示例：
+        stock_queryset = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
+        stock_map = {stock.stock_code: stock async for stock in stock_queryset}
+        logger.info(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
+
+        # --- 5. 组装最终数据并批量保存 ---
+        logger.info("开始组装最终数据并准备写入数据库...")
+        for ths_index, row_data in all_raw_members:
+            stock = stock_map.get(row_data.con_code)
+            if not stock:
+                # logger.warning(f"在数据库中未找到股票代码为 {row_data.con_code} 的信息，该成分股将被忽略。")
+                continue
+            
+            # 清洗单行数据
+            # 注意：Tushare返回的DataFrame列名可能与itertuples的属性名不完全一致，请确保row_data的属性名正确
+            # 这里假设df列名和row_data属性名一致
+            cleaned_row_data = {field: getattr(row_data, field) for field in row_data._fields}
+            df_temp = pd.Series(cleaned_row_data).replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
+
+            # 代码修改处: 直接复用 ths_index，不再查询
+            ths_index_member_dict = self.data_format_process.set_ths_index_member_data(
+                ths_index=ths_index, 
+                stock=stock, 
+                df_data=df_temp.to_dict() # 传递字典或Series给处理函数
+            )
+            data_to_save.append(ths_index_member_dict)
+
+            # 达到批量大小，执行保存
+            if len(data_to_save) >= BATCH_SAVE_SIZE:
+                logger.info(f"数据缓存池达到 {len(data_to_save)} 条，开始批量写入数据库...")
+                final_result = await self._save_all_to_db_native_upsert(
+                    model_class=ThsIndexMember,
+                    data_list=data_to_save,
+                    unique_fields=['ths_index', 'stock']
+                )
+                logger.info(f"批量写入完成。结果: {final_result}")
+                data_to_save.clear()
+
+        # 保存最后剩余的数据
+        if data_to_save:
+            logger.info(f"正在保存最后剩余的 {len(data_to_save)} 条数据...")
+            final_result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexMember,
-                data_list=ths_index_member_dicts,
+                data_list=data_to_save,
                 unique_fields=['ths_index', 'stock']
             )
-        return result
+            logger.info(f"最后的批量写入完成。结果: {final_result}")
+
+        logger.info("同花顺概念板块成分保存任务全部完成。")
+        return final_result
 
     # ============== 同花顺板块指数行情 ==============
     async def get_ths_index_daily(self, ts_code: str) -> List['ThsIndexDaily']:

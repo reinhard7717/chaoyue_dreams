@@ -245,9 +245,6 @@ def analyze_batch_stocks(self, stock_codes: list, params_file: str = "config/mon
     
     return {"status": "dispatched", "favorite_count": len(favorite_list), "non_favorite_count": len(non_favorite_list)}
 
-
-
-
 # 新增辅助函数 1: 负责执行【新版】月线趋势跟踪策略 (自包含数据准备)
 def _run_monthly_strategy(stock_code: str, trade_time_str: str) -> Dict:
     """
