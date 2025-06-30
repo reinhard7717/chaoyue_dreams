@@ -793,11 +793,12 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V15 - 最终兼容版】在同步环境中，使用原生SQL处理一个批次的数据。
-        此版本是最终解决方案，它解决了MySQL版本兼容性问题。
-        - 它保留了V14的执行策略：构建一个包含所有数据行的单一巨大INSERT语句，并用一次 cursor.execute() 调用，以获得最佳性能并避免 executemany 的陷阱。
-        - 它放弃了V14中不兼容旧版MySQL的 "AS alias" 语法，回归使用具有广泛兼容性的 "VALUES(column)" 语法。
-        这个组合方案兼具了性能、健壮性和兼容性。
+        【V16 - 终极可靠版】在同步环境中，使用原生SQL处理一个批次的数据。
+        在经历了多次底层驱动错误后，此版本回归到最可靠的实现方式：在单个事务中逐行执行Upsert操作。
+        - 策略: 使用 `transaction.atomic()` 保证整个批次的原子性。
+        - 执行: 循环遍历每一行数据，执行一个简单的、针对单行的INSERT...UPDATE语句。
+        - 优点: 彻底避免了所有因数据库驱动(mysqlclient)对批量SQL处理的限制而引发的复杂错误。健壮性和可靠性最高。
+        - 缺点: 性能略低于理论上的单次批量提交，因为会产生多次数据库交互。但在当前，正确性是首要目标。
         """
         if df.empty:
             return 0
@@ -805,7 +806,7 @@ class BaseDAO(Generic[T]):
         table_name = model_class._meta.db_table
         all_columns = list(df.columns)
 
-        # 数据预处理步骤 (V12版本已完善，此处保持不变)
+        # 数据预处理步骤 (保持不变)
         print("--- [DAO调试] 开始数据预处理：使用模型默认值填充缺失数据 ---")
         for field in model_class._meta.fields:
             if field.default is not models.NOT_PROVIDED and field.column in df.columns and df[field.column].isnull().any():
@@ -815,41 +816,43 @@ class BaseDAO(Generic[T]):
                     print(f"调试信息: [BaseDAO] 在列 '{field.column}' 中发现缺失值，已使用模型默认值 '{default_value}' 进行填充。")
         print("--- [DAO调试] 数据预处理完成 ---")
 
-        # 构建单条SQL语句和扁平化参数列表 (策略同V14)
-        placeholders_one_row_sql = f"({', '.join(['%s'] * len(all_columns))})"
-        all_placeholders_sql = ", ".join([placeholders_one_row_sql] * len(df))
+        # ▼▼▼【核心代码修改】: 采用在事务中逐行执行的策略 ▼▼▼
+        
+        # 1. 构建用于单行操作的SQL模板
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
-
-        # ▼▼▼【核心代码修改】: 回归使用兼容性更强的 VALUES(column) 语法 ▼▼▼
+        placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})" # 单行占位符
+        
         if not update_fields:
             update_sql = f"`{model_class._meta.pk.name}` = `{model_class._meta.pk.name}`"
         else:
-            # 解释: 我们使用 VALUES(`field`) 来引用新行中对应列的值。
-            #      这个语法在所有支持 ON DUPLICATE KEY UPDATE 的MySQL版本中都有效。
             update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields])
 
-        # 组合成最终的SQL语句 (注意：这里不再有 "AS new_values" 子句)
-        final_sql = (
+        # 最终的SQL模板是针对单行的
+        final_sql_template = (
             f"INSERT INTO `{table_name}` ({cols_sql}) "
-            f"VALUES {all_placeholders_sql} "
+            f"VALUES {placeholders_sql} "
             f"ON DUPLICATE KEY UPDATE {update_sql}"
         )
-        # ▲▲▲【核心代码修改】: 修改结束 ▲▲▲
-        
-        print(f"--- [DAO调试] 生成的SQL模板: {final_sql} ---")
+        print(f"--- [DAO调试] 生成的单行SQL模板: {final_sql_template} ---")
 
-        # 准备扁平化的参数列表 (策略同V14)
+        # 2. 准备参数列表，这次是元组的列表，无需扁平化
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
-        flat_params = [item for row_tuple in params_list_of_tuples for item in row_tuple]
-
-        with connection.cursor() as cursor:
-            try:
-                # 使用 cursor.execute() 执行单条巨大的SQL语句
-                affected_rows = cursor.execute(final_sql, flat_params)
-                return affected_rows
-            except Exception as e:
-                logger.error(f"执行批量Upsert时数据库出错。SQL: {final_sql[:500]}... Error: {e}", exc_info=True)
-                raise
+        
+        total_affected_rows = 0
+        try:
+            # 3. 使用 transaction.atomic() 保证整个批次的原子性
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    # 4. 循环执行每一行数据
+                    for params_tuple in params_list_of_tuples:
+                        cursor.execute(final_sql_template, params_tuple)
+                        # MySQL的ON DUPLICATE KEY UPDATE, INSERT返回1, UPDATE返回2, 无操作返回0
+                        # cursor.rowcount会记录这个值
+                        total_affected_rows += cursor.rowcount
+            return total_affected_rows
+        except Exception as e:
+            logger.error(f"执行批量Upsert时数据库出错。SQL模板: {final_sql_template[:500]}... Error: {e}", exc_info=True)
+            raise
 
     @staticmethod
     @sync_to_async
