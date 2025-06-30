@@ -526,8 +526,8 @@ class StrategiesDAO(BaseDAO):
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:
         """
-        【V2.1 BUG修复版】根据标准化的字典列表，批量创建或更新策略信号日志。
-        此方法是所有策略生成信号后的统一存储入口。
+        【V2.2 最终修复版】根据标准化的字典列表，批量创建或更新策略信号日志。
+        此版本修复了因 StockInfo 使用 stock_code 作为主键而导致的保存失败问题。
 
         Args:
             signals_data (List[Dict[str, Any]]): 
@@ -543,56 +543,51 @@ class StrategiesDAO(BaseDAO):
         
         print(f"调试信息: [DAO-SignalLog] 收到 {len(signals_data)} 条原始信号数据，准备进行批量保存。")
 
-        # ▼▼▼【代码修改】: 在调用底层方法前，手动处理 stock_code -> stock_id 的转换 ▼▼▼
-        # 解释: 底层通用DAO不应感知'stock_code'这个业务字段。
-        # 我们在此处进行预处理，将'stock_code'转换为数据库外键'stock_id'，以解决 IntegrityError。
+        # ▼▼▼【代码修改】: 针对 stock_code 为主键的场景进行重构 ▼▼▼
+        # 解释: StockInfo 的主键是 stock_code，因此 TrendFollowStrategySignalLog.stock_id
+        #      字段期望接收的值就是 stock_code 字符串。
 
         # 步骤 1: 提取所有唯一的 stock_code
-        stock_codes = {item['stock_code'] for item in signals_data if 'stock_code' in item}
-        if not stock_codes:
+        stock_codes_to_check = {item['stock_code'] for item in signals_data if 'stock_code' in item}
+        if not stock_codes_to_check:
             print("错误: [DAO-SignalLog] 信号数据中缺少 'stock_code' 字段，无法保存。")
             return 0
 
-        # 步骤 2: 一次性从数据库查询所有相关的 StockInfo 对象，并创建 code -> id 的映射
-        # 使用 in_bulk 可以极大地提高效率，避免在循环中查询数据库。
-        print(f"调试信息: [DAO-SignalLog] 批量查询 {len(stock_codes)} 个股票的ID...")
-        stocks_map = await sync_to_async(
-            lambda: {
-                s.stock_code: s.id 
-                for s in StockInfo.objects.filter(stock_code__in=stock_codes)
-            }
-        )()
+        # 步骤 2: (可选但推荐) 验证 stock_code 是否在数据库中存在，防止外键约束错误。
+        #         这比直接插入然后捕获异常要更高效、更可控。
+        print(f"调试信息: [DAO-SignalLog] 验证 {len(stock_codes_to_check)} 个股票代码是否存在...")
+        valid_stock_codes = set(await sync_to_async(
+            lambda: list(StockInfo.objects.filter(
+                stock_code__in=stock_codes_to_check
+            ).values_list('stock_code', flat=True))
+        )())
         
-        # 步骤 3: 预处理数据列表，将 stock_code 替换为 stock_id
+        # 步骤 3: 预处理数据列表，将 'stock_code' 键重命名为 'stock_id'
         processed_data = []
         for item in signals_data:
             code = item.get('stock_code')
-            if code in stocks_map:
-                # 复制一份数据，避免修改原始传入的列表
+            if code in valid_stock_codes:
                 processed_item = item.copy()
-                # 添加数据库需要的 stock_id 字段
-                processed_item['stock_id'] = stocks_map[code]
-                # 移除不再需要的 stock_code 字段
+                # 核心修改：将 stock_code 的值赋给 stock_id
+                processed_item['stock_id'] = processed_item['stock_code']
+                # 移除原始键，保持数据清洁
                 del processed_item['stock_code']
                 processed_data.append(processed_item)
             else:
-                print(f"警告: [DAO-SignalLog] 找不到股票代码 {code} 对应的记录，该条信号将被跳过。")
+                print(f"警告: [DAO-SignalLog] 股票代码 {code} 在 StockInfo 表中不存在，该条信号将被跳过。")
 
         if not processed_data:
-            print("调试信息: [DAO-SignalLog] 经过预处理后，没有可供保存的有效信号数据。")
+            print("调试信息: [DAO-SignalLog] 经过验证和预处理后，没有可供保存的有效信号数据。")
             return 0
         
         print(f"调试信息: [DAO-SignalLog] 预处理完成，{len(processed_data)} 条数据将进行批量更新/插入。")
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
-        # 【关键修改】调用底层的批量更新/插入方法，传入已处理好的数据。
+        # 调用底层的批量更新/插入方法，传入已处理好的数据。
         result_stats = await self._save_all_to_db_native_upsert(
             model_class=TrendFollowStrategySignalLog,
-            # ▼▼▼【代码修改】: 使用处理后的数据列表 ▼▼▼
             data_list=processed_data,
-            # ▲▲▲【代码修改】: 修改结束 ▲▲...
-            # unique_fields 必须严格对应 TrendFollowStrategySignalLog 模型中 UniqueConstraint 定义的字段。
-            # 对于外键字段，我们使用其在数据库中的列名，即 'stock_id'。
+            # unique_fields 中的 'stock_id' 现在将与 processed_data 中的 'stock_id' 键匹配。
             unique_fields=['stock_id', 'trade_time', 'strategy_name', 'timeframe']
         )
         
