@@ -12,6 +12,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.fund_flow import FundFlowDailyTHS
 from stock_models.stock_analytics import MonthlyTrendStrategyReport, TrendFollowStrategyReport, StockAnalysisResultTrendFollowing, TrendFollowStrategySignalLog, TrendFollowStrategyState
+from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockCyqPerf
 from utils.cache_get import StrategyCacheGet
 from utils.cache_set import StrategyCacheSet
@@ -525,7 +526,7 @@ class StrategiesDAO(BaseDAO):
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:
         """
-        【V2 - 重构优化版】根据标准化的字典列表，批量创建或更新策略信号日志。
+        【V2.1 BUG修复版】根据标准化的字典列表，批量创建或更新策略信号日志。
         此方法是所有策略生成信号后的统一存储入口。
 
         Args:
@@ -542,21 +543,55 @@ class StrategiesDAO(BaseDAO):
         
         print(f"调试信息: [DAO-SignalLog] 收到 {len(signals_data)} 条原始信号数据，准备进行批量保存。")
 
-        # 1. 移除内部循环和手动的外键查询。
-        # 2. 移除手动清理 NaN 值的循环，该循环是 ValueError 的根源。
-        #    所有的数据清洗工作（NaN, Decimal, numpy types）都将由 BaseDAO 的
-        #    _save_all_to_db_native_upsert 方法中的 _sanitize_for_json 统一处理。
-        # 3. BaseDAO 的方法会自动处理 'stock_code' 到 'stock' 实例的转换。
-        # 4. 确保 unique_fields 列表中的字段名与模型定义完全一致。
-        #    对于外键 'stock'，在数据库层面进行唯一性检查时，实际作用的列是 'stock_id'。
+        # ▼▼▼【代码修改】: 在调用底层方法前，手动处理 stock_code -> stock_id 的转换 ▼▼▼
+        # 解释: 底层通用DAO不应感知'stock_code'这个业务字段。
+        # 我们在此处进行预处理，将'stock_code'转换为数据库外键'stock_id'，以解决 IntegrityError。
+
+        # 步骤 1: 提取所有唯一的 stock_code
+        stock_codes = {item['stock_code'] for item in signals_data if 'stock_code' in item}
+        if not stock_codes:
+            print("错误: [DAO-SignalLog] 信号数据中缺少 'stock_code' 字段，无法保存。")
+            return 0
+
+        # 步骤 2: 一次性从数据库查询所有相关的 StockInfo 对象，并创建 code -> id 的映射
+        # 使用 in_bulk 可以极大地提高效率，避免在循环中查询数据库。
+        print(f"调试信息: [DAO-SignalLog] 批量查询 {len(stock_codes)} 个股票的ID...")
+        stocks_map = await sync_to_async(
+            lambda: {
+                s.stock_code: s.id 
+                for s in StockInfo.objects.filter(stock_code__in=stock_codes)
+            }
+        )()
         
-        # 【关键修改】直接调用底层的批量更新/插入方法。
-        # 我们将原始的 signals_data 直接传递下去。
-        # BaseDAO 会负责处理 stock_code -> stock 实例的转换和所有数据类型的清洗。
+        # 步骤 3: 预处理数据列表，将 stock_code 替换为 stock_id
+        processed_data = []
+        for item in signals_data:
+            code = item.get('stock_code')
+            if code in stocks_map:
+                # 复制一份数据，避免修改原始传入的列表
+                processed_item = item.copy()
+                # 添加数据库需要的 stock_id 字段
+                processed_item['stock_id'] = stocks_map[code]
+                # 移除不再需要的 stock_code 字段
+                del processed_item['stock_code']
+                processed_data.append(processed_item)
+            else:
+                print(f"警告: [DAO-SignalLog] 找不到股票代码 {code} 对应的记录，该条信号将被跳过。")
+
+        if not processed_data:
+            print("调试信息: [DAO-SignalLog] 经过预处理后，没有可供保存的有效信号数据。")
+            return 0
+        
+        print(f"调试信息: [DAO-SignalLog] 预处理完成，{len(processed_data)} 条数据将进行批量更新/插入。")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
+        # 【关键修改】调用底层的批量更新/插入方法，传入已处理好的数据。
         result_stats = await self._save_all_to_db_native_upsert(
             model_class=TrendFollowStrategySignalLog,
-            data_list=signals_data,
-            # unique_fields 必须严格对应 TrendFollowStrategySignalLog 模型中 unique_together 定义的字段。
+            # ▼▼▼【代码修改】: 使用处理后的数据列表 ▼▼▼
+            data_list=processed_data,
+            # ▲▲▲【代码修改】: 修改结束 ▲▲...
+            # unique_fields 必须严格对应 TrendFollowStrategySignalLog 模型中 UniqueConstraint 定义的字段。
             # 对于外键字段，我们使用其在数据库中的列名，即 'stock_id'。
             unique_fields=['stock_id', 'trade_time', 'strategy_name', 'timeframe']
         )
