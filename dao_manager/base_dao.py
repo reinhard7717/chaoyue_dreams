@@ -774,14 +774,32 @@ class BaseDAO(Generic[T]):
     # 【代码新增处】这是全新的、替代 process_batch_sync_for_mysql 的方法
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list):
         """
-        【中文调试版 V2 - 修复数据类型错误】同步处理MySQL的批量upsert操作。
-        此版本修复了因处理列表/字典类型数据而导致的ValueError。
+        【中文调试版 V4 - 动态处理时间戳】同步处理MySQL的批量upsert操作。
+        此版本通过模型自省动态检查是否存在 created_at/updated_at 字段，使其对所有模型通用。
         """
         if df.empty:
             return 0
 
+        # 代码修改处: 使用模型自省来动态处理时间戳字段
+        # 1. 获取模型所有字段的名称集合，用于快速检查
+        model_field_names = {f.name for f in model_class._meta.get_fields()}
+        now = timezone.now()
+
+        # 2. 如果模型中存在 'updated_at' 字段，则处理它
+        if 'updated_at' in model_field_names:
+            df['updated_at'] = now
+            # 确保 'updated_at' 在更新列表中，以便在记录冲突时更新它
+            if 'updated_at' not in update_fields:
+                update_fields.append('updated_at')
+
+        # 3. 如果模型中存在 'created_at' 字段，并且传入的数据中没有该列，则添加它
+        if 'created_at' in model_field_names and 'created_at' not in df.columns:
+            df['created_at'] = now
+        
+        # created_at 不应该在更新列表中，因为它只在创建时设置一次
+
         table_name = model_class._meta.db_table
-        # 确保我们只处理DataFrame中存在的列
+        # 这行代码现在会自动包含我们刚刚动态添加的时间戳列（如果存在）
         columns = [field.column for field in model_class._meta.fields if field.column in df.columns]
         
         sql_start = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
@@ -789,30 +807,25 @@ class BaseDAO(Generic[T]):
         
         sql_on_duplicate = ""
         if update_fields:
-            # 确保更新字段也在最终的列列表中，避免引用不存在的列
             valid_update_fields = [f for f in update_fields if f in df.columns]
             update_statements = [f"{field} = VALUES({field})" for field in valid_update_fields]
             if update_statements:
                 sql_on_duplicate = f" ON DUPLICATE KEY UPDATE {', '.join(update_statements)}"
 
+        # 数据准备和SQL执行的其余部分保持不变
         params = []
-        # 代码修改处: 使用更健壮的循环代替列表推导式，以处理复杂数据类型
         for index, row in df.iterrows():
             row_values = []
             for col in columns:
                 value = row[col]
-                # 1. 首先检查值是否是列表或字典，如果是，则序列化为JSON字符串
                 if isinstance(value, (list, dict)):
                     row_values.append(json.dumps(value, ensure_ascii=False))
-                # 2. 然后检查值是否为NaN或None (pd.isna能同时处理这两种情况)
                 elif pd.isna(value):
                     row_values.append(None)
-                # 3. 如果都不是，则直接使用该值
                 else:
                     row_values.append(value)
             params.extend(row_values)
 
-        # 调试信息保持不变
         print("--- [DAO调试] 开始执行批量更新插入 ---")
         print(f"SQL起始模板: {sql_start}")
         print(f"SQL重复键更新部分: {sql_on_duplicate}")
@@ -827,16 +840,10 @@ class BaseDAO(Generic[T]):
         try:
             with connection.cursor() as cursor:
                 cursor.execute(final_sql, params)
-                # cursor.rowcount 在 ON DUPLICATE KEY UPDATE 语句下的行为：
-                # 0: 没有行被影响 (记录已存在且数据完全相同)
-                # 1: 插入了一行新记录
-                # 2: 更新了一行现有记录
-                # 我们返回受影响的总行数，这更直观地反映了操作。
                 return cursor.rowcount
         except Exception as e:
             print(f"--- [DAO错误] SQL执行失败！ ---")
             try:
-                # 调试SQL的逻辑保持不变
                 debug_params = tuple(
                     f"'{p}'" if isinstance(p, str) else ('NULL' if p is None else str(p))
                     for p in params
