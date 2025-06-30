@@ -99,6 +99,19 @@ class MultiTimeframeTrendStrategy:
             right_index=True,
             direction='backward'
         )
+        rename_map = {}
+        for col in df_daily_centric.columns:
+            if col.endswith('_x'):
+                # 将日线数据列名恢复原状 (e.g., 'high_x' -> 'high')
+                rename_map[col] = col[:-2]
+            elif col.endswith('_y'):
+                # 将周线数据列名修改为 _W 后缀 (e.g., 'high_y' -> 'high_W')
+                rename_map[col] = col[:-2] + '_W'
+        
+        if rename_map:
+            df_daily_centric.rename(columns=rename_map, inplace=True)
+            print(f"    [调试-协同层] 已修正列名冲突，重命名了 {len(rename_map)} 个列。示例: {list(rename_map.items())[:3]}")
+
         reliable_col = next((col for col in df_daily_centric.columns if col.endswith('_W')), None)
         if reliable_col:
             df_daily_centric.dropna(subset=[reliable_col], inplace=True)
