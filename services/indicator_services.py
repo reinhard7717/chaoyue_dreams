@@ -187,7 +187,12 @@ class IndicatorService:
         # 任务1: 获取所有必需的【基础】OHLCV数据
         for tf in base_tfs_to_fetch:
             # 为日线获取更多数据，以确保重采样到周线/月线后有足够长度
-            bars_to_fetch = base_needed_bars * 5 if tf == 'D' and resample_map else base_needed_bars
+            if tf == 'D' and resample_map:
+                bars_to_fetch = 3800 
+                print(f"    - [数据量增强] 因需重采样，将获取 {bars_to_fetch} 条日线数据。")
+            else:
+                bars_to_fetch = base_needed_bars
+            
             tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
         
         # 任务2: 如果需要，才获取资金流数据
