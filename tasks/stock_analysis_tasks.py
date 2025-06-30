@@ -65,21 +65,17 @@ def run_trend_follow_strategy(self, stock_code: str, trade_date: str):
         # 2. 【核心修复】加载配置文件为字典
         #    这是解决问题的关键一步，将文件IO操作提前。
         config_path = 'config/trend_follow_strategy.json'
-        print(f"    [遗留任务调试] 正在加载策略配置文件: {config_path}")
         config_dict = load_strategy_config(config_path)
         if not config_dict:
             logger.error(f"[{stock_code}] 无法加载配置文件 {config_path}，任务终止。")
             return {"status": "error", "reason": "Config file not loaded"}
-        print("    [遗留任务调试] 配置文件加载完成。")
 
         # 3. 【核心修复】使用正确的参数名 `config` 调用服务层
-        print("    [遗留任务调试] 正在调用 IndicatorService.prepare_data...")
         all_dfs = async_to_sync(indicator_service.prepare_data)(
             stock_code=stock_code,
             config=config_dict,  # 使用加载好的配置字典
             trade_time=trade_date
         )
-        print(f"    [遗留任务调试] IndicatorService 数据准备完成，获取的周期: {list(all_dfs.keys())}")
 
         if not all_dfs or 'D' not in all_dfs:
             logger.warning(f"[{stock_code}] 数据准备失败，未返回有效的日线数据。")
