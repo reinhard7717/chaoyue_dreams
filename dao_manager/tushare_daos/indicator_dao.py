@@ -621,7 +621,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"转换 {stock_code} {time_level_val} 历史数据为 DataFrame 失败: {str(e)}", exc_info=True)
             return None
 
-    # ▼▼▼【代码修改】: 新增行业分析相关的所有DAO方法 ▼▼▼
+    # ▼▼▼【 新增行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
         获取所有同花顺行业指数的基本信息。
@@ -674,6 +674,46 @@ class IndicatorDAO(BaseDAO):
         print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
         return df
 
+    async def get_stock_industry_info(self, stock_code: str) -> Optional[Dict[str, str]]:
+        """
+        【V1.0 新增】根据股票代码获取其当前所属的行业/概念板块信息。
+        Args:
+            stock_code (str): 股票代码 (例如 '600519.SH')。
+        Returns:
+            Optional[Dict[str, str]]: 包含行业代码和名称的字典，例如 {'code': '881152.TI', 'name': '白酒'}。
+                                      如果未找到，则返回 None。
+        """
+        print(f"      - [DAO查询] 正在查询股票 {stock_code} 的所属行业...")
+        try:
+            # ▼▼▼【代码实现】: 这是您需要的新方法的核心逻辑 ▼▼▼
+            # 使用 Django 异步 ORM 进行查询
+            # 1. select_related('ths_index'): 预加载关联的行业信息，避免N+1查询。
+            # 2. filter(stock__stock_code=...): 按股票代码过滤。
+            # 3. filter(out_date__isnull=True): 只选择当前有效的成分股关系 (尚未被剔除)。
+            # 4. afirst(): 异步获取第一个匹配的记录。
+            membership = await ThsIndexMember.objects.select_related('ths_index').filter(
+                stock__con_code=stock_code,
+                out_date__isnull=True
+            ).afirst()
+            # ▲▲▲【代码实现】: 核心逻辑结束 ▲▲▲
+
+            if membership and membership.ths_index:
+                # 如果找到了有效的成员关系，并且其关联的指数也存在
+                industry_info = {
+                    'code': membership.ths_index.ts_code,
+                    'name': membership.ths_index.name
+                }
+                print(f"      - [DAO查询] 成功找到 {stock_code} 所属行业: {industry_info['name']} ({industry_info['code']})")
+                return industry_info
+            else:
+                # 如果没有找到任何有效的成员关系
+                print(f"      - [DAO查询] 未能找到 {stock_code} 的当前所属行业。")
+                return None
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的行业信息时发生数据库错误: {e}", exc_info=True)
+            print(f"      - [DAO查询] 查询 {stock_code} 行业信息时出错: {e}")
+            return None
+
     @sync_to_async
     def get_latest_industry_fund_flow(self, industry_code: str, trade_date: datetime.date) -> Optional[FundFlowIndustryTHS]:
         """
@@ -706,7 +746,8 @@ class IndicatorDAO(BaseDAO):
                 # print(f"    [DAO] 成功找到行业 {industry_code} 的资金流数据，日期为 {flow_data.trade_time}。")
                 return flow_data
             else:
-                print(f"    [DAO] 未找到行业 {industry_code} 在 {trade_date} 之前的资金流数据。")
+                pass
+                # print(f"    [DAO] 未找到行业 {industry_code} 在 {trade_date} 之前的资金流数据。")
             return flow_data
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 最新资金流时出错: {e}")
@@ -766,7 +807,6 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"批量查询股票每日基本面指标时出错: {e}")
             return []
 
-    # --- 为了让之前的代码能跑通，还需要补齐这两个方法 ---
     @sync_to_async
     def get_all_industries(self) -> List[ThsIndex]:
         """获取所有同花顺行业/概念指数列表"""

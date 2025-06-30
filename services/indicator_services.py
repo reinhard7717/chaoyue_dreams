@@ -277,7 +277,7 @@ class IndicatorService:
 
         # 2. 查询当前股票所属的行业代码 (使用 self.stock_basic_dao)
         #    假设 StockBasicInfoDao 有 get_stock_industry_info 方法
-        stock_industry_info = await self.stock_basic_dao.get_stock_industry_info(stock_code)
+        stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
         stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
         stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
 
@@ -531,7 +531,7 @@ class IndicatorService:
             industry_fund_flow_df = data_results[1]
 
             if industry_daily_df.empty:
-                print(f"    - 跳过 {industry.name}: 无有效的日线行情数据。")
+                # print(f"    - 跳过 {industry.name}: 无有效的日线行情数据。")
                 return None
 
             # 3. 计算各项基础得分 (0-1分制)
@@ -579,7 +579,7 @@ class IndicatorService:
         # ▼▼▼【代码修改】: 增加数据长度检查，如果数据太少则直接返回0分 ▼▼▼
         # 解释: 至少需要5天数据才能计算5日均线，否则分析无意义。
         if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
-            print(f"      - [成交活跃度] 数据不足 (行数: {len(industry_daily_df)})，无法计算得分。")
+            # print(f"      - [成交活跃度] 数据不足 (行数: {len(industry_daily_df)})，无法计算得分。")
             return 0.0
         # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
