@@ -94,7 +94,8 @@ class WeeklyTrendFollowStrategy:
         playbook_trix_cross = self._playbook_trix_golden_cross(df, self.playbook_params.get('trix_golden_cross_playbook', {}))
         playbook_coppock_reversal = self._playbook_coppock_bottom_reversal(df, self.playbook_params.get('coppock_reversal_playbook', {}))
 
-        context_df = pd.DataFrame(index=df.index)
+        # context_df = pd.DataFrame(index=df.index)
+        context_df = df.copy()
         context_df['playbook_ma20_turn_up_W'] = playbook_ma20_turn_up
         context_df['playbook_early_uptrend_W'] = playbook_early_uptrend
         context_df['playbook_classic_breakout_W'] = playbook_classic
