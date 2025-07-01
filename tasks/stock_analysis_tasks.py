@@ -14,7 +14,6 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 # from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
 
-
 logger = logging.getLogger('tasks')
 
 async def _get_all_relevant_stock_codes_for_processing():

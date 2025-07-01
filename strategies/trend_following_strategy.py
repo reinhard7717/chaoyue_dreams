@@ -19,32 +19,29 @@ class TrendFollowStrategy:
     - 职责定位: 接收一个包含所有时间框架数据的字典，应用复杂的战术剧本和计分系统，输出最终决策。
     """
 
-    def __init__(self,
-                 config: dict,
-                 tactical_configs: Optional[Dict[str, str]] = None):
+    def __init__(self, config: dict):
+        """
+        【V21.1 构造函数优化版】
+        - 移除 self.indicator_service 的实例化，因为本类不应负责数据获取。
+        - 移除已过时的 tactical_configs 和 tactical_params 逻辑。
+        - 使本类成为一个更纯粹的计算单元。
+        """
+        # 保存传入的完整战术配置文件
         self.daily_params = config
-        self.indicator_service = IndicatorService()
 
-        if tactical_configs is None:
-            self.tactical_configs = {
-                '5': 'reuse', '15': 'reuse', '30': 'reuse', '60': 'reuse',
-            }
-        else:
-            self.tactical_configs = tactical_configs
-        
-        self.tactical_params = {}
-        for tf in self.tactical_configs.keys():
-            self.tactical_params[tf] = self.daily_params
-
+        # 初始化K线形态识别器
         kline_params = self._get_params_block(self.daily_params, 'kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
+
+        # 初始化用于存储中间信号和分数的字典
         self.signals = {}
         self.scores = {}
-        self._last_score_details_df = None
+        self._last_score_details_df = None # 用于存储详细的得分表，以便后续生成报告
+
+        # 初始化调试参数
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        # 初始化日志只打印一次
-        # print("--- [战术策略 TrendFollowStrategy (V22.2)] 初始化完成。---")
+        print("--- [战术策略 TrendFollowStrategy (V21.1 优化版)] 初始化完成。---")
 
     # 参数解析辅助函数
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
@@ -154,44 +151,37 @@ class TrendFollowStrategy:
 
         return df, atomic_signals
 
-    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict) -> List[Dict[str, Any]]:
+    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V2.2 数据清洗增强版】将策略分析结果DataFrame转换为用于数据库存储的字典列表。
+        【V2.3 参数化修复版】将策略分析结果DataFrame转换为用于数据库存储的字典列表。
+        - 新增 result_timeframe 参数，由调用者明确指定要保存的信号周期，解除了对配置文件的硬编码依赖。
         - 使用 sanitize_for_json 工具函数确保所有数据都是JSON兼容的原生Python类型。
         """
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df['take_profit_signal'] > 0)
         ].copy()
-
         if df_with_signals.empty:
             return []
-
         records = []
         strategy_name = self._get_params_block(params, 'strategy_info').get('name', 'multi_timeframe_collaboration')
-        timeframe = self._get_params_block(params, 'strategy_info').get('timeframe', 'D')
-
+        # 解释: 不再从配置文件读取 timeframe，而是直接使用传入的 result_timeframe 参数。
+        # 这使得此方法可以被用来准备任何时间周期的信号记录。
+        timeframe = result_timeframe
         for timestamp, row in df_with_signals.iterrows():
             # 从计分详情中获取激活的剧本
             triggered_playbooks_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                 playbooks = self._last_score_details_df.loc[timestamp]
                 triggered_playbooks_list = playbooks[playbooks > 0].index.tolist()
-
             is_setup_day = 'PULLBACK_SETUP' in triggered_playbooks_list
-            
-            # ▼▼▼ 全面应用 sanitize_for_json ▼▼▼
-            # 解释: 将所有可能来自DataFrame的原始值都通过清洗函数处理，一劳永逸地解决类型问题。
-            
-            # 1. 清洗 context_snapshot
+            # 全面应用 sanitize_for_json
             context_dict = {k: v for k, v in row.items() if pd.notna(v)}
             sanitized_context = sanitize_for_json(context_dict)
-
-            # 2. 清洗所有其他字段
             record = {
                 # --- 核心字段 ---
                 "stock_code": stock_code,
                 "trade_time": sanitize_for_json(timestamp),
-                "timeframe": timeframe,
+                "timeframe": timeframe, # 使用了新的、由参数传入的 timeframe
                 "strategy_name": strategy_name,
                 "close_price": sanitize_for_json(row.get('close_D')),
                 "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
@@ -204,12 +194,10 @@ class TrendFollowStrategy:
                 "is_pullback_setup": is_setup_day,
                 "pullback_target_price": sanitize_for_json(row.get('pullback_target_price')),
                 # --- 追溯与元数据 ---
-                "triggered_playbooks": triggered_playbooks_list, # 列表本身是安全的
+                "triggered_playbooks": triggered_playbooks_list,
                 "context_snapshot": sanitized_context,
             }
-            # ▲▲▲ 修改结束 ▲▲▲
             records.append(record)
-            
         return records
 
     def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
@@ -317,10 +305,14 @@ class TrendFollowStrategy:
         cond_morning_star = df.get('kline_c_morning_star', pd.Series(False, index=df.index))
         cond_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
-        # 步骤3.5，计算分钟线共振信号
-        print("    [调试-计分V22.0] 步骤3.5: 计算分钟线共振信号...")
-        resonance_precondition = cond_pullback_setup
-        resonance_signals = self._find_multi_timeframe_resonance(df_dict, resonance_precondition)
+
+        # # 步骤3.5，计算分钟线共振信号
+        # print("    [调试-计分V22.0] 步骤3.5: 计算分钟线共振信号...")
+        # resonance_precondition = cond_pullback_setup
+        # resonance_signals = self._find_multi_timeframe_resonance(df_dict, resonance_precondition)
+        # 解释: 分钟共振信号的计算和触发已经完全由 MultiTimeframeTrendStrategy 的分钟共振引擎负责。
+        # TrendFollowStrategy 作为日线决策引擎，不再需要关心此逻辑。
+        
         # --- 步骤4: 记录所有战术信号得分 ---
         print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
@@ -328,11 +320,10 @@ class TrendFollowStrategy:
                 score_details_df.loc[condition, name] = points.get(name, default_score)
                 print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次。")
             atomic_signals[name] = condition
-        # ▼▼▼【代码修改】: 为新增的、基于精确CYQ数据的筹码剧本添加计分规则，给予极高权重 ▼▼▼
+        # ▼▼▼ 为新增的、基于精确CYQ数据的筹码剧本添加计分规则，给予极高权重 ▼▼▼
         add_score(cond_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180)
         add_score(cond_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160)
         add_score(cond_winner_rate_reversal, 'WINNER_RATE_REVERSAL', 140)
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         add_score(cond_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150)
         add_score(cond_chip_cost_breakthrough, 'CHIP_COST_BREAKTHROUGH', 130)
         add_score(is_steady_climb_pullback, 'PULLBACK_STEADY_CLIMB', 110)
@@ -361,11 +352,7 @@ class TrendFollowStrategy:
         add_score(cond_pullback_setup, 'PULLBACK_SETUP', 50)
         add_score(cond_morning_star, 'KLINE_MORNING_STAR', 140)
         add_score(cond_three_soldiers & strict_precondition, 'KLINE_THREE_SOLDIERS', 100)
-        # 步骤4.5，记录分钟线共振信号得分
-        print("    [调试-计分V22.0] 步骤4.5: 记录分钟线共振信号得分...")
-        for signal_name, signal_series in resonance_signals.items():
-            default_score = 150
-            add_score(signal_series, signal_name, default_score)
+
         # --- 步骤5: 记录协同/冲突规则得分 ---
         print("    [调试-计分V22.0] 步骤5: 记录协同/冲突规则得分...")
         has_positive_score = score_details_df.sum(axis=1) > 0
