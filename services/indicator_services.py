@@ -519,11 +519,28 @@ class IndicatorService:
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
 
+                    def merge_results(result_data):
+                        if result_data is None or result_data.empty:
+                            return
+
+                        # 核心修复：检查返回类型，如果是Series，则转换为DataFrame
+                        if isinstance(result_data, pd.Series):
+                            # Series.to_frame() 会将Series转换为一个单列的DataFrame
+                            # Series的名字将成为列名
+                            result_data = result_data.to_frame()
+
+                        if isinstance(result_data, pd.DataFrame):
+                            for col in result_data.columns:
+                                df_for_calc[col] = result_data[col]
+                        else:
+                            logger.warning(f"指标 {indicator_name} 返回了未知类型 {type(result_data)}，已跳过。")
+
                     # 特殊处理VWAP
                     if indicator_name == 'vwap':
                         anchor = 'D' if timeframe_key.isdigit() else timeframe_key
                         kwargs['anchor'] = anchor
                         result_df = await method_to_call(**kwargs)
+                        merge_results(result_df)
                         if result_df is not None and not result_df.empty:
                             for col in result_df.columns:
                                 df_for_calc[col] = result_df[col]
@@ -532,6 +549,7 @@ class IndicatorService:
                     # 处理无参数指标，如OBV
                     if periods is None:
                         result_df = await method_to_call(**kwargs)
+                        merge_results(result_df)
                         if result_df is not None and not result_df.empty:
                             for col in result_df.columns:
                                 df_for_calc[col] = result_df[col]
@@ -557,6 +575,7 @@ class IndicatorService:
                         
                         # 执行计算
                         result_df = await method_to_call(**kwargs_iter)
+                        merge_results(result_df)
                         if result_df is not None and not result_df.empty:
                             # 将新计算出的列合并到计算副本中，供后续指标使用
                             for col in result_df.columns:
