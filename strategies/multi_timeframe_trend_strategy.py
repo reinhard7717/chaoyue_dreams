@@ -34,8 +34,8 @@ class MultiTimeframeTrendStrategy:
         self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
 
         self.required_timeframes = self._get_all_required_timeframes()
-        print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.0)] 初始化完成 ---")
-        print(f"    - [总指挥] 已智能识别出策略依赖的所有时间框架: {sorted(list(self.required_timeframes))}")
+        # print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.0)] 初始化完成 ---")
+        # print(f"    - [总指挥] 已智能识别出策略依赖的所有时间框架: {sorted(list(self.required_timeframes))}")
 
     def _get_all_required_timeframes(self) -> Set[str]:
         """

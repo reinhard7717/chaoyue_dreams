@@ -301,12 +301,11 @@ class IndicatorService:
                 # 其他周期（如 'D', '60', '30'）直接获取
                 base_tfs_to_fetch.add(tf)
 
-        # print(f"    - 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
+        print(f"    - [诊断日志] 1. 策略请求的原始周期: {sorted(list(required_tfs))}")
+        print(f"    - [诊断日志] 2. 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
         if resample_map:
-            pass
-            # print(f"    - 将执行的重采样任务: {resample_map}")
+            print(f"    - [诊断日志] 3. 已制定的重采样计划: {resample_map}")
 
-        # --- 步骤 2: 【高效】按需并行获取所有【基础】数据 ---
         tasks = []
         # 任务1: 获取所有必需的【基础】OHLCV数据
         for tf in base_tfs_to_fetch:
@@ -363,26 +362,26 @@ class IndicatorService:
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
-                if source_tf == 'D':
-                    print(f"    - 正在从日线数据重采样生成 {target_tf} 线数据...")
-                    # 定义重采样规则
-                    ohlc_rule = {
-                        'open': 'first',
-                        'high': 'max',
-                        'low': 'min',
-                        'close': 'last',
-                        'volume': 'sum'
-                    }
-                    # 'W-FRI' 表示以周五为每周的结束点，更符合A股习惯
+                if source_tf == 'D' and not df_daily.empty:
+                    print(f"    - [诊断日志] 4a. 开始从日线重采样生成 {target_tf} 线数据...")
+                    ohlc_rule = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
                     resample_period = 'W-FRI' if target_tf == 'W' else 'M'
                     df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
-                    df_resampled.dropna(inplace=True) # 删除不完整的周期数据
+                    
+                    # ▼▼▼【代码修改】: 在dropna前后都增加日志 ▼▼▼
+                    print(f"    - [诊断日志] 4b. 重采样完成，dropna前有 {len(df_resampled)} 条 {target_tf} 线数据。")
+                    df_resampled.dropna(inplace=True)
+                    print(f"    - [诊断日志] 4c. dropna后剩余 {len(df_resampled)} 条 {target_tf} 线数据。")
+                    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                     
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
-                        # print(f"    - [成功] {target_tf} 线数据已生成，共 {len(df_resampled)} 条。")
+                        print(f"    - [诊断日志] 4d. [成功] {target_tf} 线数据已添加至待处理池。")
                     else:
-                        logger.warning(f"[{stock_code}] 从日线重采样到 {target_tf} 后数据为空。")
+                        logger.warning(f"    - [诊断日志] 4d. [警告] {target_tf} 线数据在处理后为空，已被丢弃！")
+
+        # ▼▼▼【代码修改】: 增加指标计算前的状态日志 ▼▼▼
+        print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
         # --- 步骤 4: 为每个周期的数据独立计算指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
@@ -421,13 +420,13 @@ class IndicatorService:
 
         for res in processed_results:
             if isinstance(res, Exception):
-                logger.error(f"[{stock_code}] 计算指标时发生错误: {res}")
+                logger.error(f"    - [诊断日志] 6. [严重错误] 在指标计算环节发生异常，导致一个周期的数据被丢弃: {res}", exc_info=True)
                 continue
             if res:
                 tf, df_processed = res
                 processed_dfs[tf] = df_processed
 
-        print(f"--- [数据准备V5.1-重采样版] 数据准备完成，最终字典包含的周期: {list(processed_dfs.keys())} ---")
+        print(f"--- [数据准备V7.2-诊断版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
