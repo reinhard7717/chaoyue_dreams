@@ -72,27 +72,23 @@ class StockRealtimeDAO(BaseDAO):
         """
         if not stock_codes:
             return []
-
         try:
             # 1. 一次性从Tushare获取所有股票的行情数据
             # 注意：建议将token初始化放在全局或应用启动时，而不是每次调用方法时设置
             # ts.set_token('YOUR_TOKEN_HERE') 
             stock_codes_str = ','.join(stock_codes)
+            ts.set_token('0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c')
             df = ts.realtime_quote(ts_code=stock_codes_str)
-
             if df.empty:
                 logger.warning(f"Tushare未返回股票 {stock_codes_str} 的实时行情数据。")
                 return []
-
             # 2. 准备数据：一次性获取所有相关的StockInfo对象
             stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
-            
             # 用于批量操作的容器
             realtime_data_list = []
             level5_data_list = []
             realtime_cache_payload = {}
             level5_cache_payload = {}
-
             # 3. 循环处理数据（仅在内存中，无IO操作）
             # print(f"调试信息: 开始在内存中处理 {len(df)} 条从Tushare返回的数据...")
             for row in df.itertuples():
@@ -103,7 +99,6 @@ class StockRealtimeDAO(BaseDAO):
                     level5_dict = self.data_format_process.set_level5_data(stock, row)
                     realtime_data_list.append(real_dict)
                     level5_data_list.append(level5_dict)
-                    
                     # 【核心优化】准备缓存数据，而不是立即写入
                     realtime_cache_payload[row.TS_CODE] = real_dict
                     level5_cache_payload[row.TS_CODE] = level5_dict
@@ -113,7 +108,6 @@ class StockRealtimeDAO(BaseDAO):
             if not realtime_data_list:
                 logger.info("没有可处理的数据。")
                 return []
-
             # 4. 并发执行所有IO密集型任务（数据库和缓存的批量写入）
             # print(f"调试信息: 准备并发执行 {len(realtime_data_list)} 条数据的数据库和缓存写入...")
             
