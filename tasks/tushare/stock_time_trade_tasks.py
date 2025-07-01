@@ -5,6 +5,8 @@ import datetime
 from django.utils import timezone
 import time
 from typing import List
+
+from tushare.util.dateu import today
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
@@ -34,7 +36,7 @@ def is_trading_time():
 # 获取本周一和本周五的日期
 def get_this_monday_and_friday():
     """获取本周一和本周五的日期"""
-    today = datetime.date.today()
+    today_date = timezone.now().date()
     this_monday = today - datetime.timedelta(days=today.weekday())
     this_friday = this_monday + datetime.timedelta(days=4)
     return this_monday, this_friday
@@ -42,7 +44,7 @@ def get_this_monday_and_friday():
 # 获取上周一和上周五的日期
 def get_last_monday_and_friday():
     """获取上周一和上周五的日期"""
-    today = datetime.date.today()
+    today_date = timezone.now().date()
     this_monday = today - datetime.timedelta(days=today.weekday())
     last_monday = this_monday - datetime.timedelta(days=7)
     last_friday = last_monday + datetime.timedelta(days=4)
@@ -106,7 +108,7 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
             print(f"开始保存 分钟数据任务（当日全天）...")
         asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
             stock_codes=stock_codes,
-            start_date_str=start_date_str,
+            start_date=start_date_str,
             end_date_str=end_date_str
         ))
         print(f"保存股票 {len(stock_codes)} 个的当日分钟级交易数据完成。")
@@ -241,8 +243,9 @@ def save_stocks_daily_basic_data_today_task(self):
     stock_time_trade_dao = StockTimeTradeDAO()
     # service = IndicatorService()
     try:
+        today_date = timezone.now().date()
         print("开始保存 今日股票重要的基本面指标...")
-        result = asyncio.run(stock_time_trade_dao.save_today_stock_basic_info())
+        result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=today_date))
         print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
     except Exception as e:
         logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -261,9 +264,11 @@ def save_stocks_daily_basic_data_yesterday_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        print("开始保存 今日股票重要的基本面指标...")
-        result = asyncio.run(stock_time_trade_dao.save_yesterday_stock_basic_info())
-        print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
+        today_date = timezone.now().date()
+        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
+        print("开始保存 昨日股票重要的基本面指标...")
+        result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday))
+        print(f"保存 昨日股票重要的基本面指标 完成。result: {result}")
     except Exception as e:
         logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -278,12 +283,13 @@ def save_day_data_today_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
+        today_date = timezone.now().date()
         print("开始保存 日线数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_today())
+        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
         save_cyq_data_today_task.delay()
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf())
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -299,8 +305,10 @@ def save_day_data_yesterday_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
+        today_date = timezone.now().date()
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         print("开始保存 日线数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_yesterday())
+        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=yesterday))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
         save_cyq_data_yesterday_task.delay()
         print(f"保存 每日筹码分布、每日筹码及胜率 数据完成。")
@@ -318,12 +326,13 @@ def save_week_data_today_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
+        today_date = timezone.now().date()
         print("开始保存 日线数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_today())
+        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
         save_cyq_data_today_task.delay()
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf())
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -339,11 +348,11 @@ def save_week_data_yesterday_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        print("开始保存 日线数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_yesterday())
-        print(f"保存 日线数据任务（当日） 完成。result: {result}")
-        save_cyq_data_yesterday_task.delay()
-        print(f"保存 每日筹码分布、每日筹码及胜率 数据完成。")
+        today_date = timezone.now().date()
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
+        print("开始保存 周线数据任务（当日）...")
+        result = asyncio.run(stock_time_trade_dao.save_weekly_time_trade_by_stock_codes(trade_date=yesterday))
+        print(f"保存 周线数据任务（当日） 完成。result: {result}")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -358,12 +367,13 @@ def save_month_data_today_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        print("开始保存 日线数据任务（当日）...")
-        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_today())
-        print(f"保存 日线数据任务（当日） 完成。result: {result}")
+        today_date = timezone.now().date()
+        print("开始保存 月线数据（当日）...")
+        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
+        print(f"保存 月线数据（当日） 完成。result: {result}")
         save_cyq_data_today_task.delay()
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf())
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -385,13 +395,12 @@ def save_month_data_yesterday_task(self):
         yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
         # 转换为YYYYMMDD格式
         day_str = yesterday.strftime('%Y%m%d')
-        result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_yesterday())
+        result = asyncio.run(stock_time_trade_dao.save_monthly_time_trade_by_stock_codes(start_date=day_str))
         print(f"保存 月线数据（昨日） 完成。result: {result}")
         save_cyq_data_yesterday_task.delay()
         print(f"保存 月线数据（昨日） 数据完成。")
     except Exception as e:
         logger.error(f"save_month_data_yesterday_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
-
 
 # ============== 每日筹码分布任务（当日） ==============
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_today_batch', queue='SaveData_TimeTrade')
@@ -404,7 +413,8 @@ def save_cyq_chips_today_batch(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_chips())
+        today_date = timezone.now().date()
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_chips_history(trade_date=today_date))
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -419,7 +429,8 @@ def save_cyq_perf_today_batch(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_today_cyq_perf())
+        today_date = timezone.now().date()
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -453,7 +464,9 @@ def save_cyq_chips_yesterday_batch(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_yesterday_cyq_chips())
+        today_date = timezone.now().date()
+        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_chips_history(trade_date=yesterday))
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -468,7 +481,9 @@ def save_cyq_perf_yesterday_batch(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_yesterday_cyq_perf())
+        today_date = timezone.now().date()
+        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=yesterday))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -580,13 +595,11 @@ def save_stocks_daily_basic_data_this_week_task(self):
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     this_monday, this_friday = get_this_monday_and_friday()
-    for i in range(5):
-        day = this_monday + datetime.timedelta(days=i)
-        try:
-            print(f"开始保存 {day} 股票重要的基本面指标...")
-            result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=day))
-        except Exception as e:
-            logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    try:
+        print(f"开始保存 {day} 股票重要的基本面指标...")
+        result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(start_date=this_monday, end_date=this_friday))
+    except Exception as e:
+        logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # ============== （本周）每日筹码分布任务 ==============
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveData_TimeTrade', rate_limit='180/m')
@@ -627,7 +640,7 @@ def save_cyq_perf_this_week_batch(self, start_date: datetime.date, end_date: dat
     # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        result = asyncio.run(stock_time_trade_dao.save_cyq_perf_history(start_date=start_date, end_date=end_date))
+        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(start_date=start_date, end_date=end_date))
         print(f"保存 （本周）每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
