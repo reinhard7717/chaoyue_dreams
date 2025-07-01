@@ -15,13 +15,12 @@ from django.contrib.auth.decorators import login_required
 from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 # --- 导入Django ORM高级查询工具 ---
-from django.db.models import Case, When, Value, IntegerField, Q
+from django.db.models import Q
 from django.core.serializers.json import DjangoJSONEncoder
 from dashboard.utils import extract_score_details
-from stock_models.stock_analytics import StockAnalysisResultTrendFollowing, TrendFollowStrategyState
+from stock_models.stock_analytics import TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
-from utils.cache_get import StrategyCacheGet
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
 from tasks.tushare.stock_tasks import fetch_data_for_new_favorite # 导入新任务
@@ -134,7 +133,6 @@ def fav_monthly_trend_list(request):
         template_name='dashboard/fav_monthly_trend_list.html'
     )
 
-
 @login_required
 def trend_following_list(request):
     """
@@ -147,7 +145,7 @@ def trend_following_list(request):
     state_list = TrendFollowStrategyState.objects.filter(
         strategy_name=strategy_name,
         time_level='D'  # 只看日线周期的状态
-    ).select_related('stock').order_by('-latest_score')
+    ).select_related('stock').order_by('-last_buy_time')
 
     paginator = Paginator(state_list, 25)
     page_number = request.GET.get('page')
