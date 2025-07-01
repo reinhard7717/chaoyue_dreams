@@ -162,6 +162,9 @@ class MultiTimeframeTrendStrategy:
         if 'signal_breakout_trigger_W' in df_merged.columns:
             df_merged.rename(columns={'signal_breakout_trigger_W': 'BASE_SIGNAL_BREAKOUT_TRIGGER'}, inplace=True)
             print("    - [数据流转] 已将周线王牌信号 'signal_breakout_trigger_W' 重命名为 'BASE_SIGNAL_BREAKOUT_TRIGGER'")
+
+            df_merged['BASE_SIGNAL_BREAKOUT_TRIGGER'] = df_merged['BASE_SIGNAL_BREAKOUT_TRIGGER'].fillna(False).astype(bool)
+            print("    - [数据流转] 已将 'BASE_SIGNAL_BREAKOUT_TRIGGER' 列中的 NaN 值填充为 False，并确保其为布尔类型。")
         
         return df_merged
     
