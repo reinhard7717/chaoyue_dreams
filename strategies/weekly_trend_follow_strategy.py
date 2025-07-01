@@ -19,11 +19,11 @@ class WeeklyTrendFollowStrategy:
     - 职责定位: 接收一个已包含所有周线指标的DataFrame，应用策略逻辑，并返回带有战略信号的DataFrame。
     """
 
-    def __init__(self, config_path: str = 'config/weekly_trend_follow_strategy.json'):
+    def __init__(self, config: dict):
         """
         初始化周线策略。
         """
-        self.params = load_strategy_config(config_path)
+        self.params = config
         self.indicator_cfg = self.params.get('feature_engineering_params', {}).get('indicators', {})
         self.playbook_params = self.params.get('strategy_playbooks', {})
 
