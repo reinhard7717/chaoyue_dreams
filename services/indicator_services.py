@@ -1547,36 +1547,37 @@ class IndicatorService:
             logger.error(f"计算 TRIX (period={period}, signal={signal_period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 14, short_roc_period: int = 11, wma_period: int = 10, close_col='close') -> Optional[pd.DataFrame]:
+    async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 26, short_roc_period: int = 13, wma_period: int = 10) -> Optional[pd.DataFrame]:
         """
-        计算 Coppock Curve (估波指标)。
-        Args:
-            df (pd.DataFrame): 输入数据。
-            long_roc_period (int): 长变化率周期。
-            short_roc_period (int): 短变化率周期。
-            wma_period (int): 加权移动平均周期。
-            close_col (str): 收盘价列名。
-        Returns:
-            Optional[pd.DataFrame]: 包含 Coppock Curve 的 DataFrame。
+        【V1.1 修复版】计算 Coppock Curve (COPP) 指标。
+        - 核心修复: 修正了传递给 pandas_ta 的参数名，确保与库的API完全匹配。
+                     pandas_ta.coppock 使用 'length', 'fast', 'slow' 作为参数名。
         """
-        if df is None or df.empty or close_col not in df.columns:
-            return None
-        if len(df) < long_roc_period + wma_period:
-            logger.warning(f"数据行数 ({len(df)}) 不足以计算 Coppock Curve。")
+        if df is None or df.empty or 'close' not in df.columns:
             return None
         try:
-            def _sync_coppock():
-                # 使用 pandas-ta 直接计算
-                return ta.coppock(close=df[close_col], length=short_roc_period, long=long_roc_period, wma=wma_period, append=False)
-            coppock_series = await asyncio.to_thread(_sync_coppock)
-            if coppock_series is None or coppock_series.empty:
-                return None
-            # 返回一个标准的 DataFrame
-            col_name = f'COPPOCK_{long_roc_period}_{short_roc_period}_{wma_period}'
-            return pd.DataFrame({col_name: coppock_series}, index=df.index)
+            # pandas_ta.coppock 的参数名是:
+            # length (int): The WMA period. Default: 10
+            # fast (int): The short ROC period. Default: 11
+            # slow (int): The long ROC period. Default: 14
+            # 我们需要将我们的参数名映射过去
+            copp_df = df.ta.copp(
+                close=df['close'],
+                length=wma_period,        # 对应我们的 wma_period
+                fast=short_roc_period,    # 对应我们的 short_roc_period
+                slow=long_roc_period,     # 对应我们的 long_roc_period
+                append=False
+            )
+            if copp_df is not None and not copp_df.empty:
+                return copp_df
         except Exception as e:
-            logger.error(f"计算 Coppock Curve 出错: {e}", exc_info=True)
-            return None
+            # 增加数据量不足的特定警告
+            if "data length" in str(e).lower() or "inputs are all nan" in str(e).lower():
+                 logger.warning(f"数据行数 ({len(df)}) 不足以计算 Coppock Curve(long={long_roc_period}, short={short_roc_period}, wma={wma_period})。")
+            else:
+                logger.error(f"计算 Coppock Curve 时发生未知错误: {e}")
+        
+        return None
 
     async def calculate_uo(self, df: pd.DataFrame, short_period: int = 7, medium_period: int = 14, long_period: int = 28, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """
