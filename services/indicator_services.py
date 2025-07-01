@@ -456,200 +456,133 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V5.2 兼容合并版】根据配置为指定时间周期计算所有技术指标。
-        - 核心升级: 完美适配 MultiTimeframeTrendStrategy (V5.2) 的智能合并器所输出的标准化配置。
-        - 逻辑简化: 由于输入配置被标准化为 'configs' 列表格式，本方法的处理路径更加统一。
-        - 健壮性保留: 依然保留了对旧格式的兼容性判断，使本服务可被独立、安全地复用。
-        - Bug修复: 修正了因提前使用未定义 'periods' 变量而导致计算失败的逻辑漏洞。
+        【V5.3 逻辑重构版】根据配置为指定时间周期计算所有技术指标。
+        - 核心重构: 彻底分离了用于计算的DataFrame副本和最终结果DataFrame，确保pandas_ta始终在标准的'close', 'open'等列上操作。
+        - 流程优化: 遵循“先计算，后合并，再统一处理后缀”的原则，解决了因列名提前修改导致的计算失败问题。
+        - 健壮性增强: 即使某些指标因数据量不足计算失败(返回NaN或不返回列)，也不会影响其他指标的计算和最终DataFrame的结构。
         """
-        # print(f"  [指标计算V5.0] 开始为周期 '{timeframe_key}' 计算指标...")
+        print(f"  [指标计算V5.3] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
 
-        # 统一后缀格式，日/周/月线带下划线，分钟线不带
-        suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
+        # ▼▼▼【代码修改】: 核心逻辑重构开始 ▼▼▼
+        # 步骤1: 准备一个干净的、用于计算的副本，它只包含基础OHLCV列，且列名是标准的。
+        df_main = df.copy() # 这是我们最终要返回的DataFrame
+        base_cols = ['open', 'high', 'low', 'close', 'volume']
         
-        df_for_calc = df.copy()
-        # 为日/周/月线数据准备计算副本，移除后缀以便于pandas_ta调用
-        if suffix:
-            base_cols = ['open', 'high', 'low', 'close', 'volume']
-            # 创建一个重命名映射，只对那些还没有相应后缀的列进行操作
-            rename_map = {
-                col: f"{col}{suffix}" 
-                for col in base_cols 
-                if col in df.columns and f"{col}{suffix}" not in df.columns
-            }
-            if rename_map:
-                df.rename(columns=rename_map, inplace=True)
-                # print(f"    - [成功] 已为周期 '{timeframe_key}' 的基础OHLCV列添加后缀: {list(rename_map.values())}")
-
-        # 假设所有指标计算方法都已定义在类中
+        # 确保计算副本中包含所有基础列，如果不存在则填充NaN
+        df_for_calc = pd.DataFrame(index=df_main.index)
+        for col in base_cols:
+            if col in df_main.columns:
+                df_for_calc[col] = df_main[col]
+            else:
+                # 如果基础列不存在，创建一个NaN列以避免后续错误
+                df_for_calc[col] = np.nan 
+        
+        # 步骤2: 准备指标计算方法映射和配置
         indicator_method_map = {
-            'ema': self.calculate_ema,
-            'vol_ma': self.calculate_vol_ma,
-            'trix': self.calculate_trix,
-            'coppock': self.calculate_coppock,
-            'rsi': self.calculate_rsi,
-            'macd': self.calculate_macd,
-            'dmi': self.calculate_dmi,
-            'roc': self.calculate_roc,
-            'boll_bands_and_width': self.calculate_boll_bands_and_width,
-            'cmf': self.calculate_cmf,
-            'bias': self.calculate_bias,
-            'atrn': self.calculate_atrn,
-            'atrr': self.calculate_atrr,
-            'obv': self.calculate_obv,
-            'kdj': self.calculate_kdj,
-            'uo': self.calculate_uo,
+            'ema': self.calculate_ema, 'vol_ma': self.calculate_vol_ma, 'trix': self.calculate_trix,
+            'coppock': self.calculate_coppock, 'rsi': self.calculate_rsi, 'macd': self.calculate_macd,
+            'dmi': self.calculate_dmi, 'roc': self.calculate_roc, 'boll_bands_and_width': self.calculate_boll_bands_and_width,
+            'cmf': self.calculate_cmf, 'bias': self.calculate_bias, 'atrn': self.calculate_atrn,
+            'atrr': self.calculate_atrr, 'obv': self.calculate_obv, 'kdj': self.calculate_kdj,
+            'uo': self.calculate_uo, 'vwap': self.calculate_vwap,
             'consolidation_period': self.calculate_consolidation_period,
             'advanced_fund_features': self.calculate_advanced_fund_features,
-            'vwap': self.calculate_vwap,
             'fibonacci_levels': self.calculate_fibonacci_levels,
         }
         
-        composite_indicator_keys = ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']
-        composite_indicators_config = {}
-
-        # 遍历总配置中的每一个指标项
+        # 步骤3: 循环计算所有简单指标，并将结果累加到 df_for_calc 中
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             
-            if indicator_name in composite_indicator_keys:
-                composite_indicators_config[indicator_name] = params
+            # 跳过不处理的或未启用的指标
+            if indicator_name in ['说明', 'index_sync', 'cyq_perf'] or not params.get('enabled', False):
                 continue
-            
-            if indicator_name == 'cyq_perf':
-                continue
-
-            if indicator_name in ['说明', 'index_sync'] or not params.get('enabled', False):
-                continue
-
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
-
-            # --- 【核心逻辑】智能判断配置格式 ---
-            # 如果存在 'configs' 键，说明是新的列表式配置
-            if 'configs' in params:
-                configs_to_process = params['configs']
-            # 否则，是旧的单一配置，将其包装成列表以统一处理
-            else:
-                configs_to_process = [params]
             
-            # 遍历该指标的所有子配置（对于旧格式，这个列表只有一个元素）
+            # 跳过复合指标，它们将在后面单独处理
+            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']:
+                continue
+
+            # 标准化配置格式
+            configs_to_process = params.get('configs', [params])
+
             for sub_config in configs_to_process:
-                # 检查当前子配置是否适用于当前的时间周期
-                apply_on_list = sub_config.get("apply_on", [])
-                if not apply_on_list or timeframe_key not in apply_on_list:
-                    continue # 如果不适用，则跳过此子配置
-
-                # 解释: VWAP使用'anchor'参数而不是'periods'，因此需要一个专门的处理分支。
-                if indicator_name == 'vwap':
-                    # print(f"    - [VWAP计算] 正在为周期 '{timeframe_key}' 处理VWAP...")
-                    try:
-                        # 核心修正：如果时间周期是数字（代表分钟线），则锚点必须是'D'（日内VWAP）。
-                        # 否则，对于 'D', 'W', 'M' 等，锚点就是其本身。
-                        anchor = 'D' if timeframe_key.isdigit() else timeframe_key
-                        # print(f"    - [VWAP修正] 周期 '{timeframe_key}' 将使用锚点 '{anchor}' 计算 VWAP。")
-                        
-                        result_df = await self.calculate_vwap(df=df_for_calc, anchor=anchor)
-                        
-                        if result_df is not None and not result_df.empty:
-                            for col in result_df.columns:
-                                # pandas_ta的vwap列名是根据anchor生成的，例如 VWAP_D, VWAP_W
-                                # 我们直接使用这个列名，因为它已经包含了周期信息，不需要再加后缀
-                                df_for_calc[col] = result_df[col]
-                                df[col] = result_df[col]
-                                # print(f"    - [VWAP成功] 已将列 '{col}' 添加到周期 '{timeframe_key}' 的DataFrame中。")
-                        else:
-                            print(f"    - [VWAP警告] 周期 '{timeframe_key}' 的VWAP计算未返回有效结果。")
-
-                    except Exception as e:
-                        logger.error(f"    - 计算指标 VWAP (周期: {timeframe_key}) 时出错: {e}")
-                        traceback.print_exc()
-                    continue # 处理完VWAP后，跳过后续的通用逻辑
-
-                # print(f"    - [匹配成功] 周期 '{timeframe_key}' 将使用参数 {sub_config.get('periods')} 计算 {indicator_name.upper()}")
-                
-                method_to_call = indicator_method_map[indicator_name]
-                try:
-                    periods = sub_config.get('periods')
-                    
-                    # 适用于 OBV 等无 period 参数的指标
-                    if periods is None:
-                        result_df = await method_to_call(df=df_for_calc)
-                        if result_df is not None and not result_df.empty:
-                            for col in result_df.columns:
-                                df_for_calc[col] = result_df[col]
-                                df[f"{col}{suffix}"] = result_df[col]
-                        continue
-                    
-                    # 统一处理多参数和单参数指标的 periods 格式
-                    is_multi_param = indicator_name in ['macd', 'trix', 'coppock', 'kdj', 'uo']
-                    is_nested_list = isinstance(periods[0], list) if periods else False
-                    
-                    periods_to_iterate = [] # 安全初始化
-                    # 如果是多参数指标且periods不是嵌套列表，则包装一层
-                    if is_multi_param and not is_nested_list:
-                        periods_to_iterate = [periods]
-                    else:
-                        periods_to_iterate = periods
-
-                    for p_set in periods_to_iterate:
-                        kwargs = {'df': df_for_calc}
-                        if indicator_name == 'macd': kwargs.update({'period_fast': p_set[0], 'period_slow': p_set[1], 'signal_period': p_set[2]})
-                        elif indicator_name == 'trix': kwargs.update({'period': p_set[0], 'signal_period': p_set[1]})
-                        elif indicator_name == 'coppock': kwargs.update({'long_roc_period': p_set[0], 'short_roc_period': p_set[1], 'wma_period': p_set[2]})
-                        elif indicator_name == 'kdj': kwargs.update({'period': p_set[0], 'signal_period': p_set[1], 'smooth_k_period': p_set[2]})
-                        elif indicator_name == 'uo': kwargs.update({'short_period': p_set[0], 'medium_period': p_set[1], 'long_period': p_set[2]})
-                        elif indicator_name == 'boll_bands_and_width':
-                            std_val = float(sub_config.get('std_dev', 2.0))
-                            kwargs.update({'period': p_set, 'std_dev': std_val})
-                        else: # 适用于 vol_ma, roc, ema, rsi, dmi 等
-                            kwargs['period'] = p_set
-                        
-                        result_df = await method_to_call(**kwargs)
-                        if result_df is not None and not result_df.empty:
-                            for col in result_df.columns:
-                                df_for_calc[col] = result_df[col]
-                                df[f"{col}{suffix}"] = result_df[col]
-                except Exception as e:
-                    logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}")
-                    traceback.print_exc()
-
-        # 循环计算所有复合指标
-        if composite_indicators_config:
-            # print("    - [复合指标] 准备计算复合指标...")
-            for indicator_name, params in composite_indicators_config.items():
-                if not params.get('enabled', False): continue
-                
-                apply_on_list = params.get("apply_on", [])
-                if apply_on_list and timeframe_key not in apply_on_list:
+                if timeframe_key not in sub_config.get("apply_on", []):
                     continue
 
                 method_to_call = indicator_method_map[indicator_name]
                 try:
-                    # 现在传递给函数的 df_for_calc 是最新的，包含了所有依赖项
-                    kwargs = {'df': df_for_calc, 'params': params, 'suffix': suffix}
-                    result_df = await method_to_call(**kwargs)
+                    # 准备调用参数
+                    kwargs = {'df': df_for_calc}
+                    periods = sub_config.get('periods')
 
-                    if result_df is not None and not result_df.empty:
-                        for col in result_df.columns:
-                            # 复合指标的列名可能已经包含了后缀，也可能没有，这里做个判断
-                            final_col_name = col if col.endswith(suffix) else f"{col}{suffix}"
-                            if final_col_name not in df.columns:
-                                df[final_col_name] = result_df[col]
+                    if indicator_name == 'vwap':
+                        anchor = 'D' if timeframe_key.isdigit() else timeframe_key
+                        kwargs['anchor'] = anchor
+                    elif periods is None: # OBV等无参数指标
+                        pass
+                    else: # 处理带参数的指标
+                        is_multi_param = indicator_name in ['macd', 'trix', 'coppock', 'kdj', 'uo']
+                        is_nested_list = isinstance(periods[0], list) if periods else False
+                        periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
+
+                        for p_set in periods_to_iterate:
+                            # 清理kwargs，为下一次迭代做准备
+                            kwargs = {'df': df_for_calc}
+                            if indicator_name == 'macd': kwargs.update({'period_fast': p_set[0], 'period_slow': p_set[1], 'signal_period': p_set[2]})
+                            elif indicator_name == 'trix': kwargs.update({'period': p_set[0], 'signal_period': p_set[1]})
+                            elif indicator_name == 'coppock': kwargs.update({'long_roc_period': p_set[0], 'short_roc_period': p_set[1], 'wma_period': p_set[2]})
+                            elif indicator_name == 'kdj': kwargs.update({'period': p_set[0], 'signal_period': p_set[1], 'smooth_k_period': p_set[2]})
+                            elif indicator_name == 'uo': kwargs.update({'short_period': p_set[0], 'medium_period': p_set[1], 'long_period': p_set[2]})
+                            elif indicator_name == 'boll_bands_and_width':
+                                kwargs.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0))})
                             else:
-                                df[final_col_name].update(result_df[col])
-                        # print(f"    - [成功] 复合指标 {indicator_name.upper()} 计算完成。")
-
+                                kwargs['period'] = p_set
+                            
+                            # 执行计算
+                            result_df = await method_to_call(**kwargs)
+                            if result_df is not None and not result_df.empty:
+                                # 将新计算出的列合并到计算副本中，供后续指标使用
+                                for col in result_df.columns:
+                                    df_for_calc[col] = result_df[col]
                 except Exception as e:
-                    logger.error(f"    - [严重警告] 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算过程中发生异常: {e}")
-                    traceback.print_exc()
+                    logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}")
 
-        # print(f"  [指标计算V5.0] 周期 '{timeframe_key}' 指标计算完成。")
-        return df
+        # 步骤4: 循环计算所有复合指标（它们可能依赖于前面计算出的简单指标）
+        for indicator_key, params in config.items():
+            indicator_name = indicator_key.lower()
+            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels'] and params.get('enabled', False):
+                if timeframe_key in params.get("apply_on", []):
+                    try:
+                        method_to_call = indicator_method_map[indicator_name]
+                        # 复合指标现在也在 df_for_calc 上计算
+                        result_df = await method_to_call(df=df_for_calc, params=params, suffix='') # 明确传递空suffix
+                        if result_df is not None and not result_df.empty:
+                            for col in result_df.columns:
+                                df_for_calc[col] = result_df[col]
+                    except Exception as e:
+                        logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}")
+
+        # 步骤5: 统一添加后缀并将所有计算结果合并回主DataFrame
+        suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
+        
+        # 遍历计算副本中的所有列
+        for col in df_for_calc.columns:
+            final_col_name = f"{col}{suffix}"
+            # 如果是VWAP这种自带周期的列名，则不加后缀
+            if col.startswith('VWAP_'):
+                final_col_name = col
+            
+            # 将结果列添加到主DataFrame中
+            df_main[final_col_name] = df_for_calc[col]
+        
+        print(f"  [指标计算V5.3] 周期 '{timeframe_key}' 指标计算完成。")
+        return df_main
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """

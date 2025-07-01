@@ -815,7 +815,7 @@ class StockTimeTradeDAO(BaseDAO):
         4. 引入分批保存机制，控制内存峰值。
         """
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "19900101"
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
             return []
@@ -908,7 +908,7 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_weekly_data_list
 
     #  =============== A股月线行情 ===============
-    async def save_monthly_time_trade_by_stock_codes(self, stock_codes: List[str], start_date: str = "2010-01-01") -> None:
+    async def save_monthly_time_trade_by_stock_codes(self, stock_codes: List[str], start_date: str = "1990-01-01") -> None:
         """
         保存股票的月线交易数据 (优化版)
         接口：monthly
