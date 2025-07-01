@@ -424,7 +424,14 @@ class TrendFollowStrategy:
         is_reversal_play_conflict = cond_bottom_divergence | cond_bias_reversal
         is_breakout_play_conflict = cond_momentum | cond_first_breakout | cond_bb_squeeze_breakout
         is_conflicting = is_reversal_play_conflict & is_breakout_play_conflict
-        conflict_penalty_rate = 1 - points.get('REVERSAL_BREAKOUT_CONFLICT_PENALTY', 0.8)
+        # 解释: 再次应用健壮的参数获取模式，以处理JSON中包含说明的字典格式。
+        #   1. 先获取原始值，它可能是一个数字，也可能是一个字典。
+        #   2. 判断其类型，如果是字典，则提取 'value' 键的值。
+        #   3. 最后再进行数学运算。
+        raw_penalty = points.get('REVERSAL_BREAKOUT_CONFLICT_PENALTY', 0.8)
+        penalty_value = raw_penalty.get('value', 0.8) if isinstance(raw_penalty, dict) else raw_penalty
+        print(f"调试信息: 冲突惩罚值解析为: {penalty_value}") # 增加调试信息
+        conflict_penalty_rate = 1 - penalty_value
         penalty_score.loc[is_conflicting] -= current_score * conflict_penalty_rate
         score_details_df['PENALTY_CONFLICT'] = penalty_score.where(penalty_score < 0)
 
