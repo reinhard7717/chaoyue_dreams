@@ -213,7 +213,7 @@ class IndicatorService:
         Returns:
             Dict[str, pd.DataFrame]: 包含所有时间周期DataFrame的字典。
         """
-        print(f"--- [数据准备V6.2-自适应版] 开始为 {stock_code} 准备数据... ---")
+        # print(f"--- [数据准备V6.2-自适应版] 开始为 {stock_code} 准备数据... ---")
 
         # --- 步骤 1: 始终执行基础数据和指标的准备 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time)
@@ -228,7 +228,7 @@ class IndicatorService:
 
         if not is_industry_enabled:
             print("    - [配置信息] 在策略配置中未找到启用的 'industry_context_params'，跳过行业强度计算。")
-            print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（无行业背景）。 ---")
+            # print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（无行业背景）。 ---")
             return all_dfs
 
         # --- 步骤 3: 如果启用，则执行行业数据注入 (此部分逻辑不变) ---
@@ -250,7 +250,7 @@ class IndicatorService:
         all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
         print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列 ({stock_industry_rank:.2f}) 添加到日线数据。")
         
-        print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（含行业背景）。 ---")
+        # print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（含行业背景）。 ---")
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
@@ -263,7 +263,7 @@ class IndicatorService:
         【V7.0 适配重构版】
         - 核心升级: 使用新的 _discover_required_timeframes_from_config 方法来确定所有需要的数据周期。
         """
-        print(f"--- [数据准备V7.0-智能发现版] 开始为 {stock_code} 准备数据... ---")
+        # print(f"--- [数据准备V7.0-智能发现版] 开始为 {stock_code} 准备数据... ---")
         
         # ▼▼▼ 使用新的、更强大的方法来识别所有需要的时间周期 ▼▼▼
         # --- 步骤 1: 从配置中智能、全面地识别所有需要的时间周期 ---
@@ -287,7 +287,7 @@ class IndicatorService:
             logger.warning(f"[{stock_code}] 配置文件中没有启用任何指标或指定apply_on，无需准备数据。")
             return {}
 
-        print(f"    - 原始请求周期: {sorted(list(required_tfs))}")
+        # print(f"    - 原始请求周期: {sorted(list(required_tfs))}")
         # --- 步骤 1.5: 识别真正的基础数据需求，并准备重采样 ---
         base_tfs_to_fetch = set()
         resample_map = {} # 记录需要进行的重采样任务, e.g., {'W': 'D', 'M': 'D'}
@@ -301,9 +301,10 @@ class IndicatorService:
                 # 其他周期（如 'D', '60', '30'）直接获取
                 base_tfs_to_fetch.add(tf)
 
-        print(f"    - 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
+        # print(f"    - 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
         if resample_map:
-            print(f"    - 将执行的重采样任务: {resample_map}")
+            pass
+            # print(f"    - 将执行的重采样任务: {resample_map}")
 
         # --- 步骤 2: 【高效】按需并行获取所有【基础】数据 ---
         tasks = []
