@@ -275,7 +275,7 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
             
-            print(f"    [DAO-DataFrame] 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
+            # print(f"    [DAO-DataFrame] 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
             return df
 
         except Exception as e:

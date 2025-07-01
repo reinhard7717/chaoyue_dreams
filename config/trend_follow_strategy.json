@@ -202,7 +202,7 @@
           "说明_ace_signal_breakout_trigger": "周线王牌突破信号，拥有最高优先级的基础分。"
         },
         "industry_context_params": {
-          "enabled": true,
+          "enabled": false,
           "说明": "【行业协同-V2.0 奖惩版】A股核心逻辑：跟随市场热点。根据个股所属行业的强度排名，对最终得分进行动态的奖励与惩罚。",
           "weak_rank_threshold": 0.3,
           "说明_weak_rank_threshold": "定义“弱势行业”的强度排名分界线。行业排名后30%的股票将受到压制。",
