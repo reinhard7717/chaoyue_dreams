@@ -283,7 +283,9 @@ class IndicatorService:
         # ▼▼▼ 使用新的、更强大的方法来识别所有需要的时间周期 ▼▼▼
         # --- 步骤 1: 从配置中智能、全面地识别所有需要的时间周期 ---
         required_tfs = self._discover_required_timeframes_from_config(config)
-        base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
+         # ▼▼▼ 明确读取 base_needed_bars 并增加日志 ▼▼▼
+        base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500) # 提供一个保守的默认值
+        print(f"    - [配置读取] 策略请求的基础数据量 (base_needed_bars) 为: {base_needed_bars}")
         
        # ▼▼▼ 增加对CYQ筹码数据的需求检测 ▼▼▼
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
@@ -302,7 +304,6 @@ class IndicatorService:
             logger.warning(f"[{stock_code}] 配置文件中没有启用任何指标或指定apply_on，无需准备数据。")
             return {}
 
-        # print(f"    - 原始请求周期: {sorted(list(required_tfs))}")
         # --- 步骤 1.5: 识别真正的基础数据需求，并准备重采样 ---
         base_tfs_to_fetch = set()
         resample_map = {} # 记录需要进行的重采样任务, e.g., {'W': 'D', 'M': 'D'}
@@ -324,8 +325,16 @@ class IndicatorService:
         tasks = []
         # 任务1: 获取所有必需的【基础】OHLCV数据
         for tf in base_tfs_to_fetch:
-            # 为日线获取更多数据，以确保重采样到周线/月线后有足够长度
-            bars_to_fetch = base_needed_bars * 5 if tf == 'D' and resample_map else base_needed_bars
+            bars_to_fetch = base_needed_bars
+            # 如果需要从日线重采样，并且当前正在获取日线数据，则需要获取更多的数据
+            # 1000个交易日约等于4年，可以重采样出约200条周线，足够计算年线等指标
+            if tf == 'D' and resample_map:
+                # 我们需要足够的日线来满足周线和月线指标的需求。
+                # 例如，一个60周的指标需要大约 60*5 = 300 个交易日。
+                # 1000个交易日是一个非常安全的值，可以满足绝大多数长周期指标。
+                bars_to_fetch = max(bars_to_fetch, 1000) # 确保至少获取1000条日线用于重采样
+                print(f"    - [数据量决策] 为支持重采样，日线数据获取量提升至: {bars_to_fetch}")
+            
             tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
 
         # 任务2: 如果需要，才获取资金流数据
