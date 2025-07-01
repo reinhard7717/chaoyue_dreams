@@ -29,7 +29,7 @@ class MultiTimeframeTrendStrategy:
         tactical_config = load_strategy_config(self.tactical_config_path)
         strategic_config = load_strategy_config(self.strategic_config_path)
 
-        # ▼▼▼【代码修改】: 核心修改点，深度合并配置 ▼▼▼
+        # ▼▼▼ 深度合并配置 ▼▼▼
         # 解释: 我们创建一个辅助函数 _deep_merge_configs 来智能地合并两个配置。
         #       这确保了来自两个文件的指标要求 ('indicators') 等嵌套字典能够被合并，而不是简单地覆盖。
         def _deep_merge_configs(base, merge):
@@ -47,7 +47,6 @@ class MultiTimeframeTrendStrategy:
 
         # 创建一个统一的、合并后的配置
         self.merged_config = _deep_merge_configs(tactical_config, strategic_config)
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         self.indicator_service = IndicatorService()
         self.strategic_engine = WeeklyTrendFollowStrategy(config=strategic_config) # 引擎本身仍使用自己的原始配置
@@ -90,7 +89,7 @@ class MultiTimeframeTrendStrategy:
         # --- 准备阶段: 统一获取所有周期数据 ---
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
-            stock_code, self.merged_config, trade_date
+            stock_code, self.merged_config, trade_time
         )
 
         if not all_dfs or 'D' not in all_dfs or 'W' not in all_dfs:
