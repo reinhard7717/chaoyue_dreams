@@ -56,6 +56,31 @@ class IndicatorService:
             logger.error("pandas-ta 库未安装，请运行 'pip install pandas-ta'")
             ta = None
 
+    # ▼▼▼ 一个可复用的、健壮的时区标准化辅助函数 ▼▼▼
+    def _standardize_df_index_to_utc(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+        """
+        【V1.0 核心辅助函数】确保DataFrame的索引是UTC时区感知的。
+        - 如果df为None或为空，直接返回。
+        - 如果索引不是DatetimeIndex，直接返回。
+        - 如果索引是“天真”的(naive, tz is None)，则本地化为UTC。
+        - 如果索引已经是“感知”的(aware)，则统一转换为UTC。
+        这确保了所有时间序列数据在合并前都具有统一的时区基准。
+        """
+        if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+            return df
+        
+        # 创建副本以避免修改原始传入的DataFrame，遵循函数式编程的最佳实践
+        df_copy = df.copy()
+        
+        if df_copy.index.tz is None:
+            # 时区天真 -> 本地化为UTC
+            df_copy.index = df_copy.index.tz_localize('UTC')
+        else:
+            # 时区感知 -> 转换为UTC
+            df_copy.index = df_copy.index.tz_convert('UTC')
+            
+        return df_copy
+
     def _load_config(self, path: str) -> Dict:
         """
         【辅助函数】从给定的路径加载JSON配置文件。
@@ -379,23 +404,23 @@ class IndicatorService:
 
         async def _calculate_for_tf(tf, df):
             if tf == 'D':
+                # 解释: 在合并任何数据之前，先调用 _standardize_df_index_to_utc 确保所有参与者
+                #       都使用统一的UTC时区，从根源上解决时区不匹配问题。
                 # 融合旧版资金流数据
                 if df_fund_chips is not None and not df_fund_chips.empty:
-                    if df.index.tz is not None: df.index = df.index.tz_localize(None)
-                    if df_fund_chips.index.tz is not None: df_fund_chips.index = df_fund_chips.tz_localize(None)
-                    df = pd.merge(df, df_fund_chips, left_index=True, right_index=True, how='left')
-                    df[list(df_fund_chips.columns)] = df[list(df_fund_chips.columns)].fillna(0)
-                
+                    print("    - [数据融合] 正在将旧版资金流数据合并到日线数据...")
+                    df = self._standardize_df_index_to_utc(df)
+                    df_fund_chips_std = self._standardize_df_index_to_utc(df_fund_chips)
+                    df = pd.merge(df, df_fund_chips_std, left_index=True, right_index=True, how='left')
+                    df[list(df_fund_chips_std.columns)] = df[list(df_fund_chips_std.columns)].fillna(0)
                 # 融合新版CYQ筹码数据
                 if df_cyq_perf is not None and not df_cyq_perf.empty:
-                    if df.index.tz is not None: df.index = df.index.tz_localize(None)
-                    if df_cyq_perf.index.tz is not None: df_cyq_perf.index = df_cyq_perf.tz_localize(None)
-                    # print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
-                    df = pd.merge(df, df_cyq_perf, left_index=True, right_index=True, how='left')
-                    # 使用前向填充，因为筹码分布是连续的，当天没有则沿用前一天的
+                    print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
+                    df = self._standardize_df_index_to_utc(df)
+                    df_cyq_perf_std = self._standardize_df_index_to_utc(df_cyq_perf)
+                    df = pd.merge(df, df_cyq_perf_std, left_index=True, right_index=True, how='left')
                     cyq_cols = [col for col in df.columns if col.startswith('CYQ_')]
                     df[cyq_cols] = df[cyq_cols].ffill()
-                    # print(f"    - [数据融合] CYQ数据合并完成，并已对列 {cyq_cols} 进行前向填充。")
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             return tf, df_with_indicators

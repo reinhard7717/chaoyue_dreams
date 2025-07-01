@@ -2139,7 +2139,6 @@ class TrendFollowStrategy:
     def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
         """
         【V2.5 最终修复版】检查VWAP支撑确认信号。
-        - 核心修复: 使用 .tz_localize(None) 强制移除所有索引的时区信息，确保可以正确对齐和比较。
         """
         # print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...") # 可以注释掉常规日志
         vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
@@ -2157,36 +2156,27 @@ class TrendFollowStrategy:
         if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
              return pd.Series(False, index=df_daily.index if df_daily is not None else None)
         
-        try:
-            df_minute_no_tz = df_minute.copy()
-            if df_minute_no_tz.index.tz is not None:
-                df_minute_no_tz.index = df_minute_no_tz.index.tz_localize(None)
-            
-            df_daily_no_tz = df_daily.copy()
-            if df_daily_no_tz.index.tz is not None:
-                df_daily_no_tz.index = df_daily_no_tz.index.tz_localize(None)
-        except Exception: # 捕获所有可能的时区转换异常
-            return pd.Series(False, index=df_daily.index)
-
+        # 检查VWAP列是否存在
         vwap_col = f'VWAP_{tf}'
-        if vwap_col not in df_minute_no_tz.columns: vwap_col = 'VWAP_D'
-        if vwap_col not in df_minute_no_tz.columns: return pd.Series(False, index=df_daily.index)
+        if vwap_col not in df_minute.columns: vwap_col = 'VWAP_D' # 兼容旧列名
+        if vwap_col not in df_minute.columns: return pd.Series(False, index=df_daily.index)
 
-        is_above_vwap = df_minute_no_tz['close'] > df_minute_no_tz[vwap_col] * (1 + buffer)
+        # 核心逻辑：检查分钟线是否在VWAP之上，然后按天聚合
+        # .normalize() 对UTC时区索引同样有效，会将其归一化到当天的零点
+        is_above_vwap = df_minute['close'] > df_minute[vwap_col] * (1 + buffer)
         daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
         
-        final_signal = pd.Series(False, index=df_daily_no_tz.index)
+        # 将聚合后的日线信号映射回原始的日线DataFrame
+        final_signal = pd.Series(False, index=df_daily.index)
         
         if not daily_confirmation.empty:
-            normalized_daily_index = df_daily_no_tz.index.normalize()
-            matching_mask = normalized_daily_index.isin(daily_confirmation.index)
-            
-            if matching_mask.any():
-                matching_indices = df_daily_no_tz.index[matching_mask]
-                normalized_matching_indices = normalized_daily_index[matching_mask]
-                final_signal.loc[matching_indices] = daily_confirmation.loc[normalized_matching_indices].values
-        
-        final_signal.index = df_daily.index
+            # 使用 .reindex() 是一种更健壮和简洁的映射方式
+            # 它会根据 df_daily 的归一化日期索引，从 daily_confirmation 中查找对应的值
+            # 找不到的日期会自动填充为 fill_value (默认为NaN，我们用 .fillna(False) 处理)
+            normalized_daily_index = df_daily.index.normalize()
+            final_signal = daily_confirmation.reindex(normalized_daily_index).fillna(False)
+            # reindex 后索引会变成归一化的日期，需要把它重置回原始的日线索引
+            final_signal.index = df_daily.index
         # print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。") # 可以注释掉常规日志
         return final_signal
 

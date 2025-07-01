@@ -135,8 +135,21 @@ class MultiTimeframeTrendStrategy:
             return df_daily
 
         df_daily_copy = df_daily.copy()
-        df_daily_copy.index = pd.to_datetime(df_daily_copy.index).tz_localize(None)
-        strategic_signals_df.index = pd.to_datetime(strategic_signals_df.index).tz_localize(None)
+        df_daily_copy.index = pd.to_datetime(df_daily_copy.index)
+        strategic_signals_df.index = pd.to_datetime(strategic_signals_df.index)
+
+        # 步骤2: 统一转换为UTC时区
+        # 如果索引是“天真”的(naive, tz is None)，则本地化为UTC。
+        # 如果索引已经是“感知”的(aware)，则转换为UTC。
+        if df_daily_copy.index.tz is None:
+            df_daily_copy.index = df_daily_copy.index.tz_localize('UTC')
+        else:
+            df_daily_copy.index = df_daily_copy.index.tz_convert('UTC')
+
+        if strategic_signals_df.index.tz is None:
+            strategic_signals_df.index = strategic_signals_df.index.tz_localize('UTC')
+        else:
+            strategic_signals_df.index = strategic_signals_df.index.tz_convert('UTC')
         
         # 使用 merge_asof 将周线信号向下广播到日线
         df_merged = pd.merge_asof(
