@@ -863,7 +863,6 @@ class StockTimeTradeDAO(BaseDAO):
 
             # --- 检查是否达到批处理大小 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
-                print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
                 await self._save_all_to_db_native_upsert(
                     model_class=StockWeeklyData,
                     data_list=all_data_dicts,
@@ -881,7 +880,6 @@ class StockTimeTradeDAO(BaseDAO):
         # --- 保存最后一批剩余数据 ---
         result = []
         if all_data_dicts:
-            print(f"正在保存最后一批 {len(all_data_dicts)} 条数据...")
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockWeeklyData,
                 data_list=all_data_dicts,
@@ -923,17 +921,14 @@ class StockTimeTradeDAO(BaseDAO):
             logger.warning("输入的股票代码列表为空，任务终止。")
             return []
         # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
-        print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
             return []
-        print("股票信息预加载完成。")
         
         stock_codes_str = ",".join(stock_codes)
         # --- 初始化用于分批保存的列表和批次大小 ---
         all_data_dicts = []
-      
         offset = 0
         limit = 6000
         page_num = 1
@@ -941,13 +936,11 @@ class StockTimeTradeDAO(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。")
                 break
-            print(f"正在拉取第 {page_num} 页月线数据... offset={offset}")
             df = self.ts_pro.stk_week_month_adj(**{
                 "ts_code": stock_codes_str, "trade_date": "", "start_date": start_date, "end_date": "", "freq": "month", "limit": limit, "offset": offset
             }, fields=[ "ts_code", "trade_date", "freq", "pre_close", "open_qfq", "high_qfq", "low_qfq", 
                         "close_qfq", "vol", "amount", "change", "pct_chg"])
             if df.empty:
-                print("拉取结束，未返回更多数据。")
                 break
             # --- 对整页DataFrame进行向量化处理 ---
             # 1. 数据清洗
@@ -970,7 +963,6 @@ class StockTimeTradeDAO(BaseDAO):
             
             # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
-                print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
                 await self._save_all_to_db_native_upsert(
                     model_class=StockMonthlyData,
                     data_list=all_data_dicts,
@@ -978,8 +970,7 @@ class StockTimeTradeDAO(BaseDAO):
                 )
                 logger.info(f"完成一批月线数据保存，数量：{len(all_data_dicts)}")
                 all_data_dicts = [] # 清空列表
-            
-            time.sleep(0.2) # 保留接口调用延时
+            time.sleep(0.5) # 保留接口调用延时
             if len(df) < limit:
                 break
             offset += limit
@@ -987,7 +978,6 @@ class StockTimeTradeDAO(BaseDAO):
         # --- 在所有分页处理完毕后，保存剩余的最后一批数据 ---
         result = []
         if all_data_dicts:
-            print(f"正在保存最后一批 {len(all_data_dicts)} 条数据...")
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockMonthlyData,
                 data_list=all_data_dicts,
@@ -996,7 +986,6 @@ class StockTimeTradeDAO(BaseDAO):
             logger.info(f"完成最后一批月线数据保存，数量：{len(all_data_dicts)}")
         else:
             logger.info("所有数据均已分批保存，无剩余数据。")
-        print(f"月线数据处理完成。总共保存了 {len(result)} 条新/更新的记录。")
         return result
 
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:
