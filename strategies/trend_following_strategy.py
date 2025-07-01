@@ -396,9 +396,24 @@ class TrendFollowStrategy:
 
         current_score = score_details_df.fillna(0).sum(axis=1)
         multiplier_bonus = pd.Series(0.0, index=df.index)
-        cmf_multiplier = points.get('CMF_CONFIRMATION_MULTIPLIER', 1.2)
-        fund_multiplier = points.get('FUND_FLOW_CONFIRM_MULTIPLIER', 1.25)
-        gap_multiplier = points.get('GAP_SUPPORT_MULTIPLIER', 1.3)
+        
+        # 解释: 为了兼容JSON中类似 {"value": 1.2, "说明": "..."} 的格式，
+        # 我们先获取原始值，然后判断其是否为字典。如果是，则提取'value'键的值；否则直接使用。
+        # 这种方式对所有乘数参数都生效，增强了代码的健壮性。
+        # 处理 CMF 乘数
+        raw_cmf_multiplier = points.get('CMF_CONFIRMATION_MULTIPLIER', 1.2)
+        cmf_multiplier = raw_cmf_multiplier.get('value', 1.2) if isinstance(raw_cmf_multiplier, dict) else raw_cmf_multiplier
+        print(f"调试信息: CMF 乘数解析值为: {cmf_multiplier}") # 增加调试信息
+        
+        # 处理资金流乘数
+        raw_fund_multiplier = points.get('FUND_FLOW_CONFIRM_MULTIPLIER', 1.25)
+        fund_multiplier = raw_fund_multiplier.get('value', 1.25) if isinstance(raw_fund_multiplier, dict) else raw_fund_multiplier
+        print(f"调试信息: 资金流乘数解析值为: {fund_multiplier}") # 增加调试信息
+        
+        # 处理缺口乘数
+        raw_gap_multiplier = points.get('GAP_SUPPORT_MULTIPLIER', 1.3)
+        gap_multiplier = raw_gap_multiplier.get('value', 1.3) if isinstance(raw_gap_multiplier, dict) else raw_gap_multiplier
+        print(f"调试信息: 缺口乘数解析值为: {gap_multiplier}") # 增加调试信息
 
         multiplier_bonus.loc[cond_cmf_confirm & has_positive_score] += current_score * (cmf_multiplier - 1)
         multiplier_bonus.loc[cond_fund_flow_confirm & has_positive_score] += current_score * (fund_multiplier - 1)
