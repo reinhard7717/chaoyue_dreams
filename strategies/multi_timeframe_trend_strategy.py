@@ -31,7 +31,7 @@ class MultiTimeframeTrendStrategy:
         self.tactical_config = load_strategy_config(tactical_config_path)
         self.strategic_config = load_strategy_config(strategic_config_path)
 
-        # ▼▼▼【代码修改】: 使用全新的、有针对性的合并逻辑 ▼▼▼
+        # ▼▼▼ 使用全新的、有针对性的合并逻辑 ▼▼▼
         
         # 步骤1: 智能合并数据工程层的配置
         merged_fe_params = self._merge_feature_engineering_configs(
@@ -49,8 +49,6 @@ class MultiTimeframeTrendStrategy:
         # 将战略配置中独有的顶层键（如 strategy_playbooks）也合并进来
         if 'strategy_playbooks' in self.strategic_config:
             self.merged_config['strategy_playbooks'] = deepcopy(self.strategic_config['strategy_playbooks'])
-        
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # 初始化服务和引擎
         self.indicator_service = IndicatorService()
@@ -153,6 +151,27 @@ class MultiTimeframeTrendStrategy:
             logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
             return None
         
+        # ▼▼▼ 全局时区标准化步骤，这是本次修复的核心 ▼▼▼
+        logger.info("--- [数据标准化] 开始统一所有DataFrame的索引为UTC时区... ---")
+        for key, df in all_dfs.items():
+            if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+                continue
+            
+            # 检查并统一时区
+            if df.index.tz is None:
+                # 如果索引是“天真”的 (naive)，则本地化为UTC
+                all_dfs[key].index = df.index.tz_localize('UTC')
+                print(f"    - [标准化] 周期 '{key}' 的索引已从 naive 本地化为 UTC。")
+            elif str(df.index.tz) != 'UTC':
+                # 如果索引有时区但不是UTC，则转换为UTC
+                all_dfs[key].index = df.index.tz_convert('UTC')
+                print(f"    - [标准化] 周期 '{key}' 的索引已从 {df.index.tz} 转换为 UTC。")
+        logger.info("--- [数据标准化] 所有索引已统一为UTC时区。 ---")
+
+        if 'D' not in all_dfs or 'W' not in all_dfs:
+            logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
+            return None
+        
         # --- 引擎 1: 运行【战略引擎】(周线) ---
         logger.info(f"\n--- 引擎1: 开始运行【战略引擎】(周线)... ---")
         strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
@@ -192,20 +211,7 @@ class MultiTimeframeTrendStrategy:
             return df_daily
 
         df_daily_copy = df_daily.copy()
-        # df_daily_copy.index = pd.to_datetime(df_daily_copy.index)
-        # strategic_signals_df.index = pd.to_datetime(strategic_signals_df.index)
 
-        # 步骤2: 统一转换为UTC时区 (这部分作为防御性代码是好的，予以保留)
-        if df_daily_copy.index.tz is None:
-            df_daily_copy.index = df_daily_copy.index.tz_localize('UTC')
-        else:
-            df_daily_copy.index = df_daily_copy.index.tz_convert('UTC')
-
-        if strategic_signals_df.index.tz is None:
-            strategic_signals_df.index = strategic_signals_df.index.tz_localize('UTC')
-        else:
-            strategic_signals_df.index = strategic_signals_df.index.tz_convert('UTC')
-        
         # 使用 merge_asof 将周线信号向下广播到日线
         df_merged = pd.merge_asof(
             left=df_daily_copy.sort_index(),
@@ -323,7 +329,8 @@ class MultiTimeframeTrendStrategy:
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
         """辅助函数：检查单个共振条件并返回布尔序列。"""
         cond_type = cond['type']
-        suffix = '' if tf == df.index.name else f'_{tf}' # 确定列后缀
+        trigger_tf = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {}).get('levels', [{}])[-1].get('tf')
+        suffix = '' if tf == trigger_tf else f'_{tf}'
         if cond_type == 'ema_above':
             period = cond['period']
             ema_col = f'EMA_{period}{suffix}'
