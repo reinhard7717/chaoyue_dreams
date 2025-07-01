@@ -596,7 +596,7 @@ def save_stocks_daily_basic_data_this_week_task(self):
     stock_time_trade_dao = StockTimeTradeDAO()
     this_monday, this_friday = get_this_monday_and_friday()
     try:
-        print(f"开始保存 {day} 股票重要的基本面指标...")
+        print(f"开始保存 本周 股票重要的基本面指标...")
         result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(start_date=this_monday, end_date=this_friday))
     except Exception as e:
         logger.error(f"save_stocks_daily_basic_data_this_week_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -838,7 +838,7 @@ def save_stocks_daily_basic_data_history_task(self, batch_size: int = 16):
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 #  ================ 历史(周线)数据任务 ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_week_data_history_batch', queue='SaveData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_week_data_history_batch', queue='SaveData_TimeTrade', rate_limit='480/m')
 def save_week_data_history_batch(self, stock_codes: List[str]):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）

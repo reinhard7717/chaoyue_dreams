@@ -317,10 +317,11 @@ class IndicatorService:
                 # 其他周期（如 'D', '60', '30'）直接获取
                 base_tfs_to_fetch.add(tf)
 
-        print(f"    - [诊断日志] 1. 策略请求的原始周期: {sorted(list(required_tfs))}")
-        print(f"    - [诊断日志] 2. 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
+        # print(f"    - [诊断日志] 1. 策略请求的原始周期: {sorted(list(required_tfs))}")
+        # print(f"    - [诊断日志] 2. 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
         if resample_map:
-            print(f"    - [诊断日志] 3. 已制定的重采样计划: {resample_map}")
+            pass
+            # print(f"    - [诊断日志] 3. 已制定的重采样计划: {resample_map}")
 
         tasks = []
         # 任务1: 获取所有必需的【基础】OHLCV数据

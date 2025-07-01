@@ -164,7 +164,7 @@ class StockTimeTradeDAO(BaseDAO):
         2. 对每一页数据进行完全向量化处理，包括对象映射和模型分类。
         3. 处理完一页数据后立即分组并存入数据库，有效控制内存。
         """
-        # --- 代码修改：在所有循环开始前，一次性预加载全部股票信息 ---
+        # --- 在所有循环开始前，一次性预加载全部股票信息 ---
         print("正在预加载所有股票的基础信息...")
         # 1. 调用您提供的方法获取所有股票对象列表
         all_stocks_list = await self.stock_basic_dao.get_stock_list()
@@ -175,7 +175,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 2. 构建一个以ts_code为键，StockInfo对象为值的高效查找字典
         stock_map = {stock.stock_code: stock for stock in all_stocks_list}
         print(f"股票信息预加载完成，共加载 {len(stock_map)} 条。")
-        # --- 代码修改结束 ---
+        
 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20250101"
@@ -207,7 +207,7 @@ class StockTimeTradeDAO(BaseDAO):
                 print("拉取结束，未返回更多数据。")
                 break
 
-            # --- 代码修改：对整页DataFrame进行向量化处理，彻底替代for循环 ---
+            # --- 对整页DataFrame进行向量化处理，彻底替代for循环 ---
             # 1. 数据清洗
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             
@@ -230,9 +230,9 @@ class StockTimeTradeDAO(BaseDAO):
             
             # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类
             df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
-            # --- 代码修改结束 ---
+            
 
-            # --- 代码修改：页级处理，立即使用groupby对DataFrame进行高效分组并保存 ---
+            # --- 页级处理，立即使用groupby对DataFrame进行高效分组并保存 ---
             for model_class, group_df in df.groupby('model_class'):
                 if group_df.empty:
                     continue
@@ -257,7 +257,7 @@ class StockTimeTradeDAO(BaseDAO):
                     all_results[model_name] = []
                 all_results[model_name].extend(res)
                 logger.info(f"保存 {model_name} 的日线数据完成. 插入/更新了 {len(data_list)} 条记录。")
-            # --- 代码修改结束 ---
+            
 
             if len(df) < limit:
                 break
@@ -513,14 +513,14 @@ class StockTimeTradeDAO(BaseDAO):
             logger.warning("输入的股票代码列表为空，任务终止。")
             return
 
-        # --- 代码修改：在所有循环开始前，一次性预加载全部股票信息 ---
+        # --- 在所有循环开始前，一次性预加载全部股票信息 ---
         print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息，任务终止。")
             return
         print(f"股票信息预加载完成，共加载 {len(stock_map)} 条。")
-        # --- 代码修改结束 ---
+        
 
         stock_codes_str = ",".join(stock_codes)
         for time_level in ['5', '15', '30', '60']:
@@ -542,7 +542,7 @@ class StockTimeTradeDAO(BaseDAO):
                     print(f"拉取结束，未返回更多 {time_level}min 数据。")
                     break
                 
-                # --- 代码修改：对整页DataFrame进行向量化处理，彻底替代for循环 ---
+                # --- 对整页DataFrame进行向量化处理，彻底替代for循环 ---
                 # 1. 数据清洗
                 df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 
@@ -565,9 +565,9 @@ class StockTimeTradeDAO(BaseDAO):
 
                 # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类
                 df['model_class'] = df['ts_code'].apply(lambda code: self.get_minute_model(code, time_level))
-                # --- 代码修改结束 ---
+                
 
-                # --- 代码修改：使用groupby对处理好的DataFrame进行高效分组并保存 ---
+                # --- 使用groupby对处理好的DataFrame进行高效分组并保存 ---
                 for model_class, group_df in df.groupby('model_class'):
                     if group_df.empty:
                         continue
@@ -584,7 +584,7 @@ class StockTimeTradeDAO(BaseDAO):
                         unique_fields=['stock', 'trade_time']
                     )
                     logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 插入/更新了 {len(data_list)} 条记录。")
-                # --- 代码修改结束 ---
+                
 
                 if len(df) < limit:
                     break
@@ -602,7 +602,7 @@ class StockTimeTradeDAO(BaseDAO):
         3. 引入分批保存机制，有效控制内存占用，适合海量分钟线数据。
         4. 简化了数据分组逻辑，代码更清晰高效。
         """
-        # --- 代码修改：在循环外一次性获取所有必要的前置对象 ---
+        # --- 在循环外一次性获取所有必要的前置对象 ---
         # 1. 获取股票基础信息
         print(f"正在获取股票 {stock_code} 的基础信息...")
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
@@ -617,16 +617,16 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"未能为 {stock_code} 和时间级别 {time_level}min 找到对应的数据库模型，任务终止。")
             return []
         print(f"目标数据表确定为: {model_class.__name__}")
-        # --- 代码修改结束 ---
+        
 
         # 准备API参数
         start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else "2020-01-01 00:00:00"
         end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S') if end_date else ""
 
-        # --- 代码修改：初始化用于分批保存的列表和批次大小 ---
+        # --- 初始化用于分批保存的列表和批次大小 ---
         all_data_dicts = []
         total_saved_count = 0
-        # --- 代码修改结束 ---
+        
 
         offset = 0
         limit = 8000
@@ -645,7 +645,7 @@ class StockTimeTradeDAO(BaseDAO):
                 print("拉取结束，未返回更多数据。")
                 break
 
-            # --- 代码修改：对整页DataFrame进行向量化处理，替代for循环 ---
+            # --- 对整页DataFrame进行向量化处理，替代for循环 ---
             # 1. 数据清洗
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['trade_time'], inplace=True) # 确保关键字段存在
@@ -664,9 +664,9 @@ class StockTimeTradeDAO(BaseDAO):
                 
                 # 5. 将处理好的数据添加到总列表中
                 all_data_dicts.extend(final_df.to_dict('records'))
-            # --- 代码修改结束 ---
+            
 
-            # --- 代码修改：检查是否达到批处理大小，达到则执行保存并清空列表 ---
+            # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
                 saved_result = await self._save_all_to_db_native_upsert(
@@ -677,7 +677,7 @@ class StockTimeTradeDAO(BaseDAO):
                 total_saved_count += len(saved_result)
                 logger.info(f"完成一批分钟线数据保存，数量：{len(all_data_dicts)}")
                 all_data_dicts = [] # 清空列表
-            # --- 代码修改结束 ---
+            
 
             time.sleep(0.2) # 保留接口调用延时
             if len(df) < limit:
@@ -685,7 +685,7 @@ class StockTimeTradeDAO(BaseDAO):
             offset += limit
             page_num += 1
 
-        # --- 代码修改：在所有分页处理完毕后，保存剩余的最后一批数据 ---
+        # --- 在所有分页处理完毕后，保存剩余的最后一批数据 ---
         final_result = []
         if all_data_dicts:
             print(f"正在保存最后一批 {len(all_data_dicts)} 条数据...")
@@ -820,27 +820,20 @@ class StockTimeTradeDAO(BaseDAO):
             logger.warning("输入的股票代码列表为空，任务终止。")
             return []
 
-        # --- 代码修改：一次性批量获取所有相关股票信息，构建高效查找字典 ---
-        print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
+        # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
             return []
-        print("股票信息预加载完成。")
-        # --- 代码修改结束 ---
-
         stock_codes_str = ",".join(stock_codes)
-
-        # --- 代码修改：初始化用于分批保存的列表和批次大小，并修复分页逻辑 ---
+        # --- 初始化用于分批保存的列表和批次大小，并修复分页逻辑 ---
         all_data_dicts = []
         offset = 0
         limit = 4500  # 根据接口文档设置合理的limit
         page_num = 1
-        # --- 代码修改结束 ---
 
-        # --- 代码修改：添加分页循环，修复数据丢失BUG ---
+        # --- 添加分页循环，修复数据丢失BUG ---
         while True:
-            print(f"正在拉取第 {page_num} 页周线数据... offset={offset}")
             # 拉取数据，并修正了重复的字段
             df = self.ts_pro.stk_week_month_adj(**{
                 "ts_code": stock_codes_str, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": "", "freq": "week", "limit": limit, "offset": offset
@@ -849,34 +842,26 @@ class StockTimeTradeDAO(BaseDAO):
             ])
             
             if df.empty:
-                print("拉取结束，未返回更多数据。")
                 break
-
-            # --- 代码修改：对整页DataFrame进行向量化处理 ---
+            # --- 对整页DataFrame进行向量化处理 ---
             # 1. 数据清洗
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-            
             # 2. 向量化映射stock对象
             df['stock'] = df['ts_code'].map(stock_map)
-            
             # 3. 丢弃无效数据
             df.dropna(subset=['trade_date', 'stock'], inplace=True)
-
             if not df.empty:
                 # 4. 向量化转换日期
                 df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
-                
                 # 5. 选择列以匹配模型字段，替代set_time_trade_week_data
                 final_df = df[[
                     "stock", "trade_time", "open", "high", "low", "close", "pre_close", 
                     "change", "pct_chg", "vol", "amount"
                 ]]
-                
                 # 6. 将处理好的数据添加到总列表中
                 all_data_dicts.extend(final_df.to_dict('records'))
-            # --- 代码修改结束 ---
 
-            # --- 代码修改：检查是否达到批处理大小 ---
+            # --- 检查是否达到批处理大小 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
                 await self._save_all_to_db_native_upsert(
@@ -886,16 +871,14 @@ class StockTimeTradeDAO(BaseDAO):
                 )
                 logger.info(f"完成一批周线数据保存，数量：{len(all_data_dicts)}")
                 all_data_dicts = [] # 清空列表
-            # --- 代码修改结束 ---
-
             if len(df) < limit:
                 break
             offset += limit
             page_num += 1
-            time.sleep(0.2) # 增加延时，友好调用接口
+            time.sleep(0.5) # 增加延时，友好调用接口
         # --- 循环结束 ---
 
-        # --- 代码修改：保存最后一批剩余数据 ---
+        # --- 保存最后一批剩余数据 ---
         result = []
         if all_data_dicts:
             print(f"正在保存最后一批 {len(all_data_dicts)} 条数据...")
