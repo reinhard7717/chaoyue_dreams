@@ -1,6 +1,7 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
 # 版本: V4.0 - 双引擎并行版 (日线决策 + 分钟共振)
 import asyncio
+from copy import deepcopy
 import logging
 from typing import Any, Dict, List, Optional, Set
 
