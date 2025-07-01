@@ -158,13 +158,29 @@ class MultiTimeframeTrendStrategy:
             direction='backward'
         )
         
-        # 重命名王牌信号列，使其在日线策略中易于识别
-        if 'signal_breakout_trigger_W' in df_merged.columns:
-            df_merged.rename(columns={'signal_breakout_trigger_W': 'BASE_SIGNAL_BREAKOUT_TRIGGER'}, inplace=True)
-            print("    - [数据流转] 已将周线王牌信号 'signal_breakout_trigger_W' 重命名为 'BASE_SIGNAL_BREAKOUT_TRIGGER'")
+        print("    - [数据流转] 开始对所有合并的周线信号列进行全面NaN清洗...")
+        for col in strategic_signals_df.columns:
+            if col not in df_merged.columns:
+                continue
 
-            df_merged['BASE_SIGNAL_BREAKOUT_TRIGGER'] = df_merged['BASE_SIGNAL_BREAKOUT_TRIGGER'].fillna(False).astype(bool)
-            print("    - [数据流转] 已将 'BASE_SIGNAL_BREAKOUT_TRIGGER' 列中的 NaN 值填充为 False，并确保其为布尔类型。")
+            # 对布尔型信号进行清洗
+            if col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_')):
+                # 检查并重命名王牌信号
+                if col == 'signal_breakout_trigger_W':
+                    new_col_name = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
+                    df_merged.rename(columns={col: new_col_name}, inplace=True)
+                    df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
+                    print(f"      - [清洗] 布尔信号 '{col}' -> '{new_col_name}' 已清洗 (NaN -> False)")
+                else:
+                    df_merged[col] = df_merged[col].fillna(False).astype(bool)
+                    print(f"      - [清洗] 布尔信号 '{col}' 已清洗 (NaN -> False)")
+            
+            # 对数值型分数进行清洗
+            elif col.startswith(('washout_score_', 'rejection_signal_')):
+                df_merged[col] = df_merged[col].fillna(0).astype(int)
+                print(f"      - [清洗] 数值分数 '{col}' 已清洗 (NaN -> 0)")
+        
+        print("    - [数据流转] 全面NaN清洗完成。")
         
         return df_merged
     
