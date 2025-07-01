@@ -144,8 +144,9 @@ class IndicatorService:
 
     def _discover_required_timeframes_from_config(self, config: Dict) -> Set[str]:
         """
-        【V7.0 新增】智能、全面地解析整个策略配置，找出所有需要加载数据的时间框架。
-        这是对旧版仅扫描 'apply_on' 方式的终极升级，确保不会遗漏任何周期。
+        【V7.1 修复版】智能、全面地解析整个策略配置，找出所有需要加载数据的时间框架。
+        - 修复: 之前版本可能因不稳定的字符串检查而漏掉 'W' (周线) 周期。
+        - 优化: 使用更直接、健壮的列表迭代方式来识别 'apply_on' 中的时间框架。
         """
         timeframes: Set[str] = set()
         
@@ -155,44 +156,42 @@ class IndicatorService:
             if not isinstance(params, dict) or not params.get('enabled', False):
                 continue
             
+            # ▼▼▼【代码修改】: 使用更健壮的迭代方式代替不稳定的字符串检查 ▼▼▼
+            # 解释: 旧的 str(list) + "in" 检查方式可能因引号类型 (' vs ") 而失败。
+            #       新的逻辑定义了一个辅助函数，直接遍历列表，确保能准确识别所有在 'apply_on' 中声明的周期。
+            def _add_tfs_from_list(source_list):
+                """辅助函数，用于从列表中安全地添加时间框架到集合中"""
+                if isinstance(source_list, list):
+                    for tf in source_list:
+                        if tf: # 确保不添加空值
+                            timeframes.add(str(tf))
+
             if 'configs' in params: # 新的列表式配置
                 for sub_config in params.get('configs', []):
-                    for tf in sub_config.get('apply_on', []):
-                        timeframes.add(str(tf))
+                    _add_tfs_from_list(sub_config.get('apply_on'))
             elif 'apply_on' in params: # 旧的单一配置
-                for tf in params.get('apply_on', []):
-                    timeframes.add(str(tf))
+                _add_tfs_from_list(params.get('apply_on'))
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
-        # 2. 从具体的策略逻辑参数块中扫描 (这是为了防止遗漏)
+        # 2. 从具体的策略逻辑参数块中扫描 (这部分逻辑保持不变)
         strategy_params = config.get('strategy_params', {}).get('trend_follow', {})
         
-        # 2a. 从 vwap_confirmation_params 获取
         vwap_params = strategy_params.get('vwap_confirmation_params', {})
         if vwap_params.get('enabled', False):
             timeframes.add(vwap_params.get('timeframe', '5'))
 
-        # 2b. 从 multi_level_resonance_params 获取
         resonance_params = strategy_params.get('multi_level_resonance_params', {})
         if resonance_params.get('enabled', False):
-            levels = resonance_params.get('levels', [])
-            for level in levels:
+            for level in resonance_params.get('levels', []):
                 if 'tf' in level:
                     timeframes.add(level['tf'])
         
-        # 确保日线和周线作为基础周期被包含（如果策略需要它们）
-        # 这是一个安全保障，通常它们已在 apply_on 中
+        # 3. 安全保障：如果配置了任何指标，至少应包含日线数据
+        #    因为周线和月线重采样依赖日线
         if indicators_config:
             timeframes.add('D')
-            # 检查是否有周线或月线指标
-            for params in indicators_config.values():
-                if isinstance(params, dict):
-                    apply_on_str = str(params.get('apply_on', [])) + str(params.get('configs', []))
-                    if "'W'" in apply_on_str:
-                        timeframes.add('W')
-                    if "'M'" in apply_on_str:
-                        timeframes.add('M')
 
-        # 移除空值或None
+        # 移除可能存在的空字符串
         return {tf for tf in timeframes if tf}
 
     async def prepare_data_for_strategy(
