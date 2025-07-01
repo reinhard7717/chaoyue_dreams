@@ -181,6 +181,28 @@
           }
         ]
       },
+      "chip_concentration_breakthrough_params": {
+        "enabled": true,
+        "说明": "【剧本】筹码高度集中突破。寻找主力高度控盘后，向上突破筹码密集区上沿的强力启动信号。",
+        "concentration_threshold": 0.1,
+        "说明_concentration_threshold": "筹码集中度阈值。计算公式为 (95%成本 - 5%成本) / 平均成本。小于0.1表示筹码非常集中。"
+      },
+      "winner_rate_reversal_params": {
+        "enabled": true,
+        "说明": "【剧本】获利盘洗净反转（投降坑）。捕捉市场极度悲观，获利盘几乎为零（<10%）之后出现的首次企稳阳线，是极佳的左侧反转信号。",
+        "washout_threshold": 10.0,
+        "说明_washout_threshold": "获利盘比例阈值(%)。前一日的获利盘比例低于此值，被认为是抛压枯竭，市场完成投降。"
+      },
+      "cost_area_reinforcement_params": {
+        "enabled": true,
+        "说明": "【剧本】成本区增强确认。使用精确的CYQ加权平均成本，识别主力在关键成本区附近进行“放量缩振”的吸筹或换手行为。",
+        "proximity_threshold": 0.03,
+        "说明_proximity_threshold": "价格接近成本区的容忍度。收盘价在 平均成本±3% 范围内视为接近。",
+        "volume_ratio": 1.5,
+        "说明_volume_ratio": "成交量放大倍数。当日成交量 > 20日均量 * 1.5。",
+        "volatility_threshold": 0.02,
+        "说明_volatility_threshold": "日内振幅阈值。当日振幅 < 2% 视为缩量整理。"
+      },
       "vwap_confirmation_params": {
         "enabled": true,
         "timeframe": "5",
@@ -229,6 +251,16 @@
             "description": "【王牌剧本】分钟线多级共振成功，是最高确定性的右侧追击信号。"
           },
           "__CATEGORY_MASTER_PLAYS__": "--- 主力行为/高确定性 ---",
+          "CHIP_CONCENTRATION_BREAKTHROUGH": {
+            "name": "筹码集中突破",
+            "score": 180,
+            "description": "【全新王牌】筹码高度集中后的首次突破，是确定性极高的主力拉升信号。"
+          },
+          "COST_AREA_REINFORCEMENT": {
+            "name": "成本区增强",
+            "score": 160,
+            "description": "【全新王牌】在主力成本区附近放量横盘，是即将拉升的强信号。"
+          },
           "CHIP_PRESSURE_RELEASE": {
             "name": "筹码压力释放",
             "score": 150,
@@ -250,6 +282,11 @@
             "description": "经典主力控盘形态，洗盘结束后的二次启动信号。"
           },
           "__CATEGORY_REVERSAL_GEMS__": "--- 左侧反转/先手博弈 ---",
+          "WINNER_RATE_REVERSAL": {
+            "name": "投降坑反转",
+            "score": 140,
+            "description": "【全新王牌】获利盘洗净后的首次反转，是捕捉V型底或历史大底的利器。"
+          },
           "KLINE_MORNING_STAR": {
             "name": "早晨之星",
             "score": 140,
