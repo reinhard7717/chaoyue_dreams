@@ -477,22 +477,22 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V5.7 终极修复版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修复: 纠正了V5.6中的逻辑应用错误，确保所有指标计算（常规和复合）的返回结果都通过健壮的合并函数处理，彻底根治 'Series' object has no attribute 'columns' 的问题。
-        - 保持健壮: 保留了V5.6引入的数据量预检功能。
+        【V5.8 终极合并修复版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修复: 修正了V5.7版本中错误的合并逻辑，确保基础OHLCV列（如 high, close）也能被正确添加后缀（如 high_W, close_W），彻底解决下游策略的 'KeyError' 问题。
+        - 保持健壮: 保留了V5.7引入的对Series返回值的健壮处理和数据量预检功能。
         """
-        print(f"  [指标计算V5.7] 开始为周期 '{timeframe_key}' 计算指标...")
+        # ▼▼▼【代码修改】: 版本号和日志信息更新 ▼▼▼
+        print(f"  [指标计算V5.8] 开始为周期 '{timeframe_key}' 计算指标...")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
 
-        # 数据量预检逻辑 (来自V5.6，保持不变)
         max_required_period = self._get_max_period_for_timeframe(config, timeframe_key)
         if len(df) < max_required_period:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过该周期的所有指标计算。")
             return df
 
-        # 准备用于计算的DataFrame (逻辑不变)
         df_main = df.copy()
         base_cols = ['open', 'high', 'low', 'close', 'volume']
         df_for_calc = pd.DataFrame(index=df_main.index)
@@ -502,7 +502,6 @@ class IndicatorService:
             else:
                 df_for_calc[col] = np.nan 
         
-        # 指标方法映射 (逻辑不变)
         indicator_method_map = {
             'ema': self.calculate_ema, 'vol_ma': self.calculate_vol_ma, 'trix': self.calculate_trix,
             'coppock': self.calculate_coppock, 'rsi': self.calculate_rsi, 'macd': self.calculate_macd,
@@ -518,7 +517,6 @@ class IndicatorService:
         def merge_results(result_data, target_df):
             """健壮地合并结果，无论输入是Series还是DataFrame。"""
             if result_data is None or result_data.empty: return
-            # 核心逻辑：如果接收到的是Series，先转换为DataFrame
             if isinstance(result_data, pd.Series):
                 result_data = result_data.to_frame()
             
@@ -528,7 +526,7 @@ class IndicatorService:
             else:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
 
-        # --- 常规指标计算循环 ---
+        # --- 常规指标计算循环 (逻辑不变) ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             
@@ -546,7 +544,6 @@ class IndicatorService:
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
 
-                    # 特殊处理VWAP
                     if indicator_name == 'vwap':
                         anchor = 'D' if timeframe_key.isdigit() else timeframe_key
                         kwargs['anchor'] = anchor
@@ -554,13 +551,11 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                         continue
 
-                    # 处理无参数指标，如OBV
                     if periods is None:
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
                     
-                    # 处理带参数的指标
                     is_multi_param = indicator_name in ['macd', 'trix', 'coppock', 'kdj', 'uo']
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
@@ -582,7 +577,7 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
 
-        # --- 复合指标计算循环 ---
+        # --- 复合指标计算循环 (逻辑不变) ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels'] and params.get('enabled', False):
@@ -594,19 +589,25 @@ class IndicatorService:
                     except Exception as e:
                         logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
 
-        # --- 统一添加后缀并将所有计算结果合并回主DataFrame (逻辑不变) ---
+        # --- 统一添加后缀并将所有计算结果合并回主DataFrame ---
         suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
+        
+        # ▼▼▼【代码修改】: 修正最终合并逻辑，移除错误的 continue 判断 ▼▼▼
+        # 遍历计算副本中的所有列（包括 base_cols 和所有计算出的指标列）
         for col in df_for_calc.columns:
-            # 跳过基础列，因为它们已经存在于df_main中
-            if col in base_cols:
-                continue
+            # 此处不再跳过 base_cols，确保 high -> high_W, close -> close_W 的转换能够发生
             final_col_name = f"{col}{suffix}"
+            # 如果是VWAP这种自带周期的列名，则不加后缀
             if col.startswith('VWAP_'):
                 final_col_name = col
+            
+            # 将结果列（如 high_W, EMA_20_W）添加到主DataFrame中
             df_main[final_col_name] = df_for_calc[col]
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
-        print(f"  [指标计算V5.7] 周期 '{timeframe_key}' 指标计算完成。")
-
+        # ▼▼▼【代码修改】: 版本号和日志信息更新 ▼▼▼
+        print(f"  [指标计算V5.8] 周期 '{timeframe_key}' 指标计算完成。")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         return df_main
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
