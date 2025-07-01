@@ -640,7 +640,7 @@ class IndexBasicDAO(BaseDAO):
             limit = 6000  # tushare pro接口最大limit一般为8000
             while True:
                 if offset >= 100000:
-                    logger.warning(f"每日筹码及胜率 offset已达10万，停止拉取。")
+                    logger.warning(f"大盘指数每日指标 offset已达10万，停止拉取。")
                     break
                 # 拉取数据
                 df = self.ts_pro.index_daily(**{

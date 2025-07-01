@@ -1,191 +1,145 @@
 {
   "file_name": "config/weekly_trend_follow_strategy.json",
+  "说明": "【A股周线策略优化版】此配置文件专为A股市场的周线级别（战略层）分析而设计。它定义了从数据预处理到具体战略剧本所需的所有参数。核心思想是利用周线图的稳定性过滤掉日内噪音，专注于捕捉中期和长期趋势的形成与转折。",
   "feature_engineering_params": {
-    "timeframes": ["D", "W", "M"],
+    "说明": "【数据工程层】定义本策略需要计算的所有技术指标。参数已针对周线级别进行优化，以捕捉更宏观的市场信号。",
+    "base_needed_bars": 1000,
+    "说明_base_needed_bars": "请求的基础日线数据量。设置为1000条（约4年）以确保在重采样到周线后，仍有足够的数据（约200周）来计算长周期指标（如年线）。",
     "indicators": {
-      "ema": { "enabled": true, "periods": [5, 8, 13, 21, 34, 55, 233], "apply_on": ["D", "W"] },
-      "macd": { "enabled": true, "periods": [8, 26, 7], "apply_on": ["D", "W"] },
-      "rsi": { "enabled": true, "periods": [14], "apply_on": ["D", "W"] },
-      "kdj": { "enabled": true, "periods": [9, 3, 3], "apply_on": ["D", "W"] },
-      "obv": { "enabled": true, "apply_on": ["D", "W"] },
-      "roc": { "enabled": true, "periods": [12], "apply_on": ["W"] },
-      "vol_ma": { "enabled": true, "periods": [21, 55], "apply_on": ["W"] },
-      "boll_bands_and_width": { "enabled": true, "periods": [20], "std": 2.0, "apply_on": ["W"] },
-      "consolidation_period": { 
-        "enabled": true, 
+      "说明": "定义需要计算的各项技术指标。key为指标缩写，value为具体配置。注意 'apply_on' 字段，它精确控制了指标在哪个时间级别上计算。",
+      "ema": {
+        "enabled": true,
+        "periods": [5, 10, 20, 30, 60, 120, 250],
         "apply_on": ["W"],
-        "boll_period": 20, "说明_boll_period": "布林带周期",
-        "boll_std": 2.0, "说明_boll_std": "布林带标准差",
-        "bbw_quantile": 0.25, "说明_bbw_quantile": "动态BBW阈值：使用历史数据的前25%分位点",
-        "roc_period": 12, "说明_roc_period": "ROC周期，用于判断趋势强度",
-        "roc_threshold": 5.0, "说明_roc_threshold": "ROC绝对值阈值，低于此值视为无明显趋势",
-        "vol_ma_period": 55, "说明_vol_ma_period": "成交量均线周期，用于判断缩量", 
-        "说明": "【V2.0 多因子共振模型】结合动态BBW(历史前25%分位)、12周ROC(绝对值<5)和成交量(低于55周均量)来识别周线级箱体。注意：此指标的逻辑已被新的剧本内部逻辑取代，可考虑在未来版本中移除。"
+        "说明": "【周线均线系统】5/10周线用于短期攻击；20/30周线是中期趋势核心（牛熊分界）；60周线是长期趋势线（牛市生命线）；120/250周线（约2年/5年线）用于判断极端支撑/压力。"
       },
-      "trix": { "enabled": true, "periods": [12, 9], "apply_on": ["D", "W"] },
-      "coppock": { "enabled": true, "periods": [14, 11, 10], "apply_on": ["D", "W"] },
-      "uo": { "enabled": true, "periods": [7, 14, 28], "apply_on": ["D", "W"] },
-      "atrr": { "enabled": true, "periods": [14], "apply_on": ["W"] },
-      "bias": { "enabled": true, "periods": [21], "apply_on": ["W"] }
+      "macd": {
+        "enabled": true,
+        "periods": [12, 26, 9],
+        "apply_on": ["W"],
+        "说明": "【周线MACD】使用经典参数(12, 26, 9)，在周线级别上，这套参数能有效识别中期波段的启动和结束，其金叉/死叉信号比日线更可靠。"
+      },
+      "rsi": {
+        "enabled": true,
+        "periods": [6, 12],
+        "apply_on": ["W"],
+        "说明": "【周线RSI】计算6周和12周RSI。6周RSI用于捕捉短期超卖反弹机会；12周RSI（约一个季度）用于判断中期趋势是否超买或超卖。"
+      },
+      "kdj": {
+        "enabled": true,
+        "periods": [9, 3, 3],
+        "apply_on": ["W"],
+        "说明": "【周线KDJ】使用经典参数(9, 3, 3)。周线KDJ的低位金叉通常预示着一波较长周期的上涨，是重要的左侧信号；高位钝化则代表强势主升浪。"
+      },
+      "obv": {
+        "enabled": true,
+        "apply_on": ["W"],
+        "说明": "【周线OBV】能量潮指标，用于验证价量关系。周线OBV的趋势比日线更平滑，能更好地反映主力资金的中长期动向。"
+      },
+      "vol_ma": {
+        "enabled": true,
+        "periods": [5, 20],
+        "apply_on": ["W"],
+        "说明": "【周线成交量均线】计算5周和20周的成交量均线。用于识别周线级别的放量（攻击）和缩量（盘整/洗盘）。"
+      },
+      "boll_bands_and_width": {
+        "enabled": true,
+        "periods": [20],
+        "std_dev": 2.0,
+        "apply_on": ["W"],
+        "说明": "【周线布林带】使用20周作为中轨（约半年线），是判断中期趋势通道和支撑压力的重要工具。其带宽(BBW)是识别盘整和突破的关键。"
+      },
+      "bias": {
+        "enabled": true,
+        "periods": [20],
+        "apply_on": ["W"],
+        "说明": "【周线乖离率】计算股价偏离20周线的程度。用于识别中期级别的超卖（机会）和超买（风险）。"
+      },
+      "trix": {
+        "enabled": true,
+        "说明": "【TRIX指标-双周期配置】TRIX通过对均线进行三次平滑，能有效过滤掉短期市场噪音，专注于指示中长期趋势。我们为月线和周线分别配置，以捕捉不同级别的趋势信号。",
+        "configs": [
+          {
+            "apply_on": ["M"],
+            "periods": [13, 8],
+            "说明": "【月线配置-战略级】使用斐波那契数(13, 8)作为参数。月线TRIX金叉是判断市场进入长期技术性牛市的核心信号之一，具备极高的战略参考价值，但信号非常迟钝。"
+          },
+          {
+            "apply_on": ["W"],
+            "periods": [13, 8],
+            "说明": "【周线配置-战役级】同样使用(13, 8)参数，但在周线级别应用。这使其比月线信号更灵敏，用于确认和跟踪持续数月的中期主升浪或主跌浪。周线TRIX金叉通常是中期波段交易的重要右侧确认信号。"
+          }
+        ]
+      },
+      "coppock": {
+        "enabled": true,
+        "说明": "【估波曲线-双周期配置】Coppock曲线是一个超长周期的动量指标，用于识别大级别的市场底部。这里我们分别为月线和周线配置了不同的参数，以发挥其在不同周期下的最大效用。",
+        "configs": [
+          {
+            "apply_on": ["M"],
+            "periods": [14, 11, 10],
+            "说明": "【月线配置-经典参数】使用(14, 11, 10)经典参数，这套参数是Coppock曲线的原始设计，专为月线图打造，用于识别史诗级的、数年一遇的长期市场底部。其从负值深处拐头向上是重要的战略性买入参考信号。"
+          },
+          {
+            "apply_on": ["W"],
+            "periods": [26, 13, 10],
+            "说明": "【周线配置-适配参数】使用(26, 13, 10)参数，将估波曲线的逻辑适配到周线级别。这里的26周（半年）和13周（一季）变化率，用于捕捉中期波段的底部反转。其信号比月线更灵敏，可作为判断中期底部的辅助工具。"
+          }
+        ]
+      }
     }
   },
   "strategy_playbooks": {
-      "ma20_turn_up_playbook": { "enabled": true, "slope_period": 2 },
-      "early_uptrend_playbook": { "enabled": true },
-      "classic_breakout_playbook": { "enabled": true, "lookback_weeks": 26, "volume_multiplier": 1.5 },
-      "ma_uptrend_playbook": { "enabled": true },
-      
-      "box_consolidation_breakout_playbook": {
-          "enabled": true, "说明_enabled": "是否启用此'专业箱体突破'剧本。",
-          "volume_multiplier": 1.5, "说明_volume_multiplier": "成交量放大倍数。定义了突破日的成交量必须是过去N日平均成交量的多少倍才算有效放量。",
-          "box_period": 26, "说明_box_period": "箱体周期。定义了计算箱体上轨(前期高点)和平均成交量的回看窗口期。26周约等于半年，是一个常用的中期箱体周期。",
-          "volatility_method": "QUANTILE", "说明_volatility_method": "波动率识别模式。核心开关。'QUANTILE'表示使用动态分位数模式，让策略自适应每只股票的波动性；'STATIC'表示使用固定的阈值（不推荐）。",
-          "quantile_level": 0.25, "说明_quantile_level": "动态分位数水平。当 volatility_method 为 'QUANTILE' 时生效。0.25 表示将一只股票历史布林带宽度(BBW)最低的25%区间定义为'低波动盘整期'。",
-          "boll_period": 20, "说明_boll_period": "布林带周期。用于内部计算布林带宽度(BBW)指标，以判断波动率。必须与'指标配置'中的'boll_bands_and_width'周期保持一致。",
-          "boll_std": 2.0, "说明_boll_std": "布林带标准差。同样用于内部计算BBW指标。必须与'指标配置'中的'boll_bands_and_width'标准差保持一致。"
-      },
-
-      "oversold_rebound_bias_playbook": { "enabled": true, "oversold_threshold": -10, "rebound_trigger": -7 },
-      "washout_score_playbook": {
-        "enabled": true,
-        "support_type": "BOX",
-        "support_ma_period": 21,
-        "box_period": 26,
-        "volatility_method": "QUANTILE", "说明_volatility_method": "启用动态分位数模式，让策略自适应每只股票的波动性",
-        "quantile_level": 0.25, "说明_quantile_level": "定义“低波动”为该股票历史波动率最低的25%区间",
-        "drift_lookback_period": 3,
-        "bull_trap_lookback_period": 8,
-        "bull_trap_drop_threshold": 0.05,
-        "volume_avg_period": 20,
-        "volume_contraction_threshold": 0.7,
-        "score_threshold": 2
-      },
-      "rejection_filter_playbook": {
-          "enabled": true,
-          "ma_period": 21,
-          "box_lookback_period": 52,
-          "volume_multiplier": 1.5
-      },
-      "pullback_entry_playbook": {
-          "enabled": true,
-          "lookback_window": 3,
-          "volume_upper_bound_ratio": 2.0
-      },
-      "continuation_entry_playbook": {
-          "enabled": true,
-          "continuation_weeks": 2,
-          "support_ma_period": 8
-      }
-  },
-  "weekly_trend_strategy_params": {
-    "ma_period": 20,
-    "grinding_window": 10,
-    "steady_window": 3,
-    "volume_increase_threshold": 1.2,
-    "volume_spike_threshold": 2.0,
-    "adx_threshold": 25,
-    "core_tf": "60",
-    "multi_tf_combine": ["30", "60"],
-    "weekly_grind_window": 4,
-    "weekly_bbw_threshold": 0.15,
-    "weekly_obv_window": 2,
-    "daily_volume_multiplier": 1.8
-  },
-  "final_washout_params": {
-    "enabled": true,
-    "score_threshold": 1,
-    "说明_score_threshold": "核心参数。定义了洗盘分数达到多少才算作一个有效的 Is_Final_Washout_Signal。设置为1表示只要满足任意一种模式即可。您可以调高到2，以寻找满足多种模式的“高置信度”信号。",
-    "support_type": "BOX", 
-    "说明_support_type": "核心开关。设置为 'BOX' 使用箱体支撑，设置为 'MA' 使用均线支撑。我个人更推荐 BOX，因为它更贴近市场成本。",
-    "washout_lookback_period": 3,
-    "说明_washout_lookback_period": "用于“短期漂移后收复”模式的回看窗口。",
-    "support_ma_period": 20,
-    "说明_support_ma_period": "当 support_type 为 MA 时生效。",
-    "box_period": 20,
-    "说明_box_period": "当 support_type 为 BOX 时生效，定义了计算箱体下轨的回看周期。",
-    "box_volatility_threshold": 0.12,
-    "说明_box_volatility_threshold": "",
-    "bull_trap_lookback_period": 8,
-    "说明_bull_trap_lookback_period": "定义了寻找“诱多高点”的回看窗口期。8个交易日大约是两周，是一个比较合适的时间窗口。",
-    "bull_trap_drop_threshold": 0.05,
-    "说明_bull_trap_drop_threshold": "定义了从高点回落多少才算进入“陷阱区”。0.05 代表回落幅度超过5%。这个值可以根据市场波动性进行调整，市场波动大时可以适当调高。",
-    "volume_avg_period": 20,
-    "说明_volume_avg_period": "计算平均成交量的周期",
-    "volume_contraction_threshold": 0.7,
-    "说明_volume_contraction_threshold": "定义了“缩量”的标准，即成交量低于20日均量的70%",
-    "u_shape_lookback_period": 10,
-    "说明_u_shape_lookback_period": "U型底模式中，判断股价在支撑下运行的时间窗口。",
-    "u_shape_stability_period": 3,
-    "说明_u_shape_stability_period": "U型底模式中，判断底部是否企稳和向上拐点的时间窗口。",
-    "uo_divergence_params": {
+    "说明": "【战略剧本层】定义了本周线策略包含的各种交易剧本（Playbook）。每个剧本代表一种经过市场验证的、特定的K线/指标组合模式。剧本的输出是布尔信号（True/False），用于给日线策略提供战略背景。",
+    "ma_uptrend_playbook": {
       "enabled": true,
-      "short_period": 7,
-      "medium_period": 14,
-      "long_period": 28,
-      "lookback_period": 5
-    }
-  },
-  "take_profit_params": {
-    "resistance_exit": {
-      "enabled": true,
-      "lookback_period": 90,
-      "说明_lookback_period": "定义了寻找“箱体上沿”的时间窗口，90天约等于一个季度，是一个常用的中期压力位参考周期。",
-      "approach_threshold": 0.02
+      "说明": "【剧本：均线多头排列】最基础的趋势判断剧本。识别短期、中期、长期均线是否形成多头排列，确认市场处于强势上涨趋势中。",
+      "short_ma": 10,
+      "mid_ma": 20,
+      "long_ma": 60,
+      "说明_ma_periods": "定义了用于判断多头排列的短(10周)、中(20周)、长(60周)三条均线。"
     },
-    "trailing_stop_exit": {
+    "ma20_turn_up_playbook": {
       "enabled": true,
-      "lookback_period": 20,
-      "percentage_pullback": 0.10,
-      "说明_percentage_pullback": "定义了从近期高点回撤多少比例触发止盈，10% (0.10) 是一个比较常用的值，可以根据股票的波动性调整。"
+      "说明": "【剧本：20周线拐头向上】捕捉中期趋势由弱转强的关键拐点。20周线（半年线）是A股市场公认的中期牛熊分界线，其走平拐头向上是重要的趋势反转信号。",
+      "ma_period": 20,
+      "slope_period": 2,
+      "说明_slope_period": "计算均线斜率的回看周期。2表示比较本周和上上周的均线值，判断趋势变化。"
     },
-    "indicator_exit": {
+    "box_consolidation_breakout_playbook": {
       "enabled": true,
-      "indicator": "TRIX",
-      "说明_indicator": "指定用于判断过热的指标列名，这里是 TRIX.",
-      "trix_period": 12,
-      "trix_signal_period": 9
+      "说明": "【剧本：箱体盘整突破】识别股价在经历长时间（半年以上）的周线级别箱体震荡后，首次放量向上突破箱体上轨的模式。这通常是新一轮主升浪的起点。",
+      "box_period": 26,
+      "说明_box_period": "箱体周期（周）。26周约等于半年，是识别中期盘整区间的常用周期。",
+      "volume_multiplier": 1.5,
+      "说明_volume_multiplier": "成交量放大倍数。突破周的成交量必须是过去5周均量的1.5倍以上，才视为有效放量。",
+      "vol_ma_period": 5,
+      "说明_vol_ma_period": "用于计算平均成交量的周期（周）。",
+      "boll_period": 20,
+      "说明_boll_period": "用于计算布林带宽(BBW)以判断盘整期波动率的周期，必须与指标配置中的一致。",
+      "bbw_quantile": 0.3,
+      "说明_bbw_quantile": "波动率分位数。0.3表示将历史BBW最低的30%区间定义为'低波动盘整期'，这是箱体形成的前提条件。"
+    },
+    "oversold_rebound_bias_playbook": {
+      "enabled": true,
+      "说明": "【剧本：BIAS超卖反弹】利用周线BIAS指标捕捉中期级别的极端超卖机会。当股价短期内快速下跌，严重偏离20周线时，往往会引发技术性反弹。",
+      "bias_period": 20,
+      "说明_bias_period": "BIAS指标的计算周期，与20周线匹配。",
+      "oversold_threshold": -15,
+      "说明_oversold_threshold": "超卖阈值。当BIAS低于-15%时，认为市场处于极端超卖状态，进入观察区。",
+      "rebound_trigger": -12,
+      "说明_rebound_trigger": "反弹触发阈值。当BIAS从-15%下方回升并上穿-12%时，确认为反弹信号。"
+    },
+    "ace_signal_breakout_trigger_playbook": {
+      "enabled": true,
+      "说明": "【剧本：王牌突破信号】这是一个复合信号，结合了多个强势指标的共振，用于识别最高质量的突破启动点。此信号具有最高优先级。",
+      "lookback_weeks": 52,
+      "说明_lookback_weeks": "突破信号的回看周期，52周代表突破年度新高。",
+      "volume_multiplier": 2.0,
+      "说明_volume_multiplier": "对成交量要求更高，需要达到5周均量的2倍。",
+      "vol_ma_period": 5,
+      "trix_confirm": true,
+      "说明_trix_confirm": "是否要求突破时TRIX指标必须已经金叉，以确保长期趋势的配合。"
     }
-  },
-  "weekly_accumulation_params": {
-    "enabled": true,
-    "ma_period": 20,
-    "trix_period": 12,
-    "trix_signal_period": 9,
-    "coppock_long_roc": 14,
-    "coppock_short_roc": 11,
-    "coppock_wma": 10
-  },
-  
-  "weekly_breakout_params": {
-    "enabled": true,
-    "lookback_weeks": 26,
-    "volume_multiplier": 1.5
-  },
-  "ma_rejection_filter_params": {
-    "enabled": true,
-    "ma_period": 20,
-    "volume_multiplier": 1.5
-  },
-  "box_rejection_filter_params": {
-    "enabled": true,
-    "lookback_period": 60,
-    "volume_multiplier": 1.5
-  },
-  "pullback_entry_params": {
-    "说明_pullback_entry_params": "回踩买入策略，已升级为可识别'强势横盘'的智能模式",
-    "enabled": true,
-    "lookback_window": 3,
-    "volume_upper_bound_ratio": 2.0,
-    "说明_volume_upper_bound_ratio": "【核心新增参数】定义了回踩/整理期间成交量的上限，是突破日成交量的2.0倍。这使得策略能识别'平量/微放量'的强势整理，而不仅仅是'缩量'回踩。旧的 volume_ratio_threshold 已被此参数取代。",
-    "support_ma_period": 21,
-    "说明_support_ma_period": "回踩支撑均线 (当前已被更优的'颈线支撑'逻辑取代，此参数保留备用)"
-  },
-  "continuation_entry_params": {
-    "说明_continuation_entry_params": "新增的强势追击策略配置模块",
-    "enabled": true,
-    "continuation_days": 3,
-    "说明_continuation_days": "定义了需要连续多少天保持在短期均线上方，才确认为“强势模式”。3天是一个比较可靠的选择。",
-    "support_ma_period": 5,
-    "说明_support_ma_period": "定义了强势行情的“生命线”，5日均线是攻击性最强的均线，最适合这个场景。"
   }
 }

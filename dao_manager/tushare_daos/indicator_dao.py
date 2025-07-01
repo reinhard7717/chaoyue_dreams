@@ -536,6 +536,51 @@ class IndicatorDAO(BaseDAO):
         # print(f"    [DAO] 获取到 {len(df)} 条指数 {market_code} 的行情数据。")
         return df
 
+    @sync_to_async
+    def get_cyq_perf_for_stock_and_dates(self, stock_code: str, trade_dates: List[pd.Timestamp]) -> Optional[pd.DataFrame]:
+        """
+        获取指定股票在指定日期范围内的筹码表现数据(StockCyqPerf)。
+        Args:
+            stock_code (str): 股票代码。
+            trade_dates (List[pd.Timestamp]): 交易日期列表。
+        Returns:
+            Optional[pd.DataFrame]: 包含筹码表现数据的DataFrame，以trade_time为索引。如果无数据则返回None。
+        """
+        if not trade_dates:
+            return None
+        start_date = min(trade_dates).date()
+        end_date = max(trade_dates).date()
+        try:
+            # 使用Django ORM进行高效查询
+            queryset = StockCyqPerf.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__range=(start_date, end_date)
+            ).values(
+                'trade_time',
+                'cost_5pct',
+                'cost_95pct',
+                'weight_avg',
+                'winner_rate'
+            )
+            if not queryset.exists():
+                return None
+            # 将查询结果转换为DataFrame
+            df = pd.DataFrame.from_records(queryset)
+            # 将trade_time转换为datetime类型以便合并
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df = df.set_index('trade_time')
+            # 为列名添加前缀和后缀，以符合策略框架的规范
+            df = df.rename(columns={
+                'cost_5pct': 'CYQ_cost_5pct_D',
+                'cost_95pct': 'CYQ_cost_95pct_D',
+                'weight_avg': 'CYQ_weight_avg_D',
+                'winner_rate': 'CYQ_winner_rate_D'
+            })
+            return df
+        except Exception as e:
+            print(f"[错误] 在CyqDao中获取股票 {stock_code} 的筹码数据时出错: {e}")
+            return None
+
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:
         """将输入值安全转换为 Decimal 类型"""

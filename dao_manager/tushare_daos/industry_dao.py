@@ -553,7 +553,7 @@ class IndustryDao(BaseDAO):
         ths_index_daily_dicts = []
         while True:
             if offset >= 100000:
-                logger.warning(f"每日筹码分布 offset已达10万，停止拉取。")
+                logger.warning(f"同花顺板块指数行情 offset已达10万，停止拉取。")
                 break
             df = self.ts_pro.ths_daily(**{
                     "ts_code": "", "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""

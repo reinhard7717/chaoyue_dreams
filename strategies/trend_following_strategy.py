@@ -7,12 +7,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks, peak_prominences
-# ▼▼▼【代码修改】: 移除不再需要的依赖 ▼▼▼
-# 解释: IndicatorService 和 asyncio 的职责已上移至总指挥，本类变为纯计算单元。
-# import asyncio
-# from services.indicator_services import IndicatorService
-# from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-# ▲▲▲【代码修改】: 修改结束 ▲▲▲
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from utils.config_loader import load_strategy_config
 
@@ -55,7 +49,7 @@ class TrendFollowStrategy:
     # 参数解析辅助函数
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
         """
-        【V5.0 新增】根据时间周期从指标配置中智能获取正确的'periods'。
+        【V5.0 】根据时间周期从指标配置中智能获取正确的'periods'。
         能够处理新旧两种配置格式。
 
         Args:
@@ -185,7 +179,7 @@ class TrendFollowStrategy:
 
             is_setup_day = 'PULLBACK_SETUP' in triggered_playbooks_list
             
-            # ▼▼▼【代码修改】: 全面应用 sanitize_for_json ▼▼▼
+            # ▼▼▼ 全面应用 sanitize_for_json ▼▼▼
             # 解释: 将所有可能来自DataFrame的原始值都通过清洗函数处理，一劳永逸地解决类型问题。
             
             # 1. 清洗 context_snapshot
@@ -213,7 +207,7 @@ class TrendFollowStrategy:
                 "triggered_playbooks": triggered_playbooks_list, # 列表本身是安全的
                 "context_snapshot": sanitized_context,
             }
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            # ▲▲▲ 修改结束 ▲▲▲
             records.append(record)
             
         return records
@@ -228,16 +222,10 @@ class TrendFollowStrategy:
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
-
         # --- 步骤1: 计算并记录战略背景基础分 ---
         print("    [调试-计分V22.2] 步骤1: 计算并记录周线战略背景基础分...")
-        
-        # ▼▼▼【代码修改】: 这是本次修复的核心 ▼▼▼
-        # 解释: 我们重构了基础分的计算逻辑，使其更健壮，并修复了王牌信号的识别问题。
-        
         # 1a. 【全面填充】将所有候选分数（包括王牌和原始剧本）全部写入DataFrame
         all_base_score_cols = []
-        
         # 王牌信号: 直接使用最终列名 BASE_SIGNAL_BREAKOUT_TRIGGER
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         all_base_score_cols.append(king_signal_col) # 记录列名
@@ -245,7 +233,6 @@ class TrendFollowStrategy:
         if king_signal_col in df.columns and df[king_signal_col].any():
             score_details_df.loc[df[king_signal_col], king_signal_col] = king_score
             print(f"    - [计分-基础分] 检测到 '{king_signal_col}' 王牌信号 {df[king_signal_col].sum()} 次。")
-
         # 原始剧本
         playbook_scores_map = self._get_params_block(params, 'playbook_scores', default_return={
             'ma20_turn_up': 100, 'early_uptrend': 80, 'classic_breakout': 50,
@@ -261,9 +248,7 @@ class TrendFollowStrategy:
             if score > 0 and df[col].any():
                 score_details_df.loc[df[col], base_col_name] = score
                 print(f"    - [计分-基础分] 检测到 '{col}' 剧本信号 {df[col].sum()} 次，计为 '{base_col_name}'。")
-        
         score_details_df.fillna(0, inplace=True)
-
         # 1b. 【铁腕清零】在王牌信号日，将所有其他基础分清零
         if king_signal_col in score_details_df.columns:
             king_signal_mask = (score_details_df[king_signal_col] > 0)
@@ -276,13 +261,11 @@ class TrendFollowStrategy:
             # 这个日志现在代表“本股票从未触发过王牌信号”，是正常的信息
             if self.verbose_logging:
                 print(f"    - [计分-信息] 王牌信号列 '{king_signal_col}' 在本股票历史中从未触发，跳过互斥计分。")
-
         # --- 步骤2: 定义战术信号的前提条件 ---
         base_score = score_details_df.sum(axis=1)
         tactical_precondition = base_score > 0
         strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index))
         print(f"    [调试-计分V22.0] 步骤2: 定义战术前提... 满足基础分天数: {tactical_precondition.sum()}, 满足严格趋势天数: {strict_precondition.sum()}")
-
         # --- 步骤3: 计算所有独立的日线战术原子信号 ---
         print("    [调试-计分V22.0] 步骤3: 计算日线战术原子信号...")
         cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params)
@@ -303,6 +286,11 @@ class TrendFollowStrategy:
         cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params)
         cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params)
         cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params)
+        # ▼▼▼【代码修改】: 调用新增的、基于精确CYQ数据的筹码剧本 ▼▼▼
+        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, strict_precondition, params)
+        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, strict_precondition, params)
+        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 注意此为左侧信号，不依赖严格前提
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params)
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
@@ -329,12 +317,10 @@ class TrendFollowStrategy:
         cond_morning_star = df.get('kline_c_morning_star', pd.Series(False, index=df.index))
         cond_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
-
         # 步骤3.5，计算分钟线共振信号
         print("    [调试-计分V22.0] 步骤3.5: 计算分钟线共振信号...")
         resonance_precondition = cond_pullback_setup
         resonance_signals = self._find_multi_timeframe_resonance(df_dict, resonance_precondition)
-
         # --- 步骤4: 记录所有战术信号得分 ---
         print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
@@ -342,7 +328,11 @@ class TrendFollowStrategy:
                 score_details_df.loc[condition, name] = points.get(name, default_score)
                 print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次。")
             atomic_signals[name] = condition
-
+        # ▼▼▼【代码修改】: 为新增的、基于精确CYQ数据的筹码剧本添加计分规则，给予极高权重 ▼▼▼
+        add_score(cond_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180)
+        add_score(cond_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160)
+        add_score(cond_winner_rate_reversal, 'WINNER_RATE_REVERSAL', 140)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         add_score(cond_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150)
         add_score(cond_chip_cost_breakthrough, 'CHIP_COST_BREAKTHROUGH', 130)
         add_score(is_steady_climb_pullback, 'PULLBACK_STEADY_CLIMB', 110)
@@ -371,17 +361,14 @@ class TrendFollowStrategy:
         add_score(cond_pullback_setup, 'PULLBACK_SETUP', 50)
         add_score(cond_morning_star, 'KLINE_MORNING_STAR', 140)
         add_score(cond_three_soldiers & strict_precondition, 'KLINE_THREE_SOLDIERS', 100)
-
         # 步骤4.5，记录分钟线共振信号得分
         print("    [调试-计分V22.0] 步骤4.5: 记录分钟线共振信号得分...")
         for signal_name, signal_series in resonance_signals.items():
             default_score = 150
             add_score(signal_series, signal_name, default_score)
-
         # --- 步骤5: 记录协同/冲突规则得分 ---
         print("    [调试-计分V22.0] 步骤5: 记录协同/冲突规则得分...")
         has_positive_score = score_details_df.sum(axis=1) > 0
-
         add_score(cond_vwap_support & has_positive_score, 'BONUS_VWAP_SUPPORT', points.get('BONUS_VWAP_SUPPORT', 40))
         add_score(cond_cmf_confirm & has_positive_score, 'BONUS_CMF_CONFIRM', points.get('CMF_CONFIRMATION_BONUS', 20))
         add_score(cond_fund_flow_confirm & has_positive_score, 'BONUS_FUND_FLOW_CONFIRM', points.get('FUND_FLOW_CONFIRM_BONUS', 25))
@@ -393,10 +380,8 @@ class TrendFollowStrategy:
         add_score(is_bb_momentum_combo, 'BONUS_BB_MOMENTUM_COMBO', points.get('BB_MOMENTUM_COMBO_BONUS', 50))
         is_perfect_entry = is_steady_climb_pullback & cond_macd_zero_cross
         add_score(is_perfect_entry, 'BONUS_STEADY_CLIMB_MACD_ZERO', points.get('STEADY_CLIMB_MACD_ZERO_BONUS', 40))
-
         current_score = score_details_df.fillna(0).sum(axis=1)
         multiplier_bonus = pd.Series(0.0, index=df.index)
-        
         # 解释: 为了兼容JSON中类似 {"value": 1.2, "说明": "..."} 的格式，
         # 我们先获取原始值，然后判断其是否为字典。如果是，则提取'value'键的值；否则直接使用。
         # 这种方式对所有乘数参数都生效，增强了代码的健壮性。
@@ -404,22 +389,18 @@ class TrendFollowStrategy:
         raw_cmf_multiplier = points.get('CMF_CONFIRMATION_MULTIPLIER', 1.2)
         cmf_multiplier = raw_cmf_multiplier.get('value', 1.2) if isinstance(raw_cmf_multiplier, dict) else raw_cmf_multiplier
         print(f"调试信息: CMF 乘数解析值为: {cmf_multiplier}") # 增加调试信息
-        
         # 处理资金流乘数
         raw_fund_multiplier = points.get('FUND_FLOW_CONFIRM_MULTIPLIER', 1.25)
         fund_multiplier = raw_fund_multiplier.get('value', 1.25) if isinstance(raw_fund_multiplier, dict) else raw_fund_multiplier
         print(f"调试信息: 资金流乘数解析值为: {fund_multiplier}") # 增加调试信息
-        
         # 处理缺口乘数
         raw_gap_multiplier = points.get('GAP_SUPPORT_MULTIPLIER', 1.3)
         gap_multiplier = raw_gap_multiplier.get('value', 1.3) if isinstance(raw_gap_multiplier, dict) else raw_gap_multiplier
         print(f"调试信息: 缺口乘数解析值为: {gap_multiplier}") # 增加调试信息
-
         multiplier_bonus.loc[cond_cmf_confirm & has_positive_score] += current_score * (cmf_multiplier - 1)
         multiplier_bonus.loc[cond_fund_flow_confirm & has_positive_score] += current_score * (fund_multiplier - 1)
         multiplier_bonus.loc[cond_gap_support_state & has_positive_score] += current_score * (gap_multiplier - 1)
         score_details_df['BONUS_MULTIPLIER'] = multiplier_bonus.where(multiplier_bonus > 0)
-
         penalty_score = pd.Series(0.0, index=df.index)
         is_reversal_play_conflict = cond_bottom_divergence | cond_bias_reversal
         is_breakout_play_conflict = cond_momentum | cond_first_breakout | cond_bb_squeeze_breakout
@@ -434,14 +415,11 @@ class TrendFollowStrategy:
         conflict_penalty_rate = 1 - penalty_value
         penalty_score.loc[is_conflicting] -= current_score * conflict_penalty_rate
         score_details_df['PENALTY_CONFLICT'] = penalty_score.where(penalty_score < 0)
-
         # --- 步骤6: 计算总分并应用最终过滤器 ---
         final_score = score_details_df.fillna(0).sum(axis=1)
-
         # --- 步骤7: 应用行业强度奖励 ---
         print("    [调试-计分V22.0] 步骤7: 应用行业强度奖励与惩罚...")
         industry_params = self._get_params_block(params, 'industry_context_params', {})
-        
         if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
             weak_rank_threshold = industry_params.get('weak_rank_threshold', 0.3)
             weak_penalty_multiplier = industry_params.get('weak_industry_penalty_multiplier', 0.7)
@@ -450,32 +428,25 @@ class TrendFollowStrategy:
             top_tier_bonus = industry_params.get('top_tier_bonus', 30)
             rank_series = df['industry_strength_rank_D']
             has_entry_score = final_score > 0
-            
             multiplier = pd.Series(1.0, index=df.index)
             is_weak = (rank_series < weak_rank_threshold) & has_entry_score
             multiplier.loc[is_weak] = weak_penalty_multiplier
             is_strong = (rank_series >= weak_rank_threshold) & has_entry_score
             multiplier.loc[is_strong] = 1 + (rank_series * strength_multiplier_factor)
-            
             original_score_for_bonus_calc = final_score.copy()
             final_score *= multiplier
-            
             score_change_from_multiplier = final_score - original_score_for_bonus_calc
             score_details_df['INDUSTRY_MULTIPLIER_ADJ'] = score_change_from_multiplier.where(score_change_from_multiplier != 0)
-
             is_top_tier = (rank_series >= top_tier_rank_threshold) & has_entry_score
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
-            
             print(f"    - [行业协同] 已根据行业排名应用奖惩。弱势惩罚({(is_weak).sum()}天), 强势奖励({(is_strong).sum()}天), 龙头奖励({(is_top_tier).sum()}天)。")
         else:
             print("    - [行业协同] 未启用或缺少 'industry_strength_rank_D' 列，跳过此步骤。")
-
         # 风险否决
         final_score.loc[kline_strong_bearish] = 0
         final_score.loc[cond_volume_breakdown] = 0
         final_score.loc[cond_heaven_earth_board] = 0
-
         is_reversal_play_final = cond_bottom_divergence | cond_bias_reversal | cond_capital_flow_divergence | cond_morning_star
         final_score = final_score.where(tactical_precondition | is_reversal_play_final, 0)
         print("    [调试-计分V22.0] 计分流程结束。")
@@ -592,7 +563,7 @@ class TrendFollowStrategy:
 
     def _check_cmf_confirmation(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【新增状态确认】检查CMF资金流指标是否为正，以确认买入信号。
+        【状态确认】检查CMF资金流指标是否为正，以确认买入信号。
         这不是一个直接的买入信号，而是一个用于给其他信号加分或加权的确认状态。
         返回一个布尔序列，表示当天CMF是否处于“资金流入”的确认状态。
         """
@@ -627,7 +598,7 @@ class TrendFollowStrategy:
 
     def _check_upward_gap_support(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【新增状态确认】检查近期是否存在未回补的向上跳空缺口。
+        【状态确认】检查近期是否存在未回补的向上跳空缺口。
         这不是一个直接的买入信号，而是一个强烈的趋势确认状态，用于给其他信号加分。
         返回一个布尔序列，表示当天是否处于“缺口支撑”的强势状态下。
         """
@@ -663,7 +634,7 @@ class TrendFollowStrategy:
 
     def _identify_board_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【新增模块】识别A股特色的各种“板”形态。
+        【模块】识别A股特色的各种“板”形态。
         这些是极端市场情绪的体现，拥有高优先级的判断价值。
         返回一个包含各种形态布尔序列的字典。
         """
@@ -712,11 +683,11 @@ class TrendFollowStrategy:
             'earth_heaven_board': is_earth_heaven_board, # 机会信号
         }
 
-    # 【新增模块】主力筹码运作行为识别
+    # 【模块】主力筹码运作行为识别
 
     def _find_consolidation_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】识别“底部长期盘整突破”，捕捉主力隐蔽吸筹后的启动点。
+        【剧本】识别“底部长期盘整突破”，捕捉主力隐蔽吸筹后的启动点。
         特征：股价经历长时间（如超过3个月）的横盘整理，期间波动率和成交量持续萎缩。
         信号：某天突然以“放量大阳线”的形式，向上突破盘整区间的上沿。
         """
@@ -748,7 +719,7 @@ class TrendFollowStrategy:
 
     def _find_bullish_flag_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】【V1.1 性能重构版】识别“上升三法”（或称旗形整理）。
+        【剧本】【V1.1 性能重构版】识别“上升三法”（或称旗形整理）。
         此版本重构为完全向量化的实现，消除了性能瓶颈。
         """
         params = self._get_params_block(params, 'bullish_flag_params')
@@ -799,7 +770,7 @@ class TrendFollowStrategy:
 
     def _find_upthrust_distribution_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【新增卖出剧本】识别“高位长上影线”，主力隐蔽派发的信号。
+        【卖出剧本】识别“高位长上影线”，主力隐蔽派发的信号。
         特征：股价处于阶段性高位，当日放出较大成交量，但收盘时留下长长的上影线，
               表明上方抛压沉重，主力拉高出货。
         信号：出现该形态的当天。
@@ -827,7 +798,7 @@ class TrendFollowStrategy:
 
     def _find_volume_breakdown_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【新增卖出剧本】识别“放量破位”，主力砸盘出货的信号。
+        【卖出剧本】识别“放量破位”，主力砸盘出货的信号。
         特征：股价跌破关键的中长期支撑均线（如60日线）。
         信号：跌破当天伴随着巨大的成交量，表明是主动性卖出，而非正常回调。
         """
@@ -851,11 +822,11 @@ class TrendFollowStrategy:
 
         return is_breakdown & is_volume_surge
 
-    # 【新增模块】更隐蔽的主力行为识别 (能量学与博弈论)
+    # 【模块】更隐蔽的主力行为识别 (能量学与博弈论)
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】“潜龙在渊” - 识别市场能量极度压缩后的爆发点。
+        【剧本】“潜龙在渊” - 识别市场能量极度压缩后的爆发点。
         特征：成交量和波动率（用ATRN衡量）在一段时期内持续萎缩，达到冰点。
         信号：在能量压缩到极致后，出现一根温和放量的中阳线，向上突破。
         """
@@ -890,7 +861,7 @@ class TrendFollowStrategy:
 
     def _find_capital_flow_divergence_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【新增剧本】【V1.1 逻辑修正版】“资金暗流” - 识别价格与资金指标的底背离。
+        【剧本】【V1.1 逻辑修正版】“资金暗流” - 识别价格与资金指标的底背离。
         特征：股价创出阶段性新低，但OBV(能量潮)指标却未创新低，形成背离。
         信号：在背离形成后的第一个阳线日确认。
         """
@@ -927,7 +898,7 @@ class TrendFollowStrategy:
 
     def _find_relative_strength_maverick_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】“逆市强人” - 识别相对市场表现强势的股票。
+        【剧本】“逆市强人” - 识别相对市场表现强势的股票。
         特征：大盘指数下跌，但个股拒绝下跌（横盘或上涨）。
         信号：在大盘企稳或反弹的第一天，这类股票往往率先启动。
         """
@@ -956,7 +927,7 @@ class TrendFollowStrategy:
 
     # 专门用于捕捉A股特色的强势启动信号
     def _find_first_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【V2.6 新增】寻找A股特色的“首板”或强势启动信号。"""
+        """【V2.6 】寻找A股特色的“首板”或强势启动信号。"""
         params = self._get_params_block(params, 'first_breakout_params')
         if not params.get('enabled', False): return pd.Series(False, index=df.index)
 
@@ -1350,7 +1321,7 @@ class TrendFollowStrategy:
 
     # 寻找BIAS超跌反弹买点
     def _find_bias_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """【V2.10 新增】寻找BIAS极端超跌后的反弹买点。"""
+        """【V2.10 】寻找BIAS极端超跌后的反弹买点。"""
         params = self._get_params_block(params, 'bias_reversal_entry_params')
         if not params.get('enabled', False): return pd.Series(False, index=df.index)
 
@@ -1463,7 +1434,7 @@ class TrendFollowStrategy:
 
     def _find_washout_reversal_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】【V1.2 逻辑深化版】识别“巨阴洗盘”后的“回马枪”信号。
+        【剧本】【V1.2 逻辑深化版】识别“巨阴洗盘”后的“回马枪”信号。
         放宽了对“反包”的定义，使其更贴近实战。
         """
         params = self._get_params_block(params, 'washout_reversal_params')
@@ -1497,7 +1468,7 @@ class TrendFollowStrategy:
 
     def _find_doji_continuation_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】【V1.1 逻辑深化版】识别上涨途中的“十字星”中继信号。
+        【剧本】【V1.1 逻辑深化版】识别上涨途中的“十字星”中继信号。
         在上涨趋势中，出现一根缩量十字星（分歧），如果次日能放量突破十字星的高点，
         则意味着分歧转一致，是趋势延续的强信号。
         """
@@ -1518,7 +1489,7 @@ class TrendFollowStrategy:
         
         # 条件2: 今天是“确认日”
         is_price_confirmation = df['close_D'] > df['high_D'].shift(1)
-        # 【新增】确认日必须放量，体现分歧转一致
+        # 【】确认日必须放量，体现分歧转一致
         is_volume_confirmation = df['volume_D'] > (df['volume_D'].shift(1) * confirmation_vol_ratio)
         is_confirmation_day = is_price_confirmation & is_volume_confirmation
         
@@ -1528,7 +1499,7 @@ class TrendFollowStrategy:
 
     def _find_old_duck_head_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】【V1.1 性能重构版】识别“老鸭头”形态，一个经典的主力深度控盘后的二次启动信号。
+        【剧本】【V1.1 性能重构版】识别“老鸭头”形态，一个经典的主力深度控盘后的二次启动信号。
         此版本重构为完全向量化的实现，消除了性能瓶颈。
         """
         params = self._get_params_block(params, 'old_duck_head_params')
@@ -1576,7 +1547,7 @@ class TrendFollowStrategy:
 
     def _find_n_shape_relay_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【新增剧本】【V1.2 涨停识别修正版】识别“N字板”接力。
+        【剧本】【V1.2 涨停识别修正版】识别“N字板”接力。
         修正了对“涨停/大阳线”的识别逻辑，使其能正确捕捉包括一字板、T字板在内的所有强势形态。
         """
         params = self._get_params_block(params, 'n_shape_relay_params')
@@ -1592,7 +1563,7 @@ class TrendFollowStrategy:
         # 步骤1: 识别所有可能的“拉升日” (启动板和接力板)
         # 条件a: K线实体涨幅够大 (捕捉大阳线)
         body_rally = (df['close_D'] - df['open_D']) / df['open_D'].replace(0, np.nan)
-        is_strong_body = body_rally > params.get('body_rally_threshold', 0.05) # 新增参数，默认为5%
+        is_strong_body = body_rally > params.get('body_rally_threshold', 0.05) # 参数，默认为5%
         
         # 条件b: 日涨幅够大 (捕捉各类涨停板)
         close_to_close_rally = df['close_D'].pct_change()
@@ -1640,7 +1611,7 @@ class TrendFollowStrategy:
     # 专门用于识别“回撤预备”信号
     def _find_pullback_setup(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> Tuple[pd.Series, pd.Series]:
         """
-        【新增剧本】识别“回撤预备”信号，用于次日盘中监控。
+        【剧本】识别“回撤预备”信号，用于次日盘中监控。
         返回:
             - is_setup (pd.Series): 当天是否处于回撤预备状态的布尔序列。
             - target_price (pd.Series): 对应的目标回撤价位序列。
@@ -1658,7 +1629,7 @@ class TrendFollowStrategy:
         is_above_support = df['close_D'] > df[support_ma_col]
         
         # 2. 收盘价距离支撑均线足够近
-        proximity_threshold = params.get('setup_proximity_threshold', 0.03) # 新增配置项，例如3%
+        proximity_threshold = params.get('setup_proximity_threshold', 0.03) # 配置项，例如3%
         is_close_to_support = (df['close_D'] / df[support_ma_col] - 1) < proximity_threshold
 
         # 最终的预备信号：满足大趋势 + 在支撑之上 + 距离支撑足够近
@@ -1688,6 +1659,100 @@ class TrendFollowStrategy:
         # 信号：收盘价突破95分位成本线
         signal = df['close_D'] > df['cyq_cost_95pct_D']
         return signal & precondition
+
+    # ▼▼▼ “成本区增强”剧本(使用精确CYQ数据) ▼▼▼
+    def _find_cost_area_reinforcement_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【全新剧本/升级版】识别“成本区增强”信号，捕捉主力在关键成本区的吸筹或换手行为。
+        使用精确的CYQ加权平均成本(weight_avg)作为市场核心成本区。
+        """
+        # 从主配置中获取本剧本的参数块
+        params = self._get_params_block(params, 'cost_area_reinforcement_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+        # 依赖检查
+        vol_ma_period = self._get_params_block(params, 'first_breakout_params').get('vol_ma_period', 20)
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+        required_cols = ['CYQ_weight_avg_D', 'close_D', 'volume_D', 'high_D', 'low_D', vol_ma_col]
+        if not all(col in df.columns and df[col].notna().any() for col in required_cols):
+            if self.verbose_logging:
+                print(f"    [调试-成本区增强]: 跳过，缺少必需的CYQ或基础列: {required_cols}")
+            return pd.Series(False, index=df.index)
+        # 1. 参数获取
+        main_cost_area = df['CYQ_weight_avg_D'] # 直接使用精确的CYQ平均成本
+        proximity_threshold = params.get('proximity_threshold', 0.03)
+        volume_ratio = params.get('volume_ratio', 1.5)
+        volatility_threshold = params.get('volatility_threshold', 0.02)
+        # 2. 定义信号条件
+        # 条件A: 当前收盘价非常接近市场核心成本区
+        is_price_near_cost_area = (df['close_D'] >= main_cost_area * (1 - proximity_threshold)) & \
+                                  (df['close_D'] <= main_cost_area * (1 + proximity_threshold))
+        # 条件B: 当日成交量显著放大 (有大量换手)
+        is_volume_surged = df['volume_D'] > (df[vol_ma_col] * volume_ratio)
+        # 条件C: 当日振幅收窄，表明是“横盘”换手，而非“拉升/下跌”换手
+        is_low_volatility = (df['high_D'] - df['low_D']) / df['close_D'] < volatility_threshold
+        # 3. 组合信号
+        # 最终信号：在满足中期趋势的前提下，价格贴近成本区，并且放量、缩振
+        final_signal = precondition & is_price_near_cost_area & is_volume_surged & is_low_volatility
+        if self.verbose_logging and final_signal.any():
+            print(f"    [调试-成本区增强]: 剧本触发 {final_signal.sum()} 次。")
+        return final_signal.fillna(False)
+
+    # ▼▼▼ “筹码高度集中突破”剧本 ▼▼▼
+    def _find_chip_concentration_breakthrough_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【全新剧本】识别“筹码高度集中突破”信号。
+        当筹码高度集中（90%筹码区间小于阈值）且股价向上突破筹码上沿时，视为强力启动信号。
+        """
+        # 从主配置中获取本剧本的参数块
+        params = self._get_params_block(params, 'chip_concentration_breakthrough_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+        # 检查必需的CYQ数据列是否存在
+        required_cols = ['CYQ_cost_95pct_D', 'CYQ_cost_5pct_D', 'CYQ_weight_avg_D', 'close_D']
+        if not all(col in df.columns and df[col].notna().any() for col in required_cols):
+            if self.verbose_logging:
+                print(f"    [调试-筹码集中突破]: 跳过，缺少必需的CYQ列: {required_cols}")
+            return pd.Series(False, index=df.index)
+        # 1. 计算筹码集中度: (95%成本 - 5%成本) / 平均成本
+        concentration = (df['CYQ_cost_95pct_D'] - df['CYQ_cost_5pct_D']) / df['CYQ_weight_avg_D']
+        # 2. 条件A: 筹码高度集中
+        is_concentrated = concentration < params.get('concentration_threshold', 0.10)
+        # 3. 条件B: 股价向上突破筹码密集区上沿 (CYQ_cost_95pct_D)
+        is_breakthrough = (df['close_D'] > df['CYQ_cost_95pct_D']) & \
+                          (df['close_D'].shift(1) <= df['CYQ_cost_95pct_D'].shift(1))
+        # 最终信号：满足趋势前提 & 筹码高度集中 & 向上突破
+        final_signal = precondition & is_concentrated & is_breakthrough
+        if self.verbose_logging and final_signal.any():
+            print(f"    [调试-筹码集中突破]: 剧本触发 {final_signal.sum()} 次。")
+        return final_signal.fillna(False)
+
+    # ▼▼▼ “获利盘洗净反转”剧本 ▼▼▼
+    def _find_winner_rate_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【全新剧本】识别“获利盘洗净反转”信号 (或称“投降坑”反转)。
+        当获利盘比例极低（市场绝望），随后出现企稳阳线时，视为底部反转信号。
+        """
+        # 从主配置中获取本剧本的参数块
+        params = self._get_params_block(params, 'winner_rate_reversal_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+        # 检查必需的CYQ数据列是否存在
+        required_cols = ['CYQ_winner_rate_D', 'close_D', 'open_D']
+        if not all(col in df.columns and df[col].notna().any() for col in required_cols):
+            if self.verbose_logging:
+                print(f"    [调试-获利盘洗净反转]: 跳过，缺少必需的CYQ列: {required_cols}")
+            return pd.Series(False, index=df.index)
+        # 1. 条件A: 前一日获利盘比例极低（市场已完成“投降式”抛售）
+        # 注意：winner_rate的单位是%，所以阈值也要是%
+        was_washed_out = df['CYQ_winner_rate_D'].shift(1) < params.get('washout_threshold', 10.0)
+        # 2. 条件B: 当日为企稳阳线
+        is_reversal_candle = df['close_D'] > df['open_D']
+        # 这个信号是典型的左侧交易信号，可以不依赖于严格的上升趋势前提(precondition)
+        final_signal = was_washed_out & is_reversal_candle
+        if self.verbose_logging and final_signal.any():
+            print(f"    [调试-获利盘洗净反转]: 剧本触发 {final_signal.sum()} 次。")
+        return final_signal.fillna(False)
 
     def _find_multi_timeframe_resonance(self, df_dict: Dict[str, pd.DataFrame], precondition: pd.Series) -> Dict[str, pd.Series]:
         """
@@ -1992,7 +2057,7 @@ class TrendFollowStrategy:
                     hit_target = (df['high_D'] >= target_price) & target_price.notna()
                     tp_signal_fib_extension[hit_target] = True
         
-        # ▼▼▼【代码修改】: 增加详细的止盈条件触发统计 ▼▼▼
+        # ▼▼▼ 增加详细的止盈条件触发统计 ▼▼▼
         print("    - [止盈-调试] 原始止盈条件触发统计:")
         print(f"      - 阻力位(1): {tp_signal_resistance.sum()} 次")
         print(f"      - 移动止损(2): {tp_signal_trailing.sum()} 次")
@@ -2003,7 +2068,7 @@ class TrendFollowStrategy:
         print(f"      - 放量破位(8): {tp_signal_breakdown.sum()} 次")
         print(f"      - 箱体跌破(9): {tp_signal_box_breakdown.sum()} 次")
         print(f"      - 斐波那契扩展(10): {tp_signal_fib_extension.sum()} 次")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        # ▲▲▲ 修改结束 ▲▲▲
 
         any_tp_signal = (
             tp_signal_fib_extension | tp_signal_breakdown | tp_signal_heaven_earth |

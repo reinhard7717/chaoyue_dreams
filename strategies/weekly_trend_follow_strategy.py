@@ -42,6 +42,14 @@ class WeeklyTrendFollowStrategy:
         # --- 步骤 2: 信号合成层 (逻辑保持不变) ---
         washout_threshold = self.playbook_params.get('washout_score_playbook', {}).get('score_threshold', 2)
         accumulation_playbooks = ['playbook_early_uptrend_W', 'playbook_bias_rebound_W', 'playbook_ma20_turn_up_W']
+        # 解释: TRIX金叉和Coppock底部反转都是非常重要的长期趋势启动或反转信号，将它们视为“吸筹/建仓”阶段的一部分，可以增强我们对趋势早期阶段的识别能力。
+        accumulation_playbooks = [
+            'playbook_early_uptrend_W', 
+            'playbook_bias_rebound_W', 
+            'playbook_ma20_turn_up_W',
+            'playbook_trix_cross_W',          # 新增TRIX金叉剧本
+            'playbook_coppock_reversal_W'   # 新增Coppock反转剧本
+        ]
         is_accumulation_signal = (context_df[accumulation_playbooks].any(axis=1) | (context_df['washout_score_W'] >= washout_threshold))
         recent_accumulation_window = 12 
         had_recent_accumulation = is_accumulation_signal.rolling(window=recent_accumulation_window, min_periods=1).sum().shift(1) > 0
@@ -83,6 +91,8 @@ class WeeklyTrendFollowStrategy:
         playbook_bias_rebound = self._playbook_oversold_rebound_bias(df, self.playbook_params.get('oversold_rebound_bias_playbook', {}))
         washout_score = self._playbook_calculate_washout_score(df, self.playbook_params.get('washout_score_playbook', {}))
         rejection_signal = self._playbook_check_rejection_filters(df, self.playbook_params.get('rejection_filter_playbook', {}))
+        playbook_trix_cross = self._playbook_trix_golden_cross(df, self.playbook_params.get('trix_golden_cross_playbook', {}))
+        playbook_coppock_reversal = self._playbook_coppock_bottom_reversal(df, self.playbook_params.get('coppock_reversal_playbook', {}))
 
         context_df = pd.DataFrame(index=df.index)
         context_df['playbook_ma20_turn_up_W'] = playbook_ma20_turn_up
@@ -465,6 +475,95 @@ class WeeklyTrendFollowStrategy:
         print(f"    - 条件3 (成交量突破): {'[✓]' if c3 else '[✗]'} (本周成交量: {curr_vol:.0f} vs 阈值: {(prev_box_avg_vol * volume_multiplier):.0f})")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[last_idx] else '未触发'}]")
             
+        return final_signal.fillna(False)
+
+    def _playbook_trix_golden_cross(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """剧本：识别周线TRIX金叉，一个强大的中长期趋势确认信号。"""
+        print("\n--- 剧本检查: [TRIX金叉] ---")
+        if not params.get('enabled', True):
+            print("    - 结论: [未启用]")
+            return pd.Series(False, index=df.index)
+
+        # 从指标配置中动态获取TRIX参数
+        trix_cfg = self.indicator_cfg.get('trix', {})
+        # 智能解析新版或旧版配置
+        trix_periods = None
+        if 'configs' in trix_cfg:
+            for config_item in trix_cfg['configs']:
+                if 'W' in config_item.get('apply_on', []):
+                    trix_periods = config_item.get('periods')
+                    break
+        else: # 兼容旧版
+            trix_periods = trix_cfg.get('periods')
+
+        if not trix_periods or len(trix_periods) < 2:
+            print("    - 结论: [失败] TRIX周期参数配置不正确。")
+            return pd.Series(False, index=df.index)
+
+        trix_len, signal_len = trix_periods[0], trix_periods[1]
+        trix_col = f'TRIX_{trix_len}_{signal_len}_W'
+        trix_signal_col = f'TRIXs_{trix_len}_{signal_len}_W'
+
+        if not self._check_dependencies(df, [trix_col, trix_signal_col], log_details=True):
+            print(f"    - 结论: [失败] 缺少必要的TRIX列。")
+            return pd.Series(False, index=df.index)
+
+        # 核心逻辑：TRIX线上穿其信号线
+        is_golden_cross = (df[trix_col] > df[trix_signal_col]) & \
+                          (df[trix_col].shift(1) <= df[trix_signal_col].shift(1))
+        
+        # 调试最新一周
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        gc_last = is_golden_cross.iloc[-1]
+        print(f"    - 条件1 (本周TRIX > 信号线): {'[✓]' if last.get(trix_col, 0) > last.get(trix_signal_col, 0) else '[✗]'} (TRIX: {last.get(trix_col, 0):.2f} vs 信号线: {last.get(trix_signal_col, 0):.2f})")
+        print(f"    - 条件2 (上周TRIX <= 信号线): {'[✓]' if prev.get(trix_col, 0) <= prev.get(trix_signal_col, 0) else '[✗]'} (TRIX: {prev.get(trix_col, 0):.2f} vs 信号线: {prev.get(trix_signal_col, 0):.2f})")
+        print(f"    - 结论: 最新一周信号为 [{'触发' if gc_last else '未触发'}]")
+
+        return is_golden_cross.fillna(False)
+
+    def _playbook_coppock_bottom_reversal(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """剧本：识别周线Coppock估波曲线从底部反转，一个战略性的长期底部信号。"""
+        print("\n--- 剧本检查: [Coppock底部反转] ---")
+        if not params.get('enabled', True):
+            print("    - 结论: [未启用]")
+            return pd.Series(False, index=df.index)
+
+        # 从指标配置中动态获取Coppock参数
+        coppock_cfg = self.indicator_cfg.get('coppock', {})
+        coppock_periods = None
+        if 'configs' in coppock_cfg:
+            for config_item in coppock_cfg['configs']:
+                if 'W' in config_item.get('apply_on', []):
+                    coppock_periods = config_item.get('periods')
+                    break
+        else: # 兼容旧版
+            coppock_periods = coppock_cfg.get('periods')
+
+        if not coppock_periods or len(coppock_periods) < 3:
+            print("    - 结论: [失败] Coppock周期参数配置不正确。")
+            return pd.Series(False, index=df.index)
+
+        p1, p2, p3 = coppock_periods[0], coppock_periods[1], coppock_periods[2]
+        coppock_col = f'COPP_{p1}_{p2}_{p3}_W'
+
+        if not self._check_dependencies(df, [coppock_col], log_details=True):
+            print(f"    - 结论: [失败] 缺少必要的Coppock列。")
+            return pd.Series(False, index=df.index)
+
+        # 核心逻辑：Coppock曲线在0轴下方，开始拐头向上
+        is_turning_up = df[coppock_col] > df[coppock_col].shift(1)
+        was_below_zero = df[coppock_col].shift(1) < 0
+        final_signal = is_turning_up & was_below_zero
+
+        # 调试最新一周
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        fs_last = final_signal.iloc[-1]
+        print(f"    - 条件1 (本周Coppock > 上周Coppock): {'[✓]' if last.get(coppock_col, 0) > prev.get(coppock_col, 0) else '[✗]'} (本周: {last.get(coppock_col, 0):.2f} vs 上周: {prev.get(coppock_col, 0):.2f})")
+        print(f"    - 条件2 (上周Coppock < 0): {'[✓]' if prev.get(coppock_col, 0) < 0 else '[✗]'} (上周值: {prev.get(coppock_col, 0):.2f})")
+        print(f"    - 结论: 最新一周信号为 [{'触发' if fs_last else '未触发'}]")
+
         return final_signal.fillna(False)
 
     def _check_dependencies(self, df: pd.DataFrame, cols: list, log_details: bool = False) -> bool:

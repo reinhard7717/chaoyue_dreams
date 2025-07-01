@@ -142,6 +142,59 @@ class IndicatorService:
                     return result
         return None
 
+    def _discover_required_timeframes_from_config(self, config: Dict) -> Set[str]:
+        """
+        【V7.0 新增】智能、全面地解析整个策略配置，找出所有需要加载数据的时间框架。
+        这是对旧版仅扫描 'apply_on' 方式的终极升级，确保不会遗漏任何周期。
+        """
+        timeframes: Set[str] = set()
+        
+        # 1. 从 feature_engineering_params.indicators 的 'apply_on' 字段扫描
+        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
+        for params in indicators_config.values():
+            if not isinstance(params, dict) or not params.get('enabled', False):
+                continue
+            
+            if 'configs' in params: # 新的列表式配置
+                for sub_config in params.get('configs', []):
+                    for tf in sub_config.get('apply_on', []):
+                        timeframes.add(str(tf))
+            elif 'apply_on' in params: # 旧的单一配置
+                for tf in params.get('apply_on', []):
+                    timeframes.add(str(tf))
+
+        # 2. 从具体的策略逻辑参数块中扫描 (这是为了防止遗漏)
+        strategy_params = config.get('strategy_params', {}).get('trend_follow', {})
+        
+        # 2a. 从 vwap_confirmation_params 获取
+        vwap_params = strategy_params.get('vwap_confirmation_params', {})
+        if vwap_params.get('enabled', False):
+            timeframes.add(vwap_params.get('timeframe', '5'))
+
+        # 2b. 从 multi_level_resonance_params 获取
+        resonance_params = strategy_params.get('multi_level_resonance_params', {})
+        if resonance_params.get('enabled', False):
+            levels = resonance_params.get('levels', [])
+            for level in levels:
+                if 'tf' in level:
+                    timeframes.add(level['tf'])
+        
+        # 确保日线和周线作为基础周期被包含（如果策略需要它们）
+        # 这是一个安全保障，通常它们已在 apply_on 中
+        if indicators_config:
+            timeframes.add('D')
+            # 检查是否有周线或月线指标
+            for params in indicators_config.values():
+                if isinstance(params, dict):
+                    apply_on_str = str(params.get('apply_on', [])) + str(params.get('configs', []))
+                    if "'W'" in apply_on_str:
+                        timeframes.add('W')
+                    if "'M'" in apply_on_str:
+                        timeframes.add('M')
+
+        # 移除空值或None
+        return {tf for tf in timeframes if tf}
+
     async def prepare_data_for_strategy(
         self,
         stock_code: str,
@@ -207,41 +260,34 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V5.1 智能重采样版】
-        根据单个策略配置文件，精确、高效地准备其所需的所有数据。
-        - 核心升级: 增加了智能重采样逻辑，能够根据日线数据生成周线和月线数据。
-        - 健壮性: 不再依赖数据库中必须存在周线/月线表，保证了数据一致性。
+        【V7.0 适配重构版】
+        - 核心升级: 使用新的 _discover_required_timeframes_from_config 方法来确定所有需要的数据周期。
         """
-        print(f"--- [数据准备V5.1-重采样版] 开始为 {stock_code} 准备数据... ---")
+        print(f"--- [数据准备V7.0-智能发现版] 开始为 {stock_code} 准备数据... ---")
         
-        # --- 步骤 1: 从配置中识别所有需要的时间周期和数据类型 ---
-        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
+        # ▼▼▼ 使用新的、更强大的方法来识别所有需要的时间周期 ▼▼▼
+        # --- 步骤 1: 从配置中智能、全面地识别所有需要的时间周期 ---
+        required_tfs = self._discover_required_timeframes_from_config(config)
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
-
-        required_tfs: Set[str] = set()
-        needs_fund_chips_data = False
-
-        for indicator_key, params in indicators_config.items():
-            if not isinstance(params, dict) or not params.get('enabled', False):
-                continue
-            
-            if indicator_key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']:
-                needs_fund_chips_data = True
-
-            if 'configs' in params:
-                for sub_config in params.get('configs', []):
-                    for tf in sub_config.get('apply_on', []):
-                        required_tfs.add(str(tf))
-            elif 'apply_on' in params:
-                for tf in params.get('apply_on', []):
-                    required_tfs.add(str(tf))
         
+       # ▼▼▼ 增加对CYQ筹码数据的需求检测 ▼▼▼
+        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
+        # 检查是否需要旧的资金流数据
+        needs_fund_chips_data = False
+        for indicator_key, params in indicators_config.items():
+            if isinstance(params, dict) and params.get('enabled', False):
+                if indicator_key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']:
+                    needs_fund_chips_data = True
+                    break
+        # 检查是否需要新的CYQ筹码数据
+        cyq_perf_config = indicators_config.get('cyq_perf', {})
+        needs_cyq_perf_data = cyq_perf_config.get('enabled', False)
+
         if not required_tfs:
             logger.warning(f"[{stock_code}] 配置文件中没有启用任何指标或指定apply_on，无需准备数据。")
             return {}
 
         print(f"    - 原始请求周期: {sorted(list(required_tfs))}")
-        
         # --- 步骤 1.5: 识别真正的基础数据需求，并准备重采样 ---
         base_tfs_to_fetch = set()
         resample_map = {} # 记录需要进行的重采样任务, e.g., {'W': 'D', 'M': 'D'}
@@ -254,7 +300,7 @@ class IndicatorService:
             else:
                 # 其他周期（如 'D', '60', '30'）直接获取
                 base_tfs_to_fetch.add(tf)
-        
+
         print(f"    - 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
         if resample_map:
             print(f"    - 将执行的重采样任务: {resample_map}")
@@ -266,7 +312,7 @@ class IndicatorService:
             # 为日线获取更多数据，以确保重采样到周线/月线后有足够长度
             bars_to_fetch = base_needed_bars * 5 if tf == 'D' and resample_map else base_needed_bars
             tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
-        
+
         # 任务2: 如果需要，才获取资金流数据
         if needs_fund_chips_data:
             trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
@@ -294,8 +340,23 @@ class IndicatorService:
             else:
                 logger.error(f"[{stock_code}] 获取基础周期 {tf} 数据时发生错误或数据为空: {res}")
                 if tf == 'D': return {} # 如果最核心的日线数据都没有，直接终止
+        
+        # ▼▼▼ 在获取完日线数据后，按需获取CYQ筹码数据 ▼▼▼
+        df_cyq_perf = None
+        if needs_cyq_perf_data and 'D' in raw_dfs:
+            print(f"    - [CYQ数据] 检测到需要筹码数据，开始获取...")
+            try:
+                # 使用日线数据的索引作为日期列表来请求CYQ数据，确保日期对齐
+                trade_dates = raw_dfs['D'].index.tolist()
+                df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
+                if df_cyq_perf is not None and not df_cyq_perf.empty:
+                    print(f"    - [CYQ数据] 成功获取 {len(df_cyq_perf)} 条筹码数据。")
+                else:
+                    print(f"    - [CYQ数据] 未获取到筹码数据。")
+            except Exception as e:
+                logger.error(f"[{stock_code}] 获取CYQ筹码数据时发生异常: {e}")
 
-        # ▼▼▼【代码修改】: 执行重采样，生成周线/月线数据 ▼▼▼
+        # ▼▼▼ 执行重采样，生成周线/月线数据 ▼▼▼
         # --- 步骤 3.5: 执行重采样 ---
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
@@ -320,18 +381,30 @@ class IndicatorService:
                         # print(f"    - [成功] {target_tf} 线数据已生成，共 {len(df_resampled)} 条。")
                     else:
                         logger.warning(f"[{stock_code}] 从日线重采样到 {target_tf} 后数据为空。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # --- 步骤 4: 为每个周期的数据独立计算指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
-            if tf == 'D' and df_fund_chips is not None and not df_fund_chips.empty:
-                if df.index.tz is not None: df.index = df.index.tz_localize(None)
-                if df_fund_chips.index.tz is not None: df_fund_chips.index = df_fund_chips.tz_localize(None)
-                df = pd.merge(df, df_fund_chips, left_index=True, right_index=True, how='left')
-                df[list(df_fund_chips.columns)] = df[list(df_fund_chips.columns)].fillna(0)
+            if tf == 'D':
+                # 融合旧版资金流数据
+                if df_fund_chips is not None and not df_fund_chips.empty:
+                    if df.index.tz is not None: df.index = df.index.tz_localize(None)
+                    if df_fund_chips.index.tz is not None: df_fund_chips.index = df_fund_chips.tz_localize(None)
+                    df = pd.merge(df, df_fund_chips, left_index=True, right_index=True, how='left')
+                    df[list(df_fund_chips.columns)] = df[list(df_fund_chips.columns)].fillna(0)
+                
+                # 融合新版CYQ筹码数据
+                if df_cyq_perf is not None and not df_cyq_perf.empty:
+                    if df.index.tz is not None: df.index = df.index.tz_localize(None)
+                    if df_cyq_perf.index.tz is not None: df_cyq_perf.index = df_cyq_perf.tz_localize(None)
+                    print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
+                    df = pd.merge(df, df_cyq_perf, left_index=True, right_index=True, how='left')
+                    # 使用前向填充，因为筹码分布是连续的，当天没有则沿用前一天的
+                    cyq_cols = [col for col in df.columns if col.startswith('CYQ_')]
+                    df[cyq_cols] = df[cyq_cols].ffill()
+                    print(f"    - [数据融合] CYQ数据合并完成，并已对列 {cyq_cols} 进行前向填充。")
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             return tf, df_with_indicators
@@ -341,7 +414,7 @@ class IndicatorService:
             # 确保这个周期是原始请求需要的，避免不必要的计算
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
-        
+
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
 
         for res in processed_results:
@@ -418,6 +491,9 @@ class IndicatorService:
             
             if indicator_name in composite_indicator_keys:
                 composite_indicators_config[indicator_name] = params
+                continue
+            
+            if indicator_name == 'cyq_perf':
                 continue
 
             if indicator_name in ['说明', 'index_sync'] or not params.get('enabled', False):
@@ -590,10 +666,10 @@ class IndicatorService:
         【新增】处理单个行业的强度计算，便于并行化。
         """
         # print(f"  - 正在处理行业: {industry.name} ({industry.ts_code})")
-        
+
         # 2. 并行获取该行业所需的所有数据
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
-        
+
         try:
             # 使用 asyncio.gather 获取一个行业的所有数据
             data_tasks = {
@@ -614,12 +690,12 @@ class IndicatorService:
             fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date) # 沿用旧方法
             volume_score = await self._calculate_volume_profile_score(industry_daily_df)
             rs_score = await self._calculate_relative_strength_score(industry_daily_df, market_daily_df)
-            
+
             # 4. 【核心升级】计算结构化得分 (0-1分制)
             leader_score = await self._calculate_leader_score(industry.ts_code, trade_date)
             cohesion_score = await self._calculate_cohesion_score(industry.ts_code, trade_date)
             echelon_score = await self._calculate_limit_up_echelon_score(industry.ts_code, trade_date)
-            
+
             # 5. 加权合成总分 (总分100分)
             # 权重分配：结构 > 资金 > 趋势
             # 涨停梯队是最高优先级信号，给予一票否决权的权重
@@ -633,7 +709,7 @@ class IndicatorService:
                 30 * echelon_score             # 【核心】涨停梯队分
             )
             # echelon_score 的权重可以更高，比如40，其他相应降低，以体现其重要性
-            
+
             return {
                 'industry_code': industry.ts_code,
                 'industry_name': industry.name,
@@ -651,55 +727,47 @@ class IndicatorService:
         - 修正了在数据量不足时 rolling 操作返回 NaN 的问题。
         - 增加了对计算结果的 NaN 值检查，避免程序异常。
         """
-        # ▼▼▼【代码修改】: 增加数据长度检查，如果数据太少则直接返回0分 ▼▼▼
+        # ▼▼▼ 增加数据长度检查，如果数据太少则直接返回0分 ▼▼▼
         # 解释: 至少需要5天数据才能计算5日均线，否则分析无意义。
         if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
             # print(f"      - [成交活跃度] 数据不足 (行数: {len(industry_daily_df)})，无法计算得分。")
             return 0.0
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         df = industry_daily_df.copy()
-        
+
         # 1. 计算短期爆发强度：当日换手率在过去60个交易日中的百分位排名
-        # ▼▼▼【代码修改】: 新增 min_periods 参数 ▼▼▼
         # 解释: 设置 min_periods=20 确保即使数据不足60天，只要超过20天也能计算出排名。
         turnover_rank_60d = df['turnover_rate'].rolling(60, min_periods=20).rank(pct=True).iloc[-1]
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         # 2. 计算中期趋势：5日均线是否上穿20日均线
-        # ▼▼▼【代码修改】: 新增 min_periods 参数 ▼▼▼
         # 解释: 设置 min_periods=1 确保均线计算从一开始就有值。
         df['turnover_ma5'] = df['turnover_rate'].rolling(5, min_periods=1).mean()
         df['turnover_ma20'] = df['turnover_rate'].rolling(20, min_periods=1).mean()
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         # 判断金叉发生在最近3天内
         was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
         is_above = df['turnover_ma5'] > df['turnover_ma20']
         is_cross_today = was_below & is_above
-        # ▼▼▼【代码修改】: 新增 min_periods 参数 ▼▼▼
         is_recent_cross_series = is_cross_today.rolling(3, min_periods=1).sum()
         is_recent_cross = is_recent_cross_series.iloc[-1] > 0 if not is_recent_cross_series.empty else False
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # 3. 综合评分
         score = 0.0
-        # ▼▼▼【代码修改】: 增加对 turnover_rank_60d 的 NaN 检查 ▼▼▼
+        # ▼▼▼ 增加对 turnover_rank_60d 的 NaN 检查 ▼▼▼
         # 解释: 在进行比较和评分前，必须确保值不是 NaN。
         if pd.notna(turnover_rank_60d):
             # 如果短期爆发力极强 (排名前10%)，给予高分
             if turnover_rank_60d > 0.9:
                 score += 0.6
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
         # 如果中期趋势向好 (近期金叉)，给予加分
         if is_recent_cross:
             score += 0.4
             
-        # ▼▼▼【代码修改】: 格式化输出前也进行 NaN 检查，使日志更清晰 ▼▼▼
+        # ▼▼▼ 格式化输出前也进行 NaN 检查，使日志更清晰 ▼▼▼
         # rank_str = f"{turnover_rank_60d:.2%}" if pd.notna(turnover_rank_60d) else "N/A"
         # print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        
         return score
 
     # --- 所有指标计算函数 async def calculate_* ---
@@ -1395,7 +1463,7 @@ class IndicatorService:
             logger.warning(f"计算 VWAP (anchor={anchor}) 时缺少必要的列。")
             return None
         
-        # ▼▼▼【代码修改】: 转换分钟级别锚点为pandas兼容格式 ▼▼▼
+        # ▼▼▼ 转换分钟级别锚点为pandas兼容格式 ▼▼▼
         # 解释: pandas-ta的vwap函数要求锚点(anchor)是pandas的频率字符串。
         # 对于分钟级别，'30' 是无效的，必须是 '30T' 或 '30min'。
         # 此处对纯数字的锚点进行转换，而 'D', 'W' 等则保持不变。
@@ -1403,15 +1471,15 @@ class IndicatorService:
         if anchor and str(anchor).isdigit():
             processed_anchor = f"{anchor}T"
             # print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        
 
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_vwap():
-                # ▼▼▼【代码修改】: 使用处理后的锚点 ▼▼▼
+                # ▼▼▼ 使用处理后的锚点 ▼▼▼
                 # 调用 pandas_ta 的 vwap 方法
                 return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=processed_anchor, append=False)
-                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+                
             
             vwap_series = await asyncio.to_thread(_sync_vwap)
             
@@ -1422,9 +1490,9 @@ class IndicatorService:
             # 我们直接使用它返回的 Series，其 name 就是列名
             return pd.DataFrame(vwap_series)
         except Exception as e:
-            # ▼▼▼【代码修改】: 在日志中也使用原始锚点，方便追溯 ▼▼▼
+            # ▼▼▼ 在日志中也使用原始锚点，方便追溯 ▼▼▼
             logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            
             return None
 
     async def calculate_willr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
