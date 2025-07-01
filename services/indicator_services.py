@@ -345,13 +345,14 @@ class IndicatorService:
         # ▼▼▼ 在获取完日线数据后，按需获取CYQ筹码数据 ▼▼▼
         df_cyq_perf = None
         if needs_cyq_perf_data and 'D' in raw_dfs:
-            print(f"    - [CYQ数据] 检测到需要筹码数据，开始获取...")
+            # print(f"    - [CYQ数据] 检测到需要筹码数据，开始获取...")
             try:
                 # 使用日线数据的索引作为日期列表来请求CYQ数据，确保日期对齐
                 trade_dates = raw_dfs['D'].index.tolist()
                 df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
                 if df_cyq_perf is not None and not df_cyq_perf.empty:
-                    print(f"    - [CYQ数据] 成功获取 {len(df_cyq_perf)} 条筹码数据。")
+                    # print(f"    - [CYQ数据] 成功获取 {len(df_cyq_perf)} 条筹码数据。")
+                    pass
                 else:
                     print(f"    - [CYQ数据] 未获取到筹码数据。")
             except Exception as e:
@@ -400,12 +401,12 @@ class IndicatorService:
                 if df_cyq_perf is not None and not df_cyq_perf.empty:
                     if df.index.tz is not None: df.index = df.index.tz_localize(None)
                     if df_cyq_perf.index.tz is not None: df_cyq_perf.index = df_cyq_perf.tz_localize(None)
-                    print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
+                    # print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
                     df = pd.merge(df, df_cyq_perf, left_index=True, right_index=True, how='left')
                     # 使用前向填充，因为筹码分布是连续的，当天没有则沿用前一天的
                     cyq_cols = [col for col in df.columns if col.startswith('CYQ_')]
                     df[cyq_cols] = df[cyq_cols].ffill()
-                    print(f"    - [数据融合] CYQ数据合并完成，并已对列 {cyq_cols} 进行前向填充。")
+                    # print(f"    - [数据融合] CYQ数据合并完成，并已对列 {cyq_cols} 进行前向填充。")
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             return tf, df_with_indicators
