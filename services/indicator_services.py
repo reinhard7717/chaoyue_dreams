@@ -446,11 +446,11 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V5.0 参数精细化版】根据配置为指定时间周期计算所有技术指标。
-        - 核心升级: 能够解析新的“列表式”配置结构，为不同时间周期应用不同的指标参数。
-        - 向后兼容: 仍然支持旧的“单一对象”配置格式。
-        - 逻辑统一: 不再使用'suffix'参数，而是统一使用'timeframe_key' (如 'D', 'W', '60', '15')。
-        - 健壮性: 增加了详细的异常捕获和日志记录。
+        【V5.2 兼容合并版】根据配置为指定时间周期计算所有技术指标。
+        - 核心升级: 完美适配 MultiTimeframeTrendStrategy (V5.2) 的智能合并器所输出的标准化配置。
+        - 逻辑简化: 由于输入配置被标准化为 'configs' 列表格式，本方法的处理路径更加统一。
+        - 健壮性保留: 依然保留了对旧格式的兼容性判断，使本服务可被独立、安全地复用。
+        - Bug修复: 修正了因提前使用未定义 'periods' 变量而导致计算失败的逻辑漏洞。
         """
         # print(f"  [指标计算V5.0] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
@@ -565,6 +565,7 @@ class IndicatorService:
                 method_to_call = indicator_method_map[indicator_name]
                 try:
                     periods = sub_config.get('periods')
+                    
                     # 适用于 OBV 等无 period 参数的指标
                     if periods is None:
                         result_df = await method_to_call(df=df_for_calc)
@@ -578,6 +579,7 @@ class IndicatorService:
                     is_multi_param = indicator_name in ['macd', 'trix', 'coppock', 'kdj', 'uo']
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     
+                    periods_to_iterate = [] # 安全初始化
                     # 如果是多参数指标且periods不是嵌套列表，则包装一层
                     if is_multi_param and not is_nested_list:
                         periods_to_iterate = [periods]
@@ -599,10 +601,9 @@ class IndicatorService:
                         
                         result_df = await method_to_call(**kwargs)
                         if result_df is not None and not result_df.empty:
-                            # 将新计算的列添加到 df_for_calc (无后缀) 和主 df (有后缀)
                             for col in result_df.columns:
-                                df_for_calc[col] = result_df[col] # 更新计算副本，供后续依赖
-                                df[f"{col}{suffix}"] = result_df[col] # 更新最终结果
+                                df_for_calc[col] = result_df[col]
+                                df[f"{col}{suffix}"] = result_df[col]
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}")
                     traceback.print_exc()
