@@ -221,7 +221,7 @@ class MultiTimeframeTrendStrategy:
             direction='backward'
         )
         
-        print("    - [数据流转] 开始对所有合并的周线信号列进行全面NaN清洗...")
+        # print("    - [数据流转] 开始对所有合并的周线信号列进行全面NaN清洗...")
         for col in strategic_signals_df.columns:
             if col not in df_merged.columns:
                 continue
@@ -233,17 +233,17 @@ class MultiTimeframeTrendStrategy:
                     new_col_name = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
                     df_merged.rename(columns={col: new_col_name}, inplace=True)
                     df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
-                    print(f"      - [清洗] 布尔信号 '{col}' -> '{new_col_name}' 已清洗 (NaN -> False)")
+                    # print(f"      - [清洗] 布尔信号 '{col}' -> '{new_col_name}' 已清洗 (NaN -> False)")
                 else:
                     df_merged[col] = df_merged[col].fillna(False).astype(bool)
-                    print(f"      - [清洗] 布尔信号 '{col}' 已清洗 (NaN -> False)")
+                    # print(f"      - [清洗] 布尔信号 '{col}' 已清洗 (NaN -> False)")
             
             # 对数值型分数进行清洗
             elif col.startswith(('washout_score_', 'rejection_signal_')):
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
-                print(f"      - [清洗] 数值分数 '{col}' 已清洗 (NaN -> 0)")
+                # print(f"      - [清洗] 数值分数 '{col}' 已清洗 (NaN -> 0)")
         
-        print("    - [数据流转] 全面NaN清洗完成。")
+        # print("    - [数据流转] 全面NaN清洗完成。")
         
         return df_merged
     
