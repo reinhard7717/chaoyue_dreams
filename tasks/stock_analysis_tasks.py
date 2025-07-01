@@ -10,10 +10,10 @@ from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
-# ▼▼▼【代码修改】: 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
+# ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 # from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
-# ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
 
 logger = logging.getLogger('tasks')
 
@@ -43,7 +43,7 @@ async def _get_all_relevant_stock_codes_for_processing():
         logger.warning("未能获取到任何需要处理的股票代码")
     return favorite_stock_codes_list, non_favorite_stock_codes
 
-# ▼▼▼【代码修改】: 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
+# ▼▼▼ 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
 def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
     """
@@ -71,14 +71,32 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
         # 3. 保存到数据库
         save_count = async_to_sync(strategies_dao.save_strategy_signals)(db_records)
         logger.info(f"[{stock_code}] 成功保存 {save_count} 条 'multi_timeframe_trend_strategy' 信号。")
+        
+        # ▼▼▼ 新增策略状态更新逻辑 ▼▼▼
+        # 解释: 在成功保存信号后，立即调用DAO方法更新策略状态摘要表。
+        # 这样可以确保摘要信息始终反映最新的信号情况。
+        if save_count > 0:
+            # 从已生成的记录中获取策略名称和时间框架
+            strategy_name = db_records[0].get('strategy_name')
+            timeframe = db_records[0].get('timeframe')
+            
+            if strategy_name and timeframe:
+                logger.info(f"[{stock_code}] 准备更新策略状态摘要 for strategy '{strategy_name}' on timeframe '{timeframe}'...")
+                # 调用异步的更新方法
+                async_to_sync(strategies_dao.update_strategy_state)(
+                    stock_code=stock_code,
+                    strategy_name=strategy_name,
+                    timeframe=timeframe
+                )
+                logger.info(f"[{stock_code}] 策略状态摘要更新完成。")
+            else:
+                logger.warning(f"[{stock_code}] 无法从信号记录中提取 strategy_name 或 timeframe，跳过状态更新。")
 
         return {"status": "success", "saved_count": save_count}
 
     except Exception as e:
         logger.error(f"执行 'run_multi_timeframe_strategy' on {stock_code} 时出错: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
-# ▲▲▲【代码修改】: 修改结束 ▲▲▲
-
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 def analyze_all_stocks(self):
@@ -98,7 +116,7 @@ def analyze_all_stocks(self):
         trade_time_str = datetime.now().strftime('%Y-%m-%d')
         logger.info(f"所有任务将使用统一的分析截止日期: {trade_time_str}")
         
-        # ▼▼▼【代码修改】: 将调度的任务从旧的 run_trend_follow_strategy 更换为新的 run_multi_timeframe_strategy ▼▼▼
+        # ▼▼▼ 将调度的任务从旧的 run_trend_follow_strategy 更换为新的 run_multi_timeframe_strategy ▼▼▼
         # --- 为自选股调度新任务 ---
         for stock_code in favorite_codes:
             run_multi_timeframe_strategy.s(stock_code, trade_time_str).set(queue='favorite_calculate_strategy').apply_async()
@@ -106,7 +124,7 @@ def analyze_all_stocks(self):
         # --- 为非自选股调度新任务 ---
         for stock_code in non_favorite_codes:
             run_multi_timeframe_strategy.s(stock_code, trade_time_str).set(queue='calculate_strategy').apply_async()
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        
         
         logger.info(f"已为 {len(favorite_codes)} 只自选股调度 'run_multi_timeframe_strategy' 任务")
         logger.info(f"已为 {len(non_favorite_codes)} 只非自选股调度 'run_multi_timeframe_strategy' 任务")

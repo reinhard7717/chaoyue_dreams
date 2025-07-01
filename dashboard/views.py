@@ -145,7 +145,7 @@ def trend_following_list(request):
     state_list = TrendFollowStrategyState.objects.filter(
         strategy_name=strategy_name,
         time_level='D'  # 只看日线周期的状态
-    ).select_related('stock').order_by('-last_buy_time, -latest_score')
+    ).select_related('stock').order_by('-last_buy_time', '-latest_score')
 
     paginator = Paginator(state_list, 25)
     page_number = request.GET.get('page')
