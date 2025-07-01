@@ -144,54 +144,45 @@ class IndicatorService:
 
     def _discover_required_timeframes_from_config(self, config: Dict) -> Set[str]:
         """
-        【V7.1 修复版】智能、全面地解析整个策略配置，找出所有需要加载数据的时间框架。
-        - 修复: 之前版本可能因不稳定的字符串检查而漏掉 'W' (周线) 周期。
-        - 优化: 使用更直接、健壮的列表迭代方式来识别 'apply_on' 中的时间框架。
+        【V7.2 终极递归版】通过递归扫描整个配置，智能、全面地找出所有需要加载数据的时间框架。
+        - 核心升级: 放弃了脆弱的、基于固定路径的扫描方式。
+        - 解决方案: 实现了一个递归辅助函数，可以遍历配置字典的每一个角落，
+                     查找所有名为 'apply_on', 'timeframe', 'tf' 的键，从而确保不会遗漏任何周期需求。
+                     这是解决周期发现问题的根本性方法。
         """
         timeframes: Set[str] = set()
-        
-        # 1. 从 feature_engineering_params.indicators 的 'apply_on' 字段扫描
-        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        for params in indicators_config.values():
-            if not isinstance(params, dict) or not params.get('enabled', False):
-                continue
+
+        def _recursive_search(data):
+            """
+            【辅助函数】递归遍历字典和列表，查找并收集所有时间框架。
+            """
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    # 关键匹配逻辑
+                    if key == 'apply_on' and isinstance(value, list):
+                        for tf in value:
+                            if tf: timeframes.add(str(tf))
+                    elif key in ['timeframe', 'tf'] and isinstance(value, (str, int)):
+                        if value: timeframes.add(str(value))
+                    
+                    # 继续向内层递归
+                    if isinstance(value, (dict, list)):
+                        _recursive_search(value)
             
-            # ▼▼▼【代码修改】: 使用更健壮的迭代方式代替不稳定的字符串检查 ▼▼▼
-            # 解释: 旧的 str(list) + "in" 检查方式可能因引号类型 (' vs ") 而失败。
-            #       新的逻辑定义了一个辅助函数，直接遍历列表，确保能准确识别所有在 'apply_on' 中声明的周期。
-            def _add_tfs_from_list(source_list):
-                """辅助函数，用于从列表中安全地添加时间框架到集合中"""
-                if isinstance(source_list, list):
-                    for tf in source_list:
-                        if tf: # 确保不添加空值
-                            timeframes.add(str(tf))
+            elif isinstance(data, list):
+                for item in data:
+                    # 继续向内层递归
+                    if isinstance(item, (dict, list)):
+                        _recursive_search(item)
 
-            if 'configs' in params: # 新的列表式配置
-                for sub_config in params.get('configs', []):
-                    _add_tfs_from_list(sub_config.get('apply_on'))
-            elif 'apply_on' in params: # 旧的单一配置
-                _add_tfs_from_list(params.get('apply_on'))
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        # 从配置的根节点开始进行全局递归搜索
+        _recursive_search(config)
 
-        # 2. 从具体的策略逻辑参数块中扫描 (这部分逻辑保持不变)
-        strategy_params = config.get('strategy_params', {}).get('trend_follow', {})
-        
-        vwap_params = strategy_params.get('vwap_confirmation_params', {})
-        if vwap_params.get('enabled', False):
-            timeframes.add(vwap_params.get('timeframe', '5'))
-
-        resonance_params = strategy_params.get('multi_level_resonance_params', {})
-        if resonance_params.get('enabled', False):
-            for level in resonance_params.get('levels', []):
-                if 'tf' in level:
-                    timeframes.add(level['tf'])
-        
-        # 3. 安全保障：如果配置了任何指标，至少应包含日线数据
-        #    因为周线和月线重采样依赖日线
-        if indicators_config:
+        # 安全保障：如果配置了任何指标，至少应包含日线数据，因为周/月线重采样依赖日线
+        if config.get('feature_engineering_params', {}).get('indicators'):
             timeframes.add('D')
 
-        # 移除可能存在的空字符串
+        # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
 
     async def prepare_data_for_strategy(
