@@ -103,6 +103,8 @@ class WeeklyTrendFollowStrategy:
         context_df['playbook_bias_rebound_W'] = playbook_bias_rebound
         context_df['washout_score_W'] = washout_score
         context_df['rejection_signal_W'] = rejection_signal
+        context_df['playbook_trix_cross_W'] = playbook_trix_cross
+        context_df['playbook_coppock_reversal_W'] = playbook_coppock_reversal
         
         print("\n---【周线战略层(V2.8) - 剧本计算总结】---")
         print(f"【剧本-MA20拐头】触发周数: {playbook_ma20_turn_up.sum()}")
@@ -111,6 +113,8 @@ class WeeklyTrendFollowStrategy:
         print(f"【剧本-稳定趋势】触发周数: {playbook_ma_uptrend.sum()}")
         print(f"【剧本-箱体突破】触发周数: {playbook_box_breakout.sum()}")
         print(f"【剧本-BIAS反弹】触发周数: {playbook_bias_rebound.sum()}")
+        print(f"【剧本-TRIX金叉】触发周数: {playbook_trix_cross.sum()}")
+        print(f"【剧本-Coppock反转】触发周数: {playbook_coppock_reversal.sum()}")
         print(f"【诊断-洗盘】有分数的周数: {(washout_score > 0).sum()} (最高分: {washout_score.max()})")
         print(f"【诊断-风险】有拒绝信号的周数: {(rejection_signal < 0).sum()}")
         
