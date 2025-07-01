@@ -23,11 +23,11 @@ class MultiTimeframeTrendStrategy:
         - 核心升级: 在初始化时深度合并战略和战术配置，形成统一的配置视图。
         - 解决方案: 确保数据准备服务能够看到所有引擎对所有时间周期的需求，从根源解决周期遗漏问题。
         """
-        self.tactical_config_path = 'config/trend_follow_strategy.json'
-        self.strategic_config_path = 'config/weekly_trend_follow_strategy.json'
+        tactical_config_path = 'config/trend_follow_strategy.json'
+        strategic_config_path = 'config/weekly_trend_follow_strategy.json'
         
-        tactical_config = load_strategy_config(self.tactical_config_path)
-        strategic_config = load_strategy_config(self.strategic_config_path)
+        self.tactical_config = load_strategy_config(tactical_config_path)
+        self.strategic_config = load_strategy_config(strategic_config_path)
 
         # ▼▼▼ 深度合并配置 ▼▼▼
         # 解释: 我们创建一个辅助函数 _deep_merge_configs 来智能地合并两个配置。
@@ -46,11 +46,11 @@ class MultiTimeframeTrendStrategy:
             return result
 
         # 创建一个统一的、合并后的配置
-        self.merged_config = _deep_merge_configs(tactical_config, strategic_config)
+        self.merged_config = _deep_merge_configs(self.tactical_config, self.strategic_config)
 
         self.indicator_service = IndicatorService()
-        self.strategic_engine = WeeklyTrendFollowStrategy(config=strategic_config) # 引擎本身仍使用自己的原始配置
-        self.tactical_engine = TrendFollowStrategy(config=tactical_config)
+        self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) # 引擎本身仍使用自己的原始配置
+        self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
 
         # 现在，让周期发现逻辑基于合并后的完整配置来运行
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
