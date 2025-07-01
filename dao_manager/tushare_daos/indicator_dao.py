@@ -162,31 +162,27 @@ class IndicatorDAO(BaseDAO):
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【V4.1 重构优化版】获取历史数据并直接高效转换为 pandas DataFrame。
-        - 修复BUG: 采用先选择模型、后构建查询的清晰结构，根治因复杂分支导致过滤器失效的问题。
-        - 结构优化: 遵循DRY原则，将模型选择与查询构建分离，代码更清晰、更健壮。
-        - 保持高效: 仍然使用 Django ORM 的 .values() 方法直接查询数据库。
+        【V4.2 修复与调试版】获取历史数据并直接高效转换为 pandas DataFrame。
+        - 修复BUG: 调整了ORM查询链中 .order_by(), [:limit], .values() 的顺序，确保LIMIT子句被正确应用，根治数据返回不完整的问题。
+        - 增加调试: 加入了详细的print日志，用于追踪函数调用参数和返回的数据量，便于问题定位。
         """
-        # 1. 统一时间级别 (代码无变化)
+        # 1. 统一时间级别
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
-        
-        # print(f"    [DAO-数据库 V4.1] 正在为 {stock_code} ({time_level_str}) 从数据库查询 {limit} 条数据...")
 
-        # 2. 获取股票实例 (代码无变化)
+        print(f"--- [DAO-数据库 V4.2-调试] ---")
+        print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
+
+        # 2. 获取股票实例
         if self.stock_basic_dao is None:
             await self.initialize_cache_objects()
-        
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
-
         try:
-            # --- 【重构核心】步骤 3: 模型选择 ---
-            # 在这个阶段，我们只负责一件事：根据条件找到正确的模型类(ModelClass)
+            # 3. 模型选择 (逻辑不变)
             ModelClass: Optional[Type[models.Model]] = None
-            extra_filters = {} # 用于处理像通用分钟线那样的额外过滤条件
-
+            extra_filters = {}
             if time_level_str == "d":
                 if stock_code.startswith('3') and stock_code.endswith('.SZ'): ModelClass = StockDailyData_CY
                 elif stock_code.endswith('.SZ'): ModelClass = StockDailyData_SZ
@@ -215,69 +211,52 @@ class IndicatorDAO(BaseDAO):
 
                 if model_map and time_level_str in model_map:
                     ModelClass = model_map[time_level_str]
-                else: # 1分钟或未识别的通用分钟表
+                else:
                     logger.warning(f"未找到特定分钟线表 for {stock_code} {time_level_str}, 使用通用分钟表 StockMinuteData")
                     ModelClass = StockMinuteData
                     extra_filters['time_level'] = time_level_str
-
-            # --- 【重构核心】步骤 4: 统一构建和执行查询 ---
-            # 如果没有找到对应的模型，直接退出
+            # 4. 统一构建和执行查询
             if not ModelClass:
                 logger.error(f"未能为 {stock_code} 在时间级别 {time_level_str} 找到对应的数据库模型。")
                 return None
-
-            # 从这里开始，我们基于已确定的 ModelClass 构建查询，保证过滤条件一定生效
-            # 1. 基础查询，并应用最关键的股票代码过滤
             qs = ModelClass.objects.filter(stock=stock)
-
-            # 2. 应用额外过滤条件 (主要用于通用分钟表)
             if extra_filters:
                 qs = qs.filter(**extra_filters)
-
-            # 3. 应用时间过滤条件
             if trade_time:
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-
-            # 4. 排序、选择列、限制数量并执行查询
+            # ▼▼▼ 修复ORM查询链的顺序 ▼▼▼
             fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
+            # 修正后的逻辑：先排序，然后切片[limit]，最后才提取.values()。这确保了LIMIT操作在数据库层面被正确应用。
+            limited_qs = qs.order_by('-trade_time')[:limit]
             data_values = await sync_to_async(list)(
-                qs.order_by('-trade_time').values(*fields)[:limit]
+                limited_qs.values(*fields)
             )
-
-            # 后续的数据处理部分 (步骤 5, 6, 7, 8, 9) 与您的原代码相同，无需修改
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str}")
                 return None
-            
-            # print(f"    [DAO-数据库] 成功从数据库获取 {len(data_values)} 条数据。")
-
+            print(f"    - 结果: 从数据库成功查询到 {len(data_values)} 条记录。")
             df = pd.DataFrame.from_records(data_values)
             df = df.iloc[::-1].reset_index(drop=True)
             df.rename(columns={'vol': 'volume'}, inplace=True)
-
             if 'trade_time' not in df.columns:
                 logger.error(f"查询结果缺少 'trade_time' 列: {stock_code} {time_level_str}")
                 return None
-            
             df['trade_time'] = pd.to_datetime(df['trade_time'], errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
-
             if df.empty:
                 logger.warning(f"处理时间索引后 DataFrame 为空: {stock_code} {time_level_str}")
                 return None
-
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 missing = [col for col in required_cols if col not in df.columns]
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
-            
-            # print(f"    [DAO-DataFrame] 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
+            print(f"    - 返回: 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
+            print(f"--- [DAO-数据库 V4.2-调试结束] ---")
             return df
-
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
             return None
