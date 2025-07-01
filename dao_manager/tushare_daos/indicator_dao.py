@@ -169,8 +169,8 @@ class IndicatorDAO(BaseDAO):
         # 1. 统一时间级别
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
 
-        print(f"--- [DAO-数据库 V4.2-调试] ---")
-        print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
+        # print(f"--- [DAO-数据库 V4.2-调试] ---")
+        # print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
 
         # 2. 获取股票实例
         if self.stock_basic_dao is None:
@@ -236,7 +236,7 @@ class IndicatorDAO(BaseDAO):
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str}")
                 return None
-            print(f"    - 结果: 从数据库成功查询到 {len(data_values)} 条记录。")
+            # print(f"    - 结果: 从数据库成功查询到 {len(data_values)} 条记录。")
             df = pd.DataFrame.from_records(data_values)
             df = df.iloc[::-1].reset_index(drop=True)
             df.rename(columns={'vol': 'volume'}, inplace=True)
@@ -254,8 +254,8 @@ class IndicatorDAO(BaseDAO):
                 missing = [col for col in required_cols if col not in df.columns]
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
-            print(f"    - 返回: 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
-            print(f"--- [DAO-数据库 V4.2-调试结束] ---")
+            # print(f"    - 返回: 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
+            # print(f"--- [DAO-数据库 V4.2-调试结束] ---")
             return df
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)

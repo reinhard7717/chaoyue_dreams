@@ -454,16 +454,42 @@ class IndicatorService:
         print(f"--- [数据准备V7.2-诊断版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
+    def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
+        """
+        解析指标配置，获取指定时间周期所需的最大计算周期。
+        """
+        max_period = 0
+        for indicator_key, params in config.items():
+            if not params.get('enabled', False) or timeframe_key not in params.get("apply_on", []):
+                continue
+            configs_to_process = params.get('configs', [params])
+            for sub_config in configs_to_process:
+                periods = sub_config.get('periods')
+                if periods is None: continue
+                flat_periods = []
+                if isinstance(periods, list):
+                    for p in periods:
+                        if isinstance(p, list): flat_periods.extend(p)
+                        elif isinstance(p, (int, float)): flat_periods.append(p)
+                elif isinstance(periods, (int, float)): flat_periods.append(periods)
+                if flat_periods: max_period = max(max_period, max(flat_periods))
+        return int(max_period * 1.2) if max_period > 0 else 1
+
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V5.4 健壮循环版】根据配置为指定时间周期计算所有技术指标。
-        - 核心重构: 彻底分离了用于计算的DataFrame副本和最终结果DataFrame，确保pandas_ta始终在标准的'close', 'open'等列上操作。
-        - 流程优化: 遵循“先计算，后合并，再统一处理后缀”的原则，解决了因列名提前修改导致的计算失败问题。
-        - 健壮性增强: 将try-except块移入指标计算的内层循环，确保单个指标的计算异常不会中断同一时间周期内其他指标的计算。
+        【V5.6 健壮合并与预检版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修复: 统一处理指标计算函数的返回值，无论是Series还是DataFrame都能正确合并，解决了 'Series' object has no attribute 'columns' 的问题。
+        - 新增功能: 在计算开始前，检查数据行数是否满足配置中的最大周期要求，若不满足则直接跳过，避免无效计算和日志污染。
         """
-        print(f"  [指标计算V5.4] 开始为周期 '{timeframe_key}' 计算指标...")
+        print(f"  [指标计算V5.6] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
+            return df
+
+        # ▼▼▼ 新增数据量预检逻辑 ▼▼▼
+        max_required_period = self._get_max_period_for_timeframe(config, timeframe_key)
+        if len(df) < max_required_period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过该周期的所有指标计算。")
             return df
 
         # 步骤1: 准备一个干净的、用于计算的副本，它只包含基础OHLCV列，且列名是标准的。
@@ -520,15 +546,12 @@ class IndicatorService:
                     periods = sub_config.get('periods')
 
                     def merge_results(result_data):
-                        if result_data is None or result_data.empty:
-                            return
-
-                        # 核心修复：检查返回类型，如果是Series，则转换为DataFrame
+                        """健壮地合并结果，无论输入是Series还是DataFrame。"""
+                        if result_data is None or result_data.empty: return
+                        # 核心逻辑：如果接收到的是Series，先转换为DataFrame
                         if isinstance(result_data, pd.Series):
-                            # Series.to_frame() 会将Series转换为一个单列的DataFrame
-                            # Series的名字将成为列名
                             result_data = result_data.to_frame()
-
+                        
                         if isinstance(result_data, pd.DataFrame):
                             for col in result_data.columns:
                                 df_for_calc[col] = result_data[col]
@@ -612,7 +635,7 @@ class IndicatorService:
             # 将结果列添加到主DataFrame中
             df_main[final_col_name] = df_for_calc[col]
         
-        print(f"  [指标计算V5.4] 周期 '{timeframe_key}' 指标计算完成。")
+        print(f"  [指标计算V5.6] 周期 '{timeframe_key}' 指标计算完成。")
         return df_main
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
