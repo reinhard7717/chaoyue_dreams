@@ -75,21 +75,25 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
         # 解释: 在成功保存信号后，立即调用DAO方法更新策略状态摘要表。
         # 这样可以确保摘要信息始终反映最新的信号情况。
         if save_count > 0:
-            # 从已生成的记录中获取策略名称和时间框架
-            strategy_name = db_records[0].get('strategy_name')
-            timeframe = db_records[0].get('timeframe')
+            # 步骤1: 找出所有需要更新状态的唯一信号类型
+            unique_signal_types = set()
+            for record in db_records:
+                strategy_name = record.get('strategy_name')
+                timeframe = record.get('timeframe')
+                if strategy_name and timeframe:
+                    unique_signal_types.add((strategy_name, timeframe))
             
-            if strategy_name and timeframe:
+            logger.info(f"[{stock_code}] 检测到 {len(unique_signal_types)} 种唯一的信号类型需要更新状态: {unique_signal_types}")
+
+            # 步骤2: 遍历每一种信号类型，并调用状态更新
+            for strategy_name, timeframe in unique_signal_types:
                 logger.info(f"[{stock_code}] 准备更新策略状态摘要 for strategy '{strategy_name}' on timeframe '{timeframe}'...")
-                # 调用异步的更新方法
                 async_to_sync(strategies_dao.update_strategy_state)(
                     stock_code=stock_code,
                     strategy_name=strategy_name,
                     timeframe=timeframe
                 )
-                logger.info(f"[{stock_code}] 策略状态摘要更新完成。")
-            else:
-                logger.warning(f"[{stock_code}] 无法从信号记录中提取 strategy_name 或 timeframe，跳过状态更新。")
+                logger.info(f"[{stock_code}] 策略 '{strategy_name}' ({timeframe}) 状态摘要更新完成。")
 
         return {"status": "success", "saved_count": save_count}
 
