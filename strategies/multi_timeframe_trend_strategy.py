@@ -18,24 +18,45 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V5.0 三级引擎架构版】
-        - 战略引擎 (周线): 由 WeeklyTrendFollowStrategy 执行，判断宏观趋势。
-        - 战术引擎 (日线): 由 TrendFollowStrategy 执行，寻找日线级别交易机会。
-        - 执行引擎 (分钟线): 在本类中实现，负责分钟线共振的精准择时。
+        【V5.1 统一配置版】
+        - 核心升级: 在初始化时深度合并战略和战术配置，形成统一的配置视图。
+        - 解决方案: 确保数据准备服务能够看到所有引擎对所有时间周期的需求，从根源解决周期遗漏问题。
         """
         self.tactical_config_path = 'config/trend_follow_strategy.json'
         self.strategic_config_path = 'config/weekly_trend_follow_strategy.json'
-        self.tactical_config = load_strategy_config(self.tactical_config_path)
-        self.strategic_config = load_strategy_config(self.strategic_config_path)
+        
+        tactical_config = load_strategy_config(self.tactical_config_path)
+        strategic_config = load_strategy_config(self.strategic_config_path)
+
+        # ▼▼▼【代码修改】: 核心修改点，深度合并配置 ▼▼▼
+        # 解释: 我们创建一个辅助函数 _deep_merge_configs 来智能地合并两个配置。
+        #       这确保了来自两个文件的指标要求 ('indicators') 等嵌套字典能够被合并，而不是简单地覆盖。
+        def _deep_merge_configs(base, merge):
+            """递归地深度合并两个字典。"""
+            result = deepcopy(base)
+            for key, value in merge.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = _deep_merge_configs(result[key], value)
+                # 特殊处理 'indicators' 字典，确保两个配置的指标都包含在内
+                elif key == 'indicators' and key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            return result
+
+        # 创建一个统一的、合并后的配置
+        self.merged_config = _deep_merge_configs(tactical_config, strategic_config)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         self.indicator_service = IndicatorService()
-        # ▼▼▼ 明确引擎的实例化 ▼▼▼
-        self.strategic_engine = WeeklyTrendFollowStrategy(config_path=self.strategic_config_path)
-        self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
+        self.strategic_engine = WeeklyTrendFollowStrategy(config=strategic_config) # 引擎本身仍使用自己的原始配置
+        self.tactical_engine = TrendFollowStrategy(config=tactical_config)
 
-        self.required_timeframes = self._get_all_required_timeframes()
-        # print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.0)] 初始化完成 ---")
-        # print(f"    - [总指挥] 已智能识别出策略依赖的所有时间框架: {sorted(list(self.required_timeframes))}")
+        # 现在，让周期发现逻辑基于合并后的完整配置来运行
+        self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
+        
+        print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.1)] 初始化完成 ---")
+        print(f"    - [总指挥] 已从【合并后】的配置中智能识别出所有周期: {sorted(list(self.required_timeframes))}")
 
     def _get_all_required_timeframes(self) -> Set[str]:
         """
@@ -67,8 +88,8 @@ class MultiTimeframeTrendStrategy:
 
         # --- 准备阶段: 统一获取所有周期数据 ---
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
-        all_dfs = await self.indicator_service.prepare_data_for_strategy(
-            stock_code=stock_code, config=self.tactical_config, trade_time=trade_time
+        all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
+            stock_code, self.merged_config, trade_date
         )
 
         if not all_dfs or 'D' not in all_dfs or 'W' not in all_dfs:
