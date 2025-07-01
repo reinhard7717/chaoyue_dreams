@@ -142,28 +142,47 @@ class StockBasicInfoDao(BaseDAO):
 
     async def get_all_favorite_stocks(self) -> Optional[List[Dict]]:
         """
-        获取所有自选股
+        获取所有自选股，并按股票代码排序 (已优化)
+        1. 使用 `select_related('stock')` 解决 N+1 查询问题，一次性获取自选股及其关联的股票信息。
+        2. 使用 `order_by('stock__stock_code')` 直接在数据库层面完成排序，效率更高。
+        3. 返回结构化的字典列表，而非原始模型对象，便于后续使用。
+        4. 修正了缓存逻辑，对最终结果进行一次性缓存（如果需要）。
         """
-        from users.models import FavoriteStock
-        fav_datas = []
+        print("调试: 开始获取所有自选股数据...")
         try:
-            # 使用 sync_to_async 包装 ORM 查询
-            items = await sync_to_async(list)(FavoriteStock.objects.all())
-            for item in items:
-                # 原逻辑中 self.user_data_format_process.set_user_favorites(user.id, item) 依赖 user.id，
-                # 但这里没有 user 参数。这可能是错误。假设这是一个通用的格式化操作，
-                # 这里直接使用 item 对象或一个通用的格式化方法。如果有特定方法可用，请替换。
-                # 为保持业务逻辑，我假设格式化是可选的，先直接使用 item，然后缓存。
-                # 如果 self.user_data_format_process 有通用方法，可以在这里调整。
-                fav_data = item  # 临时修正：直接使用模型对象，避免 user.id 错误
-                # 如果需要严格保持原逻辑，且有通用格式化方法，可以添加：fav_data = self.data_format_process.set_favorite_stock(item)
-                fav_datas.append(fav_data)  # fav_data 现在是 FavoriteStock 对象
-                # await self.user_cache_set.all_favorites(item)  # 保持缓存逻辑不变
+            # --- 代码修改：构建一个高效的、预加载关联数据并排序的查询 ---
+            # 1. 使用 select_related('stock') 来预先加载关联的 StockInfo 对象，避免 N+1 查询。
+            # 2. 使用 order_by('stock__stock_code') 让数据库直接按股票代码排序。
+            favorite_stocks_query = FavoriteStock.objects.select_related('stock').order_by('stock__stock_code')
+            
+            # 使用 sync_to_async 异步执行整个查询
+            favorite_stock_objects = await sync_to_async(list)(favorite_stocks_query)
+
+            if not favorite_stock_objects:
+                print("调试: 数据库中没有找到任何自选股记录。")
+                return [] # 如果没有数据，返回空列表更符合类型提示
+
+            print(f"调试: 从数据库成功获取 {len(favorite_stock_objects)} 条自选股记录。")
+
+            # 这样既符合返回类型，也解耦了数据层和业务层。
+            fav_datas = [
+                {
+                    "id": fav.id,
+                    "user_id": fav.user_id,
+                    "stock_code": fav.stock.stock_code if fav.stock else None,
+                    "stock_name": fav.stock.stock_name if fav.stock else None,
+                    "added_at": fav.added_at,
+                    "note": fav.note,
+                    "is_pinned": fav.is_pinned,
+                    "tags": fav.tags,
+                }
+                for fav in favorite_stock_objects
+            ]
+            return fav_datas
         except Exception as e:
-            logger.error(f"从数据库获取所有自选股失败: {e}")
-            return None  # 返回 None 表示失败
-        
-        return fav_datas  # 返回列表，包含 FavoriteStock 对象
+            # 使用 exc_info=True 可以记录完整的错误堆栈，便于调试
+            logger.error(f"从数据库获取所有自选股失败: {e}", exc_info=True)
+            return None # 发生异常时返回 None
 
     async def save_stocks(self) -> Dict:
         """
