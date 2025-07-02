@@ -404,6 +404,27 @@ class IndicatorService:
                     else:
                         logger.warning(f"    - [诊断日志] 4d. [警告] {target_tf} 线数据在处理后为空，已被丢弃！")
 
+        # 解释: 为了彻底排查分钟线数据的时间范围问题，我们在这里增加一个诊断块。
+        # 它会遍历所有已加载的分钟线周期，并打印其具体的起始和结束时间。
+        # 这将直观地验证我们对 `trade_time` 参数的修复是否生效。
+        print("\n" + "="*80)
+        print("--- [IndicatorService V7.4 终极诊断]: 检查所有已加载的分钟线DataFrame ---")
+        # 对字典键进行排序，可以保证每次输出的顺序一致，便于比较
+        # 使用一个key函数来正确排序数字字符串
+        sorted_keys = sorted(raw_dfs.keys(), key=lambda k: int(k) if k.isdigit() else float('inf'))
+        for tf in sorted_keys:
+            df = raw_dfs[tf]
+            # 只对分钟级别的数据进行诊断
+            if tf.isdigit():
+                print(f"  --- 周期: {tf} 分钟 ---")
+                if df is not None and not df.empty and isinstance(df.index, pd.DatetimeIndex):
+                    print(f"    - DataFrame 行数: {len(df)}")
+                    print(f"    - 起始时间: {df.index.min()}")
+                    print(f"    - 结束时间: {df.index.max()}")
+                else:
+                    print(f"    - 状态: 数据为空或索引无效")
+        print("="*80 + "\n")
+
         print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
         # --- 步骤 4: 为每个周期的数据独立计算指标 ---
