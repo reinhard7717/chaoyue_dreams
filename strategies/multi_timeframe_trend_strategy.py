@@ -2,6 +2,7 @@
 # 版本: V4.0 - 双引擎并行版 (日线决策 + 分钟共振)
 import asyncio
 from copy import deepcopy
+import json
 import logging
 from typing import Any, Dict, List, Optional, Set
 
@@ -19,10 +20,10 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V5.2 智能合并版】
-        - 核心升级: 实现了一个能理解配置文件结构的智能合并器，取代了通用的深度合并。
-        - 解决方案: 针对 'feature_engineering_params' 进行定制化合并，确保不同配置文件的指标需求被正确地“融合”而不是“覆盖”。
-                   特别是对 'indicators'，会将不同配置的需求（即使格式不同）统一为 'configs' 列表并拼接，形成一个完整的任务清单。
+        【V5.3 健壮合并版】
+        - 核心升级: 重写了 _merge_indicators 函数，采用更健壮、一致且无损的合并逻辑。
+        - 解决方案: 新逻辑确保无论是哪个配置文件中的指标，无论是何种配置格式（简单或configs列表），
+                   都会被统一、正确地标准化并合并到最终的 merged_config 中，从根源上解决了因配置合并不当导致的“缺少列”问题。
         """
         # 加载各自的配置文件
         tactical_config_path = 'config/trend_follow_strategy.json'
@@ -31,7 +32,7 @@ class MultiTimeframeTrendStrategy:
         self.tactical_config = load_strategy_config(tactical_config_path)
         self.strategic_config = load_strategy_config(strategic_config_path)
 
-        # ▼▼▼ 使用全新的、有针对性的合并逻辑 ▼▼▼
+        # ▼▼▼ 使用全新的、健壮的合并逻辑 ▼▼▼
         
         # 步骤1: 智能合并数据工程层的配置
         merged_fe_params = self._merge_feature_engineering_configs(
@@ -40,99 +41,110 @@ class MultiTimeframeTrendStrategy:
         )
 
         # 步骤2: 构建最终的合并后配置
-        # 以战术配置为基础，因为它包含了更复杂的 strategy_params 结构
         self.merged_config = deepcopy(self.tactical_config)
-        
-        # 将智能合并后的数据工程参数替换进去
         self.merged_config['feature_engineering_params'] = merged_fe_params
         
-        # 将战略配置中独有的顶层键（如 strategy_playbooks）也合并进来
         if 'strategy_playbooks' in self.strategic_config:
             self.merged_config['strategy_playbooks'] = deepcopy(self.strategic_config['strategy_playbooks'])
 
         # 初始化服务和引擎
         self.indicator_service = IndicatorService()
-        # 引擎本身仍使用自己的原始配置，因为它们只理解自己的剧本逻辑
         self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) 
         self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
 
-        # 现在，让周期发现逻辑基于【智能合并后】的完整配置来运行
+        # 周期发现逻辑基于【健壮合并后】的完整配置来运行
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
         
-        print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.2)] 初始化完成 ---")
-        print(f"    - [总指挥] 已通过【智能合并】识别出所有必需周期: {sorted(list(self.required_timeframes))}")
+        print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.3)] 初始化完成 ---")
+        print(f"    - [总指挥] 已通过【健壮合并】识别出所有必需周期: {sorted(list(self.required_timeframes))}")
+        # 打印合并后的部分关键指标配置以供调试
+        print("    - [调试] 合并后 TRIX 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('trix', {}), indent=2, ensure_ascii=False))
+        print("    - [调试] 合并后 Coppock 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('coppock', {}), indent=2, ensure_ascii=False))
+        print("    - [调试] 合并后 EMA 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('ema', {}), indent=2, ensure_ascii=False))
 
     def _merge_feature_engineering_configs(self, tactical_fe, strategic_fe):
         """
-        专门用于合并 feature_engineering_params 的辅助函数。
+        专门用于合并 feature_engineering_params 的辅助函数。(V5.3 无变化)
         """
-        # 以战术配置为基础进行深度拷贝
         merged = deepcopy(tactical_fe)
-        
-        # 1. 合并 base_needed_bars，取最大值
         merged['base_needed_bars'] = max(
             tactical_fe.get('base_needed_bars', 0),
             strategic_fe.get('base_needed_bars', 0)
         )
         
-        # 2. 智能合并 indicators
+        # ▼▼▼ 调用全新重写的 _merge_indicators 函数 ▼▼▼
         merged['indicators'] = self._merge_indicators(
             tactical_fe.get('indicators', {}),
             strategic_fe.get('indicators', {})
         )
         
+        
         return merged
 
     def _merge_indicators(self, tactical_indicators, strategic_indicators):
         """
-        智能合并两个指标配置字典。
-        核心逻辑：将不同配置中的同名指标需求进行范式化（统一为configs列表）和拼接。
+        【V5.3 健壮合并版】智能、一致且无损地合并两个指标配置字典。
         """
-        # 以战术指标为基础
-        merged = deepcopy(tactical_indicators)
+        merged = {}
+        # 获取两个配置中所有指标键的并集，确保一个不漏
+        all_keys = set(tactical_indicators.keys()) | set(strategic_indicators.keys())
 
-        # 遍历战略指标配置
-        for key, strategic_cfg in strategic_indicators.items():
-            if key not in merged:
-                # 如果该指标只在战略配置中，直接添加
-                merged[key] = strategic_cfg
-            else:
-                # 如果指标在两个配置中都存在，进行智能合并
-                tactical_cfg = merged[key]
+        def standardize_to_configs(cfg):
+            """辅助函数：将任何格式的指标配置标准化为 configs 列表格式。"""
+            if not cfg or not cfg.get('enabled', False):
+                return []
+            
+            # 如果已经是 configs 格式，直接返回
+            if 'configs' in cfg:
+                return deepcopy(cfg['configs'])
+            
+            # 如果是简单格式，转换为 configs 列表
+            if 'apply_on' in cfg:
+                sub_cfg = {'apply_on': cfg['apply_on']}
+                if 'periods' in cfg: sub_cfg['periods'] = cfg['periods']
+                if 'std_dev' in cfg: sub_cfg['std_dev'] = cfg['std_dev']
+                return [sub_cfg]
+            
+            return []
 
-                # 确保 'enabled' 在任一配置中为 true 时，最终为 true
-                merged[key]['enabled'] = tactical_cfg.get('enabled', False) or strategic_cfg.get('enabled', False)
+        for key in all_keys:
+            if key == '说明': continue
 
-                # --- 核心：标准化并合并 ---
-                # a. 将战术配置标准化为 'configs' 列表格式
-                tactical_sub_configs = []
-                if 'configs' in tactical_cfg:
-                    tactical_sub_configs = tactical_cfg['configs']
-                elif 'apply_on' in tactical_cfg: # 处理简单格式
-                    # 提取所有可能的参数
-                    sub_cfg = {'apply_on': tactical_cfg['apply_on']}
-                    if 'periods' in tactical_cfg: sub_cfg['periods'] = tactical_cfg['periods']
-                    if 'std_dev' in tactical_cfg: sub_cfg['std_dev'] = tactical_cfg['std_dev']
-                    tactical_sub_configs.append(sub_cfg)
+            tactical_cfg = tactical_indicators.get(key, {})
+            strategic_cfg = strategic_indicators.get(key, {})
 
-                # b. 将战略配置标准化为 'configs' 列表格式
-                strategic_sub_configs = []
-                if 'configs' in strategic_cfg:
-                    strategic_sub_configs = strategic_cfg['configs']
-                elif 'apply_on' in strategic_cfg: # 处理简单格式
-                    sub_cfg = {'apply_on': strategic_cfg['apply_on']}
-                    if 'periods' in strategic_cfg: sub_cfg['periods'] = strategic_cfg['periods']
-                    if 'std_dev' in strategic_cfg: sub_cfg['std_dev'] = strategic_cfg['std_dev']
-                    strategic_sub_configs.append(sub_cfg)
-                
-                # c. 拼接两个 'configs' 列表，形成完整的需求清单
-                merged[key]['configs'] = tactical_sub_configs + strategic_sub_configs
-                
-                # d. 清理掉旧的、可能引起混淆的键
-                merged[key].pop('periods', None)
-                merged[key].pop('apply_on', None)
-                merged[key].pop('std_dev', None)
-        
+            # 只要任意一个配置启用，最终就启用
+            is_enabled = tactical_cfg.get('enabled', False) or strategic_cfg.get('enabled', False)
+            if not is_enabled:
+                continue
+
+            # 标准化两个配置，得到它们的 configs 列表
+            tactical_sub_configs = standardize_to_configs(tactical_cfg)
+            strategic_sub_configs = standardize_to_configs(strategic_cfg)
+            
+            # 拼接两个列表，形成完整的需求清单
+            final_configs = tactical_sub_configs + strategic_sub_configs
+            
+            if not final_configs:
+                # 如果合并后没有有效的配置项（例如，都未启用或格式错误），则跳过
+                # 但保留其他顶层键，如 cyq_perf 的 enabled
+                if key in tactical_cfg or key in strategic_cfg:
+                     merged[key] = deepcopy(tactical_cfg)
+                     merged[key].update(deepcopy(strategic_cfg))
+                continue
+
+            # 构建最终的、干净的合并后配置
+            merged[key] = {
+                'enabled': True,
+                # 保留任一配置中的说明
+                '说明': tactical_cfg.get('说明', '') or strategic_cfg.get('说明', ''),
+                'configs': final_configs
+            }
+            # 特殊处理那些没有 configs 列表的配置，比如 cyq_perf
+            if not final_configs and 'enabled' in (tactical_cfg or strategic_cfg):
+                 merged[key] = {'enabled': is_enabled, '说明': merged[key]['说明']}
+
+
         return merged
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
