@@ -55,12 +55,12 @@ class MultiTimeframeTrendStrategy:
         # 周期发现逻辑基于【健壮合并后】的完整配置来运行
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
         
-        print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.3)] 初始化完成 ---")
-        print(f"    - [总指挥] 已通过【健壮合并】识别出所有必需周期: {sorted(list(self.required_timeframes))}")
+        # print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.3)] 初始化完成 ---")
+        # print(f"    - [总指挥] 已通过【健壮合并】识别出所有必需周期: {sorted(list(self.required_timeframes))}")
         # 打印合并后的部分关键指标配置以供调试
-        print("    - [调试] 合并后 TRIX 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('trix', {}), indent=2, ensure_ascii=False))
-        print("    - [调试] 合并后 Coppock 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('coppock', {}), indent=2, ensure_ascii=False))
-        print("    - [调试] 合并后 EMA 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('ema', {}), indent=2, ensure_ascii=False))
+        # print("    - [调试] 合并后 TRIX 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('trix', {}), indent=2, ensure_ascii=False))
+        # print("    - [调试] 合并后 Coppock 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('coppock', {}), indent=2, ensure_ascii=False))
+        # print("    - [调试] 合并后 EMA 配置:", json.dumps(self.merged_config['feature_engineering_params']['indicators'].get('ema', {}), indent=2, ensure_ascii=False))
 
     def _merge_feature_engineering_configs(self, tactical_fe, strategic_fe):
         """
