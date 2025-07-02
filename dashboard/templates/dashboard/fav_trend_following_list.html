@@ -1,6 +1,5 @@
 {% extends 'base.html' %}
 {% load static %}
-{% load tz %}
 {# 解释: 确保加载了我们自定义的模板标签模块 #}
 {% load dashboard_extras %}
 
@@ -91,7 +90,7 @@
                         <td>
                             {# 显示建仓时的信息 #}
                             {% if item.last_buy_time %}
-                                <strong>买入于: {{ item.last_buy_time|localtime|date:"Y-m-d H:i" }}</strong>
+                                <strong>买入于: {{ item.last_buy_time|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 {# ▼▼▼【代码修改】: 对策略名称应用翻译过滤器 ▼▼▼ #}
                                 <small>策略: {{ item.strategy_name|playbook_display }} ({{ item.time_level }})</small>
@@ -111,7 +110,7 @@
                                 {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                             {% else %}
                                 {# 否则，显示最新动态 #}
-                                <strong>最新: {{ item.latest_trade_time|localtime|date:"Y-m-d H:i" }}</strong>
+                                <strong>最新: {{ item.latest_trade_time|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>分数: {{ item.latest_score|floatformat:0 }}</small>
                             {% endif %}
