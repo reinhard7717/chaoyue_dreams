@@ -140,9 +140,9 @@ class StockTimeTradeDAO(BaseDAO):
             # 3. 将模型对象手动转换为字典，以便于在同步代码中使用
             # 这样可以精确控制返回的字段，避免序列化整个复杂对象
             return {
-                "trade_date": latest_quote_obj.trade_time.strftime('%Y-%m-%d'),
+                "trade_time": latest_quote_obj.trade_time.strftime('%Y-%m-%d'),
                 "close": float(latest_quote_obj.close),
-                "pct_chg": float(latest_quote_obj.pct_chg),
+                "pct_change": float(latest_quote_obj.pct_chg),
             }
         except Exception as e:
             logger.error(f"[DAO] 获取 {stock_code} 最新日线行情时发生错误: {e}", exc_info=True)
