@@ -194,7 +194,7 @@ class StockTimeTradeDAO(BaseDAO):
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         return result
 
-    async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date, start_date: date = None, end_date: date = None) -> Dict:
+    async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         保存指定日期区间的所有股票日线交易数据，自动分表 (完全向量化优化版)
         1. 一次性预加载所有股票信息，根除N+1查询。
