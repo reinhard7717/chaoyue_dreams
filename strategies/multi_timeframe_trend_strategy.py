@@ -4,6 +4,7 @@
 import asyncio
 from collections import defaultdict
 from copy import deepcopy
+from datetime import datetime
 import json
 import logging
 from typing import Any, Dict, List, Optional, Set
@@ -341,10 +342,13 @@ class MultiTimeframeTrendStrategy:
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
         signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
         trigger_tf = params['levels'][-1]['tf']
-        print(f"    - [时区诊断] 直接使用已带时区的UTC时间戳: {timestamp} (类型: {type(timestamp)}, 时区: {timestamp.tz})")
+        native_utc_datetime: datetime = timestamp.to_pydatetime()
+        
+        print(f"    - [数据准备] 准备数据库记录，已转换为原生datetime对象: {native_utc_datetime} (类型: {type(native_utc_datetime)})")
+
         record = {
             "stock_code": stock_code,
-            "trade_time": timestamp, # 修改: 直接使用原生的、已经是aware UTC的timestamp对象
+            "trade_time": native_utc_datetime, # 修改: 使用转换后的原生datetime对象
             "timeframe": trigger_tf,
             "strategy_name": signal_name,
             "close_price": sanitize_for_json(row.get('close')),
