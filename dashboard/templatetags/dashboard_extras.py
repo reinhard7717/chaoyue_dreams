@@ -1,21 +1,23 @@
-# dashboard/templatetags/dashboard_extras.py
+# 文件: dashboard/templatetags/dashboard_extras.py
+# 版本: V2.0 - 统一中文显示过滤器
+# 描述: 提供一个统一的模板过滤器，用于将所有内部英文ID转换为中文显示名称。
 
 from django import template
-# 从我们刚刚创建的映射模块中导入辅助函数
-from dashboard.playbook_mapping import get_playbook_display_name
+# ▼▼▼【代码修改】: 导入我们刚刚创建的翻译字典 ▼▼▼
+from utils.display_maps import DISPLAY_MAP
 
-# 实例化一个 template.Library，用于注册我们的自定义标签和过滤器
 register = template.Library()
 
 @register.filter(name='playbook_display')
-def playbook_display(playbook_key):
+def playbook_display(value):
     """
-    一个自定义模板过滤器。
-    用法: {{ playbook_key|playbook_display }}
-    它会接收一个剧本的英文key，并返回其对应的中文名称。
+    一个统一的翻译过滤器。
+    接收一个英文ID (可能是策略名或剧本名)，
+    在DISPLAY_MAP中查找对应的中文名。
+    如果找不到，则返回原始值，以确保显示不会中断。
     """
-    # 如果传入的 key 是空的或 None，直接返回空字符串
-    if not playbook_key:
-        return ""
-    # 调用我们之前写好的函数来获取显示名称
-    return get_playbook_display_name(playbook_key)
+    # 解释: 使用.get(key, default)方法可以安全地获取值。
+    # 如果value在字典中不存在，它会返回默认值，这里我们让默认值就是value本身。
+    return DISPLAY_MAP.get(value, value)
+
+# ▲▲▲【代码修改】: 修改结束 ▲▲▲

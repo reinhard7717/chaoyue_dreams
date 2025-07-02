@@ -36,14 +36,12 @@
         color: #0277bd;
         border: 1px solid #b3e5fc;
     }
-    /* ▼▼▼【代码新增】: 为分钟级火箭信号增加专属样式 ▼▼▼ */
     .playbook-tag.rocket-signal {
         background-color: #ffebee; /* 淡红色 */
         color: #c62828;
         font-weight: bold;
         border: 1px solid #ffcdd2;
     }
-    /* ▲▲▲【代码新增】: 新增结束 ▲▲▲ */
 </style>
 {% endblock %}
 
@@ -55,7 +53,7 @@
             <ul>
                 <li><a href="{% url 'users:home' %}">主控台</a></li>
                 <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">策略监控中心</a></li>
-                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选-日线</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
                 <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
                 <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li>
             </ul>
@@ -89,7 +87,7 @@
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
-                            <strong>{{ item.strategy_name }}</strong>
+                            <strong>{{ item.strategy_name|playbook_display }}</strong>
                             <br>
                             <small>周期: {{ item.time_level }}</small>
                         </td>
@@ -105,7 +103,7 @@
                                             <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
                                         {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
                                             <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                        {% elif '【专家剧本】' in playbook_display_name %}
+                                        {% elif '【专家】' in playbook_display_name %}
                                             <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
                                         {% else %}
                                             <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
@@ -117,13 +115,14 @@
                                 -
                             {% endif %}
                         </td>
-                        {# 字段名修正：根据模型定义，应为 latest_trade_time #}
                         <td>{{ item.latest_trade_time|localtime|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|localtime|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|localtime|date:"Y-m-d H:i"|default:"-" }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    {# ▼▼▼【代码修改】: 修正表格列数，确保空状态下布局正确 ▼▼▼ #}
+                    <tr><td colspan="7" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                     {% endfor %}
                 </tbody>
             </table>
