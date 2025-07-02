@@ -192,6 +192,44 @@ class TradeCalendar(models.Model):
         print(f"调试: 找到 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
         return trade_dates_list
 
+    @classmethod
+    def is_trade_day(cls, date_to_check: datetime.date | datetime) -> bool: # type: ignore
+        """
+        检查指定日期是否为交易日。
+        该方法会查询数据库中是否存在该日期的记录，并且is_open字段为True。
+        对于A股市场，上交所和深交所的交易日历通常是一致的，
+        因此只要数据库中存在任一交易所的当天记录为交易日，即返回True。
+
+        :param date_to_check: 需要检查的日期，可以是 date 类型或 datetime 类型。
+        :return: 如果是交易日则返回 True，否则返回 False。
+        """
+        # 调试信息：打印传入的参数
+        print(f"开始检测日期: {date_to_check}, 类型: {type(date_to_check)}")
+
+        check_date = None
+        # 判断传入参数的类型，并进行相应处理
+        if isinstance(date_to_check, datetime):
+            # 如果是datetime类型，则提取其日期部分
+            check_date = date_to_check.date()
+        elif isinstance(date_to_check, datetime.date):
+            # 如果本身就是date类型，则直接使用
+            check_date = date_to_check
+        else:
+            # 如果传入了非日期或时间类型的参数，则直接返回False
+            print(f"错误：传入了无效的参数类型: {type(date_to_check)}")
+            return False
+
+        # 使用Django ORM进行查询
+        # .filter() 筛选出符合条件的记录：日历日期为指定日期，且is_open为True
+        # .exists() 是一个高效的查询方法，它不返回实际的对象，只检查是否存在这样的记录。
+        # 这比 .get() 或 .first() 更快，因为它在数据库层面执行 SELECT EXISTS(...) 查询。
+        is_open = cls.objects.filter(cal_date=check_date, is_open=True).exists()
+
+        # 调试信息：打印查询结果
+        print(f"查询日期 {check_date} 的交易状态为: {is_open}")
+
+        return is_open
+
     class Meta:
         db_table = 'trade_calendar'
         verbose_name = '交易日历'

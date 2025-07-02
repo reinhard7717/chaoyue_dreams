@@ -5,15 +5,16 @@ import datetime
 from django.utils import timezone
 import time
 from typing import List
+from django.db.models.functions import TruncDate
 
 from tushare.util.dateu import today
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
-from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from stock_models.stock_basic import StockInfo
+from stock_models.time_trade import StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_5_SZ, StockMinuteData_60_SZ, StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC, StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
@@ -985,8 +986,80 @@ def save_stocks_month_data_history_task(self, batch_size: int = 50): # 限量：
 
 
 
+#  ================ 清理非交易日数据任务 ================
 
+# 将所有需要清理的模型统一放入一个列表中，方便遍历和维护
+# 这样做的好处是，未来如果新增了类似的模型，只需要在这里添加即可
+DATA_MODELS_TO_CLEAN = [
+    # 分钟数据模型
+    StockMinuteData_5_SZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_60_SZ,
+    StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH,
+    StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
+    StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY,
+    StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC,
+    # 日线数据模型
+    StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
+]
 
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.cleanup_non_trade_day_data', queue='celery')
+def cleanup_non_trade_day_data():
+    """
+    一个Celery任务，用于清理所有股票数据表中在非交易日产生的无效数据。
+    任务会遍历所有指定的数据模型，高效地找出并删除这些记录。
+    """
+    print("开始执行【清理非交易日数据】任务...")
+    total_deleted_count = 0
+
+    # 1. 首先，从交易日历中获取所有非交易日的日期集合，这样后续可以快速判断
+    # 为了优化，我们只查询一次数据库获取所有休市日的日历
+    all_non_trade_dates = set(
+        TradeCalendar.objects.filter(is_open=False).values_list('cal_date', flat=True)
+    )
+    print(f"已从交易日历加载 {len(all_non_trade_dates)} 个休市日期。")
+
+    # 2. 遍历每一个需要清理的数据模型
+    for model in DATA_MODELS_TO_CLEAN:
+        model_name = model._meta.verbose_name_plural or model.__name__
+        table_name = model._meta.db_table
+        print(f"\n--- 正在处理模型: {model_name} (数据表: {table_name}) ---")
+
+        # 3. 从当前数据表中提取所有唯一的日期
+        # 使用 TruncDate 将 DateTimeField 转换为 DateField 进行分组，这对于分钟数据模型至关重要
+        # .distinct() 确保我们只获取唯一的日期列表，大大减少后续处理的数据量
+        dates_in_table = set(
+            model.objects.annotate(trade_date=TruncDate('trade_time'))
+            .values_list('trade_date', flat=True)
+            .distinct()
+        )
+
+        if not dates_in_table:
+            print(f"数据表 {table_name} 中没有数据，跳过。")
+            continue
+        
+        print(f"在表 {table_name} 中发现 {len(dates_in_table)} 个唯一日期。")
+
+        # 4. 计算出需要被删除的日期（即存在于数据表中的日期，同时也是我们已知的休市日期）
+        # 使用集合的交集运算 (&)，效率极高
+        dates_to_delete = dates_in_table & all_non_trade_dates
+
+        if not dates_to_delete:
+            print(f"在表 {table_name} 中未发现任何非交易日数据，无需清理。")
+            continue
+
+        print(f"在表 {table_name} 中发现 {len(dates_to_delete)} 个非交易日需要清理: {sorted(list(dates_to_delete))}")
+
+        # 5. 批量删除所有在这些非交易日的记录
+        # 这是最关键的一步，使用 __date__in 过滤器进行批量删除，避免逐条删除，性能极高
+        # .delete() 方法会返回一个元组，第一个元素是删除的记录总数
+        deleted_info = model.objects.filter(trade_time__date__in=dates_to_delete).delete()
+        deleted_count = deleted_info[0]
+        total_deleted_count += deleted_count
+
+        print(f"成功从 {table_name} 中删除了 {deleted_count} 条非交易日记录。")
+
+    print(f"\n--- 任务执行完毕 ---")
+    print(f"总共删除了 {total_deleted_count} 条非交易日记录。")
+    return f"任务完成，总共删除 {total_deleted_count} 条记录。"
 
 
 
