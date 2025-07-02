@@ -261,6 +261,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
             return None
 
+
     # ▼▼▼【 新增行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
