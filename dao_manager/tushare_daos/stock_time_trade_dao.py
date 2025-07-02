@@ -228,7 +228,6 @@ class StockTimeTradeDAO(BaseDAO):
                 logger.warning(f"offset已达10万，停止拉取。{start_date_str} - {end_date_str}, freq=Day")
                 break
             
-            print(f"正在拉取第 {page_num} 页日线数据... offset={offset}")
             df = self.ts_pro.stk_factor(
                 **{
                     "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str,
@@ -241,7 +240,6 @@ class StockTimeTradeDAO(BaseDAO):
                 ]
             )
             if df.empty:
-                print("拉取结束，未返回更多数据。")
                 break
 
             # --- 对整页DataFrame进行向量化处理，彻底替代for循环 ---
@@ -670,14 +668,11 @@ class StockTimeTradeDAO(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。{stock_code}, time_level={time_level}min")
                 break
-            
-            print(f"正在拉取第 {page_num} 页分钟线数据... offset={offset}")
             df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_code, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
             
             if df.empty:
-                print("拉取结束，未返回更多数据。")
                 break
 
             # --- 对整页DataFrame进行向量化处理，替代for循环 ---
@@ -1152,8 +1147,6 @@ class StockTimeTradeDAO(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
                 break
-            
-            print(f"正在拉取第 {page_num} 页日线基本数据... offset={offset}")
             df = self.ts_pro.daily_basic(**{
                 "ts_code": stock_codes_str, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
@@ -1161,7 +1154,6 @@ class StockTimeTradeDAO(BaseDAO):
                 "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
             ])
             if df.empty:
-                print("拉取结束，未返回更多数据。")
                 break
 
             # --- 对整页DataFrame进行向量化处理，替代for循环 ---
@@ -1272,7 +1264,6 @@ class StockTimeTradeDAO(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"每日筹码及胜率 offset已达10万，停止拉取。")
                 break
-            print(f"正在拉取第 {page_num} 页数据... offset={offset}, limit={limit}")
             df = self.ts_pro.cyq_perf(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
@@ -1280,7 +1271,6 @@ class StockTimeTradeDAO(BaseDAO):
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
             if df.empty:
-                print("拉取结束，未返回更多数据。")
                 break
             # --- 对当前页的DataFrame进行高效的向量化处理 ---
             # 1. 数据清洗
