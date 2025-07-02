@@ -221,7 +221,7 @@ class IndicatorDAO(BaseDAO):
                 return None
 
             model_name = ModelClass._meta.db_table
-            print(f"    - 模型选择: 将从表 '{model_name}' 中查询数据。")
+            # print(f"    - 模型选择: 将从表 '{model_name}' 中查询数据。")
 
             qs = ModelClass.objects.filter(stock=stock)
             if extra_filters:
@@ -240,7 +240,7 @@ class IndicatorDAO(BaseDAO):
                 limited_qs.values(*fields)
             )
 
-            # print(f"    - 查询结果: 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
+            print(f"    - 查询结果: 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
 
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")

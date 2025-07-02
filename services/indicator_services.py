@@ -486,9 +486,7 @@ class IndicatorService:
         - 核心修复: 修正了V5.7版本中错误的合并逻辑，确保基础OHLCV列（如 high, close）也能被正确添加后缀（如 high_W, close_W），彻底解决下游策略的 'KeyError' 问题。
         - 保持健壮: 保留了V5.7引入的对Series返回值的健壮处理和数据量预检功能。
         """
-        # ▼▼▼【代码修改】: 版本号和日志信息更新 ▼▼▼
-        print(f"  [指标计算V5.8] 开始为周期 '{timeframe_key}' 计算指标...")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        # print(f"  [指标计算V5.8] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
