@@ -386,6 +386,15 @@ class IndicatorService:
         # --- 步骤 3.5: 执行重采样 ---
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
+
+            if not df_daily.empty and isinstance(df_daily.index, pd.DatetimeIndex):
+                print("\n" + "="*80)
+                print("--- [IndicatorService V7.3 终极诊断]: 检查用于重采样的日线DataFrame ---")
+                print(f"    - DataFrame 行数: {len(df_daily)}")
+                print(f"    - 起始日期: {df_daily.index.min()}")
+                print(f"    - 结束日期: {df_daily.index.max()}")
+                print("="*80 + "\n")
+
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
                     print(f"    - [诊断日志] 4a. 开始从日线重采样生成 {target_tf} 线数据...")
