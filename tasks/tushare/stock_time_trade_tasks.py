@@ -1063,7 +1063,7 @@ def cleanup_non_trade_day_data(self):
             print(f"在表 {table_name} 中未发现任何非交易日数据，无需清理。")
             continue
 
-        print(f"在表 {table_name} 中发现 {len(dates_to_delete)} 个非交易日需要清理: {sorted(list(dates_to_delete))}")
+        print(f"在表 {table_name} 中发现 {len(dates_to_delete)} 个非交易日需要清理") # .: {sorted(list(dates_to_delete))}
 
         # --- 修改/新增代码开始 ---
         # 6. 根据字段类型，使用正确的过滤器进行批量删除
