@@ -1013,7 +1013,7 @@ def cleanup_non_trade_day_data(self):
     # 1. 首先，从交易日历中获取所有非交易日的日期集合，这样后续可以快速判断
     # 为了优化，我们只查询一次数据库获取所有休市日的日历
     all_non_trade_dates = set(
-        TradeCalendar.objects.filter(is_open=False).values_list('cal_date', flat=True)
+        TradeCalendar.objects.filter(is_open=0).values_list('cal_date', flat=True)
     )
     print(f"已从交易日历加载 {len(all_non_trade_dates)} 个休市日期。")
 
