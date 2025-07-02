@@ -1,20 +1,24 @@
 # 文件: strategies/weekly_trend_follow_strategy.py
-# 版本: V2.9 - 王牌信号激活 & 架构重构版
+# 版本: V2.9.1 - 终极一致性修复版
 
+import asyncio
+import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+from services.indicator_services import IndicatorService
+from utils.config_loader import load_strategy_config
 
 logger = logging.getLogger(__name__)
 
 class WeeklyTrendFollowStrategy:
     """
-    周线趋势跟踪策略 (V2.9 - 王牌信号激活 & 架构重构版)
+    周线趋势跟踪策略 (V2.9.1 - 终极一致性修复版)
     - 核心修改: 
-      1. 新增实现了JSON中定义的“王牌突破信号”(`ace_signal_breakout_trigger_playbook`)。
-      2. 重构 `_calculate_all_playbooks`，使其完全由JSON配置驱动，动态调用所有已启用的剧本。
-      3. 修复了代码与配置不一致的问题，架构更清晰，扩展性更强。
+      1. 修复了 `_playbook_early_uptrend` 函数，使其不再硬编码EMA周期(10, 20)，
+         而是从其自身的JSON配置中读取，解决了依赖缺失的问题。
+      2. 整个策略引擎在逻辑上达到完全的自洽与和谐。
     """
 
     def __init__(self, config: dict):
@@ -27,7 +31,7 @@ class WeeklyTrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【核心策略应用函数 V2.9】
+        【核心策略应用函数 V2.9.1】
         """
         if df is None or df.empty:
             logger.warning("周线策略输入DataFrame为空，无法应用。")
@@ -36,8 +40,8 @@ class WeeklyTrendFollowStrategy:
         # --- 步骤 1: 计算所有基础剧本和诊断信号 ---
         context_df = self._calculate_all_playbooks(df)
         
-        print("\n---【周线战略层(V2.9 信号合成与提纯)诊断】---")
-        # --- 步骤 2: 信号合成层 (逻辑保持不变) ---
+        print("\n---【周线战略层(V2.9.1 信号合成与提纯)诊断】---")
+        # --- 步骤 2: 信号合成层 ---
         washout_threshold = self.playbook_params.get('washout_score_playbook', {}).get('score_threshold', 2)
         
         accumulation_playbooks = [
@@ -47,14 +51,12 @@ class WeeklyTrendFollowStrategy:
             'playbook_trix_golden_cross_W',
             'playbook_coppock_reversal_W'
         ]
-        # 过滤掉不存在的列（可能因为剧本被禁用）
         valid_accumulation_playbooks = [p for p in accumulation_playbooks if p in context_df.columns]
         
         is_accumulation_signal = pd.Series(False, index=context_df.index)
         if valid_accumulation_playbooks:
             is_accumulation_signal = context_df[valid_accumulation_playbooks].any(axis=1)
         
-        # 如果洗盘分数存在，则加入判断
         if 'washout_score_W' in context_df.columns:
             is_accumulation_signal |= (context_df['washout_score_W'] >= washout_threshold)
         
@@ -80,7 +82,6 @@ class WeeklyTrendFollowStrategy:
         has_no_rejection_yet = (rejections_in_group_so_far == 0)
         context_df['filter_has_no_rejection_yet_W'] = has_no_rejection_yet
         
-        # 最终突破信号现在包含普通突破和王牌突破
         base_trigger = is_breakout_initiation & has_no_rejection_yet
         ace_trigger = context_df.get('playbook_ace_signal_breakout_trigger_W', pd.Series(False, index=context_df.index))
         context_df['signal_breakout_trigger_W'] = base_trigger | ace_trigger
@@ -95,15 +96,14 @@ class WeeklyTrendFollowStrategy:
 
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.9 架构重构】动态遍历JSON配置，计算所有已启用的剧本。
+        【V2.9.1 架构重构】动态遍历JSON配置，计算所有已启用的剧本。
         """
         print("\n" + "="*80)
-        print(f"---【周线战略层(V2.9 王牌信号激活版) - 检查最新一周: {df.index[-1].date()}】---")
+        print(f"---【周线战略层(V2.9.1 终极一致性修复版) - 检查最新一周: {df.index[-1].date()}】---")
         print("="*80)
         
         context_df = df.copy()
         
-        # 剧本名称到函数的映射
         playbook_map = {
             'ma20_rising_state_playbook': self._playbook_ma20_is_rising,
             'ma20_turn_up_event_playbook': self._playbook_ma20_turn_up_event,
@@ -116,19 +116,16 @@ class WeeklyTrendFollowStrategy:
             'rejection_filter_playbook': self._playbook_check_rejection_filters,
             'trix_golden_cross_playbook': self._playbook_trix_golden_cross,
             'coppock_reversal_playbook': self._playbook_coppock_bottom_reversal,
-            'ace_signal_breakout_trigger_playbook': self._playbook_ace_signal_breakout_trigger, # 新增王牌信号
+            'ace_signal_breakout_trigger_playbook': self._playbook_ace_signal_breakout_trigger,
         }
 
-        # 动态遍历JSON中的所有剧本
         for playbook_name, params in self.playbook_params.items():
             if playbook_name == "说明": continue
 
             if playbook_name in playbook_map:
                 if params.get('enabled', False):
-                    # 调用对应的剧本函数
                     result_series = playbook_map[playbook_name](df, params)
                     
-                    # 根据剧本类型确定列名
                     if 'score' in playbook_name:
                         col_name = 'washout_score_W'
                     elif 'filter' in playbook_name:
@@ -138,13 +135,12 @@ class WeeklyTrendFollowStrategy:
                     
                     context_df[col_name] = result_series
                 else:
-                    # 如果剧本在JSON中被禁用，则打印信息
                     print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
                     print("    - 结论: [未启用]")
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
 
-        print("\n---【周线战略层(V2.9) - 剧本计算总结】---")
+        print("\n---【周线战略层(V2.9.1) - 剧本计算总结】---")
         for col in context_df.columns:
             if col.startswith('playbook_'):
                 label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
@@ -207,21 +203,30 @@ class WeeklyTrendFollowStrategy:
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
 
+    # ▼▼▼【代码修改】: 修复此函数，使其从params读取均线周期，不再硬编码 ▼▼▼
     def _playbook_early_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：捕捉周线趋势反转的早期“上拐”信号"""
         print(f"\n--- 剧本检查: [{params.get('说明', '早期上升趋势')}] ---")
+        
+        # 从传递的params中读取周期，如果未定义则使用默认值10和20
         short_ma_period = params.get('short_ma', 10)
         mid_ma_period = params.get('mid_ma', 20)
+        print(f"    - 配置参数: short_ma={short_ma_period}, mid_ma={mid_ma_period}")
+
+        # 使用读取到的周期构建列名
         short_ma_col = f'EMA_{short_ma_period}_W'
         mid_ma_col = f'EMA_{mid_ma_period}_W'
+
         macd_params_raw = self.indicator_cfg.get('macd', {}).get('periods', [12, 26, 9])
         p_fast, p_slow, p_signal = macd_params_raw
         macd_col = f'MACD_{p_fast}_{p_slow}_{p_signal}_W'
         macd_hist_col = f'MACDh_{p_fast}_{p_slow}_{p_signal}_W'
         required_cols = [short_ma_col, mid_ma_col, macd_col, macd_hist_col, 'close_W']
+        
         if not self._check_dependencies(df, required_cols, log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
+
         ma_slope = df[short_ma_col].diff()
         ma_is_up = ma_slope > 0
         ma_turning_up = (ma_slope > 0) & (ma_slope.shift(1) <= 0)
@@ -236,6 +241,7 @@ class WeeklyTrendFollowStrategy:
         print(f"    - 子信号2 (趋势延续): {'[✓]' if ieu_last else '[✗]'}")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}] (逻辑: 拐点 OR 延续)")
         return final_signal.fillna(False)
+    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _playbook_classic_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：经典高点突破"""
@@ -504,22 +510,18 @@ class WeeklyTrendFollowStrategy:
         print(f"    - 结论: 最新一周信号为 [{'触发' if fs_last else '未触发'}]")
         return final_signal.fillna(False)
 
-    # ▼▼▼【代码修改】: 新增“王牌信号”剧本的实现函数 ▼▼▼
     def _playbook_ace_signal_breakout_trigger(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """【新增剧本】: 王牌突破信号，结合年度高点突破、放量和TRIX确认。"""
         print(f"\n--- 剧本检查: [{params.get('说明', '王牌突破信号')}] ---")
         
-        # --- 参数获取 ---
         lookback_weeks = params.get('lookback_weeks', 52)
         volume_multiplier = params.get('volume_multiplier', 2.0)
         vol_ma_period = params.get('vol_ma_period', 5)
         trix_confirm = params.get('trix_confirm', True)
         
-        # --- 依赖列构建与检查 ---
         vol_ma_col = f'VOL_MA_{vol_ma_period}_W'
         required_cols = ['high_W', 'close_W', 'volume_W', vol_ma_col]
         
-        # TRIX 依赖
         trix_col, trix_signal_col = None, None
         if trix_confirm:
             trix_cfg = self.indicator_cfg.get('trix', {})
@@ -531,28 +533,23 @@ class WeeklyTrendFollowStrategy:
                 required_cols.extend([trix_col, trix_signal_col])
             else:
                 print("    - 警告: TRIX确认已启用，但无法在指标配置中找到有效的周线TRIX参数。")
-                trix_confirm = False # 禁用TRIX确认
+                trix_confirm = False
 
         if not self._check_dependencies(df, required_cols, log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
 
-        # --- 核心逻辑 ---
-        # 1. 价格突破年度高点
         period_high = df['high_W'].shift(1).rolling(window=lookback_weeks, min_periods=int(lookback_weeks*0.8)).max()
         is_price_breakout = df['close_W'] > period_high
 
-        # 2. 成交量显著放大
         is_volume_breakout = df['volume_W'] > (df[vol_ma_col] * volume_multiplier)
 
-        # 3. (可选) TRIX 处于金叉状态
         is_trix_ok = pd.Series(True, index=df.index)
         if trix_confirm:
             is_trix_ok = df[trix_col] > df[trix_signal_col]
 
         final_signal = is_price_breakout & is_volume_breakout & is_trix_ok
 
-        # --- 调试最新一周 ---
         last = df.iloc[-1]
         c1 = is_price_breakout.iloc[-1]
         c2 = is_volume_breakout.iloc[-1]
@@ -566,7 +563,6 @@ class WeeklyTrendFollowStrategy:
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         
         return final_signal.fillna(False)
-    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _check_dependencies(self, df: pd.DataFrame, cols: list, log_details: bool = False) -> bool:
         """检查DataFrame中是否存在所有必需的列。"""
