@@ -43,7 +43,7 @@ async def _get_all_relevant_stock_codes_for_processing():
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
         if favorite_stocks is not None:
             for fav in favorite_stocks:
-                code = str(fav.stock_id)
+                code = str(fav.get("stock_code"))
                 favorite_stock_codes.add(code)
             # logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
     except Exception as e:
