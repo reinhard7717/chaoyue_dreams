@@ -162,16 +162,14 @@ class IndicatorDAO(BaseDAO):
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【V4.3 终极调试版】获取历史数据并直接高效转换为 pandas DataFrame。
-        - 核心调试: 在函数执行的关键节点添加了强制 print 输出，用于追踪从数据库返回的原始记录数和最终生成的DataFrame行数，以定位数据丢失问题。
+        【V4.4 精确定位版】获取历史数据并直接高效转换为 pandas DataFrame。
+        - 核心升级: 日志中明确打印出本次查询将要使用的数据库模型/表名，解决了因异步导致日志混淆的问题，可以精确定位到是哪个表的查询出了问题。
         """
         # 1. 统一时间级别
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
 
-        # ▼▼▼【代码修改】: 增加强制调试打印信息 ▼▼▼
-        print(f"\n--- [DAO-数据库 V4.3-调试开始] ---")
+        print(f"\n--- [DAO-数据库 V4.4-调试开始] ---")
         print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # 2. 获取股票实例
         if self.stock_basic_dao is None:
@@ -181,7 +179,7 @@ class IndicatorDAO(BaseDAO):
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
         try:
-            # 3. 模型选择 (逻辑不变)
+            # 3. 模型选择
             ModelClass: Optional[Type[models.Model]] = None
             extra_filters = {}
             if time_level_str == "d":
@@ -216,14 +214,24 @@ class IndicatorDAO(BaseDAO):
                     logger.warning(f"未找到特定分钟线表 for {stock_code} {time_level_str}, 使用通用分钟表 StockMinuteData")
                     ModelClass = StockMinuteData
                     extra_filters['time_level'] = time_level_str
+            
             # 4. 统一构建和执行查询
             if not ModelClass:
                 logger.error(f"未能为 {stock_code} 在时间级别 {time_level_str} 找到对应的数据库模型。")
                 return None
+
+            # ▼▼▼【代码修改】: 增加模型/表名打印，实现精确定位 ▼▼▼
+            model_name = ModelClass._meta.db_table
+            print(f"    - 模型选择: 将从表 '{model_name}' 中查询数据。")
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
             qs = ModelClass.objects.filter(stock=stock)
             if extra_filters:
                 qs = qs.filter(**extra_filters)
             if trade_time:
+                # 注意：这里假设您的 trade_time 字段在所有表中都是 trade_time
+                # 如果日线/周线/月线表中使用的是 trade_date，需要调整
+                # 为保持兼容性，我们假设所有表都有 trade_time
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
@@ -234,12 +242,12 @@ class IndicatorDAO(BaseDAO):
                 limited_qs.values(*fields)
             )
             
-            # ▼▼▼【代码修改】: 增加强制调试打印信息 ▼▼▼
-            print(f"    - 结果: 从数据库成功查询到 {len(data_values)} 条原始记录。")
+            # ▼▼▼【代码修改】: 在结果打印中也加入模型/表名 ▼▼▼
+            print(f"    - 查询结果: 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
             # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
             if not data_values:
-                logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str}")
+                logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")
                 return None
             
             df = pd.DataFrame.from_records(data_values)
@@ -260,9 +268,9 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
             
-            # ▼▼▼【代码修改】: 增加强制调试打印信息 ▼▼▼
-            print(f"    - 返回: 成功生成DataFrame，最终返回 {len(df)} 行。")
-            print(f"--- [DAO-数据库 V4.3-调试结束] ---\n")
+            # ▼▼▼【代码修改】: 在最终返回打印中也加入模型/表名 ▼▼▼
+            print(f"    - 数据返回: 成功为 '{model_name}' 生成DataFrame，最终返回 {len(df)} 行。")
+            print(f"--- [DAO-数据库 V4.4-调试结束 for {model_name}] ---\n")
             # ▲▲▲【代码修改】: 修改结束 ▲▲▲
             return df
         except Exception as e:

@@ -393,11 +393,9 @@ class IndicatorService:
                     resample_period = 'W-FRI' if target_tf == 'W' else 'M'
                     df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
                     
-                    # ▼▼▼【代码修改】: 在dropna前后都增加日志 ▼▼▼
                     print(f"    - [诊断日志] 4b. 重采样完成，dropna前有 {len(df_resampled)} 条 {target_tf} 线数据。")
                     df_resampled.dropna(inplace=True)
                     print(f"    - [诊断日志] 4c. dropna后剩余 {len(df_resampled)} 条 {target_tf} 线数据。")
-                    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                     
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
@@ -405,7 +403,6 @@ class IndicatorService:
                     else:
                         logger.warning(f"    - [诊断日志] 4d. [警告] {target_tf} 线数据在处理后为空，已被丢弃！")
 
-        # ▼▼▼【代码修改】: 增加指标计算前的状态日志 ▼▼▼
         print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
         # --- 步骤 4: 为每个周期的数据独立计算指标 ---
