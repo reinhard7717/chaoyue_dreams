@@ -8,15 +8,17 @@ from django.db import OperationalError
 import numpy as np
 import pandas as pd
 from utils import cache_constants as cc
+from django.contrib.auth.models import AbstractUser
 from dao_manager.base_dao import BaseDAO
 from stock_models.stock_basic import HSConst, StockCompany, StockInfo
 from utils.cache_get import UserCacheGet, StockInfoCacheGet
 from utils.cache_set import StockInfoCacheSet, UserCacheSet
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from django.contrib.auth import get_user_model
     from users.models import FavoriteStock
 
 logger = logging.getLogger("dao")
+User = get_user_model()
 
 class StockBasicInfoDao(BaseDAO):
     def __init__(self):
@@ -163,7 +165,7 @@ class StockBasicInfoDao(BaseDAO):
             return None
 
     # --- 代码新增：增加一个更常用的“获取指定用户自选股”的方法 ---
-    async def get_user_favorite_stocks(self, user: User) -> Optional[List[Dict]]:
+    async def get_user_favorite_stocks(self, user: AbstractUser) -> Optional[List[Dict]]:
         """
         获取指定用户的自选股列表，并按默认排序（置顶、添加时间）
         """
