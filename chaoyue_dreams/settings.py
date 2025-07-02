@@ -99,7 +99,7 @@ INSTALLED_APPS = [
 ]
 
 # 自定义用户模型 - 暂时注释掉，等数据库初始化完成后再启用
-# AUTH_USER_MODEL = 'users.User'
+AUTH_USER_MODEL = 'users.User'
 LOGIN_URL = '/users/login/'
 LOGIN_REDIRECT_URL = '/dashboard/' # 登录后重定向到主控台
 LOGOUT_REDIRECT_URL = '/'
