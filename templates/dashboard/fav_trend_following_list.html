@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load tz %}
 {% load dashboard_extras %}
 
 {% block title %}自选股持仓监控 - {{ block.super }}{% endblock %}
@@ -76,7 +77,7 @@
                         <td>
                             {# 显示建仓时的信息 #}
                             {% if item.last_buy_time %}
-                                <strong>买入于: {{ item.last_buy_time|date:"Y-m-d H:i" }}</strong>
+                                <strong>买入于: {{ item.last_buy_time|localtime|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>策略: {{ item.strategy_name }} ({{ item.time_level }})</small>
                             {% else %}
@@ -92,7 +93,7 @@
                                 <small>策略: {{ item.strategy_name }} ({{ item.time_level }})</small>
                             {% else %}
                                 {# 否则，显示最新动态 #}
-                                <strong>最新: {{ item.latest_trade_time|date:"Y-m-d H:i" }}</strong>
+                                <strong>最新: {{ item.latest_trade_time|localtime|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>分数: {{ item.latest_score|floatformat:0 }}</small>
                             {% endif %}

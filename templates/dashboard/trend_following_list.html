@@ -1,9 +1,8 @@
 {% extends 'base.html' %}
 {% load static %}
-{# ▼▼▼ 修改行 ▼▼▼ #}
+{% load tz %}
 {# 解释: 加载我们刚刚创建的自定义模板标签模块 #}
 {% load dashboard_extras %}
-{# ▲▲▲ 修改行 ▲▲▲ #}
 
 {% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
@@ -119,9 +118,9 @@
                             {% endif %}
                         </td>
                         {# 字段名修正：根据模型定义，应为 latest_trade_time #}
-                        <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
-                        <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
-                        <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>{{ item.latest_trade_time|localtime|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>{{ item.last_buy_time|localtime|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>{{ item.last_sell_time|localtime|date:"Y-m-d H:i"|default:"-" }}</td>
                     </tr>
                     {% empty %}
                     <tr><td colspan="6" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
