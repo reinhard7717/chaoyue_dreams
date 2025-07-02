@@ -193,7 +193,7 @@ class TradeCalendar(models.Model):
         return trade_dates_list
 
     @classmethod
-    def is_trade_day(cls, date_to_check: datetime.date | datetime) -> bool: # type: ignore
+    def is_trade_day(cls, date_to_check: datetime.date | datetime.datetime) -> bool: # type: ignore
         """
         检查指定日期是否为交易日。
         该方法会查询数据库中是否存在该日期的记录，并且is_open字段为True。
