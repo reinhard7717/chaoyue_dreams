@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import datetime
+from django.db import models
 from django.utils import timezone
 import time
 from typing import List
@@ -1002,19 +1003,23 @@ DATA_MODELS_TO_CLEAN = [
 ]
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.cleanup_non_trade_day_data', queue='clean_data')
-def cleanup_non_trade_day_data(self):
+def cleanup_non_trade_day_data():
     """
     一个Celery任务，用于清理所有股票数据表中在非交易日产生的无效数据。
     任务会遍历所有指定的数据模型，高效地找出并删除这些记录。
+    【已修正】能够自动识别 DateField 和 DateTimeField 并采用正确的查询策略。
     """
     print("开始执行【清理非交易日数据】任务...")
     total_deleted_count = 0
 
     # 1. 首先，从交易日历中获取所有非交易日的日期集合，这样后续可以快速判断
-    # 为了优化，我们只查询一次数据库获取所有休市日的日历
     all_non_trade_dates = set(
-        TradeCalendar.objects.filter(is_open=0).values_list('cal_date', flat=True)
+        TradeCalendar.objects.filter(is_open=False).values_list('cal_date', flat=True)
     )
+    if not all_non_trade_dates:
+        print("警告：交易日历中未找到任何休市日期记录，任务提前终止。请检查TradeCalendar数据。")
+        return "任务终止，未找到休市日期。"
+    
     print(f"已从交易日历加载 {len(all_non_trade_dates)} 个休市日期。")
 
     # 2. 遍历每一个需要清理的数据模型
@@ -1023,14 +1028,27 @@ def cleanup_non_trade_day_data(self):
         table_name = model._meta.db_table
         print(f"\n--- 正在处理模型: {model_name} (数据表: {table_name}) ---")
 
-        # 3. 从当前数据表中提取所有唯一的日期
-        # 使用 TruncDate 将 DateTimeField 转换为 DateField 进行分组，这对于分钟数据模型至关重要
-        # .distinct() 确保我们只获取唯一的日期列表，大大减少后续处理的数据量
-        dates_in_table = set(
-            model.objects.annotate(trade_date=TruncDate('trade_time'))
-            .values_list('trade_date', flat=True)
-            .distinct()
-        )
+        # --- 修改/新增代码开始 ---
+        # 3. 动态检查 'trade_time' 字段的类型，以决定使用哪种查询方式
+        field_object = model._meta.get_field('trade_time')
+        is_datetime_field = isinstance(field_object, models.DateTimeField)
+        
+        print(f"检测到 'trade_time' 字段类型为: {'DateTimeField' if is_datetime_field else 'DateField'}")
+
+        # 4. 根据字段类型，使用正确的查询方式从数据表中提取所有唯一的日期
+        if is_datetime_field:
+            # 对于 DateTimeField，使用 TruncDate
+            dates_in_table = set(
+                model.objects.annotate(trade_date=TruncDate('trade_time'))
+                .values_list('trade_date', flat=True)
+                .distinct()
+            )
+        else:
+            # 对于 DateField，直接获取值即可
+            dates_in_table = set(
+                model.objects.values_list('trade_time', flat=True).distinct()
+            )
+        # --- 修改/新增代码结束 ---
 
         if not dates_in_table:
             print(f"数据表 {table_name} 中没有数据，跳过。")
@@ -1038,8 +1056,7 @@ def cleanup_non_trade_day_data(self):
         
         print(f"在表 {table_name} 中发现 {len(dates_in_table)} 个唯一日期。")
 
-        # 4. 计算出需要被删除的日期（即存在于数据表中的日期，同时也是我们已知的休市日期）
-        # 使用集合的交集运算 (&)，效率极高
+        # 5. 计算出需要被删除的日期（即存在于数据表中的日期，同时也是我们已知的休市日期）
         dates_to_delete = dates_in_table & all_non_trade_dates
 
         if not dates_to_delete:
@@ -1048,10 +1065,16 @@ def cleanup_non_trade_day_data(self):
 
         print(f"在表 {table_name} 中发现 {len(dates_to_delete)} 个非交易日需要清理: {sorted(list(dates_to_delete))}")
 
-        # 5. 批量删除所有在这些非交易日的记录
-        # 这是最关键的一步，使用 __date__in 过滤器进行批量删除，避免逐条删除，性能极高
-        # .delete() 方法会返回一个元组，第一个元素是删除的记录总数
-        deleted_info = model.objects.filter(trade_time__date__in=dates_to_delete).delete()
+        # --- 修改/新增代码开始 ---
+        # 6. 根据字段类型，使用正确的过滤器进行批量删除
+        if is_datetime_field:
+            # 对于 DateTimeField，使用 '__date__in'
+            deleted_info = model.objects.filter(trade_time__date__in=dates_to_delete).delete()
+        else:
+            # 对于 DateField，使用 '__in'
+            deleted_info = model.objects.filter(trade_time__in=dates_to_delete).delete()
+        # --- 修改/新增代码结束 ---
+        
         deleted_count = deleted_info[0]
         total_deleted_count += deleted_count
 
@@ -1060,7 +1083,6 @@ def cleanup_non_trade_day_data(self):
     print(f"\n--- 任务执行完毕 ---")
     print(f"总共删除了 {total_deleted_count} 条非交易日记录。")
     return f"任务完成，总共删除 {total_deleted_count} 条记录。"
-
 
 
 
