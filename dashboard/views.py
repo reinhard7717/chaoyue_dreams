@@ -142,17 +142,14 @@ def trend_following_list(request):
     """
     strategy_name = 'multi_timeframe_collaboration' 
 
-    state_list = TrendFollowStrategyState.objects.filter(
-        strategy_name=strategy_name,
-        # time_level='D'  # 只看日线周期的状态
-    ).select_related('stock').order_by('-last_buy_time', '-latest_score')
+    state_list = TrendFollowStrategyState.objects.select_related('stock').order_by('-latest_trade_time')
 
     paginator = Paginator(state_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
     context = {
-        'page_title': '多时间框架策略评分 (日线)', # 标题更明确
+        'page_title': '策略状态监控中心',
         'page_obj': page_obj,
         'total_count': paginator.count,
     }
@@ -161,25 +158,74 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【新增】展示用户自选股的日线趋势策略信号。
-    调用辅助函数，只需提供日线策略的数据源和模板即可。
+    【V3.0 持仓监控仪表盘版】
+    - 核心升级: 不再展示零散的日线信号，而是转变为一个面向波段操作的持仓股状态监控列表。
+    - 数据源: 统一使用 TrendFollowStrategyState 模型，与策略监控中心保持一致。
+    - 核心逻辑: 在后端直接计算每只自选股的“持仓状态”（持仓观察、止盈预警、等待建仓），并传递给模板进行展示。
+    - 排序优化: 将出现“止盈预警”的股票排在最前面，其次按最近买入时间排序，确保最需要关注的股票优先显示。
     """
     user_dao = UserDAO()
-    str_dao = StrategiesDAO()
     
+    # 1. 获取用户自选股代码列表
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     
-    # 注意：这里假设您的 StrategiesDAO 中有一个获取日线策略报告的方法
-    # 它的命名逻辑应与月线方法对应，例如 get_latest_trend_follow_reports_by_stock_codes
-    all_reports_queryset = async_to_sync(str_dao.get_latest_trend_follow_reports_by_stock_codes)(fav_codes)
+    if not fav_codes:
+        # 如果没有自选股，直接渲染空页面
+        return _render_strategy_list_page(
+            request=request,
+            base_queryset=TrendFollowStrategyState.objects.none(), # 传递一个空的查询集
+            page_title="自选股持仓监控",
+            template_name='dashboard/fav_trend_following_list.html'
+        )
 
-    return _render_strategy_list_page(
-        request=request,
-        base_queryset=all_reports_queryset,
-        page_title="自选股-日线趋势跟踪",
-        template_name='dashboard/fav_trend_following_list.html' # 使用新的模板
-    )
+    # ▼▼▼【代码修改】: 核心逻辑重构 ▼▼▼
+    # 2. 获取所有自选股相关的【所有策略状态】
+    state_list_qs = TrendFollowStrategyState.objects.filter(
+        stock__stock_code__in=fav_codes
+    ).select_related('stock')
+
+    # 3. 在Python中处理，计算“持仓状态”
+    processed_list = []
+    for state in state_list_qs:
+        # 默认状态
+        state.swing_status = '等待建仓'
+        state.status_class = 'status-wait'
+        state.sort_priority = 3 # 排序优先级，数字越小越靠前
+
+        if state.last_buy_time:
+            if state.last_sell_time and state.last_sell_time > state.last_buy_time:
+                # 情况1: 出现止盈信号
+                state.swing_status = '止盈预警'
+                state.status_class = 'status-alert'
+                state.sort_priority = 1 # 最高优先级
+            else:
+                # 情况2: 正常持仓中
+                state.swing_status = '持仓观察'
+                state.status_class = 'status-holding'
+                state.sort_priority = 2
+        
+        processed_list.append(state)
+
+    # 4. 根据我们计算的优先级和时间进行排序
+    # 规则: 止盈预警 > 持仓观察 > 等待建仓。在同等优先级内，按最新交易时间排序。
+    processed_list.sort(key=lambda x: (x.sort_priority, x.latest_trade_time is None, x.latest_trade_time), reverse=False)
+
+    # 5. 分页处理 (注意：分页器现在处理的是列表，而不是查询集)
+    paginator = Paginator(processed_list, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'page_title': '自选股持仓监控',
+        'page_obj': page_obj,
+        'total_count': len(processed_list),
+    }
+    # 直接渲染，不再调用通用辅助函数，因为逻辑已定制化
+    return render(request, 'dashboard/fav_trend_following_list.html', context)
+
+
+
 
 # --- DRF API 视图 ---
 

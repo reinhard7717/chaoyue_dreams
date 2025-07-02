@@ -1,7 +1,35 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load dashboard_extras %}
 
-{% block title %}自选-日线趋势跟踪 - {{ block.super }}{% endblock %}
+{% block title %}自选股持仓监控 - {{ block.super }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* 状态标签的通用样式 */
+    .status-tag {
+        padding: 4px 10px;
+        border-radius: 15px;
+        font-weight: bold;
+        color: #fff;
+        font-size: 0.9em;
+        text-align: center;
+        display: inline-block;
+        min-width: 80px;
+    }
+    /* 止盈预警 (红色) */
+    .status-alert { background-color: #e53935; }
+    /* 持仓观察 (绿色) */
+    .status-holding { background-color: #43a047; }
+    /* 等待建仓 (灰色) */
+    .status-wait { background-color: #757575; }
+
+    .playbook-list { list-style-type: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+    .playbook-tag { background-color: #e0eafc; color: #3d5afe; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 500; white-space: nowrap; }
+    .playbook-tag.rocket-signal { background-color: #ffebee; color: #c62828; font-weight: bold; border: 1px solid #ffcdd2; }
+</style>
+{% endblock %}
+
 
 {% block sidebar %}
     <aside class="site-sidebar">
@@ -9,9 +37,8 @@
              <h3>导航菜单</h3>
             <ul>
                 <li><a href="{% url 'users:home' %}">主控台</a></li>
-                {# --- 代码修改: 将此页面的链接设为 active --- #}
-                <li><a href="{% url 'dashboard:trend_following_list' %}">日线跟踪</a></li>
-                <li><a href="{% url 'dashboard:fav_trend_following_list' %}" class="active">自选-日线</a></li>
+                <li><a href="{% url 'dashboard:trend_following_list' %}">策略监控中心</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}" class="active">自选股监控</a></li>
                 <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
                 <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li>
             </ul>
@@ -22,41 +49,80 @@
 {% block content %}
 <div class="dashboard-container">
     <section class="trend-list-section">
-        {# --- 代码修改: 使用从视图传递的 page_title 和 total_count --- #}
-        <h2><span class="icon">⭐</span> {{ page_title }} (共 {{ total_count }} 只)</h2>
+        <h2><span class="icon">🎯</span> {{ page_title }} (共 {{ total_count }} 条)</h2>
         <div class="table-wrapper">
             <table class="data-table" id="trend-table">
                 <thead>
                     <tr>
-                        <th>股票代码</th>
-                        <th>股票名称</th>
-                        <th>最新价</th>
-                        <th>信号类型</th>
-                        <th>买入评分</th>
-                        <th>信号详情</th>
-                        <th>评分细则</th>
-                        <th>信号日期</th>
+                        <th style="width: 15%;">股票</th>
+                        <th style="width: 15%;">持仓状态</th>
+                        <th style="width: 25%;">建仓信号</th>
+                        <th style="width: 25%;">最新动态 / 止盈信号</th>
+                        <th style="width: 20%;">激活剧本</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in page_obj.object_list %}
                     <tr>
-                        <td>{{ item.stock_code }}</td>
-                        <td>{{ item.stock_name|default:"-" }}</td>
-                        <td>{{ item.close_D|floatformat:2|default:"-" }}</td>
-                        <td>{{ item.signal_type|default:"-" }}</td>
-                        <td>{{ item.buy_score|floatformat:0|default:"-" }}</td>
-                        <td>{{ item.signal_details|default:"-" }}</td>
-                        <td>{{ item.analysis_details|default:"-" }}</td>
-                        <td>{{ item.trade_time|date:"Y-m-d" }}</td>
+                        <td>
+                            <strong>{{ item.stock.stock_code }}</strong>
+                            <br>
+                            <small>{{ item.stock.stock_name|default:"-" }}</small>
+                        </td>
+                        <td>
+                            {# 使用从视图计算好的状态和样式 #}
+                            <span class="status-tag {{ item.status_class }}">{{ item.swing_status }}</span>
+                        </td>
+                        <td>
+                            {# 显示建仓时的信息 #}
+                            {% if item.last_buy_time %}
+                                <strong>买入于: {{ item.last_buy_time|date:"Y-m-d H:i" }}</strong>
+                                <br>
+                                <small>策略: {{ item.strategy_name }} ({{ item.time_level }})</small>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {# 根据状态显示不同信息 #}
+                            {% if item.status_class == 'status-alert' %}
+                                {# 如果是止盈预警，突出显示卖出信号 #}
+                                <strong style="color: #e53935;">卖出于: {{ item.last_sell_time|date:"Y-m-d H:i" }}</strong>
+                                <br>
+                                <small>策略: {{ item.strategy_name }} ({{ item.time_level }})</small>
+                            {% else %}
+                                {# 否则，显示最新动态 #}
+                                <strong>最新: {{ item.latest_trade_time|date:"Y-m-d H:i" }}</strong>
+                                <br>
+                                <small>分数: {{ item.latest_score|floatformat:0 }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.active_playbooks %}
+                                <ul class="playbook-list">
+                                {% for playbook in item.active_playbooks %}
+                                    {% with playbook_display_name=playbook|playbook_display %}
+                                        {% if 'ROCKET' in playbook %}
+                                            <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                        {% else %}
+                                            <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                        {% endif %}
+                                    {% endwith %}
+                                {% endfor %}
+                                </ul>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="8" style="text-align: center; padding: 20px;">您的自选股暂无日线策略信号</td></tr>
+                    <tr><td colspan="5" style="text-align: center; padding: 20px;">请先在主控台添加自选股，或等待策略信号生成。</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         
+        {# ... 分页部分保持不变 ... #}
         <div class="pagination">
             {% if page_obj.has_other_pages %}
                 {% if page_obj.has_previous %}

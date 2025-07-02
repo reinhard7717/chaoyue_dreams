@@ -138,7 +138,10 @@ class MultiTimeframeTrendStrategy:
         logger.info("--- [数据标准化] 开始统一所有DataFrame的索引为UTC时区... ---")
         for key, df in all_dfs.items():
             if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex): continue
-            if df.index.tz is None: all_dfs[key].index = df.index.tz_localize('UTC')
+            if df.index.tz is None: 
+                # 核心修复：先将无时区的中国时间本地化为'Asia/Shanghai'，然后再转换为标准的UTC时间
+                # 旧的错误代码: all_dfs[key].index = df.index.tz_localize('UTC')
+                all_dfs[key].index = df.index.tz_localize('Asia/Shanghai').tz_convert('UTC')
             elif str(df.index.tz) != 'UTC': all_dfs[key].index = df.index.tz_convert('UTC')
         logger.info("--- [数据标准化] 所有索引已统一为UTC时区。 ---")
         if 'D' not in all_dfs or 'W' not in all_dfs:

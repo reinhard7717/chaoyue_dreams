@@ -174,7 +174,7 @@
               {
                 "type": "kdj_j_reversal",
                 "periods": [9, 3, 3],
-                "low_level": 30,
+                "low_level": 50,
                 "说明": "【超灵敏信号】J线从30以下低位拐头，捕捉最早启动迹象。"
               },
               {
@@ -186,7 +186,7 @@
               {
                 "type": "kdj_cross",
                 "periods": [9, 3, 3],
-                "low_level": 50,
+                "low_level": 80,
                 "说明": "【经典确认信号】KDJ在50下方金叉，是稳健的回调低吸信号。"
               }
             ]

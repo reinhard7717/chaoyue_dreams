@@ -32,12 +32,19 @@
         font-weight: bold;
         border: 1px solid #ffc107;
     }
-    /* 新增一个专家剧本的样式 */
     .playbook-tag.expert-signal {
         background-color: #e1f5fe; /* 淡蓝色 */
         color: #0277bd;
         border: 1px solid #b3e5fc;
     }
+    /* ▼▼▼【代码新增】: 为分钟级火箭信号增加专属样式 ▼▼▼ */
+    .playbook-tag.rocket-signal {
+        background-color: #ffebee; /* 淡红色 */
+        color: #c62828;
+        font-weight: bold;
+        border: 1px solid #ffcdd2;
+    }
+    /* ▲▲▲【代码新增】: 新增结束 ▲▲▲ */
 </style>
 {% endblock %}
 
@@ -48,7 +55,7 @@
              <h3>导航菜单</h3>
             <ul>
                 <li><a href="{% url 'users:home' %}">主控台</a></li>
-                <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">多时间框架策略</a></li>
+                <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">策略监控中心</a></li>
                 <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选-日线</a></li>
                 <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
                 <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li>
@@ -66,6 +73,7 @@
                 <thead>
                     <tr>
                         <th>股票</th>
+                        <th>策略/周期</th>
                         <th>最新分数</th>
                         <th>激活剧本</th>
                         <th>最新信号时间</th>
@@ -82,17 +90,21 @@
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
+                            <strong>{{ item.strategy_name }}</strong>
+                            <br>
+                            <small>周期: {{ item.time_level }}</small>
+                        </td>
+                        <td>
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
                         <td>
                             {% if item.active_playbooks %}
                                 <ul class="playbook-list">
                                 {% for playbook in item.active_playbooks %}
-                                    {# ▼▼▼ 修改区域开始 ▼▼▼ #}
-                                    {# 解释: 使用新的 `playbook_display` 过滤器将英文key转换为中文描述。 #}
                                     {% with playbook_display_name=playbook|playbook_display %}
-                                        {# 根据剧本的原始key或中文内容来决定样式 #}
-                                        {% if 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                        {% if 'ROCKET' in playbook %}
+                                            <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                        {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
                                             <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
                                         {% elif '【专家剧本】' in playbook_display_name %}
                                             <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
@@ -100,7 +112,6 @@
                                             <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
                                         {% endif %}
                                     {% endwith %}
-                                    {# ▲▲▲ 修改区域结束 ▲▲▲ #}
                                 {% endfor %}
                                 </ul>
                             {% else %}
@@ -108,9 +119,9 @@
                             {% endif %}
                         </td>
                         {# 字段名修正：根据模型定义，应为 latest_trade_time #}
-                        <td>{{ item.latest_trade_time|date:"Y-m-d"|default:"-" }}</td>
-                        <td>{{ item.last_buy_time|date:"Y-m-d"|default:"-" }}</td>
-                        <td>{{ item.last_sell_time|date:"Y-m-d"|default:"-" }}</td>
+                        <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
                     </tr>
                     {% empty %}
                     <tr><td colspan="6" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
