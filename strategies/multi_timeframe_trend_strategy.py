@@ -1,5 +1,5 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V5.6 - 共振条件优化版
+# 版本: V5.7 - 智能移位终极修复版
 
 import asyncio
 from collections import defaultdict
@@ -22,10 +22,12 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V5.6 共振条件优化版】
-        - 核心升级: 优化了分钟共振引擎中 'macd_above_zero' 条件的判断逻辑。
-        - 解决方案: 不再死板地要求MACD必须在0轴之上，而是改为“在0轴之上”或“MACD正在上升”两者满足其一即可。
-                   这使得策略能更早地捕捉到从底部反转、动能改善的股票，极大提升了信号的灵敏度和实战性。
+        【V5.7 智能移位终极修复版】
+        - 核心BUG修复: 解决了在多时间框架对齐后，使用 shift(1) 无法正确检测低频周期指标变化的根本性问题。
+        - 解决方案: 在 _check_single_condition 方法中引入“智能移位”逻辑。
+                   根据触发周期和条件周期的关系（如60分钟 vs 5分钟），动态计算正确的移位周期数（shift_periods = 12），
+                   而不是固定使用 shift(1)。这确保了所有交叉和拐点信号都能在正确的历史数据上进行比较。
+                   这是本次调试的终极修复，预计将成功触发共振信号。
         """
         tactical_config_path = 'config/trend_follow_strategy.json'
         strategic_config_path = 'config/weekly_trend_follow_strategy.json'
@@ -127,7 +129,7 @@ class MultiTimeframeTrendStrategy:
         return merged
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.6) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.7) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
         if not all_dfs or 'D' not in all_dfs or 'W' not in all_dfs:
@@ -240,10 +242,22 @@ class MultiTimeframeTrendStrategy:
         print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
 
+    # ▼▼▼【代码修改】: 引入“智能移位”逻辑，彻底修复BUG ▼▼▼
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
         cond_type = cond['type']
-        trigger_tf = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {}).get('levels', [{}])[-1].get('tf')
-        suffix = f'_{tf}' if tf != trigger_tf else ''
+        resonance_config = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
+        trigger_tf_str = resonance_config.get('levels', [{}])[-1].get('tf')
+        suffix = f'_{tf}' if tf != trigger_tf_str else ''
+        
+        # 【智能移位】: 核心修复逻辑
+        # 计算正确的移位周期数。例如，在5分钟的df上检查60分钟的条件，需要回看 60/5 = 12 个周期。
+        try:
+            trigger_minutes = int(trigger_tf_str)
+            condition_minutes = int(tf)
+            shift_periods = max(1, condition_minutes // trigger_minutes)
+        except (ValueError, ZeroDivisionError):
+            shift_periods = 1 # 默认或出错时，回退到移位1
+        
         def check_cols(*cols):
             return all(col in df.columns for col in cols)
 
@@ -252,43 +266,46 @@ class MultiTimeframeTrendStrategy:
             ema_col, close_col = f'EMA_{period}{suffix}', f'close{suffix}'
             if check_cols(ema_col, close_col): return df[close_col] > df[ema_col]
         
-        # ▼▼▼【代码修改】: 优化此条件的逻辑 ▼▼▼
         elif cond_type == 'macd_above_zero':
             p = cond['periods']
             macd_line_col = f'MACD_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if check_cols(macd_line_col):
-                # 新逻辑：如果MACD线在0轴之上，或者它正在上升（即使在水下），都视为满足条件
                 is_above_zero = df[macd_line_col] > 0
-                is_rising = df[macd_line_col] > df[macd_line_col].shift(1)
+                is_rising = df[macd_line_col] > df[macd_line_col].shift(shift_periods) # 使用智能移位
                 return is_above_zero | is_rising
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         elif cond_type == 'macd_cross':
             p = cond['periods']
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            if check_cols(hist_col): return (df[hist_col] > 0) & (df[hist_col].shift(1) <= 0)
+            if check_cols(hist_col): return (df[hist_col] > 0) & (df[hist_col].shift(shift_periods) <= 0) # 使用智能移位
+        
         elif cond_type == 'macd_hist_turning_up':
             p = cond['periods']
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            if check_cols(hist_col): return df[hist_col] > df[hist_col].shift(1)
+            if check_cols(hist_col): return df[hist_col] > df[hist_col].shift(shift_periods) # 使用智能移位
+        
         elif cond_type == 'dmi_cross':
             p = cond['period']
             pdi_col, mdi_col = f'DMP_{p}{suffix}', f'DMN_{p}{suffix}'
-            if check_cols(pdi_col, mdi_col): return (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
+            if check_cols(pdi_col, mdi_col): return (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(shift_periods) <= df[mdi_col].shift(shift_periods)) # 使用智能移位
+        
         elif cond_type == 'kdj_cross':
             p = cond['periods']
             k_col, d_col = f'KDJk_{p[0]}_{p[1]}_{p[2]}{suffix}', f'KDJd_{p[0]}_{p[1]}_{p[2]}{suffix}'
             oversold_level = cond.get('low_level', 20)
             if check_cols(k_col, d_col):
-                is_cross = (df[k_col] > df[d_col]) & (df[k_col].shift(1) <= df[d_col].shift(1))
+                is_cross = (df[k_col] > df[d_col]) & (df[k_col].shift(shift_periods) <= df[d_col].shift(shift_periods)) # 使用智能移位
                 is_oversold = df[d_col] < oversold_level
                 return is_cross & is_oversold
+        
         elif cond_type == 'rsi_reversal':
             p = cond['period']
             rsi_col = f'RSI_{p}{suffix}'
             oversold_level = cond.get('oversold_level', 30)
-            if check_cols(rsi_col): return (df[rsi_col] > oversold_level) & (df[rsi_col].shift(1) <= oversold_level)
+            if check_cols(rsi_col): return (df[rsi_col] > oversold_level) & (df[rsi_col].shift(shift_periods) <= oversold_level) # 使用智能移位
+        
         return pd.Series(False, index=df.index)
+    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
         signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
