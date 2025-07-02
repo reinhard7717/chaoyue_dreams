@@ -8,6 +8,7 @@ from celery import Celery
 from asgiref.sync import async_to_sync
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
@@ -160,9 +161,9 @@ def debug_single_stock_analysis(self, stock_code: str):
     trade_date_str = datetime.now().strftime('%Y-%m-%d')
     logger.info(f"分析日期: {trade_date_str}")
 
-    strategies_dao = StrategiesDAO()
+    stock_time_trade_dao = StockTimeTradeDAO()
     try:
-        latest_daily_quote = async_to_sync(strategies_dao.get_latest_daily_quote)(stock_code)
+        latest_daily_quote = async_to_sync(stock_time_trade_dao.get_latest_daily_quote)(stock_code)
         if latest_daily_quote:
             pct_chg = latest_daily_quote.get('pct_chg', 0)
             close_price = latest_daily_quote.get('close', 'N/A')

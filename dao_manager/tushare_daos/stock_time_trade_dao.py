@@ -111,6 +111,43 @@ class StockTimeTradeDAO(BaseDAO):
         # print(f"    [DAO] 查询完成，共获取到 {len(all_daily_data)} 条日线行情数据。")
         return all_daily_data
 
+    async def get_latest_daily_quote(self, stock_code: str) -> Optional[Dict]:
+        """
+        【V1.0 - 新增】
+        获取指定股票的最新一条日线行情数据。
+        - 自动根据股票代码选择正确的分表进行查询。
+        - 使用高效的异步ORM调用 (.afirst())。
+        - 返回一个字典或None。
+        Args:
+            stock_code (str): 股票代码, e.g., '300094.SZ'.
+        Returns:
+            Optional[Dict]: 包含最新行情数据的字典，或在找不到数据时返回None。
+        """
+        try:
+            # 1. 使用现有逻辑确定正确的模型
+            model_class = self.get_daily_data_model_by_code(stock_code)
+            
+            # 2. 异步查询该模型，按时间倒序排列并获取第一条记录
+            # .afirst() 是 Django 异步ORM中最高效的获取单条记录的方式
+            latest_quote_obj = await model_class.objects.filter(
+                stock__stock_code=stock_code
+            ).order_by('-trade_time').afirst()
+
+            if not latest_quote_obj:
+                logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到股票 {stock_code} 的任何日线数据。")
+                return None
+
+            # 3. 将模型对象手动转换为字典，以便于在同步代码中使用
+            # 这样可以精确控制返回的字段，避免序列化整个复杂对象
+            return {
+                "trade_date": latest_quote_obj.trade_time.strftime('%Y-%m-%d'),
+                "close": float(latest_quote_obj.close),
+                "pct_chg": float(latest_quote_obj.pct_chg),
+            }
+        except Exception as e:
+            logger.error(f"[DAO] 获取 {stock_code} 最新日线行情时发生错误: {e}", exc_info=True)
+            return None
+
     async def save_daily_time_trade_history_by_trade_date(self, trade_date: date) -> None:
         """
         保存指定交易日的所有股票日线交易数据，自动分表
