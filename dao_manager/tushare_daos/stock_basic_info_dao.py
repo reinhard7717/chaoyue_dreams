@@ -13,9 +13,9 @@ from dao_manager.base_dao import BaseDAO
 from stock_models.stock_basic import HSConst, StockCompany, StockInfo
 from utils.cache_get import UserCacheGet, StockInfoCacheGet
 from utils.cache_set import StockInfoCacheSet, UserCacheSet
-if TYPE_CHECKING:
-    from django.contrib.auth import get_user_model
-    from users.models import FavoriteStock
+from django.contrib.auth import get_user_model
+from users.models import FavoriteStock
+    
 
 logger = logging.getLogger("dao")
 User = get_user_model()
