@@ -56,11 +56,15 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
         strategy_orchestrator = MultiTimeframeTrendStrategy()
         strategies_dao = StrategiesDAO()
 
+        # 解释: 原始的 trade_date 是 'YYYY-MM-DD' 格式，这会导致分钟线数据只截止到当天的0点。
+        # 我们需要将其扩展到当天收盘后（如16:00），以确保当天所有的分钟线数据都被加载。
+        analysis_end_time = f"{trade_date} 16:00:00"
+
         # 2. 调用总指挥的 run_for_stock 方法
         #    这是一个异步方法，所以需要用 async_to_sync 包装
         db_records = async_to_sync(strategy_orchestrator.run_for_stock)(
             stock_code=stock_code,
-            trade_time=trade_date
+            trade_time=analysis_end_time # 使用修正后的时间
         )
 
         if not db_records:
