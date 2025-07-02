@@ -267,7 +267,7 @@ def save_stocks_daily_basic_data_yesterday_task(self):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
-        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         print("开始保存 昨日股票重要的基本面指标...")
         result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday))
         print(f"保存 昨日股票重要的基本面指标 完成。result: {result}")
@@ -393,8 +393,8 @@ def save_month_data_yesterday_task(self):
     try:
         print("开始保存 月线数据（昨日）...")
         # 获取当前日期
-        today = datetime.datetime.today()
-        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        today_date = timezone.now().date()
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         # 转换为YYYYMMDD格式
         day_str = yesterday.strftime('%Y%m%d')
         result = asyncio.run(stock_time_trade_dao.save_monthly_time_trade_by_stock_codes(start_date=day_str))
@@ -467,7 +467,7 @@ def save_cyq_chips_yesterday_batch(self):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
-        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
         result = asyncio.run(stock_time_trade_dao.save_all_cyq_chips_history(trade_date=yesterday))
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
@@ -484,7 +484,7 @@ def save_cyq_perf_yesterday_batch(self):
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
-        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
         result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=yesterday))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:

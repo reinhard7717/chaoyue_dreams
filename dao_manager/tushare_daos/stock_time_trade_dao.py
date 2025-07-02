@@ -293,7 +293,6 @@ class StockTimeTradeDAO(BaseDAO):
                     all_results[model_name] = []
                 all_results[model_name].extend(res)
                 logger.info(f"保存 {model_name} 的日线数据完成. 插入/更新了 {len(data_list)} 条记录。")
-            
 
             if len(df) < limit:
                 break
