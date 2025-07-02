@@ -180,28 +180,28 @@ class MultiTimeframeTrendStrategy:
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        print("\n--- [引擎3-调试 V5.8] 进入 _run_intraday_resonance_engine ---")
+        # print("\n--- [引擎3-调试 V5.8] 进入 _run_intraday_resonance_engine ---")
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False):
-            print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
+            # print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
             return []
-        print("    - [引擎3-调试] 检查通过: 剧本已启用。")
+        # print("    - [引擎3-调试] 检查通过: 剧本已启用。")
         levels = resonance_params.get('levels', [])
         if not levels:
-            print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
+            # print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
             return []
-        print(f"    - [引擎3-调试] 检查通过: 共找到 {len(levels)} 个共振层级。")
+        # print(f"    - [引擎3-调试] 检查通过: 共找到 {len(levels)} 个共振层级。")
         trigger_tf = levels[-1]['tf']
         if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty:
-            print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
+            # print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
             return []
-        print(f"    - [引擎3-调试] 检查通过: 触发周期 '{trigger_tf}' 数据存在，行数: {len(all_dfs[trigger_tf])}。")
-        print("    - [引擎3-调试] 开始使用【强制重命名】逻辑对齐所有周期数据...")
+        # print(f"    - [引擎3-调试] 检查通过: 触发周期 '{trigger_tf}' 数据存在，行数: {len(all_dfs[trigger_tf])}。")
+        # print("    - [引擎3-调试] 开始使用【强制重命名】逻辑对齐所有周期数据...")
         df_aligned = all_dfs[trigger_tf].copy()
         for level in levels[:-1]:
             level_tf = level['tf']
             if level_tf in all_dfs and not all_dfs[level_tf].empty:
-                print(f"      - [引擎3-调试] 正在合并周期 '{level_tf}' (行数: {len(all_dfs[level_tf])}) 的数据...")
+                # print(f"      - [引擎3-调试] 正在合并周期 '{level_tf}' (行数: {len(all_dfs[level_tf])}) 的数据...")
                 
                 # 【核心修复】: 强制为右侧DataFrame的所有列添加后缀
                 df_right = all_dfs[level_tf].copy()
@@ -212,25 +212,25 @@ class MultiTimeframeTrendStrategy:
                 df_aligned = pd.merge_asof(
                     left=df_aligned, right=df_right, left_index=True, right_index=True, direction='backward'
                 )
-                print(f"      - [引擎3-调试] 合并后，对齐后的DataFrame行数: {len(df_aligned)}")
+                # print(f"      - [引擎3-调试] 合并后，对齐后的DataFrame行数: {len(df_aligned)}")
             else:
-                print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
+                # print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
                 return []
-        print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
+        # print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
         final_signal = pd.Series(True, index=df_aligned.index)
         for i, level in enumerate(levels):
             level_tf, level_name = level['tf'], level.get('level_name', f'Level_{i}')
             level_logic, level_conditions = level.get('logic', 'AND').upper(), level.get('conditions', [])
-            print(f"      - [引擎3-调试] 正在检查第 {i+1} 层: '{level_name}' (周期: {level_tf}, 逻辑: {level_logic})")
+            # print(f"      - [引擎3-调试] 正在检查第 {i+1} 层: '{level_name}' (周期: {level_tf}, 逻辑: {level_logic})")
             level_signal = pd.Series(True if level_logic == 'AND' else False, index=df_aligned.index)
             for cond in level_conditions:
                 cond_signal = self._check_single_condition(df_aligned, cond, level_tf)
-                print(f"        - [引擎3-调试] 条件 '{cond['type']}' 在周期 '{level_tf}' 上触发了 {cond_signal.sum()} 次。")
+                # print(f"        - [引擎3-调试] 条件 '{cond['type']}' 在周期 '{level_tf}' 上触发了 {cond_signal.sum()} 次。")
                 if level_logic == 'AND': level_signal &= cond_signal
                 else: level_signal |= cond_signal
-            print(f"      - [引擎3-调试] 第 {i+1} 层总计触发 {level_signal.sum()} 次。")
+            # print(f"      - [引擎3-调试] 第 {i+1} 层总计触发 {level_signal.sum()} 次。")
             final_signal &= level_signal
-        print(f"    - [引擎3-调试] 所有层级检查完毕。最终共振信号触发总次数: {final_signal.sum()}")
+        # print(f"    - [引擎3-调试] 所有层级检查完毕。最终共振信号触发总次数: {final_signal.sum()}")
         triggered_df = df_aligned[final_signal]
         if triggered_df.empty:
             print("    - [引擎3-调试] 结论: 没有发现任何满足所有条件的共振信号点。引擎正常结束。")
@@ -240,7 +240,7 @@ class MultiTimeframeTrendStrategy:
         for timestamp, row in triggered_df.iterrows():
             record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
             db_records.append(record)
-        print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
+        # print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
 
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
@@ -344,7 +344,7 @@ class MultiTimeframeTrendStrategy:
         trigger_tf = params['levels'][-1]['tf']
         native_utc_datetime: datetime = timestamp.to_pydatetime()
         
-        print(f"    - [数据准备] 准备数据库记录，已转换为原生datetime对象: {native_utc_datetime} (类型: {type(native_utc_datetime)})")
+        # print(f"    - [数据准备] 准备数据库记录，已转换为原生datetime对象: {native_utc_datetime} (类型: {type(native_utc_datetime)})")
 
         record = {
             "stock_code": stock_code,
