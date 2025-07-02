@@ -38,9 +38,9 @@
       },
       "vol_ma": {
         "enabled": true,
-        "periods": [5, 20],
+        "periods": [5, 20, 55],
         "apply_on": ["W"],
-        "说明": "【周线成交量均线】计算5周和20周的成交量均线。用于识别周线级别的放量（攻击）和缩量（盘整/洗盘）。"
+        "说明": "【周线成交量均线】计算5周和20周的成交量均线。用于识别周线级别的放量（攻击）和缩量（盘整/洗盘）。新增55周用于拒绝信号。"
       },
       "boll_bands_and_width": {
         "enabled": true,
@@ -94,10 +94,10 @@
     "ma_uptrend_playbook": {
       "enabled": true,
       "说明": "【剧本：均线多头排列】最基础的趋势判断剧本。识别短期、中期、长期均线是否形成多头排列，确认市场处于强势上涨趋势中。",
-      "short_ma": 10,
-      "mid_ma": 20,
-      "long_ma": 60,
-      "说明_ma_periods": "定义了用于判断多头排列的短(10周)、中(20周)、长(60周)三条均线。"
+      "short_ma": 13,
+      "mid_ma": 21,
+      "long_ma": 55,
+      "说明_ma_periods": "定义了用于判断多头排列的短(13周)、中(21周)、长(55周)三条均线。"
     },
     "ma20_rising_state_playbook": {
       "enabled": true,
@@ -110,6 +110,18 @@
       "说明": "【事件剧本：MA20发生拐头向上】精确捕捉20周均线由平/跌转为上涨的那个'瞬间'。这是一个高价值的'事件'信号，适合作为趋势启动的触发器。",
       "ma_period": 21,
       "说明_ma_period": "均线周期。使用21周EMA，与状态信号保持一致。"
+    },
+    "early_uptrend_playbook": {
+      "enabled": true,
+      "说明": "【剧本：早期上升趋势】捕捉周线趋势反转的早期“上拐”信号，结合均线和MACD。",
+      "short_ma": 10,
+      "mid_ma": 20
+    },
+    "classic_breakout_playbook": {
+      "enabled": true,
+      "说明": "【剧本：经典高点突破】识别突破前期高点并伴随放量的经典模式。",
+      "lookback_weeks": 26,
+      "volume_multiplier": 1.5
     },
     "box_consolidation_breakout_playbook": {
       "enabled": true,
@@ -134,6 +146,14 @@
       "说明_oversold_threshold": "超卖阈值。当BIAS低于-15%时，认为市场处于极端超卖状态，进入观察区。",
       "rebound_trigger": -12,
       "说明_rebound_trigger": "反弹触发阈值。当BIAS从-15%下方回升并上穿-12%时，确认为反弹信号。"
+    },
+    "trix_golden_cross_playbook": {
+      "enabled": true,
+      "说明": "【剧本：TRIX金叉】识别周线TRIX金叉，一个强大的中长期趋势确认信号。"
+    },
+    "coppock_reversal_playbook": {
+      "enabled": true,
+      "说明": "【剧本：Coppock底部反转】识别周线Coppock估波曲线从底部反转，一个战略性的长期底部信号。"
     },
     "washout_score_playbook": {
       "enabled": true,
