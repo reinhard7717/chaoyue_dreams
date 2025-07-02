@@ -132,18 +132,7 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.8) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
-        if not all_dfs or 'D' not in all_dfs or 'W' not in all_dfs:
-            logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
-            return None
-        logger.info("--- [数据标准化] 开始统一所有DataFrame的索引为UTC时区... ---")
-        for key, df in all_dfs.items():
-            if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex): continue
-            if df.index.tz is None: 
-                # 核心修复：先将无时区的中国时间本地化为'Asia/Shanghai'，然后再转换为标准的UTC时间
-                # 旧的错误代码: all_dfs[key].index = df.index.tz_localize('UTC')
-                all_dfs[key].index = df.index.tz_localize('Asia/Shanghai').tz_convert('UTC')
-            elif str(df.index.tz) != 'UTC': all_dfs[key].index = df.index.tz_convert('UTC')
-        logger.info("--- [数据标准化] 所有索引已统一为UTC时区。 ---")
+
         if 'D' not in all_dfs or 'W' not in all_dfs:
             logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
             return None
@@ -352,6 +341,8 @@ class MultiTimeframeTrendStrategy:
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
         signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
         trigger_tf = params['levels'][-1]['tf']
+        utc_timestamp = timestamp.tz_localize('UTC')
+        print(f"    - [时区校准] 原始naive时间戳 (值为UTC时间): {timestamp}, 校准后aware UTC时间: {utc_timestamp}")
         record = {
             "stock_code": stock_code, "trade_time": sanitize_for_json(timestamp), "timeframe": trigger_tf,
             "strategy_name": signal_name, "close_price": sanitize_for_json(row.get('close')),

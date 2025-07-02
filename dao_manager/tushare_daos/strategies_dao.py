@@ -528,12 +528,10 @@ class StrategiesDAO(BaseDAO):
         """
         【V2.3 ORM对齐最终修复版】根据标准化的字典列表，批量创建或更新策略信号日志。
         此版本通过提供完整的StockInfo对象实例来解决底层DAO无法识别stock_id的问题。
-
         Args:
             signals_data (List[Dict[str, Any]]): 
                 一个字典列表，每个字典都包含了所有需要存入 TrendFollowStrategySignalLog 模型的字段。
                 关键字段必须包括: stock_code, trade_time, timeframe, strategy_name 等。
-
         Returns:
             int: 成功创建或更新的记录数量。
         """
@@ -542,11 +540,6 @@ class StrategiesDAO(BaseDAO):
             return 0
         
         print(f"调试信息: [DAO-SignalLog] 收到 {len(signals_data)} 条原始信号数据，准备进行批量保存。")
-
-        # ▼▼▼【代码修改】: 核心逻辑重构，提供对象实例而非ID ▼▼▼
-        # 解释: 底层 BaseDAO 在构建原生SQL时，很可能是通过模型字段名('stock')来查找数据，
-        #      而不是数据库列名('stock_id')。因此，我们必须提供一个以'stock'为键，
-        #      以StockInfo对象实例为值的数据项。
 
         # 步骤 1: 提取所有唯一的 stock_code
         stock_codes = {item['stock_code'] for item in signals_data if 'stock_code' in item}
