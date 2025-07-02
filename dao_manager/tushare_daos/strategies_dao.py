@@ -606,7 +606,7 @@ class StrategiesDAO(BaseDAO):
         【V1.1】在信号生成后，更新策略状态摘要表 (支持多时间框架)。
         """
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-        print(f"    [状态摘要] 正在为 {stock.stock_code} ({timeframe}周期) 更新策略状态...")
+        # print(f"    [状态摘要] 正在为 {stock.stock_code} ({timeframe}周期) 更新策略状态...")
         try:
             latest_signal = await TrendFollowStrategySignalLog.objects.filter(
                 stock=stock, strategy_name=strategy_name, timeframe=timeframe
@@ -634,7 +634,7 @@ class StrategiesDAO(BaseDAO):
             )
             
             action = "创建" if created else "更新"
-            print(f"    [状态摘要] 成功 {action} {stock.stock_code} ({timeframe}周期) 的策略状态。")
+            # print(f"    [状态摘要] 成功 {action} {stock.stock_code} ({timeframe}周期) 的策略状态。")
 
         except TrendFollowStrategySignalLog.DoesNotExist:
             print(f"    [状态摘要] 警告: 未找到 {stock.stock_code} ({timeframe}周期) 的信号日志，跳过更新。")

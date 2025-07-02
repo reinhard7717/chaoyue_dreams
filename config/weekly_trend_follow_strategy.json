@@ -99,12 +99,17 @@
       "long_ma": 60,
       "说明_ma_periods": "定义了用于判断多头排列的短(10周)、中(20周)、长(60周)三条均线。"
     },
-    "ma20_turn_up_playbook": {
+    "ma20_rising_state_playbook": {
       "enabled": true,
-      "说明": "【剧本：20周线拐头向上】捕捉中期趋势由弱转强的关键拐点。20周线（半年线）是A股市场公认的中期牛熊分界线，其走平拐头向上是重要的趋势反转信号。",
-      "ma_period": 20,
-      "slope_period": 2,
-      "说明_slope_period": "计算均线斜率的回看周期。2表示比较本周和上上周的均线值，判断趋势变化。"
+      "说明": "【状态剧本：MA20处于上升状态】识别20周均线是否处于持续上升的健康状态。这是一个'状态'信号，适合作为趋势持仓的过滤条件。",
+      "ma_period": 21,
+      "说明_ma_period": "均线周期。使用21周EMA，更平滑，能更好地代表趋势状态。"
+    },
+    "ma20_turn_up_event_playbook": {
+      "enabled": true,
+      "说明": "【事件剧本：MA20发生拐头向上】精确捕捉20周均线由平/跌转为上涨的那个'瞬间'。这是一个高价值的'事件'信号，适合作为趋势启动的触发器。",
+      "ma_period": 21,
+      "说明_ma_period": "均线周期。使用21周EMA，与状态信号保持一致。"
     },
     "box_consolidation_breakout_playbook": {
       "enabled": true,
@@ -129,6 +134,36 @@
       "说明_oversold_threshold": "超卖阈值。当BIAS低于-15%时，认为市场处于极端超卖状态，进入观察区。",
       "rebound_trigger": -12,
       "说明_rebound_trigger": "反弹触发阈值。当BIAS从-15%下方回升并上穿-12%时，确认为反弹信号。"
+    },
+    "washout_score_playbook": {
+      "enabled": true,
+      "说明": "【诊断剧本：洗盘评分】通过多种模式量化周线级别的洗盘行为。得分越高，表明近期洗盘特征越明显。这是一个诊断工具，其分数可用于增强其他买入信号的权重。",
+      "score_threshold": 2,
+      "说明_score_threshold": "洗盘分数阈值。当分数 >= 2时，可认为出现了较明显的洗盘信号。",
+      "support_type": "MA",
+      "说明_support_type": "定义洗盘所围绕的支撑位类型。可选 'MA' (移动平均线) 或 'BOX' (箱体底部)。",
+      "support_ma_period": 21,
+      "说明_support_ma_period": "如果 support_type 为 'MA'，则使用此周期的EMA作为支撑线。",
+      "drift_lookback_period": 3,
+      "说明_drift_lookback_period": "【漂移收复模式】回看周期。检查过去3周内是否曾跌破支撑。",
+      "bull_trap_lookback_period": 8,
+      "说明_bull_trap_lookback_period": "【诱多陷阱模式】回看周期。在过去8周高点附近发生的陷阱。",
+      "bull_trap_drop_threshold": 0.05,
+      "说明_bull_trap_drop_threshold": "从近期高点回落超过5%被视为进入陷阱区。",
+      "volume_avg_period": 20,
+      "说明_volume_avg_period": "【缩量确认模式】计算平均成交量的周期。",
+      "volume_contraction_threshold": 0.7,
+      "说明_volume_contraction_threshold": "成交量低于20周均量的70%视为缩量。"
+    },
+    "rejection_filter_playbook": {
+      "enabled": true,
+      "说明": "【诊断剧本：压力位拒绝过滤器】识别在关键压力位（如均线、箱顶）出现滞涨或被拒绝的信号。结果为负分，用于抵消或过滤掉在压力区的买入信号。",
+      "ma_period": 21,
+      "说明_ma_period": "用于检查拒绝信号的均线压力周期。",
+      "box_lookback_period": 52,
+      "说明_box_lookback_period": "用于寻找年度高点作为箱体压力的回看周期。",
+      "volume_multiplier": 1.5,
+      "说明_volume_multiplier": "出现拒绝信号时，成交量需要放大到均量的1.5倍以上。"
     },
     "ace_signal_breakout_trigger_playbook": {
       "enabled": true,

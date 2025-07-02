@@ -274,11 +274,13 @@ class TrendFollowStrategy:
         cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params)
         cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params)
         cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params)
-        # ▼▼▼【代码修改】: 调用新增的、基于精确CYQ数据的筹码剧本 ▼▼▼
+        # ▼▼▼ “均线加速上涨”剧本 ▼▼▼
+        cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params)
+        # ▼▼▼ 基于精确CYQ数据的筹码剧本 ▼▼▼
         cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, strict_precondition, params)
         cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, strict_precondition, params)
         cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 注意此为左侧信号，不依赖严格前提
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
         cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params)
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
@@ -320,7 +322,7 @@ class TrendFollowStrategy:
                 score_details_df.loc[condition, name] = points.get(name, default_score)
                 print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次。")
             atomic_signals[name] = condition
-        # ▼▼▼ 为新增的、基于精确CYQ数据的筹码剧本添加计分规则，给予极高权重 ▼▼▼
+        add_score(cond_ma_acceleration, 'MA_ACCELERATION', 130)
         add_score(cond_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180)
         add_score(cond_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160)
         add_score(cond_winner_rate_reversal, 'WINNER_RATE_REVERSAL', 140)
@@ -1688,32 +1690,60 @@ class TrendFollowStrategy:
     # ▼▼▼ “筹码高度集中突破”剧本 ▼▼▼
     def _find_chip_concentration_breakthrough_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【全新剧本】识别“筹码高度集中突破”信号。
-        当筹码高度集中（90%筹码区间小于阈值）且股价向上突破筹码上沿时，视为强力启动信号。
+        【剧本】【V2.0 配置驱动版】识别“筹码高度集中后突破”。
+        - 新增: 可通过JSON配置选择使用[5, 95]或[15, 85]等不同百分位来计算集中度。
         """
-        # 从主配置中获取本剧本的参数块
+        # 从JSON获取此剧本的专属配置
         params = self._get_params_block(params, 'chip_concentration_breakthrough_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
-        # 检查必需的CYQ数据列是否存在
-        required_cols = ['CYQ_cost_95pct_D', 'CYQ_cost_5pct_D', 'CYQ_weight_avg_D', 'close_D']
-        if not all(col in df.columns and df[col].notna().any() for col in required_cols):
-            if self.verbose_logging:
-                print(f"    [调试-筹码集中突破]: 跳过，缺少必需的CYQ列: {required_cols}")
-            return pd.Series(False, index=df.index)
-        # 1. 计算筹码集中度: (95%成本 - 5%成本) / 平均成本
-        concentration = (df['CYQ_cost_95pct_D'] - df['CYQ_cost_5pct_D']) / df['CYQ_weight_avg_D']
-        # 2. 条件A: 筹码高度集中
-        is_concentrated = concentration < params.get('concentration_threshold', 0.10)
-        # 3. 条件B: 股价向上突破筹码密集区上沿 (CYQ_cost_95pct_D)
-        is_breakthrough = (df['close_D'] > df['CYQ_cost_95pct_D']) & \
-                          (df['close_D'].shift(1) <= df['CYQ_cost_95pct_D'].shift(1))
-        # 最终信号：满足趋势前提 & 筹码高度集中 & 向上突破
-        final_signal = precondition & is_concentrated & is_breakthrough
-        if self.verbose_logging and final_signal.any():
-            print(f"    [调试-筹码集中突破]: 剧本触发 {final_signal.sum()} 次。")
-        return final_signal.fillna(False)
 
+        # 从配置中读取参数
+        threshold = params.get('concentration_threshold', 0.1)
+        # 从配置中读取百分位，并提供一个健壮的默认值
+        percentiles = params.get('concentration_percentiles', [15, 85])
+        if len(percentiles) != 2: # 安全检查
+            percentiles = [15, 85]
+        
+        lower_pct, upper_pct = min(percentiles), max(percentiles)
+
+        # 动态构建依赖的列名
+        cost_lower_col = f'cost_{lower_pct}pct_D'
+        cost_upper_col = f'cost_{upper_pct}pct_D'
+        weight_avg_col = 'weight_avg_D' # CYQ加权平均成本
+
+        # 检查所有必需的筹码列是否存在
+        required_cols = [cost_lower_col, cost_upper_col, weight_avg_col, 'close_D']
+        if not all(col in df.columns for col in required_cols):
+            if self.verbose_logging:
+                print(f"    [调试-筹码集中-警告]: 缺少必需的筹码列: {required_cols}，剧本跳过。")
+            return pd.Series(False, index=df.index)
+
+        # 1. 计算筹码集中度 (Concentration Ratio)
+        # 使用加权平均成本作为分母，比收盘价更稳定，更能反映真实成本
+        chip_range = df[cost_upper_col] - df[cost_lower_col]
+        # 防止分母为0
+        concentration_ratio = chip_range / df[weight_avg_col].replace(0, np.nan)
+
+        # 2. 识别“高度集中”状态
+        is_concentrated = concentration_ratio < threshold
+
+        # 3. 识别“向上突破”事件
+        # 突破的定义是：收盘价向上突破了集中区的上轨
+        was_below_upper_cost = df['close_D'].shift(1) <= df[cost_upper_col].shift(1)
+        is_breakout = df['close_D'] > df[cost_upper_col]
+        
+        # 信号：突破日的前一天，必须处于“高度集中”状态
+        signal = is_concentrated.shift(1).fillna(False) & is_breakout & was_below_upper_cost
+
+        # 最终信号必须满足外部传入的严格前提条件
+        final_signal = signal & precondition
+
+        if self.verbose_logging and final_signal.any():
+            print(f"    [调试-筹码集中]: 使用 {lower_pct}/{upper_pct} 百分位，剧本触发 {final_signal.sum()} 次。")
+
+        return final_signal.fillna(False)
+    
     # ▼▼▼ “获利盘洗净反转”剧本 ▼▼▼
     def _find_winner_rate_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
@@ -1894,6 +1924,63 @@ class TrendFollowStrategy:
             recovered_above_support = df['close_D'] > support_price
             signal = touched_support & recovered_above_support & precondition
             final_signal |= signal
+        return final_signal.fillna(False)
+
+    # ▼▼▼“均线加速上涨”剧本方法 ▼▼▼
+    def _find_ma_acceleration_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【新增剧本】“均线加速” - 识别趋势动量增强的爆发点。
+        特征：均线的斜率(一阶导数)为正，且斜率的斜率(二阶导数)也为正。
+        信号：在满足趋势前提下，均线加速上涨的当天。
+        """
+        # 从JSON获取此剧本的专属配置
+        params = self._get_params_block(params, 'ma_acceleration_playbook')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        # 从配置中读取参数，不再硬编码
+        ma_period = params.get('ma_period', 21)
+        timeframe = params.get('timeframe', 'D')
+        confirm_close_above = params.get('confirmation_close_above_ma', True)
+
+        # 构建列名
+        ema_col = f'EMA_{ma_period}_{timeframe}'
+        close_col = f'close_{timeframe}'
+        # 使用独立后缀避免与其他剧本的列名冲突
+        slope_col = f'{ema_col}_slope_for_accel'
+        accel_col = f'{ema_col}_acceleration'
+
+        # 检查依赖列是否存在
+        if ema_col not in df.columns or close_col not in df.columns:
+            if self.verbose_logging:
+                print(f"    [调试-均线加速-警告]: 缺少必需列 '{ema_col}' 或 '{close_col}'，剧本跳过。")
+            return pd.Series(False, index=df.index)
+
+        # 核心计算逻辑
+        # 1. 计算斜率 (一阶导数)
+        df[slope_col] = df[ema_col].diff(1)
+        # 2. 计算加速度 (二阶导数)
+        df[accel_col] = df[slope_col].diff(1)
+
+        # 定义信号条件
+        # 条件1: 均线在上涨 (斜率 > 0)
+        condition1 = df[slope_col] > 0
+        # 条件2: 上涨在加速 (加速度 > 0)
+        condition2 = df[accel_col] > 0
+        
+        final_signal = condition1 & condition2
+
+        # 可选的确认条件
+        if confirm_close_above:
+            condition3 = df[close_col] > df[ema_col]
+            final_signal &= condition3
+        
+        # 最终信号必须满足外部传入的严格前提条件
+        final_signal &= precondition
+
+        if self.verbose_logging and final_signal.any():
+            print(f"    [调试-均线加速]: 剧本触发 {final_signal.sum()} 次。")
+
         return final_signal.fillna(False)
 
     def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str) -> Dict:

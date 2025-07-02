@@ -173,11 +173,11 @@ class MultiTimeframeTrendStrategy:
             if df.index.tz is None:
                 # 如果索引是“天真”的 (naive)，则本地化为UTC
                 all_dfs[key].index = df.index.tz_localize('UTC')
-                print(f"    - [标准化] 周期 '{key}' 的索引已从 naive 本地化为 UTC。")
+                # print(f"    - [标准化] 周期 '{key}' 的索引已从 naive 本地化为 UTC。")
             elif str(df.index.tz) != 'UTC':
                 # 如果索引有时区但不是UTC，则转换为UTC
                 all_dfs[key].index = df.index.tz_convert('UTC')
-                print(f"    - [标准化] 周期 '{key}' 的索引已从 {df.index.tz} 转换为 UTC。")
+                # print(f"    - [标准化] 周期 '{key}' 的索引已从 {df.index.tz} 转换为 UTC。")
         logger.info("--- [数据标准化] 所有索引已统一为UTC时区。 ---")
 
         if 'D' not in all_dfs or 'W' not in all_dfs:

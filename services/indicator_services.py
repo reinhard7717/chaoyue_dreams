@@ -588,7 +588,6 @@ class IndicatorService:
         # --- 统一添加后缀并将所有计算结果合并回主DataFrame ---
         suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
         
-        # ▼▼▼【代码修改】: 修正最终合并逻辑，移除错误的 continue 判断 ▼▼▼
         # 遍历计算副本中的所有列（包括 base_cols 和所有计算出的指标列）
         for col in df_for_calc.columns:
             # 此处不再跳过 base_cols，确保 high -> high_W, close -> close_W 的转换能够发生
@@ -599,11 +598,8 @@ class IndicatorService:
             
             # 将结果列（如 high_W, EMA_20_W）添加到主DataFrame中
             df_main[final_col_name] = df_for_calc[col]
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         
-        # ▼▼▼【代码修改】: 版本号和日志信息更新 ▼▼▼
-        print(f"  [指标计算V5.8] 周期 '{timeframe_key}' 指标计算完成。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        # print(f"  [指标计算V5.8] 周期 '{timeframe_key}' 指标计算完成。")
         return df_main
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:

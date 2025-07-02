@@ -41,12 +41,11 @@ class WeeklyTrendFollowStrategy:
         print("\n---【周线战略层(V2.8 信号合成与提纯)诊断】---")
         # --- 步骤 2: 信号合成层 (逻辑保持不变) ---
         washout_threshold = self.playbook_params.get('washout_score_playbook', {}).get('score_threshold', 2)
-        accumulation_playbooks = ['playbook_early_uptrend_W', 'playbook_bias_rebound_W', 'playbook_ma20_turn_up_W']
         # 解释: TRIX金叉和Coppock底部反转都是非常重要的长期趋势启动或反转信号，将它们视为“吸筹/建仓”阶段的一部分，可以增强我们对趋势早期阶段的识别能力。
         accumulation_playbooks = [
             'playbook_early_uptrend_W', 
             'playbook_bias_rebound_W', 
-            'playbook_ma20_turn_up_W',
+            'playbook_ma20_turn_up_event_W',
             'playbook_trix_cross_W',          # 新增TRIX金叉剧本
             'playbook_coppock_reversal_W'   # 新增Coppock反转剧本
         ]
@@ -83,7 +82,8 @@ class WeeklyTrendFollowStrategy:
         print(f"---【周线战略层(V2.8 终极调试版) - 检查最新一周: {df.index[-1].date()}】---")
         print("="*80)
         
-        playbook_ma20_turn_up = self._playbook_ma20_turn_up(df, self.playbook_params.get('ma20_turn_up_playbook', {}))
+        playbook_ma20_is_rising = self._playbook_ma20_is_rising(df, self.playbook_params.get('ma20_rising_state_playbook', {}))
+        playbook_ma20_turn_up_event = self._playbook_ma20_turn_up_event(df, self.playbook_params.get('ma20_turn_up_event_playbook', {}))
         playbook_early_uptrend = self._playbook_early_uptrend(df, self.playbook_params.get('early_uptrend_playbook', {}))
         playbook_classic = self._playbook_classic_breakout(df, self.playbook_params.get('classic_breakout_playbook', {}))
         playbook_ma_uptrend = self._playbook_check_ma_uptrend(df, self.playbook_params.get('ma_uptrend_playbook', {}))
@@ -96,8 +96,8 @@ class WeeklyTrendFollowStrategy:
 
         # context_df = pd.DataFrame(index=df.index)
         context_df = df.copy()
-        context_df['playbook_ma20_turn_up_W'] = playbook_ma20_turn_up
-        context_df['playbook_early_uptrend_W'] = playbook_early_uptrend
+        context_df['playbook_ma20_is_rising_W'] = playbook_ma20_is_rising # 状态信号
+        context_df['playbook_ma20_turn_up_event_W'] = playbook_ma20_turn_up_event # 事件信号
         context_df['playbook_classic_breakout_W'] = playbook_classic
         context_df['playbook_ma_uptrend_W'] = playbook_ma_uptrend
         context_df['playbook_box_breakout_W'] = playbook_box_breakout
@@ -108,7 +108,8 @@ class WeeklyTrendFollowStrategy:
         context_df['playbook_coppock_reversal_W'] = playbook_coppock_reversal
         
         print("\n---【周线战略层(V2.8) - 剧本计算总结】---")
-        print(f"【剧本-MA20拐头】触发周数: {playbook_ma20_turn_up.sum()}")
+        print(f"【剧本-MA20上升状态】触发周数: {playbook_ma20_is_rising.sum()}")
+        print(f"【剧本-MA20拐头事件】触发周数: {playbook_ma20_turn_up_event.sum()}")
         print(f"【剧本-早期趋势】触发周数: {playbook_early_uptrend.sum()}")
         print(f"【剧本-经典突破】触发周数: {playbook_classic.sum()}")
         print(f"【剧本-稳定趋势】触发周数: {playbook_ma_uptrend.sum()}")
@@ -121,22 +122,26 @@ class WeeklyTrendFollowStrategy:
         
         return context_df
 
-    def _playbook_ma20_turn_up(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """剧本：识别20周均线拐头向上"""
-        print("\n--- 剧本检查: [MA20拐头向上] ---")
-        if not params.get('enabled', True):
+    def _playbook_ma20_is_rising(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """剧本：识别指定周线均线是否处于上升状态 (由JSON配置驱动)"""
+        print("\n--- 剧本检查: [均线处于上升状态] ---")
+        if not params.get('enabled', False): # 从字典中安全获取enabled
             print("    - 结论: [未启用]")
             return pd.Series(False, index=df.index)
 
-        target_ma_period = 21
+        # 从JSON配置中读取参数，不再硬编码
+        target_ma_period = params.get('ma_period', 21)
+        print(f"    - 配置参数: ma_period={target_ma_period}")
+
         ema_col = f'EMA_{target_ma_period}_W'
-        slope_col = f'{ema_col}_slope'
+        slope_col = f'{ema_col}_slope_state' # 使用独立列名
         close_col = 'close_W'
         
         if not self._check_dependencies(df, [ema_col, close_col], log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
 
+        # “状态”逻辑：只要斜率 > 0，就代表处于上升状态
         df[slope_col] = df[ema_col].diff(1)
         condition1 = df[slope_col] > 0
         condition2 = df[close_col] > df[ema_col]
@@ -147,6 +152,48 @@ class WeeklyTrendFollowStrategy:
         c1_last = condition1.iloc[-1]
         c2_last = condition2.iloc[-1]
         print(f"    - 条件1 (均线斜率 > 0): {'[✓]' if c1_last else '[✗]'} (实际值: {last.get(slope_col, float('nan')):.2f})")
+        print(f"    - 条件2 (收盘价 > 均线): {'[✓]' if c2_last else '[✗]'} (收盘价: {last.get(close_col, float('nan')):.2f} vs 均线: {last.get(ema_col, float('nan')):.2f})")
+        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+
+        return final_signal.fillna(False)
+
+    def _playbook_ma20_turn_up_event(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """【新增剧本】: 识别指定周线均线“拐头向上”的事件 (由JSON配置驱动)"""
+        print("\n--- 剧本检查: [均线拐头向上事件] ---")
+        if not params.get('enabled', False): # 从字典中安全获取enabled
+            print("    - 结论: [未启用]")
+            return pd.Series(False, index=df.index)
+
+        # 从JSON配置中读取参数，不再硬编码
+        target_ma_period = params.get('ma_period', 21)
+        print(f"    - 配置参数: ma_period={target_ma_period}")
+
+        ema_col = f'EMA_{target_ma_period}_W'
+        slope_col = f'{ema_col}_slope_event' # 使用独立列名避免冲突
+        close_col = 'close_W'
+        
+        if not self._check_dependencies(df, [ema_col, close_col], log_details=True):
+            print(f"    - 结论: [失败] 缺少必要列")
+            return pd.Series(False, index=df.index)
+
+        # “事件”逻辑：只有当斜率从“非正”变为“正”的那一刻，才为 True
+        df[slope_col] = df[ema_col].diff(1)
+        slope_is_positive = df[slope_col] > 0
+        slope_was_not_positive = df[slope_col].shift(1) <= 0
+        condition1 = slope_is_positive & slope_was_not_positive
+
+        # 条件2: 股价在均线之上，增加信号有效性
+        condition2 = df[close_col] > df[ema_col]
+        final_signal = condition1 & condition2
+
+        # 调试最新一周
+        last = df.iloc[-1]
+        # 安全地获取上一周数据
+        prev = df.iloc[-2] if len(df) > 1 else last 
+        c1_last = condition1.iloc[-1]
+        c2_last = condition2.iloc[-1]
+        
+        print(f"    - 条件1 (均线发生拐头): {'[✓]' if c1_last else '[✗]'} (本周斜率: {last.get(slope_col, 0):.2f} > 0 AND 上周斜率: {prev.get(slope_col, 0):.2f} <= 0)")
         print(f"    - 条件2 (收盘价 > 均线): {'[✓]' if c2_last else '[✗]'} (收盘价: {last.get(close_col, float('nan')):.2f} vs 均线: {last.get(ema_col, float('nan')):.2f})")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         

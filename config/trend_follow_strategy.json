@@ -184,6 +184,8 @@
       "chip_concentration_breakthrough_params": {
         "enabled": true,
         "说明": "【剧本】筹码高度集中突破。寻找主力高度控盘后，向上突破筹码密集区上沿的强力启动信号。",
+        "concentration_percentiles": [15, 85],
+        "说明_concentration_percentiles": "用于计算筹码集中度的百分位。可选 [5, 95] (极严格模式，衡量90%筹码) 或 [15, 85] (均衡模式，衡量核心70%筹码)。",
         "concentration_threshold": 0.1,
         "说明_concentration_threshold": "筹码集中度阈值。计算公式为 (95%成本 - 5%成本) / 平均成本。小于0.1表示筹码非常集中。"
       },
@@ -202,6 +204,15 @@
         "说明_volume_ratio": "成交量放大倍数。当日成交量 > 20日均量 * 1.5。",
         "volatility_threshold": 0.02,
         "说明_volatility_threshold": "日内振幅阈值。当日振幅 < 2% 视为缩量整理。"
+      },
+      "ma_acceleration_playbook": {
+        "enabled": true,
+        "说明": "【剧本：均线加速上涨】捕捉日线级别均线斜率持续为正、且斜率的增量也为正的强劲动量阶段。这是主升浪最猛烈阶段的特征，是极佳的右侧追击信号。",
+        "ma_period": 21,
+        "timeframe": "D",
+        "说明_ma_period": "用于计算加速的的均线周期，21日线是常用的中期趋势线。",
+        "confirmation_close_above_ma": true,
+        "说明_confirmation": "是否要求收盘价必须在均线之上，以增加信号的可靠性，过滤掉加速过程中的假动作。"
       },
       "vwap_confirmation_params": {
         "enabled": true,
@@ -303,6 +314,11 @@
             "description": "价格新低但OBV/资金流指标未新低，主力左侧吸筹的明确信号。"
           },
           "__CATEGORY_TREND_CONTINUATION__": "--- 趋势持续/右侧跟踪 ---",
+          "MA_ACCELERATION": {
+            "name": "均线加速上涨",
+            "score": 130,
+            "description": "日线均线加速上涨，是强劲的动量信号，通常预示主升浪。"
+          },
           "PULLBACK_FIBONACCI": {
             "name": "斐波那契回撤",
             "score": 120,
