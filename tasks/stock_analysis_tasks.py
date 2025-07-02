@@ -140,6 +140,70 @@ def analyze_all_stocks(self):
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
+
+# ▼▼▼【代码更新】: 为调试任务增加更详细的注释，解释同步调用的原因 ▼▼▼
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_single_stock_analysis', queue='debug_tasks')
+def debug_single_stock_analysis(self, stock_code: str):
+    """
+    【V1.1 - 专用调试任务，注释增强】
+    对单个股票执行最详细的策略分析，用于问题排查。
+    - 自动获取最新行情，判断是否为上涨日。
+    - 无论是否上涨，都强制执行策略分析。
+    - 提供非常详细的启动日志。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [调试任务启动] ---")
+    logger.info(f"股票代码: {stock_code}")
+    
+    trade_date_str = datetime.now().strftime('%Y-%m-%d')
+    logger.info(f"分析日期: {trade_date_str}")
+
+    # 实例化DAO以获取最新行情
+    strategies_dao = StrategiesDAO()
+    
+    try:
+        # 异步获取最新日线行情
+        latest_daily_quote = async_to_sync(strategies_dao.get_latest_daily_quote)(stock_code)
+        
+        if latest_daily_quote:
+            pct_chg = latest_daily_quote.get('pct_chg', 0)
+            close_price = latest_daily_quote.get('close', 'N/A')
+            trade_date_db = latest_daily_quote.get('trade_date', 'N/A')
+            logger.info(f"数据库最新行情: 日期={trade_date_db}, 收盘价={close_price}, 涨跌幅={pct_chg}%")
+            if pct_chg > 0:
+                logger.info(f"诊断结论: [{stock_code}] 今日为上涨状态，是理想的调试对象。")
+            else:
+                logger.info(f"诊断结论: [{stock_code}] 今日为下跌或平盘状态。")
+        else:
+            logger.warning(f"未能获取到 [{stock_code}] 的最新日线行情。")
+
+    except Exception as e:
+        logger.error(f"获取 [{stock_code}] 最新行情时出错: {e}", exc_info=True)
+
+    logger.info("无论行情如何，都将强制执行详细的策略分析...")
+    logger.info("="*80)
+
+    try:
+        # 【关键部分】: 使用同步方式调用策略任务
+        # 解释: .apply().get() 会阻塞当前调试任务，直到内部的策略分析任务执行完毕。
+        # 这对于调试是【非常重要】的，因为它保证了日志的连续性和结果的即时性。
+        # 如果改成 .delay() (异步)，本调试任务会立即结束，分析日志会出现在其他地方，不利于排查问题。
+        result = run_multi_timeframe_strategy.s(stock_code, trade_date_str).apply().get()
+        
+        logger.info(f"--- [调试任务完成] ---")
+        logger.info(f"股票 [{stock_code}] 的策略分析执行完毕。")
+        logger.info(f"返回结果: {result}")
+        logger.info("="*80)
+        return {"status": "success", "stock_code": stock_code, "details": result}
+    except Exception as e:
+        logger.error(f"在调试任务中调用 'run_multi_timeframe_strategy' 时发生严重错误: {e}", exc_info=True)
+        logger.info("="*80)
+        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+
+
+
+
+
 # 保留旧的任务入口以实现兼容性，但调度器不再调用它
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_trend_follow_strategy', queue='calculate_strategy')
 def run_trend_follow_strategy(self, stock_code: str, trade_date: str):
