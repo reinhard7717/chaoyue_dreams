@@ -114,8 +114,8 @@
     "early_uptrend_playbook": {
       "enabled": true,
       "说明": "【剧本：早期上升趋势】捕捉周线趋势反转的早期“上拐”信号，结合均线和MACD。",
-      "short_ma": 10,
-      "mid_ma": 20
+      "short_ma": 13,
+      "mid_ma": 21
     },
     "classic_breakout_playbook": {
       "enabled": true,
