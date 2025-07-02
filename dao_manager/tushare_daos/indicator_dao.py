@@ -144,22 +144,6 @@ class IndicatorDAO(BaseDAO):
         self.cache_get = None # 缓存获取工具
         self.ta = ta
 
-    async def initialize_cache_objects(self):
-        """异步初始化缓存相关对象"""
-        if self.cache_manager is None:
-            # 假设 CacheManager 有异步初始化方法或者其 __init__ 是同步的
-            self.cache_manager = CacheManager()
-            # 如果 CacheManager 有需要 await 的初始化方法，在这里调用
-            # if hasattr(self.cache_manager, 'initialize_async'):
-            #     await self.cache_manager.initialize_async()
-
-        if self.cache_get is None:
-            # 假设 StockTimeTradeCacheGet 有异步初始化方法或者其 __init__ 是同步的
-            self.cache_get = StockTimeTradeCacheGet()
-            # 如果 StockTimeTradeCacheGet 有需要 await 的初始化方法，在这里调用
-            # if hasattr(self.cache_get, 'initialize_async'):
-            #     await self.cache_get.initialize_async()
-
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         【V4.4 精确定位版】获取历史数据并直接高效转换为 pandas DataFrame。
@@ -171,9 +155,6 @@ class IndicatorDAO(BaseDAO):
         # print(f"\n--- [DAO-数据库 V4.4-调试开始] ---")
         # print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
 
-        # 2. 获取股票实例
-        if self.stock_basic_dao is None:
-            await self.initialize_cache_objects()
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")

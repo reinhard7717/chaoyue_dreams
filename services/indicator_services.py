@@ -275,96 +275,89 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V7.0 适配重构版】
-        - 核心升级: 使用新的 _discover_required_timeframes_from_config 方法来确定所有需要的数据周期。
+        【V7.1 竞态修复版】
+        - 核心修复: 解决了因 asyncio.gather 结果顺序不定导致的“数据错配”问题。
+        - 解决方案: 创建了一个内部异步函数 _fetch_and_tag_data，它在获取数据后，
+                    将时间周期(tf)作为标签和数据(df)一起返回，即 (tf, df)。
+                    这样，在处理 gather 的结果时，我们可以根据标签准确地将数据放入
+                    对应的字典键中，彻底消除了竞态条件。
         """
-        # print(f"--- [数据准备V7.0-智能发现版] 开始为 {stock_code} 准备数据... ---")
-        
-        # ▼▼▼ 使用新的、更强大的方法来识别所有需要的时间周期 ▼▼▼
-        # --- 步骤 1: 从配置中智能、全面地识别所有需要的时间周期 ---
+        # --- 步骤 1: 智能发现所需周期 (无变化) ---
         required_tfs = self._discover_required_timeframes_from_config(config)
-         # ▼▼▼ 明确读取 base_needed_bars 并增加日志 ▼▼▼
-        base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500) # 提供一个保守的默认值
+        base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
         print(f"    - [配置读取] 策略请求的基础数据量 (base_needed_bars) 为: {base_needed_bars}")
         
-       # ▼▼▼ 增加对CYQ筹码数据的需求检测 ▼▼▼
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        # 检查是否需要旧的资金流数据
-        needs_fund_chips_data = False
-        for indicator_key, params in indicators_config.items():
-            if isinstance(params, dict) and params.get('enabled', False):
-                if indicator_key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']:
-                    needs_fund_chips_data = True
-                    break
-        # 检查是否需要新的CYQ筹码数据
-        cyq_perf_config = indicators_config.get('cyq_perf', {})
-        needs_cyq_perf_data = cyq_perf_config.get('enabled', False)
+        needs_fund_chips_data = any(
+            params.get('enabled', False) and key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']
+            for key, params in indicators_config.items() if isinstance(params, dict)
+        )
+        needs_cyq_perf_data = indicators_config.get('cyq_perf', {}).get('enabled', False)
 
         if not required_tfs:
-            logger.warning(f"[{stock_code}] 配置文件中没有启用任何指标或指定apply_on，无需准备数据。")
             return {}
 
-        # --- 步骤 1.5: 识别真正的基础数据需求，并准备重采样 ---
+        # --- 步骤 2: 识别基础数据需求和重采样计划 (无变化) ---
         base_tfs_to_fetch = set()
-        resample_map = {} # 记录需要进行的重采样任务, e.g., {'W': 'D', 'M': 'D'}
-
+        resample_map = {}
         for tf in required_tfs:
             if tf in ['W', 'M']:
-                # 如果需要周线或月线，我们真正需要的是日线数据
                 base_tfs_to_fetch.add('D')
                 resample_map[tf] = 'D'
             else:
-                # 其他周期（如 'D', '60', '30'）直接获取
                 base_tfs_to_fetch.add(tf)
 
-        # print(f"    - [诊断日志] 1. 策略请求的原始周期: {sorted(list(required_tfs))}")
-        # print(f"    - [诊断日志] 2. 优化后需获取的基础周期: {sorted(list(base_tfs_to_fetch))}")
-        if resample_map:
-            pass
-            # print(f"    - [诊断日志] 3. 已制定的重采样计划: {resample_map}")
-
         tasks = []
+
+        # 内部辅助函数，用于获取数据并打上时间周期标签
+        async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
+            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, bars_to_fetch, trade_time_str)
+            # 核心：返回一个元组 (标签, 数据)，而不是只返回数据
+            return (tf_to_fetch, df)
+
         # 任务1: 获取所有必需的【基础】OHLCV数据
         for tf in base_tfs_to_fetch:
             bars_to_fetch = base_needed_bars
-            # 如果需要从日线重采样，并且当前正在获取日线数据，则需要获取更多的数据
-            # 1000个交易日约等于4年，可以重采样出约200条周线，足够计算年线等指标
             if tf == 'D' and resample_map:
-                # 我们需要足够的日线来满足周线和月线指标的需求。
-                # 例如，一个60周的指标需要大约 60*5 = 300 个交易日。
-                # 1000个交易日是一个非常安全的值，可以满足绝大多数长周期指标。
-                bars_to_fetch = max(bars_to_fetch, 1000) # 确保至少获取1000条日线用于重采样
+                bars_to_fetch = max(bars_to_fetch, 1000)
                 print(f"    - [数据量决策] 为支持重采样，日线数据获取量提升至: {bars_to_fetch}")
             
-            tasks.append(self._get_ohlcv_data(stock_code, tf, bars_to_fetch, trade_time))
-
-        # 任务2: 如果需要，才获取资金流数据
+            # 添加带标签的异步任务
+            tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
+        
+        # 任务2: 如果需要，才获取资金流数据 (这部分逻辑不变，因为它只有一个任务，不会混淆)
         if needs_fund_chips_data:
             trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
             tasks.append(self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt))
 
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # --- 步骤 3: 【清晰】解包并行任务的结果 ---
+        
+        # --- 步骤 3: 【健壮的】解包并行任务的结果 ---
         raw_dfs: Dict[str, pd.DataFrame] = {}
         df_fund_chips: Optional[pd.DataFrame] = None
-        
-        ohlcv_results = all_data_results[:len(base_tfs_to_fetch)]
-        if needs_fund_chips_data:
-            fund_chips_result = all_data_results[-1]
-            if isinstance(fund_chips_result, pd.DataFrame):
-                df_fund_chips = fund_chips_result
-            elif isinstance(fund_chips_result, Exception):
-                logger.error(f"[{stock_code}] 获取资金流数据时发生错误: {fund_chips_result}")
 
-        sorted_base_tfs = sorted(list(base_tfs_to_fetch))
-        for i, res in enumerate(ohlcv_results):
-            tf = sorted_base_tfs[i]
-            if isinstance(res, pd.DataFrame) and not res.empty:
-                raw_dfs[tf] = res
-            else:
-                logger.error(f"[{stock_code}] 获取基础周期 {tf} 数据时发生错误或数据为空: {res}")
-                if tf == 'D': return {} # 如果最核心的日线数据都没有，直接终止
+        # 遍历返回的结果，现在每个结果都是带标签的
+        for result in all_data_results:
+            if isinstance(result, Exception):
+                logger.error(f"[{stock_code}] 在并行获取数据时发生错误: {result}")
+                continue
+            
+            # 解包带标签的数据
+            if isinstance(result, tuple) and len(result) == 2:
+                tf, df = result  # 解包出 时间周期 和 DataFrame
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    raw_dfs[tf] = df # 使用标签作为key，准确无误
+                else:
+                    # 即使数据为空也打印日志，方便追踪
+                    logger.warning(f"[{stock_code}] 获取基础周期 {tf} 数据时返回为空或非DataFrame。")
+            # 处理资金流数据的返回 (它不是元组)
+            elif isinstance(result, pd.DataFrame):
+                # 假设非元组的DataFrame就是资金流数据
+                df_fund_chips = result
+
+        if 'D' not in raw_dfs:
+            logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
+            return {}
         
         # ▼▼▼ 在获取完日线数据后，按需获取CYQ筹码数据 ▼▼▼
         df_cyq_perf = None
