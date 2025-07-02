@@ -110,7 +110,7 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
             print(f"开始保存 分钟数据任务（当日全天）...")
         asyncio.run(stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
             stock_codes=stock_codes,
-            start_date=start_date_str,
+            start_date_str=start_date_str,
             end_date_str=end_date_str
         ))
         print(f"保存股票 {len(stock_codes)} 个的当日分钟级交易数据完成。")
