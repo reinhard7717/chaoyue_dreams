@@ -1002,34 +1002,18 @@ class BaseDAO(Generic[T]):
             logger.warning(f"未知的时区名称 '{tz_name}'，将使用 UTC。")
             tz = ZoneInfo("UTC")
 
-        def fix_bj_time(dt):
-            """
-            检查并修正为标准北京时间（+08:00），如不是则强制转换。
-            """
-            if isinstance(dt, datetime):
-                offset = dt.tzinfo.utcoffset(dt) if dt.tzinfo else None
-                tzkey = getattr(dt.tzinfo, 'key', None) or str(dt.tzinfo)
-                # 只要不是Asia/Shanghai或offset不是+8小时，都强制修正
-                if offset != timedelta(hours=8) or tzkey != 'Asia/Shanghai':
-                    # print(f"警告：检测到非标准北京时间，已强制修正为+08:00，原tzinfo: {dt.tzinfo}, offset: {offset}, tzkey: {tzkey}")
-                    dt = dt.replace(tzinfo=None)
-                    dt = dt.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-            return dt
-
         if isinstance(value, datetime):
             # 如果已经是 datetime 对象，确保其时区正确
             if settings.USE_TZ:
                 dt = timezone.make_aware(value, tz) if timezone.is_naive(value) else value.astimezone(tz)
             else:
                 dt = timezone.make_naive(value, tz) if timezone.is_aware(value) else value
-            dt = fix_bj_time(dt)  # 校正时区
             return dt
 
         if isinstance(value, date) and not isinstance(value, datetime):
             # 如果是 date 对象，转换为 datetime (午夜)
             dt = datetime.combine(value, datetime.min.time())
             dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
-            dt = fix_bj_time(dt)  # 校正时区
             return dt
 
         if value is None or str(value).strip() in ['', '-', 'N/A', '暂无']:
@@ -1053,7 +1037,6 @@ class BaseDAO(Generic[T]):
                     dt = timezone.make_aware(dt, tz) if timezone.is_naive(dt) else dt.astimezone(tz)
                 else:
                     dt = timezone.make_naive(dt, tz) if timezone.is_aware(dt) else dt
-                dt = fix_bj_time(dt)  # 校正时区
                 return dt
             except ValueError:
                 pass # 继续尝试
@@ -1063,7 +1046,6 @@ class BaseDAO(Generic[T]):
                 try:
                     dt = datetime.strptime(value, default_format)
                     dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
-                    dt = fix_bj_time(dt)  # 校正时区
                     return dt
                 except ValueError:
                     pass # 继续尝试
@@ -1078,7 +1060,6 @@ class BaseDAO(Generic[T]):
                 try:
                     dt = datetime.strptime(value, fmt)
                     dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
-                    dt = fix_bj_time(dt)  # 校正时区
                     return dt
                 except ValueError:
                     continue
@@ -1090,7 +1071,6 @@ class BaseDAO(Generic[T]):
             if timestamp > 2000000000: # 大约 2033 年后的秒数，可能是毫秒
                 timestamp /= 1000
             dt = datetime.fromtimestamp(timestamp, tz)
-            dt = fix_bj_time(dt)  # 校正时区
             return dt if settings.USE_TZ else timezone.make_naive(dt, tz)
         except (ValueError, TypeError):
             pass # 不是时间戳，继续尝试其他格式

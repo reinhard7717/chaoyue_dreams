@@ -71,14 +71,15 @@ class IndicatorService:
         
         # 创建副本以避免修改原始传入的DataFrame，遵循函数式编程的最佳实践
         df_copy = df.copy()
+        df_copy.index = df_copy.index.tz_convert('UTC')
         
-        if df_copy.index.tz is None:
-            # 时区天真 -> 先正确识别为上海时间，再转换为UTC
-            # 旧的错误代码: df_copy.index = df_copy.index.tz_localize('UTC')
-            df_copy.index = df_copy.index.tz_localize('Asia/Shanghai').tz_convert('UTC')
-        else:
-            # 时区感知 -> 转换为UTC
-            df_copy.index = df_copy.index.tz_convert('UTC')
+        # if df_copy.index.tz is None:
+        #     # 时区天真 -> 先正确识别为上海时间，再转换为UTC
+        #     # 旧的错误代码: df_copy.index = df_copy.index.tz_localize('UTC')
+        #     df_copy.index = df_copy.index.tz_localize('Asia/Shanghai').tz_convert('UTC')
+        # else:
+        #     # 时区感知 -> 转换为UTC
+        #     df_copy.index = df_copy.index.tz_convert('UTC')
             
         return df_copy
 
