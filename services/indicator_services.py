@@ -276,12 +276,10 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V7.1 竞态修复版】
-        - 核心修复: 解决了因 asyncio.gather 结果顺序不定导致的“数据错配”问题。
-        - 解决方案: 创建了一个内部异步函数 _fetch_and_tag_data，它在获取数据后，
-                    将时间周期(tf)作为标签和数据(df)一起返回，即 (tf, df)。
-                    这样，在处理 gather 的结果时，我们可以根据标签准确地将数据放入
-                    对应的字典键中，彻底消除了竞态条件。
+        【V7.2 根源性时区修复版】
+        - 核心修复: 将时区标准化操作提前，确保所有时间周期(日线、分钟线等)的数据在计算指标前都统一转换为UTC。
+        - 问题根源: 旧版代码仅在处理日线数据时才进行时区转换，遗漏了所有分钟线数据。
+        - 解决方案: 在获取并重采样完所有原始数据(raw_dfs)后，立即对其中的每一个DataFrame执行时区标准化。
         """
         # --- 步骤 1: 智能发现所需周期 (无变化) ---
         required_tfs = self._discover_required_timeframes_from_config(config)
@@ -363,13 +361,11 @@ class IndicatorService:
         # ▼▼▼ 在获取完日线数据后，按需获取CYQ筹码数据 ▼▼▼
         df_cyq_perf = None
         if needs_cyq_perf_data and 'D' in raw_dfs:
-            # print(f"    - [CYQ数据] 检测到需要筹码数据，开始获取...")
             try:
                 # 使用日线数据的索引作为日期列表来请求CYQ数据，确保日期对齐
                 trade_dates = raw_dfs['D'].index.tolist()
                 df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
                 if df_cyq_perf is not None and not df_cyq_perf.empty:
-                    # print(f"    - [CYQ数据] 成功获取 {len(df_cyq_perf)} 条筹码数据。")
                     pass
                 else:
                     print(f"    - [CYQ数据] 未获取到筹码数据。")
@@ -377,54 +373,28 @@ class IndicatorService:
                 logger.error(f"[{stock_code}] 获取CYQ筹码数据时发生异常: {e}")
 
         # ▼▼▼ 执行重采样，生成周线/月线数据 ▼▼▼
-        # --- 步骤 3.5: 执行重采样 ---
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
-
-            # if not df_daily.empty and isinstance(df_daily.index, pd.DatetimeIndex):
-            #     print("\n" + "="*80)
-            #     print("--- [IndicatorService V7.3 终极诊断]: 检查用于重采样的日线DataFrame ---")
-            #     print(f"    - DataFrame 行数: {len(df_daily)}")
-            #     print(f"    - 起始日期: {df_daily.index.min()}")
-            #     print(f"    - 结束日期: {df_daily.index.max()}")
-            #     print("="*80 + "\n")
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
-                    # print(f"    - [诊断日志] 4a. 开始从日线重采样生成 {target_tf} 线数据...")
                     ohlc_rule = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
                     resample_period = 'W-FRI' if target_tf == 'W' else 'M'
                     df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
-                    
-                    # print(f"    - [诊断日志] 4b. 重采样完成，dropna前有 {len(df_resampled)} 条 {target_tf} 线数据。")
                     df_resampled.dropna(inplace=True)
-                    # print(f"    - [诊断日志] 4c. dropna后剩余 {len(df_resampled)} 条 {target_tf} 线数据。")
-                    
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
-                        # print(f"    - [诊断日志] 4d. [成功] {target_tf} 线数据已添加至待处理池。")
-                    # else:
-                        # logger.warning(f"    - [诊断日志] 4d. [警告] {target_tf} 线数据在处理后为空，已被丢弃！")
 
-        # 解释: 为了彻底排查分钟线数据的时间范围问题，我们在这里增加一个诊断块。
-        # 它会遍历所有已加载的分钟线周期，并打印其具体的起始和结束时间。
-        # 这将直观地验证我们对 `trade_time` 参数的修复是否生效。
-        # print("\n" + "="*80)
-        # print("--- [IndicatorService V7.4 终极诊断]: 检查所有已加载的分钟线DataFrame ---")
-        # # 对字典键进行排序，可以保证每次输出的顺序一致，便于比较
-        # # 使用一个key函数来正确排序数字字符串
-        # sorted_keys = sorted(raw_dfs.keys(), key=lambda k: int(k) if k.isdigit() else float('inf'))
-        # for tf in sorted_keys:
-        #     df = raw_dfs[tf]
-        #     # 只对分钟级别的数据进行诊断
-        #     if tf.isdigit():
-        #         print(f"  --- 周期: {tf} 分钟 ---")
-        #         if df is not None and not df.empty and isinstance(df.index, pd.DatetimeIndex):
-        #             print(f"    - DataFrame 行数: {len(df)}")
-        #             print(f"    - 起始时间: {df.index.min()}")
-        #             print(f"    - 结束时间: {df.index.max()}")
-        #         else:
-        #             print(f"    - 状态: 数据为空或索引无效")
-        # print("="*80 + "\n")
+        # ▼▼▼【代码修改】: 在此处统一进行时区标准化 ▼▼▼
+        # 解释: 这是解决时区问题的最终、最根本的位置。
+        # 在所有原始数据（包括重采样生成的）准备好后，但在进行任何指标计算或合并之前，
+        # 我们遍历每一个DataFrame，并将其索引统一为正确的UTC时间。
+        print(f"    - [数据标准化] 开始对所有已加载的周期 {list(raw_dfs.keys())} 进行UTC时区标准化...")
+        for tf, df in raw_dfs.items():
+            if df is not None and not df.empty:
+                # 调用我们之前修复好的辅助函数
+                raw_dfs[tf] = self._standardize_df_index_to_utc(df)
+        print(f"    - [数据标准化] 所有周期UTC时区标准化完成。")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
@@ -434,45 +404,26 @@ class IndicatorService:
 
         async def _calculate_for_tf(tf, df):
             if tf == 'D':
-                # 解释: 在合并任何数据之前，先调用 _standardize_df_index_to_utc 确保所有参与者
-                #       都使用统一的UTC时区，从根源上解决时区不匹配问题。
                 # 融合旧版资金流数据
                 if df_fund_chips is not None and not df_fund_chips.empty:
                     print("    - [数据融合] 正在将旧版资金流数据合并到日线数据...")
-                    df = self._standardize_df_index_to_utc(df)
+                    # ▼▼▼【代码修改】: 清理冗余代码 ▼▼▼
+                    # 解释: 由于主数据df已在上方被统一处理，此处的调用是多余的，故移除。
+                    # 我们只需确保待合并的df_fund_chips也被标准化即可。
                     df_fund_chips_std = self._standardize_df_index_to_utc(df_fund_chips)
                     df = pd.merge(df, df_fund_chips_std, left_index=True, right_index=True, how='left')
                     df[list(df_fund_chips_std.columns)] = df[list(df_fund_chips_std.columns)].fillna(0)
                 # 融合新版CYQ筹码数据
                 if df_cyq_perf is not None and not df_cyq_perf.empty:
                     print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
-                    df = self._standardize_df_index_to_utc(df)
+                    # 同样，只需确保待合并的df_cyq_perf被标准化。
                     df_cyq_perf_std = self._standardize_df_index_to_utc(df_cyq_perf)
+                    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                     df = pd.merge(df, df_cyq_perf_std, left_index=True, right_index=True, how='left')
                     cyq_cols = [col for col in df.columns if col.startswith('CYQ_')]
                     df[cyq_cols] = df[cyq_cols].ffill()
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-
-            # 解释: 我们怀疑分钟线的指标计算结果有问题。在这里打印出计算后的DataFrame尾部，
-            # 重点观察 MACD, KDJ, DMI 等列的值，看它们是否为 NaN 或 0。
-            # 我们只对其中一个分钟周期（例如30分钟）进行打印，以避免日志刷屏。
-            # if tf == '30': # 只打印30分钟的作为样本
-            #     print("\n" + "#"*80)
-            #     print(f"### [IndicatorService 终极诊断]: 检查 30分钟线 指标计算结果 (最后5条) ###")
-            #     # 筛选出一些关键的指标列和基础数据列，方便观察
-            #     cols_to_show = ['open', 'high', 'low', 'close', 'volume']
-            #     indicator_cols = [
-            #         'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', # MACD
-            #         'K_9_3_3', 'D_9_3_3', 'J_9_3_3',                 # KDJ
-            #         'PDI_14', 'MDI_14', 'ADX_14',                    # DMI
-            #         'RSI_14'                                         # RSI
-            #     ]
-            #     # 找到实际存在的列进行显示
-            #     existing_cols = [col for col in cols_to_show + indicator_cols if col in df_with_indicators.columns]
-            #     print(df_with_indicators[existing_cols].tail())
-            #     print("#"*80 + "\n")
-
             return tf, df_with_indicators
 
         # 只为那些成功获取或生成了数据的周期计算指标
