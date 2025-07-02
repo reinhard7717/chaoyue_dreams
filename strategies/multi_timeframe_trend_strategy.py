@@ -1,5 +1,5 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V5.7 - 智能移位终极修复版
+# 版本: V5.8 - 强制重命名终极修复版
 
 import asyncio
 from collections import defaultdict
@@ -22,12 +22,12 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V5.7 智能移位终极修复版】
-        - 核心BUG修复: 解决了在多时间框架对齐后，使用 shift(1) 无法正确检测低频周期指标变化的根本性问题。
-        - 解决方案: 在 _check_single_condition 方法中引入“智能移位”逻辑。
-                   根据触发周期和条件周期的关系（如60分钟 vs 5分钟），动态计算正确的移位周期数（shift_periods = 12），
-                   而不是固定使用 shift(1)。这确保了所有交叉和拐点信号都能在正确的历史数据上进行比较。
-                   这是本次调试的终极修复，预计将成功触发共振信号。
+        【V5.8 强制重命名终极修复版】
+        - 核心BUG修复: 彻底解决了因错误理解 merge_asof 的 suffixes 参数，导致高频周期指标列名未被正确添加后缀的根本问题。
+        - 解决方案: 在 _run_intraday_resonance_engine 方法中，不再依赖 suffixes 参数。
+                   改为在合并前，手动、强制地为右侧DataFrame的所有列添加后缀（例如 'close' -> 'close_60'）。
+                   这确保了所有指标列在合并后的DataFrame中都拥有唯一且可预测的名称，使得后续的条件检查和“智能移位”逻辑能够命中正确的数据。
+                   这是本次调试的最终修复。
         """
         tactical_config_path = 'config/trend_follow_strategy.json'
         strategic_config_path = 'config/weekly_trend_follow_strategy.json'
@@ -129,7 +129,7 @@ class MultiTimeframeTrendStrategy:
         return merged
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.7) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.8) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
         if not all_dfs or 'D' not in all_dfs or 'W' not in all_dfs:
@@ -186,8 +186,9 @@ class MultiTimeframeTrendStrategy:
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
+    # ▼▼▼【代码修改】: 彻底修复合并逻辑 ▼▼▼
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        print("\n--- [引擎3-调试] 进入 _run_intraday_resonance_engine ---")
+        print("\n--- [引擎3-调试 V5.8] 进入 _run_intraday_resonance_engine ---")
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False):
             print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
@@ -198,19 +199,27 @@ class MultiTimeframeTrendStrategy:
             print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
             return []
         print(f"    - [引擎3-调试] 检查通过: 共找到 {len(levels)} 个共振层级。")
-        trigger_level = levels[-1]
-        trigger_tf = trigger_level['tf']
+        trigger_tf = levels[-1]['tf']
         if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty:
             print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
             return []
         print(f"    - [引擎3-调试] 检查通过: 触发周期 '{trigger_tf}' 数据存在，行数: {len(all_dfs[trigger_tf])}。")
-        print("    - [引擎3-调试] 开始将所有上层周期数据对齐到触发周期...")
+        print("    - [引擎3-调试] 开始使用【强制重命名】逻辑对齐所有周期数据...")
         df_aligned = all_dfs[trigger_tf].copy()
         for level in levels[:-1]:
             level_tf = level['tf']
             if level_tf in all_dfs and not all_dfs[level_tf].empty:
                 print(f"      - [引擎3-调试] 正在合并周期 '{level_tf}' (行数: {len(all_dfs[level_tf])}) 的数据...")
-                df_aligned = pd.merge_asof(left=df_aligned, right=all_dfs[level_tf], left_index=True, right_index=True, direction='backward', suffixes=('', f'_{level_tf}'))
+                
+                # 【核心修复】: 强制为右侧DataFrame的所有列添加后缀
+                df_right = all_dfs[level_tf].copy()
+                rename_map = {col: f"{col}_{level_tf}" for col in df_right.columns}
+                df_right.rename(columns=rename_map, inplace=True)
+                
+                # 现在进行合并，不再需要suffixes参数，因为列名已保证唯一
+                df_aligned = pd.merge_asof(
+                    left=df_aligned, right=df_right, left_index=True, right_index=True, direction='backward'
+                )
                 print(f"      - [引擎3-调试] 合并后，对齐后的DataFrame行数: {len(df_aligned)}")
             else:
                 print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
@@ -241,25 +250,30 @@ class MultiTimeframeTrendStrategy:
             db_records.append(record)
         print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
+    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
-    # ▼▼▼【代码修改】: 引入“智能移位”逻辑，彻底修复BUG ▼▼▼
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
         cond_type = cond['type']
         resonance_config = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         trigger_tf_str = resonance_config.get('levels', [{}])[-1].get('tf')
+        
+        # 列名后缀现在由合并逻辑保证，这里直接使用
         suffix = f'_{tf}' if tf != trigger_tf_str else ''
         
         # 【智能移位】: 核心修复逻辑
-        # 计算正确的移位周期数。例如，在5分钟的df上检查60分钟的条件，需要回看 60/5 = 12 个周期。
         try:
             trigger_minutes = int(trigger_tf_str)
             condition_minutes = int(tf)
             shift_periods = max(1, condition_minutes // trigger_minutes)
         except (ValueError, ZeroDivisionError):
-            shift_periods = 1 # 默认或出错时，回退到移位1
+            shift_periods = 1
         
         def check_cols(*cols):
-            return all(col in df.columns for col in cols)
+            missing_cols = [col for col in cols if col not in df.columns]
+            if missing_cols:
+                # print(f"          - [诊断-失败] 条件 '{cond_type}' 失败: 缺少列 {missing_cols}")
+                return False
+            return True
 
         if cond_type == 'ema_above':
             period = cond['period']
@@ -271,41 +285,40 @@ class MultiTimeframeTrendStrategy:
             macd_line_col = f'MACD_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if check_cols(macd_line_col):
                 is_above_zero = df[macd_line_col] > 0
-                is_rising = df[macd_line_col] > df[macd_line_col].shift(shift_periods) # 使用智能移位
+                is_rising = df[macd_line_col] > df[macd_line_col].shift(shift_periods)
                 return is_above_zero | is_rising
 
         elif cond_type == 'macd_cross':
             p = cond['periods']
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            if check_cols(hist_col): return (df[hist_col] > 0) & (df[hist_col].shift(shift_periods) <= 0) # 使用智能移位
+            if check_cols(hist_col): return (df[hist_col] > 0) & (df[hist_col].shift(shift_periods) <= 0)
         
         elif cond_type == 'macd_hist_turning_up':
             p = cond['periods']
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            if check_cols(hist_col): return df[hist_col] > df[hist_col].shift(shift_periods) # 使用智能移位
+            if check_cols(hist_col): return df[hist_col] > df[hist_col].shift(shift_periods)
         
         elif cond_type == 'dmi_cross':
             p = cond['period']
             pdi_col, mdi_col = f'DMP_{p}{suffix}', f'DMN_{p}{suffix}'
-            if check_cols(pdi_col, mdi_col): return (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(shift_periods) <= df[mdi_col].shift(shift_periods)) # 使用智能移位
+            if check_cols(pdi_col, mdi_col): return (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(shift_periods) <= df[mdi_col].shift(shift_periods))
         
         elif cond_type == 'kdj_cross':
             p = cond['periods']
             k_col, d_col = f'KDJk_{p[0]}_{p[1]}_{p[2]}{suffix}', f'KDJd_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            oversold_level = cond.get('low_level', 20)
+            oversold_level = cond.get('low_level', 50) # 从JSON读取
             if check_cols(k_col, d_col):
-                is_cross = (df[k_col] > df[d_col]) & (df[k_col].shift(shift_periods) <= df[d_col].shift(shift_periods)) # 使用智能移位
-                is_oversold = df[d_col] < oversold_level
-                return is_cross & is_oversold
+                is_cross = (df[k_col] > df[d_col]) & (df[k_col].shift(shift_periods) <= df[d_col].shift(shift_periods))
+                is_in_zone = df[d_col] < oversold_level
+                return is_cross & is_in_zone
         
         elif cond_type == 'rsi_reversal':
             p = cond['period']
             rsi_col = f'RSI_{p}{suffix}'
-            oversold_level = cond.get('oversold_level', 30)
-            if check_cols(rsi_col): return (df[rsi_col] > oversold_level) & (df[rsi_col].shift(shift_periods) <= oversold_level) # 使用智能移位
+            oversold_level = cond.get('oversold_level', 35) # 从JSON读取
+            if check_cols(rsi_col): return (df[rsi_col] > oversold_level) & (df[rsi_col].shift(shift_periods) <= oversold_level)
         
         return pd.Series(False, index=df.index)
-    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
         signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
