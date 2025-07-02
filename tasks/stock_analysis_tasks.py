@@ -42,29 +42,26 @@ async def _get_all_relevant_stock_codes_for_processing():
         logger.warning("未能获取到任何需要处理的股票代码")
     return favorite_stock_codes_list, non_favorite_stock_codes
 
-# ▼▼▼ 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
-def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
+
+# ▼▼▼【代码新增】: 将核心业务逻辑剥离到一个独立的、可复用的函数中 ▼▼▼
+def _execute_strategy_logic(stock_code: str, trade_date: str):
     """
-    【V1.0 - 新版策略入口】
-    调用 MultiTimeframeTrendStrategy，执行包含周线、日线、分钟线的完整协同分析。
+    【V1.0 - 核心策略执行逻辑】
+    这是一个普通的同步函数，包含了策略分析和保存的完整流程。
+    它可以被任何Celery任务或代码直接调用。
     """
-    logger.info(f"[{stock_code}] 开始执行 'run_multi_timeframe_strategy' on {stock_code} for date {trade_date}")
+    logger.info(f"[{stock_code}] 开始执行核心策略逻辑 for date {trade_date}")
     try:
         # 1. 实例化总指挥策略和DAO
-        #    MultiTimeframeTrendStrategy 在其内部处理所有配置加载和子策略实例化
         strategy_orchestrator = MultiTimeframeTrendStrategy()
         strategies_dao = StrategiesDAO()
 
-        # 解释: 原始的 trade_date 是 'YYYY-MM-DD' 格式，这会导致分钟线数据只截止到当天的0点。
-        # 我们需要将其扩展到当天收盘后（如16:00），以确保当天所有的分钟线数据都被加载。
         analysis_end_time = f"{trade_date} 16:00:00"
 
         # 2. 调用总指挥的 run_for_stock 方法
-        #    这是一个异步方法，所以需要用 async_to_sync 包装
         db_records = async_to_sync(strategy_orchestrator.run_for_stock)(
             stock_code=stock_code,
-            trade_time=analysis_end_time # 使用修正后的时间
+            trade_time=analysis_end_time
         )
 
         if not db_records:
@@ -75,11 +72,8 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
         save_count = async_to_sync(strategies_dao.save_strategy_signals)(db_records)
         logger.info(f"[{stock_code}] 成功保存 {save_count} 条 'multi_timeframe_trend_strategy' 信号。")
         
-        # ▼▼▼ 新增策略状态更新逻辑 ▼▼▼
-        # 解释: 在成功保存信号后，立即调用DAO方法更新策略状态摘要表。
-        # 这样可以确保摘要信息始终反映最新的信号情况。
+        # 4. 更新策略状态摘要
         if save_count > 0:
-            # 步骤1: 找出所有需要更新状态的唯一信号类型
             unique_signal_types = set()
             for record in db_records:
                 strategy_name = record.get('strategy_name')
@@ -89,7 +83,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
             
             logger.info(f"[{stock_code}] 检测到 {len(unique_signal_types)} 种唯一的信号类型需要更新状态: {unique_signal_types}")
 
-            # 步骤2: 遍历每一种信号类型，并调用状态更新
             for strategy_name, timeframe in unique_signal_types:
                 logger.info(f"[{stock_code}] 准备更新策略状态摘要 for strategy '{strategy_name}' on timeframe '{timeframe}'...")
                 async_to_sync(strategies_dao.update_strategy_state)(
@@ -102,8 +95,19 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
         return {"status": "success", "saved_count": save_count}
 
     except Exception as e:
-        logger.error(f"执行 'run_multi_timeframe_strategy' on {stock_code} 时出错: {e}", exc_info=True)
+        logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
+        # 在函数内部处理异常并返回错误信息，而不是向上抛出
         return {"status": "error", "reason": str(e)}
+
+# ▼▼▼ 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
+def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
+    """
+    【V2.0 - 逻辑分离版】
+    Celery任务封装器，调用核心策略执行逻辑。
+    """
+    # 直接调用核心逻辑函数
+    return _execute_strategy_logic(stock_code, trade_date)
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 def analyze_all_stocks(self):
@@ -145,11 +149,9 @@ def analyze_all_stocks(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_single_stock_analysis', queue='debug_tasks')
 def debug_single_stock_analysis(self, stock_code: str):
     """
-    【V1.1 - 专用调试任务，注释增强】
+    【V1.2 - 专用调试任务，修复死锁问题】
     对单个股票执行最详细的策略分析，用于问题排查。
-    - 自动获取最新行情，判断是否为上涨日。
-    - 无论是否上涨，都强制执行策略分析。
-    - 提供非常详细的启动日志。
+    现在直接调用核心逻辑函数，避免Celery死锁。
     """
     logger.info("="*80)
     logger.info(f"--- [调试任务启动] ---")
@@ -158,13 +160,9 @@ def debug_single_stock_analysis(self, stock_code: str):
     trade_date_str = datetime.now().strftime('%Y-%m-%d')
     logger.info(f"分析日期: {trade_date_str}")
 
-    # 实例化DAO以获取最新行情
     strategies_dao = StrategiesDAO()
-    
     try:
-        # 异步获取最新日线行情
         latest_daily_quote = async_to_sync(strategies_dao.get_latest_daily_quote)(stock_code)
-        
         if latest_daily_quote:
             pct_chg = latest_daily_quote.get('pct_chg', 0)
             close_price = latest_daily_quote.get('close', 'N/A')
@@ -176,7 +174,6 @@ def debug_single_stock_analysis(self, stock_code: str):
                 logger.info(f"诊断结论: [{stock_code}] 今日为下跌或平盘状态。")
         else:
             logger.warning(f"未能获取到 [{stock_code}] 的最新日线行情。")
-
     except Exception as e:
         logger.error(f"获取 [{stock_code}] 最新行情时出错: {e}", exc_info=True)
 
@@ -184,11 +181,9 @@ def debug_single_stock_analysis(self, stock_code: str):
     logger.info("="*80)
 
     try:
-        # 【关键部分】: 使用同步方式调用策略任务
-        # 解释: .apply().get() 会阻塞当前调试任务，直到内部的策略分析任务执行完毕。
-        # 这对于调试是【非常重要】的，因为它保证了日志的连续性和结果的即时性。
-        # 如果改成 .delay() (异步)，本调试任务会立即结束，分析日志会出现在其他地方，不利于排查问题。
-        result = run_multi_timeframe_strategy.s(stock_code, trade_date_str).apply().get()
+        # 【关键修改】: 直接调用普通的Python函数，而不是Celery任务。
+        # 这样代码会在这里同步执行，日志连续，且完全避免了Celery的死锁问题。
+        result = _execute_strategy_logic(stock_code, trade_date_str)
         
         logger.info(f"--- [调试任务完成] ---")
         logger.info(f"股票 [{stock_code}] 的策略分析执行完毕。")
@@ -196,7 +191,8 @@ def debug_single_stock_analysis(self, stock_code: str):
         logger.info("="*80)
         return {"status": "success", "stock_code": stock_code, "details": result}
     except Exception as e:
-        logger.error(f"在调试任务中调用 'run_multi_timeframe_strategy' 时发生严重错误: {e}", exc_info=True)
+        # 这里的异常捕获现在是双重保险，因为_execute_strategy_logic内部已经有try-except
+        logger.error(f"在调试任务中调用 '_execute_strategy_logic' 时发生严重错误: {e}", exc_info=True)
         logger.info("="*80)
         return {"status": "error", "stock_code": stock_code, "reason": str(e)}
 
