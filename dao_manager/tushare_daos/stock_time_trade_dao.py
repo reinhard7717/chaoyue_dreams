@@ -267,10 +267,9 @@ class StockTimeTradeDAO(BaseDAO):
             
             # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类
             df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
-            
 
             # --- 页级处理，立即使用groupby对DataFrame进行高效分组并保存 ---
-            for model_class, group_df in df.groupby('model_class'):
+            for model_class, group_df in df.groupby('model_class', sort=False):
                 if group_df.empty:
                     continue
                 
@@ -605,7 +604,7 @@ class StockTimeTradeDAO(BaseDAO):
                 
 
                 # --- 使用groupby对处理好的DataFrame进行高效分组并保存 ---
-                for model_class, group_df in df.groupby('model_class'):
+                for model_class, group_df in df.groupby('model_class', sort=False):
                     if group_df.empty:
                         continue
                     
