@@ -47,7 +47,7 @@ def get_this_monday_and_friday():
 def get_last_monday_and_friday():
     """获取上周一和上周五的日期"""
     today_date = timezone.now().date()
-    this_monday = today - datetime.timedelta(days=today.weekday())
+    this_monday = today_date - datetime.timedelta(days=today_date.weekday())
     last_monday = this_monday - datetime.timedelta(days=7)
     last_friday = last_monday + datetime.timedelta(days=4)
     return last_monday, last_friday
