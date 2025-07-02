@@ -373,7 +373,10 @@ class MultiTimeframeTrendStrategy:
         """辅助函数：检查单个共振条件并返回布尔序列。"""
         cond_type = cond['type']
         trigger_tf = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {}).get('levels', [{}])[-1].get('tf')
-        suffix = '' if tf == trigger_tf else f'_{tf}'
+        # 如果当前检查的周期(tf)与触发周期(trigger_tf)不同，则需要后缀。
+        # 比如触发周期是5，检查60分钟条件时，列名是 EMA_34_60。
+        # 如果触发周期是5，检查5分钟条件时，列名就是 EMA_xx，没有后缀。
+        suffix = f'_{tf}' if tf != trigger_tf else ''
         if cond_type == 'ema_above':
             period = cond['period']
             ema_col = f'EMA_{period}{suffix}'
@@ -390,6 +393,14 @@ class MultiTimeframeTrendStrategy:
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if hist_col in df.columns:
                 return (df[hist_col] > 0) & (df[hist_col].shift(1) <= 0)
+        elif cond_type == 'macd_hist_turning_up':
+            p = cond['periods']
+            hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
+            if hist_col in df.columns:
+                # 条件：MACD柱状线为正，且当前值大于前一根的值（即柱状线在拉长）
+                is_positive = df[hist_col] > 0
+                is_growing = df[hist_col] > df[hist_col].shift(1)
+                return is_positive & is_growing
         elif cond_type == 'dmi_cross':
             p = cond['period']
             pdi_col = f'DMP_{p}{suffix}'
