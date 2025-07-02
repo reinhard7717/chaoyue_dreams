@@ -341,8 +341,7 @@ class MultiTimeframeTrendStrategy:
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
         signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
         trigger_tf = params['levels'][-1]['tf']
-        utc_timestamp = timestamp.tz_localize('UTC')
-        print(f"    - [时区校准] 原始naive时间戳 (值为UTC时间): {timestamp}, 校准后aware UTC时间: {utc_timestamp}")
+        print(f"    - [时区诊断] 直接使用已带时区的UTC时间戳: {timestamp} (类型: {type(timestamp)}, 时区: {timestamp.tz})")
         record = {
             "stock_code": stock_code, "trade_time": sanitize_for_json(timestamp), "timeframe": trigger_tf,
             "strategy_name": signal_name, "close_price": sanitize_for_json(row.get('close')),
