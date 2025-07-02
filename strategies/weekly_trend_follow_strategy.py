@@ -98,6 +98,7 @@ class WeeklyTrendFollowStrategy:
         context_df = df.copy()
         context_df['playbook_ma20_is_rising_W'] = playbook_ma20_is_rising # 状态信号
         context_df['playbook_ma20_turn_up_event_W'] = playbook_ma20_turn_up_event # 事件信号
+        context_df['playbook_early_uptrend_W'] = playbook_early_uptrend
         context_df['playbook_classic_breakout_W'] = playbook_classic
         context_df['playbook_ma_uptrend_W'] = playbook_ma_uptrend
         context_df['playbook_box_breakout_W'] = playbook_box_breakout
