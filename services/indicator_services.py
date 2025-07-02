@@ -380,29 +380,29 @@ class IndicatorService:
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
 
-            if not df_daily.empty and isinstance(df_daily.index, pd.DatetimeIndex):
-                print("\n" + "="*80)
-                print("--- [IndicatorService V7.3 终极诊断]: 检查用于重采样的日线DataFrame ---")
-                print(f"    - DataFrame 行数: {len(df_daily)}")
-                print(f"    - 起始日期: {df_daily.index.min()}")
-                print(f"    - 结束日期: {df_daily.index.max()}")
-                print("="*80 + "\n")
+            # if not df_daily.empty and isinstance(df_daily.index, pd.DatetimeIndex):
+            #     print("\n" + "="*80)
+            #     print("--- [IndicatorService V7.3 终极诊断]: 检查用于重采样的日线DataFrame ---")
+            #     print(f"    - DataFrame 行数: {len(df_daily)}")
+            #     print(f"    - 起始日期: {df_daily.index.min()}")
+            #     print(f"    - 结束日期: {df_daily.index.max()}")
+            #     print("="*80 + "\n")
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
-                    print(f"    - [诊断日志] 4a. 开始从日线重采样生成 {target_tf} 线数据...")
+                    # print(f"    - [诊断日志] 4a. 开始从日线重采样生成 {target_tf} 线数据...")
                     ohlc_rule = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
                     resample_period = 'W-FRI' if target_tf == 'W' else 'M'
                     df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
                     
-                    print(f"    - [诊断日志] 4b. 重采样完成，dropna前有 {len(df_resampled)} 条 {target_tf} 线数据。")
+                    # print(f"    - [诊断日志] 4b. 重采样完成，dropna前有 {len(df_resampled)} 条 {target_tf} 线数据。")
                     df_resampled.dropna(inplace=True)
-                    print(f"    - [诊断日志] 4c. dropna后剩余 {len(df_resampled)} 条 {target_tf} 线数据。")
+                    # print(f"    - [诊断日志] 4c. dropna后剩余 {len(df_resampled)} 条 {target_tf} 线数据。")
                     
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
-                        print(f"    - [诊断日志] 4d. [成功] {target_tf} 线数据已添加至待处理池。")
-                    else:
-                        logger.warning(f"    - [诊断日志] 4d. [警告] {target_tf} 线数据在处理后为空，已被丢弃！")
+                        # print(f"    - [诊断日志] 4d. [成功] {target_tf} 线数据已添加至待处理池。")
+                    # else:
+                        # logger.warning(f"    - [诊断日志] 4d. [警告] {target_tf} 线数据在处理后为空，已被丢弃！")
 
         # 解释: 为了彻底排查分钟线数据的时间范围问题，我们在这里增加一个诊断块。
         # 它会遍历所有已加载的分钟线周期，并打印其具体的起始和结束时间。
@@ -452,6 +452,26 @@ class IndicatorService:
                     df[cyq_cols] = df[cyq_cols].ffill()
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
+
+            # 解释: 我们怀疑分钟线的指标计算结果有问题。在这里打印出计算后的DataFrame尾部，
+            # 重点观察 MACD, KDJ, DMI 等列的值，看它们是否为 NaN 或 0。
+            # 我们只对其中一个分钟周期（例如30分钟）进行打印，以避免日志刷屏。
+            if tf == '30': # 只打印30分钟的作为样本
+                print("\n" + "#"*80)
+                print(f"### [IndicatorService 终极诊断]: 检查 30分钟线 指标计算结果 (最后5条) ###")
+                # 筛选出一些关键的指标列和基础数据列，方便观察
+                cols_to_show = ['open', 'high', 'low', 'close', 'volume']
+                indicator_cols = [
+                    'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', # MACD
+                    'K_9_3_3', 'D_9_3_3', 'J_9_3_3',                 # KDJ
+                    'PDI_14', 'MDI_14', 'ADX_14',                    # DMI
+                    'RSI_14'                                         # RSI
+                ]
+                # 找到实际存在的列进行显示
+                existing_cols = [col for col in cols_to_show + indicator_cols if col in df_with_indicators.columns]
+                print(df_with_indicators[existing_cols].tail())
+                print("#"*80 + "\n")
+
             return tf, df_with_indicators
 
         # 只为那些成功获取或生成了数据的周期计算指标
