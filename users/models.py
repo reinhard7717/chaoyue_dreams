@@ -74,7 +74,6 @@ class UserProfile(models.Model):
         # 确保 self.user 存在再访问 username，虽然 OneToOne 理论上 user 总存在
         return self.user.username if hasattr(self, 'user') and self.user else f"Profile for User ID {self.pk}"
 
-
 class FavoriteStock(models.Model):
     """
     自选股模型，用于存储用户的自选股
