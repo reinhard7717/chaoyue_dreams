@@ -1003,7 +1003,7 @@ DATA_MODELS_TO_CLEAN = [
 ]
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.cleanup_non_trade_day_data', queue='clean_data')
-def cleanup_non_trade_day_data():
+def cleanup_non_trade_day_data(self):
     """
     一个Celery任务，用于清理所有股票数据表中在非交易日产生的无效数据。
     任务会遍历所有指定的数据模型，高效地找出并删除这些记录。
