@@ -991,14 +991,14 @@ def save_stocks_month_data_history_task(self, batch_size: int = 50): # 限量：
 # 将所有需要清理的模型统一放入一个列表中，方便遍历和维护
 # 这样做的好处是，未来如果新增了类似的模型，只需要在这里添加即可
 DATA_MODELS_TO_CLEAN = [
+    # 日线数据模型
+    StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ,
     # 分钟数据模型
     StockMinuteData_5_SZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_60_SZ,
     StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH,
     StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
     StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY,
     StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC,
-    # 日线数据模型
-    StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
 ]
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.cleanup_non_trade_day_data', queue='clean_data')
