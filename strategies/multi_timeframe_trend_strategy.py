@@ -1,7 +1,8 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V5.4 - 共振引擎逻辑修复版
+# 版本: V5.5 - 指标需求自动发现版
 
 import asyncio
+from collections import defaultdict
 from copy import deepcopy
 import json
 import logging
@@ -21,32 +22,101 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V5.4 共振引擎逻辑修复版】
-        - 核心升级: 重写了 _check_single_condition 方法，修复了多个共振条件中过于严苛或错误的逻辑，
-                   并增加了详细的诊断日志，从根本上解决共振信号为0的问题。
+        【V5.5 指标需求自动发现版】
+        - 核心升级: 新增 _discover_resonance_indicators 方法，该方法会自动解析分钟共振引擎的配置，
+                   将其内部定义的、特殊的指标需求（如不同周期的不同MACD参数）提取出来。
+        - 解决方案: 在初始化时，将主配置指标、周线策略指标、以及新发现的共振指标需求进行三方合并，
+                   生成一个最终的、完整的指标计算清单，交给IndicatorService。这从根源上解决了因配置断层导致的“缺少列”问题。
         """
+        # 1. 加载各自的配置文件
         tactical_config_path = 'config/trend_follow_strategy.json'
         strategic_config_path = 'config/weekly_trend_follow_strategy.json'
         
         self.tactical_config = load_strategy_config(tactical_config_path)
         self.strategic_config = load_strategy_config(strategic_config_path)
 
-        merged_fe_params = self._merge_feature_engineering_configs(
+        # ▼▼▼【代码修改】: 采用全新的三步合并逻辑 ▼▼▼
+
+        # 2. 【步骤A】合并战术层(日线)和战略层(周线)的基础指标需求
+        base_merged_fe_params = self._merge_feature_engineering_configs(
             self.tactical_config.get('feature_engineering_params', {}),
             self.strategic_config.get('feature_engineering_params', {})
         )
 
+        # 3. 【步骤B】自动发现并提取分钟共振引擎的特殊指标需求
+        resonance_indicators = self._discover_resonance_indicators(self.tactical_config)
+        # print(f"    - [自动发现] 从共振引擎中发现特殊指标需求: {json.dumps(resonance_indicators, indent=2)}")
+
+        # 4. 【步骤C】将基础指标与共振指标进行最终合并
+        final_indicators = self._merge_indicators(
+            base_merged_fe_params.get('indicators', {}),
+            resonance_indicators
+        )
+        base_merged_fe_params['indicators'] = final_indicators
+
+        # 5. 构建最终的、完整的合并后配置
         self.merged_config = deepcopy(self.tactical_config)
-        self.merged_config['feature_engineering_params'] = merged_fe_params
+        self.merged_config['feature_engineering_params'] = base_merged_fe_params
         
         if 'strategy_playbooks' in self.strategic_config:
             self.merged_config['strategy_playbooks'] = deepcopy(self.strategic_config['strategy_playbooks'])
+        
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
+        # 初始化服务和引擎 (现在它们会收到完整的配置)
         self.indicator_service = IndicatorService()
         self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) 
         self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
 
+        # 周期发现逻辑基于【最终合并后】的完整配置来运行
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
+        
+        # print(f"--- [总指挥 MultiTimeframeTrendStrategy (V5.5)] 初始化完成 ---")
+        # print(f"    - [总指挥] 已通过【三方合并】识别出所有必需周期: {sorted(list(self.required_timeframes))}")
+
+    # ▼▼▼【代码新增】: 新增此方法用于自动发现共振指标 ▼▼▼
+    def _discover_resonance_indicators(self, config: Dict) -> Dict:
+        """
+        【V5.5 新增】
+        自动解析分钟共振引擎的配置，提取所有定义的指标需求。
+        """
+        discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
+        resonance_params = config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
+
+        if not resonance_params.get('enabled', False):
+            return {}
+
+        for level in resonance_params.get('levels', []):
+            tf = level['tf']
+            for cond in level.get('conditions', []):
+                cond_type = cond['type']
+                params = None
+                indicator_name = None
+
+                if cond_type in ('macd_above_zero', 'macd_cross', 'macd_hist_turning_up'):
+                    indicator_name = 'macd'
+                    params = {'apply_on': [tf], 'periods': cond['periods']}
+                elif cond_type == 'dmi_cross':
+                    indicator_name = 'dmi'
+                    params = {'apply_on': [tf], 'periods': [cond['period']]} # DMI在pandas_ta中用periods
+                elif cond_type == 'kdj_cross':
+                    indicator_name = 'kdj'
+                    params = {'apply_on': [tf], 'periods': cond['periods']}
+                elif cond_type == 'rsi_reversal':
+                    indicator_name = 'rsi'
+                    params = {'apply_on': [tf], 'periods': [cond['period']]}
+                elif cond_type == 'ema_above':
+                    indicator_name = 'ema'
+                    params = {'apply_on': [tf], 'periods': [cond['period']]}
+
+                if indicator_name and params:
+                    # 避免重复添加完全相同的配置
+                    if params not in discovered[indicator_name]['configs']:
+                        discovered[indicator_name]['configs'].append(params)
+        
+        # 将defaultdict转换为普通dict返回
+        return json.loads(json.dumps(discovered))
+    # ▲▲▲【代码新增】: 新增结束 ▲▲▲
 
     def _merge_feature_engineering_configs(self, tactical_fe, strategic_fe):
         merged = deepcopy(tactical_fe)
@@ -60,9 +130,12 @@ class MultiTimeframeTrendStrategy:
         )
         return merged
 
-    def _merge_indicators(self, tactical_indicators, strategic_indicators):
-        merged = {}
-        all_keys = set(tactical_indicators.keys()) | set(strategic_indicators.keys())
+    def _merge_indicators(self, base_indicators, new_indicators):
+        """
+        【V5.5 升级】现在可以合并来自任意来源的新指标需求。
+        """
+        merged = deepcopy(base_indicators)
+        all_keys = set(merged.keys()) | set(new_indicators.keys())
 
         def standardize_to_configs(cfg):
             if not cfg or not cfg.get('enabled', False): return []
@@ -76,29 +149,37 @@ class MultiTimeframeTrendStrategy:
 
         for key in all_keys:
             if key == '说明': continue
-            tactical_cfg = tactical_indicators.get(key, {})
-            strategic_cfg = strategic_indicators.get(key, {})
-            is_enabled = tactical_cfg.get('enabled', False) or strategic_cfg.get('enabled', False)
+            base_cfg = merged.get(key, {})
+            new_cfg = new_indicators.get(key, {})
+            is_enabled = base_cfg.get('enabled', False) or new_cfg.get('enabled', False)
             if not is_enabled: continue
-            tactical_sub_configs = standardize_to_configs(tactical_cfg)
-            strategic_sub_configs = standardize_to_configs(strategic_cfg)
-            final_configs = tactical_sub_configs + strategic_sub_configs
+            
+            base_sub_configs = standardize_to_configs(base_cfg)
+            new_sub_configs = standardize_to_configs(new_cfg)
+            
+            # 合并并去重
+            final_configs = base_sub_configs
+            for sub_cfg in new_sub_configs:
+                if sub_cfg not in final_configs:
+                    final_configs.append(sub_cfg)
+
             if not final_configs:
-                if key in tactical_cfg or key in strategic_cfg:
-                     merged[key] = deepcopy(tactical_cfg)
-                     merged[key].update(deepcopy(strategic_cfg))
+                if key in base_cfg or key in new_cfg:
+                     merged[key] = deepcopy(base_cfg)
+                     merged[key].update(deepcopy(new_cfg))
                 continue
+            
             merged[key] = {
                 'enabled': True,
-                '说明': tactical_cfg.get('说明', '') or strategic_cfg.get('说明', ''),
+                '说明': base_cfg.get('说明', '') or new_cfg.get('说明', ''),
                 'configs': final_configs
             }
-            if not final_configs and 'enabled' in (tactical_cfg or strategic_cfg):
+            if not final_configs and 'enabled' in (base_cfg or new_cfg):
                  merged[key] = {'enabled': is_enabled, '说明': merged[key]['说明']}
         return merged
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.4) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.5) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
             stock_code, self.merged_config, trade_time
@@ -238,77 +319,56 @@ class MultiTimeframeTrendStrategy:
         return db_records
 
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
-        """
-        【V2.0 逻辑修复 & 诊断增强版】
-        辅助函数：检查单个共振条件并返回布尔序列。
-        - 修复了多个条件的逻辑错误。
-        - 增加了详细的列名检查日志。
-        """
         cond_type = cond['type']
-        # 确定列名后缀，只有非触发周期的列才有后缀
         trigger_tf = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {}).get('levels', [{}])[-1].get('tf')
         suffix = f'_{tf}' if tf != trigger_tf else ''
         
-        # 内部辅助函数，用于检查列是否存在并打印日志
         def check_cols(*cols):
             for col in cols:
                 if col not in df.columns:
-                    print(f"          - [诊断-失败] 条件 '{cond_type}' 失败: 缺少列 '{col}'")
+                    # print(f"          - [诊断-失败] 条件 '{cond_type}' 失败: 缺少列 '{col}'")
                     return False
-            # print(f"          - [诊断-成功] 条件 '{cond_type}' 需要的列 {list(cols)} 全部存在。")
             return True
 
-        # --- 开始检查各种条件类型 ---
         if cond_type == 'ema_above':
             period = cond['period']
             ema_col, close_col = f'EMA_{period}{suffix}', f'close{suffix}'
             if check_cols(ema_col, close_col):
                 return df[close_col] > df[ema_col]
-
         elif cond_type == 'macd_above_zero':
             p = cond['periods']
-            # 【逻辑修复】: 检查MACD快线(MACD)是否>0，而不是柱状线(MACDh)
             macd_line_col = f'MACD_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if check_cols(macd_line_col):
                 return df[macd_line_col] > 0
-
         elif cond_type == 'macd_cross':
             p = cond['periods']
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if check_cols(hist_col):
                 return (df[hist_col] > 0) & (df[hist_col].shift(1) <= 0)
-
         elif cond_type == 'macd_hist_turning_up':
             p = cond['periods']
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if check_cols(hist_col):
-                # 【逻辑修复】: 只检查柱状线是否增长，无论其在0轴上方或下方
                 return df[hist_col] > df[hist_col].shift(1)
-
         elif cond_type == 'dmi_cross':
             p = cond['period']
             pdi_col, mdi_col = f'DMP_{p}{suffix}', f'DMN_{p}{suffix}'
             if check_cols(pdi_col, mdi_col):
                 return (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
-
         elif cond_type == 'kdj_cross':
             p = cond['periods']
             k_col, d_col = f'KDJk_{p[0]}_{p[1]}_{p[2]}{suffix}', f'KDJd_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            oversold_level = cond.get('low_level', 20) # 使用更通用的名称和默认值
+            oversold_level = cond.get('low_level', 20)
             if check_cols(k_col, d_col):
                 is_cross = (df[k_col] > df[d_col]) & (df[k_col].shift(1) <= df[d_col].shift(1))
-                # 【逻辑修复】: 检查D线是否在超卖区，这比检查K线更可靠
                 is_oversold = df[d_col] < oversold_level
                 return is_cross & is_oversold
-
         elif cond_type == 'rsi_reversal':
             p = cond['period']
             rsi_col = f'RSI_{p}{suffix}'
             oversold_level = cond.get('oversold_level', 30)
             if check_cols(rsi_col):
                 return (df[rsi_col] > oversold_level) & (df[rsi_col].shift(1) <= oversold_level)
-        
-        # 如果条件类型未知或缺少列，返回全False序列
         return pd.Series(False, index=df.index)
 
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:

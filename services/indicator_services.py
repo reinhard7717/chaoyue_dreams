@@ -407,23 +407,23 @@ class IndicatorService:
         # 解释: 为了彻底排查分钟线数据的时间范围问题，我们在这里增加一个诊断块。
         # 它会遍历所有已加载的分钟线周期，并打印其具体的起始和结束时间。
         # 这将直观地验证我们对 `trade_time` 参数的修复是否生效。
-        print("\n" + "="*80)
-        print("--- [IndicatorService V7.4 终极诊断]: 检查所有已加载的分钟线DataFrame ---")
-        # 对字典键进行排序，可以保证每次输出的顺序一致，便于比较
-        # 使用一个key函数来正确排序数字字符串
-        sorted_keys = sorted(raw_dfs.keys(), key=lambda k: int(k) if k.isdigit() else float('inf'))
-        for tf in sorted_keys:
-            df = raw_dfs[tf]
-            # 只对分钟级别的数据进行诊断
-            if tf.isdigit():
-                print(f"  --- 周期: {tf} 分钟 ---")
-                if df is not None and not df.empty and isinstance(df.index, pd.DatetimeIndex):
-                    print(f"    - DataFrame 行数: {len(df)}")
-                    print(f"    - 起始时间: {df.index.min()}")
-                    print(f"    - 结束时间: {df.index.max()}")
-                else:
-                    print(f"    - 状态: 数据为空或索引无效")
-        print("="*80 + "\n")
+        # print("\n" + "="*80)
+        # print("--- [IndicatorService V7.4 终极诊断]: 检查所有已加载的分钟线DataFrame ---")
+        # # 对字典键进行排序，可以保证每次输出的顺序一致，便于比较
+        # # 使用一个key函数来正确排序数字字符串
+        # sorted_keys = sorted(raw_dfs.keys(), key=lambda k: int(k) if k.isdigit() else float('inf'))
+        # for tf in sorted_keys:
+        #     df = raw_dfs[tf]
+        #     # 只对分钟级别的数据进行诊断
+        #     if tf.isdigit():
+        #         print(f"  --- 周期: {tf} 分钟 ---")
+        #         if df is not None and not df.empty and isinstance(df.index, pd.DatetimeIndex):
+        #             print(f"    - DataFrame 行数: {len(df)}")
+        #             print(f"    - 起始时间: {df.index.min()}")
+        #             print(f"    - 结束时间: {df.index.max()}")
+        #         else:
+        #             print(f"    - 状态: 数据为空或索引无效")
+        # print("="*80 + "\n")
 
         print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
@@ -456,21 +456,21 @@ class IndicatorService:
             # 解释: 我们怀疑分钟线的指标计算结果有问题。在这里打印出计算后的DataFrame尾部，
             # 重点观察 MACD, KDJ, DMI 等列的值，看它们是否为 NaN 或 0。
             # 我们只对其中一个分钟周期（例如30分钟）进行打印，以避免日志刷屏。
-            if tf == '30': # 只打印30分钟的作为样本
-                print("\n" + "#"*80)
-                print(f"### [IndicatorService 终极诊断]: 检查 30分钟线 指标计算结果 (最后5条) ###")
-                # 筛选出一些关键的指标列和基础数据列，方便观察
-                cols_to_show = ['open', 'high', 'low', 'close', 'volume']
-                indicator_cols = [
-                    'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', # MACD
-                    'K_9_3_3', 'D_9_3_3', 'J_9_3_3',                 # KDJ
-                    'PDI_14', 'MDI_14', 'ADX_14',                    # DMI
-                    'RSI_14'                                         # RSI
-                ]
-                # 找到实际存在的列进行显示
-                existing_cols = [col for col in cols_to_show + indicator_cols if col in df_with_indicators.columns]
-                print(df_with_indicators[existing_cols].tail())
-                print("#"*80 + "\n")
+            # if tf == '30': # 只打印30分钟的作为样本
+            #     print("\n" + "#"*80)
+            #     print(f"### [IndicatorService 终极诊断]: 检查 30分钟线 指标计算结果 (最后5条) ###")
+            #     # 筛选出一些关键的指标列和基础数据列，方便观察
+            #     cols_to_show = ['open', 'high', 'low', 'close', 'volume']
+            #     indicator_cols = [
+            #         'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', # MACD
+            #         'K_9_3_3', 'D_9_3_3', 'J_9_3_3',                 # KDJ
+            #         'PDI_14', 'MDI_14', 'ADX_14',                    # DMI
+            #         'RSI_14'                                         # RSI
+            #     ]
+            #     # 找到实际存在的列进行显示
+            #     existing_cols = [col for col in cols_to_show + indicator_cols if col in df_with_indicators.columns]
+            #     print(df_with_indicators[existing_cols].tail())
+            #     print("#"*80 + "\n")
 
             return tf, df_with_indicators
 
