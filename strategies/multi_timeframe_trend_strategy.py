@@ -186,7 +186,6 @@ class MultiTimeframeTrendStrategy:
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
-    # ▼▼▼【代码修改】: 彻底修复合并逻辑 ▼▼▼
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         print("\n--- [引擎3-调试 V5.8] 进入 _run_intraday_resonance_engine ---")
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
@@ -250,17 +249,22 @@ class MultiTimeframeTrendStrategy:
             db_records.append(record)
         print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
-    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
+        """
+        【V5.9 信号逻辑增强版】
+        - 核心升级: 彻底重构了分钟线信号的判断逻辑，使其能够捕捉更多类型的反转。
+        - 1. [增强] `rsi_reversal`: 不再局限于从超卖区上穿，增加了对“RSI在任意位置拐头向上”的判断，使其对趋势中的回调反转更敏感。
+        - 2. [新增] `kdj_j_reversal`: 引入了更灵敏的J线拐头信号，作为股价启动的早期预警。
+        - 3. [保留] `kdj_cross`: 保留了原有的低位金叉逻辑，作为备用。
+        - 4. [新增] `macd_above_zero`: 增加了对MACD柱状图（hist）在0轴上方的二次走强的判断，用于捕捉趋势加速。
+        """
         cond_type = cond['type']
         resonance_config = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         trigger_tf_str = resonance_config.get('levels', [{}])[-1].get('tf')
         
-        # 列名后缀现在由合并逻辑保证，这里直接使用
         suffix = f'_{tf}' if tf != trigger_tf_str else ''
         
-        # 【智能移位】: 核心修复逻辑
         try:
             trigger_minutes = int(trigger_tf_str)
             condition_minutes = int(tf)
@@ -283,10 +287,13 @@ class MultiTimeframeTrendStrategy:
         elif cond_type == 'macd_above_zero':
             p = cond['periods']
             macd_line_col = f'MACD_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            if check_cols(macd_line_col):
-                is_above_zero = df[macd_line_col] > 0
-                is_rising = df[macd_line_col] > df[macd_line_col].shift(shift_periods)
-                return is_above_zero | is_rising
+            hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
+            if check_cols(macd_line_col, hist_col):
+                # 原始条件：MACD线在0轴上方，且仍在上升
+                is_above_zero_and_rising = (df[macd_line_col] > 0) & (df[macd_line_col] > df[macd_line_col].shift(shift_periods))
+                # 新增条件：MACD柱状图在0轴上方，且出现收缩后的再次放大（二次走强）
+                hist_above_zero_strengthening = (df[hist_col] > 0) & (df[hist_col] > df[hist_col].shift(shift_periods)) & (df[hist_col].shift(shift_periods) < df[hist_col].shift(shift_periods * 2))
+                return is_above_zero_and_rising | hist_above_zero_strengthening
 
         elif cond_type == 'macd_cross':
             p = cond['periods']
@@ -303,20 +310,39 @@ class MultiTimeframeTrendStrategy:
             pdi_col, mdi_col = f'DMP_{p}{suffix}', f'DMN_{p}{suffix}'
             if check_cols(pdi_col, mdi_col): return (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(shift_periods) <= df[mdi_col].shift(shift_periods))
         
-        elif cond_type == 'kdj_cross':
+        elif cond_type == 'kdj_cross': # 保留原有逻辑，用于稳健型低位金叉
             p = cond['periods']
             k_col, d_col = f'KDJk_{p[0]}_{p[1]}_{p[2]}{suffix}', f'KDJd_{p[0]}_{p[1]}_{p[2]}{suffix}'
-            oversold_level = cond.get('low_level', 50) # 从JSON读取
+            oversold_level = cond.get('low_level', 50)
             if check_cols(k_col, d_col):
                 is_cross = (df[k_col] > df[d_col]) & (df[k_col].shift(shift_periods) <= df[d_col].shift(shift_periods))
                 is_in_zone = df[d_col] < oversold_level
                 return is_cross & is_in_zone
         
+        # 【新增信号类型】
+        elif cond_type == 'kdj_j_reversal':
+            p = cond['periods']
+            j_col = f'KDJj_{p[0]}_{p[1]}_{p[2]}{suffix}'
+            low_level = cond.get('low_level', 30) # J线拐头的阈值可以设得更低
+            if check_cols(j_col):
+                # J线从低位拐头向上
+                is_turning_up = (df[j_col] > df[j_col].shift(shift_periods))
+                was_in_low_zone = (df[j_col].shift(shift_periods) < low_level)
+                return is_turning_up & was_in_low_zone
+
+        # 【增强信号类型】
         elif cond_type == 'rsi_reversal':
             p = cond['period']
             rsi_col = f'RSI_{p}{suffix}'
-            oversold_level = cond.get('oversold_level', 35) # 从JSON读取
-            if check_cols(rsi_col): return (df[rsi_col] > oversold_level) & (df[rsi_col].shift(shift_periods) <= oversold_level)
+            oversold_level = cond.get('oversold_level', 35)
+            if check_cols(rsi_col):
+                # 原始逻辑：从超卖区上穿
+                classic_reversal = (df[rsi_col] > oversold_level) & (df[rsi_col].shift(shift_periods) <= oversold_level)
+                # 新增逻辑：RSI在任意位置，结束回调并拐头向上
+                # 定义“回调结束”为：前一刻RSI在下跌，此刻RSI在上涨
+                is_turning_up_after_dip = (df[rsi_col] > df[rsi_col].shift(shift_periods)) & \
+                                          (df[rsi_col].shift(shift_periods) < df[rsi_col].shift(shift_periods * 2))
+                return classic_reversal | is_turning_up_after_dip
         
         return pd.Series(False, index=df.index)
 
