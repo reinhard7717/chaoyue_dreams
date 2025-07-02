@@ -168,8 +168,8 @@ class IndicatorDAO(BaseDAO):
         # 1. 统一时间级别
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
 
-        print(f"\n--- [DAO-数据库 V4.4-调试开始] ---")
-        print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
+        # print(f"\n--- [DAO-数据库 V4.4-调试开始] ---")
+        # print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
 
         # 2. 获取股票实例
         if self.stock_basic_dao is None:
@@ -220,10 +220,8 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"未能为 {stock_code} 在时间级别 {time_level_str} 找到对应的数据库模型。")
                 return None
 
-            # ▼▼▼【代码修改】: 增加模型/表名打印，实现精确定位 ▼▼▼
             model_name = ModelClass._meta.db_table
             print(f"    - 模型选择: 将从表 '{model_name}' 中查询数据。")
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
             qs = ModelClass.objects.filter(stock=stock)
             if extra_filters:
@@ -241,10 +239,8 @@ class IndicatorDAO(BaseDAO):
             data_values = await sync_to_async(list)(
                 limited_qs.values(*fields)
             )
-            
-            # ▼▼▼【代码修改】: 在结果打印中也加入模型/表名 ▼▼▼
-            print(f"    - 查询结果: 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
+            # print(f"    - 查询结果: 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
 
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")
@@ -267,11 +263,10 @@ class IndicatorDAO(BaseDAO):
                 missing = [col for col in required_cols if col not in df.columns]
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
-            
-            # ▼▼▼【代码修改】: 在最终返回打印中也加入模型/表名 ▼▼▼
-            print(f"    - 数据返回: 成功为 '{model_name}' 生成DataFrame，最终返回 {len(df)} 行。")
-            print(f"--- [DAO-数据库 V4.4-调试结束 for {model_name}] ---\n")
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
+            # print(f"    - 数据返回: 成功为 '{model_name}' 生成DataFrame，最终返回 {len(df)} 行。")
+            # print(f"--- [DAO-数据库 V4.4-调试结束 for {model_name}] ---\n")
+
             return df
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)

@@ -387,14 +387,13 @@ class IndicatorService:
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
 
-            if not df_daily.empty and isinstance(df_daily.index, pd.DatetimeIndex):
-                print("\n" + "="*80)
-                print("--- [IndicatorService V7.3 终极诊断]: 检查用于重采样的日线DataFrame ---")
-                print(f"    - DataFrame 行数: {len(df_daily)}")
-                print(f"    - 起始日期: {df_daily.index.min()}")
-                print(f"    - 结束日期: {df_daily.index.max()}")
-                print("="*80 + "\n")
-
+            # if not df_daily.empty and isinstance(df_daily.index, pd.DatetimeIndex):
+            #     print("\n" + "="*80)
+            #     print("--- [IndicatorService V7.3 终极诊断]: 检查用于重采样的日线DataFrame ---")
+            #     print(f"    - DataFrame 行数: {len(df_daily)}")
+            #     print(f"    - 起始日期: {df_daily.index.min()}")
+            #     print(f"    - 结束日期: {df_daily.index.max()}")
+            #     print("="*80 + "\n")
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
                     print(f"    - [诊断日志] 4a. 开始从日线重采样生成 {target_tf} 线数据...")
@@ -1581,18 +1580,14 @@ class IndicatorService:
 
     async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 26, short_roc_period: int = 13, wma_period: int = 10) -> Optional[pd.DataFrame]:
         """
-        【V1.1 修复版】计算 Coppock Curve (COPP) 指标。
-        - 核心修复: 修正了传递给 pandas_ta 的参数名，确保与库的API完全匹配。
-                     pandas_ta.coppock 使用 'length', 'fast', 'slow' 作为参数名。
+        【V1.2 列名修复版】计算 Coppock Curve (COPP) 指标。
+        - 核心修复: 显式地将 pandas_ta 生成的列名 (如 COPC_10_13_26) 重命名为策略所期望的
+                    标准格式 (COPP_26_13_10)，解决了因命名不匹配导致的“列找不到”问题。
         """
         if df is None or df.empty or 'close' not in df.columns:
             return None
         try:
-            # pandas_ta.coppock 的参数名是:
-            # length (int): The WMA period. Default: 10
-            # fast (int): The short ROC period. Default: 11
-            # slow (int): The long ROC period. Default: 14
-            # 我们需要将我们的参数名映射过去
+            # pandas_ta.coppock 的参数名是: length, fast, slow
             copp_df = df.ta.coppock(
                 close=df['close'],
                 length=wma_period,
@@ -1601,11 +1596,18 @@ class IndicatorService:
                 append=False
             )
             if copp_df is not None and not copp_df.empty:
+                # ▼▼▼【代码修改】: 核心修复，重命名列以匹配策略需求 ▼▼▼
+                # 解释: pandas_ta 生成的列名是 COPC_{wma}_{short}_{long}，我们需要的是 COPP_{long}_{short}_{wma}
+                if not copp_df.columns[0].startswith('COPP'):
+                    expected_name = f"COPP_{long_roc_period}_{short_roc_period}_{wma_period}"
+                    actual_name = copp_df.columns[0]
+                    copp_df.rename(columns={actual_name: expected_name}, inplace=True)
+                    print(f"    - [指标重命名] 已将列 '{actual_name}' 重命名为 '{expected_name}'")
+                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                 return copp_df
         except Exception as e:
-            # 增加数据量不足的特定警告
             if "data length" in str(e).lower() or "inputs are all nan" in str(e).lower():
-                 logger.warning(f"数据行数 ({len(df)}) 不足以计算 Coppock Curve(long={long_roc_period}, short={short_roc_period}, wma={wma_period})。")
+                logger.warning(f"数据行数 ({len(df)}) 不足以计算 Coppock Curve(long={long_roc_period}, short={short_roc_period}, wma={wma_period})。")
             else:
                 logger.error(f"计算 Coppock Curve 时发生未知错误: {e}")
         
@@ -1681,11 +1683,9 @@ class IndicatorService:
     
     async def calculate_consolidation_period(self, df: pd.DataFrame, params: Dict, suffix: str) -> Optional[pd.DataFrame]:
         """
-        【V2.0 多因子共振模型】根据波动率、趋势和成交量共振识别盘整期。
-        - 波动率因子: BBW低于其自身的动态历史分位数 (无未来函数)。
-        - 趋势因子: ROC绝对值低于指定阈值，表示缺乏强劲趋势。
-        - 成交量因子: 当前成交量低于其长期移动平均线，表示市场交投清淡。
-        - 只有当三个条件同时满足时，才被识别为盘整期。
+        【V2.1 NaN修复版】根据波动率、趋势和成交量共振识别盘整期。
+        - 核心修复: 对计算出的 dynamic_bbw_threshold 使用 bfill() 进行向后填充，
+                    消除了因 expanding() 计算初期产生的 NaN 值，确保下游策略可以正常进行比较。
         """
         # 1. 从配置中获取V2.0模型的所有参数
         boll_period = params.get('boll_period', 20)
@@ -1694,58 +1694,58 @@ class IndicatorService:
         roc_period = params.get('roc_period', 12)
         roc_threshold = params.get('roc_threshold', 5.0)
         vol_ma_period = params.get('vol_ma_period', 55)
-        min_expanding_periods = boll_period * 2 # 为动态分位数计算设置一个最小观测窗口
+        min_expanding_periods = boll_period * 2
 
         # 2. 构建所有依赖列的名称
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}"
         roc_col = f"ROC_{roc_period}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}"
         
-        # 3. 依赖检查，现在需要检查BBW, ROC, 和 VOL_MA
+        # 3. 依赖检查
         required_cols = [bbw_col, roc_col, vol_ma_col, 'high', 'low', 'volume']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
-            print(f"    - [依赖错误] V2.0箱体计算跳过，依赖的列 '{', '.join(missing)}{suffix}' 不存在。")
+            print(f"    - [依赖错误] V2.1箱体计算跳过，依赖的列 '{', '.join(missing)}{suffix}' 不存在。")
             print(f"    - [检查清单] 请确保 'boll_bands_and_width', 'roc', 'vol_ma' 指标已在JSON中为'{suffix}'正确启用并配置。")
             return None
 
-        # 4. 创建一个包含所有目标列（初始值为NaN）的DataFrame
+        # 4. 创建结果DataFrame
         result_df = pd.DataFrame(index=df.index)
         output_cols = [
-            'is_consolidating', # 新增：用于调试和分析的布尔标记
-            'dynamic_bbw_threshold', # 新增：用于观察动态阈值的变化
-            'dynamic_consolidation_high', 
-            'dynamic_consolidation_low', 
-            'dynamic_consolidation_avg_vol', 
-            'dynamic_consolidation_duration'
+            'is_consolidating', 'dynamic_bbw_threshold', 'dynamic_consolidation_high', 
+            'dynamic_consolidation_low', 'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
         ]
         for col in output_cols:
             result_df[col] = np.nan if col not in ['is_consolidating'] else False
 
-        # 5. 【核心逻辑】定义多因子共振条件
-        
-        # 5.1 波动率因子: BBW必须低于其自身的动态历史分位数 (无未来函数)
-        # 使用 .expanding() 确保在每个时间点，我们只使用过去的数据来计算分位数
+        # 5. 【核心逻辑】
+        # 5.1 波动率因子
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile)
-        cond_volatility = df[bbw_col] < dynamic_bbw_threshold
-        result_df['dynamic_bbw_threshold'] = dynamic_bbw_threshold # 存入结果用于分析
+        
+        # ▼▼▼【代码修改】: 核心修复，向后填充NaN值 ▼▼▼
+        # 解释：expanding().quantile() 会在序列开头产生NaN，bfill()会用第一个非NaN值填充前面的所有NaN。
+        # 这可以防止在后续比较中出现 `value < NaN` 的情况，从而避免结果为False或错误。
+        dynamic_bbw_threshold.bfill(inplace=True)
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
-        # 5.2 趋势因子: ROC绝对值必须低于阈值，表示趋势停滞
+        result_df['dynamic_bbw_threshold'] = dynamic_bbw_threshold
+        cond_volatility = df[bbw_col] < result_df['dynamic_bbw_threshold']
+
+        # 5.2 趋势因子
         cond_trend = df[roc_col].abs() < roc_threshold
 
-        # 5.3 成交量因子: 当前成交量必须低于其移动平均线，表示缩量
+        # 5.3 成交量因子
         cond_volume = df['volume'] < df[vol_ma_col]
 
-        # 5.4 共振: 三个条件必须同时满足
+        # 5.4 共振
         is_consolidating = cond_volatility & cond_trend & cond_volume
         result_df['is_consolidating'] = is_consolidating
 
-        # 如果没有任何盘整期，直接返回包含诊断信息的result_df
         if not is_consolidating.any():
-            print(f"    - [信息] V2.0箱体计算：在整个周期内未发现满足多因子共振的盘整期。")
+            # print(f"    - [信息] V2.1箱体计算：在整个周期内未发现满足多因子共振的盘整期。")
             return result_df
 
-        # 6. 计算箱体指标 (此部分逻辑与V1.1相同，但作用于新的 is_consolidating 序列)
+        # 6. 计算箱体指标
         consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
         consolidating_df = df[is_consolidating].copy()
         grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
@@ -1755,22 +1755,18 @@ class IndicatorService:
         consolidation_avg_vol = grouped['volume'].transform('mean')
         consolidation_duration = grouped['high'].transform('size')
 
-        # 7. 将计算结果填充到 result_df 中
+        # 7. 填充结果
         result_df['dynamic_consolidation_high'].update(consolidation_high)
         result_df['dynamic_consolidation_low'].update(consolidation_low)
         result_df['dynamic_consolidation_avg_vol'].update(consolidation_avg_vol)
         result_df['dynamic_consolidation_duration'].update(consolidation_duration)
 
-        # 向前填充(ffill)结果，使得在整个盘整期内，箱体值保持不变
-        # 注意：只填充箱体指标，不填充诊断列
         fill_cols = [
             'dynamic_consolidation_high', 'dynamic_consolidation_low', 
             'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
         ]
         result_df[fill_cols] = result_df[fill_cols].ffill()
         
-        # 8. 返回包含新列的DataFrame
-        # print(f"    - [成功] V2.0箱体计算完成，共识别出 {is_consolidating.sum()} 个盘整周期点。")
         return result_df
 
     async def calculate_advanced_fund_features(self, df: pd.DataFrame, params: dict, suffix: str) -> Optional[pd.DataFrame]:
