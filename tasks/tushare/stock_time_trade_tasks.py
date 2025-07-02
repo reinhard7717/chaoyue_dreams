@@ -39,7 +39,7 @@ def is_trading_time():
 def get_this_monday_and_friday():
     """获取本周一和本周五的日期"""
     today_date = timezone.now().date()
-    this_monday = today - datetime.timedelta(days=today.weekday())
+    this_monday = today_date - datetime.timedelta(days=today_date.weekday())
     this_friday = this_monday + datetime.timedelta(days=4)
     return this_monday, this_friday
 
