@@ -162,15 +162,16 @@ class IndicatorDAO(BaseDAO):
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【V4.2 修复与调试版】获取历史数据并直接高效转换为 pandas DataFrame。
-        - 修复BUG: 调整了ORM查询链中 .order_by(), [:limit], .values() 的顺序，确保LIMIT子句被正确应用，根治数据返回不完整的问题。
-        - 增加调试: 加入了详细的print日志，用于追踪函数调用参数和返回的数据量，便于问题定位。
+        【V4.3 终极调试版】获取历史数据并直接高效转换为 pandas DataFrame。
+        - 核心调试: 在函数执行的关键节点添加了强制 print 输出，用于追踪从数据库返回的原始记录数和最终生成的DataFrame行数，以定位数据丢失问题。
         """
         # 1. 统一时间级别
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
 
-        # print(f"--- [DAO-数据库 V4.2-调试] ---")
-        # print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
+        # ▼▼▼【代码修改】: 增加强制调试打印信息 ▼▼▼
+        print(f"\n--- [DAO-数据库 V4.3-调试开始] ---")
+        print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         # 2. 获取股票实例
         if self.stock_basic_dao is None:
@@ -226,17 +227,21 @@ class IndicatorDAO(BaseDAO):
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            # ▼▼▼ 修复ORM查询链的顺序 ▼▼▼
+            
             fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
-            # 修正后的逻辑：先排序，然后切片[limit]，最后才提取.values()。这确保了LIMIT操作在数据库层面被正确应用。
             limited_qs = qs.order_by('-trade_time')[:limit]
             data_values = await sync_to_async(list)(
                 limited_qs.values(*fields)
             )
+            
+            # ▼▼▼【代码修改】: 增加强制调试打印信息 ▼▼▼
+            print(f"    - 结果: 从数据库成功查询到 {len(data_values)} 条原始记录。")
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str}")
                 return None
-            # print(f"    - 结果: 从数据库成功查询到 {len(data_values)} 条记录。")
+            
             df = pd.DataFrame.from_records(data_values)
             df = df.iloc[::-1].reset_index(drop=True)
             df.rename(columns={'vol': 'volume'}, inplace=True)
@@ -254,13 +259,15 @@ class IndicatorDAO(BaseDAO):
                 missing = [col for col in required_cols if col not in df.columns]
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
-            # print(f"    - 返回: 成功生成DataFrame，共 {len(df)} 行，数据准备返回。")
-            # print(f"--- [DAO-数据库 V4.2-调试结束] ---")
+            
+            # ▼▼▼【代码修改】: 增加强制调试打印信息 ▼▼▼
+            print(f"    - 返回: 成功生成DataFrame，最终返回 {len(df)} 行。")
+            print(f"--- [DAO-数据库 V4.3-调试结束] ---\n")
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
             return df
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
             return None
-
 
     # ▼▼▼【 新增行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
