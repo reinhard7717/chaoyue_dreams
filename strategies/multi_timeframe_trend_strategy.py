@@ -281,25 +281,38 @@ class MultiTimeframeTrendStrategy:
 
     # ▼▼▼ 分钟共振引擎 ▼▼▼
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        """【引擎3】执行分钟线级别的多周期共振检测。"""
+        """【引擎3】【V4.1 调试增强版】执行分钟线级别的多周期共振检测。"""
+        print("\n--- [引擎3-调试] 进入 _run_intraday_resonance_engine ---")
+        
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False):
-            logger.info("分钟共振剧本未启用，跳过引擎2。")
+            print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
+            logger.info("分钟共振剧本未启用，跳过引擎3。")
             return []
+        print("    - [引擎3-调试] 检查通过: 剧本已启用。")
+
         levels = resonance_params.get('levels', [])
         if not levels:
+            print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
             return []
+        print(f"    - [引擎3-调试] 检查通过: 共找到 {len(levels)} 个共振层级。")
+
         # 1. 确定触发周期（通常是最小周期）并准备数据
         trigger_level = levels[-1]
         trigger_tf = trigger_level['tf']
         if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty:
+            print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
             logger.warning(f"缺少触发周期 '{trigger_tf}' 的数据，无法运行分钟共振引擎。")
             return []
+        print(f"    - [引擎3-调试] 检查通过: 触发周期 '{trigger_tf}' 数据存在，行数: {len(all_dfs[trigger_tf])}。")
+
         # 2. 将所有周期的数据按时间对齐到触发周期上
+        print("    - [引擎3-调试] 开始将所有上层周期数据对齐到触发周期...")
         df_aligned = all_dfs[trigger_tf].copy()
         for level in levels[:-1]: # 遍历所有非触发周期
             level_tf = level['tf']
             if level_tf in all_dfs and not all_dfs[level_tf].empty:
+                print(f"      - [引擎3-调试] 正在合并周期 '{level_tf}' (行数: {len(all_dfs[level_tf])}) 的数据...")
                 # 使用 merge_asof 将大周期数据广播到小周期上
                 df_aligned = pd.merge_asof(
                     left=df_aligned,
@@ -309,33 +322,51 @@ class MultiTimeframeTrendStrategy:
                     direction='backward', # 关键：使用前一个已收盘的大周期K线状态
                     suffixes=('', f'_{level_tf}') # 为大周期列添加后缀以防冲突
                 )
+                print(f"      - [引擎3-调试] 合并后，对齐后的DataFrame行数: {len(df_aligned)}")
             else:
+                print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
                 logger.warning(f"共振检查缺少周期 '{level_tf}' 的数据，该级别的条件将无法满足。")
                 return [] # 如果缺少关键数据，直接退出
+        
+        print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
         # 3. 逐级检查共振条件
         final_signal = pd.Series(True, index=df_aligned.index)
-        for level in levels:
+        for i, level in enumerate(levels):
             level_tf = level['tf']
+            level_name = level.get('level_name', f'Level_{i}')
             level_logic = level.get('logic', 'AND').upper()
             level_conditions = level.get('conditions', [])
+            
+            print(f"      - [引擎3-调试] 正在检查第 {i+1} 层: '{level_name}' (周期: {level_tf}, 逻辑: {level_logic})")
+            
             level_signal = pd.Series(True if level_logic == 'AND' else False, index=df_aligned.index)
             for cond in level_conditions:
                 # 调用辅助函数检查单个条件
                 cond_signal = self._check_single_condition(df_aligned, cond, level_tf)
+                print(f"        - [引擎3-调试] 条件 '{cond['type']}' 在周期 '{level_tf}' 上触发了 {cond_signal.sum()} 次。")
                 if level_logic == 'AND':
                     level_signal &= cond_signal
                 else: # OR
                     level_signal |= cond_signal
+            
+            print(f"      - [引擎3-调试] 第 {i+1} 层总计触发 {level_signal.sum()} 次。")
             final_signal &= level_signal
+        
+        print(f"    - [引擎3-调试] 所有层级检查完毕。最终共振信号触发总次数: {final_signal.sum()}")
         # 4. 筛选出触发信号的行并生成记录
         triggered_df = df_aligned[final_signal]
         if triggered_df.empty:
+            print("    - [引擎3-调试] 结论: 没有发现任何满足所有条件的共振信号点。引擎正常结束。")
             return []
+        
+        print(f"    - [引擎3-调试] 成功发现 {len(triggered_df)} 个共振信号点。开始准备数据库记录...")
         logger.info(f"分钟共振引擎在 {len(triggered_df)} 个时间点上发现共振信号。")
         db_records = []
         for timestamp, row in triggered_df.iterrows():
             record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
             db_records.append(record)
+        
+        print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
 
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
