@@ -343,11 +343,19 @@ class MultiTimeframeTrendStrategy:
         trigger_tf = params['levels'][-1]['tf']
         print(f"    - [时区诊断] 直接使用已带时区的UTC时间戳: {timestamp} (类型: {type(timestamp)}, 时区: {timestamp.tz})")
         record = {
-            "stock_code": stock_code, "trade_time": sanitize_for_json(timestamp), "timeframe": trigger_tf,
-            "strategy_name": signal_name, "close_price": sanitize_for_json(row.get('close')),
-            "entry_score": sanitize_for_json(params.get('score', 0.0)), "entry_signal": True, "exit_signal_code": 0,
-            "is_long_term_bullish": False, "is_mid_term_bullish": False, "is_pullback_setup": False,
-            "pullback_target_price": None, "triggered_playbooks": [signal_name],
+            "stock_code": stock_code,
+            "trade_time": timestamp, # 修改: 直接使用原生的、已经是aware UTC的timestamp对象
+            "timeframe": trigger_tf,
+            "strategy_name": signal_name,
+            "close_price": sanitize_for_json(row.get('close')),
+            "entry_score": sanitize_for_json(params.get('score', 0.0)),
+            "entry_signal": True,
+            "exit_signal_code": 0,
+            "is_long_term_bullish": False,
+            "is_mid_term_bullish": False,
+            "is_pullback_setup": False,
+            "pullback_target_price": None,
+            "triggered_playbooks": [signal_name],
             "context_snapshot": sanitize_for_json({'close': row.get('close')}),
         }
         return record
