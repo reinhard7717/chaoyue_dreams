@@ -154,7 +154,7 @@ class StockBasicInfoDao(BaseDAO):
             # 1. 使用 select_related('stock') 来预先加载关联的 StockInfo 对象，避免 N+1 查询。
             # 2. 使用 order_by('stock__stock_code') 让数据库直接按股票代码排序。
             favorite_stocks_query = FavoriteStock.objects.select_related('stock').order_by('stock__stock_code')
-            
+
             # 使用 sync_to_async 异步执行整个查询
             favorite_stock_objects = await sync_to_async(list)(favorite_stocks_query)
 
