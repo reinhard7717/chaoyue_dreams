@@ -23,6 +23,7 @@ PLAYBOOK_NAME_MAP = {
     'BONUS_MULTIPLIER': '【加分】动量放大',
     'EXPERT_PLAYBOOK_VOL_PRICE_DIVERGENCE': '【专家】量价背离抄底',
     'EXPERT_PLAYBOOK_LOW_VOL_BREAKOUT': '【专家】缩量蓄势突破',
+    'BASE_SIGNAL_BREAKOUT_TRIGGER': '关键位突破/放量突破',
 
     # === 周线战略剧本 (Strategic Playbooks) ===
     'playbook_ma20_rising_state_W': '【周线】MA20上升状态',

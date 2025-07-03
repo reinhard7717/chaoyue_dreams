@@ -103,14 +103,14 @@
                             {# 根据状态显示不同信息 #}
                             {% if item.status_class == 'status-alert' %}
                                 {# 如果是止盈预警，突出显示卖出信号 #}
-                                <strong style="color: #e53935;">卖出于: {{ item.last_sell_time|date:"Y-m-d H:i" }}</strong>
+                                <strong style="color: #e53935;">卖出于: {{ item.last_sell_time|localtime|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 {# ▼▼▼【代码修改】: 对策略名称应用翻译过滤器 ▼▼▼ #}
                                 <small>策略: {{ item.strategy_name|playbook_display }} ({{ item.time_level }})</small>
                                 {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                             {% else %}
                                 {# 否则，显示最新动态 #}
-                                <strong>最新: {{ item.latest_trade_time|date:"Y-m-d H:i" }}</strong>
+                                <strong>最新: {{ item.latest_trade_time|localtime|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>分数: {{ item.latest_score|floatformat:0 }}</small>
                             {% endif %}
