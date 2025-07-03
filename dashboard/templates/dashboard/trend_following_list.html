@@ -3,18 +3,16 @@
 {% load tz %}
 {% load dashboard_extras %}
 
-{% block title %}策略状态监控中心 - {{ block.super }}{% endblock %}
+{% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
 {% block head_extra %}
 <style>
-    /* --- 现有样式 (略作调整) --- */
-    .playbook-list {
+    .playbook-list, .strategy-list { /* 将新样式合并 */
         list-style-type: none;
         padding: 0;
         margin: 0;
         display: flex;
-        flex-direction: column; /* 改为纵向排列，方便收起/展开 */
-        align-items: flex-start;
+        flex-wrap: wrap;
         gap: 4px;
     }
     .playbook-tag {
@@ -25,50 +23,37 @@
         font-size: 0.8em;
         font-weight: 500;
         white-space: nowrap;
-        display: inline-block; /* 确保标签不会撑满整行 */
     }
     .strategy-tag {
-        background-color: #e8f5e9;
-        color: #2e7d32;
+        background-color: #e8f5e9; /* 淡绿色背景 */
+        color: #2e7d32; /* 深绿色文字 */
         padding: 3px 10px;
         border-radius: 5px;
         font-size: 0.85em;
         font-weight: bold;
     }
-    .playbook-tag.king-signal { background-color: #ffd700; color: #4d4000; font-weight: bold; border: 1px solid #ffc107; }
-    .playbook-tag.expert-signal { background-color: #e1f5fe; color: #0277bd; border: 1px solid #b3e5fc; }
-    .playbook-tag.rocket-signal { background-color: #ffebee; color: #c62828; font-weight: bold; border: 1px solid #ffcdd2; }
-
-    /* ▼▼▼【代码修改】: 新增用于收起/展开的样式 ▼▼▼ */
-    .strategy-names-compact {
-        font-size: 0.9em;
-        color: #333;
-    }
-    .playbook-item.is-hidden {
-        display: none; /* 默认隐藏超出部分的剧本 */
-    }
-    .playbook-toggle {
-        color: #007bff;
-        cursor: pointer;
-        font-size: 0.8em;
+    .playbook-tag.king-signal {
+        background-color: #ffd700; /* 金色 */
+        color: #4d4000;
         font-weight: bold;
-        margin-top: 5px;
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 4px;
-        background-color: #f0f0f0;
+        border: 1px solid #ffc107;
     }
-    .playbook-toggle:hover {
-        background-color: #e0e0e0;
-        text-decoration: underline;
+    .playbook-tag.expert-signal {
+        background-color: #e1f5fe; /* 淡蓝色 */
+        color: #0277bd;
+        border: 1px solid #b3e5fc;
     }
-    /* ▲▲▲【代码修改】: 结束 ▲▲▲ */
+    .playbook-tag.rocket-signal {
+        background-color: #ffebee; /* 淡红色 */
+        color: #c62828;
+        font-weight: bold;
+        border: 1px solid #ffcdd2;
+    }
 </style>
 {% endblock %}
 
 
 {% block sidebar %}
-    {# ... sidebar 内容保持不变 ... #}
     <aside class="site-sidebar">
         <nav class="sidebar-nav">
              <h3>导航菜单</h3>
@@ -92,9 +77,9 @@
                 <thead>
                     <tr>
                         <th>股票</th>
-                        <th>激活策略</th>
-                        <th>最高分数</th>
-                        <th>激活剧本 (前3)</th> <!-- 表头修改，提示用户默认显示数量 -->
+                        <th>激活策略</th> <!-- 表头修改 -->
+                        <th>最高分数</th> <!-- 表头修改 -->
+                        <th>激活剧本</th>
                         <th>最新信号时间</th>
                         <th>最新买入</th>
                         <th>最新卖出</th>
@@ -104,64 +89,50 @@
                     {% for item in page_obj.object_list %}
                     <tr>
                         <td>
+                            {# 这一列表格访问方式不变，因为 item.stock 仍然是 StockInfo 对象 #}
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         
+                        {# ▼▼▼【代码修改】: 修改“策略/周期”列以展示聚合后的策略列表 ▼▼▼ #}
                         <td>
-                            {# ▼▼▼【代码修改】: 将策略列表改为紧凑的单行文本 ▼▼▼ #}
-                            <div class="strategy-names-compact">
-                                {% for name in item.strategy_names %}
-                                    {{ name|playbook_display }}{% if not forloop.last %}, {% endif %}
-                                {% endfor %}
-                            </div>
-                            {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
+                            {# item.strategy_names 是一个列表，我们遍历它来显示所有策略 #}
+                            <ul class="strategy-list">
+                            {% for name in item.strategy_names %}
+                                <li class="strategy-tag">{{ name|playbook_display }}</li>
+                            {% endfor %}
+                            </ul>
                         </td>
+                        {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
 
                         <td>
+                            {# 访问字典的 key，与访问对象属性语法相同 #}
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
-
                         <td>
-                            {# ▼▼▼【代码修改】: 实现剧本的“收起/展开”逻辑 ▼▼▼ #}
+                            {# 这一列逻辑不变，item.active_playbooks 是合并后的列表 #}
                             {% if item.active_playbooks %}
-                                {% with playbooks=item.active_playbooks %}
-                                {% with total_playbooks=playbooks|length %}
-                                <ul class="playbook-list" id="playbooks-{{ item.stock.stock_code }}">
-                                    {% for playbook in playbooks %}
-                                        {# 根据循环计数器和总数判断是否需要隐藏 #}
-                                        <li class="playbook-item {% if forloop.counter0 >= 3 %}is-hidden{% endif %}">
-                                            {% with playbook_display_name=playbook|playbook_display %}
-                                                {% if 'ROCKET' in playbook %}
-                                                    <span class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</span>
-                                                {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
-                                                    <span class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</span>
-                                                {% elif '【专家】' in playbook_display_name %}
-                                                    <span class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</span>
-                                                {% else %}
-                                                    <span class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</span>
-                                                {% endif %}
-                                            {% endwith %}
-                                        </li>
-                                    {% endfor %}
+                                <ul class="playbook-list">
+                                {% for playbook in item.active_playbooks %}
+                                    {% with playbook_display_name=playbook|playbook_display %}
+                                        {% if 'ROCKET' in playbook %}
+                                            <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                        {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                            <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                        {% elif '【专家】' in playbook_display_name %}
+                                            <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                        {% else %}
+                                            <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                        {% endif %}
+                                    {% endwith %}
+                                {% endfor %}
                                 </ul>
-                                {# 如果剧本总数大于3，则显示“展开”按钮 #}
-                                {% if total_playbooks > 3 %}
-                                    <span class="playbook-toggle" 
-                                          data-target="#playbooks-{{ item.stock.stock_code }}" 
-                                          data-total="{{ total_playbooks }}"
-                                          data-visible="3">
-                                        + {{ total_playbooks|add:"-3" }} more...
-                                    </span>
-                                {% endif %}
-                                {% endwith %}
-                                {% endwith %}
                             {% else %}
                                 -
                             {% endif %}
-                            {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
                         </td>
+                        {# 以下各列的访问方式也保持不变 #}
                         <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
@@ -173,7 +144,6 @@
             </table>
         </div>
         
-        {# ... pagination 内容保持不变 ... #}
         <div class="pagination">
             {% if page_obj.has_other_pages %}
                 {% if page_obj.has_previous %}
@@ -191,53 +161,4 @@
         </div>
     </section>
 </div>
-{% endblock %}
-
-{% block scripts_extra %}
-{# ▼▼▼【代码修改】: 新增用于交互的JavaScript代码 ▼▼▼ #}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // 获取页面上所有的“展开/收起”按钮
-    const toggles = document.querySelectorAll('.playbook-toggle');
-
-    toggles.forEach(toggle => {
-        toggle.addEventListener('click', function(event) {
-            event.preventDefault();
-            
-            // 获取目标列表的ID
-            const targetSelector = this.dataset.target;
-            const targetList = document.querySelector(targetSelector);
-            
-            if (!targetList) return;
-
-            // 检查当前是否为展开状态
-            const isExpanded = this.classList.contains('is-expanded');
-            
-            // 获取列表中所有需要被控制的剧本项
-            const itemsToToggle = targetList.querySelectorAll('.playbook-item');
-            const visibleCount = parseInt(this.dataset.visible, 10);
-            const totalCount = parseInt(this.dataset.total, 10);
-
-            if (isExpanded) {
-                // --- 执行收起操作 ---
-                itemsToToggle.forEach((item, index) => {
-                    if (index >= visibleCount) {
-                        item.classList.add('is-hidden');
-                    }
-                });
-                this.textContent = `+ ${totalCount - visibleCount} more...`;
-                this.classList.remove('is-expanded');
-            } else {
-                // --- 执行展开操作 ---
-                itemsToToggle.forEach(item => {
-                    item.classList.remove('is-hidden');
-                });
-                this.textContent = 'Show less';
-                this.classList.add('is-expanded');
-            }
-        });
-    });
-});
-</script>
-{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
 {% endblock %}
