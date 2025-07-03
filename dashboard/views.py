@@ -3,21 +3,16 @@ import asyncio
 import json
 import re
 from asgiref.sync import async_to_sync
-from django.db.models import Max, F, Subquery, OuterRef
+from django.db.models import Max, F, Q
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from dateutil import parser as date_parser
-from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
-from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
-# --- 导入Django ORM高级查询工具 ---
-from django.db.models import Q
+
 from django.core.serializers.json import DjangoJSONEncoder
-from dashboard.utils import extract_score_details
 from stock_models.stock_analytics import TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
@@ -136,20 +131,36 @@ def fav_monthly_trend_list(request):
 @login_required
 def trend_following_list(request):
     """
-    【V2.1 重构版】日线趋势跟踪列表视图
-    - 数据源为 StrategyState 摘要模型。
-    - (V2.1 新增) 明确筛选 timeframe='D'，确保只展示日线策略状态。
+    【V2.3 逻辑重构版】日线趋势跟踪列表视图
+    - 数据源为 TrendFollowStrategyState 摘要模型。
+    - (V2.1) 明确筛选 time_level='D'，确保只展示日线策略状态。
+    - (V2.3 新增) 重构筛选逻辑，通过比较 last_buy_time 和 last_sell_time 来判断持仓状态，不再依赖不存在的 'state' 字段。
     """
     strategy_name = 'multi_timeframe_collaboration' 
 
-    state_list = TrendFollowStrategyState.objects.select_related('stock').order_by('-latest_trade_time')
+    # ▼▼▼【代码修改】: 使用 Q 对象和 F 对象重构持仓状态的查询逻辑 ▼▼▼
+    # 定义持仓状态的查询条件：
+    # 1. last_buy_time 必须不为空 (有过买入记录)
+    # 2. 并且满足以下任一条件：
+    #    a. last_sell_time 为空 (从未卖出)
+    #    b. last_buy_time > last_sell_time (最近一次操作是买入)
+    held_status_query = Q(last_buy_time__isnull=False) & (
+        Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
+    )
+
+    # 应用新的查询逻辑，并修正字段名 time_level
+    state_list = TrendFollowStrategyState.objects.filter(
+        held_status_query,
+        time_level='D'  # 修正字段名：从 timeframe -> time_level
+    ).select_related('stock').order_by('-latest_trade_time')
+    # ▲▲▲【代码修改】: 结束 ▲▲▲
 
     paginator = Paginator(state_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
     context = {
-        'page_title': '策略状态监控中心',
+        'page_title': '策略状态监控中心 (当前持仓)',
         'page_obj': page_obj,
         'total_count': paginator.count,
     }
@@ -179,7 +190,6 @@ def fav_trend_following_list(request):
             template_name='dashboard/fav_trend_following_list.html'
         )
 
-    # ▼▼▼【代码修改】: 核心逻辑重构 ▼▼▼
     # 2. 获取所有自选股相关的【所有策略状态】
     state_list_qs = TrendFollowStrategyState.objects.filter(
         stock__stock_code__in=fav_codes
