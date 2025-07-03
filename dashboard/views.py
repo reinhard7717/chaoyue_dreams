@@ -129,95 +129,89 @@ def fav_monthly_trend_list(request):
         template_name='dashboard/fav_monthly_trend_list.html'
     )
 
+def get_playbook_priority(playbook_name):
+    """
+    根据剧本名称中的关键字为其分配优先级。
+    返回值越小，优先级越高。
+    """
+    playbook_name_upper = playbook_name.upper()
+    if 'ROCKET' in playbook_name_upper or '火箭' in playbook_name:
+        return 0  # 最高优先级：火箭信号
+    if 'BREAKOUT_TRIGGER_SCORE' in playbook_name_upper or '王牌突破' in playbook_name:
+        return 1  # 次高优先级：王牌信号
+    if '【专家】' in playbook_name:
+        return 2  # 专家信号
+    if '【加分】' in playbook_name or '资金流入' in playbook_name:
+        return 4  # 较低优先级：加分项和资金项
+    if 'MA20' in playbook_name_upper or '均线' in playbook_name:
+        return 5  # 最低优先级：基础形态确认
+    return 3 # 默认优先级
+# ▲▲▲【代码修改】: 结束 ▲▲▲
+
+
 @login_required
 def trend_following_list(request):
     """
-    【V2.6 最终聚合版】策略状态监控中心视图
-
-    功能设计:
-    - 数据源为 TrendFollowStrategyState 摘要模型，只查询处于有效持仓状态的记录。
-    - 核心逻辑是聚合展示，确保每只股票在列表中只出现一次，但会综合其所有活跃策略的信息。
-    
-    聚合规则:
-    1. 股票聚合: 将同一股票代码下的所有活跃持仓记录（例如，日线和周线策略同时触发）合并为一条。
-    2. 策略名称: 合并所有触发策略的名称，并去重展示。
-    3. 激活剧本: 合并所有触发的剧本列表。
-    4. 最高分数: 展示该股票所有活跃策略中的最高分。
-    5. 最新时间: 以所有活跃策略中最新的信号时间（latest_trade_time）为准，并以此为主要排序依据。
+    【V2.7 界面优化版】策略状态监控中心视图
+    (V2.6) 实现聚合展示逻辑。
+    (V2.7 新增) 对“激活剧本”进行优先级排序和前端截断显示，提升可读性。
     """
-    # 1. 定义持仓状态的查询条件
-    # 条件：最近一次买入时间存在，并且(最近一次卖出时间不存在 或 最近买入晚于最近卖出)
+    # ... (查询条件和数据库获取部分保持不变) ...
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
-
-    # 2. 从数据库获取所有满足条件的原始数据
-    # - select_related('stock'): 预加载关联的股票信息，避免N+1查询，提升性能。
-    # - order_by(...): 预排序是高效聚合的关键。它能保证：
-    #   a) 同一只股票的记录会连续出现。
-    #   b) 对于同一股票，最新的记录会排在最前面。
     all_held_states = TrendFollowStrategyState.objects.filter(
         held_status_query
     ).select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
 
-    # 3. 在Python内存中进行聚合处理
-    # 使用有序字典来存储聚合结果，键为股票代码，值为聚合后的信息字典。
+    # ... (聚合逻辑部分保持不变) ...
     aggregated_results = OrderedDict()
-
     for state in all_held_states:
         stock_code = state.stock.stock_code
-        
-        # 如果是第一次遇到这只股票，则初始化其聚合字典
         if stock_code not in aggregated_results:
-            # 因为数据已按最新交易时间降序排列，所以我们遇到的第一条记录就是最新的。
-            # 我们以此为基础，初始化该股票的聚合信息。
             aggregated_results[stock_code] = {
                 'stock': state.stock,
                 'latest_trade_time': state.latest_trade_time,
                 'latest_score': state.latest_score,
                 'last_buy_time': state.last_buy_time,
                 'last_sell_time': state.last_sell_time,
-                'active_playbooks': [],  # 初始化一个空列表，用于合并所有剧本
-                'strategy_names': set(), # 使用集合来自动去重策略名称
+                'active_playbooks': [],
+                'strategy_names': set(),
             }
-        
-        # --- 开始合并信息 ---
-        # a) 合并当前记录的剧本列表到聚合列表中
         if state.active_playbooks:
             aggregated_results[stock_code]['active_playbooks'].extend(state.active_playbooks)
-        
-        # b) 将当前记录的策略名称添加到集合中
         aggregated_results[stock_code]['strategy_names'].add(state.strategy_name)
-        
-        # c) 确保我们总是取到所有记录中最高的那个分数
         if state.latest_score > aggregated_results[stock_code]['latest_score']:
             aggregated_results[stock_code]['latest_score'] = state.latest_score
 
-    # 4. 对聚合结果进行后处理和最终排序
-    # a) 将聚合字典的值转换为列表
     final_list = list(aggregated_results.values())
     
-    # b) 将策略名称的集合(set)转换为排序后的列表(list)，方便前端模板统一渲染
+    # ▼▼▼【代码修改】: 在后处理阶段增加剧本排序逻辑 ▼▼▼
     for item in final_list:
+        # 1. 策略名称集合转为列表 (不变)
         item['strategy_names'] = sorted(list(item['strategy_names']))
+        
+        # 2. (新增) 对合并后的剧本列表进行去重和优先级排序
+        # 先通过字典键去重，保持原始顺序，然后进行排序
+        unique_playbooks = list(OrderedDict.fromkeys(item['active_playbooks']))
+        unique_playbooks.sort(key=get_playbook_priority)
+        item['active_playbooks'] = unique_playbooks
+    # ▲▲▲【代码修改】: 结束 ▲▲▲
 
-    # c) 按最终的排序规则（最新交易时间 -> 最高分）对聚合结果进行排序
+    # ... (最终排序和分页逻辑保持不变) ...
     final_list.sort(key=lambda x: (x['latest_trade_time'], x['latest_score']), reverse=True)
     
-    # 调试信息：打印第一个聚合后的结果，用于检查数据结构是否正确
     if final_list:
-        print(f"【调试信息】聚合后的第一条记录: {final_list[0]}")
+        print(f"【调试信息】排序后的第一个剧本列表: {final_list[0]['active_playbooks']}")
 
-    # 5. 设置分页
-    paginator = Paginator(final_list, 25)  # Paginator可以直接处理列表对象
+    paginator = Paginator(final_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 6. 准备上下文并渲染模板
     context = {
         'page_title': '策略状态监控中心',
         'page_obj': page_obj,
-        'total_count': len(final_list), # 总数是聚合后列表的长度
+        'total_count': len(final_list),
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
