@@ -72,7 +72,7 @@ class StockRealtimeDAO(BaseDAO):
         """
         if not stock_codes:
             return []
-        ts.set_token('0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c')
+        # ts.set_token('0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c')
         try:
             # 1. 一次性从Tushare获取所有股票的行情数据
             # 注意：建议将token初始化放在全局或应用启动时，而不是每次调用方法时设置

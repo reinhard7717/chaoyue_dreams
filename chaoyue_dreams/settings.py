@@ -87,6 +87,7 @@ INSTALLED_APPS = [
     'users',          # 你的用户 app
     'stock_models',   # 你的模型 app
     'dashboard',      # 新创建的主控台 app
+    'tasks.apps.TasksConfig',
     'dao_manager',
     'utils',
     'api_manager',
