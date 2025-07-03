@@ -658,17 +658,20 @@ class StockTimeTradeDAO(BaseDAO):
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
-        【V3 - 向量化增强版】保存股票的实时分钟级交易数据
+        【V3.2 - 日期拼接修正版】保存股票的实时分钟级交易数据
         核心优化:
         1.  【向量化处理】用Pandas向量化操作替代原有的逐行循环，大幅提升数据预处理性能。
         2.  【精确时区转换】在向量化处理中，将Tushare返回的本地时间精确转换为UTC时间，以适配原生SQL插入。
         3.  【并发持久化】保留原有的asyncio.gather并发执行数据库和缓存的写入操作。
+        修正点:
+        -   Tushare的rt_min接口返回的time字段仅包含时间(HH:MM:SS)，本方法会显式地为其拼接上当天的日期。
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
         # 1. 从API获取数据 (保持不变)
         stock_codes_str = ",".join(stock_codes)
+        # 注意：Tushare的rt_min接口返回的time字段格式为 HH:MM:SS
         df = self.ts_pro.rt_min(**{
             "topic": "", "freq": time_level + "MIN", "ts_code": stock_codes_str, "limit": "", "offset": ""
         }, fields=[
@@ -685,35 +688,42 @@ class StockTimeTradeDAO(BaseDAO):
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
+        # --- 修改的代码行开始 ---
         # 2.2 向量化时间转换 (核心修改)
-        # Tushare rt_min 的 time 格式为 'YYYYMMDDHHMMSS'
-        # a. 将字符串批量转换为“天真”的datetime对象
-        df['trade_time'] = pd.to_datetime(df['time'])
-        # b. 本地化为北京时间
+        # a. 获取今天的日期字符串，格式为 YYYY-MM-DD
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        print(f"调试信息：获取到今天的日期为: {today_str}")
+
+        # b. 将日期字符串和API返回的时间字符串（例如 '09:30:00'）进行向量化拼接
+        #    这会高效地为整个'time'列的每一行都加上今天的日期
+        full_datetime_str_series = today_str + ' ' + df['time']
+        print(f"调试信息：拼接后的时间字符串前5条:\n{full_datetime_str_series.head()}")
+
+        # c. 使用拼接后的完整时间字符串进行转换，并明确指定格式以提高性能和健壮性
+        #    注意：这里的format现在必须匹配我们自己构建的 'YYYY-MM-DD HH:MM:SS' 格式
+        df['trade_time'] = pd.to_datetime(full_datetime_str_series, format='%Y-%m-%d %H:%M:%S')
+        # --- 修改的代码行结束 ---
+
+        # d. 本地化为北京时间
         df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
-        # c. 转换为UTC时间
+        # e. 转换为UTC时间
         df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-        # d. 去除时区信息，得到适合原生SQL的“天真UTC时间”
+        # f. 去除时区信息，得到适合原生SQL的“天真UTC时间”
         df['trade_time'] = df['trade_time'].dt.tz_localize(None)
 
-        # 2.3 向量化外键关联
-        # a. 一次性获取所有相关的stock对象
+        # 2.3 向量化外键关联 (保持不变)
         unique_codes = list(df['ts_code'].unique())
         stocks_map = await self.stock_basic_dao.get_stocks_by_codes(unique_codes)
-        # b. 使用map方法将ts_code列批量转换为stock对象列
         df['stock'] = df['ts_code'].map(stocks_map)
-        # c. 丢弃没有找到对应stock对象的行
         df.dropna(subset=['stock'], inplace=True)
         if df.empty:
             logger.warning("所有记录都未能关联到有效的股票基础信息，任务终止。")
             return {"尝试处理": len(stock_codes), "失败": len(stock_codes), "创建/更新成功": 0}
 
-        # 3. 按模型分组数据 (轻量级循环)
+        # 3. 按模型分组数据 (保持不变)
         model_grouped_data_dicts = {}
         cache_payload = {}
         
-        # 将处理好的DataFrame转换为字典列表，以便进行分组
-        # 注意：这里不再需要调用 set_time_trade_minute_data 方法
         final_df = df[['stock', 'trade_time', 'open', 'close', 'high', 'low', 'vol', 'amount', 'ts_code']]
         data_records = final_df.to_dict('records')
 
@@ -721,7 +731,6 @@ class StockTimeTradeDAO(BaseDAO):
             ts_code = record['ts_code']
             model_class = self.get_minute_model(ts_code, time_level)
             if model_class:
-                # 准备数据库数据 (移除不再需要的ts_code)
                 db_record = record.copy()
                 del db_record['ts_code']
                 
@@ -729,16 +738,12 @@ class StockTimeTradeDAO(BaseDAO):
                     model_grouped_data_dicts[model_class] = []
                 model_grouped_data_dicts[model_class].append(db_record)
                 
-                # 准备缓存数据
                 cache_payload[ts_code] = db_record
 
-        # --- 修改的代码块结束 ---
-
-        # 4. 数据持久化阶段 (逻辑保持不变)
+        # 4. 数据持久化阶段 (保持不变)
         if not model_grouped_data_dicts:
             return {"尝试处理": len(df), "失败": len(df), "创建/更新成功": 0}
 
-        # 创建数据库保存任务
         db_save_tasks = []
         for model_class, data_list in model_grouped_data_dicts.items():
             task = self._save_all_to_db_native_upsert(
@@ -748,14 +753,11 @@ class StockTimeTradeDAO(BaseDAO):
             )
             db_save_tasks.append(task)
 
-        # 创建缓存批量写入任务
         cache_save_task = self.cache_set.batch_set_latest_time_trade(cache_payload, time_level)
-
-        # 使用 asyncio.gather 并发执行所有任务
         all_tasks = db_save_tasks + [cache_save_task]
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
-        # 5. 结果统计 (逻辑保持不变)
+        # 5. 结果统计 (保持不变)
         final_result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         total_records = sum(len(data) for data in model_grouped_data_dicts.values())
         final_result["尝试处理"] = total_records
