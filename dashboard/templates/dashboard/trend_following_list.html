@@ -1,14 +1,13 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
-{# 解释: 加载我们刚刚创建的自定义模板标签模块 #}
 {% load dashboard_extras %}
 
 {% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
 {% block head_extra %}
 <style>
-    .playbook-list {
+    .playbook-list, .strategy-list { /* 将新样式合并 */
         list-style-type: none;
         padding: 0;
         margin: 0;
@@ -24,6 +23,14 @@
         font-size: 0.8em;
         font-weight: 500;
         white-space: nowrap;
+    }
+    .strategy-tag {
+        background-color: #e8f5e9; /* 淡绿色背景 */
+        color: #2e7d32; /* 深绿色文字 */
+        padding: 3px 10px;
+        border-radius: 5px;
+        font-size: 0.85em;
+        font-weight: bold;
     }
     .playbook-tag.king-signal {
         background-color: #ffd700; /* 金色 */
@@ -70,8 +77,8 @@
                 <thead>
                     <tr>
                         <th>股票</th>
-                        <th>策略/周期</th>
-                        <th>最新分数</th>
+                        <th>激活策略</th> <!-- 表头修改 -->
+                        <th>最高分数</th> <!-- 表头修改 -->
                         <th>激活剧本</th>
                         <th>最新信号时间</th>
                         <th>最新买入</th>
@@ -82,19 +89,29 @@
                     {% for item in page_obj.object_list %}
                     <tr>
                         <td>
+                            {# 这一列表格访问方式不变，因为 item.stock 仍然是 StockInfo 对象 #}
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
+                        
+                        {# ▼▼▼【代码修改】: 修改“策略/周期”列以展示聚合后的策略列表 ▼▼▼ #}
                         <td>
-                            <strong>{{ item.strategy_name|playbook_display }}</strong>
-                            <br>
-                            <small>周期: {{ item.time_level }}</small>
+                            {# item.strategy_names 是一个列表，我们遍历它来显示所有策略 #}
+                            <ul class="strategy-list">
+                            {% for name in item.strategy_names %}
+                                <li class="strategy-tag">{{ name|playbook_display }}</li>
+                            {% endfor %}
+                            </ul>
                         </td>
+                        {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
+
                         <td>
+                            {# 访问字典的 key，与访问对象属性语法相同 #}
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
                         <td>
+                            {# 这一列逻辑不变，item.active_playbooks 是合并后的列表 #}
                             {% if item.active_playbooks %}
                                 <ul class="playbook-list">
                                 {% for playbook in item.active_playbooks %}
@@ -115,14 +132,13 @@
                                 -
                             {% endif %}
                         </td>
+                        {# 以下各列的访问方式也保持不变 #}
                         <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
                     </tr>
                     {% empty %}
-                    {# ▼▼▼【代码修改】: 修正表格列数，确保空状态下布局正确 ▼▼▼ #}
                     <tr><td colspan="7" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
-                    {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                     {% endfor %}
                 </tbody>
             </table>

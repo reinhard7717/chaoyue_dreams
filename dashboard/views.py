@@ -4,6 +4,7 @@ import json
 import re
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Q
+from collections import OrderedDict # 导入 OrderedDict
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.user_dao import UserDAO
@@ -131,37 +132,92 @@ def fav_monthly_trend_list(request):
 @login_required
 def trend_following_list(request):
     """
-    【V2.4 排序增强版】日线趋势跟踪列表视图
-    - 数据源为 TrendFollowStrategyState 摘要模型。
-    - (V2.3) 重构筛选逻辑，通过比较 last_buy_time 和 last_sell_time 来判断持仓状态。
-    - (V2.4 新增) 增加按分数进行二级排序。排序规则：1. 最新交易时间(降序) 2. 最新分数(降序)。
-    """
-    strategy_name = 'multi_timeframe_collaboration' 
+    【V2.6 最终聚合版】策略状态监控中心视图
 
-    # 定义持仓状态的查询条件：
-    # 1. last_buy_time 必须不为空 (有过买入记录)
-    # 2. 并且满足以下任一条件：
-    #    a. last_sell_time 为空 (从未卖出)
-    #    b. last_buy_time > last_sell_time (最近一次操作是买入)
+    功能设计:
+    - 数据源为 TrendFollowStrategyState 摘要模型，只查询处于有效持仓状态的记录。
+    - 核心逻辑是聚合展示，确保每只股票在列表中只出现一次，但会综合其所有活跃策略的信息。
+    
+    聚合规则:
+    1. 股票聚合: 将同一股票代码下的所有活跃持仓记录（例如，日线和周线策略同时触发）合并为一条。
+    2. 策略名称: 合并所有触发策略的名称，并去重展示。
+    3. 激活剧本: 合并所有触发的剧本列表。
+    4. 最高分数: 展示该股票所有活跃策略中的最高分。
+    5. 最新时间: 以所有活跃策略中最新的信号时间（latest_trade_time）为准，并以此为主要排序依据。
+    """
+    # 1. 定义持仓状态的查询条件
+    # 条件：最近一次买入时间存在，并且(最近一次卖出时间不存在 或 最近买入晚于最近卖出)
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
 
-    # ▼▼▼ 在 order_by 中增加按分数排序的次级条件 ▼▼▼
-    # 假设记录最新分数的字段为 latest_score
-    state_list = TrendFollowStrategyState.objects.filter(
-        held_status_query,
-        # time_level='D' # 根据V2.3的注释，此行已注释掉，保持不变
-    ).select_related('stock').order_by('-latest_trade_time', '-latest_score')
+    # 2. 从数据库获取所有满足条件的原始数据
+    # - select_related('stock'): 预加载关联的股票信息，避免N+1查询，提升性能。
+    # - order_by(...): 预排序是高效聚合的关键。它能保证：
+    #   a) 同一只股票的记录会连续出现。
+    #   b) 对于同一股票，最新的记录会排在最前面。
+    all_held_states = TrendFollowStrategyState.objects.filter(
+        held_status_query
+    ).select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
 
-    paginator = Paginator(state_list, 25)
+    # 3. 在Python内存中进行聚合处理
+    # 使用有序字典来存储聚合结果，键为股票代码，值为聚合后的信息字典。
+    aggregated_results = OrderedDict()
+
+    for state in all_held_states:
+        stock_code = state.stock.stock_code
+        
+        # 如果是第一次遇到这只股票，则初始化其聚合字典
+        if stock_code not in aggregated_results:
+            # 因为数据已按最新交易时间降序排列，所以我们遇到的第一条记录就是最新的。
+            # 我们以此为基础，初始化该股票的聚合信息。
+            aggregated_results[stock_code] = {
+                'stock': state.stock,
+                'latest_trade_time': state.latest_trade_time,
+                'latest_score': state.latest_score,
+                'last_buy_time': state.last_buy_time,
+                'last_sell_time': state.last_sell_time,
+                'active_playbooks': [],  # 初始化一个空列表，用于合并所有剧本
+                'strategy_names': set(), # 使用集合来自动去重策略名称
+            }
+        
+        # --- 开始合并信息 ---
+        # a) 合并当前记录的剧本列表到聚合列表中
+        if state.active_playbooks:
+            aggregated_results[stock_code]['active_playbooks'].extend(state.active_playbooks)
+        
+        # b) 将当前记录的策略名称添加到集合中
+        aggregated_results[stock_code]['strategy_names'].add(state.strategy_name)
+        
+        # c) 确保我们总是取到所有记录中最高的那个分数
+        if state.latest_score > aggregated_results[stock_code]['latest_score']:
+            aggregated_results[stock_code]['latest_score'] = state.latest_score
+
+    # 4. 对聚合结果进行后处理和最终排序
+    # a) 将聚合字典的值转换为列表
+    final_list = list(aggregated_results.values())
+    
+    # b) 将策略名称的集合(set)转换为排序后的列表(list)，方便前端模板统一渲染
+    for item in final_list:
+        item['strategy_names'] = sorted(list(item['strategy_names']))
+
+    # c) 按最终的排序规则（最新交易时间 -> 最高分）对聚合结果进行排序
+    final_list.sort(key=lambda x: (x['latest_trade_time'], x['latest_score']), reverse=True)
+    
+    # 调试信息：打印第一个聚合后的结果，用于检查数据结构是否正确
+    if final_list:
+        print(f"【调试信息】聚合后的第一条记录: {final_list[0]}")
+
+    # 5. 设置分页
+    paginator = Paginator(final_list, 25)  # Paginator可以直接处理列表对象
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
+    # 6. 准备上下文并渲染模板
     context = {
         'page_title': '策略状态监控中心',
         'page_obj': page_obj,
-        'total_count': paginator.count,
+        'total_count': len(final_list), # 总数是聚合后列表的长度
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
