@@ -466,7 +466,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     'run-strategy': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
-        'schedule': timedelta(minute=5), # 周一到周五10:31执行
+        'schedule': timedelta(minutes=5)
         # 在实际应用中，您会有一个任务来分发所有需要监控的股票
     },
     'save_stocks_minute_data_realtime_task-0925': {
