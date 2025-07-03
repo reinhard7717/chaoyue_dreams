@@ -93,9 +93,8 @@
     {# <script src="{% static 'js/main.js' %}"></script> #}
 
     {# --- 页面特定的额外 Scripts --- #}
-    {% block extra_scripts %}
-    {% block scripts_extra %}
-    {% endblock %}
+    {% block extra_scripts %}{% endblock %}
+    {% block scripts_extra %}{% endblock %}
 
 </body>
 </html>
