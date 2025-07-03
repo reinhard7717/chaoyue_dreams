@@ -451,12 +451,10 @@ class StockTimeTradeDAO(BaseDAO):
             return
 
         # --- 在所有循环开始前，一次性预加载全部股票信息 (逻辑不变) ---
-        print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息，任务终止。")
             return
-        print(f"股票信息预加载完成，共加载 {len(stock_map)} 条。")
         
         stock_codes_str = ",".join(stock_codes)
         for time_level in ['5', '15', '30', '60']:
@@ -467,8 +465,7 @@ class StockTimeTradeDAO(BaseDAO):
                 if offset >= 100000:
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
-                
-                print(f"正在拉取 {time_level}min 数据, 第 {page_num} 页, offset: {offset}")
+
                 df = self.ts_pro.stk_mins(**{
                     "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                     "limit": limit, "offset": offset
@@ -533,7 +530,7 @@ class StockTimeTradeDAO(BaseDAO):
                     )
                     saved_count = result_dict.get("创建/更新成功", 0)
                     logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 插入/更新了 {saved_count} 条记录。")
-                
+
                 # 分页逻辑判断应基于API返回的原始行数
                 if len(df) < limit:
                     break
@@ -553,13 +550,11 @@ class StockTimeTradeDAO(BaseDAO):
         4. 手动进行时区转换，以适配不经过Django ORM时区处理的原生SQL操作。
         """
         # --- 在循环外一次性获取所有必要的前置对象 ---
-        print(f"正在获取股票 {stock_code} 的基础信息...")
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.error(f"未能找到股票代码为 {stock_code} 的股票信息，任务终止。")
             return 0
 
-        print(f"正在确定时间级别为 {time_level}min 的目标数据表...")
         model_class = self.get_minute_model(stock_code, time_level)
         if not model_class:
             logger.error(f"未能为 {stock_code} 和时间级别 {time_level}min 找到对应的数据库模型，任务终止。")
@@ -682,8 +677,6 @@ class StockTimeTradeDAO(BaseDAO):
 
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
-        # --- 修改的代码块开始 ---
 
         # 2. 向量化数据准备阶段
         # 2.1 数据清洗
