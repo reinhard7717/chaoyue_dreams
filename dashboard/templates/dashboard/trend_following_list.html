@@ -124,21 +124,15 @@
                                 <div class="playbook-container">
                                     <ul class="playbook-list">
                                     {% for playbook in item.active_playbooks %}
-                                        {# ▼▼▼【代码修改】: 修正模板语法错误 ▼▼▼ #}
-                                        {# 错误原因：`{% with is_hidden=forloop.counter > 3 %}` 语法不被解析器接受。#}
-                                        {# 解决方案：移除外层的 with 标签，直接在 class 属性中使用 if 标签进行判断。#}
-                                        {% with playbook_display_name=playbook|playbook_display %}
-                                            {% if 'ROCKET' in playbook %}
-                                                <li class="playbook-tag rocket-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                            {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
-                                                <li class="playbook-tag king-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                            {% elif '【专家】' in playbook_display_name %}
-                                                <li class="playbook-tag expert-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
-                                            {% else %}
-                                                <li class="playbook-tag {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">{{ playbook_display_name }}</li>
-                                            {% endif %}
-                                        {% endwith %}
-                                        {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
+                                        {% if 'ROCKET' in playbook %}
+                                            <li class="playbook-tag rocket-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🚀 {{ playbook|playbook_display }}</li>
+                                        {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                            <li class="playbook-tag king-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">👑 {{ playbook|playbook_display }}</li>
+                                        {% elif '【专家】' in playbook|playbook_display %}
+                                            <li class="playbook-tag expert-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🎓 {{ playbook|playbook_display }}</li>
+                                        {% else %}
+                                            <li class="playbook-tag {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">{{ playbook|playbook_display }}</li>
+                                        {% endif %}
                                     {% endfor %}
                                     </ul>
                                     {% if item.active_playbooks|length > 3 %}
