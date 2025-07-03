@@ -106,7 +106,8 @@
                     {% for item in page_obj.object_list %}
                     <tr>
                         <td>
-                            <strong>{{ item.stock.stock_code }}</strong><br>
+                            <strong>{{ item.stock.stock_code }}</strong>
+                            <br>
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
@@ -119,59 +120,43 @@
                         <td>
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
+                        
+                        {# ▼▼▼【代码修改】: 优化“激活剧本”列的显示逻辑 ▼▼▼ #}
                         <td>
                             {% if item.active_playbooks %}
+                                {# 1. 添加一个容器，方便JS操作和CSS定位 #}
                                 <div class="playbook-container">
-                                    <ul class="playbook-list">
-                                        {# ▼▼▼【代码修改】: 使用 slice 过滤器，从根本上解决问题 ▼▼▼ #}
-                                        {# 
-                                           最终解决方案: 放弃在循环内使用 forloop.counter 判断，因为它在复杂逻辑下可能不可靠。
-                                           改用 slice 过滤器将列表切片为两部分，保证逻辑的绝对正确性。
-                                        #}
-                        
-                                        {# 第1步: 循环列表的前3个元素，正常显示 #}
-                                        {% for playbook in item.active_playbooks|slice:":3" %}
-                                            {% with playbook_display_name=playbook|playbook_display %}
-                                                {% if 'ROCKET' in playbook %}
-                                                    <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                                {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
-                                                    <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                                {% elif 'EXPERT' in playbook|upper %} {# 使用更健壮的检查方式 #}
-                                                    <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
-                                                {% else %}
-                                                    <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
-                                                {% endif %}
-                                            {% endwith %}
-                                        {% endfor %}
-                        
-                                        {# 第2步: 循环列表从第4个开始的剩余元素，并直接添加 hidden 类 #}
-                                        {% for playbook in item.active_playbooks|slice:"3:" %}
-                                            {% with playbook_display_name=playbook|playbook_display %}
-                                                {% if 'ROCKET' in playbook %}
-                                                    <li class="playbook-tag rocket-signal hidden" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                                {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
-                                                    <li class="playbook-tag king-signal hidden" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                                {% elif 'EXPERT' in playbook|upper %}
-                                                    <li class="playbook-tag expert-signal hidden" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
-                                                {% else %}
-                                                    <li class="playbook-tag hidden" title="{{ playbook }}">{{ playbook_display_name }}</li>
-                                                {% endif %}
-                                            {% endwith %}
-                                        {% endfor %}
-                                        {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
+                                    {# 2. 如果剧本数量超过阈值(例如3)，给ul添加 'collapsible' 类 #}
+                                    <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
+                                    {% for playbook in item.active_playbooks %}
+                                        {% with playbook_display_name=playbook|playbook_display %}
+                                            {% if 'ROCKET' in playbook %}
+                                                <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                            {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                                <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                            {% elif '【专家】' in playbook_display_name %}
+                                                <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                            {% else %}
+                                                <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% endfor %}
                                     </ul>
-                                    
-                                    {# 这个判断逻辑保持不变，当剧本总数大于3时显示按钮 #}
+                                    {# 3. 如果剧本数量超过阈值，显示“显示更多”按钮 #}
                                     {% if item.active_playbooks|length > 3 %}
-                                        <button class="btn-show-more" type="button">
-                                            展开剩余 {{ item.active_playbooks|length|add:"-3" }} 项...
-                                        </button>
+                                        <a href="#" class="toggle-playbooks" 
+                                           data-text-expand="显示更多 (共 {{ item.active_playbooks|length }} 条)" 
+                                           data-text-collapse="收起">
+                                            显示更多 (共 {{ item.active_playbooks|length }} 条)
+                                        </a>
                                     {% endif %}
                                 </div>
                             {% else %}
                                 -
                             {% endif %}
                         </td>
+                        {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
+            
                         <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
@@ -220,3 +205,47 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock %}
+{% block scripts_extra %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 使用事件委托来处理所有“显示更多/收起”按钮的点击事件
+    // 这样即使将来有分页加载，也无需重新绑定事件
+    const trendTable = document.getElementById('trend-table');
+    if (trendTable) {
+        trendTable.addEventListener('click', function(event) {
+            // 检查被点击的元素是否是我们的目标按钮
+            const toggleBtn = event.target.closest('.toggle-playbooks');
+            if (!toggleBtn) {
+                return; // 如果不是，则什么都不做
+            }
+
+            // 阻止<a>标签的默认跳转行为
+            event.preventDefault(); 
+            
+            // 找到与按钮相关的剧本容器和列表
+            const container = toggleBtn.closest('.playbook-container');
+            if (!container) return;
+            
+            const list = container.querySelector('.playbook-list');
+            if (!list) return;
+
+            // 切换 'expanded' 类来实现展开和收起
+            list.classList.toggle('expanded');
+
+            // 根据当前是否展开来更新按钮的文本
+            const isExpanded = list.classList.contains('expanded');
+            if (isExpanded) {
+                // 如果已展开，显示“收起”文本
+                toggleBtn.textContent = toggleBtn.dataset.textCollapse;
+            } else {
+                // 如果已收起，显示“显示更多”文本
+                toggleBtn.textContent = toggleBtn.dataset.textExpand;
+            }
+        });
+    }
+});
+</script>
+{% endblock scripts_extra %}
+
+
+

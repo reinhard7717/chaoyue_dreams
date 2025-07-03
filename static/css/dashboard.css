@@ -353,4 +353,42 @@ section h2 .icon {
     opacity: 0;
     transform: translateX(100%);
 }
+/* 剧本容器 */
+.playbook-container {
+    position: relative; /* 相对定位，为内部元素提供定位上下文 */
+    max-width: 300px; /* 限制最大宽度，避免过宽 */
+}
+
+/* 可折叠的剧本列表的默认状态 */
+.playbook-list.collapsible {
+    max-height: 58px; /* 默认最大高度，大约能容纳2行标签 */
+    overflow: hidden; /* 隐藏超出高度的内容 */
+    transition: max-height 0.3s ease-in-out; /* 添加平滑的过渡动画 */
+}
+
+/* 剧本列表展开后的状态 */
+.playbook-list.collapsible.expanded {
+    max-height: 400px; /* 展开后给一个足够大的高度 */
+}
+
+/* “显示更多/收起”按钮的样式 */
+.toggle-playbooks {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 0.8em;
+    font-weight: 500;
+    color: var(--semi-color-primary); /* 使用主题的主色调 */
+    text-decoration: none;
+    cursor: pointer;
+    background-color: rgba(var(--semi-color-primary-rgb), 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.toggle-playbooks:hover {
+    text-decoration: underline;
+    background-color: rgba(var(--semi-color-primary-rgb), 0.2);
+}
+
+
 
