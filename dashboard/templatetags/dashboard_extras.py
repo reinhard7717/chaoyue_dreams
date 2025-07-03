@@ -5,7 +5,7 @@
 import datetime
 from django import template
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.http import urlencode
 from utils.display_maps import DISPLAY_MAP
 
 register = template.Library()
@@ -44,3 +44,46 @@ def make_utc_aware(value):
     
     # 如果时间已经是感知的 (aware)，则直接返回原值，避免重复处理
     return value
+
+@register.simple_tag(takes_context=True)
+def query_builder(context, **kwargs):
+    """
+    一个强大的URL查询参数构造器。
+    它能根据当前请求的GET参数，智能地添加、修改或删除指定的参数。
+    特别为多值参数（如 'playbooks'）做了优化。
+
+    用法:
+    - 添加/修改单个值: {% query_builder key1='value1' key2='value2' %}
+    - 清空所有参数: {% query_builder clear_all=True %}
+    - 添加一个多值参数: {% query_builder add_playbook='some_playbook' %}
+    - 移除一个多值参数: {% query_builder remove_playbook='some_playbook' %}
+    """
+    # 复制当前请求的GET参数字典，以便修改
+    query_dict = context['request'].GET.copy()
+
+    # 处理特殊指令
+    if kwargs.get('clear_all'):
+        return '' # 返回空字符串，即清空所有查询参数
+
+    add_playbook = kwargs.pop('add_playbook', None)
+    remove_playbook = kwargs.pop('remove_playbook', None)
+
+    # 处理 'playbooks' 多值参数
+    playbooks = query_dict.getlist('playbooks', [])
+    if add_playbook and add_playbook not in playbooks:
+        playbooks.append(add_playbook)
+    if remove_playbook and remove_playbook in playbooks:
+        playbooks.remove(remove_playbook)
+    
+    # 更新字典中的 'playbooks' 列表
+    query_dict.setlist('playbooks', playbooks)
+    # 如果列表为空，则从字典中移除该键，保持URL整洁
+    if not query_dict.getlist('playbooks'):
+        query_dict.pop('playbooks', None)
+
+    # 处理其他普通的键值对参数
+    for key, value in kwargs.items():
+        query_dict[key] = value
+
+    # 将最终的字典编码为URL查询字符串
+    return f"?{urlencode(query_dict)}" if query_dict else '?'

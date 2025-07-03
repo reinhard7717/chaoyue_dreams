@@ -19,7 +19,7 @@ from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
-from tasks.tushare.stock_tasks import fetch_data_for_new_favorite # 导入新任务
+from itertools import chain
 import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
@@ -152,19 +152,45 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V2.7 界面优化版】策略状态监控中心视图
-    (V2.6) 实现聚合展示逻辑。
-    (V2.7 新增) 对“激活剧本”进行优先级排序和前端截断显示，提升可读性。
+    【V2.7 增加剧本筛选】策略状态监控中心视图
+    ... (原有注释不变) ...
+    新增功能:
+    - 动态生成所有活跃剧本的列表，作为筛选标签。
+    - 根据URL中的 'playbooks' 参数对结果进行筛选（AND逻辑）。
     """
-    # ... (查询条件和数据库获取部分保持不变) ...
+    # 1. 定义持仓状态的查询条件 (不变)
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
-    all_held_states = TrendFollowStrategyState.objects.filter(
-        held_status_query
-    ).select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
+    
+    # ▼▼▼【代码修改】: 增加筛选逻辑 ▼▼▼
+    # 2. 获取URL中的筛选参数
+    selected_playbooks = request.GET.getlist('playbooks')
 
-    # ... (聚合逻辑部分保持不变) ...
+    # 3. 构建基础查询集
+    base_queryset = TrendFollowStrategyState.objects.filter(held_status_query)
+
+    # 4. 动态应用筛选条件 (AND 逻辑)
+    # 如果用户选择了筛选标签，则对查询集进行链式过滤
+    # active_playbooks__contains 会检查JSONField数组是否包含指定元素
+    if selected_playbooks:
+        for playbook in selected_playbooks:
+            base_queryset = base_queryset.filter(active_playbooks__contains=playbook)
+    
+    # 5. 从筛选后的结果中，获取所有可用的剧本标签，用于前端展示
+    # a. 获取所有记录的 active_playbooks 字段
+    all_playbook_lists = TrendFollowStrategyState.objects.filter(
+        held_status_query
+    ).values_list('active_playbooks', flat=True)
+    # b. 扁平化、去重、排序，得到一个干净的剧本列表
+    # 使用 chain.from_iterable 高效扁平化列表的列表
+    unique_playbooks = sorted(list(set(chain.from_iterable(p for p in all_playbook_lists if p))))
+    # ▲▲▲【代码修改】: 结束 ▲▲▲
+
+    # 6. 从数据库获取满足条件的原始数据 (现在基于 base_queryset)
+    all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
+
+    # 7. 聚合处理 (不变)
     aggregated_results = OrderedDict()
     for state in all_held_states:
         stock_code = state.stock.stock_code
@@ -184,35 +210,27 @@ def trend_following_list(request):
         if state.latest_score > aggregated_results[stock_code]['latest_score']:
             aggregated_results[stock_code]['latest_score'] = state.latest_score
 
+    # 8. 后处理和排序 (不变)
     final_list = list(aggregated_results.values())
-    
-    # ▼▼▼【代码修改】: 在后处理阶段增加剧本排序逻辑 ▼▼▼
     for item in final_list:
-        # 1. 策略名称集合转为列表 (不变)
         item['strategy_names'] = sorted(list(item['strategy_names']))
-        
-        # 2. (新增) 对合并后的剧本列表进行去重和优先级排序
-        # 先通过字典键去重，保持原始顺序，然后进行排序
-        unique_playbooks = list(OrderedDict.fromkeys(item['active_playbooks']))
-        unique_playbooks.sort(key=get_playbook_priority)
-        item['active_playbooks'] = unique_playbooks
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
-
-    # ... (最终排序和分页逻辑保持不变) ...
     final_list.sort(key=lambda x: (x['latest_trade_time'], x['latest_score']), reverse=True)
     
-    if final_list:
-        print(f"【调试信息】排序后的第一个剧本列表: {final_list[0]['active_playbooks']}")
-
+    # 9. 分页 (不变)
     paginator = Paginator(final_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
+    # ▼▼▼【代码修改】: 更新上下文 ▼▼▼
+    # 10. 准备上下文并渲染模板
     context = {
         'page_title': '策略状态监控中心',
         'page_obj': page_obj,
         'total_count': len(final_list),
+        'all_playbooks': unique_playbooks,      # 新增：所有可筛选的剧本
+        'selected_playbooks': selected_playbooks, # 新增：当前已选择的剧本
     }
+    # ▲▲▲【代码修改】: 结束 ▲▲▲
     return render(request, 'dashboard/trend_following_list.html', context)
 
 @login_required

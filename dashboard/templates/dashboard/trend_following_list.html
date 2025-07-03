@@ -77,6 +77,32 @@
 <div class="dashboard-container">
     <section class="trend-list-section">
         <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 只)</h2>
+        <div class="filter-section">
+            <div class="filter-header">
+                <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
+                {# 如果有已选的筛选条件，则显示“清除”按钮 #}
+                {% if selected_playbooks %}
+                    <a href="{% query_builder clear_all=True %}" class="clear-filters-btn">清除全部</a>
+                {% endif %}
+            </div>
+            <div class="filter-tags-container">
+                {% for playbook in all_playbooks %}
+                    {% if playbook in selected_playbooks %}
+                        {# 已选中的标签：点击后移除此筛选条件 #}
+                        <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">
+                            {{ playbook|playbook_display }} <span class="remove-icon">&times;</span>
+                        </a>
+                    {% else %}
+                        {# 未选中的标签：点击后添加此筛选条件 #}
+                        <a href="{% query_builder add_playbook=playbook %}" class="filter-tag">
+                            {{ playbook|playbook_display }}
+                        </a>
+                    {% endif %}
+                {% empty %}
+                    <span class="no-filters">暂无可用的筛选标签</span>
+                {% endfor %}
+            </div>
+        </div>
         <div class="table-wrapper">
             <table class="data-table" id="trend-table">
                 <thead>

@@ -389,3 +389,84 @@ section h2 .icon {
     text-decoration: underline;
     background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.2);
 }
+
+.filter-section {
+    background-color: var(--semi-color-bg-1);
+    border: 1px solid var(--semi-color-border);
+    border-radius: var(--semi-border-radius);
+    padding: 16px;
+    margin-bottom: 24px;
+}
+
+.filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    color: var(--semi-color-text-0);
+}
+
+.filter-header .icon {
+    color: var(--semi-color-primary);
+    margin-right: 6px;
+}
+
+.clear-filters-btn {
+    font-size: 0.85em;
+    color: var(--semi-color-link);
+    text-decoration: none;
+    background-color: rgba(var(--semi-color-primary-rgb), 0.1);
+    padding: 4px 10px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.clear-filters-btn:hover {
+    background-color: rgba(var(--semi-color-primary-rgb), 0.2);
+    text-decoration: underline;
+}
+
+.filter-tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.filter-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 0.9em;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    border: 1px solid var(--semi-color-border);
+    background-color: var(--semi-color-bg-2);
+    color: var(--semi-color-text-1);
+}
+
+.filter-tag:hover {
+    border-color: var(--semi-color-primary);
+    color: var(--semi-color-primary);
+    transform: translateY(-1px);
+}
+
+/* 激活状态的标签 */
+.filter-tag.active {
+    background-color: var(--semi-color-primary);
+    color: #fff;
+    border-color: var(--semi-color-primary);
+}
+
+.filter-tag.active:hover {
+    background-color: var(--semi-color-primary-hover);
+}
+
+.filter-tag .remove-icon {
+    margin-left: 6px;
+    font-weight: bold;
+    font-size: 1.2em;
+    line-height: 1;
+}
