@@ -1,5 +1,6 @@
 # dao_manager\tushare_daos\stock_time_trade_dao.py
 import asyncio
+from decimal import Decimal
 import logging
 import time
 from asgiref.sync import sync_to_async
@@ -963,85 +964,170 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_weekly_data_list
 
     #  =============== A股月线行情 ===============
-    async def save_monthly_time_trade_by_stock_codes(self, stock_codes: List[str], start_date: str = "1990-01-01") -> None:
+    async def save_monthly_time_trade_by_stock_codes(self, stock_codes: List[str], start_date: str = "1990-01-01") -> List:
         """
-        保存股票的月线交易数据 (优化版)
-        接口：monthly
-        描述：获取A股月线行情
-        1. 批量预加载股票信息，根除N+1查询。
-        2. 使用向量化操作处理数据，替代逐行循环。
-        3. 引入分批保存机制，增强大数据量处理的稳定性。
+        【V3.0 - 健壮性与数据一致性优化版】
+        保存股票的月线交易数据 (前复权)。
+        接口：stk_week_month_adj (freq='month')
+        描述：获取A股月线行情(前复权)
+        
+        优化点:
+        1. [BUG修复] 明确重命名API返回列(如'open_qfq')以匹配模型字段(如'open')。
+        2. [数据完整性] 在存入数据库前，对数据进行严格的类型转换，确保与模型字段类型(Decimal, BigInt)一致。
+        3. [健壮性] 增加对单次Tushare API调用的异常捕获，防止因网络波动等问题中断整个任务。
+        4. [可读性] 使用列名映射字典，使代码意图更清晰，便于维护。
+        5. [类型提示] 修正了返回值类型提示。
         """
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
             return []
-        # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
+
+        # --- 1. 批量预加载股票信息，根除N+1查询 ---
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
             return []
-        
-        stock_codes_str = ",".join(stock_codes)
-        # --- 初始化用于分批保存的列表和批次大小 ---
-        all_data_dicts = []
+
+        # --- 2. 定义Tushare API字段到模型字段的映射 ---
+        # 修改开始：使用明确的字典进行列名映射，修复BUG并提高可读性
+        COLUMN_MAP = {
+            'ts_code': 'ts_code',
+            'trade_date': 'trade_date',
+            'open_qfq': 'open',
+            'high_qfq': 'high',
+            'low_qfq': 'low',
+            'close_qfq': 'close',
+            'pre_close': 'pre_close',
+            'change': 'change',
+            'pct_chg': 'pct_chg',
+            'vol': 'vol',
+            'amount': 'amount'
+        }
+        # 修改结束
+
+        all_data_to_save = []
         offset = 0
-        limit = 6000
-        page_num = 1
+        limit = 5000  # 根据Tushare积分调整，一般不超过6000
+        stock_codes_str = ",".join(stock_codes)
+
+        # --- 3. 分页循环拉取数据 ---
         while True:
-            if offset >= 100000:
-                logger.warning(f"offset已达10万，停止拉取。")
+            # 修改开始：增加对单次API调用的异常捕获，增强健壮性
+            try:
+                df = self.ts_pro.stk_week_month_adj(
+                    ts_code=stock_codes_str,
+                    start_date=start_date,
+                    freq="month",
+                    limit=limit,
+                    offset=offset
+                )
+                # Tushare有时返回None而不是空DataFrame
+                if df is None:
+                    df = pd.DataFrame()
+            except Exception as e:
+                logger.error(f"Tushare API调用失败 (offset: {offset}): {e}", exc_info=True)
+                # 发生API错误时，可以选择等待后重试或直接中断
+                await asyncio.sleep(5) # 等待5秒后中断本次循环
                 break
-            df = self.ts_pro.stk_week_month_adj(**{
-                "ts_code": stock_codes_str, "trade_date": "", "start_date": start_date, "end_date": "", "freq": "month", "limit": limit, "offset": offset
-            }, fields=[ "ts_code", "trade_date", "freq", "pre_close", "open_qfq", "high_qfq", "low_qfq", 
-                        "close_qfq", "vol", "amount", "change", "pct_chg"])
+            # 修改结束
+
             if df.empty:
+                logger.info("Tushare未返回更多数据，拉取完成。")
                 break
-            # --- 对整页DataFrame进行向量化处理 ---
-            # 1. 数据清洗
-            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-            # 2. 向量化映射stock对象，根除N+1查询
-            df['stock'] = df['ts_code'].map(stock_map)
-            # 3. 丢弃关键字段为空或在数据库中找不到对应stock的行
-            df.dropna(subset=['trade_date', 'stock'], inplace=True)
-            if not df.empty:
-                # 4. 向量化转换日期
+
+            # --- 4. 数据清洗、转换和格式化 (向量化操作) ---
+            try:
+                # 修改开始：整合了重命名、类型转换和格式化的完整流程
+                # 步骤 a: 重命名列以匹配Django模型字段
+                df.rename(columns=COLUMN_MAP, inplace=True)
+
+                # 步骤 b: 基础清洗，将API返回的空值标记统一为np.nan
+                df.replace(['', 'null', 'None'], np.nan, inplace=True)
+
+                # 步骤 c: 映射StockInfo实例，并丢弃无法关联的记录
+                df['stock'] = df['ts_code'].map(stock_map)
+                df.dropna(subset=['trade_date', 'stock'], inplace=True)
+                if df.empty:
+                    logger.info("当前批次数据在清洗后为空，继续下一批。")
+                    offset += len(df) if len(df) > 0 else limit # 使用实际返回长度推进offset
+                    if len(df) < limit: break
+                    continue
+
+                # 步骤 d: 严格的类型转换，确保数据与模型定义一致
+                numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change']
+                for col in numeric_cols:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+                # 对于Decimal字段，先转为浮点数，后续在字典生成时转为Decimal对象
+                df['pct_chg'] = pd.to_numeric(df['pct_chg'], errors='coerce')
+                df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+                
+                # 对于BigIntegerField，使用pandas的Int64类型处理可能存在的NaN
+                df['vol'] = pd.to_numeric(df['vol'], errors='coerce').astype('Int64')
+
+                # 步骤 e: 转换日期格式
                 df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
-                # 5. 选择并重命名列以匹配模型字段，替代set_time_trade_month_data
-                #    这里假设模型字段名与API返回字段名大部分一致
-                final_df = df[[
-                    "stock", "trade_time", "freq", "pre_close", "open_qfq", "high_qfq", "low_qfq", 
-                    "close_qfq", "vol", "amount", "change", "pct_chg"
-                ]]
-                # 6. 将处理好的数据添加到总列表中
-                all_data_dicts.extend(final_df.to_dict('records'))
-            
-            # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
-            if len(all_data_dicts) >= BATCH_SAVE_SIZE:
+                
+                # 步骤 f: 准备用于数据库操作的数据
+                # 选择最终需要的列
+                final_cols = [
+                    'stock', 'trade_time', 'open', 'high', 'low', 'close', 
+                    'pre_close', 'change', 'pct_chg', 'vol', 'amount'
+                ]
+                df_final = df[final_cols]
+
+                # 将NaN替换为None，以便数据库正确处理为NULL
+                df_final = df_final.where(pd.notna(df_final), None)
+                
+                # 转换为字典列表，同时处理Decimal类型
+                records = df_final.to_dict('records')
+                for record in records:
+                    if record.get('pct_chg') is not None:
+                        record['pct_chg'] = Decimal(str(record['pct_chg'])).quantize(Decimal("0.01"))
+                    if record.get('amount') is not None:
+                        # Tushare的amount单位是千元，乘以1000变为元
+                        record['amount'] = Decimal(str(record['amount'])) * Decimal(1000)
+
+                all_data_to_save.extend(records)
+                # 修改结束
+
+            except Exception as e:
+                logger.error(f"处理数据时发生错误 (offset: {offset}): {e}", exc_info=True)
+                # 如果数据处理失败，跳过这一批次
+                offset += len(df) if len(df) > 0 else limit
+                if len(df) < limit: break
+                continue
+
+            # --- 5. 分批保存到数据库 ---
+            if len(all_data_to_save) >= BATCH_SAVE_SIZE:
                 await self._save_all_to_db_native_upsert(
                     model_class=StockMonthlyData,
-                    data_list=all_data_dicts,
+                    data_list=all_data_to_save,
                     unique_fields=['stock', 'trade_time']
                 )
-                logger.info(f"完成一批月线数据保存，数量：{len(all_data_dicts)}")
-                all_data_dicts = [] # 清空列表
-            time.sleep(0.5) # 保留接口调用延时
-            if len(df) < limit:
+                all_data_to_save = [] # 清空列表以备下一批
+
+            # --- 6. 准备下一次循环 ---
+            actual_return_count = len(df)
+            time.sleep(0.6) # Tushare接口调用延时，保护积分
+            if actual_return_count < limit:
                 break
-            offset += limit
-            page_num += 1
-        # --- 在所有分页处理完毕后，保存剩余的最后一批数据 ---
-        result = []
-        if all_data_dicts:
-            result = await self._save_all_to_db_native_upsert(
+            offset += actual_return_count
+
+        # --- 7. 保存最后一批剩余数据 ---
+        final_result = []
+        if all_data_to_save:
+            logger.info(f"正在保存最后一批剩余的 {len(all_data_to_save)} 条月线数据...")
+            final_result = await self._save_all_to_db_native_upsert(
                 model_class=StockMonthlyData,
-                data_list=all_data_dicts,
+                data_list=all_data_to_save,
                 unique_fields=['stock', 'trade_time']
             )
-            logger.info(f"完成最后一批月线数据保存，数量：{len(all_data_dicts)}")
         else:
             logger.info("所有数据均已分批保存，无剩余数据。")
-        return result
+            
+        logger.info(f"股票 {stock_codes_str} 的月线数据保存任务全部完成。")
+        return final_result
 
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:
         """
