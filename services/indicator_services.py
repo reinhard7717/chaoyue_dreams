@@ -68,7 +68,7 @@ class IndicatorService:
         """
         if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
             return df
-        
+
         # 创建副本以避免修改原始传入的DataFrame，遵循函数式编程的最佳实践
         df_copy = df.copy()
         df_copy.index = df_copy.index.tz_convert('UTC')
