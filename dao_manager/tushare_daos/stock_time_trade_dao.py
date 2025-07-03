@@ -688,7 +688,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 2.2 向量化时间转换 (核心修改)
         # Tushare rt_min 的 time 格式为 'YYYYMMDDHHMMSS'
         # a. 将字符串批量转换为“天真”的datetime对象
-        df['trade_time'] = pd.to_datetime(df['time'], format='%Y%m%d%H%M%S')
+        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S')
         # b. 本地化为北京时间
         df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
         # c. 转换为UTC时间
