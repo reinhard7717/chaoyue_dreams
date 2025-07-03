@@ -560,7 +560,8 @@ class IndicatorService:
                         elif indicator_name == 'boll_bands_and_width':
                             kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0))})
                         else:
-                            kwargs_iter['period'] = p_set
+                            # 修正: 确保传递给 'period' 的是整数。如果 p_set 是列表(如[13])，则取其第一个元素；如果已经是整数(如13)，则直接使用。
+                            kwargs_iter['period'] = p_set[0] if isinstance(p_set, list) else p_set
                         
                         result_df = await method_to_call(**kwargs_iter)
                         merge_results(result_df, df_for_calc)
