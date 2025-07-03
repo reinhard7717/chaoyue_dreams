@@ -123,18 +123,45 @@
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
                                     <ul class="playbook-list">
-                                    {% for playbook in item.active_playbooks %}
-                                        {% if 'ROCKET' in playbook %}
-                                            <li class="playbook-tag rocket-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🚀 {{ playbook|playbook_display }}</li>
-                                        {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
-                                            <li class="playbook-tag king-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">👑 {{ playbook|playbook_display }}</li>
-                                        {% elif '【专家】' in playbook|playbook_display %}
-                                            <li class="playbook-tag expert-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🎓 {{ playbook|playbook_display }}</li>
-                                        {% else %}
-                                            <li class="playbook-tag {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">{{ playbook|playbook_display }}</li>
-                                        {% endif %}
-                                    {% endfor %}
+                                        {# ▼▼▼【代码修改】: 使用 slice 过滤器，从根本上解决问题 ▼▼▼ #}
+                                        {# 
+                                           最终解决方案: 放弃在循环内使用 forloop.counter 判断，因为它在复杂逻辑下可能不可靠。
+                                           改用 slice 过滤器将列表切片为两部分，保证逻辑的绝对正确性。
+                                        #}
+                        
+                                        {# 第1步: 循环列表的前3个元素，正常显示 #}
+                                        {% for playbook in item.active_playbooks|slice:":3" %}
+                                            {% with playbook_display_name=playbook|playbook_display %}
+                                                {% if 'ROCKET' in playbook %}
+                                                    <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                                {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                                    <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                                {% elif 'EXPERT' in playbook|upper %} {# 使用更健壮的检查方式 #}
+                                                    <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                                {% else %}
+                                                    <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                                {% endif %}
+                                            {% endwith %}
+                                        {% endfor %}
+                        
+                                        {# 第2步: 循环列表从第4个开始的剩余元素，并直接添加 hidden 类 #}
+                                        {% for playbook in item.active_playbooks|slice:"3:" %}
+                                            {% with playbook_display_name=playbook|playbook_display %}
+                                                {% if 'ROCKET' in playbook %}
+                                                    <li class="playbook-tag rocket-signal hidden" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                                {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                                    <li class="playbook-tag king-signal hidden" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                                {% elif 'EXPERT' in playbook|upper %}
+                                                    <li class="playbook-tag expert-signal hidden" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                                {% else %}
+                                                    <li class="playbook-tag hidden" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                                {% endif %}
+                                            {% endwith %}
+                                        {% endfor %}
+                                        {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                                     </ul>
+                                    
+                                    {# 这个判断逻辑保持不变，当剧本总数大于3时显示按钮 #}
                                     {% if item.active_playbooks|length > 3 %}
                                         <button class="btn-show-more" type="button">
                                             展开剩余 {{ item.active_playbooks|length|add:"-3" }} 项...
