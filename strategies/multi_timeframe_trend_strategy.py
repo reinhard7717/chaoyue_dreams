@@ -193,8 +193,9 @@ class MultiTimeframeTrendStrategy:
     # ▼▼▼ 重构此方法以健壮地处理不同类型的 trade_time ▼▼▼
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
         """
-        合并日线和分钟线 **买入** 信号，并进行去重。
-        规则：如果同一天同时存在日线和分钟线买入信号，优先保留分钟线信号。
+        【V6.4 剧本合并版】
+        合并日线和分钟线买入信号，并进行去重。
+        规则：如果同一天同时存在日线和分钟线信号，优先保留分钟线信号，并将其剧本与日线剧本合并。
         """
         if not daily_records and not intraday_records:
             return daily_records or intraday_records
@@ -227,7 +228,6 @@ class MultiTimeframeTrendStrategy:
             if record.get('entry_signal'):
                 trade_date = get_trade_date(record.get('trade_time'))
                 if trade_date:
-                    # 分钟线信号优先级更高，会覆盖当天的日线信号
                     signals_by_day[trade_date]['M'] = record
 
         final_records = []
@@ -235,9 +235,30 @@ class MultiTimeframeTrendStrategy:
 
         for trade_date in sorted_dates:
             signals = signals_by_day[trade_date]
-            if 'M' in signals:
+            
+            if 'M' in signals and 'D' in signals:
+                # 当天同时有日线和分钟线信号
+                minute_record = signals['M']
+                day_record = signals['D']
+                
+                # 合并剧本
+                day_playbooks = day_record.get('triggered_playbooks', [])
+                minute_playbooks = minute_record.get('triggered_playbooks', [])
+                
+                # 使用集合去重，然后转回列表
+                combined_playbooks = list(set(day_playbooks + minute_playbooks))
+                minute_record['triggered_playbooks'] = combined_playbooks
+                
+                print(f"  - [信号整合] 日期 {trade_date}: 合并分钟线与日线信号。最终剧本: {combined_playbooks}")
+                final_records.append(minute_record)
+
+            elif 'M' in signals:
+                # 只有分钟线信号
+                print(f"  - [信号整合] 日期 {trade_date}: 仅发现分钟线信号，予以保留。")
                 final_records.append(signals['M'])
             elif 'D' in signals:
+                # 只有日线信号
+                print(f"  - [信号整合] 日期 {trade_date}: 仅发现日线信号，予以保留。")
                 final_records.append(signals['D'])
         
         return final_records
