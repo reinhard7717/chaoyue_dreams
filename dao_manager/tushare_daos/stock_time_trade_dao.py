@@ -658,20 +658,20 @@ class StockTimeTradeDAO(BaseDAO):
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
-        【V3.2 - 日期拼接修正版】保存股票的实时分钟级交易数据
+        【V3.3 - 最终修正版】保存股票的实时分钟级交易数据
         核心优化:
         1.  【向量化处理】用Pandas向量化操作替代原有的逐行循环，大幅提升数据预处理性能。
         2.  【精确时区转换】在向量化处理中，将Tushare返回的本地时间精确转换为UTC时间，以适配原生SQL插入。
         3.  【并发持久化】保留原有的asyncio.gather并发执行数据库和缓存的写入操作。
         修正点:
-        -   Tushare的rt_min接口返回的time字段仅包含时间(HH:MM:SS)，本方法会显式地为其拼接上当天的日期。
+        -   根据错误日志确认，Tushare的rt_min接口返回的time字段为完整的日期时间字符串(格式: 'YYYY-MM-DD HH:MM:SS')。
+        -   直接使用该字段并指定正确格式进行转换，不再手动拼接日期。
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
         # 1. 从API获取数据 (保持不变)
         stock_codes_str = ",".join(stock_codes)
-        # 注意：Tushare的rt_min接口返回的time字段格式为 HH:MM:SS
         df = self.ts_pro.rt_min(**{
             "topic": "", "freq": time_level + "MIN", "ts_code": stock_codes_str, "limit": "", "offset": ""
         }, fields=[
@@ -690,25 +690,18 @@ class StockTimeTradeDAO(BaseDAO):
 
         # --- 修改的代码行开始 ---
         # 2.2 向量化时间转换 (核心修改)
-        # a. 获取今天的日期字符串，格式为 YYYY-MM-DD
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        print(f"调试信息：获取到今天的日期为: {today_str}")
+        # a. 直接使用API返回的 'time' 列，它已经是 'YYYY-MM-DD HH:MM:SS' 格式
+        print(f"调试信息：从API获取到的原始时间字符串前5条:\n{df['time'].head()}")
 
-        # b. 将日期字符串和API返回的时间字符串（例如 '09:30:00'）进行向量化拼接
-        #    这会高效地为整个'time'列的每一行都加上今天的日期
-        full_datetime_str_series = today_str + ' ' + df['time']
-        print(f"调试信息：拼接后的时间字符串前5条:\n{full_datetime_str_series.head()}")
-
-        # c. 使用拼接后的完整时间字符串进行转换，并明确指定格式以提高性能和健壮性
-        #    注意：这里的format现在必须匹配我们自己构建的 'YYYY-MM-DD HH:MM:SS' 格式
-        df['trade_time'] = pd.to_datetime(full_datetime_str_series, format='%Y-%m-%d %H:%M:%S')
+        # b. 使用正确的 format 参数直接进行转换，这是最高效和最安全的方式
+        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S')
         # --- 修改的代码行结束 ---
 
-        # d. 本地化为北京时间
+        # c. 本地化为北京时间
         df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
-        # e. 转换为UTC时间
+        # d. 转换为UTC时间
         df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-        # f. 去除时区信息，得到适合原生SQL的“天真UTC时间”
+        # e. 去除时区信息，得到适合原生SQL的“天真UTC时间”
         df['trade_time'] = df['trade_time'].dt.tz_localize(None)
 
         # 2.3 向量化外键关联 (保持不变)
