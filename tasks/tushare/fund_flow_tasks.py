@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import datetime
+from django.utils import timezone
 from celery import group
 from django.db.models import Q
 from typing import List, Dict, Any # 引入 List, Dict, Any
@@ -330,8 +331,9 @@ def save_fund_flow_daily_data_ths_today(self):
     # 在任务开始时创建一次 DAO 实例
     fund_flow_dao = FundFlowDao()
     try:
+        today_date = timezone.now().date()
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_today_fund_flow_cnt_ths_data())
+        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=today_date))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -347,8 +349,10 @@ def save_fund_flow_daily_data_ths_yesterday(self):
     # 在任务开始时创建一次 DAO 实例
     fund_flow_dao = FundFlowDao()
     try:
+        today_date = timezone.now().date()
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_yesterday_fund_flow_cnt_ths_data())
+        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=yesterday))
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 

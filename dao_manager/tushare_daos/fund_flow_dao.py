@@ -32,79 +32,6 @@ class FundFlowDao(BaseDAO):
         self.user_cache_get = UserCacheGet()
 
     # ============== 日级资金流向数据 ==============
-    async def save_today_fund_flow_daily_data(self) -> Dict:
-        """
-        保存今天的日级资金流向数据
-        接口：moneyflow，可以通过数据工具调试和查看数据。
-        描述：获取沪深A股票资金流向数据，分析大单小单成交情况，用于判别资金动向，数据开始于2010年。
-        限量：单次最大提取6000行记录，总量不限制
-        积分：用户需要至少2000积分才可以调取，基础积分有流量控制，积分越多权限越大，请自行提高积分，具体请参考积分获取办法
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取日级资金流向数据
-        df = self.ts_pro.moneyflow(**{
-            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
-            "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
-            "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
-        ])
-        print(f"今天的日级资金流向数据 数量: {len(df)}")
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDaily,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-    async def save_yesterday_fund_flow_daily_data(self) -> Dict:
-        """
-        保存今天的日级资金流向数据
-        接口：moneyflow，可以通过数据工具调试和查看数据。
-        描述：获取沪深A股票资金流向数据，分析大单小单成交情况，用于判别资金动向，数据开始于2010年。
-        限量：单次最大提取6000行记录，总量不限制
-        积分：用户需要至少2000积分才可以调取，基础积分有流量控制，积分越多权限越大，请自行提高积分，具体请参考积分获取办法
-        """
-        # 获取当前日期
-        today = datetime.today()
-        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
-        # 转换为YYYYMMDD格式
-        day_str = yesterday.strftime('%Y%m%d')
-        # 获取日级资金流向数据
-        df = self.ts_pro.moneyflow(**{
-            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
-            "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
-            "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
-        ])
-        print(f"今天的日级资金流向数据 数量: {len(df)}")
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDaily,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
     async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         保存历史日级资金流向数据
@@ -157,126 +84,7 @@ class FundFlowDao(BaseDAO):
         print(f"完成 {trade_date} 历史日级资金流向数据，result: {result}")
         return result
 
-    async def save_history_fund_flow_daily_data_by_stock_code(self, stock_code: str) -> Dict:
-        """
-        保存历史日级资金流向数据
-        """
-        # 获取历史日级资金流向数据
-        df = self.ts_pro.moneyflow(**{
-            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
-            "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
-            "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDaily,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-    async def save_history_fund_flow_daily_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
-        """
-        保存历史日级资金流向数据
-        """
-        # 获取历史日级资金流向数据
-        stock_codes_str = ",".join(stock_codes)
-        df = self.ts_pro.moneyflow(**{
-            "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
-            "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
-            "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDaily,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-
     # ============== 个股日级资金流向数据 - 同花顺 ==============
-    async def save_today_fund_flow_daily_ths_data(self) -> Dict:
-        """
-        保存今天的日级资金流向数据 - 同花顺
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取日级资金流向数据 - 同花顺
-        df = self.ts_pro.moneyflow_ths(**{
-            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
-            "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        print(f"今天的日级资金流向数据 - 同花顺 数量: {len(df)}")
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-    async def save_yesterday_fund_flow_daily_ths_data(self) -> Dict:
-        """
-        保存今天的日级资金流向数据 - 同花顺
-        """
-        # 获取当前日期
-        today = datetime.today()
-        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
-        # 转换为YYYYMMDD格式
-        day_str = yesterday.strftime('%Y%m%d')
-        # 获取日级资金流向数据 - 同花顺
-        df = self.ts_pro.moneyflow_ths(**{
-            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
-            "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        print(f"今天的日级资金流向数据 - 同花顺 数量: {len(df)}")
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
     async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         保存历史日级资金流向数据 - 同花顺
@@ -327,131 +135,7 @@ class FundFlowDao(BaseDAO):
         print(f"完成 {trade_date} 历史日级资金流向数据 - 同花顺，result: {result}")
         return result
 
-    async def save_history_fund_flow_daily_ths_data_by_stock_code(self, stock_code: str) -> Dict:
-        """
-        保存历史日级资金流向数据 - 同花顺
-        接口：moneyflow_ths
-        描述：获取同花顺个股资金流向数据，每日盘后更新
-        限量：单次最大6000，可根据日期或股票代码循环提取数据
-        积分：用户需要至少5000积分才可以调取，具体请参阅积分获取办法
-        """
-        # 获取历史日级资金流向数据 - 同花顺
-        df = self.ts_pro.moneyflow_ths(**{
-            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
-            "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-    async def save_history_fund_flow_daily_ths_data_by_stock_codes(self, stock_codes: List[str]) -> Dict:
-        """
-        保存历史日级资金流向数据 - 同花顺
-        接口：moneyflow_ths
-        描述：获取同花顺个股资金流向数据，每日盘后更新
-        限量：单次最大6000，可根据日期或股票代码循环提取数据
-        积分：用户需要至少5000积分才可以调取，具体请参阅积分获取办法
-        """
-        # 获取历史日级资金流向数据 - 同花顺
-        stock_codes_str = ",".join(stock_codes)
-        df = self.ts_pro.moneyflow_ths(**{
-            "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
-            "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
     # ============== 日级资金流向数据 - 东方财富 ==============
-    async def save_today_fund_flow_daily_dc_data(self) -> Dict:
-        """
-        保存今天的日级资金流向数据 - 东方财富
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取日级资金流向数据 - 东方财富
-        df = self.ts_pro.moneyflow_dc(**{
-            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
-            "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        print(f"今天的日级资金流向数据 - 东方财富 数量: {len(df)}")
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyDC,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-    async def save_yesterday_fund_flow_daily_dc_data(self) -> Dict:
-        """
-        保存今天的日级资金流向数据 - 东方财富
-        """
-        # 获取当前日期
-        today = datetime.today()
-        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
-        # 转换为YYYYMMDD格式
-        day_str = yesterday.strftime('%Y%m%d')
-        # 获取日级资金流向数据 - 东方财富
-        df = self.ts_pro.moneyflow_dc(**{
-            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
-            "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        print(f"今天的日级资金流向数据 - 东方财富 数量: {len(df)}")
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyDC,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
     async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         保存历史日级资金流向数据 - 东方财富
@@ -501,234 +185,148 @@ class FundFlowDao(BaseDAO):
         )
         return result
 
-    async def save_history_fund_flow_daily_dc_data_stock_code(self, stock_code: str) -> Dict:
-        """
-        保存历史日级资金流向数据 - 东方财富
-        接口：moneyflow_dc
-        描述：获取东方财富个股资金流向数据，每日盘后更新，数据开始于20230911
-        限量：单次最大获取6000条数据，可根据日期或股票代码循环提取数据
-        积分：用户需要至少5000积分才可以调取，具体请参阅积分获取办法
-        """
-        # 获取历史日级资金流向数据 - 东方财富
-        df = self.ts_pro.moneyflow_dc(**{
-            "ts_code": stock_code, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
-            "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyDC,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
-    async def save_history_fund_flow_daily_dc_data_stock_codes(self, stock_codes: List[str]) -> Dict:
-        """
-        保存历史日级资金流向数据 - 东方财富
-        接口：moneyflow_dc
-        描述：获取东方财富个股资金流向数据，每日盘后更新，数据开始于20230911
-        限量：单次最大获取6000条数据，可根据日期或股票代码循环提取数据
-        积分：用户需要至少5000积分才可以调取，具体请参阅积分获取办法
-        """
-        # 获取历史日级资金流向数据 - 东方财富
-        stock_codes_str = ",".join(stock_codes)
-        df = self.ts_pro.moneyflow_dc(**{
-            "ts_code": stock_codes_str, "trade_date": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
-            "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_data_dc(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowDailyDC,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
     # ============== 板块资金流向数据 - 同花顺 ==============
-    async def save_today_fund_flow_cnt_ths_data(self) -> Dict:
-        """
-        保存今天的板块资金流向数据 - 同花顺
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取板块资金流向数据 - 同花顺
-        df = self.ts_pro.moneyflow_cnt_ths(**{
-            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
-            "net_buy_amount", "net_sell_amount", "net_amount"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
-                if ths_index:
-                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(ths_index=ths_index, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowCntTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            print(f"完成 {today} 板块资金流向数据（同花顺），result: {result}")
-        return result
-
-    async def save_yesterday_fund_flow_cnt_ths_data(self) -> Dict:
-        """
-        保存今天的板块资金流向数据 - 同花顺
-        """
-        # 获取当前日期
-        today = datetime.today()
-        yesterday = today - timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
-        # 转换为YYYYMMDD格式
-        day_str = yesterday.strftime('%Y%m%d')
-        # 获取板块资金流向数据 - 同花顺
-        df = self.ts_pro.moneyflow_cnt_ths(**{
-            "ts_code": "", "trade_date": day_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
-            "net_buy_amount", "net_sell_amount", "net_amount"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
-                if ths_index:
-                    data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(ths_index=ths_index, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowCntTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            print(f"完成 {today} 板块资金流向数据（同花顺），result: {result}")
-        return result
-
     async def save_history_fund_flow_cnt_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
-        保存历史板块资金流向数据 - 同花顺
+        【V2.0 - 向量化优化版】保存历史板块资金流向数据 - 同花顺
+        核心优化:
+        1. 【消除N+1查询】将循环内单次数据库查询，改为批处理模式。一次性获取所有ts_code，一次性查询数据库。
+        2. 【向量化数据处理】使用Pandas的向量化操作(map, to_datetime)替代低效的逐行循环，大幅提升数据预处理性能。
+        3. 【修正逻辑错误】修正了unique_fields参数，使其与模型定义一致。
+        4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
-        trade_date_str = ""
-        start_date_str = ""
-        end_date_str = ""
-        if trade_date is not None:
-            trade_date_str = trade_date.strftime('%Y%m%d')
-        if start_date is not None:
-            start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        # 获取历史板块资金流向数据 - 同花顺
+        
+        # 1. 准备API请求参数 (逻辑不变)
+        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+
+        # 2. 分页拉取并处理数据
         offset = 0
         limit = 4000
-        data_dicts = []
+        all_data_to_save = [] # 用于累积所有批次处理好的数据
+
         while True:
             if offset >= 100000:
                 logger.warning(f"板块资金流向数据 - 同花顺 offset已达10万，停止拉取。")
                 break
+
+            print(f"调试信息: 正在从Tushare拉取数据, offset={offset}, limit={limit}")
             df = self.ts_pro.moneyflow_cnt_ths(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
                 "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
                 "net_buy_amount", "net_sell_amount", "net_amount"
             ])
+
             if df.empty:
+                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
-                    if ths_index:
-                        data_dict = self.data_format_process.set_fund_flow_cnt_ths_data(ths_index=ths_index, df_data=row)
-                        data_dicts.append(data_dict)
+            
+            original_count = len(df)
+            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
+
+            # 3. 向量化数据清洗与转换
+            # 3.1 清洗空值和无效行
+            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+            df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+            if df.empty:
+                print("调试信息: 数据清洗后，当前批次无有效数据。")
+                time.sleep(0.2)
+                if original_count < limit:
+                    break
+                offset += limit
+                continue
+
+            # 3.2 向量化处理外键关联 (核心性能优化)
+            unique_codes = df['ts_code'].unique().tolist()
+            # 假设 industry_dao 中有一个批量获取的方法，这是最佳实践
+            # 如果没有，您需要添加它。实现示例: return {obj.ts_code: obj for obj in ThsIndex.objects.filter(ts_code__in=codes)}
+            ths_index_map = await self.industry_dao.get_ths_indices_by_codes(unique_codes)
+            df['ths_index'] = df['ts_code'].map(ths_index_map)
+            
+            # 过滤掉数据库中不存在对应ThsIndex的记录
+            df.dropna(subset=['ths_index'], inplace=True)
+            if df.empty:
+                logger.warning(f"当前批次所有ts_code均未在ThsIndex表中找到对应记录。")
+                print("调试信息: 关联ThsIndex后，当前批次无有效数据。")
+                time.sleep(0.2)
+                if original_count < limit:
+                    break
+                offset += limit
+                continue
+
+            # 3.3 向量化数据类型转换
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            
+            # 3.4 将NaN替换为None，以适应数据库存储
+            # 选择模型需要的列，并确保顺序和命名正确
+            final_columns = [
+                'ths_index', 'trade_time', 'lead_stock', 'close_price', 'pct_change', 
+                'industry_index', 'company_num', 'pct_change_stock', 'net_buy_amount', 
+                'net_sell_amount', 'net_amount'
+            ]
+            df_final = df[final_columns]
+            
+            # 将Pandas的NaN转换为Python的None
+            df_processed = df_final.where(pd.notnull(df_final), None)
+
+            # 4. 累积处理好的数据
+            all_data_to_save.extend(df_processed.to_dict('records'))
+            print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
+
+            # 5. 分页逻辑 (逻辑不变)
             time.sleep(0.2)
-            if len(df) < limit:
+            if original_count < limit:
                 break
             offset += limit
-        result =  await self._save_all_to_db_native_upsert(
+
+        # 6. 一次性批量保存到数据库
+        if not all_data_to_save:
+            logger.warning(f"在日期范围 {start_date_str}-{end_date_str} 内没有找到或处理任何有效数据。")
+            print("调试信息: 没有可保存的数据。")
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+        print(f"调试信息: 所有数据拉取和处理完成，准备将 {len(all_data_to_save)} 条数据一次性保存到数据库。")
+        # 【逻辑修正】unique_fields 从 ['stock', 'trade_time'] 修正为 ['ths_index', 'trade_time']
+        result = await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
+            data_list=all_data_to_save,
+            unique_fields=['ths_index', 'trade_time']
         )
-        print(f"完成 {trade_date} 板块资金流向数据（同花顺），result: {result}")
+        
+        # 使用 f-string 格式化输出
+        date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
+        print(f"完成 {date_range_info} 板块资金流向数据（同花顺），result: {result}")
         return result
 
     # ============== 板块资金流向数据 - 东方财富 ==============
-    async def save_today_fund_flow_cnt_dc_data(self) -> Dict:
-        """
-        保存今天的板块资金流向数据 - 东方财富
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取板块资金流向数据 - 东方财富
-        df = self.ts_pro.moneyflow_ind_dc(**{
-            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "content_type": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "content_type", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", 
-            "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", 
-            "buy_sm_amount_rate", "buy_sm_amount_stock", "rank"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowCntDC,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            print(f"完成 {today} 板块资金流向数据（东方财富），result: {result}")
-        return result
-
     async def save_history_fund_flow_cnt_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
-        保存历史板块资金流向数据 - 东方财富
+        【V2.0 - 向量化优化版】保存历史板块资金流向数据 - 东方财富
+        核心优化:
+        1. 【消除N+1查询】将循环内单次数据库/缓存查询，改为批处理模式。一次性获取所有ts_code，一次性查询数据库。
+        2. 【向量化数据处理】使用Pandas的向量化操作(map, to_datetime)替代低效的逐行循环，大幅提升数据预处理性能。
+        3. 【修正逻辑错误】修正了unique_fields参数，使其与模型定义一致。
+        4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
-        trade_date_str = ""
-        start_date_str = ""
-        end_date_str = ""
-        if trade_date is not None:
-            trade_date_str = trade_date.strftime('%Y%m%d')
-        if start_date is not None:
-            start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        # 获取历史板块资金流向数据 - 东方财富
+
+        # 1. 准备API请求参数 (逻辑不变)
+        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+
+        # 2. 分页拉取并处理数据
         offset = 0
         limit = 5000
-        data_dicts = []
+        all_data_to_save = [] # 用于累积所有批次处理好的数据
+
         while True:
             if offset >= 100000:
                 logger.warning(f"历史板块资金流向数据 - 东方财富 offset已达10万，停止拉取。")
                 break
+
+            print(f"调试信息: 正在从Tushare拉取东方财富数据, offset={offset}, limit={limit}")
             df = self.ts_pro.moneyflow_ind_dc(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
@@ -736,141 +334,205 @@ class FundFlowDao(BaseDAO):
                 "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", 
                 "buy_sm_amount_rate", "buy_sm_amount_stock", "rank"
             ])
+
             if df.empty:
+                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                    if stock:
-                        data_dict = self.data_format_process.set_fund_flow_cnt_dc_data(stock, row)
-                        data_dicts.append(data_dict)
+            
+            original_count = len(df)
+            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
+
+            # 3. 向量化数据清洗与转换
+            # 3.1 清洗空值和无效行
+            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+            df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+            if df.empty:
+                print("调试信息: 数据清洗后，当前批次无有效数据。")
+                time.sleep(0.2)
+                if original_count < limit:
+                    break
+                offset += limit
+                continue
+
+            # 3.2 向量化处理外键关联 (核心性能优化)
+            unique_codes = df['ts_code'].unique().tolist()
+            dc_index_map = await self.industry_dao.get_dc_indices_by_codes(unique_codes)
+            df['dc_index'] = df['ts_code'].map(dc_index_map)
+            
+            # 过滤掉数据库中不存在对应DcIndex的记录
+            df.dropna(subset=['dc_index'], inplace=True)
+            if df.empty:
+                logger.warning(f"当前批次所有ts_code均未在DcIndex表中找到对应记录。")
+                print("调试信息: 关联DcIndex后，当前批次无有效数据。")
+                time.sleep(0.2)
+                if original_count < limit:
+                    break
+                offset += limit
+                continue
+
+            # 3.3 向量化数据类型转换
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            
+            # 3.4 准备用于保存的数据
+            # 选择模型需要的列，并确保命名与模型字段一致
+            # 注意：模型中没有rank字段，所以我们不选择它
+            final_columns = [
+                'dc_index', 'trade_time', 'content_type', 'name', 'pct_change', 'close', 'net_amount', 
+                'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount', 
+                'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 
+                'buy_sm_amount_rate', 'buy_sm_amount_stock'
+            ]
+            df_final = df[final_columns]
+            
+            # 将Pandas的NaN转换为Python的None
+            df_processed = df_final.where(pd.notnull(df_final), None)
+
+            # 4. 累积处理好的数据
+            all_data_to_save.extend(df_processed.to_dict('records'))
+            print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
+
+            # 5. 分页逻辑 (逻辑不变)
             time.sleep(0.2)
-            if len(df) < limit:
+            if original_count < limit:
                 break
             offset += limit
-        result =  await self._save_all_to_db_native_upsert(
+
+        # 6. 一次性批量保存到数据库
+        if not all_data_to_save:
+            logger.warning(f"在日期范围 {start_date_str}-{end_date_str} 内没有找到或处理任何东方财富板块资金流数据。")
+            print("调试信息: 没有可保存的数据。")
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+        print(f"调试信息: 所有数据拉取和处理完成，准备将 {len(all_data_to_save)} 条数据一次性保存到数据库。")
+        # 【逻辑修正】unique_fields 从 ['stock', 'trade_time'] 修正为 ['dc_index', 'trade_time']
+        result = await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntDC,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
+            data_list=all_data_to_save,
+            unique_fields=['dc_index', 'trade_time']
         )
-        print(f"完成 {trade_date} 历史板块资金流向数据（东方财富），result: {result}")
+
+        date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
+        print(f"完成 {date_range_info} 历史板块资金流向数据（东方财富），result: {result}")
         return result
     
     # ============== 行业资金流向数据 - 同花顺 ==============
-    async def save_today_fund_flow_industry_ths_data(self) -> Dict:
-        """
-        保存今天的行业资金流向数据 - 同花顺
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取行业资金流向数据 - 同花顺
-        df = self.ts_pro.moneyflow_ind_ths(**{
-            "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price", 
-            "net_buy_amount", "net_sell_amount", "net_amount"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
-                if ths_index:
-                    data_dict = self.data_format_process.set_fund_flow_industry_ths_data(ths_index=ths_index, df_data=row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowIndustryTHS,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            print(f"完成 {today} 板块资金流向数据（同花顺），result: {result}")
-        return result
-
     async def save_history_fund_flow_industry_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
-        保存历史行业资金流向数据 - 同花顺
+        【V2.0 - 向量化优化版】保存历史行业资金流向数据 - 同花顺
+        核心优化:
+        1. 【消除N+1查询】将循环内单次数据库查询，改为批处理模式。一次性获取所有ts_code，一次性查询数据库。
+        2. 【向量化数据处理】使用Pandas的向量化操作替代低效的逐行循环和数据格式化函数调用。
+        3. 【修正逻辑错误】修正了unique_fields参数，使其与模型定义一致。
+        4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
-        trade_date_str = ""
-        start_date_str = ""
-        end_date_str = ""
-        if trade_date is not None:
-            trade_date_str = trade_date.strftime('%Y%m%d')
-        if start_date is not None:
-            start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        # 获取历史行业资金流向数据 - 同花顺
+        # --- 代码修改开始 ---
+
+        # 1. 准备API请求参数 (逻辑不变)
+        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+
+        # 2. 分页拉取并处理数据
         offset = 0
         limit = 5000
-        data_dicts = []
+        all_data_to_save = [] # 用于累积所有批次处理好的数据
+
         while True:
             if offset >= 100000:
                 logger.warning(f"行业资金流向数据 - 同花顺 offset已达10万，停止拉取。")
                 break
+
+            print(f"调试信息: 正在从Tushare拉取同花顺行业资金流数据, offset={offset}, limit={limit}")
             df = self.ts_pro.moneyflow_ind_ths(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
                 "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price", 
                 "net_buy_amount", "net_sell_amount", "net_amount"
             ])
+
             if df.empty:
+                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    ths_index = await self.industry_dao.get_ths_index_by_code(row.ts_code)
-                    if ths_index:
-                        data_dict = self.data_format_process.set_fund_flow_industry_ths_data(ths_index=ths_index, df_data=row)
-                        data_dicts.append(data_dict)
+            
+            original_count = len(df)
+            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
+
+            # 3. 向量化数据清洗与转换
+            # 3.1 清洗空值和无效行
+            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+            df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+            if df.empty:
+                print("调试信息: 数据清洗后，当前批次无有效数据。")
+                time.sleep(0.2)
+                if original_count < limit:
+                    break
+                offset += limit
+                continue
+
+            # 3.2 向量化处理外键关联 (核心性能优化)
+            unique_codes = df['ts_code'].unique().tolist()
+            # 假设 industry_dao 中有批量获取的方法，这是最佳实践
+            ths_index_map = await self.industry_dao.get_ths_indices_by_codes(unique_codes)
+            df['ths_index'] = df['ts_code'].map(ths_index_map)
+            
+            # 过滤掉数据库中不存在对应ThsIndex的记录
+            df.dropna(subset=['ths_index'], inplace=True)
+            if df.empty:
+                logger.warning(f"当前批次所有ts_code均未在ThsIndex表中找到对应记录。")
+                print("调试信息: 关联ThsIndex后，当前批次无有效数据。")
+                time.sleep(0.2)
+                if original_count < limit:
+                    break
+                offset += limit
+                continue
+
+            # 3.3 向量化数据类型转换
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            
+            # 3.4 准备用于保存的数据
+            # 选择模型需要的列，确保命名与模型字段一致
+            final_columns = [
+                'ths_index', 'trade_time', 'industry', 'lead_stock', 'close', 'pct_change', 
+                'company_num', 'pct_change_stock', 'close_price', 'net_buy_amount', 
+                'net_sell_amount', 'net_amount'
+            ]
+            df_final = df[final_columns]
+            
+            # 将Pandas的NaN转换为Python的None
+            df_processed = df_final.where(pd.notnull(df_final), None)
+
+            # 4. 累积处理好的数据
+            all_data_to_save.extend(df_processed.to_dict('records'))
+            print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
+
+            # 5. 分页逻辑 (逻辑不变)
             time.sleep(0.2)
-            if len(df) < limit:
+            if original_count < limit:
                 break
             offset += limit
-        result =  await self._save_all_to_db_native_upsert(
+
+        # 6. 一次性批量保存到数据库
+        if not all_data_to_save:
+            logger.warning(f"在日期范围 {start_date_str}-{end_date_str} 内没有找到或处理任何同花顺行业资金流数据。")
+            print("调试信息: 没有可保存的数据。")
+            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+
+        print(f"调试信息: 所有数据拉取和处理完成，准备将 {len(all_data_to_save)} 条数据一次性保存到数据库。")
+        # 【逻辑修正】unique_fields 从 ['stock', 'trade_time'] 修正为 ['ths_index', 'trade_time']
+        result = await self._save_all_to_db_native_upsert(
             model_class=FundFlowIndustryTHS,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
+            data_list=all_data_to_save,
+            unique_fields=['ths_index', 'trade_time']
         )
-        print(f"完成 {trade_date} 板块资金流向数据（同花顺），result: {result}")
+        
+        # --- 代码修改结束 ---
+        
+        date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
+        # 【修正打印信息】将“板块”修正为“行业”
+        print(f"完成 {date_range_info} 行业资金流向数据（同花顺），result: {result}")
         return result
 
     # ============== 大盘资金流向数据 - 东方财富 ==============
-    async def save_today_fund_flow_market_dc_data(self) -> Dict:
-        """
-        保存今天的行业资金流向数据 - 东方财富
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取大盘资金流向数据 - 东方财富
-        df = self.ts_pro.moneyflow_mkt_dc(**{
-            "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "close_sh", "pct_change_sh", "close_sz", "pct_change_sz", "net_buy_amount", "net_buy_amount_rate", 
-            "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", 
-            "buy_sm_amount", "buy_sm_amount_rate"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=FundFlowMarketDc,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
-
     async def save_history_fund_flow_market_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         保存历史大盘资金流向数据 - 东方财富

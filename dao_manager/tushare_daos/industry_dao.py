@@ -213,6 +213,17 @@ class IndustryDao(BaseDAO):
         industry_list = await sync_to_async(lambda: list(ThsIndex.objects.all()))()
         return industry_list
 
+    async def get_ths_indices_by_codes(self, codes: list) -> dict:
+        """
+        根据ts_code列表，一次性从数据库获取所有ThsIndex对象，并返回一个 code -> object 的映射字典。
+        """
+        if not codes:
+            return {}
+        # 使用 Django ORM 的异步接口 afilter
+        indices = ThsIndex.objects.filter(ts_code__in=codes)
+        # 使用 avalues 或 aiterator 进行异步迭代，构建字典
+        return {index.ts_code: index async for index in indices}
+
     async def get_ths_index_by_code(self, index_code: str) -> Optional['ThsIndex']:
         """
         获取指定同花顺概念和行业指数的基本信息
@@ -597,6 +608,16 @@ class IndustryDao(BaseDAO):
             for industry in industry_list:
                 return_data.append(industry)
         return return_data
+
+    async def get_dc_indices_by_codes(self, codes: list) -> dict:
+        """
+        根据ts_code列表，一次性从数据库获取所有DcIndex对象，并返回一个 code -> object 的映射字典。
+        """
+        if not codes:
+            return {}
+        # 使用 Django ORM 的异步接口 afilter 和异步推导式
+        indices = DcIndex.objects.filter(ts_code__in=codes)
+        return {index.ts_code: index async for index in indices}
 
     async def get_dc_index_by_code(self, ts_code: str) -> Optional['DcIndex']:
         """

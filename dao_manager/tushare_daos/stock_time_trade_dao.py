@@ -25,7 +25,7 @@ from stock_models.time_trade import (
             StockMinuteData_60_SZ, StockMinuteData_60_SH, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC,
         )
 
-BATCH_SAVE_SIZE = 10000  # 每10000条数据保存一次
+BATCH_SAVE_SIZE = 30000  # 每10000条数据保存一次
 logger = logging.getLogger("dao")
 time_levels = ["5", "15", "30", "60"] # "1", 
 
