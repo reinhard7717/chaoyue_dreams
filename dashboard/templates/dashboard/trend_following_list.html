@@ -1,3 +1,4 @@
+{# 文件: templates/dashboard/trend_following_list.html (修正后) #}
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
@@ -7,6 +8,7 @@
 
 {% block head_extra %}
 <style>
+    /* --- 保留这些基础样式 --- */
     .playbook-list, .strategy-list {
         list-style-type: none;
         padding: 0;
@@ -33,39 +35,25 @@
         font-weight: bold;
     }
     .playbook-tag.king-signal {
-        background-color: #ffd700; /* 金色 */
+        background-color: #ffd700;
         color: #4d4000;
         font-weight: bold;
         border: 1px solid #ffc107;
     }
     .playbook-tag.expert-signal {
-        background-color: #e1f5fe; /* 淡蓝色 */
+        background-color: #e1f5fe;
         color: #0277bd;
         border: 1px solid #b3e5fc;
     }
     .playbook-tag.rocket-signal {
-        background-color: #ffebee; /* 淡红色 */
+        background-color: #ffebee;
         color: #c62828;
         font-weight: bold;
         border: 1px solid #ffcdd2;
     }
-    .playbook-container .playbook-tag.hidden {
-        display: none; /* 默认隐藏多余的剧本 */
-    }
-    .btn-show-more {
-        background: none;
-        border: none;
-        color: #007bff;
-        cursor: pointer;
-        font-size: 0.8em;
-        padding: 2px 0;
-        margin-top: 4px;
-        text-align: left;
-        display: block;
-    }
-    .btn-show-more:hover {
-        text-decoration: underline;
-    }
+    /* ▼▼▼【代码修改】: 移除此处所有不正确的折叠相关CSS ▼▼▼ */
+    /* (已删除 .playbook-container .playbook-tag.hidden 和 .btn-show-more 的样式) */
+    /* ▲▲▲【代码修改】: 结束 ▲▲▲ */
 </style>
 {% endblock %}
 
@@ -120,13 +108,9 @@
                         <td>
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
-                        
-                        {# ▼▼▼【代码修改】: 优化“激活剧本”列的显示逻辑 ▼▼▼ #}
                         <td>
                             {% if item.active_playbooks %}
-                                {# 1. 添加一个容器，方便JS操作和CSS定位 #}
                                 <div class="playbook-container">
-                                    {# 2. 如果剧本数量超过阈值(例如3)，给ul添加 'collapsible' 类 #}
                                     <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
                                     {% for playbook in item.active_playbooks %}
                                         {% with playbook_display_name=playbook|playbook_display %}
@@ -142,7 +126,6 @@
                                         {% endwith %}
                                     {% endfor %}
                                     </ul>
-                                    {# 3. 如果剧本数量超过阈值，显示“显示更多”按钮 #}
                                     {% if item.active_playbooks|length > 3 %}
                                         <a href="#" class="toggle-playbooks" 
                                            data-text-expand="显示更多 (共 {{ item.active_playbooks|length }} 条)" 
@@ -155,8 +138,6 @@
                                 -
                             {% endif %}
                         </td>
-                        {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
-            
                         <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
@@ -167,7 +148,6 @@
                 </tbody>
             </table>
         </div>
-        
         <div class="pagination">
             {% if page_obj.has_other_pages %}
                 {% if page_obj.has_previous %}
@@ -184,27 +164,12 @@
     </section>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const tableBody = document.querySelector('#trend-table tbody');
-    if (tableBody) {
-        tableBody.addEventListener('click', function(event) {
-            if (event.target && event.target.classList.contains('btn-show-more')) {
-                const button = event.target;
-                const container = button.closest('.playbook-container');
-                if (container) {
-                    const hiddenTags = container.querySelectorAll('.playbook-tag.hidden');
-                    hiddenTags.forEach(tag => {
-                        tag.classList.remove('hidden');
-                    });
-                    button.style.display = 'none';
-                }
-            }
-        });
-    }
-});
-</script>
+{# ▼▼▼【代码修改】: 移除此处多余的、错误的script块 ▼▼▼ #}
+{# (已删除) #}
+{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
 {% endblock %}
+
+{# ▼▼▼【代码修改】: 保留这个唯一且正确的script块 ▼▼▼ #}
 {% block scripts_extra %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -246,6 +211,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock scripts_extra %}
-
-
-
+{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
