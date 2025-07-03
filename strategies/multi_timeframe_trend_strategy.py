@@ -206,15 +206,44 @@ class MultiTimeframeTrendStrategy:
 
         signals_by_day = defaultdict(dict)
 
+        # ▼▼▼【代码修改】: 增加辅助函数，用于健壮地处理不同类型的 trade_time ▼▼▼
+        def get_trade_date(trade_time_value: Any) -> Optional[datetime.date]:
+            """
+            辅助函数，无论输入是字符串、datetime对象还是Timestamp，都安全地返回date对象。
+            """
+            try:
+                if isinstance(trade_time_value, str):
+                    # 如果是字符串，使用pandas的to_datetime进行转换，它能处理多种格式
+                    return pd.to_datetime(trade_time_value).date()
+                elif hasattr(trade_time_value, 'date'):
+                    # 如果是datetime或Timestamp对象，直接调用.date()方法
+                    return trade_time_value.date()
+                else:
+                    # 对于未知类型，打印警告并返回None
+                    print(f"  - [信号整合警告] 未知的trade_time类型: {type(trade_time_value)}")
+                    return None
+            except Exception as e:
+                print(f"  - [信号整合警告] 解析时间失败: {trade_time_value}, 错误: {e}")
+                return None
+        # ▲▲▲【代码修改】: 结束 ▲▲▲
+
+        # 首先处理日线信号
         for record in daily_records:
             if record.get('entry_signal'): # 只处理买入信号
-                trade_date = record['trade_time'].date()
-                signals_by_day[trade_date]['D'] = record
+                # ▼▼▼【代码修改】: 调用新的辅助函数进行安全转换 ▼▼▼
+                trade_date = get_trade_date(record['trade_time'])
+                if trade_date:
+                    signals_by_day[trade_date]['D'] = record
+                # ▲▲▲【代码修改】: 结束 ▲▲▲
         
+        # 然后处理分钟线信号
         for record in intraday_records:
             if record.get('entry_signal'): # 只处理买入信号
-                trade_date = record['trade_time'].date()
-                signals_by_day[trade_date]['M'] = record
+                # ▼▼▼【代码修改】: 调用新的辅助函数进行安全转换 ▼▼▼
+                trade_date = get_trade_date(record['trade_time'])
+                if trade_date:
+                    signals_by_day[trade_date]['M'] = record
+                # ▲▲▲【代码修改】: 结束 ▲▲▲
 
         final_records = []
         sorted_dates = sorted(signals_by_day.keys())
