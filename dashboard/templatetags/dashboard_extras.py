@@ -5,6 +5,7 @@
 import datetime
 from django import template
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from utils.display_maps import DISPLAY_MAP
 
 register = template.Library()
@@ -24,18 +25,36 @@ def playbook_display(value):
 @register.filter(name='make_utc_aware')
 def make_utc_aware(value):
     """
-    这个过滤器接收一个从数据库取出的朴素型(naive)datetime对象,
-    我们业务上明确知道它是UTC时间, 此过滤器会将其转换为带UTC时区信息的
-    感知型(aware)datetime对象, 以便后续的localtime过滤器能正确工作。
+    【V2.1 健壮版】
+    这个过滤器接收一个从数据库取出的时间值。
+    - 新功能: 它现在可以处理字符串格式的时间。
+    - 核心逻辑:
+      1. 如果输入是字符串，先用 `parse_datetime` 将其转换为一个朴素的datetime对象。
+      2. 无论输入是datetime对象还是解析后的对象，只要它是朴素的(naive)，
+         就将其标记为UTC时区，以便后续的 `localtime` 过滤器能正确转换为本地时间。
     """
-    # 检查传入的是否为datetime对象，并且是朴素型的
-    if isinstance(value, datetime.datetime) and timezone.is_naive(value):
+    # 步骤0: 如果值为空，直接返回
+    if not value:
+        return value
+
+    parsed_time = None
+    # 步骤1: 检查传入的是否为字符串，如果是，则尝试解析
+    if isinstance(value, str):
+        parsed_time = parse_datetime(value)
+        # 如果解析失败，直接返回原始字符串，避免崩溃
+        if not parsed_time:
+            return value
+    # 如果传入的已经是datetime对象，则直接使用
+    elif isinstance(value, datetime.datetime):
+        parsed_time = value
+    
+    # 步骤2: 如果我们有一个有效的datetime对象，并且它是朴素的
+    if parsed_time and timezone.is_naive(parsed_time):
         # 使用Django的make_aware函数，将朴素时间标记为UTC时区
-        # 这是最关键的一步
-        print(f"DEBUG: Naive time '{value}' is being made UTC aware.") # 调试信息
-        aware_time = timezone.make_aware(value, timezone.utc)
+        print(f"DEBUG: Naive time '{parsed_time}' is being made UTC aware.") # 调试信息
+        aware_time = timezone.make_aware(parsed_time, timezone.utc)
         print(f"DEBUG: Aware time is now '{aware_time}'.") # 调试信息
         return aware_time
     
-    # 如果值已经是感知型或者不是datetime对象，则直接返回原值
-    return value
+    # 如果值已经是感知型，或者是无法处理的类型，则直接返回原值
+    return parsed_time or value
