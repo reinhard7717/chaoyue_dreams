@@ -90,7 +90,7 @@
                         <td>
                             {# 显示建仓时的信息，从 item.buy_info 中获取 #}
                             {% if item.buy_info %}
-                                <strong>买入于: {{ item.buy_info.time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
+                                <strong>买入于: {{ item.buy_info.time|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>策略: {{ item.buy_info.strategy_name|playbook_display }} ({{ item.buy_info.time_level }})</small>
                             {% else %}
@@ -101,12 +101,12 @@
                             {# 根据状态显示不同信息 #}
                             {% if item.status_class == 'status-alert' and item.sell_info %}
                                 {# 如果是止盈预警，突出显示卖出信号，从 item.sell_info 获取 #}
-                                <strong style="color: #e53935;">卖出于: {{ item.sell_info.time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
+                                <strong style="color: #e53935;">卖出于: {{ item.sell_info.time|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>策略: {{ item.sell_info.strategy_name|playbook_display }} ({{ item.sell_info.time_level }})</small>
                             {% else %}
                                 {# 否则，显示最新动态 #}
-                                <strong>最新: {{ item.latest_trade_time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
+                                <strong>最新: {{ item.latest_trade_time|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>分数: {{ item.latest_score|floatformat:0 }}</small>
                             {% endif %}
