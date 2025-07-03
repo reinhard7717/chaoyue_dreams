@@ -271,10 +271,8 @@ class StockTimeTradeDAO(BaseDAO):
         # 注意：这里假设 get_stock_list() 效率足够高（有缓存）。
         # 如果 stock_codes 只是所有股票的一小部分，更优的做法是创建一个 get_stocks_by_codes(codes) 的方法。
         # 但根据题目要求，我们使用 get_stock_list()。
-        print("调试信息: 开始获取所有股票基础信息用于创建映射...")
         all_stocks = await self.stock_basic_dao.get_stock_list()
         stock_map = {stock.stock_code: stock for stock in all_stocks if stock.stock_code in stock_codes}
-        print(f"调试信息: 成功创建 {len(stock_map)} 只股票的查找映射。")
 
         if not stock_map:
             logger.warning(f"提供的stock_codes: {stock_codes} 在数据库中均未找到对应的StockInfo。")
@@ -285,14 +283,11 @@ class StockTimeTradeDAO(BaseDAO):
         data_dicts_by_model = {}
         offset = 0
         limit = 6000
-        print(f"开始日线历史任务：{stock_codes_str}")
 
         while True:
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
                 break
-            
-            print(f"调试信息: 正在从Tushare拉取日线数据, offset={offset}, limit={limit}")
             df = self.ts_pro.stk_factor(
                 **{
                     "ts_code": stock_codes_str, "trade_date": "", "start_date": "2000-01-01 00:00:00",
@@ -304,22 +299,17 @@ class StockTimeTradeDAO(BaseDAO):
                     "low_qfq", "pre_close_hfq", "pre_close_qfq"
                 ]
             )
-
             if df.empty:
-                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            
+
             original_count = len(df)
-            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
 
             # 3. 向量化数据处理 (替代原有的 for 循环)
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
-
             # 3.1 【向量化关联】使用map将StockInfo对象关联到每一行
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True) # 丢弃没有成功关联的行
-            
             if df.empty:
                 print("调试信息: 关联StockInfo后，当前批次无有效数据。")
                 time.sleep(0.2)
@@ -327,13 +317,10 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 offset += limit
                 continue
-
             # 3.2 【向量化转换】批量转换日期格式
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-            
             # 3.3 【向量化分组】根据ts_code确定分表模型，并按模型对DataFrame进行分组
             df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
-            
             for model_class, group_df in df.groupby('model_class'):
                 # 3.4 【批量准备数据】选择并重命名列，然后批量转为字典
                 # 注意：这里的列名需要与你的分表模型字段完全对应
@@ -350,7 +337,6 @@ class StockTimeTradeDAO(BaseDAO):
                 if model_class not in data_dicts_by_model:
                     data_dicts_by_model[model_class] = []
                 data_dicts_by_model[model_class].extend(data_to_save)
-                print(f"调试信息: 为模型 {model_class.__name__} 准备了 {len(data_to_save)} 条数据。")
 
             # 4. 分页逻辑 (逻辑不变)
             if len(df) < limit:
@@ -359,7 +345,6 @@ class StockTimeTradeDAO(BaseDAO):
         
         # 5. 批量保存 (逻辑不变，但现在处理的是预先分组好的数据)
         result = {}
-        print("调试信息: 所有数据拉取和处理完成，开始批量保存到数据库...")
         for model_class, data_list in data_dicts_by_model.items():
             if not data_list: continue
             print(f"调试信息: 正在为模型 {model_class.__name__} 保存 {len(data_list)} 条数据...")
