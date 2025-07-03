@@ -131,9 +131,10 @@ def fav_monthly_trend_list(request):
 @login_required
 def trend_following_list(request):
     """
-    【V2.3 逻辑重构版】日线趋势跟踪列表视图
+    【V2.4 排序增强版】日线趋势跟踪列表视图
     - 数据源为 TrendFollowStrategyState 摘要模型。
-    - (V2.3 新增) 重构筛选逻辑，通过比较 last_buy_time 和 last_sell_time 来判断持仓状态，不再依赖不存在的 'state' 字段。
+    - (V2.3) 重构筛选逻辑，通过比较 last_buy_time 和 last_sell_time 来判断持仓状态。
+    - (V2.4 新增) 增加按分数进行二级排序。排序规则：1. 最新交易时间(降序) 2. 最新分数(降序)。
     """
     strategy_name = 'multi_timeframe_collaboration' 
 
@@ -146,18 +147,19 @@ def trend_following_list(request):
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
 
-    # 应用新的查询逻辑，并修正字段名 time_level
+    # ▼▼▼ 在 order_by 中增加按分数排序的次级条件 ▼▼▼
+    # 假设记录最新分数的字段为 latest_score
     state_list = TrendFollowStrategyState.objects.filter(
         held_status_query,
-        # time_level='D'
-    ).select_related('stock').order_by('-latest_trade_time')
+        # time_level='D' # 根据V2.3的注释，此行已注释掉，保持不变
+    ).select_related('stock').order_by('-latest_trade_time', '-latest_score')
 
     paginator = Paginator(state_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
     context = {
-        'page_title': '策略状态监控中心 (当前持仓)',
+        'page_title': '策略状态监控中心',
         'page_obj': page_obj,
         'total_count': paginator.count,
     }
