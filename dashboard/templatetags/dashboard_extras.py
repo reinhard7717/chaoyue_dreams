@@ -85,5 +85,9 @@ def query_builder(context, **kwargs):
     for key, value in kwargs.items():
         query_dict[key] = value
 
+    # ▼▼▼【代码修改】: 修正URL编码逻辑 ▼▼▼
     # 将最终的字典编码为URL查询字符串
-    return f"?{urlencode(query_dict)}" if query_dict else '?'
+    # 关键修正：添加 doseq=True 参数！
+    # 这会确保列表值被正确编码为多个同名参数 (e.g., key=value1&key=value2)
+    # 而不是编码成一个字符串 (e.g., key=%5B%27value1%27%2C+%27value2%27%5D)
+    return f"?{urlencode(query_dict, doseq=True)}" if query_dict else '?'
