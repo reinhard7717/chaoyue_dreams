@@ -79,11 +79,11 @@ class MultiTimeframeTrendStrategy:
                 indicator_name, params = 'macd', {'apply_on': [tf], 'periods': rule['periods']}
             elif rule_type == 'kdj_dead_cross':
                 indicator_name, params = 'kdj', {'apply_on': [tf], 'periods': rule['periods']}
-            # ▼▼▼【代码修复】: 修正了此处因拼写错误(periods应为period)导致的bug ▼▼▼
+            # ▼▼▼ 修正了此处因拼写错误(periods应为period)导致的bug ▼▼▼
             elif rule_type == 'top_divergence' and rule.get('indicator') == 'rsi':
                 # 根据JSON配置，这里应该是 'period' (单数)
                 indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [rule['periods']]}
-            # ▲▲▲【代码修复】: 结束 ▲▲▲
+            
             
             if indicator_name and params and params not in discovered[indicator_name]['configs']:
                 discovered[indicator_name]['configs'].append(params)
@@ -190,7 +190,7 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
 
-    # ▼▼▼【代码修复】: 重构此方法以健壮地处理不同类型的 trade_time ▼▼▼
+    # ▼▼▼ 重构此方法以健壮地处理不同类型的 trade_time ▼▼▼
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
         """
         合并日线和分钟线 **买入** 信号，并进行去重。
@@ -237,13 +237,10 @@ class MultiTimeframeTrendStrategy:
             signals = signals_by_day[trade_date]
             if 'M' in signals:
                 final_records.append(signals['M'])
-                print(f"  - [买入信号整合] 日期 {trade_date}: 检测到分钟线买入信号，优先保留。")
             elif 'D' in signals:
                 final_records.append(signals['D'])
-                print(f"  - [买入信号整合] 日期 {trade_date}: 只检测到日线买入信号，予以保留。")
         
         return final_records
-    # ▲▲▲【代码修复】: 结束 ▲▲▲
 
     def _run_strategic_engine(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         if df_weekly is None or df_weekly.empty:
