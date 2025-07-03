@@ -249,16 +249,16 @@ class MultiTimeframeTrendStrategy:
                 combined_playbooks = list(set(day_playbooks + minute_playbooks))
                 minute_record['triggered_playbooks'] = combined_playbooks
                 
-                print(f"  - [信号整合] 日期 {trade_date}: 合并分钟线与日线信号。最终剧本: {combined_playbooks}")
+                # print(f"  - [信号整合] 日期 {trade_date}: 合并分钟线与日线信号。最终剧本: {combined_playbooks}")
                 final_records.append(minute_record)
 
             elif 'M' in signals:
                 # 只有分钟线信号
-                print(f"  - [信号整合] 日期 {trade_date}: 仅发现分钟线信号，予以保留。")
+                # print(f"  - [信号整合] 日期 {trade_date}: 仅发现分钟线信号，予以保留。")
                 final_records.append(signals['M'])
             elif 'D' in signals:
                 # 只有日线信号
-                print(f"  - [信号整合] 日期 {trade_date}: 仅发现日线信号，予以保留。")
+                # print(f"  - [信号整合] 日期 {trade_date}: 仅发现日线信号，予以保留。")
                 final_records.append(signals['D'])
         
         return final_records

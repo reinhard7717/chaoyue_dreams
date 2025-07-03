@@ -215,7 +215,7 @@ REST_FRAMEWORK = {
 LANGUAGE_CODE = 'zh-hans'
 TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
-USE_TZ = False
+USE_TZ = True
 
 STATICFILES_FINDERS = [
     'django.contrib.staticfiles.finders.FileSystemFinder', # 这个查找器负责在 STATICFILES_DIRS 中查找
