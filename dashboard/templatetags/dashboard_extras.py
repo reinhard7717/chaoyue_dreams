@@ -52,7 +52,7 @@ def make_utc_aware(value):
     if parsed_time and timezone.is_naive(parsed_time):
         # 使用Django的make_aware函数，将朴素时间标记为UTC时区
         print(f"DEBUG: Naive time '{parsed_time}' is being made UTC aware.") # 调试信息
-        aware_time = timezone.make_aware(parsed_time, timezone.utc)
+        aware_time = timezone.make_aware(parsed_time, datetime.timezone.utc)
         print(f"DEBUG: Aware time is now '{aware_time}'.") # 调试信息
         return aware_time
     
