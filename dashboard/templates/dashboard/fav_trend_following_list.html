@@ -1,7 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
-{# 解释: 确保加载了我们自定义的模板标签模块 #}
 {% load dashboard_extras %}
 
 {% block title %}自选股持仓监控 - {{ block.super }}{% endblock %}
@@ -29,7 +28,6 @@
     .playbook-list { list-style-type: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
     .playbook-tag { background-color: #e0eafc; color: #3d5afe; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 500; white-space: nowrap; }
     .playbook-tag.rocket-signal { background-color: #ffebee; color: #c62828; font-weight: bold; border: 1px solid #ffcdd2; }
-    /* ▼▼▼【代码修改】: 增加王牌信号和专家信号的CSS样式，与另一页面保持一致 ▼▼▼ */
     .playbook-tag.king-signal {
         background-color: #ffd700; /* 金色 */
         color: #4d4000;
@@ -41,7 +39,6 @@
         color: #0277bd;
         border: 1px solid #b3e5fc;
     }
-    /* ▲▲▲【代码修改】: 修改结束 ▲▲▲ */
 </style>
 {% endblock %}
 
@@ -77,38 +74,36 @@
                     </tr>
                 </thead>
                 <tbody>
+                    {# ▼▼▼【代码修改】: 全面适配V3.2视图传递的结构化字典 'item' ▼▼▼ #}
                     {% for item in page_obj.object_list %}
                     <tr>
                         <td>
+                            {# item.stock 是一个完整的 stock 对象 #}
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
-                            {# 使用从视图计算好的状态和样式 #}
+                            {# 使用 item 中计算好的状态和样式 #}
                             <span class="status-tag {{ item.status_class }}">{{ item.swing_status }}</span>
                         </td>
                         <td>
-                            {# 显示建仓时的信息 #}
-                            {% if item.last_buy_time %}
-                                <strong>买入于: {{ item.last_buy_time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
+                            {# 显示建仓时的信息，从 item.buy_info 中获取 #}
+                            {% if item.buy_info %}
+                                <strong>买入于: {{ item.buy_info.time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
                                 <br>
-                                {# ▼▼▼【代码修改】: 对策略名称应用翻译过滤器 ▼▼▼ #}
-                                <small>策略: {{ item.strategy_name|playbook_display }} ({{ item.time_level }})</small>
-                                {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
+                                <small>策略: {{ item.buy_info.strategy_name|playbook_display }} ({{ item.buy_info.time_level }})</small>
                             {% else %}
                                 -
                             {% endif %}
                         </td>
                         <td>
                             {# 根据状态显示不同信息 #}
-                            {% if item.status_class == 'status-alert' %}
-                                {# 如果是止盈预警，突出显示卖出信号 #}
-                                <strong style="color: #e53935;">卖出于: {{ item.last_sell_time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
+                            {% if item.status_class == 'status-alert' and item.sell_info %}
+                                {# 如果是止盈预警，突出显示卖出信号，从 item.sell_info 获取 #}
+                                <strong style="color: #e53935;">卖出于: {{ item.sell_info.time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
                                 <br>
-                                {# ▼▼▼【代码修改】: 对策略名称应用翻译过滤器 ▼▼▼ #}
-                                <small>策略: {{ item.strategy_name|playbook_display }} ({{ item.time_level }})</small>
-                                {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
+                                <small>策略: {{ item.sell_info.strategy_name|playbook_display }} ({{ item.sell_info.time_level }})</small>
                             {% else %}
                                 {# 否则，显示最新动态 #}
                                 <strong>最新: {{ item.latest_trade_time|make_utc_aware|localtime|date:"Y-m-d H:i" }}</strong>
@@ -117,21 +112,20 @@
                             {% endif %}
                         </td>
                         <td>
+                            {# 显示所有聚合后的剧本 #}
                             {% if item.active_playbooks %}
                                 <ul class="playbook-list">
                                 {% for playbook in item.active_playbooks %}
                                     {% with playbook_display_name=playbook|playbook_display %}
-                                        {# ▼▼▼【代码修改】: 更新剧本显示逻辑，增加王牌和专家信号判断，与另一页面保持一致 ▼▼▼ #}
                                         {% if 'ROCKET' in playbook %}
                                             <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                        {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                        {% elif 'BREAKOUT_TRIGGER' in playbook %}
                                             <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
                                         {% elif '【专家】' in playbook_display_name %}
                                             <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
                                         {% else %}
                                             <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
                                         {% endif %}
-                                        {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                                     {% endwith %}
                                 {% endfor %}
                                 </ul>
@@ -143,11 +137,11 @@
                     {% empty %}
                     <tr><td colspan="5" style="text-align: center; padding: 20px;">请先在主控台添加自选股，或等待策略信号生成。</td></tr>
                     {% endfor %}
+                    {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                 </tbody>
             </table>
         </div>
         
-        {# ... 分页部分保持不变 ... #}
         <div class="pagination">
             {% if page_obj.has_other_pages %}
                 {% if page_obj.has_previous %}

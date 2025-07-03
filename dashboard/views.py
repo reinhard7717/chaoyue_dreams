@@ -166,11 +166,10 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.1 聚合修复版】
-    - 核心修复: 解决同一股票因多策略状态而重复显示的问题。
-    - 数据聚合: 在后端按股票代码对所有策略状态进行分组，并计算出每只股票唯一的“最终买入时间”和“最终卖出时间”。
-    - 唯一展示: 确保每只自选股在列表中只出现一次，展示其最核心的、聚合后的持仓状态。
-    - 排序优化: 排序逻辑现在基于聚合后的最终状态，更加准确可靠。
+    【V3.2 页面适配增强版】
+    - 核心升级: 彻底重构数据聚合逻辑，以传递给模板一个包含完整信息的、结构化的字典列表。
+    - 数据结构: 每个列表项现在是一个字典，清晰地包含 stock对象、buy_info、sell_info、active_playbooks等，解决了信息丢失问题。
+    - 前后端同步: 此版本与 fav_trend_following_list.html (V3.2) 完全匹配，确保所有字段都能正确显示。
     """
     user_dao = UserDAO()
     
@@ -179,7 +178,6 @@ def fav_trend_following_list(request):
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     
     if not fav_codes:
-        # 如果没有自选股，直接渲染空页面
         return render(request, 'dashboard/fav_trend_following_list.html', {
             'page_title': '自选股持仓监控',
             'page_obj': None,
@@ -191,64 +189,86 @@ def fav_trend_following_list(request):
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
 
-    # ▼▼▼ 核心修改部分，聚合处理状态 ▼▼▼
-    # 3. 使用字典按股票聚合状态，确保每只股票只处理一次
+    # ▼▼▼【代码修改】: 核心修改部分，聚合时保留详细信息 ▼▼▼
+    # 3. 使用字典按股票聚合状态，保留完整的状态对象
     stock_summary = {}
     for state in state_list_qs:
         stock_code = state.stock.stock_code
         if stock_code not in stock_summary:
-            # 首次遇到该股票，初始化其摘要信息
             stock_summary[stock_code] = {
-                'stock_obj': state.stock, # 保存完整的stock对象
-                'latest_buy_time': state.last_buy_time,
-                'latest_sell_time': state.last_sell_time,
-                'latest_trade_time': state.latest_trade_time,
+                'stock': state.stock,
+                'buy_state': None,
+                'sell_state': None,
+                'latest_state': state, # 默认最新的就是第一个
+                'playbooks': set()
             }
-        else:
-            # 如果已存在，则更新为最新的时间
-            summary = stock_summary[stock_code]
-            if state.last_buy_time and (not summary['latest_buy_time'] or state.last_buy_time > summary['latest_buy_time']):
-                summary['latest_buy_time'] = state.last_buy_time
+        
+        summary = stock_summary[stock_code]
+        
+        # 更新最新的买入状态
+        if state.last_buy_time and (not summary['buy_state'] or state.last_buy_time > summary['buy_state'].last_buy_time):
+            summary['buy_state'] = state
+        
+        # 更新最新的卖出状态
+        if state.last_sell_time and (not summary['sell_state'] or state.last_sell_time > summary['sell_state'].last_sell_time):
+            summary['sell_state'] = state
             
-            if state.last_sell_time and (not summary['latest_sell_time'] or state.last_sell_time > summary['latest_sell_time']):
-                summary['latest_sell_time'] = state.last_sell_time
+        # 更新最新的状态（用于获取分数）
+        if state.latest_trade_time > summary['latest_state'].latest_trade_time:
+            summary['latest_state'] = state
 
-            if state.latest_trade_time and (not summary['latest_trade_time'] or state.latest_trade_time > summary['latest_trade_time']):
-                summary['latest_trade_time'] = state.latest_trade_time
+        # 合并所有剧本
+        if state.active_playbooks:
+            summary['playbooks'].update(state.active_playbooks)
 
-    # 4. 基于聚合后的摘要信息，计算最终的“持仓状态”
+    # 4. 基于聚合后的摘要信息，构建最终的、结构化的列表
     processed_list = []
     for summary in stock_summary.values():
-        # 将聚合信息附加到stock对象上，方便模板和排序使用
-        final_state_obj = summary['stock_obj']
-        final_state_obj.last_buy_time = summary['latest_buy_time']
-        final_state_obj.last_sell_time = summary['latest_sell_time']
-        final_state_obj.latest_trade_time = summary['latest_trade_time']
+        buy_state = summary['buy_state']
+        sell_state = summary['sell_state']
+        latest_state = summary['latest_state']
 
-        # 默认状态
-        final_state_obj.swing_status = '等待建仓'
-        final_state_obj.status_class = 'status-wait'
-        final_state_obj.sort_priority = 3 # 排序优先级，数字越小越靠前
+        item = {
+            'stock': summary['stock'],
+            'buy_info': None,
+            'sell_info': None,
+            'latest_trade_time': latest_state.latest_trade_time,
+            'latest_score': latest_state.latest_score,
+            'active_playbooks': sorted(list(summary['playbooks'])),
+            'swing_status': '等待建仓',
+            'status_class': 'status-wait',
+            'sort_priority': 3
+        }
 
-        if final_state_obj.last_buy_time:
-            if final_state_obj.last_sell_time and final_state_obj.last_sell_time > final_state_obj.last_buy_time:
-                # 情况1: 出现止盈信号
-                final_state_obj.swing_status = '止盈预警'
-                final_state_obj.status_class = 'status-alert'
-                final_state_obj.sort_priority = 1 # 最高优先级
-            else:
-                # 情况2: 正常持仓中
-                final_state_obj.swing_status = '持仓观察'
-                final_state_obj.status_class = 'status-holding'
-                final_state_obj.sort_priority = 2
+        if buy_state:
+            item['buy_info'] = {
+                'time': buy_state.last_buy_time,
+                'strategy_name': buy_state.strategy_name,
+                'time_level': buy_state.time_level
+            }
+            # 默认是持仓中
+            item['swing_status'] = '持仓观察'
+            item['status_class'] = 'status-holding'
+            item['sort_priority'] = 2
+
+            if sell_state and sell_state.last_sell_time > buy_state.last_buy_time:
+                item['sell_info'] = {
+                    'time': sell_state.last_sell_time,
+                    'strategy_name': sell_state.strategy_name,
+                    'time_level': sell_state.time_level
+                }
+                # 出现更新的卖出信号，变为预警
+                item['swing_status'] = '止盈预警'
+                item['status_class'] = 'status-alert'
+                item['sort_priority'] = 1
         
-        processed_list.append(final_state_obj)
+        processed_list.append(item)
+    # ▲▲▲【代码修改】: 结束 ▲▲▲
 
     # 5. 根据我们计算的优先级和时间进行排序
-    # 规则: 止盈预警 > 持仓观察 > 等待建仓。在同等优先级内，按最新交易时间排序。
-    processed_list.sort(key=lambda x: (x.sort_priority, x.latest_trade_time is None, x.latest_trade_time), reverse=False)
+    processed_list.sort(key=lambda x: (x['sort_priority'], x['latest_trade_time'] is None, x['latest_trade_time']), reverse=False)
 
-    # 6. 分页处理 (分页器处理的是聚合后的唯一列表)
+    # 6. 分页处理
     paginator = Paginator(processed_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -259,7 +279,6 @@ def fav_trend_following_list(request):
         'total_count': len(processed_list),
     }
     return render(request, 'dashboard/fav_trend_following_list.html', context)
-
 
 
 # --- DRF API 视图 ---
