@@ -80,7 +80,7 @@ class MultiTimeframeTrendStrategy:
             elif rule_type == 'kdj_dead_cross':
                 indicator_name, params = 'kdj', {'apply_on': [tf], 'periods': rule['periods']}
             elif rule_type == 'top_divergence' and rule.get('indicator') == 'rsi':
-                indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [rule['period']]} # 修正为 period
+                indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [rule['periods']]} # 修正为 period
             
             if indicator_name and params and params not in discovered[indicator_name]['configs']:
                 discovered[indicator_name]['configs'].append(params)
@@ -429,7 +429,7 @@ class MultiTimeframeTrendStrategy:
             elif rule_type == 'top_divergence':
                 indicator = rule.get('indicator', 'rsi')
                 if indicator == 'rsi':
-                    p = rule['period'] # 注意这里是 period
+                    p = rule['periods'] # 注意这里是 period
                     rsi_col = f'RSI_{p}'
                     if 'close' in df.columns and rsi_col in df.columns:
                         peaks, _ = find_peaks(df['close'], distance=rule.get('lookback', 10))
