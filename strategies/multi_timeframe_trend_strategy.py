@@ -42,11 +42,11 @@ class MultiTimeframeTrendStrategy:
 
         resonance_indicators = self._discover_resonance_indicators(self.tactical_config)
         
-        # ▼▼▼【代码修改】: 发现止盈策略需要的指标 ▼▼▼
+        # ▼▼▼发现止盈策略需要的指标 ▼▼▼
         take_profit_indicators = self._discover_take_profit_indicators(self.tactical_config)
         temp_indicators = self._merge_indicators(base_merged_fe_params.get('indicators', {}), resonance_indicators)
         final_indicators = self._merge_indicators(temp_indicators, take_profit_indicators)
-        # ▲▲▲【代码修改】: 结束 ▲▲▲
+        
 
         base_merged_fe_params['indicators'] = final_indicators
 
@@ -64,7 +64,7 @@ class MultiTimeframeTrendStrategy:
 
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
 
-    # ▼▼▼【代码修改】: 新增方法，用于发现止盈策略需要的指标 ▼▼▼
+    # ▼▼▼新增方法，用于发现止盈策略需要的指标 ▼▼▼
     def _discover_take_profit_indicators(self, config: Dict) -> Dict:
         """从止盈配置中发现需要计算的指标。"""
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
@@ -90,7 +90,7 @@ class MultiTimeframeTrendStrategy:
                 discovered[indicator_name]['configs'].append(params)
         
         return json.loads(json.dumps(discovered))
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
+    
 
     def _discover_resonance_indicators(self, config: Dict) -> Dict:
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
@@ -180,18 +180,18 @@ class MultiTimeframeTrendStrategy:
         execution_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎3: 【执行引擎-买入】运行完毕，生成 {len(execution_records)} 条分钟线买入信号。 ---")
         
-        # ▼▼▼【代码修改】: 调用新的分钟线止盈引擎 ▼▼▼
+        # ▼▼▼调用新的分钟线止盈引擎 ▼▼▼
         logger.info(f"\n--- 引擎4: 开始运行【执行引擎-止盈】(分钟线)... ---")
         take_profit_records = self._run_intraday_take_profit_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎4: 【执行引擎-止盈】运行完毕，生成 {len(take_profit_records)} 条分钟线止盈信号。 ---")
-        # ▲▲▲【代码修改】: 结束 ▲▲▲
+        
 
         logger.info(f"\n--- 信号整合: 开始合并日线与分钟线信号...")
         final_entry_records = self._merge_and_deduplicate_signals(tactical_records, execution_records)
         
-        # ▼▼▼【代码修改】: 将最终的买入和卖出信号合并 ▼▼▼
+        # ▼▼▼将最终的买入和卖出信号合并 ▼▼▼
         all_records = final_entry_records + take_profit_records
-        # ▲▲▲【代码修改】: 结束 ▲▲▲
+        
         
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
@@ -206,7 +206,7 @@ class MultiTimeframeTrendStrategy:
 
         signals_by_day = defaultdict(dict)
 
-        # ▼▼▼【代码修改】: 增加辅助函数，用于健壮地处理不同类型的 trade_time ▼▼▼
+        # ▼▼▼增加辅助函数，用于健壮地处理不同类型的 trade_time ▼▼▼
         def get_trade_date(trade_time_value: Any) -> Optional[datetime.date]:
             """
             辅助函数，无论输入是字符串、datetime对象还是Timestamp，都安全地返回date对象。
@@ -225,25 +225,22 @@ class MultiTimeframeTrendStrategy:
             except Exception as e:
                 print(f"  - [信号整合警告] 解析时间失败: {trade_time_value}, 错误: {e}")
                 return None
-        # ▲▲▲【代码修改】: 结束 ▲▲▲
 
         # 首先处理日线信号
         for record in daily_records:
             if record.get('entry_signal'): # 只处理买入信号
-                # ▼▼▼【代码修改】: 调用新的辅助函数进行安全转换 ▼▼▼
+                # ▼▼▼调用新的辅助函数进行安全转换 ▼▼▼
                 trade_date = get_trade_date(record['trade_time'])
                 if trade_date:
                     signals_by_day[trade_date]['D'] = record
-                # ▲▲▲【代码修改】: 结束 ▲▲▲
         
         # 然后处理分钟线信号
         for record in intraday_records:
             if record.get('entry_signal'): # 只处理买入信号
-                # ▼▼▼【代码修改】: 调用新的辅助函数进行安全转换 ▼▼▼
+                # ▼▼▼调用新的辅助函数进行安全转换 ▼▼▼
                 trade_date = get_trade_date(record['trade_time'])
                 if trade_date:
                     signals_by_day[trade_date]['M'] = record
-                # ▲▲▲【代码修改】: 结束 ▲▲▲
 
         final_records = []
         sorted_dates = sorted(signals_by_day.keys())
@@ -252,10 +249,10 @@ class MultiTimeframeTrendStrategy:
             signals = signals_by_day[trade_date]
             if 'M' in signals:
                 final_records.append(signals['M'])
-                print(f"  - [买入信号整合] 日期 {trade_date}: 检测到分钟线买入信号，优先保留。")
+                # print(f"  - [买入信号整合] 日期 {trade_date}: 检测到分钟线买入信号，优先保留。")
             elif 'D' in signals:
                 final_records.append(signals['D'])
-                print(f"  - [买入信号整合] 日期 {trade_date}: 只检测到日线买入信号，予以保留。")
+                # print(f"  - [买入信号整合] 日期 {trade_date}: 只检测到日线买入信号，予以保留。")
         
         return final_records
 
@@ -370,7 +367,7 @@ class MultiTimeframeTrendStrategy:
         print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
 
-    # ▼▼▼【代码修改】: 新增分钟线止盈引擎 ▼▼▼
+    # ▼▼▼新增分钟线止盈引擎 ▼▼▼
     def _run_intraday_take_profit_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """根据JSON配置，在指定的分钟级别上检查并生成止盈信号。"""
         tp_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
@@ -461,7 +458,7 @@ class MultiTimeframeTrendStrategy:
             db_records.append(record)
         
         return db_records
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
+    
 
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
         # ... 此方法保持不变 ...
