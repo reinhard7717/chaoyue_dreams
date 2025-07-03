@@ -658,14 +658,15 @@ class StockTimeTradeDAO(BaseDAO):
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
-        【V3.3 - 最终修正版】保存股票的实时分钟级交易数据
+        【V4.0 - 防御性健壮版】保存股票的实时分钟级交易数据
         核心优化:
         1.  【向量化处理】用Pandas向量化操作替代原有的逐行循环，大幅提升数据预处理性能。
         2.  【精确时区转换】在向量化处理中，将Tushare返回的本地时间精确转换为UTC时间，以适配原生SQL插入。
         3.  【并发持久化】保留原有的asyncio.gather并发执行数据库和缓存的写入操作。
         修正点:
-        -   根据错误日志确认，Tushare的rt_min接口返回的time字段为完整的日期时间字符串(格式: 'YYYY-MM-DD HH:MM:SS')。
-        -   直接使用该字段并指定正确格式进行转换，不再手动拼接日期。
+        -   【防御机制】Tushare接口返回的时间格式不稳定，有时缺少日期。
+        -   使用 `pd.to_datetime` 的 `errors='coerce'` 参数，将任何不符合 'YYYY-MM-DD HH:MM:SS' 格式的行标记为无效(NaT)。
+        -   随后使用 `dropna` 清除这些无效数据行，确保只有格式正确的数据被处理和保存。
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
@@ -689,12 +690,28 @@ class StockTimeTradeDAO(BaseDAO):
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
         # --- 修改的代码行开始 ---
-        # 2.2 向量化时间转换 (核心修改)
-        # a. 直接使用API返回的 'time' 列，它已经是 'YYYY-MM-DD HH:MM:SS' 格式
+        # 2.2 向量化时间转换 (核心修改：增加防御机制)
+        initial_rows = len(df)
+        print(f"调试信息：时间转换前，共有 {initial_rows} 条记录。")
         print(f"调试信息：从API获取到的原始时间字符串前5条:\n{df['time'].head()}")
 
-        # b. 使用正确的 format 参数直接进行转换，这是最高效和最安全的方式
-        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S')
+        # a. 【防御性转换】使用 `errors='coerce'`。
+        #    如果 'time' 字段的格式不是 '%Y-%m-%d %H:%M:%S'，则转换结果为 NaT (Not a Time)，而不是抛出异常。
+        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+
+        # b. 【数据清洗】丢弃所有转换失败的行（即 trade_time 为 NaT 的行）。
+        #    这是我们的核心防御机制，确保只有格式正确的数据进入后续流程。
+        df.dropna(subset=['trade_time'], inplace=True)
+        
+        filtered_rows = len(df)
+        if initial_rows > filtered_rows:
+            dropped_count = initial_rows - filtered_rows
+            logger.warning(f"数据清洗：因时间格式不正确，已过滤掉 {dropped_count} 条记录。")
+            print(f"调试信息：因时间格式不正确，已过滤掉 {dropped_count} 条记录。剩余 {filtered_rows} 条有效记录。")
+        
+        if df.empty:
+            logger.warning("所有记录因时间格式问题被过滤，任务终止。")
+            return {"尝试处理": initial_rows, "失败": initial_rows, "创建/更新成功": 0}
         # --- 修改的代码行结束 ---
 
         # c. 本地化为北京时间
