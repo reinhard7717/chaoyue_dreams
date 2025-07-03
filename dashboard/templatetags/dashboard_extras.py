@@ -51,9 +51,9 @@ def make_utc_aware(value):
     # 步骤2: 如果我们有一个有效的datetime对象，并且它是朴素的
     if parsed_time and timezone.is_naive(parsed_time):
         # 使用Django的make_aware函数，将朴素时间标记为UTC时区
-        print(f"DEBUG: Naive time '{parsed_time}' is being made UTC aware.") # 调试信息
+        # print(f"DEBUG: Naive time '{parsed_time}' is being made UTC aware.") # 调试信息
         aware_time = timezone.make_aware(parsed_time, datetime.timezone.utc)
-        print(f"DEBUG: Aware time is now '{aware_time}'.") # 调试信息
+        # print(f"DEBUG: Aware time is now '{aware_time}'.") # 调试信息
         return aware_time
     
     # 如果值已经是感知型，或者是无法处理的类型，则直接返回原值
