@@ -321,7 +321,7 @@ class StockTimeTradeDAO(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
             # 3.3 【向量化分组】根据ts_code确定分表模型，并按模型对DataFrame进行分组
             df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
-            for model_class, group_df in df.groupby('model_class'):
+            for model_class, group_df in df.groupby('model_class', sort=False):
                 # 3.4 【批量准备数据】选择并重命名列，然后批量转为字典
                 # 注意：这里的列名需要与你的分表模型字段完全对应
                 # 假设分表模型字段与df列名大部分一致，除了 stock 和 trade_time
@@ -679,7 +679,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 从返回的字典中获取成功保存的数量
                 saved_count = result_dict.get("创建/更新成功", 0)
                 total_saved_count += saved_count
-                logger.info(f"完成一批分钟线数据保存，数量：{saved_count}")
+                # logger.info(f"完成一批分钟线数据保存，数量：{saved_count}")
                 all_data_dicts = [] # 清空列表
             
             time.sleep(0.2) # 保留接口调用延时
@@ -697,11 +697,11 @@ class StockTimeTradeDAO(BaseDAO):
             )
             final_saved_count = result_dict.get("创建/更新成功", 0)
             total_saved_count += final_saved_count
-            logger.info(f"完成最后一批分钟线数据保存，数量：{final_saved_count}")
+            # logger.info(f"完成最后一批分钟线数据保存，数量：{final_saved_count}")
         else:
             logger.info("所有数据均已分批保存，无剩余数据。")
         
-        print(f"分钟线数据处理完成。总共保存了 {total_saved_count} 条新/更新的记录。")
+        print(f"分钟线数据处理完成。{stock} 总共保存了 {total_saved_count} 条新/更新的记录。")
         return total_saved_count
 
     # =============== A股分钟行情(实时) ===============
