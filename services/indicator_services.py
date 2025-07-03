@@ -59,28 +59,28 @@ class IndicatorService:
     # ▼▼▼ 一个可复用的、健壮的时区标准化辅助函数 ▼▼▼
     def _standardize_df_index_to_utc(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
         """
-        【V1.1 根源性时区修正版】确保DataFrame的索引是UTC时区感知的。
-        - 如果df为None或为空，直接返回。
-        - 如果索引不是DatetimeIndex，直接返回。
-        - 如果索引是“天真”的(naive, tz is None)，则先本地化为上海时间，再转换为UTC。
-        - 如果索引已经是“感知”的(aware)，则统一转换为UTC。
-        这确保了所有时间序列数据在合并前都具有统一的时区基准。
+        【V1.3 UTC源数据修复版】确保DataFrame的索引是UTC时区感知的。
+        - 此版本根据“数据库源数据为UTC”进行修正。
+        - 如果索引是“天真”的(naive, tz is None)，则直接将其本地化为UTC。
+        - 如果索引已经是“感知”的(aware)，则统一转换为UTC以确保一致性。
         """
         if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
             return df
-
-        # 创建副本以避免修改原始传入的DataFrame，遵循函数式编程的最佳实践
+        # 创建副本以避免修改原始传入的DataFrame
         df_copy = df.copy()
-        df_copy.index = df_copy.index.tz_convert('UTC')
-        
-        # if df_copy.index.tz is None:
-        #     # 时区天真 -> 先正确识别为上海时间，再转换为UTC
-        #     # 旧的错误代码: df_copy.index = df_copy.index.tz_localize('UTC')
-        #     df_copy.index = df_copy.index.tz_localize('Asia/Shanghai').tz_convert('UTC')
-        # else:
-        #     # 时区感知 -> 转换为UTC
-        #     df_copy.index = df_copy.index.tz_convert('UTC')
-            
+        # ▼▼▼【代码修改】: 根据“源数据为UTC”的规则进行修正 ▼▼▼
+        # 检查索引是否有时区信息
+        if df_copy.index.tz is None:
+            # 如果索引是“天真”的（naive），我们根据业务知识（数据库存的是UTC）
+            # 直接使用 tz_localize 将其“标记”为 UTC 时区。
+            print(f"    - [时区标准化] 检测到 naive 时间索引，根据规则直接本地化为 'UTC'。")
+            df_copy.index = df_copy.index.tz_localize('UTC')
+        else:
+            # 如果索引已经是“感知”的（aware），为保证统一，依然将其转换为 UTC
+            # 这可以处理数据来源多样化，部分数据可能为其他时区的情况。
+            print(f"    - [时区标准化] 检测到 aware 时间索引，统一转换为 'UTC'。")
+            df_copy.index = df_copy.index.tz_convert('UTC')
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         return df_copy
 
     def _load_config(self, path: str) -> Dict:
