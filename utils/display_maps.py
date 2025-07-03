@@ -1,5 +1,5 @@
 # 文件: utils/display_maps.py
-# 版本: V1.0 - 中文显示映射
+# 版本: V1.2 - 补全所有周线剧本ID
 # 描述: 这是一个集中的配置文件，用于将策略和剧本的内部英文ID映射到前端显示的中文名称。
 
 # 核心策略名称映射
@@ -26,6 +26,7 @@ PLAYBOOK_NAME_MAP = {
     'BASE_SIGNAL_BREAKOUT_TRIGGER': '关键位突破/放量突破',
 
     # === 周线战略剧本 (Strategic Playbooks) ===
+    # 带前缀的原始ID (用于可能的调试或旧逻辑)
     'playbook_ma20_rising_state_W': '【周线】MA20上升状态',
     'playbook_ma20_turn_up_event_W': '【周线】MA20拐头向上',
     'playbook_early_uptrend_W': '【周线】早期上升趋势',
@@ -37,6 +38,22 @@ PLAYBOOK_NAME_MAP = {
     'playbook_coppock_bottom_reversal_W': '【周线】Coppock底部反转',
     'playbook_ace_signal_breakout_trigger_W': '【周线】王牌突破信号',
     
+    # 无前缀的周线剧本ID，以匹配策略代码中的replace逻辑
+    'early_uptrend_W': '【周线】早期上升趋势',
+    'ma20_rising_state_W': '【周线】MA20上升状态',
+    'classic_breakout_W': '【周线】经典高点突破',
+    'ace_signal_breakout_trigger_W': '【周线】王牌突破信号',
+    'coppock_reversal_W': '【周线】Coppock反转',
+    'coppock_bottom_reversal_W': '【周线】Coppock底部反转',
+    'trix_golden_cross_W': '【周线】TRIX金叉',
+    
+    # ▼▼▼【代码修改】: 补全上次遗漏的无前缀周线剧本ID ▼▼▼
+    'ma20_turn_up_event_W': '【周线】MA20拐头向上',
+    'ma_uptrend_W': '【周线】均线多头排列',
+    'box_consolidation_breakout_W': '【周线】专业箱体突破',
+    'oversold_rebound_bias_W': '【周线】BIAS超跌反弹',
+    # ▲▲▲【代码修改】: 结束 ▲▲▲
+
     # === 分钟级执行剧本 (Execution Playbooks) ===
     'RESONANCE_FRACTAL_ROCKET': '【分钟】分形火箭',
 
@@ -54,4 +71,3 @@ PLAYBOOK_NAME_MAP = {
 # 合并所有映射，方便过滤器调用
 # 策略名称的优先级高于剧本名称，以防重名
 DISPLAY_MAP = {**PLAYBOOK_NAME_MAP, **STRATEGY_NAME_MAP}
-
