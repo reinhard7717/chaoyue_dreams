@@ -87,13 +87,13 @@ INSTALLED_APPS = [
     'users',          # 你的用户 app
     'stock_models',   # 你的模型 app
     'dashboard',      # 新创建的主控台 app
-    'tasks.apps.TasksConfig',
     'dao_manager',
     'utils',
     'api_manager',
     'core',
     'strategies',
-    'tasks',  # 添加任务应用
+    'tasks.apps.TasksConfig',
+    # 'tasks',  # 添加任务应用
     'django_celery_results',  # 添加Celery结果存储应用
     'django_celery_beat',  # 添加Celery定时任务应用
     'bulk_update_or_create',
