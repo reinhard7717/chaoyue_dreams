@@ -1,5 +1,5 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V5.8 - 强制重命名终极修复版
+# 版本: V6.0 - 日线/分钟线融合增强版
 
 import asyncio
 from collections import defaultdict
@@ -23,12 +23,10 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V5.8 强制重命名终极修复版】
-        - 核心BUG修复: 彻底解决了因错误理解 merge_asof 的 suffixes 参数，导致高频周期指标列名未被正确添加后缀的根本问题。
-        - 解决方案: 在 _run_intraday_resonance_engine 方法中，不再依赖 suffixes 参数。
-                   改为在合并前，手动、强制地为右侧DataFrame的所有列添加后缀（例如 'close' -> 'close_60'）。
-                   这确保了所有指标列在合并后的DataFrame中都拥有唯一且可预测的名称，使得后续的条件检查和“智能移位”逻辑能够命中正确的数据。
-                   这是本次调试的最终修复。
+        【V6.0 日线/分钟线融合增强版】
+        - 核心逻辑升级: 分钟线信号的触发前提，从单一的“日线看涨”，升级为“日线看涨”或“当日为日线关键信号日”二者取其一。
+        - 分数体系融合: 分钟线信号的最终得分，将是“日线策略得分”与“分钟线共振基础分”的总和，使信号质量评估更全面。
+        - 数据流优化: 增加 self.daily_analysis_df 实例变量，用于在日线引擎和分钟线引擎之间传递完整的分析结果。
         """
         tactical_config_path = 'config/trend_follow_strategy.json'
         strategic_config_path = 'config/weekly_trend_follow_strategy.json'
@@ -58,6 +56,10 @@ class MultiTimeframeTrendStrategy:
         self.indicator_service = IndicatorService()
         self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) 
         self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
+        
+        # ▼▼▼新增实例变量，用于在引擎间传递日线分析结果 ▼▼▼
+        self.daily_analysis_df = None
+        
 
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
 
@@ -130,7 +132,7 @@ class MultiTimeframeTrendStrategy:
         return merged
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V5.8) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V6.0) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
 
@@ -176,71 +178,121 @@ class MultiTimeframeTrendStrategy:
     
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         final_df, atomic_signals = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
+        # ▼▼▼保存完整的日线分析结果以供分钟线引擎使用 ▼▼▼
+        self.daily_analysis_df = final_df
+        
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        # print("\n--- [引擎3-调试 V5.8] 进入 _run_intraday_resonance_engine ---")
+        print("\n--- [引擎3-调试 V6.0 日线/分钟线融合增强版] 进入 _run_intraday_resonance_engine ---")
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False):
-            # print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
+            print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
             return []
-        # print("    - [引擎3-调试] 检查通过: 剧本已启用。")
+        
+        # ▼▼▼检查日线分析结果是否存在 ▼▼▼
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+            print("    - [引擎3-调试] 结论: 缺少日线策略分析结果 (self.daily_analysis_df)，无法执行分钟线引擎。引擎退出。")
+            return []
+        
+
         levels = resonance_params.get('levels', [])
         if not levels:
-            # print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
+            print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
             return []
-        # print(f"    - [引擎3-调试] 检查通过: 共找到 {len(levels)} 个共振层级。")
         trigger_tf = levels[-1]['tf']
         if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty:
-            # print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
+            print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
             return []
-        # print(f"    - [引擎3-调试] 检查通过: 触发周期 '{trigger_tf}' 数据存在，行数: {len(all_dfs[trigger_tf])}。")
-        # print("    - [引擎3-调试] 开始使用【强制重命名】逻辑对齐所有周期数据...")
+        
         df_aligned = all_dfs[trigger_tf].copy()
         for level in levels[:-1]:
             level_tf = level['tf']
             if level_tf in all_dfs and not all_dfs[level_tf].empty:
-                # print(f"      - [引擎3-调试] 正在合并周期 '{level_tf}' (行数: {len(all_dfs[level_tf])}) 的数据...")
-                
-                # 【核心修复】: 强制为右侧DataFrame的所有列添加后缀
                 df_right = all_dfs[level_tf].copy()
                 rename_map = {col: f"{col}_{level_tf}" for col in df_right.columns}
                 df_right.rename(columns=rename_map, inplace=True)
-                
-                # 现在进行合并，不再需要suffixes参数，因为列名已保证唯一
                 df_aligned = pd.merge_asof(
                     left=df_aligned, right=df_right, left_index=True, right_index=True, direction='backward'
                 )
-                # print(f"      - [引擎3-调试] 合并后，对齐后的DataFrame行数: {len(df_aligned)}")
             else:
-                # print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
+                print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
                 return []
-        # print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
+        
+        # ▼▼▼融合日线趋势和得分，创建新的、更全面的过滤器 ▼▼▼
+        print("    - [引擎3-调试] 新增步骤: 融合日线趋势与得分，创建综合过滤器...")
+        # 从日线分析结果中提取关键列
+        daily_score_threshold = self.tactical_config.get('entry_scoring_params', {}).get('score_threshold', 100)
+        daily_context_df = self.daily_analysis_df[['context_mid_term_bullish', 'entry_score']].copy()
+        
+        # 条件A: 日线趋势已看涨
+        is_bullish_trend = daily_context_df['context_mid_term_bullish']
+        # 条件B: 当日是日线级别的关键信号日（得分足够高）
+        is_reversal_day = daily_context_df['entry_score'] >= daily_score_threshold
+        
+        # 最终前提条件：满足A或B即可
+        daily_context_df['is_daily_trend_ok'] = is_bullish_trend | is_reversal_day
+        
+        # 为了分数融合，重命名entry_score以避免冲突
+        daily_context_df.rename(columns={'entry_score': 'daily_entry_score'}, inplace=True)
+        
+        print(f"      - [引擎3-调试] 日线看涨天数: {is_bullish_trend.sum()}, 日线信号日天数: {is_reversal_day.sum()}, 总合格天数: {daily_context_df['is_daily_trend_ok'].sum()}")
+
+        # 将日线综合状态合并到分钟线对齐后的DataFrame中
+        df_aligned = pd.merge_asof(
+            left=df_aligned,
+            right=daily_context_df[['is_daily_trend_ok', 'daily_entry_score']],
+            left_index=True,
+            right_index=True,
+            direction='backward'
+        )
+        df_aligned['is_daily_trend_ok'].fillna(False, inplace=True)
+        df_aligned['daily_entry_score'].fillna(0, inplace=True)
+        
+        print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
         final_signal = pd.Series(True, index=df_aligned.index)
+
+        # 应用新的日线综合过滤器
+        final_signal &= df_aligned['is_daily_trend_ok']
+        print(f"    - [引擎3-调试] 应用日线综合过滤后，剩余候选信号点: {final_signal.sum()}")
+        if final_signal.sum() == 0:
+            print("    - [引擎3-调试] 结论: 所有时间点均不满足日线前提，无需进一步检查分钟线条件。引擎正常结束。")
+            return []
+        
+
         for i, level in enumerate(levels):
             level_tf, level_name = level['tf'], level.get('level_name', f'Level_{i}')
             level_logic, level_conditions = level.get('logic', 'AND').upper(), level.get('conditions', [])
-            # print(f"      - [引擎3-调试] 正在检查第 {i+1} 层: '{level_name}' (周期: {level_tf}, 逻辑: {level_logic})")
+            print(f"      - [引擎3-调试] 正在检查第 {i+1} 层: '{level_name}' (周期: {level_tf}, 逻辑: {level_logic})")
             level_signal = pd.Series(True if level_logic == 'AND' else False, index=df_aligned.index)
             for cond in level_conditions:
                 cond_signal = self._check_single_condition(df_aligned, cond, level_tf)
-                # print(f"        - [引擎3-调试] 条件 '{cond['type']}' 在周期 '{level_tf}' 上触发了 {cond_signal.sum()} 次。")
                 if level_logic == 'AND': level_signal &= cond_signal
                 else: level_signal |= cond_signal
-            # print(f"      - [引擎3-调试] 第 {i+1} 层总计触发 {level_signal.sum()} 次。")
             final_signal &= level_signal
-        # print(f"    - [引擎3-调试] 所有层级检查完毕。最终共振信号触发总次数: {final_signal.sum()}")
+        
+        print(f"    - [引擎3-调试] 所有层级检查完毕。最终共振信号触发总次数: {final_signal.sum()}")
         triggered_df = df_aligned[final_signal]
         if triggered_df.empty:
             print("    - [引擎3-调试] 结论: 没有发现任何满足所有条件的共振信号点。引擎正常结束。")
             return []
+        
         print(f"    - [引擎3-调试] 成功发现 {len(triggered_df)} 个共振信号点。开始准备数据库记录...")
         db_records = []
         for timestamp, row in triggered_df.iterrows():
             record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
+            
+            # ▼▼▼重新计算并覆盖得分为“日线得分 + 分钟线基础分” ▼▼▼
+            daily_score = sanitize_for_json(row.get('daily_entry_score', 0.0))
+            resonance_score = sanitize_for_json(resonance_params.get('score', 0.0))
+            total_score = daily_score + resonance_score
+            record['entry_score'] = total_score
+            print(f"      - [分数融合] 时间: {timestamp}, 日线分: {daily_score:.0f}, 分钟线基础分: {resonance_score:.0f}, 总分: {total_score:.0f}")
+            
+            
             db_records.append(record)
-        # print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
+        print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
 
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
@@ -352,7 +404,7 @@ class MultiTimeframeTrendStrategy:
             "timeframe": trigger_tf,
             "strategy_name": signal_name,
             "close_price": sanitize_for_json(row.get('close')),
-            "entry_score": sanitize_for_json(params.get('score', 0.0)),
+            "entry_score": sanitize_for_json(params.get('score', 0.0)), # 注意：这个分数将在外部被覆盖
             "entry_signal": True,
             "exit_signal_code": 0,
             "is_long_term_bullish": False,
