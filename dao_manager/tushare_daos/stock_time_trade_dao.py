@@ -692,8 +692,8 @@ class StockTimeTradeDAO(BaseDAO):
         # --- 修改的代码行开始 ---
         # 2.2 向量化时间转换 (核心修改：增加防御机制)
         initial_rows = len(df)
-        print(f"调试信息：时间转换前，共有 {initial_rows} 条记录。")
-        print(f"调试信息：从API获取到的原始时间字符串前5条:\n{df['time'].head()}")
+        # print(f"调试信息：时间转换前，共有 {initial_rows} 条记录。")
+        # print(f"调试信息：从API获取到的原始时间字符串前5条:\n{df['time'].head()}")
 
         # a. 【防御性转换】使用 `errors='coerce'`。
         #    如果 'time' 字段的格式不是 '%Y-%m-%d %H:%M:%S'，则转换结果为 NaT (Not a Time)，而不是抛出异常。
@@ -706,8 +706,8 @@ class StockTimeTradeDAO(BaseDAO):
         filtered_rows = len(df)
         if initial_rows > filtered_rows:
             dropped_count = initial_rows - filtered_rows
-            logger.warning(f"数据清洗：因时间格式不正确，已过滤掉 {dropped_count} 条记录。")
-            print(f"调试信息：因时间格式不正确，已过滤掉 {dropped_count} 条记录。剩余 {filtered_rows} 条有效记录。")
+            # logger.warning(f"数据清洗：因时间格式不正确，已过滤掉 {dropped_count} 条记录。")
+            # print(f"调试信息：因时间格式不正确，已过滤掉 {dropped_count} 条记录。剩余 {filtered_rows} 条有效记录。")
         
         if df.empty:
             logger.warning("所有记录因时间格式问题被过滤，任务终止。")
