@@ -138,7 +138,6 @@ def trend_following_list(request):
     """
     strategy_name = 'multi_timeframe_collaboration' 
 
-    # ▼▼▼【代码修改】: 使用 Q 对象和 F 对象重构持仓状态的查询逻辑 ▼▼▼
     # 定义持仓状态的查询条件：
     # 1. last_buy_time 必须不为空 (有过买入记录)
     # 2. 并且满足以下任一条件：
@@ -151,9 +150,8 @@ def trend_following_list(request):
     # 应用新的查询逻辑，并修正字段名 time_level
     state_list = TrendFollowStrategyState.objects.filter(
         held_status_query,
-        time_level='D'  # 修正字段名：从 timeframe -> time_level
+        # time_level='D'
     ).select_related('stock').order_by('-latest_trade_time')
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
 
     paginator = Paginator(state_list, 25)
     page_number = request.GET.get('page')
