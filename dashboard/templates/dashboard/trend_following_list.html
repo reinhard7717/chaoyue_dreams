@@ -7,7 +7,7 @@
 
 {% block head_extra %}
 <style>
-    .playbook-list, .strategy-list { /* 将新样式合并 */
+    .playbook-list, .strategy-list {
         list-style-type: none;
         padding: 0;
         margin: 0;
@@ -25,8 +25,8 @@
         white-space: nowrap;
     }
     .strategy-tag {
-        background-color: #e8f5e9; /* 淡绿色背景 */
-        color: #2e7d32; /* 深绿色文字 */
+        background-color: #e8f5e9;
+        color: #2e7d32;
         padding: 3px 10px;
         border-radius: 5px;
         font-size: 0.85em;
@@ -66,13 +66,23 @@
     .btn-show-more:hover {
         text-decoration: underline;
     }
-    /* ▲▲▲【代码修改】: 结束 ▲▲▲ */
 </style>
 {% endblock %}
 
 
 {% block sidebar %}
-    {# ... sidebar 内容保持不变 ... #}
+    <aside class="site-sidebar">
+        <nav class="sidebar-nav">
+             <h3>导航菜单</h3>
+            <ul>
+                <li><a href="{% url 'users:home' %}">主控台</a></li>
+                <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">策略监控中心</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
+                <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
+                <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li>
+            </ul>
+        </nav>
+    </aside>
 {% endblock sidebar %}
 
 {% block content %}
@@ -109,30 +119,28 @@
                         <td>
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
-                        
-                        {# ▼▼▼【代码修改】: 优化“激活剧本”列的显示逻辑 ▼▼▼ #}
                         <td>
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
                                     <ul class="playbook-list">
                                     {% for playbook in item.active_playbooks %}
-                                        {# 使用 forloop.counter 判断当前是第几个元素 #}
-                                        {% with is_hidden=forloop.counter > 3 %}
+                                        {# ▼▼▼【代码修改】: 修正模板语法错误 ▼▼▼ #}
+                                        {# 错误原因：`{% with is_hidden=forloop.counter > 3 %}` 语法不被解析器接受。#}
+                                        {# 解决方案：移除外层的 with 标签，直接在 class 属性中使用 if 标签进行判断。#}
                                         {% with playbook_display_name=playbook|playbook_display %}
                                             {% if 'ROCKET' in playbook %}
-                                                <li class="playbook-tag rocket-signal {% if is_hidden %}hidden{% endif %}" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                                <li class="playbook-tag rocket-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
                                             {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
-                                                <li class="playbook-tag king-signal {% if is_hidden %}hidden{% endif %}" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                                <li class="playbook-tag king-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
                                             {% elif '【专家】' in playbook_display_name %}
-                                                <li class="playbook-tag expert-signal {% if is_hidden %}hidden{% endif %}" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                                <li class="playbook-tag expert-signal {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
                                             {% else %}
-                                                <li class="playbook-tag {% if is_hidden %}hidden{% endif %}" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                                <li class="playbook-tag {% if forloop.counter > 3 %}hidden{% endif %}" title="{{ playbook }}">{{ playbook_display_name }}</li>
                                             {% endif %}
                                         {% endwith %}
-                                        {% endwith %}
+                                        {# ▲▲▲【代码修改】: 修改结束 ▲▲▲ #}
                                     {% endfor %}
                                     </ul>
-                                    {# 如果剧本数量超过3个，则显示“展开”按钮 #}
                                     {% if item.active_playbooks|length > 3 %}
                                         <button class="btn-show-more" type="button">
                                             展开剩余 {{ item.active_playbooks|length|add:"-3" }} 项...
@@ -143,8 +151,6 @@
                                 -
                             {% endif %}
                         </td>
-                        {# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
-
                         <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
@@ -156,29 +162,35 @@
             </table>
         </div>
         
-        {# ... 分页部分保持不变 ... #}
+        <div class="pagination">
+            {% if page_obj.has_other_pages %}
+                {% if page_obj.has_previous %}
+                    <a href="?page=1">&laquo; 首页</a>
+                    <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
+                {% endif %}
+                <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+                {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}">下一页</a>
+                    <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
+                {% endif %}
+            {% endif %}
+        </div>
     </section>
 </div>
 
-{# ▼▼▼【代码修改】: 在 content 块的末尾添加 JavaScript 脚本 ▼▼▼ #}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 使用事件委托来处理所有“展开”按钮的点击事件，效率更高
     const tableBody = document.querySelector('#trend-table tbody');
     if (tableBody) {
         tableBody.addEventListener('click', function(event) {
-            // 检查被点击的元素是否是我们的“展开”按钮
             if (event.target && event.target.classList.contains('btn-show-more')) {
                 const button = event.target;
-                // 找到按钮所在的 .playbook-container
                 const container = button.closest('.playbook-container');
                 if (container) {
-                    // 找到所有被隐藏的剧本标签并显示它们
                     const hiddenTags = container.querySelectorAll('.playbook-tag.hidden');
                     hiddenTags.forEach(tag => {
                         tag.classList.remove('hidden');
                     });
-                    // 隐藏“展开”按钮本身
                     button.style.display = 'none';
                 }
             }
@@ -186,5 +198,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
 {% endblock %}
