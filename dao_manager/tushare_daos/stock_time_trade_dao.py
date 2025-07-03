@@ -25,7 +25,7 @@ from stock_models.time_trade import (
             StockMinuteData_60_SZ, StockMinuteData_60_SH, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC,
         )
 
-BATCH_SAVE_SIZE = 30000  # 每10000条数据保存一次
+BATCH_SAVE_SIZE = 50000  # 每10000条数据保存一次
 logger = logging.getLogger("dao")
 time_levels = ["5", "15", "30", "60"] # "1", 
 
@@ -559,7 +559,6 @@ class StockTimeTradeDAO(BaseDAO):
         if not model_class:
             logger.error(f"未能为 {stock_code} 和时间级别 {time_level}min 找到对应的数据库模型，任务终止。")
             return 0
-        print(f"目标数据表确定为: {model_class.__name__}")
         
         # 准备API参数
         start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else "2020-01-01 00:00:00"
@@ -591,8 +590,7 @@ class StockTimeTradeDAO(BaseDAO):
             if not df.empty:
                 # 2. 向量化添加stock实例
                 df['stock'] = stock
-                
-                # --- 修改的代码行开始 ---
+
                 # 3. 向量化转换时间格式，并最终转换为适合原生SQL的UTC天真时间。
                 #    由于使用了原生SQL批量插入，Django的自动时区转换会失效，需要在此手动处理。
 
@@ -620,7 +618,6 @@ class StockTimeTradeDAO(BaseDAO):
             
             # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
-                print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
                 result_dict = await self._save_all_to_db_native_upsert(
                     model_class=model_class,
                     data_list=all_data_dicts,
@@ -640,7 +637,6 @@ class StockTimeTradeDAO(BaseDAO):
 
         # --- 在所有分页处理完毕后，保存剩余的最后一批数据 ---
         if all_data_dicts:
-            print(f"正在保存最后一批 {len(all_data_dicts)} 条数据...")
             result_dict = await self._save_all_to_db_native_upsert(
                 model_class=model_class,
                 data_list=all_data_dicts,
