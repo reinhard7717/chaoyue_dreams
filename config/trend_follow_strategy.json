@@ -193,6 +193,35 @@
           }
         ]
       },
+      "intraday_take_profit_params": {
+        "enabled": true,
+        "signal_name": "INTRADAY_TAKE_PROFIT",
+        "timeframe": "15",
+        "说明": "【分钟线止盈引擎】在指定的分钟级别图表上，监控潜在的卖出信号，用于精细化风险控制和利润锁定。",
+        "rules": [
+          {
+            "type": "macd_dead_cross",
+            "periods": [12, 26, 9],
+            "signal_code": 101,
+            "说明": "规则1：15分钟MACD死叉。这是一个明确的短期动能衰竭信号。"
+          },
+          {
+            "type": "top_divergence",
+            "indicator": "rsi",
+            "periods": [13],
+            "lookback": 30,
+            "signal_code": 102,
+            "说明": "规则2：15分钟RSI顶背离。价格创出新高，但RSI指标未创新高，是潜在的反转信号。"
+          },
+          {
+            "type": "kdj_dead_cross",
+            "periods": [9, 3, 3],
+            "high_level": 80,
+            "signal_code": 103,
+            "说明": "规则3：15分钟KDJ在高位（80以上）死叉，是超买区反转的强烈信号。"
+          }
+        ]
+      },
       "chip_concentration_breakthrough_params": {
         "enabled": true,
         "说明": "【剧本】筹码高度集中突破。寻找主力高度控盘后，向上突破筹码密集区上沿的强力启动信号。",
