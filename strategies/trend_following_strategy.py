@@ -1086,93 +1086,92 @@ class TrendFollowStrategy:
 
     def _find_bottom_divergence_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.2 因果修正版】使用 scipy 和 pandas 高级技巧，实现完全向量化的精确底背离检测。
-        - 【修复】修正了信号确认逻辑，增加了 .shift(1) 约束，确保“确认阳线”(果)必须发生在“背离事件”(因)之后，
-          与其他回踩信号的“因果律”逻辑保持严格一致。
+        【V4.0 A股优化版】识别“复合底背离”买入信号。
+        - 新算法: 调用重构后的 `_find_divergence` 函数，使用正确的动态prominence计算。
+        - 精细化参数: 从JSON配置中读取为RSI和MACD(Z-score)量身定制的prominence值。
+        - 因果律保留: 完整保留了“背离事件(因)” + “确认阳线(果)”的核心业务逻辑。
         """
-        divergence_params = self._get_params_block(params, 'divergence_params')
-        if not divergence_params.get('enabled', False): return pd.Series(False, index=df.index)
-        
-        # 1. 动态获取指标列名
-        fe_params = params.get('feature_engineering_params', {})
-        indicators_config = fe_params.get('indicators', {})
-        rsi_config = indicators_config.get('rsi', {})
-        # 注意：RSI的periods是单个数字，但我们的函数返回列表，所以取第一个元素
-        rsi_periods_list = self._get_periods_for_timeframe(rsi_config, 'D')
-        if not rsi_periods_list:
-            logger.warning("日线RSI周期未配置，跳过底背离检测。")
+        # 步骤1:  从JSON获取为A股优化的、更精细的参数 ▼▼▼
+        div_params = self._get_params_block(params, 'bottom_divergence_params')
+        if not div_params.get('enabled', False):
             return pd.Series(False, index=df.index)
-        rsi_period = rsi_periods_list[0]
-        rsi_col = f"RSI_{rsi_period}_D"
 
-        macd_config = indicators_config.get('macd', {})
-        macd_periods = self._get_periods_for_timeframe(macd_config, 'D')
-        if not macd_periods:
-            logger.warning("日线MACD周期未配置，跳过底背离检测。")
-            return pd.Series(False, index=df.index)
-        fast, slow, signal_line = macd_periods
-        macd_hist_col = f"MACDh_{fast}_{slow}_{signal_line}_D"
+        # 从配置中读取参数
+        distance = div_params.get('distance', 5)
+        price_prominence = div_params.get('prominence_price', 0.02)
+        rsi_col = div_params.get('rsi_col', 'RSI_14_D')
+        prominence_rsi = div_params.get('prominence_rsi', 7.5)
+        macd_hist_col = div_params.get('macd_hist_col', 'MACD_HIST_ZSCORE_D')
+        prominence_macd = div_params.get('prominence_macd_zscore', 0.75)
         
-        required_cols = ['low_D', 'close_D', 'open_D', rsi_col, macd_hist_col]
+        # 检查必需的列是否存在
+        required_cols = ['low_D', 'close_D', 'open_D']
+        # 动态添加需要检查的指标列
+        if rsi_col not in df.columns:
+            if self.verbose_logging: print(f"    [调试-复合底背离-警告]: 缺少RSI列: {rsi_col}，将跳过RSI背离检测。")
+        else:
+            required_cols.append(rsi_col)
+            
+        if macd_hist_col not in df.columns:
+            if self.verbose_logging: print(f"    [调试-复合底背离-警告]: 缺少MACD列: {macd_hist_col}，将跳过MACD背离检测。")
+        else:
+            required_cols.append(macd_hist_col)
+
         missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
+        if 'low_D' in missing_cols or 'close_D' in missing_cols or 'open_D' in missing_cols:
             if self.verbose_logging:
-                print(f"    [调试-复合底背离-警告]: 无法执行，缺少必需列: {missing_cols}")
+                print(f"    [调试-复合底背离-错误]: 无法执行，缺少核心价格列: {missing_cols}")
             return pd.Series(False, index=df.index)
 
-        # 2. 使用 find_peaks 精确寻找波谷
-        find_troughs_params = {
-            "distance": params.get('distance', 5),
-            "prominence": params.get('prominence_bottom', 0.1)
-        }
-        price_troughs, _ = find_peaks(-df['low_D'], **find_troughs_params)
-        rsi_troughs, _ = find_peaks(-df[rsi_col], **find_troughs_params)
-        macd_troughs, _ = find_peaks(-df[macd_hist_col], **find_troughs_params)
+        # 步骤2:  调用新的核心算法，计算所有“背离事件” ▼▼▼
+        divergence_events = pd.Series(False, index=df.index)
 
-        # 3. 创建只在波谷日有值的稀疏序列
-        df['price_at_trough'] = np.nan
-        df.iloc[price_troughs, df.columns.get_loc('price_at_trough')] = df['low_D'].iloc[price_troughs]
-        
-        df['rsi_at_trough'] = np.nan
-        df.iloc[rsi_troughs, df.columns.get_loc('rsi_at_trough')] = df[rsi_col].iloc[rsi_troughs]
+        # --- 计算RSI底背离 ---
+        if rsi_col in df.columns:
+            rsi_trough_params = {
+                "distance": distance,
+                "prominence": price_prominence,
+                "prominence_indicator": prominence_rsi
+            }
+            # 调用核心函数，我们只关心返回的第二个值：底背离信号
+            _, rsi_bottom_div = self._find_divergence(df['low_D'], df[rsi_col], {}, rsi_trough_params)
+            divergence_events |= rsi_bottom_div
+            if self.verbose_logging:
+                print(f"    [调试-RSI底背离]: 使用列 {rsi_col} 和 prominence={prominence_rsi}，发现 {rsi_bottom_div.sum()} 个背离事件。")
 
-        df['macd_at_trough'] = np.nan
-        df.iloc[macd_troughs, df.columns.get_loc('macd_at_trough')] = df[macd_hist_col].iloc[macd_troughs]
+        # --- 计算MACD底背离 ---
+        if macd_hist_col in df.columns:
+            macd_trough_params = {
+                "distance": distance,
+                "prominence": price_prominence,
+                "prominence_indicator": prominence_macd
+            }
+            # 调用核心函数
+            _, macd_bottom_div = self._find_divergence(df['low_D'], df[macd_hist_col], {}, macd_trough_params)
+            divergence_events |= macd_bottom_div
+            if self.verbose_logging:
+                print(f"    [调试-MACD底背离]: 使用列 {macd_hist_col} 和 prominence={prominence_macd}，发现 {macd_bottom_div.sum()} 个背离事件。")
 
-        # 4. 向前填充，创建“状态”序列
-        df['last_price_trough'] = df['price_at_trough'].ffill()
-        df['last_rsi_trough'] = df['rsi_at_trough'].ffill()
-        df['last_macd_trough'] = df['macd_at_trough'].ffill()
-
-        # 5. 向量化判断背离条件
-        price_lower_low = df['price_at_trough'] < df['last_price_trough'].shift(1)
-        rsi_higher_low = df['rsi_at_trough'] > df['last_rsi_trough'].shift(1)
-        macd_higher_low = df['macd_at_trough'] > df['last_macd_trough'].shift(1)
-
-        is_rsi_divergence = df['price_at_trough'].notna() & df['rsi_at_trough'].notna() & price_lower_low & rsi_higher_low
-        is_macd_divergence = df['price_at_trough'].notna() & df['macd_at_trough'].notna() & price_lower_low & macd_higher_low
-        
-        divergence_events = is_rsi_divergence | is_macd_divergence
-
-        # 这是解决“因果律”谬误的关键！
-        # 6. 确认信号 (应用 .shift(1) 确保因果关系)
-        confirmation_days = params.get('confirmation_days', 3)
+        # 步骤3: 【逻辑保留】应用V3.2版的“因果律”确认逻辑
+        # 这个逻辑非常关键，确保我们是在背离发生【之后】寻找确认信号，而不是在当天。
+        confirmation_days = div_params.get('confirmation_days', 3)
         is_green_candle = df['close_D'] > df['open_D']
-        # 检查【过去】N天内是否发生过背离事件
+        
+        # 检查【过去】N天内是否发生过背离事件 (因)
         has_recent_divergence = divergence_events.rolling(window=confirmation_days, min_periods=1).sum() > 0
-        # 最终信号：必须是确认阳线(果)，且近期发生过背离(因)，且两者不能是同一天
+        
+        # 最终信号(果)：
+        # 1. 今天是确认阳线 (is_green_candle)
+        # 2. 在昨天或之前N天内，发生过背离事件 (has_recent_divergence.shift(1))
+        # 3. 今天本身不是背离事件发生日 (~divergence_events)，避免“因果同日”
         final_signal = is_green_candle & has_recent_divergence.shift(1).fillna(False) & ~divergence_events
         
-        # 7. 清理临时列
-        df.drop(columns=['price_at_trough', 'rsi_at_trough', 'macd_at_trough', 
-                         'last_price_trough', 'last_rsi_trough', 'last_macd_trough'], inplace=True)
-
-        # 打印调试信息
+        # 步骤4: 打印调试信息并返回结果
         if self.verbose_logging:
-            print(f"    [调试-复合底背离]: 背离事件天数: {divergence_events.sum()} | "
-                f"最终信号: {final_signal.sum()}")
+            print(f"    [调试-复合底背离]: 总计发现 {divergence_events.sum()} 个背离事件。")
+            print(f"    [调试-复合底背离]: 根据因果律确认逻辑，最终生成 {final_signal.sum()} 个买入信号。")
               
-        return final_signal
+        return final_signal.fillna(False)
     
     def _find_momentum_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         params = self._get_params_block(params, 'momentum_entry_params')
