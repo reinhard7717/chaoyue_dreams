@@ -3,6 +3,7 @@ import asyncio
 from decimal import Decimal
 import logging
 import time
+from django.db.models import QuerySet
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Optional
 from collections import defaultdict # 导入 defaultdict 以方便分组
@@ -12,7 +13,7 @@ from datetime import datetime, date, timedelta
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockCyqChips, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
+from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
@@ -1504,20 +1505,28 @@ class StockTimeTradeDAO(BaseDAO):
             unique_fields=['stock', 'trade_time']
         )
 
-    async def get_cyq_perf_history(self, stock_code: str) -> None:
+    async def get_cyq_chips_history(self, stock_code: str) -> QuerySet:
         """
-        获取股票的每日筹码分布数据
+        获取股票的每日筹码分布历史数据 (已修改为直接查询分表数据库)
+        1. [移除] 删除了所有Redis缓存查询逻辑。
+        2. [修改] 根据股票代码动态选择正确的分表Model进行查询。
+        3. [修正] 修正了ORM查询条件以正确通过外键关联进行过滤。
         """
-        # 从Redis缓存中获取数据
-        cache_key = self.cache_key.cyq_chips(stock_code)
-        data_dicts = await self.cache_get.cyq_chips(cache_key)
-        stock_cyq_chips_list = []
-        if data_dicts:
-            for data_dict in data_dicts:
-                stock_cyq_chips_list.append(StockCyqChips(**data_dict))
-        # 从数据库中获取数据
-        stock_cyq_chips_list = StockCyqChips.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
-        return stock_cyq_chips_list
+        # [修改] 第一步：根据股票代码动态获取对应的分表Model
+        target_model = self.get_cyq_chips_model_by_code(stock_code)
+        print(f"DAO: 正在为股票 {stock_code} 从数据表 {target_model.__name__} 查询筹码分布历史。")
+        
+        # [修改] 第二步：直接使用动态获取的Model进行数据库查询
+        # 注意：
+        # 1. 使用 target_model.objects 进行查询。
+        # 2. 过滤器使用 'stock__stock_code' 来通过外键关联查询。
+        # 3. 排序字段使用模型中定义的 'trade_time'。
+        stock_cyq_chips_queryset = target_model.objects.filter(
+            stock__stock_code=stock_code
+        ).order_by('-trade_time')[:self.cache_limit] # 保留了原有的查询数量限制
+        
+        # [修改] 直接返回从数据库中获取的Django QuerySet对象
+        return stock_cyq_chips_queryset
 
     # 每日筹码分布
     async def save_all_cyq_chips_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
