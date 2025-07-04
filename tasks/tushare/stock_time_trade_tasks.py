@@ -986,7 +986,7 @@ def save_stocks_month_data_history_task(self, batch_size: int = 50): # 限量：
 
 
 # ============== （历史）每日筹码分布任务 ==============
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveHistoryData_TimeTrade', rate_limit='180/m')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_this_week_batch', queue='SaveHistoryData_TimeTrade')
 # [修改] 函数签名变更：不再接收整个StockInfo对象，而是接收可序列化的ts_code字符串
 def save_cyq_chips_history_batch(self, ts_code: str, start_date: datetime.date = None, end_date: datetime.date = None):
     """
@@ -1013,7 +1013,7 @@ def save_cyq_chips_history_batch(self, ts_code: str, start_date: datetime.date =
         # [修改] 日志信息中加入ts_code，方便定位问题
         logger.error(f"save_cyq_chips_this_week_batch.执行批量保存任务时发生意外错误 (ts_code: {ts_code}): {e}", exc_info=True)
 
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_perf_for_stock_task', queue='SaveHistoryData_TimeTrade', rate_limit='200/m')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_perf_for_stock_task', queue='SaveHistoryData_TimeTrade', rate_limit='190/m')
 def save_cyq_perf_for_stock_task(self, ts_code: str, start_date: datetime.date = None, end_date: datetime.date = None):
     """
     从Tushare获取单只股票的每日筹码及胜率数据并保存。

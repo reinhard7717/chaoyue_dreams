@@ -1581,6 +1581,7 @@ class StockTimeTradeDAO(BaseDAO):
     async def save_cyq_chips_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
         """
         保存单只股票的每日筹码分布数据 (优化版)
+        通过在每次API调用后强制休眠，精确控制调用频率，防止超出Tushare限制。
         """
         print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据...")
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
@@ -1596,14 +1597,16 @@ class StockTimeTradeDAO(BaseDAO):
                 df = self.ts_pro.cyq_chips(**{
                     "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=["ts_code", "trade_date", "price", "percent"])
+                # [新增] 精确的API速率控制。200次/分钟 -> 60/200 = 0.3秒/次。设置0.35秒以保证安全。
+                await asyncio.sleep(0.35)
             except Exception as e:
                 logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
+                # [新增] 即使API调用失败，也建议休眠一下，避免立即重试导致连续报错
+                await asyncio.sleep(0.35)
                 break
             if df.empty:
                 break
             dfs_for_one_stock.append(df)
-            # 注意：cyq_chips接口可能也有速率限制，如果与cyq_perf共享限制，需要调整Celery任务的rate_limit
-            # 假设此处不需要强制sleep
             if len(df) < limit:
                 break
             offset += limit
