@@ -1539,7 +1539,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 日期字符串格式化 (无变化) ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20180101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         initial_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         all_stocks = await self.stock_basic_dao.get_stock_list()
@@ -1667,7 +1667,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # ... 数据获取部分无变化，为简洁省略 ...
         print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据（支持10万行以上追溯）...")
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         all_dfs_for_stock = []
         while True:
