@@ -1601,7 +1601,7 @@ class StockTimeTradeDAO(BaseDAO):
             # 内层分页循环
             while True:
                 if offset >= 100000:
-                    logger.warning(f"股票 {stock} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
+                    # logger.warning(f"股票 {stock} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
                     limit_hit = True
                     break
                 try:
@@ -1612,7 +1612,7 @@ class StockTimeTradeDAO(BaseDAO):
                         "limit": limit,
                         "offset": offset
                     }, fields=["ts_code", "trade_date", "price", "percent"])
-                    await asyncio.sleep(0.35)
+                    await asyncio.sleep(0.7)
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock}): {e}")
                     await asyncio.sleep(5) # API异常时，等待更长时间
