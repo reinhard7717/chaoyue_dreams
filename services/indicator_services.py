@@ -556,7 +556,7 @@ class IndicatorService:
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             
-            if indicator_name in ['说明', 'index_sync', 'cyq_perf'] or not params.get('enabled', False): continue
+            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore'] or not params.get('enabled', False): continue
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
