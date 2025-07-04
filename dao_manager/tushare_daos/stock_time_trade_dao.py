@@ -1439,7 +1439,7 @@ class StockTimeTradeDAO(BaseDAO):
         此方法被并行的Celery任务调用。
         """
         print(f"DAO: 开始获取 {stock.stock_code} 的筹码及胜率数据...")
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         offset = 0
         limit = 5000 # 对于单个股票，可以设置一个较大的limit
@@ -1511,7 +1511,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 简化日期字符串格式化 ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         all_stocks = await self.stock_basic_dao.get_stock_list()
@@ -1586,7 +1586,7 @@ class StockTimeTradeDAO(BaseDAO):
         3. 所有数据拉取完毕后，进行统一的去重、处理和保存。
         """
         print(f"DAO: 开始获取 {stock} 的筹码分布数据（支持10万行以上追溯）...")
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
         # [新增] 将end_date转换为可变字符串，用于追溯循环
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         # [新增] 用于存储所有追溯轮次拉取到的DataFrame

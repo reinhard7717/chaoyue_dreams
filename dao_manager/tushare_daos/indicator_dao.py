@@ -19,8 +19,6 @@ from stock_models.industry import ThsIndex, ThsIndexDaily, ThsIndexMember # 导�
 from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyBasic, StockDailyData, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
 # 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowCntTHS, FundFlowIndustryTHS
-from utils.cache_get import  StockTimeTradeCacheGet
-from utils.cache_manager import CacheManager
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 
 logger = logging.getLogger("dao")
@@ -253,7 +251,7 @@ class IndicatorDAO(BaseDAO):
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
             return None
 
-    # ▼▼▼【 新增行业分析相关的所有DAO方法 ▼▼▼
+    # ▼▼▼【新增行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
         获取所有同花顺行业指数的基本信息。
