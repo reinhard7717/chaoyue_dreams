@@ -1458,7 +1458,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 简化日期字符串格式化 ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20250101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         all_stocks = await self.stock_basic_dao.get_stock_list()
@@ -1477,43 +1477,34 @@ class StockTimeTradeDAO(BaseDAO):
             offset = 0
             limit = 2000
             dfs_for_one_stock = [] # 用于收集单只股票的所有分页数据
-            
 
             while True:
                 if offset >= 100000:
                     logger.warning(f"股票 {stock.stock_code} 的每日筹码分布 offset已达10万，停止拉取。")
                     break
-                
                 df = self.ts_pro.cyq_chips(**{
                     "ts_code": stock.stock_code, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
                     "ts_code", "trade_date", "price", "percent"
                 ])
-
                 if df.empty:
                     break # 当前股票没有更多数据，跳出分页循环
-                
                 dfs_for_one_stock.append(df)
                 time.sleep(0.5)
                 if len(df) < limit:
                     break # 已是最后一页，跳出分页循环
                 offset += limit
-
             # --- 对单只股票的数据进行统一的向量化处理 ---
             if dfs_for_one_stock:
                 combined_df = pd.concat(dfs_for_one_stock, ignore_index=True)
                 combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
-
                 if not combined_df.empty:
                     combined_df['stock'] = stock
                     combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
                     final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
-                    
                     # 将处理好的字典列表添加到总列表中
                     all_data_dicts.extend(final_df.to_dict('records'))
-            
-
             # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
@@ -1524,7 +1515,6 @@ class StockTimeTradeDAO(BaseDAO):
                 )
                 logger.info(f"完成一批每日筹码分布数据保存，数量：{len(all_data_dicts)}")
                 all_data_dicts = [] # 清空列表，为下一批做准备
-            
 
         # --- 在所有股票处理完毕后，保存剩余的最后一批数据 ---
         if all_data_dicts:
