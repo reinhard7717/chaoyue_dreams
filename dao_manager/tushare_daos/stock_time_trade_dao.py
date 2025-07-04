@@ -1458,7 +1458,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 简化日期字符串格式化 ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         all_stocks = await self.stock_basic_dao.get_stock_list()
@@ -1532,7 +1532,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 简化日期字符串格式化 ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         offset = 0
         limit = 2000
