@@ -1728,7 +1728,7 @@ class TrendFollowStrategy:
         return final_signal.fillna(False)
 
     def _find_fibonacci_pullback_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        fib_params = self._get_params_block(params, 'fibonacci_analysis_params')
+        fib_params = self._get_params_block(params, 'fibonacci_pullback_params')
         if not fib_params.get('enabled', False):
             return pd.Series(False, index=df.index)
         print("    - [计分-战术] 正在执行斐波那契回撤买入剧本...")

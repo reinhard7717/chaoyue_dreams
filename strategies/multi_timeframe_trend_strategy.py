@@ -248,16 +248,29 @@ class MultiTimeframeTrendStrategy:
 
         # ▼▼▼ 在流程最后，为所有最终信号生成并添加分析报告 ▼▼▼
         if all_records:
-            logger.info(f"\n--- 报告生成: 为 {len(all_records)} 条最终信号生成分析报告...")
-            for record in all_records:
-                # 调用新方法生成报告文本
-                report_text = self._generate_analysis_report(record)
-                # 将报告文本添加到记录字典中
-                record['analysis_text'] = report_text
-                # 可以在日志中打印报告以供调试
-                print("----------------------------------------------------")
-                print(report_text)
-                print("----------------------------------------------------")
+            # 步骤1: 找到所有信号中的最新交易日期
+            # 使用pd.to_datetime确保对不同时间格式（如Timestamp, datetime, str）的兼容性
+            latest_trade_date = max(pd.to_datetime(rec['trade_time']).date() for rec in all_records)
+            
+            # 步骤2: 筛选出属于最新交易日期的所有记录
+            latest_records = [
+                record for record in all_records
+                if pd.to_datetime(record['trade_time']).date() == latest_trade_date
+            ]
+            
+            # 步骤3: 仅为这些最新记录生成和打印报告
+            if latest_records:
+                logger.info(f"\n--- 报告生成: 为最新交易日 {latest_trade_date} 的 {len(latest_records)} 条信号生成分析报告...")
+                print(f"--- 分析报告仅展示最新交易日({latest_trade_date})的信号 ---")
+                for record in latest_records:
+                    # 调用方法生成报告文本
+                    report_text = self._generate_analysis_report(record)
+                    # 将报告文本添加到记录字典中 (这会修改 all_records 中的对应记录)
+                    record['analysis_text'] = report_text
+                    # 在日志中打印报告以供调试
+                    print("----------------------------------------------------")
+                    print(report_text)
+                    print("----------------------------------------------------")
         
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
