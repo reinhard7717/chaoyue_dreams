@@ -53,6 +53,19 @@
           }
         ]
       },
+      "zscore": {
+        "enabled": true,
+        "说明": "【A股特色】计算指定列的滚动Z-score标准化值。用于将无界指标（如MACD柱）转换为可比的、尺度无关的数值，极大提升了背离等模式识别的准确性。",
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D",
+            "window": 60,
+            "output_column_name": "MACD_HIST_ZSCORE_D",
+            "说明": "为日线MACD柱状图计算60日滚动Z-score。这是识别MACD背离的最佳实践。"
+          }
+        ]
+      },
       "dmi": {
         "enabled": true,
         "configs": [

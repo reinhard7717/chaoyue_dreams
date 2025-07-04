@@ -56,7 +56,7 @@ class IndicatorService:
             logger.error("pandas-ta 库未安装，请运行 'pip install pandas-ta'")
             ta = None
 
-    # ▼▼▼ 新增调试辅助函数，用于打印DataFrame时间范围 ▼▼▼
+    # ▼▼▼ 调试辅助函数，用于打印DataFrame时间范围 ▼▼▼
     def _log_df_time_range(self, df: Optional[pd.DataFrame], df_name: str):
         """【调试函数】打印DataFrame的时间范围、数据量等基本信息。"""
         print(f"    - [数据清查-范围] 正在检查 '{df_name}'...")
@@ -73,7 +73,7 @@ class IndicatorService:
         count = len(df)
         print(f"      -> 结果: 数据量={count}, 开始时间='{start_time}', 结束时间='{end_time}'")
 
-    # ▼▼▼ 新增调试辅助函数，用于抽查数据对齐情况 ▼▼▼
+    # ▼▼▼ 调试辅助函数，用于抽查数据对齐情况 ▼▼▼
     def _log_alignment_check(self, df: pd.DataFrame, num_samples: int = 10):
         """
         【调试函数 V2.0 - 全列展示版】
@@ -615,6 +615,50 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                     except Exception as e:
                         logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
+
+        # ▼▼▼ 后处理阶段：计算Z-Score ▼▼▼
+        # 解释：Z-Score依赖于其他指标（如MACD）的计算结果，因此必须在所有常规指标计算完毕后执行。
+        zscore_params = config.get('zscore')
+        if zscore_params and zscore_params.get('enabled', False):
+            for z_config in zscore_params.get('configs', []):
+                if timeframe_key not in z_config.get("apply_on", []):
+                    continue
+                try:
+                    source_pattern = z_config.get("source_column_pattern")
+                    output_col_name = z_config.get("output_column_name")
+                    window = z_config.get("window", 60)
+                    if not all([source_pattern, output_col_name, window]):
+                        logger.warning(f"Z-score配置不完整，跳过: {z_config}")
+                        continue
+                    # 动态构建源列名
+                    source_col_name = source_pattern
+                    if "{fast}" in source_pattern: # 如果是MACD模式
+                        macd_cfg = config.get('macd', {})
+                        # 找到适用于当前时间周期的MACD参数
+                        macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
+                        if macd_periods and len(macd_periods) == 3:
+                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                        else:
+                            logger.warning(f"无法为Z-score找到周期为'{timeframe_key}'的MACD参数，跳过。")
+                            continue
+                    # 检查源列是否存在
+                    if source_col_name not in df_for_calc.columns:
+                        logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在DataFrame中不存在。")
+                        continue
+                    # 执行Z-score计算
+                    source_series = df_for_calc[source_col_name]
+                    rolling_mean = source_series.rolling(window=window, min_periods=1).mean()
+                    rolling_std = source_series.rolling(window=window, min_periods=1).std()
+                    # 使用 np.divide 安全地处理除以0的情况，结果为 nan
+                    df_for_calc[output_col_name] = np.divide(
+                        (source_series - rolling_mean), 
+                        rolling_std, 
+                        out=np.full_like(source_series, np.nan), 
+                        where=rolling_std!=0
+                    )
+                    print(f"    - [指标计算-ZScore] 已成功为列 '{source_col_name}' 计算Z-score，输出到 '{output_col_name}'。")
+                except Exception as e:
+                    logger.error(f"计算Z-score时出错 (配置: {z_config}): {e}", exc_info=True)
 
         # --- 统一添加后缀并将所有计算结果合并回主DataFrame ---
         suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
