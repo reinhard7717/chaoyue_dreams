@@ -1465,14 +1465,12 @@ class StockTimeTradeDAO(BaseDAO):
         if not all_stocks:
             logger.warning("股票基础信息列表为空，任务终止。")
             return
-
         # --- 引入分批保存机制，避免内存溢出 ---
         all_data_dicts = []
         total_stocks = len(all_stocks)
         # --- 使用 enumerate 来跟踪进度 ---
         for i, stock in enumerate(all_stocks):
             print(f"开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
-            
             # --- 为每只股票重置offset，这是关键的BUG修复 ---
             offset = 0
             limit = 2000
@@ -1484,9 +1482,7 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 df = self.ts_pro.cyq_chips(**{
                     "ts_code": stock.stock_code, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-                }, fields=[
-                    "ts_code", "trade_date", "price", "percent"
-                ])
+                }, fields=["ts_code", "trade_date", "price", "percent"])
                 if df.empty:
                     break # 当前股票没有更多数据，跳出分页循环
                 dfs_for_one_stock.append(df)
@@ -1507,7 +1503,6 @@ class StockTimeTradeDAO(BaseDAO):
                     all_data_dicts.extend(final_df.to_dict('records'))
             # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
-                print(f"数据达到批处理阈值({BATCH_SAVE_SIZE})，正在保存 {len(all_data_dicts)} 条数据...")
                 await self._save_all_to_db_native_upsert(
                     model_class=StockCyqChips,
                     data_list=all_data_dicts,
@@ -1515,10 +1510,8 @@ class StockTimeTradeDAO(BaseDAO):
                 )
                 logger.info(f"完成一批每日筹码分布数据保存，数量：{len(all_data_dicts)}")
                 all_data_dicts = [] # 清空列表，为下一批做准备
-
         # --- 在所有股票处理完毕后，保存剩余的最后一批数据 ---
         if all_data_dicts:
-            print(f"正在保存最后一批 {len(all_data_dicts)} 条数据...")
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCyqChips,
                 data_list=all_data_dicts,
@@ -1539,20 +1532,17 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 简化日期字符串格式化 ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20250101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         offset = 0
         limit = 2000
         # --- 创建一个列表来收集每个分页的DataFrame ---
         dfs_to_process = []
-        
         while True:
             if offset >= 100000:
                 logger.warning(f"每日筹码分布 offset已达10万，停止拉取。股票: {stock.stock_code}")
                 break
             # 使用 print 进行调试，可以查看每次请求的参数
-            print(f"正在拉取筹码数据: stock={stock.stock_code}, offset={offset}, limit={limit}")
             df = self.ts_pro.cyq_chips(**{
                 "ts_code": stock.stock_code, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
@@ -1567,25 +1557,20 @@ class StockTimeTradeDAO(BaseDAO):
             if len(df) < limit:
                 break
             offset += limit
-        
         # --- 在循环外统一处理所有数据 ---
         if not dfs_to_process:
             logger.info(f"没有获取到任何每日筹码分布数据：{stock}")
             return None
-        
         # 将所有DataFrame合并为一个
         combined_df = pd.concat(dfs_to_process, ignore_index=True)
-        
         # 统一进行数据清洗
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         # 删除关键信息不完整的行，保证数据质量
         combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
-        
         # 如果清洗后没有数据，则直接返回
         if combined_df.empty:
             logger.info(f"数据清洗后，没有有效的每日筹码分布数据：{stock}")
             return None
-            
         # 向量化数据转换，替代原来的 for 循环和 set_cyq_chips_data 方法的逐行调用
         # 1. 添加 stock 实例
         combined_df['stock'] = stock
@@ -1594,10 +1579,8 @@ class StockTimeTradeDAO(BaseDAO):
         # 3. 选择并重命名列以匹配最终要存入数据库的字典结构
         #    这里假设 `_save_all_to_db_native_upsert` 需要的字典键是 'stock', 'trade_time', 'price', 'percent'
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
-        
         # 将整个DataFrame高效地转换为字典列表
         data_dicts = final_df.to_dict('records')
-        
         result = None
         if data_dicts:
             result = await self._save_all_to_db_native_upsert(
