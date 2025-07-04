@@ -304,6 +304,37 @@ class TrendFollowStrategy:
         cond_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
+        # ▼▼▼ “日线战术层 - 剧本计算总结”日志块 ▼▼▼
+        print("\n---【日线战术层 - 剧本计算总结】---")
+        playbook_summary = {
+            "均线加速上涨 (MA_ACCELERATION)": cond_ma_acceleration,
+            "筹码集中突破 (CHIP_CONCENTRATION_BREAKTHROUGH)": cond_chip_concentration_breakthrough,
+            "成本区增强 (COST_AREA_REINFORCEMENT)": cond_cost_area_reinforcement,
+            "投降坑反转 (WINNER_RATE_REVERSAL)": cond_winner_rate_reversal,
+            "筹码压力释放 (CHIP_PRESSURE_RELEASE)": cond_chip_pressure_release,
+            "筹码成本区突破 (CHIP_COST_BREAKTHROUGH)": cond_chip_cost_breakthrough,
+            "常规回踩 (PULLBACK_NORMAL)": is_normal_pullback,
+            "V型反转 (V_SHAPE_REVERSAL)": cond_v_reversal,
+            "底部首板 (FIRST_BREAKOUT)": cond_first_breakout,
+            "布林收口突破 (BBAND_SQUEEZE_BREAKOUT)": cond_bb_squeeze_breakout,
+            "复合底背离 (BOTTOM_DIVERGENCE)": cond_bottom_divergence,
+            "资金暗流 (CAPITAL_FLOW_DIVERGENCE)": cond_capital_flow_divergence,
+            "老鸭头 (OLD_DUCK_HEAD)": cond_old_duck_head,
+            "地天板 (EARTH_HEAVEN_BOARD)": cond_earth_heaven_board,
+            "盘整区突破 (CONSOLIDATION_BREAKOUT)": cond_dynamic_box_breakout,
+            "上升旗形 (BULLISH_FLAG)": cond_bullish_flag,
+            "潜龙在渊 (ENERGY_COMPRESSION_BREAKOUT)": cond_energy_compression_breakout,
+            "斐波那契回撤 (PULLBACK_FIBONACCI)": cond_fib_pullback,
+            "早晨之星 (KLINE_MORNING_STAR)": cond_morning_star,
+            "MACD零轴金叉 (MACD_ZERO_CROSS)": cond_macd_zero_cross,
+            "MACD低位金叉 (MACD_LOW_CROSS)": cond_macd_low_cross,
+            "DMI金叉 (DMI_CROSS)": cond_dmi_cross,
+        }
+        for name, condition in playbook_summary.items():
+            trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
+            print(f"【剧本-{name}】触发天数: {trigger_count}")
+        print("---【日线战术层 - 剧本计算总结结束】---\n")
+
         # --- 步骤4: 记录所有战术信号得分 ---
         print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
