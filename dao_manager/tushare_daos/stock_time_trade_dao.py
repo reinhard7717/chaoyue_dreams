@@ -1511,7 +1511,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         # --- 简化日期字符串格式化 ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20180101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         all_stocks = await self.stock_basic_dao.get_stock_list()
@@ -1526,7 +1526,7 @@ class StockTimeTradeDAO(BaseDAO):
             print(f"开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
             # --- 为每只股票重置offset，这是关键的BUG修复 ---
             offset = 0
-            limit = 2000
+            limit = 6000
             dfs_for_one_stock = [] # 用于收集单只股票的所有分页数据
 
             while True:
@@ -1586,7 +1586,7 @@ class StockTimeTradeDAO(BaseDAO):
         3. 所有数据拉取完毕后，进行统一的去重、处理和保存。
         """
         print(f"DAO: 开始获取 {stock} 的筹码分布数据（支持10万行以上追溯）...")
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20180101"
         # [新增] 将end_date转换为可变字符串，用于追溯循环
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         # [新增] 用于存储所有追溯轮次拉取到的DataFrame
@@ -1594,7 +1594,7 @@ class StockTimeTradeDAO(BaseDAO):
         # [新增] 外层追溯循环，用于处理10万行限制
         while True:
             offset = 0
-            limit = 2000
+            limit = 6000
             # [新增] 用于存储当前轮次拉取到的DataFrame
             dfs_for_this_cycle = []
             limit_hit = False # [新增] 标记是否触及10万行限制
