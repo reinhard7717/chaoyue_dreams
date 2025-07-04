@@ -1094,7 +1094,7 @@ class TrendFollowStrategy:
         if not div_params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        # ▼▼▼【代码修改】: 增加详细的调试打印 ▼▼▼
+        # ▼▼▼ 增加详细的调试打印 ▼▼▼
         if self.verbose_logging:
             print("\n--- [调试-复合底背离-启动] ---")
 
@@ -1130,7 +1130,6 @@ class TrendFollowStrategy:
         if not rsi_col_found and not macd_col_found:
             if self.verbose_logging: print("    [调试终止] RSI和MACD列均不存在，无法执行。")
             return pd.Series(False, index=df.index)
-        # ▲▲▲【代码修改结束】▲▲▲
 
         # 步骤3: 调用核心算法，计算所有“背离事件”
         divergence_events = pd.Series(False, index=df.index)
@@ -1141,9 +1140,8 @@ class TrendFollowStrategy:
             _, rsi_bottom_div = self._find_divergence(df['low_D'], df[rsi_col], {}, rsi_trough_params)
             divergence_events |= rsi_bottom_div
             if self.verbose_logging:
-                # ▼▼▼【代码修改】: 增加详细的调试打印 ▼▼▼
+                # ▼▼▼ 增加详细的调试打印 ▼▼▼
                 print(f"    [RSI背离检测] 发现 {rsi_bottom_div.sum()} 个RSI背离事件。")
-                # ▲▲▲【代码修改结束】▲▲▲
 
         # --- 计算MACD底背离 ---
         if macd_col_found:
@@ -1151,16 +1149,14 @@ class TrendFollowStrategy:
             _, macd_bottom_div = self._find_divergence(df['low_D'], df[macd_hist_col], {}, macd_trough_params)
             divergence_events |= macd_bottom_div
             if self.verbose_logging:
-                # ▼▼▼【代码修改】: 增加详细的调试打印 ▼▼▼
+                # ▼▼▼ 增加详细的调试打印 ▼▼▼
                 print(f"    [MACD背离检测] 发现 {macd_bottom_div.sum()} 个MACD背离事件。")
-                # ▲▲▲【代码修改结束】▲▲▲
 
         # 步骤4: 应用“因果律”确认逻辑
         total_events = divergence_events.sum()
         if self.verbose_logging:
-            # ▼▼▼【代码修改】: 增加详细的调试打印 ▼▼▼
+            # ▼▼▼ 增加详细的调试打印 ▼▼▼
             print(f"    [事件汇总] 总计发现 {total_events} 个复合背离事件。")
-            # ▲▲▲【代码修改结束】▲▲▲
 
         if total_events == 0:
             if self.verbose_logging:
@@ -1358,6 +1354,7 @@ class TrendFollowStrategy:
             price_peak_params['prominence'] = price_range * relative_prom
             if self.verbose_logging:
                 print(f"    [调试-背离检测] 价格波峰相对prominence: {relative_prom}, 计算后绝对值: {price_peak_params['prominence']:.4f}")
+        price_peak_params.pop('prominence_indicator', None) # 使用 .pop() 安全地移除，如果键不存在也不会报错
 
         price_trough_params = trough_params.copy()
         if 'prominence' in price_trough_params:
@@ -1366,6 +1363,7 @@ class TrendFollowStrategy:
             price_trough_params['prominence'] = price_range * relative_prom
             if self.verbose_logging:
                 print(f"    [调试-背离检测] 价格波谷相对prominence: {relative_prom}, 计算后绝对值: {price_trough_params['prominence']:.4f}")
+        price_trough_params.pop('prominence_indicator', None) # 使用 .pop() 安全地移除
 
         # --- 准备指标查找参数 ---
         indicator_peak_params = peak_params.copy()
