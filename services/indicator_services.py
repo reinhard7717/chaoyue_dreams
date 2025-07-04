@@ -458,11 +458,10 @@ class IndicatorService:
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             
-            # ▼▼▼【代码修改】: 插入阶段二调试，检查最终合并对齐情况 ▼▼▼
+            # ▼▼▼ 插入阶段二调试，检查最终合并对齐情况 ▼▼▼
             # 解释: 我们只对最复杂的日线数据进行抽样检查，因为它融合了最多的数据源。
-            if tf == 'D':
-                self._log_alignment_check(df_with_indicators)
-            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            # if tf == 'D':
+                # self._log_alignment_check(df_with_indicators)
             
             return tf, df_with_indicators
 
