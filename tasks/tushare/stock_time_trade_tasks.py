@@ -1046,11 +1046,11 @@ def save_cyq_data_history_task(self):
         logger.info(f"获取到 {len(all_stocks)} 只股票，开始为每只股票分派筹码分布任务...")
         for stock in all_stocks:
             # [修改] 传递可序列化的 ts_code 而不是整个 stock 对象
-            save_cyq_chips_history_batch.s(ts_code=stock.stock_code, end_date=today_date).apply_async()
+            save_cyq_chips_history_batch.s(ts_code=stock.stock_code, start_date=None, end_date=today_date).apply_async()
         logger.info(f"所有股票的筹码分布任务已分派完毕。")
         # [修改] 将此任务调用移出循环，因为它与单只股票无关，只需执行一次
         logger.info(f"开始分派 （本周）每日筹码及胜率 任务...")
-        save_cyq_perf_history_batch.s(end_date=today_date).apply_async()
+        save_cyq_perf_history_batch.s(start_date=None, end_date=today_date).apply_async()
         logger.info(f"任务结束: save_cyq_data_history_task (调度器模式)")
     except Exception as e:
         logger.error(f"执行 save_cyq_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
