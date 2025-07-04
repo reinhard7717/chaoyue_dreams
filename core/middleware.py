@@ -21,7 +21,7 @@ BLOCKED_PATH_PATTERNS = [
 # 定义速率限制的配置
 # 60秒内最多允许120次请求
 RATE_LIMIT_SECONDS = 60
-RATE_LIMIT_REQUESTS = 120
+RATE_LIMIT_REQUESTS = 1200
 
 class SecurityMiddleware:
     def __init__(self, get_response):
