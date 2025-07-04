@@ -431,11 +431,11 @@ class IndicatorService:
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
 
-        print(f"    - [数据标准化] 开始对所有已加载的周期 {list(raw_dfs.keys())} 进行UTC时区标准化...")
+        # print(f"    - [数据标准化] 开始对所有已加载的周期 {list(raw_dfs.keys())} 进行UTC时区标准化...")
         for tf, df in raw_dfs.items():
             if df is not None and not df.empty:
                 raw_dfs[tf] = self._standardize_df_index_to_utc(df)
-        print(f"    - [数据标准化] 所有周期UTC时区标准化完成。")
+        # print(f"    - [数据标准化] 所有周期UTC时区标准化完成。")
 
         print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
