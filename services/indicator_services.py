@@ -122,12 +122,12 @@ class IndicatorService:
         if df_copy.index.tz is None:
             # 如果索引是“天真”的（naive），我们根据业务知识（数据库存的是UTC）
             # 直接使用 tz_localize 将其“标记”为 UTC 时区。
-            print(f"    - [时区标准化] 检测到 naive 时间索引，根据规则直接本地化为 'UTC'。")
+            # print(f"    - [时区标准化] 检测到 naive 时间索引，根据规则直接本地化为 'UTC'。")
             df_copy.index = df_copy.index.tz_localize('UTC')
         else:
             # 如果索引已经是“感知”的（aware），为保证统一，依然将其转换为 UTC
             # 这可以处理数据来源多样化，部分数据可能为其他时区的情况。
-            print(f"    - [时区标准化] 检测到 aware 时间索引，统一转换为 'UTC'。")
+            # print(f"    - [时区标准化] 检测到 aware 时间索引，统一转换为 'UTC'。")
             df_copy.index = df_copy.index.tz_convert('UTC')
         return df_copy
 
