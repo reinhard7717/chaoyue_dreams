@@ -623,40 +623,55 @@ class IndicatorService:
             for z_config in zscore_params.get('configs', []):
                 if timeframe_key not in z_config.get("apply_on", []):
                     continue
+
                 try:
                     source_pattern = z_config.get("source_column_pattern")
-                    output_col_name = z_config.get("output_column_name")
+                    output_col_name_final = z_config.get("output_column_name") # 这是最终想要的列名，如 MACD_HIST_ZSCORE_D
                     window = z_config.get("window", 60)
-                    if not all([source_pattern, output_col_name, window]):
+
+                    if not all([source_pattern, output_col_name_final, window]):
                         logger.warning(f"Z-score配置不完整，跳过: {z_config}")
                         continue
-                    # 动态构建源列名
-                    source_col_name = source_pattern
-                    if "{fast}" in source_pattern: # 如果是MACD模式
+
+                    # 动态构建带后缀的源列名
+                    source_col_name_final = source_pattern
+                    if "{fast}" in source_pattern:
                         macd_cfg = config.get('macd', {})
-                        # 找到适用于当前时间周期的MACD参数
                         macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
                         if macd_periods and len(macd_periods) == 3:
-                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                            source_col_name_final = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
                         else:
                             logger.warning(f"无法为Z-score找到周期为'{timeframe_key}'的MACD参数，跳过。")
                             continue
-                    # 检查源列是否存在
-                    if source_col_name not in df_for_calc.columns:
-                        logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在DataFrame中不存在。")
+                    
+                    # 【核心修复】根据当前周期，移除列名中的后缀，得到在 df_for_calc 中实际使用的内部列名
+                    internal_suffix = f"_{timeframe_key}"
+                    internal_source_col = source_col_name_final.removesuffix(internal_suffix) if source_col_name_final.endswith(internal_suffix) else source_col_name_final
+                    internal_output_col = output_col_name_final.removesuffix(internal_suffix) if output_col_name_final.endswith(internal_suffix) else output_col_name_final
+
+                    # 检查内部源列是否存在于 df_for_calc
+                    if internal_source_col not in df_for_calc.columns:
+                        logger.warning(f"Z-score计算失败：内部源列 '{internal_source_col}' 在临时DataFrame中不存在。请检查源指标是否已成功计算。")
                         continue
+
                     # 执行Z-score计算
-                    source_series = df_for_calc[source_col_name]
+                    source_series = df_for_calc[internal_source_col]
                     rolling_mean = source_series.rolling(window=window, min_periods=1).mean()
                     rolling_std = source_series.rolling(window=window, min_periods=1).std()
-                    # 使用 np.divide 安全地处理除以0的情况，结果为 nan
-                    df_for_calc[output_col_name] = np.divide(
+                    
+                    # 使用 np.divide 安全地处理除以0的情况
+                    zscore_result = np.divide(
                         (source_series - rolling_mean), 
                         rolling_std, 
                         out=np.full_like(source_series, np.nan), 
                         where=rolling_std!=0
                     )
-                    print(f"    - [指标计算-ZScore] 已成功为列 '{source_col_name}' 计算Z-score，输出到 '{output_col_name}'。")
+                    
+                    # 将结果写入到内部DataFrame，使用不带后缀的列名
+                    df_for_calc[internal_output_col] = zscore_result
+                    
+                    print(f"    - [指标计算-ZScore] 已成功为列 '{internal_source_col}' 计算Z-score，临时输出到 '{internal_output_col}'。")
+
                 except Exception as e:
                     logger.error(f"计算Z-score时出错 (配置: {z_config}): {e}", exc_info=True)
 
