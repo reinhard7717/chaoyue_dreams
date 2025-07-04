@@ -255,30 +255,31 @@ class TrendFollowStrategy:
         print(f"    [调试-计分V22.0] 步骤2: 定义战术前提... 满足基础分天数: {tactical_precondition.sum()}, 满足严格趋势天数: {strict_precondition.sum()}")
         # --- 步骤3: 计算所有独立的日线战术原子信号 ---
         print("    [调试-计分V22.0] 步骤3: 计算日线战术原子信号...")
-        cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params)
-        cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params)
-        cond_v_reversal = self._find_v_reversal_entry(df, tactical_precondition, params)
-        cond_pullback_setup, pullback_target_price = self._find_pullback_setup(df, strict_precondition, params)
+        cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params) # 使用宽松前提
+        cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params) # 使用宽松前提
+        cond_v_reversal = self._find_v_reversal_entry(df, tactical_precondition, params) # 使用宽松前提
+        cond_pullback_setup, pullback_target_price = self._find_pullback_setup(df, strict_precondition, params) # 使用严格前提
         df['pullback_target_price'] = pullback_target_price
-        cond_bottom_divergence = self._find_bottom_divergence_entry(df, params)
-        cond_bias_reversal = self._find_bias_reversal_entry(df, params)
-        cond_washout_reversal = self._find_washout_reversal_entry(df, tactical_precondition, params)
-        cond_capital_flow_divergence = self._find_capital_flow_divergence_entry(df, params)
-        cond_momentum = self._find_momentum_entry(df, strict_precondition, params)
-        cond_first_breakout = self._find_first_breakout_entry(df, strict_precondition, params)
-        cond_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, strict_precondition, params)
-        cond_doji_continuation = self._find_doji_continuation_entry(df, strict_precondition, params)
-        cond_old_duck_head = self._find_old_duck_head_entry(df, strict_precondition, params)
-        cond_n_shape_relay = self._find_n_shape_relay_entry(df, strict_precondition, params)
-        cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params)
-        cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params)
-        cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params)
-        cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params)
-        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, strict_precondition, params)
-        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, strict_precondition, params)
-        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params)
-        cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition
-        indicator_signals = self._find_indicator_entry(df, strict_precondition, params)
+        cond_bottom_divergence = self._find_bottom_divergence_entry(df, params) # 左侧信号，无前提
+        cond_bias_reversal = self._find_bias_reversal_entry(df, params) # 左侧信号，无前提
+        cond_washout_reversal = self._find_washout_reversal_entry(df, tactical_precondition, params) # 使用宽松前提
+        cond_capital_flow_divergence = self._find_capital_flow_divergence_entry(df, params) # 左侧信号，无前提
+        cond_momentum = self._find_momentum_entry(df, strict_precondition, params) # 使用严格前提
+        cond_first_breakout = self._find_first_breakout_entry(df, strict_precondition, params) # 使用严格前提
+        # ▼▼▼ 布林收口突破是趋势启动信号，不应使用严格前提，改为宽松前提 ▼▼▼
+        cond_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, tactical_precondition, params) # 使用宽松前提
+        cond_doji_continuation = self._find_doji_continuation_entry(df, strict_precondition, params) # 使用严格前提
+        cond_old_duck_head = self._find_old_duck_head_entry(df, strict_precondition, params) # 使用严格前提
+        cond_n_shape_relay = self._find_n_shape_relay_entry(df, strict_precondition, params) # 使用严格前提
+        cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params) # 使用严格前提
+        cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params) # 使用严格前提
+        cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params) # 使用严格前提
+        cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params) # 使用严格前提
+        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, strict_precondition, params) # 使用严格前提
+        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, strict_precondition, params) # 使用严格前提
+        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 左侧信号，无前提
+        cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition # 使用严格前提
+        indicator_signals = self._find_indicator_entry(df, strict_precondition, params) # 使用严格前提
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
         cond_cmf_confirm = self._check_cmf_confirmation(df, params)
         cond_vwap_support = self._check_vwap_confirmation(df_dict, params)
@@ -286,10 +287,10 @@ class TrendFollowStrategy:
         board_patterns = self._identify_board_patterns(df, params)
         cond_earth_heaven_board, cond_turnover_board, cond_heaven_earth_board = board_patterns.get('earth_heaven_board', pd.Series(False, index=df.index)), board_patterns.get('turnover_board', pd.Series(False, index=df.index)), board_patterns.get('heaven_earth_board', pd.Series(False, index=df.index))
         cond_volume_breakdown = self._find_volume_breakdown_exit(df, params)
-        cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, strict_precondition, params)
-        cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
+        cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, strict_precondition, params) # 使用严格前提
+        cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params) # 使用严格前提
         cond_fund_flow_confirm = self._check_fund_flow_confirmation(df, params)
-        cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params)
+        cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params) # 使用严格前提
         steady_climb_params = self._get_params_block(params, 'steady_climb_params')
         is_low_volatility = pd.Series(False, index=df.index)
         if steady_climb_params.get('enabled', False):
@@ -305,7 +306,7 @@ class TrendFollowStrategy:
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
         # ▼▼▼ “日线战术层 - 剧本计算总结”日志块 ▼▼▼
-        print("\n---【日线战术层 - 剧本计算总结】---")
+        print("\n---【日线战术层 - 剧本计算总结 V2】---")
         playbook_summary = {
             "均线加速上涨 (MA_ACCELERATION)": cond_ma_acceleration,
             "筹码集中突破 (CHIP_CONCENTRATION_BREAKTHROUGH)": cond_chip_concentration_breakthrough,
@@ -314,6 +315,7 @@ class TrendFollowStrategy:
             "筹码压力释放 (CHIP_PRESSURE_RELEASE)": cond_chip_pressure_release,
             "筹码成本区突破 (CHIP_COST_BREAKTHROUGH)": cond_chip_cost_breakthrough,
             "常规回踩 (PULLBACK_NORMAL)": is_normal_pullback,
+            "稳步回踩 (PULLBACK_STEADY_CLIMB)": is_steady_climb_pullback, # 新增
             "V型反转 (V_SHAPE_REVERSAL)": cond_v_reversal,
             "底部首板 (FIRST_BREAKOUT)": cond_first_breakout,
             "布林收口突破 (BBAND_SQUEEZE_BREAKOUT)": cond_bb_squeeze_breakout,
@@ -1317,21 +1319,64 @@ class TrendFollowStrategy:
         return signal
 
     # 通用的背离检测逻辑
-    def _find_divergence(self, price_series: pd.Series, indicator_series: pd.Series, find_peaks_params: dict, find_troughs_params: dict) -> Tuple[pd.Series, pd.Series]:
+    def _find_divergence(self, price_series: pd.Series, indicator_series: pd.Series, 
+                         find_peaks_params: dict, find_troughs_params: dict) -> Tuple[pd.Series, pd.Series]:
         """
-        【V3.1 终极向量化版】通用背离检测函数。
-        - 使用与底背离检测相同的稀疏序列+ffill技巧，完全向量化。
-        - 能同时高效计算顶背离和底背离。
+        【V4.0 算法修复版】通用背离检测函数。
+        - 核心修复: 解决了prominence参数的“相对/绝对”值混用问题。
+        - 动态计算: 能根据价格序列的实际范围，将配置文件中的相对prominence(如0.02)转换为绝对值。
+        - 参数兼容: 允许为指标(indicator)单独指定一个绝对的prominence值(prominence_indicator)。
+        - 向量化保留: 完全保留了V3.1版本中高效的ffill向量化核心逻辑。
         """
-        # 创建一个临时的DataFrame，避免污染原始df
+        # 步骤1: 创建一个临时的DataFrame，避免污染原始df
         temp_df = pd.DataFrame({
             'price': price_series,
             'indicator': indicator_series
         })
 
+        # 步骤2: 【核心修复】动态计算并准备 find_peaks 所需的参数
+        # ----------------------------------------------------------------
+        # 复制参数字典，避免修改传入的原始字典
+        peak_params = find_peaks_params.copy()
+        trough_params = find_troughs_params.copy()
+
+        # 计算价格序列的波动范围，用于将相对prominence转换为绝对值
+        price_range = temp_df['price'].max() - temp_df['price'].min()
+        if price_range == 0: price_range = 0.01 # 避免在价格不变时除以零
+
+        # --- 准备价格查找参数 ---
+        price_peak_params = peak_params.copy()
+        if 'prominence' in price_peak_params:
+            # 将价格的相对prominence转换为绝对值
+            relative_prom = price_peak_params['prominence']
+            price_peak_params['prominence'] = price_range * relative_prom
+            if self.verbose_logging:
+                print(f"    [调试-背离检测] 价格波峰相对prominence: {relative_prom}, 计算后绝对值: {price_peak_params['prominence']:.4f}")
+
+        price_trough_params = trough_params.copy()
+        if 'prominence' in price_trough_params:
+            # 将价格的相对prominence转换为绝对值
+            relative_prom = price_trough_params['prominence']
+            price_trough_params['prominence'] = price_range * relative_prom
+            if self.verbose_logging:
+                print(f"    [调试-背离检测] 价格波谷相对prominence: {relative_prom}, 计算后绝对值: {price_trough_params['prominence']:.4f}")
+
+        # --- 准备指标查找参数 ---
+        indicator_peak_params = peak_params.copy()
+        if 'prominence_indicator' in indicator_peak_params:
+            # 如果为指标指定了独立的prominence，则使用它
+            indicator_peak_params['prominence'] = indicator_peak_params.pop('prominence_indicator')
+        
+        indicator_trough_params = trough_params.copy()
+        if 'prominence_indicator' in indicator_trough_params:
+            # 如果为指标指定了独立的prominence，则使用它
+            indicator_trough_params['prominence'] = indicator_trough_params.pop('prominence_indicator')
+        # ----------------------------------------------------------------
+
+        # 步骤3: 使用修复后的参数执行波峰/波谷查找
         # --- 顶背离计算 ---
-        price_peaks, _ = find_peaks(temp_df['price'], **find_peaks_params)
-        indicator_peaks, _ = find_peaks(temp_df['indicator'], **find_peaks_params)
+        price_peaks, _ = find_peaks(temp_df['price'], **price_peak_params)
+        indicator_peaks, _ = find_peaks(temp_df['indicator'], **indicator_peak_params)
         
         temp_df['price_at_peak'] = np.nan
         temp_df.iloc[price_peaks, temp_df.columns.get_loc('price_at_peak')] = temp_df['price'].iloc[price_peaks]
@@ -1346,8 +1391,8 @@ class TrendFollowStrategy:
         top_divergence_signal = temp_df['price_at_peak'].notna() & temp_df['indicator_at_peak'].notna() & price_higher_high & indicator_lower_high
 
         # --- 底背离计算 ---
-        price_troughs, _ = find_peaks(-temp_df['price'], **find_troughs_params)
-        indicator_troughs, _ = find_peaks(-temp_df['indicator'], **find_troughs_params)
+        price_troughs, _ = find_peaks(-temp_df['price'], **price_trough_params)
+        indicator_troughs, _ = find_peaks(-temp_df['indicator'], **indicator_trough_params)
 
         temp_df['price_at_trough'] = np.nan
         temp_df.iloc[price_troughs, temp_df.columns.get_loc('price_at_trough')] = temp_df['price'].iloc[price_troughs]
@@ -1361,9 +1406,9 @@ class TrendFollowStrategy:
         indicator_higher_low = temp_df['indicator_at_trough'] > temp_df['last_indicator_trough'].shift(1)
         bottom_divergence_signal = temp_df['price_at_trough'].notna() & temp_df['indicator_at_trough'].notna() & price_lower_low & indicator_higher_low
         
-        # 添加了至关重要的 return 语句，并返回Series以避免索引问题
+        # 步骤4: 返回结果，并确保索引与输入一致
         return top_divergence_signal.set_axis(price_series.index), bottom_divergence_signal.set_axis(price_series.index)
-
+    
     # 寻找复合顶背离卖点
     def _find_top_divergence_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """【V5.0 参数适配版】调用新的辅助函数获取正确的指标周期。"""
@@ -1646,6 +1691,7 @@ class TrendFollowStrategy:
         params = self._get_params_block(params, 'cost_area_reinforcement_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
+        
         # 依赖检查
         vol_ma_period = self._get_params_block(params, 'first_breakout_params').get('vol_ma_period', 20)
         vol_ma_col = f"VOL_MA_{vol_ma_period}_D"

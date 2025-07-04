@@ -526,8 +526,8 @@ class IndicatorDAO(BaseDAO):
                 trade_time__range=(start_date, end_date)
             ).values(
                 'trade_time',
-                'cost_5pct',
-                'cost_95pct',
+                'cost_15pct',
+                'cost_85pct',
                 'weight_avg',
                 'winner_rate'
             )
@@ -540,8 +540,8 @@ class IndicatorDAO(BaseDAO):
             df = df.set_index('trade_time')
             # 为列名添加前缀和后缀，以符合策略框架的规范
             df = df.rename(columns={
-                'cost_5pct': 'CYQ_cost_5pct_D',
-                'cost_95pct': 'CYQ_cost_95pct_D',
+                'cost_15pct': 'CYQ_cost_15pct_D',
+                'cost_85pct': 'CYQ_cost_85pct_D',
                 'weight_avg': 'CYQ_weight_avg_D',
                 'winner_rate': 'CYQ_winner_rate_D'
             })

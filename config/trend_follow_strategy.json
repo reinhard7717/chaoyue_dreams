@@ -224,14 +224,23 @@
       },
       "bottom_divergence_params": {
         "enabled": true,
-        "说明": "【剧本参数】复合底背离。寻找价格新低，但一个或多个指标（RSI, MACD）拒绝新低的左侧反转信号。",
+        "说明": "【剧本参数-V2 A股优化版】复合底背离。寻找价格新低，但一个或多个指标（RSI, MACD）拒绝新低的左侧反转信号。",
         "distance": 5,
         "说明_distance": "寻找波谷时，两个波谷之间的最小距离（K线数量）。",
         "prominence_price": 0.02,
-        "说明_prominence_price": "价格波谷的最小“突起”程度（相对于自身价格的比例），用于过滤掉不重要的微小波动。",
+        "说明_prominence_price": "价格波谷的最小“突起”程度（相对于自身价格范围的比例），用于过滤掉不重要的微小价格波动。",
+        "rsi_col": "RSI_14_D",
+        "说明_rsi_col": "用于计算背离的RSI列名。",
+        "prominence_rsi": 7.5,
+        "说明_prominence_rsi": "【A股推荐】RSI指标波谷的最小“突起”程度（绝对值）。RSI是有界指标(0-100)，适合用固定值。推荐范围[5, 10]。",
+        "macd_hist_col": "MACD_HIST_ZSCORE_D",
+        "说明_macd_hist_col": "【推荐】用于计算背离的MACD柱状图列名。强烈建议使用经过Z-score标准化的列，以消除价格尺度影响。",
+        "prominence_macd_zscore": 0.75,
+        "说明_prominence_macd_zscore": "【A股推荐】标准化MACD指标波谷的最小“突起”程度（绝对值）。推荐范围[0.5, 1.0]。",
         "prominence_indicator": 0.5,
-        "说明_prominence_indicator": "指标波谷的最小“突起”程度（绝对值），用于过滤指标的微小波动。"
+        "说明_prominence_indicator": "【已废弃】这是一个通用的指标prominence值，已被更具体的prominence_rsi和prominence_macd_zscore取代，以获得更精确的信号。"
       },
+
       "capital_flow_divergence_params": {
         "enabled": true,
         "说明": "【剧本参数】资金暗流（资金流背离）。寻找价格新低，但资金流指标（OBV, CMF）拒绝新低的左侧吸筹信号。",
