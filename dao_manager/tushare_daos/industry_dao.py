@@ -20,6 +20,7 @@ from utils.cache_get import StockInfoCacheGet
 from utils.data_format_process import IndustryFormatProcess
 
 logger = logging.getLogger("dao")
+BATCH_SAVE_SIZE = 100000
 
 class IndustryDao(BaseDAO):
     def __init__(self):
@@ -320,7 +321,6 @@ class IndustryDao(BaseDAO):
         5.  **异步优化**: 使用 `asyncio.sleep` 替代 `time.sleep`。
         """
         # --- 1. 初始化和准备 ---
-        BATCH_SAVE_SIZE = 5000  # 每5000条数据保存一次
         API_CALL_DELAY_SECONDS = 0.3 # API调用间隔 (180/m 限制，即每秒3次，0.3s间隔较安全)
         
         final_result = {}

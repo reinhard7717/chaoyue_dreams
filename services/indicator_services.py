@@ -56,6 +56,58 @@ class IndicatorService:
             logger.error("pandas-ta 库未安装，请运行 'pip install pandas-ta'")
             ta = None
 
+    # ▼▼▼ 新增调试辅助函数，用于打印DataFrame时间范围 ▼▼▼
+    def _log_df_time_range(self, df: Optional[pd.DataFrame], df_name: str):
+        """【调试函数】打印DataFrame的时间范围、数据量等基本信息。"""
+        print(f"    - [数据清查-范围] 正在检查 '{df_name}'...")
+        if df is None or df.empty:
+            print(f"      -> 结果: DataFrame为空或None。")
+            return
+        
+        if not isinstance(df.index, pd.DatetimeIndex):
+            print(f"      -> 结果: 索引不是 DatetimeIndex，无法分析时间范围。")
+            return
+            
+        start_time = df.index.min().strftime('%Y-%m-%d %H:%M:%S')
+        end_time = df.index.max().strftime('%Y-%m-%d %H:%M:%S')
+        count = len(df)
+        print(f"      -> 结果: 数据量={count}, 开始时间='{start_time}', 结束时间='{end_time}'")
+
+    # ▼▼▼ 新增调试辅助函数，用于抽查数据对齐情况 ▼▼▼
+    def _log_alignment_check(self, df: pd.DataFrame, num_samples: int = 10):
+        """【调试函数】随机抽查最终合并的DataFrame，检查关键列的数据对齐情况。"""
+        print(f"\n--- [数据清查-阶段2: 合并对齐抽查] ---")
+        if df.empty or len(df) < num_samples:
+            print("    -> 抽查失败: DataFrame数据量不足。")
+            print(f"--- [数据清查-阶段2: 检查完成] ---\n")
+            return
+            
+        # 定义希望抽查的关键列（来自不同数据源）
+        # 我们会检查这些列是否存在，然后只显示存在的列
+        key_columns_to_check = [
+            'close', # 原始OHLCV
+            'net_mf_amount', # 资金流
+            'CYQ_PROFIT_RATIO', # CYQ筹码
+            'EMA_20', # 计算指标
+        ]
+        
+        # 筛选出DataFrame中实际存在的列
+        display_columns = [col for col in key_columns_to_check if col in df.columns]
+        
+        if not display_columns:
+            print("    -> 抽查警告: 在DataFrame中未找到任何可供检查的关键列。")
+            print(f"--- [数据清查-阶段2: 检查完成] ---\n")
+            return
+
+        print(f"    -> 随机抽取 {num_samples} 个时间点，检查以下关键列的数据对齐情况: {display_columns}")
+        
+        # 使用固定的随机种子以保证每次抽查结果一致，便于调试
+        sampled_df = df.sample(n=num_samples, random_state=42)
+        
+        # 打印抽样结果
+        print(sampled_df[display_columns])
+        print(f"--- [数据清查-阶段2: 检查完成] ---\n")
+
     # ▼▼▼ 一个可复用的、健壮的时区标准化辅助函数 ▼▼▼
     def _standardize_df_index_to_utc(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
         """
@@ -68,7 +120,7 @@ class IndicatorService:
             return df
         # 创建副本以避免修改原始传入的DataFrame
         df_copy = df.copy()
-        # ▼▼▼【代码修改】: 根据“源数据为UTC”的规则进行修正 ▼▼▼
+        # ▼▼▼ 根据“源数据为UTC”的规则进行修正 ▼▼▼
         # 检查索引是否有时区信息
         if df_copy.index.tz is None:
             # 如果索引是“天真”的（naive），我们根据业务知识（数据库存的是UTC）
@@ -80,7 +132,6 @@ class IndicatorService:
             # 这可以处理数据来源多样化，部分数据可能为其他时区的情况。
             print(f"    - [时区标准化] 检测到 aware 时间索引，统一转换为 'UTC'。")
             df_copy.index = df_copy.index.tz_convert('UTC')
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
         return df_copy
 
     def _load_config(self, path: str) -> Dict:
@@ -277,10 +328,10 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V7.2 根源性时区修复版】
-        - 核心修复: 将时区标准化操作提前，确保所有时间周期(日线、分钟线等)的数据在计算指标前都统一转换为UTC。
-        - 问题根源: 旧版代码仅在处理日线数据时才进行时区转换，遗漏了所有分钟线数据。
-        - 解决方案: 在获取并重采样完所有原始数据(raw_dfs)后，立即对其中的每一个DataFrame执行时区标准化。
+        【V7.4 数据清查版】
+        - 新增功能: 增加了两个调试阶段，用于清查底层数据的完整性和合并后的对齐情况。
+        - 阶段一: 在获取完所有原始数据后，打印每个DataFrame的时间范围和数据量。
+        - 阶段二: 在日线数据合并及指标计算完成后，随机抽查10个时间点，检查关键列的对齐情况。
         """
         # --- 步骤 1: 智能发现所需周期 (无变化) ---
         required_tfs = self._discover_required_timeframes_from_config(config)
@@ -309,71 +360,71 @@ class IndicatorService:
 
         tasks = []
 
-        # 内部辅助函数，用于获取数据并打上时间周期标签
         async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, bars_to_fetch, trade_time_str)
-            # 核心：返回一个元组 (标签, 数据)，而不是只返回数据
             return (tf_to_fetch, df)
 
-        # 任务1: 获取所有必需的【基础】OHLCV数据
         for tf in base_tfs_to_fetch:
             bars_to_fetch = base_needed_bars
             if tf == 'D' and resample_map:
                 bars_to_fetch = max(bars_to_fetch, 1000)
                 print(f"    - [数据量决策] 为支持重采样，日线数据获取量提升至: {bars_to_fetch}")
-            
-            # 添加带标签的异步任务
             tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
         
-        # 任务2: 如果需要，才获取资金流数据 (这部分逻辑不变，因为它只有一个任务，不会混淆)
         if needs_fund_chips_data:
-            trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
-            tasks.append(self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt))
-
+            async def _fetch_fund_data_tagged(stock_code, trade_time):
+                trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+                df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt)
+                return ('fund_chips', df)
+            tasks.append(_fetch_fund_data_tagged(stock_code, trade_time))
+        
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # --- 步骤 3: 【健壮的】解包并行任务的结果 ---
         raw_dfs: Dict[str, pd.DataFrame] = {}
         df_fund_chips: Optional[pd.DataFrame] = None
 
-        # 遍历返回的结果，现在每个结果都是带标签的
         for result in all_data_results:
             if isinstance(result, Exception):
                 logger.error(f"[{stock_code}] 在并行获取数据时发生错误: {result}")
                 continue
-            
-            # 解包带标签的数据
-            if isinstance(result, tuple) and len(result) == 2:
-                tf, df = result  # 解包出 时间周期 和 DataFrame
+            if not (isinstance(result, tuple) and len(result) == 2):
+                logger.warning(f"[{stock_code}] 并行任务返回了非预期的格式: {type(result)}，已跳过。")
+                continue
+            tag, data = result
+            if tag == 'fund_chips':
+                if isinstance(data, pd.DataFrame):
+                    df_fund_chips = data
+            else:
+                tf = tag
+                df = data
                 if isinstance(df, pd.DataFrame) and not df.empty:
-                    raw_dfs[tf] = df # 使用标签作为key，准确无误
+                    raw_dfs[tf] = df
                 else:
-                    # 即使数据为空也打印日志，方便追踪
                     logger.warning(f"[{stock_code}] 获取基础周期 {tf} 数据时返回为空或非DataFrame。")
-            # 处理资金流数据的返回 (它不是元组)
-            elif isinstance(result, pd.DataFrame):
-                # 假设非元组的DataFrame就是资金流数据
-                df_fund_chips = result
+
+        # ▼▼▼【代码修改】: 插入阶段一调试，检查原始数据范围 ▼▼▼
+        print("\n--- [数据清查-阶段1: 原始数据范围检查] ---")
+        for tf, df in raw_dfs.items():
+            self._log_df_time_range(df, f"原始-{tf}周期OHLCV")
+        self._log_df_time_range(df_fund_chips, "原始-资金流与筹码")
+        print("--- [数据清查-阶段1: 检查完成] ---\n")
+        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         if 'D' not in raw_dfs:
             logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
             return {}
         
-        # ▼▼▼ 在获取完日线数据后，按需获取CYQ筹码数据 ▼▼▼
         df_cyq_perf = None
         if needs_cyq_perf_data and 'D' in raw_dfs:
             try:
-                # 使用日线数据的索引作为日期列表来请求CYQ数据，确保日期对齐
                 trade_dates = raw_dfs['D'].index.tolist()
                 df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
-                if df_cyq_perf is not None and not df_cyq_perf.empty:
-                    pass
-                else:
-                    print(f"    - [CYQ数据] 未获取到筹码数据。")
+                # ▼▼▼【代码修改】: 插入CYQ数据范围检查 ▼▼▼
+                self._log_df_time_range(df_cyq_perf, "原始-CYQ筹码分布")
+                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
             except Exception as e:
                 logger.error(f"[{stock_code}] 获取CYQ筹码数据时发生异常: {e}")
 
-        # ▼▼▼ 执行重采样，生成周线/月线数据 ▼▼▼
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -385,51 +436,42 @@ class IndicatorService:
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
 
-        # ▼▼▼【代码修改】: 在此处统一进行时区标准化 ▼▼▼
-        # 解释: 这是解决时区问题的最终、最根本的位置。
-        # 在所有原始数据（包括重采样生成的）准备好后，但在进行任何指标计算或合并之前，
-        # 我们遍历每一个DataFrame，并将其索引统一为正确的UTC时间。
         print(f"    - [数据标准化] 开始对所有已加载的周期 {list(raw_dfs.keys())} 进行UTC时区标准化...")
         for tf, df in raw_dfs.items():
             if df is not None and not df.empty:
-                # 调用我们之前修复好的辅助函数
                 raw_dfs[tf] = self._standardize_df_index_to_utc(df)
         print(f"    - [数据标准化] 所有周期UTC时区标准化完成。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
         print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
-        # --- 步骤 4: 为每个周期的数据独立计算指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
             if tf == 'D':
-                # 融合旧版资金流数据
                 if df_fund_chips is not None and not df_fund_chips.empty:
                     print("    - [数据融合] 正在将旧版资金流数据合并到日线数据...")
-                    # ▼▼▼【代码修改】: 清理冗余代码 ▼▼▼
-                    # 解释: 由于主数据df已在上方被统一处理，此处的调用是多余的，故移除。
-                    # 我们只需确保待合并的df_fund_chips也被标准化即可。
                     df_fund_chips_std = self._standardize_df_index_to_utc(df_fund_chips)
                     df = pd.merge(df, df_fund_chips_std, left_index=True, right_index=True, how='left')
                     df[list(df_fund_chips_std.columns)] = df[list(df_fund_chips_std.columns)].fillna(0)
-                # 融合新版CYQ筹码数据
                 if df_cyq_perf is not None and not df_cyq_perf.empty:
                     print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
-                    # 同样，只需确保待合并的df_cyq_perf被标准化。
                     df_cyq_perf_std = self._standardize_df_index_to_utc(df_cyq_perf)
-                    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
                     df = pd.merge(df, df_cyq_perf_std, left_index=True, right_index=True, how='left')
                     cyq_cols = [col for col in df.columns if col.startswith('CYQ_')]
                     df[cyq_cols] = df[cyq_cols].ffill()
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
+            
+            # ▼▼▼【代码修改】: 插入阶段二调试，检查最终合并对齐情况 ▼▼▼
+            # 解释: 我们只对最复杂的日线数据进行抽样检查，因为它融合了最多的数据源。
+            if tf == 'D':
+                self._log_alignment_check(df_with_indicators)
+            # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            
             return tf, df_with_indicators
 
-        # 只为那些成功获取或生成了数据的周期计算指标
         for tf, df in raw_dfs.items():
-            # 确保这个周期是原始请求需要的，避免不必要的计算
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
 
@@ -443,7 +485,7 @@ class IndicatorService:
                 tf, df_processed = res
                 processed_dfs[tf] = df_processed
 
-        print(f"--- [数据准备V7.2-诊断版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
+        print(f"--- [数据准备V7.4-数据清查版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
