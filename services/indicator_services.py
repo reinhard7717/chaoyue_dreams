@@ -399,13 +399,12 @@ class IndicatorService:
                 else:
                     logger.warning(f"[{stock_code}] 获取基础周期 {tf} 数据时返回为空或非DataFrame。")
 
-        # ▼▼▼【代码修改】: 插入阶段一调试，检查原始数据范围 ▼▼▼
-        print("\n--- [数据清查-阶段1: 原始数据范围检查] ---")
-        for tf, df in raw_dfs.items():
-            self._log_df_time_range(df, f"原始-{tf}周期OHLCV")
-        self._log_df_time_range(df_fund_chips, "原始-资金流与筹码")
-        print("--- [数据清查-阶段1: 检查完成] ---\n")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+        # ▼▼▼ 插入阶段一调试，检查原始数据范围 ▼▼▼
+        # print("\n--- [数据清查-阶段1: 原始数据范围检查] ---")
+        # for tf, df in raw_dfs.items():
+        #     self._log_df_time_range(df, f"原始-{tf}周期OHLCV")
+        # self._log_df_time_range(df_fund_chips, "原始-资金流与筹码")
+        # print("--- [数据清查-阶段1: 检查完成] ---\n")
 
         if 'D' not in raw_dfs:
             logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
@@ -416,9 +415,8 @@ class IndicatorService:
             try:
                 trade_dates = raw_dfs['D'].index.tolist()
                 df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
-                # ▼▼▼【代码修改】: 插入CYQ数据范围检查 ▼▼▼
-                self._log_df_time_range(df_cyq_perf, "原始-CYQ筹码分布")
-                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+                # ▼▼▼ 插入CYQ数据范围检查 ▼▼▼
+                # self._log_df_time_range(df_cyq_perf, "原始-CYQ筹码分布")
             except Exception as e:
                 logger.error(f"[{stock_code}] 获取CYQ筹码数据时发生异常: {e}")
 
