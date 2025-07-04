@@ -292,12 +292,6 @@ class StockMonthlyDataSerializer(serializers.ModelSerializer):
         model = StockMonthlyData
         fields = '__all__'
 
-class StockCyqChipsSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.time_trade import StockCyqChips
-        model = StockCyqChips
-        fields = '__all__'
-
 class StockCyqPerfSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.time_trade import StockCyqPerf

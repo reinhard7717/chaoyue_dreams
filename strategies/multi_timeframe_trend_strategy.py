@@ -61,6 +61,64 @@ class MultiTimeframeTrendStrategy:
 
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
 
+    def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
+        """
+        【新增】根据最终的信号记录字典，生成人类可读的分析报告。
+        此方法是旧版 _score_and_generate_report 的升级替代品。
+        """
+        stock_code = record.get("stock_code", "N/A")
+        trade_time = record.get("trade_time")
+        time_str = trade_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(trade_time, datetime) else str(trade_time)
+        timeframe = record.get("timeframe", "N/A")
+        
+        report_parts = [f"*** 信号分析报告 ({stock_code}) ***"]
+        report_parts.append(f"信号时间: {time_str} (周期: {timeframe})")
+
+        # 分类处理：止盈信号 vs 买入信号
+        if record.get('exit_signal_code', 0) > 0:
+            # --- 止盈信号报告 ---
+            exit_code = record.get('exit_signal_code')
+            # 创建一个退出代码到原因的映射，使报告更具可读性
+            exit_reasons = {
+                1: "股价接近前期重要阻力位",
+                2: "股价从高点回撤，触发移动止盈",
+                3: "RSI指标超买，市场情绪过热",
+                4: "出现顶背离信号，趋势可能反转",
+                5: "BIAS指标超买，乖离率过大",
+                6: "出现天地板形态，市场恐慌性抛售",
+                7: "高位出现长上影线，疑似主力派发",
+                8: "放量跌破关键支撑位",
+                9: "跌破动态箱体下沿，盘整趋势破坏",
+                10: "股价触及斐波那契扩展目标位",
+                999: "未定义的止盈规则"
+            }
+            reason = exit_reasons.get(exit_code, f"未知的止盈代码({exit_code})")
+            
+            report_parts.append("信号类型: 趋势止盈")
+            report_parts.append(f"核心发现: **触发止盈条件，建议考虑获利了结或减仓。**")
+            report_parts.append(f"触发原因: {reason} (代码: {exit_code})")
+
+        elif record.get('entry_signal', False):
+            # --- 买入信号报告 ---
+            score = record.get('entry_score', 0.0)
+            playbooks = record.get('triggered_playbooks', [])
+            
+            report_parts.append(f"信号类型: 综合买入 (总分: {score:.2f})")
+            report_parts.append("核心发现: **多个看涨剧本共振，形成高置信度买入信号！**")
+            
+            if playbooks:
+                report_parts.append("触发剧本:")
+                for playbook in sorted(playbooks):
+                    report_parts.append(f"  - {playbook}")
+            else:
+                report_parts.append("触发剧本: (无明确剧本)")
+        else:
+            # --- 其他情况 (理论上不应发生，因为只为有信号的记录生成报告) ---
+            report_parts.append("信号类型: 无明确信号")
+            report_parts.append("核心发现: 当前无明确的交易信号。")
+
+        return "\n".join(report_parts)
+
     def _discover_take_profit_indicators(self, config: Dict) -> Dict:
         """从止盈配置中发现需要计算的指标。"""
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
@@ -187,11 +245,24 @@ class MultiTimeframeTrendStrategy:
         final_entry_records = self._merge_and_deduplicate_signals(tactical_records, execution_records)
         
         all_records = final_entry_records + take_profit_records
+
+        # ▼▼▼ 在流程最后，为所有最终信号生成并添加分析报告 ▼▼▼
+        if all_records:
+            logger.info(f"\n--- 报告生成: 为 {len(all_records)} 条最终信号生成分析报告...")
+            for record in all_records:
+                # 调用新方法生成报告文本
+                report_text = self._generate_analysis_report(record)
+                # 将报告文本添加到记录字典中
+                record['analysis_text'] = report_text
+                # 可以在日志中打印报告以供调试
+                print("----------------------------------------------------")
+                print(report_text)
+                print("----------------------------------------------------")
         
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
 
-    # ▼▼▼【代码修改】: 简化此方法，因为剧本合并逻辑已前移 ▼▼▼
+    # ▼▼▼ 简化此方法，因为剧本合并逻辑已前移 ▼▼▼
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
         """
         【V6.4 剧本合并修复版】
@@ -237,8 +308,7 @@ class MultiTimeframeTrendStrategy:
 
         for trade_date in sorted_dates:
             signals = signals_by_day[trade_date]
-            
-            # ▼▼▼【代码修改】: 简化合并逻辑 ▼▼▼
+
             if 'M' in signals:
                 # 优先保留分钟线信号，因为它已经包含了所有需要的信息（分数、合并后的剧本）
                 # print(f"  - [信号整合] 日期 {trade_date}: 发现分钟线信号，优先保留。剧本: {signals['M'].get('triggered_playbooks')}")
@@ -247,7 +317,6 @@ class MultiTimeframeTrendStrategy:
                 # 如果当天只有日线信号，则保留日线信号
                 # print(f"  - [信号整合] 日期 {trade_date}: 仅发现日线信号，予以保留。")
                 final_records.append(signals['D'])
-            # ▲▲▲【代码修改】: 结束 ▲▲▲
         
         return final_records
 
@@ -282,7 +351,7 @@ class MultiTimeframeTrendStrategy:
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
-    # ▼▼▼【代码修改】: 此方法为核心修改区域，负责合并剧本 ▼▼▼
+    # ▼▼▼ 此方法为核心修改区域，负责合并剧本 ▼▼▼
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         # print("\n--- [引擎3-调试 V6.4] 进入 _run_intraday_resonance_engine ---")
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
@@ -316,11 +385,10 @@ class MultiTimeframeTrendStrategy:
         # print("    - [引擎3-调试] 新增步骤: 融合日线趋势、得分及剧本，创建综合过滤器...")
         daily_score_threshold = self.tactical_config.get('entry_scoring_params', {}).get('score_threshold', 100)
         
-        # ▼▼▼【代码修改】: 从日线分析结果中，除了分数，还要提取出所有playbook列 ▼▼▼
+        # ▼▼▼ 从日线分析结果中，除了分数，还要提取出所有playbook列 ▼▼▼
         daily_playbook_cols = [col for col in self.daily_analysis_df.columns if col.startswith('playbook_')]
         daily_context_cols_to_merge = ['context_mid_term_bullish', 'entry_score'] + daily_playbook_cols
         daily_context_df = self.daily_analysis_df[daily_context_cols_to_merge].copy()
-        # ▲▲▲【代码修改】: 结束 ▲▲▲
 
         is_bullish_trend = daily_context_df['context_mid_term_bullish']
         is_reversal_day = daily_context_df['entry_score'] >= daily_score_threshold
@@ -381,7 +449,6 @@ class MultiTimeframeTrendStrategy:
             # 4. 创建基础记录，并用合并后的剧本覆盖默认值
             record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
             record['triggered_playbooks'] = combined_playbooks # 使用合并后的剧本列表
-            # ▲▲▲【代码修改】: 结束 ▲▲▲
 
             # 计算融合分数
             daily_score = sanitize_for_json(row.get('daily_entry_score', 0.0))

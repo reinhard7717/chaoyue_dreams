@@ -12,7 +12,7 @@ from datetime import datetime, date, timedelta
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockCyqChips, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
+from stock_models.time_trade import StockCyqChips, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
@@ -1345,6 +1345,24 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_daily_basic_list
         
     #  =============== A股筹码及胜率 ===============
+    def get_daily_data_model_by_code(self, stock_code: str):
+        """
+        根据股票代码返回对应的筹码分布数据表Model
+        """
+        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+            return StockCyqChipsCY
+        elif stock_code.endswith('.SZ'):
+            return StockCyqChipsSZ
+        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+            return StockCyqChipsKC
+        elif stock_code.endswith('.SH'):
+            return StockCyqChipsSH
+        elif stock_code.endswith('.BJ'):
+            return StockCyqChipsBJ
+        else:
+            print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
+            return StockCyqChipsSZ  # 默认返回深市主板
+
     # 每日筹码及胜率
     async def save_all_cyq_perf_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
         """
@@ -1504,119 +1522,165 @@ class StockTimeTradeDAO(BaseDAO):
     # 每日筹码分布
     async def save_all_cyq_chips_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
         """
-        保存全市场股票的每日筹码分布数据 (优化版)
-        1. 修复了offset未重置的致命bug。
-        2. 使用向量化操作替代内部循环，提升处理效率。
-        3. 引入分批保存机制，降低内存消耗，提高程序稳定性。
+        保存全市场股票的每日筹码分布数据 (终极优化版)
+        1. [新增] 引入分表逻辑，将数据按板块存入不同数据表。
+        2. [新增] 引入10万行追溯逻辑，确保获取全量历史数据。
+        3. [优化] 使用异步 asyncio.sleep 替代同步 time.sleep，防止阻塞事件循环。
+        4. [重构] 重构批处理机制，以适应分表场景。
         """
-        # --- 简化日期字符串格式化 ---
+        # --- 日期字符串格式化 (无变化) ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20180101"
-        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+        initial_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         all_stocks = await self.stock_basic_dao.get_stock_list()
         if not all_stocks:
             logger.warning("股票基础信息列表为空，任务终止。")
             return
-        # --- 引入分批保存机制，避免内存溢出 ---
-        all_data_dicts = []
+        
+        # [修改] 引入适应分表的批处理数据结构
+        # 键是Model类，值是待保存的数据列表
+        batched_data_by_model = {}
         total_stocks = len(all_stocks)
-        # --- 使用 enumerate 来跟踪进度 ---
+        
         for i, stock in enumerate(all_stocks):
             print(f"开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
-            # --- 为每只股票重置offset，这是关键的BUG修复 ---
-            offset = 0
-            limit = 6000
-            dfs_for_one_stock = [] # 用于收集单只股票的所有分页数据
-
+            
+            # [新增] 移植10万行追溯逻辑
+            current_end_date_str = initial_end_date_str
+            all_dfs_for_one_stock = [] # 用于收集单只股票的所有追溯轮次数据
+            
+            # 外层追溯循环
             while True:
-                if offset >= 100000:
-                    logger.warning(f"股票 {stock.stock_code} 的每日筹码分布 offset已达10万，停止拉取。")
+                print(f"DAO: 为 {stock.stock_code} 启动一轮数据抓取，结束日期为 {current_end_date_str}")
+                offset = 0
+                limit = 6000 # Tushare的cyq_chips单次限制较高，可以使用6000
+                dfs_for_this_cycle = []
+                limit_hit = False
+                
+                # 内层分页循环
+                while True:
+                    if offset >= 100000:
+                        logger.warning(f"股票 {stock.stock_code} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
+                        limit_hit = True
+                        break
+                    
+                    try:
+                        df = self.ts_pro.cyq_chips(**{
+                            "ts_code": stock.stock_code, "trade_date": trade_date_str, 
+                            "start_date": start_date_str, "end_date": current_end_date_str, 
+                            "limit": limit, "offset": offset
+                        }, fields=["ts_code", "trade_date", "price", "percent"])
+                        # [修改] 使用异步sleep，并调整为标准限速值
+                        await asyncio.sleep(0.35)
+                    except Exception as e:
+                        logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
+                        await asyncio.sleep(5) # 异常时等待更久
+                        df = pd.DataFrame()
+
+                    if df.empty:
+                        break
+                    dfs_for_this_cycle.append(df)
+                    if len(df) < limit:
+                        break
+                    offset += limit
+
+                if not dfs_for_this_cycle:
+                    # 当前轮次无数据，说明此时间段已无更多历史，结束追溯
                     break
-                df = self.ts_pro.cyq_chips(**{
-                    "ts_code": stock.stock_code, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-                }, fields=["ts_code", "trade_date", "price", "percent"])
-                if df.empty:
-                    break # 当前股票没有更多数据，跳出分页循环
-                dfs_for_one_stock.append(df)
-                time.sleep(0.5)
-                if len(df) < limit:
-                    break # 已是最后一页，跳出分页循环
-                offset += limit
-            # --- 对单只股票的数据进行统一的向量化处理 ---
-            if dfs_for_one_stock:
-                combined_df = pd.concat(dfs_for_one_stock, ignore_index=True)
+                
+                all_dfs_for_one_stock.extend(dfs_for_this_cycle)
+                
+                if limit_hit:
+                    # 触及10万行，更新end_date，继续外层追溯循环
+                    last_df_in_cycle = dfs_for_this_cycle[-1]
+                    last_trade_date = last_df_in_cycle['trade_date'].iloc[-1]
+                    current_end_date_str = last_trade_date
+                    print(f"DAO: {stock.stock_code} 触及10万行限制，下一轮将从 {current_end_date_str} 继续向前追溯。")
+                    continue
+                else:
+                    # 未触及限制，说明该股票数据已全部获取，跳出追溯循环
+                    break
+
+            # --- 对单只股票的全部数据进行统一处理 ---
+            if all_dfs_for_one_stock:
+                combined_df = pd.concat(all_dfs_for_one_stock, ignore_index=True)
+                combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
                 combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
+                
                 if not combined_df.empty:
                     combined_df['stock'] = stock
                     combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
                     final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
-                    # 将处理好的字典列表添加到总列表中
-                    all_data_dicts.extend(final_df.to_dict('records'))
-            # --- 检查是否达到批处理大小，达到则执行保存并清空列表 ---
-            if len(all_data_dicts) >= BATCH_SAVE_SIZE:
+                    data_dicts_for_stock = final_df.to_dict('records')
+
+                    # [修改] 分表批处理核心逻辑
+                    if data_dicts_for_stock:
+                        # 1. 获取当前股票对应的正确Model
+                        target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
+                        
+                        # 2. 如果该Model是第一次出现，在字典中初始化一个空列表
+                        if target_model not in batched_data_by_model:
+                            batched_data_by_model[target_model] = []
+                        
+                        # 3. 将数据添加到对应Model的列表中
+                        batched_data_by_model[target_model].extend(data_dicts_for_stock)
+                        
+                        # 4. 检查该Model的列表是否已满，如果满了就保存并清空
+                        if len(batched_data_by_model[target_model]) >= BATCH_SAVE_SIZE:
+                            logger.info(f"为数据表 {target_model.__name__} 保存一批数据，数量：{len(batched_data_by_model[target_model])}")
+                            await self._save_all_to_db_native_upsert(
+                                model_class=target_model,
+                                data_list=batched_data_by_model[target_model],
+                                unique_fields=['stock', 'trade_time', 'price']
+                            )
+                            batched_data_by_model[target_model] = [] # 清空已保存的批次
+
+        # --- [修改] 在所有股票处理完毕后，保存所有分表中剩余的数据 ---
+        logger.info("所有股票数据拉取完成，开始保存剩余的最后一批数据...")
+        for model, data_list in batched_data_by_model.items():
+            if data_list:
+                logger.info(f"为数据表 {model.__name__} 保存最后一批数据，数量：{len(data_list)}")
                 await self._save_all_to_db_native_upsert(
-                    model_class=StockCyqChips,
-                    data_list=all_data_dicts,
+                    model_class=model,
+                    data_list=data_list,
                     unique_fields=['stock', 'trade_time', 'price']
                 )
-                logger.info(f"完成一批每日筹码分布数据保存，数量：{len(all_data_dicts)}")
-                all_data_dicts = [] # 清空列表，为下一批做准备
-        # --- 在所有股票处理完毕后，保存剩余的最后一批数据 ---
-        if all_data_dicts:
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockCyqChips,
-                data_list=all_data_dicts,
-                unique_fields=['stock', 'trade_time', 'price']
-            )
-            logger.info(f"完成最后一批每日筹码分布数据保存，结果：{result}")
-        else:
-            logger.info("所有数据均已分批保存，无剩余数据。")
-            result = None
         
-        logger.info(f"所有股票的每日筹码分布数据处理完成。")
-        return result
+        logger.info(f"所有股票的每日筹码分布数据处理和保存完成。")
+        # 因为存在多次保存，返回单一结果已无意义，故返回None
+        return None
 
     async def save_cyq_chips_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
         """
-        保存单只股票的每日筹码分布数据（终极优化版）。
-        1. 通过外层追溯循环，解决Tushare接口10万行的数据拉取上限问题。
-        2. 在每次API调用后强制休眠，精确控制调用频率。
-        3. 所有数据拉取完毕后，进行统一的去重、处理和保存。
+        保存单只股票的每日筹码分布数据（已支持分表和10万行追溯）。
         """
-        print(f"DAO: 开始获取 {stock} 的筹码分布数据（支持10万行以上追溯）...")
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20180101"
-        # [新增] 将end_date转换为可变字符串，用于追溯循环
+        # ... 数据获取部分无变化，为简洁省略 ...
+        print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据（支持10万行以上追溯）...")
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-        # [新增] 用于存储所有追溯轮次拉取到的DataFrame
         all_dfs_for_stock = []
-        # [新增] 外层追溯循环，用于处理10万行限制
         while True:
+            print(f"DAO: 为 {stock.stock_code} 启动一轮数据抓取，结束日期为 {current_end_date_str}")
             offset = 0
-            limit = 6000
-            # [新增] 用于存储当前轮次拉取到的DataFrame
+            limit = 2000
             dfs_for_this_cycle = []
-            limit_hit = False # [新增] 标记是否触及10万行限制
-            # 内层分页循环
+            limit_hit = False
             while True:
                 if offset >= 100000:
-                    # logger.warning(f"股票 {stock} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
+                    logger.warning(f"股票 {stock.stock_code} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
                     limit_hit = True
                     break
                 try:
                     df = self.ts_pro.cyq_chips(**{
-                        "ts_code": stock.stock_code,
-                        "start_date": start_date_str,
-                        "end_date": current_end_date_str, # 使用可变的结束日期
-                        "limit": limit,
-                        "offset": offset
+                        "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": current_end_date_str, "limit": limit, "offset": offset
                     }, fields=["ts_code", "trade_date", "price", "percent"])
-                    await asyncio.sleep(0.7)
+                    await asyncio.sleep(0.35)
                 except Exception as e:
-                    logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock}): {e}")
-                    await asyncio.sleep(5) # API异常时，等待更长时间
-                    df = pd.DataFrame() # 创建空df以安全跳出
+                    logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
+                    await asyncio.sleep(5)
+                    df = pd.DataFrame()
                 if df.empty:
                     break
                 dfs_for_this_cycle.append(df)
@@ -1624,29 +1688,22 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 offset += limit
             if not dfs_for_this_cycle:
-                # 如果当前轮次没有抓到任何数据，说明历史数据已全部获取，结束追溯
-                print(f"DAO: {stock} 在结束日期 {current_end_date_str} 前已无更多数据，追溯完成。")
+                print(f"DAO: {stock.stock_code} 在结束日期 {current_end_date_str} 前已无更多数据，追溯完成。")
                 break
-            # 将当前轮次的数据存入总列表
             all_dfs_for_stock.extend(dfs_for_this_cycle)
             if limit_hit:
-                # [新增] 如果触及10万行限制，准备下一轮追溯
-                # 获取本轮最后一条数据的日期，作为下一轮的end_date
                 last_df_in_cycle = dfs_for_this_cycle[-1]
-                # Tushare返回的数据是按日期降序的，所以最后一条记录就是最早的日期
                 last_trade_date = last_df_in_cycle['trade_date'].iloc[-1]
                 current_end_date_str = last_trade_date
-                print(f"DAO: {stock} 触及10万行限制，下一轮将从 {current_end_date_str} 继续向前追溯。")
-                continue # 继续外层循环，发起新一轮抓取
+                print(f"DAO: {stock.stock_code} 触及10万行限制，下一轮将从 {current_end_date_str} 继续向前追溯。")
+                continue
             else:
-                # 如果没有触及限制，说明数据已全部抓完，退出追溯循环
                 break
         if not all_dfs_for_stock:
-            print(f"DAO: 未获取到 {stock} 的任何筹码分布数据。")
+            print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码分布数据。")
             return
-        # [修改] 在所有数据获取完毕后，进行统一处理
+        print(f"DAO: {stock.stock_code} 所有历史数据拉取完成，共 {len(all_dfs_for_stock)} 个数据片段，开始整合处理...")
         combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
-        # [新增] 由于追溯可能导致日期重叠，必须进行去重
         combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
@@ -1656,13 +1713,14 @@ class StockTimeTradeDAO(BaseDAO):
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
-        print(f"DAO: 准备为 {stock} 保存 {len(data_list)} 条筹码分布数据...")
+        # [修改] 在保存前，根据股票代码动态选择目标数据表Model
+        target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
+        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
         return await self._save_all_to_db_native_upsert(
-            model_class=StockCyqChips,
+            model_class=target_model, # [修改] 使用动态选择的Model
             data_list=data_list,
             unique_fields=['stock', 'trade_time', 'price']
         )
-
 
 
 

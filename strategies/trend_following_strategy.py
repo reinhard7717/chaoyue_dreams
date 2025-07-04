@@ -91,13 +91,12 @@ class TrendFollowStrategy:
         
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
         
-        # ▼▼▼【关键修复】: 精准的列名重命名逻辑 ▼▼▼
+        # ▼▼▼ 精准的列名重命名逻辑 ▼▼▼
         rename_map = {
             col: f"{col}_D" for col in df.columns 
             if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
             and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_'))
         }
-        # ▲▲▲【关键修复】: 结束 ▲▲▲
 
         if rename_map:
             df = df.rename(columns=rename_map)
@@ -308,13 +307,6 @@ class TrendFollowStrategy:
         cond_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
-        # # 步骤3.5，计算分钟线共振信号
-        # print("    [调试-计分V22.0] 步骤3.5: 计算分钟线共振信号...")
-        # resonance_precondition = cond_pullback_setup
-        # resonance_signals = self._find_multi_timeframe_resonance(df_dict, resonance_precondition)
-        # 解释: 分钟共振信号的计算和触发已经完全由 MultiTimeframeTrendStrategy 的分钟共振引擎负责。
-        # TrendFollowStrategy 作为日线决策引擎，不再需要关心此逻辑。
-        
         # --- 步骤4: 记录所有战术信号得分 ---
         print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
@@ -673,38 +665,6 @@ class TrendFollowStrategy:
         }
 
     # 【模块】主力筹码运作行为识别
-
-    def _find_consolidation_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """
-        【剧本】识别“底部长期盘整突破”，捕捉主力隐蔽吸筹后的启动点。
-        特征：股价经历长时间（如超过3个月）的横盘整理，期间波动率和成交量持续萎缩。
-        信号：某天突然以“放量大阳线”的形式，向上突破盘整区间的上沿。
-        """
-        params = self._get_params_block(params, 'consolidation_breakout_params')
-        if not params.get('enabled', False):
-            return pd.Series(False, index=df.index)
-
-        lookback = params.get('lookback_period', 60) # 盘整期
-        volatility_quantile = params.get('volatility_quantile', 0.2) # 波动率分位数
-        volume_quantile = params.get('volume_quantile', 0.2) # 成交量分位数
-        breakout_vol_ratio = params.get('breakout_volume_ratio', 2.0)
-
-        # 1. 计算波动率（振幅/收盘价）和成交量
-        volatility = (df['high_D'] - df['low_D']) / df['close_D']
-        
-        # 2. 识别“盘整期”：波动率和成交量均处于近期低位
-        is_low_volatility = volatility < volatility.rolling(lookback).quantile(volatility_quantile)
-        is_low_volume = df['volume_D'] < df['volume_D'].rolling(lookback).quantile(volume_quantile)
-        is_consolidating = is_low_volatility & is_low_volume
-
-        # 3. 识别“突破日”
-        consolidation_high = df['high_D'].shift(1).rolling(lookback).max()
-        is_breakout = df['close_D'] > consolidation_high
-        is_volume_surge = df['volume_D'] > df[f'VOL_MA_{params.get("vol_ma_period", 20)}_D'] * breakout_vol_ratio
-
-        # 信号：突破日的前一天，必须处于“盘整期”状态
-        signal = is_consolidating.shift(1).fillna(False) & is_breakout & is_volume_surge
-        return signal & precondition
 
     def _find_bullish_flag_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
@@ -1771,142 +1731,6 @@ class TrendFollowStrategy:
             print(f"    [调试-获利盘洗净反转]: 剧本触发 {final_signal.sum()} 次。")
         return final_signal.fillna(False)
 
-    def _find_multi_timeframe_resonance(self, df_dict: Dict[str, pd.DataFrame], precondition: pd.Series) -> Dict[str, pd.Series]:
-        """
-        【V4.1 动态配置版】实现可配置的、任意层级递进的多分钟级别共振判断。
-        - 核心逻辑: 动态解析 'multi_level_resonance_params' 配置，逐级生成并合并信号。
-        - 健壮性: 自动处理数据缺失、配置错误等异常情况。
-        """
-        print(f"    [调试-MTA V4.1] 开始执行'分形共振'模型...")
-        
-        resonance_signals = {}
-        # 获取日线前提为True的日期，这是我们进行分钟线分析的目标日期
-        days_to_check = precondition[precondition].index
-        if days_to_check.empty:
-            print("    [调试-MTA V4.1] 无满足日线前提的日子，跳过共振分析。")
-            return resonance_signals
-
-        # 从主策略配置中获取多级别共振参数
-        params = self._get_params_block(self.daily_params, 'multi_level_resonance_params')
-        if not params.get('enabled', False):
-            return resonance_signals
-
-        levels = params.get('levels', [])
-        if not levels:
-            logger.warning("    [警告-MTA V4.1] 'multi_level_resonance_params' 已启用，但 'levels' 列表为空。")
-            return resonance_signals
-
-        # --- 辅助函数：聚合分钟信号到日线 ---
-        def aggregate_to_daily(minute_signal: pd.Series, daily_index: pd.Index) -> pd.Series:
-            # 确保分钟信号不为空且有True值
-            if minute_signal is None or minute_signal.empty or not minute_signal.any():
-                return pd.Series(False, index=daily_index)
-            # 获取分钟信号触发的日期（去重）
-            daily_dates = minute_signal[minute_signal].index.normalize().unique()
-            # 创建一个与日线索引对齐的布尔序列
-            final_signal = pd.Series(False, index=daily_index)
-            # 仅在日线前提和分钟信号都满足的日子设置为True
-            triggered_days = daily_index.intersection(daily_dates)
-            final_signal.loc[triggered_days] = True
-            return final_signal
-
-        # 初始化最终的日线级别信号，初始为所有满足前提的日子
-        final_daily_signal = precondition.copy()
-
-        # --- 逐级处理共振信号 ---
-        for i, level_config in enumerate(levels):
-            level_name = level_config.get('level_name', f'Level_{i+1}')
-            tf = level_config.get('tf')
-            logic = level_config.get('logic', 'OR').upper()
-            conditions = level_config.get('conditions', [])
-
-            # 检查数据是否存在
-            if not tf or tf not in df_dict or df_dict[tf].empty:
-                print(f"    [错误-MTA V4.1] {level_name}: 配置的时间周期 '{tf}' 数据不存在或为空，终止共振链。")
-                return {} # 一旦某一层数据缺失，整个链条中断
-
-            df_minute = df_dict[tf]
-            print(f"    [调试-MTA V4.1] 正在处理第 {i + 1} 层: '{level_name}' (周期: {tf}min, 逻辑: {logic})")
-
-            # 初始化当前层级的分钟信号
-            # 如果逻辑是AND，初始值为True；如果是OR，初始值为False
-            level_minute_signal = pd.Series(logic == 'AND', index=df_minute.index)
-
-            for cond in conditions:
-                cond_type = cond.get('type')
-                current_cond_signal = pd.Series(False, index=df_minute.index)
-                
-                # --- 根据类型动态计算条件 ---
-                try:
-                    if cond_type == 'ema_above':
-                        p = cond.get('period')
-                        col = f"EMA_{p}"
-                        if col in df_minute.columns:
-                            current_cond_signal = df_minute[cond.get('close_col', 'close')] > df_minute[col]
-                    
-                    elif cond_type == 'macd_above_zero':
-                        p = cond.get('periods')
-                        col = f"MACD_{p[0]}_{p[1]}_{p[2]}"
-                        if col in df_minute.columns:
-                            current_cond_signal = df_minute[col] > 0
-
-                    elif cond_type == 'macd_cross':
-                        p = cond.get('periods')
-                        macd_col, macds_col = f"MACD_{p[0]}_{p[1]}_{p[2]}", f"MACDs_{p[0]}_{p[1]}_{p[2]}"
-                        if macd_col in df_minute.columns and macds_col in df_minute.columns:
-                            current_cond_signal = (df_minute[macd_col].shift(1) <= df_minute[macds_col].shift(1)) & \
-                                                (df_minute[macd_col] > df_minute[macds_col])
-                    
-                    elif cond_type == 'dmi_cross':
-                        p = cond.get('period')
-                        pdi_col, ndi_col = f"PDI_{p}", f"NDI_{p}"
-                        if pdi_col in df_minute.columns and ndi_col in df_minute.columns:
-                            current_cond_signal = (df_minute[pdi_col].shift(1) <= df_minute[ndi_col].shift(1)) & \
-                                                (df_minute[pdi_col] > df_minute[ndi_col])
-
-                    elif cond_type == 'kdj_cross':
-                        p = cond.get('periods')
-                        k_col, d_col = f"K_{p[0]}_{p[1]}_{p[2]}", f"D_{p[0]}_{p[1]}_{p[2]}"
-                        if k_col in df_minute.columns and d_col in df_minute.columns:
-                            is_cross = (df_minute[k_col].shift(1) <= df_minute[d_col].shift(1)) & \
-                                    (df_minute[k_col] > df_minute[d_col])
-                            is_low = df_minute[k_col] < cond.get('low_level', 50)
-                            current_cond_signal = is_cross & is_low
-
-                    elif cond_type == 'rsi_reversal':
-                        p = cond.get('period')
-                        col = f"RSI_{p}"
-                        if col in df_minute.columns:
-                            level = cond.get('oversold_level', 30)
-                            current_cond_signal = (df_minute[col].shift(1) < level) & (df_minute[col] >= level)
-                    
-                    else:
-                        logger.warning(f"    [警告-MTA V4.1] 在 {level_name} 中遇到未知的条件类型: '{cond_type}'")
-
-                except Exception as e:
-                    logger.error(f"    [错误-MTA V4.1] 在计算 {level_name} 的条件 '{cond_type}' 时出错: {e}")
-                    current_cond_signal = pd.Series(False, index=df_minute.index)
-
-                # --- 合并当前层级的条件 ---
-                if logic == 'OR':
-                    level_minute_signal |= current_cond_signal.fillna(False)
-                else: # AND
-                    level_minute_signal &= current_cond_signal.fillna(False)
-            
-            # 将当前层级的分钟信号聚合到日线
-            daily_level_signal = aggregate_to_daily(level_minute_signal, precondition.index)
-            print(f"      - {level_name} 检查完成。共 {daily_level_signal.sum()} 天满足该层级条件。")
-
-            # --- 关键：将当前层级的日线信号与总信号进行“与”运算，实现逐级过滤 ---
-            final_daily_signal &= daily_level_signal
-
-        # --- 循环结束，生成最终信号 ---
-        signal_name = params.get('signal_name', 'RESONANCE_MULTI_LEVEL')
-        resonance_signals[signal_name] = final_daily_signal
-        print(f"    [成功-MTA V4.1] '{signal_name}' 最终共振信号已生成，共触发 {final_daily_signal.sum()} 次！")
-
-        return resonance_signals
-
     def _find_fibonacci_pullback_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         fib_params = self._get_params_block(params, 'fibonacci_analysis_params')
         if not fib_params.get('enabled', False):
@@ -1983,121 +1807,6 @@ class TrendFollowStrategy:
 
         return final_signal.fillna(False)
 
-    def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str) -> Dict:
-        """【V2.0 升级】对最新信号进行评分并生成报告"""
-        signal_type = "无明确信号"
-        total_score = 0
-        main_analysis_parts = []
-
-        if signal_row.get('take_profit_signal', 0) > 0:
-            signal_type = "趋势止盈"
-            total_score = 0
-            main_analysis_parts.append("--- 卖出信号分析 ---")
-            tp_type = signal_row['take_profit_signal']
-            if tp_type == 1: reason = "原因: 股价已接近前期重要压力位。"
-            elif tp_type == 2: reason = "原因: 股价从近期高点回撤，触发移动止盈。"
-            elif tp_type == 3: reason = "原因: 技术指标显示市场过热或趋势转弱。"
-            else: reason = ""
-            main_analysis_parts.append(f"核心发现: **触发止盈条件，建议考虑获利了结或减仓。{reason}**")
-        elif signal_row.get('signal_pullback_structure_entry', False):
-            signal_type = "结构回踩买入(极高)"
-            total_score = 95
-            main_analysis_parts.append("--- 趋势跟踪买入信号分析 ---")
-            main_analysis_parts.append("核心发现: **在确认的上升趋势中，股价精准回踩前期关键水平支撑位并获得支撑，确认为极高确定性买点！**")
-        elif signal_row.get('signal_entry', False):
-            signal_type = f"综合买入(得分:{total_score})"
-            main_analysis_parts.append(f"--- 综合买入信号分析 (总分: {total_score}) ---")
-            main_analysis_parts.append("核心发现: **多个看涨条件共振，形成高置信度买入信号！**")
-            # 可以在此处添加更详细的计分项说明
-        elif signal_row.get('context_long_term_bullish', False) and signal_row.get('context_mid_term_bullish', False):
-            signal_type = "上升趋势(观察)"
-            total_score = 70
-            main_analysis_parts.append("--- 趋势状态分析 ---")
-            main_analysis_parts.append("核心发现: **股票处于健康的上升趋势中，建议密切关注买入机会。**")
-
-        report_text = "\n".join(main_analysis_parts)
-
-        full_report = f"*** 最新信号分析报告 ({stock_code}) ***\n买入信号评分: {total_score} / 100\n信号类型: {signal_type}\n信号日期: {signal_row.name.strftime('%Y-%m-%d')}\n{report_text}"
-        return { "analysis_text": full_report, "buy_score": total_score, "signal_type": signal_type }
-
-    def _prepare_db_record(self, signal_row: pd.Series, report_data: dict, stock_code: str) -> Dict:
-        """
-        【V2.2 升级】从信号行和报告中构造用于数据库的字典
-        注意: 此处的列名(如'EMA_20_D')是与数据库表结构对应的，属于接口契约。
-        如果数据库列名是固定的，这里的硬编码是合理的。
-        如果要实现完全动态，需要数据库表结构也支持更泛化的列名(如'ema_fast', 'ema_mid')。
-        当前我们保持与现有数据库结构的兼容性。
-        """
-        # 动态获取列名，即使数据库字段名是固定的，也从配置中读取参数来查找列
-        trend_follow_params = self.params.get('strategy_params', {}).get('trend_follow', {})
-        mid_term_params = trend_follow_params.get('mid_term_trend_params', {})
-        momentum_params = trend_follow_params.get('momentum_entry_params', {})
-
-        fast_ma_period = mid_term_params.get('fast_ma', 20)
-        mid_ma_period = mid_term_params.get('mid_ma', 60)
-        vol_ma_period = momentum_params.get('vol_ma_period', 20) # 从任一包含vol_ma_period的参数块读取即可
-
-        ema_20_col = f'EMA_{fast_ma_period}_D'
-        ema_60_col = f'EMA_{mid_ma_period}_D'
-        vol_ma_20_col = f'VOL_MA_{vol_ma_period}_D'
-
-        return {
-            "stock_code": stock_code,
-            "trade_time": signal_row.name,
-            "signal_entry": bool(signal_row.get('signal_entry', False)),
-            "entry_score": int(signal_row.get('entry_score', 0)),
-            "signal_take_profit": int(signal_row.get('take_profit_signal', 0)),
-            "open_D": signal_row.get('open_D'),
-            "high_D": signal_row.get('high_D'),
-            "low_D": signal_row.get('low_D'),
-            "close_D": signal_row.get('close_D'),
-            # 假设数据库列名是固定的，但我们用动态生成的列名从DataFrame中取值
-            "EMA_20_D": signal_row.get(ema_20_col),
-            "EMA_60_D": signal_row.get(ema_60_col),
-            "volume_D": signal_row.get('volume_D'),
-            "VOL_MA_20_D": signal_row.get(vol_ma_20_col),
-            "buy_score": report_data.get('buy_score', 0),
-            "analysis_text": report_data.get('analysis_text', ""),
-            "signal_type": report_data.get('signal_type', ""),
-        }
-
-    def run_analysis(self, stock_code: str, trade_time: Optional[str] = None, data_df: Optional[pd.DataFrame] = None) -> Tuple[Optional[pd.DataFrame], Optional[List[Dict]]]:
-        """
-        【V2.5 升级】运行单只股票的【日线】完整策略分析流程。
-        - 明确使用日线配置 (self.daily_params) 进行分析。
-        - 返回值适配 prepare_db_records 的列表格式。
-        """
-        if data_df is None:
-            # 【修改】明确传递日线配置文件路径
-            df_base, _ = self.loop.run_until_complete(self.indicator_service.prepare_daily_centric_dataframe(stock_code=stock_code, params_file=self.daily_config_path, trade_time=trade_time))
-        else:
-            df_base = data_df.copy()
-
-        if df_base is None or df_base.empty:
-            logger.warning(f"为股票 {stock_code} 准备数据失败，分析终止。")
-            return None, None
-        
-        # 【修改】明确传递日线参数集
-        final_df, atomic_signals = self.loop.run_until_complete(self.apply_strategy(df_base, params=self.daily_params))
-
-        if final_df is None or final_df.empty: return None, None
-        
-        analysis_result = None
-        latest_row = final_df.iloc[-1]
-        
-        has_any_signal = latest_row.get('signal_entry', False) or latest_row.get('take_profit_signal', 0) > 0
-
-        if has_any_signal:
-            logger.info(f"--- 在 {latest_row.name.strftime('%Y-%m-%d')} 为 {stock_code} 检测到趋势跟踪(V2.5)信号 ---")
-            report_data = self._score_and_generate_report(latest_row, stock_code)
-            logger.info(f"信号类型: {report_data.get('signal_type')}, 评分: {report_data.get('buy_score')}")
-            db_records = self.prepare_db_records(stock_code, final_df, atomic_signals)
-        
-        if db_records:
-            logger.info(f"--- 为 {stock_code} 检测到 {len(db_records)} 条日线级趋势跟踪信号 ---")
-        
-        return final_df, db_records
-
     # 引入状态机，重构止盈逻辑以支持连续交易模拟
     def _apply_take_profit_rules(self, df: pd.DataFrame, entry_signals: pd.Series, top_divergence_signals: pd.Series, params: dict) -> pd.Series:
         """
@@ -2142,7 +1851,6 @@ class TrendFollowStrategy:
         print(f"      - 放量破位(8): {tp_signal_breakdown.sum()} 次")
         print(f"      - 箱体跌破(9): {tp_signal_box_breakdown.sum()} 次")
         print(f"      - 斐波那契扩展(10): {tp_signal_fib_extension.sum()} 次")
-        # ▲▲▲ 修改结束 ▲▲▲
 
         any_tp_signal = (
             tp_signal_fib_extension | tp_signal_breakdown | tp_signal_heaven_earth |
@@ -2171,7 +1879,7 @@ class TrendFollowStrategy:
         final_tp_signal.loc[indicator_tp_mask] = tp_signal_indicator[indicator_tp_mask]
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_trailing] = 2
         final_tp_signal.loc[(final_tp_signal == 0) & is_holding_vectorized & tp_signal_resistance] = 1
-        
+
         print(f"    - [止盈-调试] 止盈逻辑判断完成，共产生 {(final_tp_signal > 0).sum()} 个最终止盈信号。")
         return final_tp_signal
 
@@ -2236,13 +1944,13 @@ class TrendFollowStrategy:
 
         tf = vwap_params.get('timeframe', '5')
         buffer = vwap_params.get('confirmation_buffer', 0.001)
-        
+
         df_minute = df_dict.get(tf)
         df_daily = df_dict.get('D')
 
         if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
              return pd.Series(False, index=df_daily.index if df_daily is not None else None)
-        
+
         # 检查VWAP列是否存在
         vwap_col = f'VWAP_{tf}'
         if vwap_col not in df_minute.columns: vwap_col = 'VWAP_D' # 兼容旧列名
