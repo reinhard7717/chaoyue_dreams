@@ -1354,7 +1354,7 @@ class StockTimeTradeDAO(BaseDAO):
         3. 引入分批保存机制，有效控制内存峰值。
         """
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20250101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         # --- 一次性预加载所有股票信息，并构建一个高效的查找字典 ---
         print("正在预加载所有股票基础信息...")
@@ -1432,6 +1432,59 @@ class StockTimeTradeDAO(BaseDAO):
             result = None
         logger.info(f"所有股票的每日筹码及胜率数据处理完成。")
         return result
+
+    async def save_cyq_perf_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
+        """
+        获取并保存单个股票的历史筹码及胜率数据。
+        此方法被并行的Celery任务调用。
+        """
+        print(f"DAO: 开始获取 {stock.stock_code} 的筹码及胜率数据...")
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+        offset = 0
+        limit = 5000 # 对于单个股票，可以设置一个较大的limit
+        all_data_for_stock = []
+        while True:
+            # 对Tushare Pro的调用需要try-except以增加健壮性
+            try:
+                df = self.ts_pro.cyq_perf(**{
+                    "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+                }, fields=[
+                    "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct",
+                    "cost_95pct", "weight_avg", "winner_rate"
+                ])
+            except Exception as e:
+                logger.error(f"Tushare API调用失败 (cyq_perf, ts_code={stock.stock_code}): {e}")
+                break # API调用失败，中断当前股票的处理
+            if df.empty:
+                break
+            all_data_for_stock.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if not all_data_for_stock:
+            print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码及胜率数据。")
+            return
+        # --- 对该股票的所有数据进行统一的向量化处理 ---
+        combined_df = pd.concat(all_data_for_stock, ignore_index=True)
+        combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        combined_df.dropna(subset=['trade_date'], inplace=True)
+        if combined_df.empty:
+            return
+        combined_df['stock'] = stock
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        final_df = combined_df[[
+            "stock", "trade_time", "his_low", "his_high", "cost_5pct", "cost_15pct",
+            "cost_50pct", "cost_85pct", "cost_95pct", "weight_avg", "winner_rate"
+        ]]
+        data_list = final_df.to_dict('records')
+        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码及胜率数据...")
+        # 一次性保存该股票的所有历史数据
+        return await self._save_all_to_db_native_upsert(
+            model_class=StockCyqPerf,
+            data_list=data_list,
+            unique_fields=['stock', 'trade_time']
+        )
 
     async def get_cyq_perf_history(self, stock_code: str) -> None:
         """
@@ -1525,75 +1578,53 @@ class StockTimeTradeDAO(BaseDAO):
         logger.info(f"所有股票的每日筹码分布数据处理完成。")
         return result
 
-    async def save_cyq_chips_history(self, stock: 'StockInfo', trade_date: date=None, start_date: date=None, end_date: date=None) -> any:
+    async def save_cyq_chips_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
         """
-        保存股票的每日筹码分布数据 (优化版)
-        通过向量化操作替代循环，大幅提升性能。
+        保存单只股票的每日筹码分布数据 (优化版)
         """
-        # --- 简化日期字符串格式化 ---
-        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
+        print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据...")
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         offset = 0
         limit = 2000
-        # --- 创建一个列表来收集每个分页的DataFrame ---
-        dfs_to_process = []
+        dfs_for_one_stock = []
         while True:
             if offset >= 100000:
-                logger.warning(f"每日筹码分布 offset已达10万，停止拉取。股票: {stock.stock_code}")
+                logger.warning(f"股票 {stock.stock_code} 的每日筹码分布 offset已达10万，停止拉取。")
                 break
-            # 使用 print 进行调试，可以查看每次请求的参数
-            df = self.ts_pro.cyq_chips(**{
-                "ts_code": stock.stock_code, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-            }, fields=[
-                "ts_code", "trade_date", "price", "percent"
-            ])
+            try:
+                df = self.ts_pro.cyq_chips(**{
+                    "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+                }, fields=["ts_code", "trade_date", "price", "percent"])
+            except Exception as e:
+                logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
+                break
             if df.empty:
-                print(f"拉取结束，未返回更多数据。stock={stock.stock_code}, offset={offset}")
                 break
-            # --- 将获取到的DataFrame添加到列表中，而不是立即处理 ---
-            dfs_to_process.append(df)
-            time.sleep(0.5)
+            dfs_for_one_stock.append(df)
+            # 注意：cyq_chips接口可能也有速率限制，如果与cyq_perf共享限制，需要调整Celery任务的rate_limit
+            # 假设此处不需要强制sleep
             if len(df) < limit:
                 break
             offset += limit
-        # --- 在循环外统一处理所有数据 ---
-        if not dfs_to_process:
-            logger.info(f"没有获取到任何每日筹码分布数据：{stock}")
-            return None
-        # 将所有DataFrame合并为一个
-        combined_df = pd.concat(dfs_to_process, ignore_index=True)
-        # 统一进行数据清洗
+        if not dfs_for_one_stock:
+            print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码分布数据。")
+            return
+        combined_df = pd.concat(dfs_for_one_stock, ignore_index=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        # 删除关键信息不完整的行，保证数据质量
         combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
-        # 如果清洗后没有数据，则直接返回
         if combined_df.empty:
-            logger.info(f"数据清洗后，没有有效的每日筹码分布数据：{stock}")
-            return None
-        # 向量化数据转换，替代原来的 for 循环和 set_cyq_chips_data 方法的逐行调用
-        # 1. 添加 stock 实例
+            return
         combined_df['stock'] = stock
-        # 2. 将 'trade_date' 字符串列转换为 date 对象列，并重命名为 'trade_time' 以匹配模型字段
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        # 3. 选择并重命名列以匹配最终要存入数据库的字典结构
-        #    这里假设 `_save_all_to_db_native_upsert` 需要的字典键是 'stock', 'trade_time', 'price', 'percent'
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
-        # 将整个DataFrame高效地转换为字典列表
-        data_dicts = final_df.to_dict('records')
-        result = None
-        if data_dicts:
-            result = await self._save_all_to_db_native_upsert(
-                model_class=StockCyqChips,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time', 'price']
-            )
-            logger.info(f"完成每日筹码分布数据保存：{stock}, 共处理 {len(data_dicts)} 条记录, 结果：{result}")
-        else:
-            logger.info(f"向量化处理后无数据可保存：{stock}")
-        
-        return result    
-
+        data_list = final_df.to_dict('records')
+        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据...")
+        return await self._save_all_to_db_native_upsert(
+            model_class=StockCyqChips,
+            data_list=data_list,
+            unique_fields=['stock', 'trade_time', 'price']
+        )
 
 
 
