@@ -75,37 +75,34 @@ class IndicatorService:
 
     # ▼▼▼ 新增调试辅助函数，用于抽查数据对齐情况 ▼▼▼
     def _log_alignment_check(self, df: pd.DataFrame, num_samples: int = 10):
-        """【调试函数】随机抽查最终合并的DataFrame，检查关键列的数据对齐情况。"""
-        print(f"\n--- [数据清查-阶段2: 合并对齐抽查] ---")
-        if df.empty or len(df) < num_samples:
-            print("    -> 抽查失败: DataFrame数据量不足。")
+        """
+        【调试函数 V2.0 - 全列展示版】
+        随机抽查最终合并的DataFrame，检查所有列的数据对齐情况。
+        """
+        print(f"\n--- [数据清查-阶段2: 合并对齐抽查 (全列)] ---")
+        if df.empty:
+            print("    -> 抽查失败: DataFrame 为空。")
             print(f"--- [数据清查-阶段2: 检查完成] ---\n")
             return
-            
-        # 定义希望抽查的关键列（来自不同数据源）
-        # 我们会检查这些列是否存在，然后只显示存在的列
-        key_columns_to_check = [
-            'close', # 原始OHLCV
-            'net_mf_amount', # 资金流
-            'CYQ_PROFIT_RATIO', # CYQ筹码
-            'EMA_20', # 计算指标
-        ]
         
-        # 筛选出DataFrame中实际存在的列
-        display_columns = [col for col in key_columns_to_check if col in df.columns]
-        
-        if not display_columns:
-            print("    -> 抽查警告: 在DataFrame中未找到任何可供检查的关键列。")
-            print(f"--- [数据清查-阶段2: 检查完成] ---\n")
-            return
+        # 如果数据量小于抽样数，则展示所有数据
+        if len(df) < num_samples:
+            num_samples = len(df)
+            print(f"    -> 数据量不足，展示全部 {num_samples} 行数据。")
+        else:
+            print(f"    -> 随机抽取 {num_samples} 个时间点，检查所有列的数据对齐情况:")
 
-        print(f"    -> 随机抽取 {num_samples} 个时间点，检查以下关键列的数据对齐情况: {display_columns}")
-        
         # 使用固定的随机种子以保证每次抽查结果一致，便于调试
-        sampled_df = df.sample(n=num_samples, random_state=42)
+        sampled_df = df.sample(n=num_samples, random_state=42) if num_samples > 0 else df
         
-        # 打印抽样结果
-        print(sampled_df[display_columns])
+        # 设置pandas显示选项，以确保所有列都能被打印出来，不会被省略
+        with pd.option_context(
+            'display.max_rows', None, 
+            'display.max_columns', None, 
+            'display.width', 200  # 调整宽度以适应控制台
+        ):
+            print(sampled_df)
+            
         print(f"--- [数据清查-阶段2: 检查完成] ---\n")
 
     # ▼▼▼ 一个可复用的、健壮的时区标准化辅助函数 ▼▼▼
