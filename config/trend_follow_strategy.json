@@ -222,6 +222,55 @@
           }
         ]
       },
+      "bottom_divergence_params": {
+        "enabled": true,
+        "说明": "【剧本参数】复合底背离。寻找价格新低，但一个或多个指标（RSI, MACD）拒绝新低的左侧反转信号。",
+        "distance": 5,
+        "说明_distance": "寻找波谷时，两个波谷之间的最小距离（K线数量）。",
+        "prominence_price": 0.02,
+        "说明_prominence_price": "价格波谷的最小“突起”程度（相对于自身价格的比例），用于过滤掉不重要的微小波动。",
+        "prominence_indicator": 0.5,
+        "说明_prominence_indicator": "指标波谷的最小“突起”程度（绝对值），用于过滤指标的微小波动。"
+      },
+      "capital_flow_divergence_params": {
+        "enabled": true,
+        "说明": "【剧本参数】资金暗流（资金流背离）。寻找价格新低，但资金流指标（OBV, CMF）拒绝新低的左侧吸筹信号。",
+        "distance": 5,
+        "prominence_price": 0.02,
+        "prominence_indicator": 0.5
+      },
+      "first_breakout_params": {
+        "enabled": true,
+        "说明": "【剧本参数】底部首板。识别在长期底部区域盘整后，首次出现的放量大阳线或涨停板。",
+        "lookback_period": 60,
+        "说明_lookback_period": "定义“底部区域”的回看周期（天）。",
+        "volume_ratio": 2.0,
+        "说明_volume_ratio": "突破日成交量相对于20日均量的最小倍数。",
+        "rally_threshold": 0.05,
+        "说明_rally_threshold": "定义“大阳线”的最小日涨幅（例如5%）。"
+      },
+      "energy_compression_breakout_params": {
+        "enabled": true,
+        "说明": "【剧本参数】潜龙在渊（能量压缩突破）。识别波动率和成交量被双重压缩到极致后，首次放量向上突破的关键启动点。",
+        "volatility_lookback": 60,
+        "说明_volatility_lookback": "计算波动率低点的回看周期。",
+        "volatility_quantile": 0.1,
+        "说明_volatility_quantile": "波动率（布林带宽度）必须处于过去N天最低的10%分位数。",
+        "volume_lookback": 60,
+        "说明_volume_lookback": "计算成交量低点的回看周期。",
+        "volume_quantile": 0.1,
+        "说明_volume_quantile": "成交量必须处于过去N天最低的10%分位数。",
+        "breakout_volume_ratio": 1.5,
+        "说明_breakout_volume_ratio": "突破日成交量需要放量。"
+      },
+      "fibonacci_pullback_params": {
+        "enabled": true,
+        "说明": "【剧本参数】斐波那契回撤买入。当价格回踩到关键斐波那契支撑位并企稳时触发。",
+        "retracement_levels": [0.5, 0.618],
+        "说明_retracement_levels": "需要监控的关键回撤水平，0.618是黄金分割位。",
+        "pullback_buffer": 0.01,
+        "说明_pullback_buffer": "允许价格小幅刺穿支撑位的缓冲区域（1%）。"
+      },
       "chip_concentration_breakthrough_params": {
         "enabled": true,
         "说明": "【剧本】筹码高度集中突破。寻找主力高度控盘后，向上突破筹码密集区上沿的强力启动信号。",

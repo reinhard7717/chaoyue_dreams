@@ -273,13 +273,10 @@ class TrendFollowStrategy:
         cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params)
         cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params)
         cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params)
-        # ▼▼▼ “均线加速上涨”剧本 ▼▼▼
         cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params)
-        # ▼▼▼ 基于精确CYQ数据的筹码剧本 ▼▼▼
         cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, strict_precondition, params)
         cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, strict_precondition, params)
-        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 注意此为左侧信号，不依赖严格前提
-
+        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params)
         cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params)
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
@@ -310,9 +307,10 @@ class TrendFollowStrategy:
         # --- 步骤4: 记录所有战术信号得分 ---
         print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
         def add_score(condition, name, default_score):
+            score = points.get(name, {}).get('score', default_score)
             if condition.any():
-                score_details_df.loc[condition, name] = points.get(name, default_score)
-                print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次。")
+                score_details_df.loc[condition, name] = score
+                print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次，计分 {score}。")
             atomic_signals[name] = condition
         add_score(cond_ma_acceleration, 'MA_ACCELERATION', 130)
         add_score(cond_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180)
@@ -1294,8 +1292,6 @@ class TrendFollowStrategy:
         - 使用与底背离检测相同的稀疏序列+ffill技巧，完全向量化。
         - 能同时高效计算顶背离和底背离。
         """
-        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-        # 开始重构通用背离检测
         # 创建一个临时的DataFrame，避免污染原始df
         temp_df = pd.DataFrame({
             'price': price_series,
