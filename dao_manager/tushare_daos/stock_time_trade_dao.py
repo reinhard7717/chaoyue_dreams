@@ -1578,99 +1578,92 @@ class StockTimeTradeDAO(BaseDAO):
         logger.info(f"所有股票的每日筹码分布数据处理完成。")
         return result
 
-    async def save_cyq_chips_for_stock(self, stock_code: str, start_date: str, end_date: str):
+    async def save_cyq_chips_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
         """
-        【V2.0 健壮分页版】
-        从Tushare获取并保存指定股票在时间范围内的CYQ筹码分布数据。
-        此版本通过循环拉取和动态调整起始日期来解决Tushare单次10万行的数据限制问题。
-
-        核心逻辑:
-        1. 使用 while 循环持续拉取数据。
-        2. 如果单次拉取达到10万行上限，记录当前批次的最后日期。
-        3. 将该日期作为下一次拉取的起始日期，重新发起请求（日期重叠以防数据截断）。
-        4. 当拉取的数据量小于10万行时，认为已获取全部数据，退出循环。
-        5. 将所有批次的数据合并，并进行去重，然后批量存入数据库。
-
-        Args:
-            stock_code (str): 股票代码 (Tushare格式, e.g., '000001.SZ')。
-            start_date (str): 开始日期 (格式: 'YYYYMMDD')。
-            end_date (str): 结束日期 (格式: 'YYYYMMDD')。
+        保存单只股票的每日筹码分布数据（终极优化版）。
+        1. 通过外层追溯循环，解决Tushare接口10万行的数据拉取上限问题。
+        2. 在每次API调用后强制休眠，精确控制调用频率。
+        3. 所有数据拉取完毕后，进行统一的去重、处理和保存。
         """
-        # 定义Tushare的单次拉取上限
-        TUSHARE_LIMIT = 100000
-        # 用于存储所有批次拉取到的DataFrame
-        all_dfs = []
-        # 初始化循环的起始日期
-        current_start_date = start_date
-        print(f"--- 开始为股票 {stock_code} 同步CYQ筹码数据 (范围: {start_date} -> {end_date}) ---")
+        print(f"DAO: 开始获取 {stock} 的筹码分布数据（支持10万行以上追溯）...")
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
+        # [新增] 将end_date转换为可变字符串，用于追溯循环
+        current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+        # [新增] 用于存储所有追溯轮次拉取到的DataFrame
+        all_dfs_for_stock = []
+        # [新增] 外层追溯循环，用于处理10万行限制
         while True:
-            try:
-                # ▼▼▼ 将API调用放入循环中 ▼▼▼
-                df_batch = await self.ts_pro.cyq_chips(
-                    ts_code=stock_code,
-                    start_date=current_start_date,
-                    end_date=end_date,
-                    limit=TUSHARE_LIMIT
-                )
-                # 如果API返回空或者没有数据
-                if df_batch is None or df_batch.empty:
-                    if not all_dfs: # 如果是第一次拉取就为空，说明整个时间段都没数据
-                        print(f"  - 警告: 在 {current_start_date} 到 {end_date} 范围内未找到 {stock_code} 的任何数据。")
-                    else: # 如果是后续批次为空，说明上一批已经是最后一批
-                        print(f"  - 信息: 已拉取完所有数据，当前批次返回为空。")
-                    break # 结束循环
-                fetched_rows = len(df_batch)
-                all_dfs.append(df_batch)
-                # ▼▼▼ 核心分页判断逻辑 ▼▼▼
-                # 如果拉取到的行数小于上限，说明这是最后一批数据
-                if fetched_rows < TUSHARE_LIMIT:
-                    print(f"  - 信息: 拉取数量 ({fetched_rows}) 小于上限 ({TUSHARE_LIMIT})，数据已全部获取完毕。")
-                    break # 成功获取所有数据，退出循环
-                else:
-                    # 如果达到了上限，需要准备下一次循环
-                    # 获取当前批次的最后一条数据的日期
-                    last_date_in_batch = df_batch['trade_date'].iloc[-1]
-                    # 【关键】将下一次的起始日期设置为当前批次的最后一天
-                    # 这样做是为了数据的冗余，防止某一天的数据因分页被截断
-                    current_start_date = last_date_in_batch
-                    print(f"  - 信息: 已达到 {TUSHARE_LIMIT} 行上限，将从日期 {current_start_date} 继续向后拉取...")
-                    # 友好性延时，避免过于频繁地请求API
-                    await asyncio.sleep(1) 
-
-            except Exception as e:
-                logger.error(f"在为 {stock_code} 拉取CYQ筹码数据时发生异常: {e}", exc_info=True)
-                print(f"  - 错误: 拉取过程中发生异常，同步中断。")
-                return # 发生异常时，终止整个过程
-
-        # --- 循环结束，开始处理数据 ---
-        if not all_dfs:
-            print(f"--- {stock_code} 数据同步完成，没有可保存的数据。---")
+            print(f"DAO: 为 {stock} 启动一轮数据抓取，结束日期为 {current_end_date_str}")
+            offset = 0
+            limit = 2000
+            # [新增] 用于存储当前轮次拉取到的DataFrame
+            dfs_for_this_cycle = []
+            limit_hit = False # [新增] 标记是否触及10万行限制
+            # 内层分页循环
+            while True:
+                if offset >= 100000:
+                    logger.warning(f"股票 {stock} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
+                    limit_hit = True
+                    break
+                try:
+                    df = self.ts_pro.cyq_chips(**{
+                        "ts_code": stock.stock_code,
+                        "start_date": start_date_str,
+                        "end_date": current_end_date_str, # 使用可变的结束日期
+                        "limit": limit,
+                        "offset": offset
+                    }, fields=["ts_code", "trade_date", "price", "percent"])
+                    await asyncio.sleep(0.35)
+                except Exception as e:
+                    logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock}): {e}")
+                    await asyncio.sleep(5) # API异常时，等待更长时间
+                    df = pd.DataFrame() # 创建空df以安全跳出
+                if df.empty:
+                    break
+                dfs_for_this_cycle.append(df)
+                if len(df) < limit:
+                    break
+                offset += limit
+            if not dfs_for_this_cycle:
+                # 如果当前轮次没有抓到任何数据，说明历史数据已全部获取，结束追溯
+                print(f"DAO: {stock} 在结束日期 {current_end_date_str} 前已无更多数据，追溯完成。")
+                break
+            # 将当前轮次的数据存入总列表
+            all_dfs_for_stock.extend(dfs_for_this_cycle)
+            if limit_hit:
+                # [新增] 如果触及10万行限制，准备下一轮追溯
+                # 获取本轮最后一条数据的日期，作为下一轮的end_date
+                last_df_in_cycle = dfs_for_this_cycle[-1]
+                # Tushare返回的数据是按日期降序的，所以最后一条记录就是最早的日期
+                last_trade_date = last_df_in_cycle['trade_date'].iloc[-1]
+                current_end_date_str = last_trade_date
+                print(f"DAO: {stock} 触及10万行限制，下一轮将从 {current_end_date_str} 继续向前追溯。")
+                continue # 继续外层循环，发起新一轮抓取
+            else:
+                # 如果没有触及限制，说明数据已全部抓完，退出追溯循环
+                break
+        if not all_dfs_for_stock:
+            print(f"DAO: 未获取到 {stock} 的任何筹码分布数据。")
             return
-
-        # ▼▼▼ 合并、去重、处理 ▼▼▼
-        final_df = pd.concat(all_dfs, ignore_index=True)
-        # 【关键】进行去重，移除因日期重叠拉取而产生的重复行
-        final_df.drop_duplicates(inplace=True)
-        # 后续的数据处理流程 (列重命名、类型转换、设置索引等)
-        final_df.rename(columns={
-            'ts_code': 'stock_code',
-            'trade_date': 'trade_date',
-            'price': 'close', # 当日收盘价
-            'percent': 'chip_ratio' # 筹码比例
-        }, inplace=True)
-        # 确保trade_date是datetime对象并设为索引
-        final_df['trade_date'] = pd.to_datetime(final_df['trade_date'])
-        final_df.set_index('trade_date', inplace=True)
-        final_df.sort_index(inplace=True) # 按时间顺序排序
-        # 批量保存到数据库
-        try:
-            await self.cyq_chips_dao.batch_save_cyq_chips(final_df)
-            print(f"  - 成功将 {len(final_df)} 条唯一的筹码数据存入数据库。")
-        except Exception as e:
-            logger.error(f"在为 {stock_code} 保存CYQ筹码数据到数据库时发生异常: {e}", exc_info=True)
-            print(f"  - 错误: 数据已拉取但存入数据库失败。")
-        print(f"--- 股票 {stock_code} 的CYQ筹码数据同步任务圆满完成。---")
-
+        # [修改] 在所有数据获取完毕后，进行统一处理
+        print(f"DAO: {stock} 所有历史数据拉取完成，共 {len(all_dfs_for_stock)} 个数据片段，开始整合处理...")
+        combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
+        # [新增] 由于追溯可能导致日期重叠，必须进行去重
+        combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
+        combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
+        if combined_df.empty:
+            return
+        combined_df['stock'] = stock
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
+        data_list = final_df.to_dict('records')
+        print(f"DAO: 准备为 {stock} 保存 {len(data_list)} 条筹码分布数据...")
+        return await self._save_all_to_db_native_upsert(
+            model_class=StockCyqChips,
+            data_list=data_list,
+            unique_fields=['stock', 'trade_time', 'price']
+        )
 
 
 
