@@ -416,7 +416,7 @@ class IndicatorService:
                 trade_dates = raw_dfs['D'].index.tolist()
                 df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
                 # ▼▼▼ 插入CYQ数据范围检查 ▼▼▼
-                self._log_df_time_range(df_cyq_perf, "原始-CYQ筹码分布")
+                # self._log_df_time_range(df_cyq_perf, "原始-CYQ筹码分布")
             except Exception as e:
                 logger.error(f"[{stock_code}] 获取CYQ筹码数据时发生异常: {e}")
 
@@ -460,8 +460,8 @@ class IndicatorService:
             
             # ▼▼▼ 插入阶段二调试，检查最终合并对齐情况 ▼▼▼
             # 解释: 我们只对最复杂的日线数据进行抽样检查，因为它融合了最多的数据源。
-            # if tf == 'D':
-                # self._log_alignment_check(df_with_indicators)
+            if tf == 'D':
+                self._log_alignment_check(df_with_indicators)
             
             return tf, df_with_indicators
 
