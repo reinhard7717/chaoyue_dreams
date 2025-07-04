@@ -1554,14 +1554,12 @@ class StockTimeTradeDAO(BaseDAO):
         
         for i, stock in enumerate(all_stocks):
             print(f"开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
-            
             # [新增] 移植10万行追溯逻辑
             current_end_date_str = initial_end_date_str
             all_dfs_for_one_stock = [] # 用于收集单只股票的所有追溯轮次数据
             
             # 外层追溯循环
             while True:
-                print(f"DAO: 为 {stock.stock_code} 启动一轮数据抓取，结束日期为 {current_end_date_str}")
                 offset = 0
                 limit = 6000 # Tushare的cyq_chips单次限制较高，可以使用6000
                 dfs_for_this_cycle = []
@@ -1671,9 +1669,8 @@ class StockTimeTradeDAO(BaseDAO):
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         all_dfs_for_stock = []
         while True:
-            print(f"DAO: 为 {stock.stock_code} 启动一轮数据抓取，结束日期为 {current_end_date_str}")
             offset = 0
-            limit = 2000
+            limit = 6000
             dfs_for_this_cycle = []
             limit_hit = False
             while True:
@@ -1685,7 +1682,7 @@ class StockTimeTradeDAO(BaseDAO):
                     df = self.ts_pro.cyq_chips(**{
                         "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": current_end_date_str, "limit": limit, "offset": offset
                     }, fields=["ts_code", "trade_date", "price", "percent"])
-                    await asyncio.sleep(0.35)
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
                     await asyncio.sleep(5)
@@ -1697,7 +1694,6 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 offset += limit
             if not dfs_for_this_cycle:
-                print(f"DAO: {stock.stock_code} 在结束日期 {current_end_date_str} 前已无更多数据，追溯完成。")
                 break
             all_dfs_for_stock.extend(dfs_for_this_cycle)
             if limit_hit:
@@ -1711,7 +1707,6 @@ class StockTimeTradeDAO(BaseDAO):
         if not all_dfs_for_stock:
             print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码分布数据。")
             return
-        print(f"DAO: {stock.stock_code} 所有历史数据拉取完成，共 {len(all_dfs_for_stock)} 个数据片段，开始整合处理...")
         combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
