@@ -1346,7 +1346,7 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_daily_basic_list
         
     #  =============== A股筹码及胜率 ===============
-    def get_daily_data_model_by_code(self, stock_code: str):
+    def get_cyq_chips_model_by_code(self, stock_code: str):
         """
         根据股票代码返回对应的筹码分布数据表Model
         """
