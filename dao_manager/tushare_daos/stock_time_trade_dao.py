@@ -1593,7 +1593,6 @@ class StockTimeTradeDAO(BaseDAO):
         all_dfs_for_stock = []
         # [新增] 外层追溯循环，用于处理10万行限制
         while True:
-            print(f"DAO: 为 {stock} 启动一轮数据抓取，结束日期为 {current_end_date_str}")
             offset = 0
             limit = 2000
             # [新增] 用于存储当前轮次拉取到的DataFrame
@@ -1646,7 +1645,6 @@ class StockTimeTradeDAO(BaseDAO):
             print(f"DAO: 未获取到 {stock} 的任何筹码分布数据。")
             return
         # [修改] 在所有数据获取完毕后，进行统一处理
-        print(f"DAO: {stock} 所有历史数据拉取完成，共 {len(all_dfs_for_stock)} 个数据片段，开始整合处理...")
         combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
         # [新增] 由于追溯可能导致日期重叠，必须进行去重
         combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
