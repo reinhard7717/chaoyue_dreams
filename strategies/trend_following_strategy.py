@@ -1690,14 +1690,15 @@ class TrendFollowStrategy:
         if not debug_dates.empty:
             print("\n--- [调试日志 - 剧本: 筹码成本突破 (CHIP_COST_BREAKTHROUGH)] ---")
             for date in debug_dates:
+                # 只打印 signal 为 True 的日子，看看到底是不是 precondition 把它否决了
                 if date in signal.index and signal.loc[date]:
-                    pre_cond = precondition.loc[date]
-                    close = df.loc[date, 'close_D']
+                    pre_cond_val = precondition.loc[date]
+                    final_result = signal.loc[date] & pre_cond_val
+                    close = df.loc[date, close_col]
                     cost = df.loc[date, weight_avg_col]
-                    prev_close = df.shift(1).loc[date, 'close_D']
-                    prev_cost = df.shift(1).loc[date, weight_avg_col]
-                    print(f"  - {date.date()}: [触发] -> close({close:.2f}) > cost({cost:.2f}) AND prev_close({prev_close:.2f}) <= prev_cost({prev_cost:.2f}). 前提条件: {pre_cond}")
-
+                    print(f"  - {date.date()}: [信号出现] -> close({close:.2f}) > cost({cost:.2f}).")
+                    print(f"    -> 检查点: 信号自身(signal) = True, 战术前提(precondition) = {pre_cond_val}")
+                    print(f"    -> 最终结果 (signal & precondition) = {final_result}")
         return signal & precondition
 
     def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
@@ -1714,13 +1715,18 @@ class TrendFollowStrategy:
         debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
         if not debug_dates.empty:
             print("\n--- [调试日志 - 剧本: 筹码压力释放 (CHIP_PRESSURE_RELEASE)] ---")
-            for date in debug_dates:
-                if date in signal.index and signal.loc[date]:
-                    pre_cond = precondition.loc[date]
-                    close = df.loc[date, 'close_D']
-                    cost = df.loc[date, cost_95pct_col]
-                    print(f"  - {date.date()}: [触发] -> close({close:.2f}) > cost_95pct({cost:.2f}). 前提条件: {pre_cond}")
-
+            # 以 2024-12-04 为例进行单点追查
+            target_date = pd.to_datetime('2024-12-04').tz_localize('UTC')
+            if target_date in df.index:
+                close = df.loc[target_date, close_col]
+                cost = df.loc[target_date, cost_95pct_col]
+                signal_val = signal.loc[target_date]
+                pre_cond_val = precondition.loc[target_date]
+                final_result = signal_val & pre_cond_val
+                print(f"  - 单点追查 {target_date.date()}:")
+                print(f"    -> 数据: close({close:.2f}), cost_95pct({cost:.2f})")
+                print(f"    -> 检查点: 信号自身(signal) = {signal_val}, 战术前提(precondition) = {pre_cond_val}")
+                print(f"    -> 最终结果 (signal & precondition) = {final_result}")
         return signal & precondition
     
     # ▼▼▼ 突破85%成本线 ▼▼▼
@@ -1741,12 +1747,13 @@ class TrendFollowStrategy:
             print("\n--- [调试日志 - 剧本: 筹码关口扫清 (CHIP_HURDLE_CLEAR)] ---")
             for date in debug_dates:
                 if date in signal.index and signal.loc[date]:
-                    pre_cond = precondition.loc[date]
-                    close = df.loc[date, 'close_D']
+                    pre_cond_val = precondition.loc[date]
+                    final_result = signal.loc[date] & pre_cond_val
+                    close = df.loc[date, close_col]
                     cost = df.loc[date, cost_85pct_col]
-                    prev_close = df.shift(1).loc[date, 'close_D']
-                    prev_cost = df.shift(1).loc[date, cost_85pct_col]
-                    print(f"  - {date.date()}: [触发] -> close({close:.2f}) > cost_85pct({cost:.2f}) AND prev_close({prev_close:.2f}) <= prev_cost({prev_cost:.2f}). 前提条件: {pre_cond}")
+                    print(f"  - {date.date()}: [信号出现] -> close({close:.2f}) > cost_85pct({cost:.2f}) 且为首次突破.")
+                    print(f"    -> 检查点: 信号自身(signal) = True, 战术前提(precondition) = {pre_cond_val}")
+                    print(f"    -> 最终结果 (signal & precondition) = {final_result}")
 
         return signal & precondition
 
