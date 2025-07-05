@@ -275,8 +275,17 @@ class TrendFollowStrategy:
         cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params) # 使用严格前提
         cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params) # 使用严格前提
         cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params) # 使用严格前提
-        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, strict_precondition, params) # 使用严格前提
-        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, strict_precondition, params) # 使用严格前提
+        # 成本区增强: 发生在横盘期，使用宽松前提
+        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, tactical_precondition, params)
+        # 筹码集中突破: 趋势启动信号，使用宽松前提
+        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, tactical_precondition, params)
+        # 投降坑反转: 典型的左侧信号，完全移除前提条件
+        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params)
+        # 筹码成本突破: 趋势启动信号，使用宽松前提
+        cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, tactical_precondition, params)
+        # 筹码压力释放: 趋势加速信号，保留严格前提
+        cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
+        cond_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, strict_precondition, params) # 同样使用严格前提
         cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 左侧信号，无前提
         cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition # 使用严格前提
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params) # 使用严格前提
@@ -287,8 +296,6 @@ class TrendFollowStrategy:
         board_patterns = self._identify_board_patterns(df, params)
         cond_earth_heaven_board, cond_turnover_board, cond_heaven_earth_board = board_patterns.get('earth_heaven_board', pd.Series(False, index=df.index)), board_patterns.get('turnover_board', pd.Series(False, index=df.index)), board_patterns.get('heaven_earth_board', pd.Series(False, index=df.index))
         cond_volume_breakdown = self._find_volume_breakdown_exit(df, params)
-        cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, strict_precondition, params) # 使用严格前提
-        cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params) # 使用严格前提
         cond_fund_flow_confirm = self._check_fund_flow_confirmation(df, params)
         cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params) # 使用严格前提
         steady_climb_params = self._get_params_block(params, 'steady_climb_params')
@@ -313,6 +320,7 @@ class TrendFollowStrategy:
             "成本区增强 (COST_AREA_REINFORCEMENT)": cond_cost_area_reinforcement,
             "投降坑反转 (WINNER_RATE_REVERSAL)": cond_winner_rate_reversal,
             "筹码压力释放 (CHIP_PRESSURE_RELEASE)": cond_chip_pressure_release,
+            "筹码关口扫清 (CHIP_HURDLE_CLEAR)": cond_chip_hurdle_clear,
             "筹码成本区突破 (CHIP_COST_BREAKTHROUGH)": cond_chip_cost_breakthrough,
             "常规回踩 (PULLBACK_NORMAL)": is_normal_pullback,
             "稳步回踩 (PULLBACK_STEADY_CLIMB)": is_steady_climb_pullback, # 新增
@@ -349,9 +357,10 @@ class TrendFollowStrategy:
         add_score(cond_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180)
         add_score(cond_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160)
         add_score(cond_winner_rate_reversal, 'WINNER_RATE_REVERSAL', 140)
-        add_score(cond_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150)
+        add_score(cond_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150) # 95%线，高分
         add_score(cond_chip_cost_breakthrough, 'CHIP_COST_BREAKTHROUGH', 130)
         add_score(is_steady_climb_pullback, 'PULLBACK_STEADY_CLIMB', 110)
+        add_score(cond_chip_hurdle_clear, 'CHIP_HURDLE_CLEAR', 110) # 85%线，分数稍低
         add_score(is_normal_pullback, 'PULLBACK_NORMAL', 100)
         add_score(cond_v_reversal, 'V_SHAPE_REVERSAL', 95)
         add_score(cond_momentum, 'MOMENTUM_BREAKOUT', 70)
@@ -1668,21 +1677,36 @@ class TrendFollowStrategy:
     def _find_chip_cost_breakthrough(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """【新剧本】筹码成本突破：股价上穿市场平均成本。"""
         params = self._get_params_block(params, 'chip_cost_breakthrough_params')
-        if not params.get('enabled', False) or 'close_D' not in df.columns or 'cyq_weight_avg_D' not in df.columns:
+        weight_avg_col = 'weight_avg_D' # 补充数据列在apply_strategy开头被统一添加了_D后缀
+        if not params.get('enabled', False) or 'close_D' not in df.columns or weight_avg_col not in df.columns:
             return pd.Series(False, index=df.index)
         
         # 信号：收盘价从下方首次突破市场平均成本线
-        signal = (df['close_D'] > df['cyq_weight_avg_D']) & (df['close_D'].shift(1) <= df['cyq_weight_avg_D'].shift(1))
+        signal = (df['close_D'] > df[weight_avg_col]) & (df['close_D'].shift(1) <= df[weight_avg_col].shift(1))
         return signal & precondition
 
     def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """【新剧本】筹码压力释放：股价突破95%的套牢盘成本线。"""
         params = self._get_params_block(params, 'chip_pressure_release_params')
-        if not params.get('enabled', False) or 'close_D' not in df.columns or 'cyq_cost_95pct_D' not in df.columns:
+        cost_95pct_col = 'cost_95pct_D' # 补充数据列在apply_strategy开头被统一添加了_D后缀
+        if not params.get('enabled', False) or 'close_D' not in df.columns or cost_95pct_col not in df.columns:
             return pd.Series(False, index=df.index)
             
         # 信号：收盘价突破95分位成本线
-        signal = df['close_D'] > df['cyq_cost_95pct_D']
+        signal = df['close_D'] > df[cost_95pct_col]
+        return signal & precondition
+    
+    # ▼▼▼ 突破85%成本线 ▼▼▼
+    def _find_chip_hurdle_clear_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """【新增剧本】筹码关口扫清：股价突破85%的套牢盘成本线，作为趋势确认信号。"""
+        # 注意：这里我们复用 pressure_release 的参数块，或者你可以为其新建一个参数块
+        params = self._get_params_block(params, 'chip_pressure_release_params') # 假设复用参数
+        cost_85pct_col = 'cost_85pct_D' # 使用85%成本线
+        if not params.get('enabled', False) or 'close_D' not in df.columns or cost_85pct_col not in df.columns:
+            return pd.Series(False, index=df.index)
+        
+        # 信号：收盘价首次从下方突破85%成本线，信号更早，但需要警惕假突破
+        signal = (df['close_D'] > df[cost_85pct_col]) & (df['close_D'].shift(1) <= df[cost_85pct_col].shift(1))
         return signal & precondition
 
     # ▼▼▼ “成本区增强”剧本(使用精确CYQ数据) ▼▼▼
@@ -1699,13 +1723,14 @@ class TrendFollowStrategy:
         # 依赖检查
         vol_ma_period = self._get_params_block(params, 'first_breakout_params').get('vol_ma_period', 20)
         vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
-        required_cols = ['CYQ_weight_avg_D', 'close_D', 'volume_D', 'high_D', 'low_D', vol_ma_col]
+        weight_avg_col = 'weight_avg_D' # 正确的列名
+        required_cols = [weight_avg_col, 'close_D', 'volume_D', 'high_D', 'low_D', vol_ma_col]
         if not all(col in df.columns and df[col].notna().any() for col in required_cols):
             if self.verbose_logging:
                 print(f"    [调试-成本区增强]: 跳过，缺少必需的CYQ或基础列: {required_cols}")
             return pd.Series(False, index=df.index)
         # 1. 参数获取
-        main_cost_area = df['CYQ_weight_avg_D'] # 直接使用精确的CYQ平均成本
+        main_cost_area = df[weight_avg_col] # 使用正确的列
         proximity_threshold = params.get('proximity_threshold', 0.03)
         volume_ratio = params.get('volume_ratio', 1.5)
         volatility_threshold = params.get('volatility_threshold', 0.02)
@@ -1747,9 +1772,8 @@ class TrendFollowStrategy:
         # 动态构建依赖的列名
         cost_lower_col = f'cost_{lower_pct}pct_D'
         cost_upper_col = f'cost_{upper_pct}pct_D'
-        weight_avg_col = 'weight_avg_D' # CYQ加权平均成本
-
-        # 检查所有必需的筹码列是否存在
+        weight_avg_col = 'weight_avg_D'
+        
         required_cols = [cost_lower_col, cost_upper_col, weight_avg_col, 'close_D']
         if not all(col in df.columns for col in required_cols):
             if self.verbose_logging:
@@ -1792,14 +1816,15 @@ class TrendFollowStrategy:
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
         # 检查必需的CYQ数据列是否存在
-        required_cols = ['CYQ_winner_rate_D', 'close_D', 'open_D']
+        winner_rate_col = 'winner_rate_D' # 正确的列名
+        required_cols = [winner_rate_col, 'close_D', 'open_D']
         if not all(col in df.columns and df[col].notna().any() for col in required_cols):
             if self.verbose_logging:
                 print(f"    [调试-获利盘洗净反转]: 跳过，缺少必需的CYQ列: {required_cols}")
             return pd.Series(False, index=df.index)
         # 1. 条件A: 前一日获利盘比例极低（市场已完成“投降式”抛售）
         # 注意：winner_rate的单位是%，所以阈值也要是%
-        was_washed_out = df['CYQ_winner_rate_D'].shift(1) < params.get('washout_threshold', 10.0)
+        was_washed_out = df[winner_rate_col].shift(1) < params.get('washout_threshold', 10.0)
         # 2. 条件B: 当日为企稳阳线
         is_reversal_candle = df['close_D'] > df['open_D']
         # 这个信号是典型的左侧交易信号，可以不依赖于严格的上升趋势前提(precondition)

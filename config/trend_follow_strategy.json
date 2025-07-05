@@ -389,6 +389,11 @@
             "score": 150,
             "description": "股价上方无明显筹码套牢盘，进入“真空”加速区，是主升浪的特征。"
           },
+          "CHIP_HURDLE_CLEAR": {
+            "name": "筹码关口扫清",
+            "score": 110,
+            "description": "【新增】突破85%成本线，是更早的趋势确认信号，但需警惕假突破。"
+          },
           "CHIP_COST_BREAKTHROUGH": {
             "name": "筹码成本区突破",
             "score": 130,
