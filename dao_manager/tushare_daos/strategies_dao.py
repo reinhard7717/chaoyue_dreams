@@ -520,7 +520,6 @@ class StrategiesDAO(BaseDAO):
 
     # 获取指定股票的日线资金流和筹码性能数据。
     @sync_to_async
-    @sync_to_async
     def get_fund_flow_and_chips_data(self, stock_code: str, trade_time: Optional[datetime] = None, limit: Optional[int] = None) -> pd.DataFrame:
         """
         【V2.0 架构优化版】获取指定股票的日线资金流和筹码性能数据。
