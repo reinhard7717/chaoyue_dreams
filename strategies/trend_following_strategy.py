@@ -1684,6 +1684,20 @@ class TrendFollowStrategy:
         
         # 信号：收盘价从下方首次突破市场平均成本线
         signal = (df['close_D'] > df[weight_avg_col]) & (df['close_D'].shift(1) <= df[weight_avg_col].shift(1))
+
+        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
+        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
+        if not debug_dates.empty:
+            print("\n--- [调试日志 - 剧本: 筹码成本突破 (CHIP_COST_BREAKTHROUGH)] ---")
+            for date in debug_dates:
+                if date in signal.index and signal.loc[date]:
+                    pre_cond = precondition.loc[date]
+                    close = df.loc[date, 'close_D']
+                    cost = df.loc[date, weight_avg_col]
+                    prev_close = df.shift(1).loc[date, 'close_D']
+                    prev_cost = df.shift(1).loc[date, weight_avg_col]
+                    print(f"  - {date.date()}: [触发] -> close({close:.2f}) > cost({cost:.2f}) AND prev_close({prev_close:.2f}) <= prev_cost({prev_cost:.2f}). 前提条件: {pre_cond}")
+
         return signal & precondition
 
     def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
@@ -1695,6 +1709,18 @@ class TrendFollowStrategy:
             
         # 信号：收盘价突破95分位成本线
         signal = df['close_D'] > df[cost_95pct_col]
+
+        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
+        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
+        if not debug_dates.empty:
+            print("\n--- [调试日志 - 剧本: 筹码压力释放 (CHIP_PRESSURE_RELEASE)] ---")
+            for date in debug_dates:
+                if date in signal.index and signal.loc[date]:
+                    pre_cond = precondition.loc[date]
+                    close = df.loc[date, 'close_D']
+                    cost = df.loc[date, cost_95pct_col]
+                    print(f"  - {date.date()}: [触发] -> close({close:.2f}) > cost_95pct({cost:.2f}). 前提条件: {pre_cond}")
+
         return signal & precondition
     
     # ▼▼▼ 突破85%成本线 ▼▼▼
@@ -1708,6 +1734,20 @@ class TrendFollowStrategy:
         
         # 信号：收盘价首次从下方突破85%成本线，信号更早，但需要警惕假突破
         signal = (df['close_D'] > df[cost_85pct_col]) & (df['close_D'].shift(1) <= df[cost_85pct_col].shift(1))
+
+        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
+        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
+        if not debug_dates.empty:
+            print("\n--- [调试日志 - 剧本: 筹码关口扫清 (CHIP_HURDLE_CLEAR)] ---")
+            for date in debug_dates:
+                if date in signal.index and signal.loc[date]:
+                    pre_cond = precondition.loc[date]
+                    close = df.loc[date, 'close_D']
+                    cost = df.loc[date, cost_85pct_col]
+                    prev_close = df.shift(1).loc[date, 'close_D']
+                    prev_cost = df.shift(1).loc[date, cost_85pct_col]
+                    print(f"  - {date.date()}: [触发] -> close({close:.2f}) > cost_85pct({cost:.2f}) AND prev_close({prev_close:.2f}) <= prev_cost({prev_cost:.2f}). 前提条件: {pre_cond}")
+
         return signal & precondition
 
     # ▼▼▼ “成本区增强”剧本(使用精确CYQ数据) ▼▼▼
@@ -1830,6 +1870,18 @@ class TrendFollowStrategy:
         is_reversal_candle = df['close_D'] > df['open_D']
         # 这个信号是典型的左侧交易信号，可以不依赖于严格的上升趋势前提(precondition)
         final_signal = was_washed_out & is_reversal_candle
+
+        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
+        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
+        if not debug_dates.empty:
+            print("\n--- [调试日志 - 剧本: 投降坑反转 (WINNER_RATE_REVERSAL)] ---")
+            for date in debug_dates:
+                if date in final_signal.index and final_signal.loc[date]:
+                    prev_winner_rate = df.shift(1).loc[date, winner_rate_col]
+                    close = df.loc[date, 'close_D']
+                    open_price = df.loc[date, 'open_D']
+                    print(f"  - {date.date()}: [触发] -> prev_winner_rate({prev_winner_rate:.2f}%) < {was_washed_out}% AND close({close:.2f}) > open({open_price:.2f}).")
+
         if self.verbose_logging and final_signal.any():
             print(f"    [调试-获利盘洗净反转]: 剧本触发 {final_signal.sum()} 次。")
         return final_signal.fillna(False)
