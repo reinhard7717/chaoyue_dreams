@@ -405,6 +405,8 @@ class IndicatorService:
             logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
             return {}
         
+        print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
+        
         # 5. 执行重采样（周线、月线）
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
@@ -431,13 +433,15 @@ class IndicatorService:
                 if df_supplemental is not None and not df_supplemental.empty:
                     print("    - [数据融合] 正在将补充数据(资金流、筹码等)合并到日线...")
                     df_supplemental_std = self._standardize_df_index_to_utc(df_supplemental)
+                    print(f"    - [数据流追踪] 步骤2: 日线合并前，行数: {len(df)}, 补充数据行数: {len(df_supplemental_std)}")
                     df = pd.merge(df, df_supplemental_std, left_index=True, right_index=True, how='left')
-                    # 使用 ffill() 来正确填充所有补充数据列，从根本上解决问题
                     df[list(df_supplemental_std.columns)] = df[list(df_supplemental_std.columns)].ffill()
+                    print(f"    - [数据流追踪] 步骤3: 日线合并后，行数: {len(df)}, 列: {df.columns.tolist()}")
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            
+
             if tf == 'D':
+                print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
                 self._log_alignment_check(df_with_indicators)
             
             return tf, df_with_indicators
@@ -449,12 +453,17 @@ class IndicatorService:
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
 
         for res in processed_results:
-            if isinstance(res, Exception): continue
-            if res:
+            if isinstance(res, Exception):
+                logger.error(f"指标计算任务中出现异常: {res}", exc_info=True)
+                continue
+            if res and isinstance(res, tuple) and len(res) == 2:
                 tf, df_processed = res
-                processed_dfs[tf] = df_processed
+                if df_processed is not None and not df_processed.empty:
+                    processed_dfs[tf] = df_processed
+                else:
+                    logger.warning(f"周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
 
-        print(f"--- [数据准备V7.6-架构优化版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
+        print(f"--- [数据准备V7.7-日志增强版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
@@ -652,39 +661,36 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"计算Z-score时出错 (配置: {z_config}): {e}", exc_info=True)
 
-        # --- 统一添加后缀并将所有计算结果合并回主DataFrame ---
+        # 1. 确定后缀。日线、周线、月线加后缀，分钟线等保持原样。
         suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
         
-        final_df = df_main.copy()
-        # 遍历计算副本中的所有列（包括 base_cols 和所有计算出的指标列）
-        for col in df_for_calc.columns:
-            # 此处不再跳过 base_cols，确保 high -> high_W, close -> close_W 的转换能够发生
-            final_col_name = f"{col}{suffix}"
-            # 如果是VWAP这种自带周期的列名，则不加后缀
-            if col.startswith('VWAP_'):
-                final_col_name = col
-            # 特殊处理：原始补充数据列（如winner_rate）不应该被添加后缀
-            elif col in df.columns and f"{col}{suffix}" not in df_for_calc.columns:
-                 # 如果这个列是原始列（存在于最开始的df中），并且没有在计算过程中生成带后缀的版本，
-                 # 那么我们保留它的原始名称。
-                 final_col_name = col
-            # 将df_for_calc中的列（可能是原始的，也可能是新计算的）更新/添加到final_df中
-            # 使用get方法以防万一列不存在
-            if col in df_for_calc:
-                final_df[final_col_name] = df_for_calc.get(col)
-            
-            # 将结果列（如 high_W, EMA_20_W）添加到主DataFrame中
-            df_main[final_col_name] = df_for_calc[col]
+        # 如果不需要加后缀（例如分钟线），直接返回包含所有计算结果的 df_for_calc
+        if not suffix:
+            return df_for_calc
+
+        # 2. 对于需要加后缀的周期（D, W, M）:
+        # 创建一个重命名的映射字典，为 df_for_calc 中的每一列都规划好带后缀的新名字。
+        # 这样可以确保数据的一致性，所有列都会被统一处理。
+        rename_map = {col: f"{col}{suffix}" for col in df_for_calc.columns}
         
-        # print(f"  [指标计算V5.8] 周期 '{timeframe_key}' 指标计算完成。")
-         # 打印2024年11月到12月的数据以供调试
-        debug_df = final_df[(final_df.index >= '2024-11-01') & (final_df.index <= '2024-12-31')]
-        if not debug_df.empty:
-            print("\n--- [IndicatorService 最终数据输出 - 关键时段 2024-11/12] ---")
-            # 设置pandas显示选项，以确保所有列都能被打印出来
-            with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 220):
-                print(debug_df[['close_D', 'winner_rate', 'weight_avg', 'cost_85pct', 'cost_95pct']])
-            print("--- [IndicatorService 最终数据输出结束] ---\n")
+        # 3. 应用重命名，生成最终的DataFrame
+        final_df = df_for_calc.rename(columns=rename_map)
+
+        # 4. 调试输出，检查最终返回的数据是否符合预期
+        debug_cols_to_check = [
+            f'close{suffix}', f'winner_rate{suffix}', f'weight_avg{suffix}', 
+            f'cost_85pct{suffix}', f'cost_95pct{suffix}'
+        ]
+        # 筛选出实际存在于final_df中的列进行打印，避免KeyError
+        existing_debug_cols = [col for col in debug_cols_to_check if col in final_df.columns]
+
+        if existing_debug_cols:
+            debug_df = final_df[(final_df.index >= '2024-11-01') & (final_df.index <= '2024-12-31')]
+            if not debug_df.empty:
+                print(f"\n--- [IndicatorService V6.0 最终输出 - 周期 {timeframe_key}] ---")
+                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 220):
+                    print(debug_df[existing_debug_cols])
+                print(f"--- [IndicatorService V6.0 最终输出结束 - 周期 {timeframe_key}] ---\n")
 
         return final_df
 

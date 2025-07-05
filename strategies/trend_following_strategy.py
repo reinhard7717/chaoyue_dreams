@@ -1678,12 +1678,12 @@ class TrendFollowStrategy:
     def _find_chip_cost_breakthrough(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """【新剧本】【V2.1 列名修复版】筹码成本突破：股价上穿市场平均成本。"""
         params = self._get_params_block(params, 'chip_cost_breakthrough_params')
-        weight_avg_col = 'weight_avg' # 修正列名
-        if not params.get('enabled', False) or 'close_D' not in df.columns or weight_avg_col not in df.columns:
+        close_col = 'close_D'
+        weight_avg_col = 'weight_avg_D'
+        if not params.get('enabled', False) or close_col not in df.columns or weight_avg_col not in df.columns:
             return pd.Series(False, index=df.index)
         
-        # 信号：收盘价从下方首次突破市场平均成本线
-        signal = (df['close_D'] > df[weight_avg_col]) & (df['close_D'].shift(1) <= df[weight_avg_col].shift(1))
+        signal = (df[close_col] > df[weight_avg_col]) & (df[close_col].shift(1) <= df[weight_avg_col].shift(1))
 
         # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
         debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
@@ -1703,12 +1703,12 @@ class TrendFollowStrategy:
     def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """【新剧本】【V2.1 列名修复版】筹码压力释放：股价突破95%的套牢盘成本线。"""
         params = self._get_params_block(params, 'chip_pressure_release_params')
-        cost_95pct_col = 'cost_95pct' # 修正列名
-        if not params.get('enabled', False) or 'close_D' not in df.columns or cost_95pct_col not in df.columns:
+        close_col = 'close_D'
+        cost_95pct_col = 'cost_95pct_D'
+        if not params.get('enabled', False) or close_col not in df.columns or cost_95pct_col not in df.columns:
             return pd.Series(False, index=df.index)
             
-        # 信号：收盘价突破95分位成本线
-        signal = df['close_D'] > df[cost_95pct_col]
+        signal = df[close_col] > df[cost_95pct_col]
 
         # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
         debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
@@ -1728,12 +1728,12 @@ class TrendFollowStrategy:
         """【新增剧本】筹码关口扫清：股价突破85%的套牢盘成本线，作为趋势确认信号。"""
         # 注意：这里我们复用 pressure_release 的参数块，或者你可以为其新建一个参数块
         params = self._get_params_block(params, 'chip_pressure_release_params') # 假设复用参数
-        cost_85pct_col = 'cost_85pct' # 修正列名
-        if not params.get('enabled', False) or 'close_D' not in df.columns or cost_85pct_col not in df.columns:
+        close_col = 'close_D'
+        cost_85pct_col = 'cost_85pct_D'
+        if not params.get('enabled', False) or close_col not in df.columns or cost_85pct_col not in df.columns:
             return pd.Series(False, index=df.index)
         
-        # 信号：收盘价首次从下方突破85%成本线，信号更早，但需要警惕假突破
-        signal = (df['close_D'] > df[cost_85pct_col]) & (df['close_D'].shift(1) <= df[cost_85pct_col].shift(1))
+        signal = (df[close_col] > df[cost_85pct_col]) & (df[close_col].shift(1) <= df[cost_85pct_col].shift(1))
 
         # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
         debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
@@ -1857,8 +1857,10 @@ class TrendFollowStrategy:
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
         # 检查必需的CYQ数据列是否存在
-        winner_rate_col = 'winner_rate' # 修正列名
-        required_cols = [winner_rate_col, 'close_D', 'open_D']
+        winner_rate_col = 'winner_rate_D'
+        close_col = 'close_D'
+        open_col = 'open_D'
+        required_cols = [winner_rate_col, close_col, open_col]
         if not all(col in df.columns and df[col].notna().any() for col in required_cols):
             if self.verbose_logging:
                 print(f"    [调试-获利盘洗净反转]: 跳过，缺少必需的CYQ列: {required_cols}")
