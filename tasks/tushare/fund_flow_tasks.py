@@ -269,7 +269,7 @@ def save_fund_flow_data_this_week_task(self):
 
 
 #  ================ （历史）日级资金流向数据（三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch', queue="SaveHistoryData_TimeTrade")
 def save_fund_flow_daily_data_history_batch(self, trade_date: datetime.date = None, start_date: datetime.date = None, end_date: datetime.date = None):
     """
     【优化版】从Tushare批量获取指定日期或日期范围内的历史日级资金流向数据并保存。
@@ -310,7 +310,7 @@ def save_fund_flow_daily_data_history_batch(self, trade_date: datetime.date = No
         return {"status": "error", "message": str(e)}
 
 # [修改] 重构调度器任务，使其分派单个范围任务
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task', queue="celery")
 def save_fund_flow_daily_data_history_task(self): 
     """
     【优化版】调度器任务：
@@ -330,8 +330,8 @@ def save_fund_flow_daily_data_history_task(self):
             return {"status": "skipped", "message": "Trade calendar is empty."}
             
         # [修改] 获取起始和结束日期
-        start_date = trade_days_list[0]
-        end_date = trade_days_list[-1]
+        start_date = trade_days_list[-1]
+        end_date = trade_days_list[0]
         
         logger.info(f"计算出的处理日期范围为: {start_date} 到 {end_date}")
         
