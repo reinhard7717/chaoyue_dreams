@@ -164,34 +164,30 @@ class TradeCalendar(models.Model):
         :param n: int, 需要获取的交易日数量。
         :param reference_date: datetime.date, 查询的参考日期，如果为None，则默认为今天。
         :param exchange: str, 交易所代码，默认为'SSE'。
-        :return: list[datetime.date], 最近N个交易日的日期列表（按日期从近到远排序）。
+        :return: list[datetime.date], 最近N个交易日的日期列表（按日期从近到远排序，即降序）。
         """
-        # 如果未提供参考日期，则使用当前服务器日期
         if reference_date is None:
             reference_date = timezone.now().date()
         
-        # 调试信息：打印输入的参数
         print(f"调试: get_latest_n_trade_dates - 获取数量: {n}, 参考日期: {reference_date}, 交易所: {exchange}")
 
-        # 查询数据库
-        # 筛选条件：
-        # 1. 交易所匹配
-        # 2. 是交易日 (is_open=True)
-        # 3. 日期小于或等于参考日期 (cal_date <= reference_date)
-        # 按照日期降序排列
-        # 使用 .values_list('cal_date', flat=True) 可以更高效地只获取日期字段，而不是整个对象
-        # 使用切片 [:n] 获取前N个结果
+        # 1. 使用Django ORM进行查询，这是最高效的方式
         trade_dates_queryset = cls.objects.filter(
             exchange=exchange,
             is_open=True,
             cal_date__lte=reference_date
         ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
 
-        # 将查询结果QuerySet转换为列表
+        # 2. 将QuerySet物化为列表
         trade_dates_list = list(trade_dates_queryset)
-        print(f"调试: 找到 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
+        
+        # [修改] 增加Python层面的强制排序，作为最终保障
+        # 确保无论底层数据库行为如何，返回的列表都是严格降序的（从近到远）
+        trade_dates_list.sort(reverse=True)
+        
+        print(f"调试: 找到并强制排序后 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
         return trade_dates_list
-
+    
     @classmethod
     def is_trade_day(cls, date_to_check: datetime.date | datetime.datetime) -> bool: # type: ignore
         """
