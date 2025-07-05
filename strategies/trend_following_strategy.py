@@ -275,17 +275,19 @@ class TrendFollowStrategy:
         cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params) # 使用严格前提
         cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params) # 使用严格前提
         cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params) # 使用严格前提
-        # 成本区增强: 发生在横盘期，使用宽松前提
+        # ▼▼▼ 为不同筹码剧本分配合适的前提条件 ▼▼▼
+        # 成本区增强: 发生在横盘期，是拉升前兆，使用宽松前提。
         cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, tactical_precondition, params)
-        # 筹码集中突破: 趋势启动信号，使用宽松前提
+        # 筹码集中突破: 趋势启动信号，使用宽松前提。
         cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, tactical_precondition, params)
-        # 投降坑反转: 典型的左侧信号，完全移除前提条件
+        # 投降坑反转: 典型的左侧信号，完全移除前提条件。
         cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params)
-        # 筹码成本突破: 趋势启动信号，使用宽松前提
+        # 筹码成本突破: 趋势启动信号，使用宽松前提。
         cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, tactical_precondition, params)
-        # 筹码压力释放: 趋势加速信号，保留严格前提
+        # 筹码压力释放: 趋势加速信号，发生在主升浪，保留严格前提。
         cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
-        cond_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, strict_precondition, params) # 同样使用严格前提
+        # 筹码关口扫清: 趋势确认信号，发生在主升浪，保留严格前提。
+        cond_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, strict_precondition, params)
         cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition # 使用严格前提
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params) # 使用严格前提
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
