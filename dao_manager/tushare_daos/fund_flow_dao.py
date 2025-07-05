@@ -80,7 +80,7 @@ class FundFlowDao(BaseDAO):
 
         # --- 2. [新增] 客户端日期分块逻辑 ---
         date_chunks = []
-        chunk_size_days = 30  # 每个分块的大小（天数），90天是一个比较安全且高效的选择
+        chunk_size_days = 10  # 每个分块的大小（天数），90天是一个比较安全且高效的选择
         current_chunk_end = end_date
         while current_chunk_end >= start_date:
             current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
