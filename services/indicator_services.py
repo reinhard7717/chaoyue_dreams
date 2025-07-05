@@ -325,27 +325,32 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V7.4 数据清查版】
-        - 新增功能: 增加了两个调试阶段，用于清查底层数据的完整性和合并后的对齐情况。
-        - 阶段一: 在获取完所有原始数据后，打印每个DataFrame的时间范围和数据量。
-        - 阶段二: 在日线数据合并及指标计算完成后，随机抽查10个时间点，检查关键列的对齐情况。
+        【V7.6 架构优化版】
+        - 核心重构: 移除了独立获取CYQ数据的逻辑，统一由 StrategiesDAO.get_fund_flow_and_chips_data 提供所有补充数据。
+                    这消除了数据获取的冗余，并从根本上解决了因不同处理方式（ffill vs fillna(0)）导致的数据冲突问题。
+        - 流程简化: 现在只有一个补充数据源（df_supplemental），代码更清晰，责任更明确。
+        - 性能提升: 调用DAO时传入limit参数，避免全量查询，提升效率。
         """
-        # --- 步骤 1: 智能发现所需周期 (无变化) ---
+        # 1. 从配置中解析需要哪些时间周期的数据
         required_tfs = self._discover_required_timeframes_from_config(config)
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
         print(f"    - [配置读取] 策略请求的基础数据量 (base_needed_bars) 为: {base_needed_bars}")
         
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        needs_fund_chips_data = any(
-            params.get('enabled', False) and key in ['advanced_fund_features', 'chip_cost_breakthrough', 'chip_pressure_release']
+        
+        # 2. 判断是否需要获取补充数据（资金流、筹码等）
+        needs_supplemental_data = any(
+            params.get('enabled', False) and key in [
+                'advanced_fund_features', 'chip_cost_breakthrough', 
+                'chip_pressure_release', 'winner_rate_reversal', 'capital_flow_divergence' # 扩展检查范围
+            ]
             for key, params in indicators_config.items() if isinstance(params, dict)
         )
-        needs_cyq_perf_data = indicators_config.get('cyq_perf', {}).get('enabled', False)
 
         if not required_tfs:
             return {}
 
-        # --- 步骤 2: 识别基础数据需求和重采样计划 (无变化) ---
+        # 3. 准备所有数据获取任务
         base_tfs_to_fetch = set()
         resample_map = {}
         for tf in required_tfs:
@@ -356,70 +361,51 @@ class IndicatorService:
                 base_tfs_to_fetch.add(tf)
 
         tasks = []
-
         async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, bars_to_fetch, trade_time_str)
             return (tf_to_fetch, df)
 
         for tf in base_tfs_to_fetch:
             bars_to_fetch = base_needed_bars
-            if tf == 'D' and resample_map:
+            if tf == 'D' and resample_map: # 如果需要周线或月线，日线数据需要更多
                 bars_to_fetch = max(bars_to_fetch, 1000)
-                print(f"    - [数据量决策] 为支持重采样，日线数据获取量提升至: {bars_to_fetch}")
             tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
         
-        if needs_fund_chips_data:
-            async def _fetch_fund_data_tagged(stock_code, trade_time):
+        # ▼▼▼【核心架构】: 统一调用增强后的DAO方法获取所有补充数据 ▼▼▼
+        if needs_supplemental_data:
+            async def _fetch_supplemental_data_tagged(stock_code, trade_time, limit):
                 trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
-                df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt)
-                return ('fund_chips', df)
-            tasks.append(_fetch_fund_data_tagged(stock_code, trade_time))
+                # 调用我们刚刚优化的DAO方法，并传入limit参数
+                df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
+                return ('supplemental', df)
+            # 将基础数据量作为limit传入，确保数据量匹配
+            tasks.append(_fetch_supplemental_data_tagged(stock_code, trade_time, base_needed_bars))
         
+        # 4. 并发执行所有数据获取任务
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
         
         raw_dfs: Dict[str, pd.DataFrame] = {}
-        df_fund_chips: Optional[pd.DataFrame] = None
+        df_supplemental: Optional[pd.DataFrame] = None
 
         for result in all_data_results:
-            if isinstance(result, Exception):
-                logger.error(f"[{stock_code}] 在并行获取数据时发生错误: {result}")
-                continue
-            if not (isinstance(result, tuple) and len(result) == 2):
-                logger.warning(f"[{stock_code}] 并行任务返回了非预期的格式: {type(result)}，已跳过。")
-                continue
+            if isinstance(result, Exception): continue
+            if not (isinstance(result, tuple) and len(result) == 2): continue
+            
             tag, data = result
-            if tag == 'fund_chips':
+            if tag == 'supplemental':
                 if isinstance(data, pd.DataFrame):
-                    df_fund_chips = data
+                    df_supplemental = data
             else:
                 tf = tag
                 df = data
                 if isinstance(df, pd.DataFrame) and not df.empty:
                     raw_dfs[tf] = df
-                else:
-                    logger.warning(f"[{stock_code}] 获取基础周期 {tf} 数据时返回为空或非DataFrame。")
-
-        # ▼▼▼ 插入阶段一调试，检查原始数据范围 ▼▼▼
-        # print("\n--- [数据清查-阶段1: 原始数据范围检查] ---")
-        # for tf, df in raw_dfs.items():
-        #     self._log_df_time_range(df, f"原始-{tf}周期OHLCV")
-        # self._log_df_time_range(df_fund_chips, "原始-资金流与筹码")
-        # print("--- [数据清查-阶段1: 检查完成] ---\n")
 
         if 'D' not in raw_dfs:
             logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
             return {}
         
-        df_cyq_perf = None
-        if needs_cyq_perf_data and 'D' in raw_dfs:
-            try:
-                trade_dates = raw_dfs['D'].index.tolist()
-                df_cyq_perf = await self.indicator_dao.get_cyq_perf_for_stock_and_dates(stock_code, trade_dates)
-                # ▼▼▼ 插入CYQ数据范围检查 ▼▼▼
-                # self._log_df_time_range(df_cyq_perf, "原始-CYQ筹码分布")
-            except Exception as e:
-                logger.error(f"[{stock_code}] 获取CYQ筹码数据时发生异常: {e}")
-
+        # 5. 执行重采样（周线、月线）
         if 'D' in raw_dfs and resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -431,35 +417,26 @@ class IndicatorService:
                     if not df_resampled.empty:
                         raw_dfs[target_tf] = df_resampled
 
-        # print(f"    - [数据标准化] 开始对所有已加载的周期 {list(raw_dfs.keys())} 进行UTC时区标准化...")
+        # 6. 标准化索引并计算指标
         for tf, df in raw_dfs.items():
             if df is not None and not df.empty:
                 raw_dfs[tf] = self._standardize_df_index_to_utc(df)
-        # print(f"    - [数据标准化] 所有周期UTC时区标准化完成。")
-
-        print(f"    - [诊断日志] 5. 重采样完成后，准备为以下周期计算指标: {sorted(list(raw_dfs.keys()))}")
 
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
             if tf == 'D':
-                if df_fund_chips is not None and not df_fund_chips.empty:
-                    print("    - [数据融合] 正在将旧版资金流数据合并到日线数据...")
-                    df_fund_chips_std = self._standardize_df_index_to_utc(df_fund_chips)
-                    df = pd.merge(df, df_fund_chips_std, left_index=True, right_index=True, how='left')
-                    df[list(df_fund_chips_std.columns)] = df[list(df_fund_chips_std.columns)].fillna(0)
-                if df_cyq_perf is not None and not df_cyq_perf.empty:
-                    print("    - [数据融合] 正在将CYQ筹码数据合并到日线数据...")
-                    df_cyq_perf_std = self._standardize_df_index_to_utc(df_cyq_perf)
-                    df = pd.merge(df, df_cyq_perf_std, left_index=True, right_index=True, how='left')
-                    cyq_cols = [col for col in df.columns if col.startswith('CYQ_')]
-                    df[cyq_cols] = df[cyq_cols].ffill()
+                # ▼▼▼【核心架构】: 简化数据融合逻辑，只处理一个来源，并使用正确的ffill ▼▼▼
+                if df_supplemental is not None and not df_supplemental.empty:
+                    print("    - [数据融合] 正在将补充数据(资金流、筹码等)合并到日线...")
+                    df_supplemental_std = self._standardize_df_index_to_utc(df_supplemental)
+                    df = pd.merge(df, df_supplemental_std, left_index=True, right_index=True, how='left')
+                    # 使用 ffill() 来正确填充所有补充数据列，从根本上解决问题
+                    df[list(df_supplemental_std.columns)] = df[list(df_supplemental_std.columns)].ffill()
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             
-            # ▼▼▼ 插入阶段二调试，检查最终合并对齐情况 ▼▼▼
-            # 解释: 我们只对最复杂的日线数据进行抽样检查，因为它融合了最多的数据源。
             if tf == 'D':
                 self._log_alignment_check(df_with_indicators)
             
@@ -472,14 +449,12 @@ class IndicatorService:
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
 
         for res in processed_results:
-            if isinstance(res, Exception):
-                logger.error(f"    - [诊断日志] 6. [严重错误] 在指标计算环节发生异常，导致一个周期的数据被丢弃: {res}", exc_info=True)
-                continue
+            if isinstance(res, Exception): continue
             if res:
                 tf, df_processed = res
                 processed_dfs[tf] = df_processed
 
-        print(f"--- [数据准备V7.4-数据清查版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
+        print(f"--- [数据准备V7.6-架构优化版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:

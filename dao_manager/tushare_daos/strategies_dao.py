@@ -10,10 +10,10 @@ import numpy as np
 import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from stock_models.fund_flow import FundFlowDailyTHS
+from stock_models.fund_flow import FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS
 from stock_models.stock_analytics import MonthlyTrendStrategyReport, TrendFollowStrategyReport, StockAnalysisResultTrendFollowing, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockCyqPerf
+from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf
 from utils.cache_get import StrategyCacheGet
 from utils.cache_set import StrategyCacheSet
 from functools import reduce
@@ -27,6 +27,43 @@ class StrategiesDAO(BaseDAO):
         self.cache_get = StrategyCacheGet()
         self.stock_basic_dao = StockBasicInfoDao()
     
+    def get_fund_flow_model_by_code(self, stock_code: str):
+        """
+        根据股票代码返回对应的【日级资金流向】数据表Model
+        """
+        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+            return FundFlowDailyCY
+        elif stock_code.endswith('.SZ'):
+            return FundFlowDailySZ
+        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+            return FundFlowDailyKC
+        elif stock_code.endswith('.SH'):
+            return FundFlowDailySH
+        elif stock_code.endswith('.BJ'):
+            return FundFlowDailyBJ
+        else:
+            logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
+            return FundFlowDailySZ  # 默认返回深市主板
+
+    def get_cyq_chips_model_by_code(self, stock_code: str):
+        """
+        根据股票代码返回对应的筹码分布数据表Model
+        """
+        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+            return StockCyqChipsCY
+        elif stock_code.endswith('.SZ'):
+            return StockCyqChipsSZ
+        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+            return StockCyqChipsKC
+        elif stock_code.endswith('.SH'):
+            return StockCyqChipsSH
+        elif stock_code.endswith('.BJ'):
+            return StockCyqChipsBJ
+        else:
+            print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
+            return StockCyqChipsSZ  # 默认返回深市主板
+
+
     async def get_latest_strategy_result(self, stock_code: str):
         """
         获取指定股票的最新策略信号。
@@ -483,45 +520,70 @@ class StrategiesDAO(BaseDAO):
 
     # 获取指定股票的日线资金流和筹码性能数据。
     @sync_to_async
-    def get_fund_flow_and_chips_data(self, stock_code: str, trade_time: Optional[datetime] = None) -> pd.DataFrame:
+    @sync_to_async
+    def get_fund_flow_and_chips_data(self, stock_code: str, trade_time: Optional[datetime] = None, limit: Optional[int] = None) -> pd.DataFrame:
         """
-        【优化版】获取指定股票的日线资金流和筹码性能数据。
-        - 整个方法被异步化，避免了内部嵌套。
+        【V2.0 架构优化版】获取指定股票的日线资金流和筹码性能数据。
+        - 动态模型: 使用 get_fund_flow_model_by_code 自动选择正确的资金流模型。
+        - 性能优化: 增加 limit 参数，从数据库层面限制返回记录数，避免全量查询。
+        - 数据丰富: 提取了更多有价值的资金流和筹码字段。
+        - 健壮合并: 使用 'outer' 合并，并统一使用 ffill() 填充，确保数据连续性。
         """
-        # print(f"调试信息: [DAO] 正在获取 {stock_code} 的资金流与筹码数据...")
+        print(f"    - [DAO] 正在为 {stock_code} 获取补充数据 (资金流、筹码)...")
         
-        # 获取资金流数据
-        fund_flow_qs = FundFlowDailyTHS.objects.filter(stock__stock_code=stock_code).order_by('trade_time')
-        if trade_time:
-            # 直接使用datetime对象进行过滤
-            fund_flow_qs = fund_flow_qs.filter(trade_time__lte=trade_time.date())
-        
-        # 获取筹码性能数据
-        cyq_perf_qs = StockCyqPerf.objects.filter(stock__stock_code=stock_code).order_by('trade_time')
-        if trade_time:
-            cyq_perf_qs = cyq_perf_qs.filter(trade_time__lte=trade_time.date())
-
-        # 转换为DataFrame
-        df_flow = pd.DataFrame.from_records(fund_flow_qs.values('trade_time', 'buy_lg_amount', 'net_d5_amount'))
-        df_cyq = pd.DataFrame.from_records(cyq_perf_qs.values('trade_time', 'winner_rate', 'weight_avg', 'cost_95pct'))
-
-        if df_flow.empty or df_cyq.empty:
-            print(f"调试信息: [DAO] {stock_code} 的资金流或筹码数据为空。")
+        FundFlowModel = self.get_fund_flow_model_by_code(stock_code)
+        if not FundFlowModel:
+            logger.error(f"无法为 {stock_code} 找到对应的资金流模型，跳过补充数据获取。")
             return pd.DataFrame()
 
-        # 合并两个DataFrame
-        df_flow['trade_time'] = pd.to_datetime(df_flow['trade_time'])
-        df_cyq['trade_time'] = pd.to_datetime(df_cyq['trade_time'])
+        # 1. 获取资金流数据
+        fund_flow_qs = FundFlowModel.objects.filter(stock__stock_code=stock_code).order_by('-trade_time')
+        if trade_time:
+            fund_flow_qs = fund_flow_qs.filter(trade_time__lte=trade_time.date())
+        if limit:
+            fund_flow_qs = fund_flow_qs[:limit]
         
-        # 使用外连接保留所有数据，然后处理
-        df_merged = pd.merge(df_flow, df_cyq, on='trade_time', how='outer')
+        # 2. 获取筹码性能数据
+        cyq_perf_qs = StockCyqPerf.objects.filter(stock__stock_code=stock_code).order_by('-trade_time')
+        if trade_time:
+            cyq_perf_qs = cyq_perf_qs.filter(trade_time__lte=trade_time.date())
+        if limit:
+            cyq_perf_qs = cyq_perf_qs[:limit]
+
+        # 3. 转换为DataFrame
+        # ▼▼▼ 提取更丰富的字段 ▼▼▼
+        flow_fields = ['trade_time', 'buy_lg_amount', 'buy_elg_amount', 'net_mf_amount']
+        cyq_fields = ['trade_time', 'winner_rate', 'weight_avg', 'cost_15pct', 'cost_85pct', 'cost_95pct']
+        
+        df_flow = pd.DataFrame.from_records(fund_flow_qs.values(*flow_fields))
+        df_cyq = pd.DataFrame.from_records(cyq_perf_qs.values(*cyq_fields))
+        if df_flow.empty and df_cyq.empty:
+            print(f"    - [DAO] {stock_code} 的资金流和筹码数据均为空。")
+            return pd.DataFrame()
+
+        # 4. 合并两个DataFrame
+        # ▼▼▼ 统一和健壮的合并与填充逻辑 ▼▼▼
+        if not df_flow.empty:
+            df_flow['trade_time'] = pd.to_datetime(df_flow['trade_time'])
+        if not df_cyq.empty:
+            df_cyq['trade_time'] = pd.to_datetime(df_cyq['trade_time'])
+
+        if df_flow.empty:
+            df_merged = df_cyq
+        elif df_cyq.empty:
+            df_merged = df_flow
+        else:
+            # 使用外连接(outer)保留所有日期的数据，然后填充
+            df_merged = pd.merge(df_flow, df_cyq, on='trade_time', how='outer')
+        
+        # 排序是填充前的重要步骤
         df_merged.sort_values('trade_time', inplace=True)
         
-        # 向前填充，因为这些数据是每日更新的，缺失值可以用前一天的数据
+        # 使用ffill向前填充所有补充数据，这是正确的处理方式
         df_merged.ffill(inplace=True)
         df_merged.set_index('trade_time', inplace=True)
         
-        # print(f"调试信息: [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条资金筹码数据。")
+        print(f"    - [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条补充数据。")
         return df_merged
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:

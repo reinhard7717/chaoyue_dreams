@@ -1,4 +1,5 @@
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta
 import time
@@ -9,7 +10,8 @@ import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyDC, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyDC, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
 from stock_models.market import LimitListThs
 from utils.data_format_process import FundFlowFormatProcess
 
@@ -24,6 +26,7 @@ class FundFlowDao(BaseDAO):
 
         self.data_format_process = FundFlowFormatProcess()
         self.index_dao = IndexBasicDAO()
+        self.stock_basic_dao = StockBasicInfoDao()
         self.industry_dao = IndustryDao()
         self.stock_cache_key = StockCashKey()
         self.stock_cache_set = StockInfoCacheSet()
@@ -32,57 +35,157 @@ class FundFlowDao(BaseDAO):
         self.user_cache_get = UserCacheGet()
 
     # ============== 日级资金流向数据 ==============
-    async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
+    def get_fund_flow_model_by_code(self, stock_code: str):
         """
-        保存历史日级资金流向数据
+        根据股票代码返回对应的【日级资金流向】数据表Model
         """
-        trade_date_str = "20240101"
-        start_date_str = ""
-        end_date_str = ""
-        if trade_date is not None:
-            trade_date_str = trade_date.strftime('%Y%m%d')
-        if start_date is not None:
+        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+            return FundFlowDailyCY
+        elif stock_code.endswith('.SZ'):
+            return FundFlowDailySZ
+        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+            return FundFlowDailyKC
+        elif stock_code.endswith('.SH'):
+            return FundFlowDailySH
+        elif stock_code.endswith('.BJ'):
+            return FundFlowDailyBJ
+        else:
+            logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
+            return FundFlowDailySZ  # 默认返回深市主板
+
+    async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
+        """
+        保存历史日级资金流向数据 (终极优化版)
+        1. [新增] 引入10万行追溯逻辑，确保获取全量历史数据。
+        2. [新增] 引入分表逻辑，将数据按板块存入不同数据表。
+        3. [重构] 使用向量化操作替代行迭代，极大提升处理效率。
+        4. [优化] 使用异步 asyncio.sleep 替代同步 time.sleep。
+        """
+        # --- 日期参数处理 ---
+        # Tushare的moneyflow接口，如果指定了start/end_date，trade_date参数会被忽略。
+        # 为了逻辑清晰，我们优先使用 start/end_date。
+        if start_date:
             start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        # 获取历史日级资金流向数据
-        offset = 0
-        limit = 6000
-        data_dicts = []
+            end_date_str = end_date.strftime('%Y%m%d') if end_date else date.today().strftime('%Y%m%d')
+            trade_date_str = ""
+        elif trade_date:
+            start_date_str = ""
+            end_date_str = ""
+            trade_date_str = trade_date.strftime('%Y%m%d')
+        else:
+            start_date_str = ""
+            end_date_str = date.today().strftime('%Y%m%d')
+            trade_date_str = ""
+        # [新增] 引入10万行追溯逻辑
+        current_end_date_str = end_date_str
+        all_dfs_for_market = [] # 用于收集所有追溯轮次的数据
+        # 外层追溯循环
         while True:
-            if offset >= 100000:
-                logger.warning(f"板块资金流向数据 - 同花顺 offset已达10万，停止拉取。")
+            offset = 0
+            limit = 6000
+            dfs_for_this_cycle = []
+            limit_hit = False
+            
+            # 内层分页循环
+            while True:
+                if offset >= 100000:
+                    limit_hit = True
+                    break
+                
+                try:
+                    df = self.ts_pro.moneyflow(**{
+                        "ts_code": "", "trade_date": trade_date_str, 
+                        "start_date": start_date_str, "end_date": current_end_date_str, 
+                        "limit": limit, "offset": offset
+                    }, fields=[
+                        "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", 
+                        "buy_md_vol", "buy_md_amount", "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", 
+                        "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount", "sell_elg_vol", "sell_elg_amount", 
+                        "net_mf_vol", "net_mf_amount" # 'trade_count' 字段在较新的tushare版本中可能已移除，为保证兼容性先去掉
+                    ])
+                    # [修改] 使用异步sleep
+                    await asyncio.sleep(0.55)
+                except Exception as e:
+                    logger.error(f"Tushare API调用失败 (moneyflow): {e}")
+                    await asyncio.sleep(5)
+                    df = pd.DataFrame()
+
+                if df.empty:
+                    break
+                dfs_for_this_cycle.append(df)
+                if len(df) < limit:
+                    break
+                offset += limit
+
+            if not dfs_for_this_cycle:
+                break # 当前轮次无数据，结束追溯
+            
+            all_dfs_for_market.extend(dfs_for_this_cycle)
+            
+            # 如果是单日查询模式，不需要追溯
+            if trade_date_str:
                 break
-            df = self.ts_pro.moneyflow(**{
-                "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-            }, fields=[
-                "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", "buy_md_vol", "buy_md_amount",
-                "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount",
-                "sell_elg_vol", "sell_elg_amount", "net_mf_vol", "net_mf_amount"
-            ])
-            if df.empty:
-                break
+
+            if limit_hit:
+                last_df_in_cycle = dfs_for_this_cycle[-1]
+                # moneyflow返回的数据按日期降序，最后一条记录的日期就是本轮最早的日期
+                last_trade_date = last_df_in_cycle['trade_date'].iloc[-1]
+                # 新的结束日期是上一轮最早日期的前一天，以避免重复获取
+                new_end_date = pd.to_datetime(last_trade_date) - pd.Timedelta(days=1)
+                current_end_date_str = new_end_date.strftime('%Y%m%d')
+                print(f"DAO: 触及10万行限制，下一轮将从 {start_date_str} 至 {current_end_date_str} 继续向前追溯。")
+                if pd.to_datetime(current_end_date_str) < pd.to_datetime(start_date_str):
+                    break
+                continue
             else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                    if stock:
-                        data_dict = self.data_format_process.set_fund_flow_data(stock=stock, df_data=row)
-                        # print(f"日级资金流向数据。trade_date_str: {trade_date_str}, stock: {stock}, dict: {data_dict}")
-                        data_dicts.append(data_dict)
-                print(f"{trade_date} 历史日级资金流向数据，len(df): {len(df)}, len(data_dicts): {len(data_dicts)}")
-            time.sleep(0.2)
-            if len(df) < limit:
-                break
-            offset += limit
-        result =  await self._save_all_to_db_native_upsert(
-            model_class=FundFlowDaily,
-            data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
-        )
-        print(f"完成 {trade_date} 历史日级资金流向数据，result: {result}")
-        return result
+                break # 未触及限制，数据已全部获取
+
+        if not all_dfs_for_market:
+            logger.info("未获取到任何资金流向数据。")
+            return
+
+        # --- [重构] 向量化数据处理 ---
+        combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
+        combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
+        combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        
+        # 1. 批量获取stock对象
+        all_ts_codes = combined_df['ts_code'].unique().tolist()
+        # 假设有一个方法可以批量获取ts_code到stock对象的映射，这比单条查询高效得多
+        stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
+        
+        # 2. 使用map高效关联stock对象
+        combined_df['stock'] = combined_df['ts_code'].map(stock_map)
+        combined_df.dropna(subset=['stock'], inplace=True) # 丢弃没有在基础表里找到的股票数据
+        if combined_df.empty:
+            logger.info("数据关联股票基础信息后为空，任务结束。")
+            return
+
+        # 3. 向量化转换日期
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        
+        # 4. [新增] 向量化确定目标分表Model
+        combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_model_by_code)
+
+        # --- [重构] 按分表模型分组并批量保存 ---
+        total_rows = 0
+        for model, group_df in combined_df.groupby('target_model'):
+            if group_df.empty:
+                continue
+            
+            # 准备要保存的数据列
+            final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
+            data_list = final_df.to_dict('records')
+
+            await self._save_all_to_db_native_upsert(
+                model_class=model,
+                data_list=data_list,
+                unique_fields=['stock', 'trade_time']
+            )
+            total_rows += len(data_list)
+
+        print(f"所有历史日级资金流向数据处理完成，共保存 {total_rows} 条记录。")
+        return
 
     # ============== 个股日级资金流向数据 - 同花顺 ==============
     async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:

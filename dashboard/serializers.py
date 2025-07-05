@@ -4,8 +4,7 @@ import umsgpack
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils import cache_constants as cc
-from utils.cache_manager import CacheManager
-from utils.cash_key import StockCashKey
+
 
 # stock_models\financial.py
 class IncomeSerializer(serializers.ModelSerializer):
@@ -68,12 +67,6 @@ class DisclosureDateSerializer(serializers.ModelSerializer):
         model = DisclosureDate
         fields = '__all__'
 
-# stock_models\fund_flow.py
-class FundFlowDailySerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.fund_flow import FundFlowDaily
-        model = FundFlowDaily
-        fields = '__all__'
 
 class FundFlowDailyTHSSerializer(serializers.ModelSerializer):
     class Meta:
