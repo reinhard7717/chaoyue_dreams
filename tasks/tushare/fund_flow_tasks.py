@@ -322,7 +322,7 @@ def save_fund_flow_daily_data_history_task(self):
     logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器模式) - 获取交易日历并分派单个范围任务")
     try:
         index_basic_dao = IndexBasicDAO()
-        trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open())
+        trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open(n=1500))
         
         # [修改] 不再循环，而是计算范围
         if not trade_days_list:
