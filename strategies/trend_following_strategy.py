@@ -286,7 +286,6 @@ class TrendFollowStrategy:
         # 筹码压力释放: 趋势加速信号，保留严格前提
         cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
         cond_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, strict_precondition, params) # 同样使用严格前提
-        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 左侧信号，无前提
         cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition # 使用严格前提
         indicator_signals = self._find_indicator_entry(df, strict_precondition, params) # 使用严格前提
         cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
@@ -1675,9 +1674,9 @@ class TrendFollowStrategy:
         return is_setup, target_price
 
     def _find_chip_cost_breakthrough(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【新剧本】筹码成本突破：股价上穿市场平均成本。"""
+        """【新剧本】【V2.1 列名修复版】筹码成本突破：股价上穿市场平均成本。"""
         params = self._get_params_block(params, 'chip_cost_breakthrough_params')
-        weight_avg_col = 'weight_avg_D' # 补充数据列在apply_strategy开头被统一添加了_D后缀
+        weight_avg_col = 'weight_avg' # 修正列名
         if not params.get('enabled', False) or 'close_D' not in df.columns or weight_avg_col not in df.columns:
             return pd.Series(False, index=df.index)
         
@@ -1686,9 +1685,9 @@ class TrendFollowStrategy:
         return signal & precondition
 
     def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【新剧本】筹码压力释放：股价突破95%的套牢盘成本线。"""
+        """【新剧本】【V2.1 列名修复版】筹码压力释放：股价突破95%的套牢盘成本线。"""
         params = self._get_params_block(params, 'chip_pressure_release_params')
-        cost_95pct_col = 'cost_95pct_D' # 补充数据列在apply_strategy开头被统一添加了_D后缀
+        cost_95pct_col = 'cost_95pct' # 修正列名
         if not params.get('enabled', False) or 'close_D' not in df.columns or cost_95pct_col not in df.columns:
             return pd.Series(False, index=df.index)
             
@@ -1701,7 +1700,7 @@ class TrendFollowStrategy:
         """【新增剧本】筹码关口扫清：股价突破85%的套牢盘成本线，作为趋势确认信号。"""
         # 注意：这里我们复用 pressure_release 的参数块，或者你可以为其新建一个参数块
         params = self._get_params_block(params, 'chip_pressure_release_params') # 假设复用参数
-        cost_85pct_col = 'cost_85pct_D' # 使用85%成本线
+        cost_85pct_col = 'cost_85pct' # 修正列名
         if not params.get('enabled', False) or 'close_D' not in df.columns or cost_85pct_col not in df.columns:
             return pd.Series(False, index=df.index)
         
@@ -1712,7 +1711,7 @@ class TrendFollowStrategy:
     # ▼▼▼ “成本区增强”剧本(使用精确CYQ数据) ▼▼▼
     def _find_cost_area_reinforcement_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【全新剧本/升级版】识别“成本区增强”信号，捕捉主力在关键成本区的吸筹或换手行为。
+        【全新剧本/升级版】【V1.1 列名修复版】识别“成本区增强”信号，捕捉主力在关键成本区的吸筹或换手行为。
         使用精确的CYQ加权平均成本(weight_avg)作为市场核心成本区。
         """
         # 从主配置中获取本剧本的参数块
@@ -1723,7 +1722,7 @@ class TrendFollowStrategy:
         # 依赖检查
         vol_ma_period = self._get_params_block(params, 'first_breakout_params').get('vol_ma_period', 20)
         vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
-        weight_avg_col = 'weight_avg_D' # 正确的列名
+        weight_avg_col = 'weight_avg' # 修正列名
         required_cols = [weight_avg_col, 'close_D', 'volume_D', 'high_D', 'low_D', vol_ma_col]
         if not all(col in df.columns and df[col].notna().any() for col in required_cols):
             if self.verbose_logging:
@@ -1752,7 +1751,7 @@ class TrendFollowStrategy:
     # ▼▼▼ “筹码高度集中突破”剧本 ▼▼▼
     def _find_chip_concentration_breakthrough_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V2.0 配置驱动版】识别“筹码高度集中后突破”。
+        【剧本】【V2.1 列名修复版】识别“筹码高度集中后突破”。
         - 新增: 可通过JSON配置选择使用[5, 95]或[15, 85]等不同百分位来计算集中度。
         """
         # 从JSON获取此剧本的专属配置
@@ -1770,9 +1769,9 @@ class TrendFollowStrategy:
         lower_pct, upper_pct = min(percentiles), max(percentiles)
 
         # 动态构建依赖的列名
-        cost_lower_col = f'cost_{lower_pct}pct_D'
-        cost_upper_col = f'cost_{upper_pct}pct_D'
-        weight_avg_col = 'weight_avg_D'
+        cost_lower_col = f'cost_{lower_pct}pct' # 修正列名
+        cost_upper_col = f'cost_{upper_pct}pct' # 修正列名
+        weight_avg_col = 'weight_avg' # 修正列名
         
         required_cols = [cost_lower_col, cost_upper_col, weight_avg_col, 'close_D']
         if not all(col in df.columns for col in required_cols):
@@ -1808,7 +1807,7 @@ class TrendFollowStrategy:
     # ▼▼▼ “获利盘洗净反转”剧本 ▼▼▼
     def _find_winner_rate_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【全新剧本】识别“获利盘洗净反转”信号 (或称“投降坑”反转)。
+        【全新剧本】【V1.1 列名修复版】识别“获利盘洗净反转”信号 (或称“投降坑”反转)。
         当获利盘比例极低（市场绝望），随后出现企稳阳线时，视为底部反转信号。
         """
         # 从主配置中获取本剧本的参数块
@@ -1816,7 +1815,7 @@ class TrendFollowStrategy:
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
         # 检查必需的CYQ数据列是否存在
-        winner_rate_col = 'winner_rate_D' # 正确的列名
+        winner_rate_col = 'winner_rate' # 修正列名
         required_cols = [winner_rate_col, 'close_D', 'open_D']
         if not all(col in df.columns and df[col].notna().any() for col in required_cols):
             if self.verbose_logging:
