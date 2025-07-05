@@ -495,13 +495,15 @@ class IndicatorService:
             return df
 
         df_main = df.copy()
-        base_cols = ['open', 'high', 'low', 'close', 'volume']
-        df_for_calc = pd.DataFrame(index=df_main.index)
-        for col in base_cols:
-            if col in df_main.columns:
-                df_for_calc[col] = df_main[col]
-            else:
-                df_for_calc[col] = np.nan 
+        # base_cols = ['open', 'high', 'low', 'close', 'volume']
+        # df_for_calc = pd.DataFrame(index=df_main.index)
+        # for col in base_cols:
+        #     if col in df_main.columns:
+        #         df_for_calc[col] = df_main[col]
+        #     else:
+        #         df_for_calc[col] = np.nan 
+
+        df_for_calc = df_main.copy()
         
         indicator_method_map = {
             'ema': self.calculate_ema, 'vol_ma': self.calculate_vol_ma, 'trix': self.calculate_trix,
@@ -653,6 +655,7 @@ class IndicatorService:
         # --- 统一添加后缀并将所有计算结果合并回主DataFrame ---
         suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
         
+        final_df = df_main.copy()
         # 遍历计算副本中的所有列（包括 base_cols 和所有计算出的指标列）
         for col in df_for_calc.columns:
             # 此处不再跳过 base_cols，确保 high -> high_W, close -> close_W 的转换能够发生
@@ -660,12 +663,30 @@ class IndicatorService:
             # 如果是VWAP这种自带周期的列名，则不加后缀
             if col.startswith('VWAP_'):
                 final_col_name = col
+            # 特殊处理：原始补充数据列（如winner_rate）不应该被添加后缀
+            elif col in df.columns and f"{col}{suffix}" not in df_for_calc.columns:
+                 # 如果这个列是原始列（存在于最开始的df中），并且没有在计算过程中生成带后缀的版本，
+                 # 那么我们保留它的原始名称。
+                 final_col_name = col
+            # 将df_for_calc中的列（可能是原始的，也可能是新计算的）更新/添加到final_df中
+            # 使用get方法以防万一列不存在
+            if col in df_for_calc:
+                final_df[final_col_name] = df_for_calc.get(col)
             
             # 将结果列（如 high_W, EMA_20_W）添加到主DataFrame中
             df_main[final_col_name] = df_for_calc[col]
         
         # print(f"  [指标计算V5.8] 周期 '{timeframe_key}' 指标计算完成。")
-        return df_main
+         # 打印2024年11月到12月的数据以供调试
+        debug_df = final_df[(final_df.index >= '2024-11-01') & (final_df.index <= '2024-12-31')]
+        if not debug_df.empty:
+            print("\n--- [IndicatorService 最终数据输出 - 关键时段 2024-11/12] ---")
+            # 设置pandas显示选项，以确保所有列都能被打印出来
+            with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 220):
+                print(debug_df[['close_D', 'winner_rate', 'weight_avg', 'cost_85pct', 'cost_95pct']])
+            print("--- [IndicatorService 最终数据输出结束] ---\n")
+
+        return final_df
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """
