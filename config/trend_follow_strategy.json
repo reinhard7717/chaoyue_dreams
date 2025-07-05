@@ -317,6 +317,18 @@
         "volatility_threshold": 0.02,
         "说明_volatility_threshold": "日内振幅阈值。当日振幅 < 2% 视为缩量整理。"
       },
+      "chip_pressure_release_params": {
+        "enabled": true,
+        "说明": "【剧本】筹码压力释放。寻找股价突破95%套牢盘成本线的加速点，是主升浪的确认信号。"
+      },
+      "chip_cost_breakthrough_params": {
+        "enabled": true,
+        "说明": "【剧本】筹码成本区突破。寻找股价上穿市场平均成本（CYQ加权平均成本）的启动信号。"
+      },
+      "chip_hurdle_clear_params": {
+        "enabled": true,
+        "说明": "【剧本】筹码关口扫清。寻找股价突破85%套牢盘成本线的早期趋势确认信号，比突破95%线更灵敏。"
+      },
       "ma_acceleration_playbook": {
         "enabled": true,
         "说明": "【剧本：均线加速上涨】捕捉日线级别均线斜率持续为正、且斜率的增量也为正的强劲动量阶段。这是主升浪最猛烈阶段的特征，是极佳的右侧追击信号。",
