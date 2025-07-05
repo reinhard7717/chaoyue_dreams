@@ -152,7 +152,7 @@ class FundFlowDao(BaseDAO):
         combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_model_by_code)
 
         total_rows = 0
-        for model, group_df in combined_df.groupby('target_model'):
+        for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
             
