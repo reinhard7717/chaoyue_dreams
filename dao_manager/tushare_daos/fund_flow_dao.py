@@ -11,7 +11,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDaily, FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyDC, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
+from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyDC, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
 from stock_models.market import LimitListThs
 from utils.data_format_process import FundFlowFormatProcess
 
