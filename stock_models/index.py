@@ -185,7 +185,7 @@ class TradeCalendar(models.Model):
         # 确保无论底层数据库行为如何，返回的列表都是严格降序的（从近到远）
         trade_dates_list.sort(reverse=True)
         
-        print(f"调试: 找到并强制排序后 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
+        # print(f"调试: 找到并强制排序后 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
         return trade_dates_list
     
     @classmethod

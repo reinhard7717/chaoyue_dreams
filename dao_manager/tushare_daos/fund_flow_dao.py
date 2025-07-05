@@ -55,125 +55,107 @@ class FundFlowDao(BaseDAO):
 
     async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
-        保存历史日级资金流向数据 (终极优化版)
-        1. [新增] 引入10万行追溯逻辑，确保获取全量历史数据。
-        2. [新增] 引入分表逻辑，将数据按板块存入不同数据表。
-        3. [重构] 使用向量化操作替代行迭代，极大提升处理效率。
-        4. [优化] 使用异步 asyncio.sleep 替代同步 time.sleep。
+        保存历史日级资金流向数据 (终极优化版 V3 - 客户端分块策略)
+        1. [重构] 废弃低效的“10万行追溯”逻辑。
+        2. [新增] 采用客户端分块策略，将大日期范围切分为多个小块（如90天/块）进行处理。
+        3. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
+        4. [保留] 保留了向量化处理和分表存储的核心优势。
         """
-        # --- 日期参数处理 ---
-        # Tushare的moneyflow接口，如果指定了start/end_date，trade_date参数会被忽略。
-        # 为了逻辑清晰，我们优先使用 start/end_date。
-        if start_date:
-            start_date_str = start_date.strftime('%Y%m%d')
-            end_date_str = end_date.strftime('%Y%m%d') if end_date else date.today().strftime('%Y%m%d')
-            trade_date_str = ""
+        # --- 1. 日期参数处理与验证 ---
+        if start_date and end_date and start_date > end_date:
+            logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
+            return
+
+        # 如果是范围查询
+        if start_date and end_date:
+            logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的数据采用客户端分块策略处理。")
+        # 如果是单日查询
         elif trade_date:
-            start_date_str = ""
-            end_date_str = ""
-            trade_date_str = trade_date.strftime('%Y%m%d')
+            start_date = end_date = trade_date
+            logger.info(f"接收到单日任务: {trade_date}")
+        # 默认情况，获取当天
         else:
-            start_date_str = ""
-            end_date_str = date.today().strftime('%Y%m%d')
-            trade_date_str = ""
-        # [新增] 引入10万行追溯逻辑
-        current_end_date_str = end_date_str
-        all_dfs_for_market = [] # 用于收集所有追溯轮次的数据
-        # 外层追溯循环
-        while True:
+            start_date = end_date = date.today()
+            logger.info(f"未提供日期，默认获取今日数据: {start_date}")
+
+        # --- 2. [新增] 客户端日期分块逻辑 ---
+        date_chunks = []
+        chunk_size_days = 30  # 每个分块的大小（天数），90天是一个比较安全且高效的选择
+        current_chunk_end = end_date
+        while current_chunk_end >= start_date:
+            current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
+            date_chunks.append((current_chunk_start, current_chunk_end))
+            current_chunk_end = current_chunk_start - timedelta(days=1)
+        
+        all_dfs_for_market = [] # 用于收集所有分块的数据
+
+        # --- 3. [重构] 遍历分块并使用分页获取数据 ---
+        for chunk_start, chunk_end in date_chunks:
+            chunk_start_str = chunk_start.strftime('%Y%m%d')
+            chunk_end_str = chunk_end.strftime('%Y%m%d')
+            print(f"DAO: 开始处理日期块: {chunk_start_str} 到 {chunk_end_str}")
+
             offset = 0
-            limit = 6000
-            dfs_for_this_cycle = []
-            limit_hit = False
+            limit = 6000 # Tushare建议的单次最大limit
             
-            # 内层分页循环
+            # 内层分页循环 (此逻辑保持不变，但现在作用于小块)
             while True:
-                if offset >= 100000:
-                    limit_hit = True
-                    break
-                
                 try:
+                    # [修改] API调用现在使用分块的起止日期
                     df = self.ts_pro.moneyflow(**{
-                        "ts_code": "", "trade_date": trade_date_str, 
-                        "start_date": start_date_str, "end_date": current_end_date_str, 
+                        "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
+                        "start_date": chunk_start_str, "end_date": chunk_end_str, 
                         "limit": limit, "offset": offset
                     }, fields=[
                         "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", 
                         "buy_md_vol", "buy_md_amount", "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", 
                         "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount", "sell_elg_vol", "sell_elg_amount", 
-                        "net_mf_vol", "net_mf_amount" # 'trade_count' 字段在较新的tushare版本中可能已移除，为保证兼容性先去掉
+                        "net_mf_vol", "net_mf_amount"
                     ])
-                    # [修改] 使用异步sleep
-                    await asyncio.sleep(0.55)
+                    await asyncio.sleep(0.55) # 保持友好的API调用频率
                 except Exception as e:
-                    logger.error(f"Tushare API调用失败 (moneyflow): {e}")
-                    await asyncio.sleep(5)
+                    logger.error(f"Tushare API调用失败 (moneyflow, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
+                    await asyncio.sleep(5) # 出错时等待更长时间
                     df = pd.DataFrame()
 
                 if df.empty:
-                    break
-                dfs_for_this_cycle.append(df)
+                    break # 当前分块的当前分页无数据，结束此分块的分页
+                
+                all_dfs_for_market.append(df)
+                
                 if len(df) < limit:
-                    break
+                    break # 当前分块的数据已全部获取完毕
+                
                 offset += limit
-
-            if not dfs_for_this_cycle:
-                break # 当前轮次无数据，结束追溯
-            
-            all_dfs_for_market.extend(dfs_for_this_cycle)
-            
-            # 如果是单日查询模式，不需要追溯
-            if trade_date_str:
-                break
-
-            if limit_hit:
-                last_df_in_cycle = dfs_for_this_cycle[-1]
-                # moneyflow返回的数据按日期降序，最后一条记录的日期就是本轮最早的日期
-                last_trade_date = last_df_in_cycle['trade_date'].iloc[-1]
-                # 新的结束日期是上一轮最早日期的前一天，以避免重复获取
-                new_end_date = pd.to_datetime(last_trade_date) - pd.Timedelta(days=1)
-                current_end_date_str = new_end_date.strftime('%Y%m%d')
-                print(f"DAO: 触及10万行限制，下一轮将从 {start_date_str} 至 {current_end_date_str} 继续向前追溯。")
-                if pd.to_datetime(current_end_date_str) < pd.to_datetime(start_date_str):
-                    break
-                continue
-            else:
-                break # 未触及限制，数据已全部获取
-
+                # [修改] 移除旧的10万行限制逻辑，因为分块策略使其不再必要
+        
         if not all_dfs_for_market:
-            logger.info("未获取到任何资金流向数据。")
+            logger.info("在所有日期块中均未获取到任何资金流向数据。")
             return
 
-        # --- [重构] 向量化数据处理 ---
+        # --- 4. [保留] 向量化数据处理与入库 (此部分逻辑完全不变) ---
+        print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         
-        # 1. 批量获取stock对象
         all_ts_codes = combined_df['ts_code'].unique().tolist()
-        # 假设有一个方法可以批量获取ts_code到stock对象的映射，这比单条查询高效得多
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
-        # 2. 使用map高效关联stock对象
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
-        combined_df.dropna(subset=['stock'], inplace=True) # 丢弃没有在基础表里找到的股票数据
+        combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
             logger.info("数据关联股票基础信息后为空，任务结束。")
             return
 
-        # 3. 向量化转换日期
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        
-        # 4. [新增] 向量化确定目标分表Model
         combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_model_by_code)
 
-        # --- [重构] 按分表模型分组并批量保存 ---
         total_rows = 0
         for model, group_df in combined_df.groupby('target_model'):
             if group_df.empty:
                 continue
             
-            # 准备要保存的数据列
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
 
@@ -186,7 +168,7 @@ class FundFlowDao(BaseDAO):
 
         print(f"所有历史日级资金流向数据处理完成，共保存 {total_rows} 条记录。")
         return
-
+    
     # ============== 个股日级资金流向数据 - 同花顺 ==============
     async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
