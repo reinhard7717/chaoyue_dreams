@@ -10,6 +10,7 @@ from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
+from stock_models.index import TradeCalendar
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
@@ -310,32 +311,36 @@ def save_fund_flow_daily_data_history_batch(self, trade_date: datetime.date = No
         return {"status": "error", "message": str(e)}
 
 # [修改] 重构调度器任务，使其分派单个范围任务
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task', queue="celery")
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task')
 def save_fund_flow_daily_data_history_task(self): 
     """
-    【优化版】调度器任务：
-    1. 获取最近N个交易日。
+    【优化版 V2】调度器任务：
+    1. 使用 TradeCalendar 模型获取最近N个交易日。
     2. 计算起始和结束日期。
     3. 分派一个【单个】的批量任务来处理整个日期范围。
     这个任务由 Celery Beat 调度。
     """
     logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器模式) - 获取交易日历并分派单个范围任务")
     try:
-        index_basic_dao = IndexBasicDAO()
-        trade_days_list = asyncio.run(index_basic_dao.get_last_n_trade_cal_open(n=1500))
+        # [修改] 定义需要获取的交易日数量，例如最近10个交易日。可以根据需求调整。
+        NUM_DAYS_TO_FETCH = 10
         
-        # [修改] 不再循环，而是计算范围
+        # [修改] 直接调用 TradeCalendar 的同步类方法，不再需要DAO和asyncio.run
+        # 该方法返回按日期【降序】排列的列表，即 [最新日期, ..., 最早日期]
+        trade_days_list = TradeCalendar.get_latest_n_trade_dates(n=NUM_DAYS_TO_FETCH)
+        
         if not trade_days_list:
-            logger.warning("未能获取到交易日历，无法分派任务。")
+            logger.warning("未能从TradeCalendar获取到交易日历，无法分派任务。")
             return {"status": "skipped", "message": "Trade calendar is empty."}
             
-        # [修改] 获取起始和结束日期
+        # [修改] 根据返回的降序列表，正确设置起始和结束日期
+        # 因为列表是 [最新日期, ..., 最早日期]，所以 end_date 是第一个元素，start_date 是最后一个元素
         start_date = trade_days_list[-1]
         end_date = trade_days_list[0]
         
-        logger.info(f"计算出的处理日期范围为: {start_date} 到 {end_date}")
+        logger.info(f"计算出的处理日期范围为: {start_date} 到 {end_date} (共 {len(trade_days_list)} 个交易日)")
         
-        # [修改] 只分派一个任务，并传递日期范围
+        # 任务分派逻辑保持不变
         save_fund_flow_daily_data_history_batch.s(
             start_date=start_date, 
             end_date=end_date
