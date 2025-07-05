@@ -314,7 +314,7 @@ class TrendFollowStrategy:
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
         # ▼▼▼ “日线战术层 - 剧本计算总结”日志块 ▼▼▼
-        print("\n---【日线战术层 - 剧本计算总结 V2】---")
+        print("\n---【日线战术层 - 剧本计算总结 V2.1-调试增强】---")
         playbook_summary = {
             "均线加速上涨 (MA_ACCELERATION)": cond_ma_acceleration,
             "筹码集中突破 (CHIP_CONCENTRATION_BREAKTHROUGH)": cond_chip_concentration_breakthrough,
@@ -341,9 +341,28 @@ class TrendFollowStrategy:
             "MACD低位金叉 (MACD_LOW_CROSS)": cond_macd_low_cross,
             "DMI金叉 (DMI_CROSS)": cond_dmi_cross,
         }
+
+        # 定义我们关心的调试时间范围
+        start_date = pd.to_datetime('2024-11-01').tz_localize('UTC')
+        end_date = pd.to_datetime('2024-12-31').tz_localize('UTC')
+
         for name, condition in playbook_summary.items():
             trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
             print(f"【剧本-{name}】触发天数: {trigger_count}")
+
+            # 只有当剧本至少触发过一次时，才检查特定时间段
+            if trigger_count > 0:
+                # 筛选出在指定时间范围内触发的日期
+                triggered_dates_in_period = condition.index[
+                    (condition.index >= start_date) &
+                    (condition.index <= end_date) &
+                    (condition == True)
+                ]
+
+                if not triggered_dates_in_period.empty:
+                    # 格式化日期列表以便清晰展示
+                    date_list_str = ", ".join([d.strftime('%Y-%m-%d') for d in triggered_dates_in_period])
+                    print(f"    -> [24年11-12月触发]: {date_list_str}")
         print("---【日线战术层 - 剧本计算总结结束】---\n")
 
         # --- 步骤4: 记录所有战术信号得分 ---
@@ -1685,20 +1704,6 @@ class TrendFollowStrategy:
         
         signal = (df[close_col] > df[weight_avg_col]) & (df[close_col].shift(1) <= df[weight_avg_col].shift(1))
 
-        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
-        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
-        if not debug_dates.empty:
-            print("\n--- [调试日志 - 剧本: 筹码成本突破 (CHIP_COST_BREAKTHROUGH)] ---")
-            for date in debug_dates:
-                # 只打印 signal 为 True 的日子，看看到底是不是 precondition 把它否决了
-                if date in signal.index and signal.loc[date]:
-                    pre_cond_val = precondition.loc[date]
-                    final_result = signal.loc[date] & pre_cond_val
-                    close = df.loc[date, close_col]
-                    cost = df.loc[date, weight_avg_col]
-                    print(f"  - {date.date()}: [信号出现] -> close({close:.2f}) > cost({cost:.2f}).")
-                    print(f"    -> 检查点: 信号自身(signal) = True, 战术前提(precondition) = {pre_cond_val}")
-                    print(f"    -> 最终结果 (signal & precondition) = {final_result}")
         return signal & precondition
 
     def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
@@ -1711,22 +1716,6 @@ class TrendFollowStrategy:
             
         signal = df[close_col] > df[cost_95pct_col]
 
-        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
-        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
-        if not debug_dates.empty:
-            print("\n--- [调试日志 - 剧本: 筹码压力释放 (CHIP_PRESSURE_RELEASE)] ---")
-            # 以 2024-12-04 为例进行单点追查
-            target_date = pd.to_datetime('2024-12-04').tz_localize('UTC')
-            if target_date in df.index:
-                close = df.loc[target_date, close_col]
-                cost = df.loc[target_date, cost_95pct_col]
-                signal_val = signal.loc[target_date]
-                pre_cond_val = precondition.loc[target_date]
-                final_result = signal_val & pre_cond_val
-                print(f"  - 单点追查 {target_date.date()}:")
-                print(f"    -> 数据: close({close:.2f}), cost_95pct({cost:.2f})")
-                print(f"    -> 检查点: 信号自身(signal) = {signal_val}, 战术前提(precondition) = {pre_cond_val}")
-                print(f"    -> 最终结果 (signal & precondition) = {final_result}")
         return signal & precondition
     
     # ▼▼▼ 突破85%成本线 ▼▼▼
@@ -1740,20 +1729,6 @@ class TrendFollowStrategy:
             return pd.Series(False, index=df.index)
         
         signal = (df[close_col] > df[cost_85pct_col]) & (df[close_col].shift(1) <= df[cost_85pct_col].shift(1))
-
-        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
-        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
-        if not debug_dates.empty:
-            print("\n--- [调试日志 - 剧本: 筹码关口扫清 (CHIP_HURDLE_CLEAR)] ---")
-            for date in debug_dates:
-                if date in signal.index and signal.loc[date]:
-                    pre_cond_val = precondition.loc[date]
-                    final_result = signal.loc[date] & pre_cond_val
-                    close = df.loc[date, close_col]
-                    cost = df.loc[date, cost_85pct_col]
-                    print(f"  - {date.date()}: [信号出现] -> close({close:.2f}) > cost_85pct({cost:.2f}) 且为首次突破.")
-                    print(f"    -> 检查点: 信号自身(signal) = True, 战术前提(precondition) = {pre_cond_val}")
-                    print(f"    -> 最终结果 (signal & precondition) = {final_result}")
 
         return signal & precondition
 
@@ -1879,17 +1854,6 @@ class TrendFollowStrategy:
         is_reversal_candle = df['close_D'] > df['open_D']
         # 这个信号是典型的左侧交易信号，可以不依赖于严格的上升趋势前提(precondition)
         final_signal = was_washed_out & is_reversal_candle
-
-        # ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
-        debug_dates = df[(df.index >= '2024-11-01') & (df.index <= '2024-12-31')].index
-        if not debug_dates.empty:
-            print("\n--- [调试日志 - 剧本: 投降坑反转 (WINNER_RATE_REVERSAL)] ---")
-            for date in debug_dates:
-                if date in final_signal.index and final_signal.loc[date]:
-                    prev_winner_rate = df.shift(1).loc[date, winner_rate_col]
-                    close = df.loc[date, 'close_D']
-                    open_price = df.loc[date, 'open_D']
-                    print(f"  - {date.date()}: [触发] -> prev_winner_rate({prev_winner_rate:.2f}%) < {was_washed_out}% AND close({close:.2f}) > open({open_price:.2f}).")
 
         if self.verbose_logging and final_signal.any():
             print(f"    [调试-获利盘洗净反转]: 剧本触发 {final_signal.sum()} 次。")
