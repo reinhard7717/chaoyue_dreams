@@ -344,7 +344,7 @@ class TrendFollowStrategy:
 
         # 定义我们关心的调试时间范围
         start_date = pd.to_datetime('2024-09-01').tz_localize('UTC')
-        end_date = pd.to_datetime('2024-11-31').tz_localize('UTC')
+        end_date = pd.to_datetime('2024-11-30').tz_localize('UTC')
 
         for name, condition in playbook_summary.items():
             trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
