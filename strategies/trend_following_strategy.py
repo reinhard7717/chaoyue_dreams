@@ -343,8 +343,8 @@ class TrendFollowStrategy:
         }
 
         # 定义我们关心的调试时间范围
-        start_date = pd.to_datetime('2024-11-01').tz_localize('UTC')
-        end_date = pd.to_datetime('2024-12-31').tz_localize('UTC')
+        start_date = pd.to_datetime('2024-09-01').tz_localize('UTC')
+        end_date = pd.to_datetime('2024-11-31').tz_localize('UTC')
 
         for name, condition in playbook_summary.items():
             trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
@@ -362,7 +362,7 @@ class TrendFollowStrategy:
                 if not triggered_dates_in_period.empty:
                     # 格式化日期列表以便清晰展示
                     date_list_str = ", ".join([d.strftime('%Y-%m-%d') for d in triggered_dates_in_period])
-                    print(f"    -> [24年11-12月触发]: {date_list_str}")
+                    print(f"    -> [24年09-11月触发]: {date_list_str}")
         print("---【日线战术层 - 剧本计算总结结束】---\n")
 
         # --- 步骤4: 记录所有战术信号得分 ---
