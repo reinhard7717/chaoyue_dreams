@@ -323,7 +323,7 @@ def save_fund_flow_daily_data_history_task(self):
     logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器模式) - 获取交易日历并分派单个范围任务")
     try:
         # [修改] 定义需要获取的交易日数量，例如最近10个交易日。可以根据需求调整。
-        NUM_DAYS_TO_FETCH = 10
+        NUM_DAYS_TO_FETCH = 1500
         
         # [修改] 直接调用 TradeCalendar 的同步类方法，不再需要DAO和asyncio.run
         # 该方法返回按日期【降序】排列的列表，即 [最新日期, ..., 最早日期]
