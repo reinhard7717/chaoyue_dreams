@@ -309,13 +309,13 @@
       },
       "cost_area_reinforcement_params": {
         "enabled": true,
-        "说明": "【剧本】成本区增强确认。使用精确的CYQ加权平均成本，识别主力在关键成本区附近进行“放量缩振”的吸筹或换手行为。",
+        "说明": "【剧本】成本区增强确认。使用精确的CYQ加权平均成本，识别主力在关键成本区附近进行“放量横盘”的吸筹或换手行为。",
         "proximity_threshold": 0.03,
         "说明_proximity_threshold": "价格接近成本区的容忍度。收盘价在 平均成本±3% 范围内视为接近。",
         "volume_ratio": 1.5,
-        "说明_volume_ratio": "成交量放大倍数。当日成交量 > 20日均量 * 1.5。",
-        "volatility_threshold": 0.02,
-        "说明_volatility_threshold": "日内振幅阈值。当日振幅 < 2% 视为缩量整理。"
+        "说明_volume_ratio": "成交量放大倍数。当日成交量 > 21日均量 * 1.5。",
+        "sideways_threshold": 0.015,
+        "说明_sideways_threshold": "【V1.3 新增】定义'横盘'的日涨跌幅阈值。收盘价涨跌幅绝对值 < 1.5% 视为横盘。"
       },
       "chip_pressure_release_params": {
         "enabled": true,
