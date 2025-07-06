@@ -1745,9 +1745,14 @@ class TrendFollowStrategy:
 
         print("\n--- [调试日志 - 剧本: 成本区增强 (COST_AREA_REINFORCEMENT)] ---")
 
-        # ▼▼▼【代码修正】: 修正了成本列名，并硬编码成交量均线列以解耦 ▼▼▼
+        # ▼▼▼ 修正了成本列名，并硬编码成交量均线列以解耦 ▼▼▼
         weight_avg_col = 'weight_avg_D' # 修正列名，必须带 '_D' 后缀
-        vol_ma_col = 'VOL_MA_21_D'      # 直接使用配置文件中定义的21周期均线，移除跨剧本依赖
+        # 从 feature_engineering_params 中安全地获取 vol_ma 的周期配置
+        vol_ma_config = self.config.get('feature_engineering_params', {}).get('indicators', {}).get('vol_ma', {})
+        # 使用配置中的第一个周期值，如果未配置，则默认为21以保证健壮性
+        vol_ma_period = vol_ma_config.get('periods', [21])[0]
+        # 动态构建成交量均线列名
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
         required_cols = [weight_avg_col, 'close_D', 'volume_D', 'high_D', 'low_D', vol_ma_col]
         
         # 依赖检查，并提供详细的缺失列报告
@@ -1758,7 +1763,7 @@ class TrendFollowStrategy:
             # print(f"    可用列: {df.columns.to_list()}")
             return pd.Series(False, index=df.index)
         print("  - [依赖检查成功]: 所有必需列均存在。")
-        # ▲▲▲【代码修正结束】▲▲▲
+
 
         # 1. 参数获取
         main_cost_area = df[weight_avg_col]
@@ -1766,7 +1771,6 @@ class TrendFollowStrategy:
         volume_ratio = params.get('volume_ratio', 1.5)
         volatility_threshold = params.get('volatility_threshold', 0.02)
         print(f"  - [参数加载]: 接近阈值={proximity_threshold}, 成交量倍数={volume_ratio}, 振幅阈值={volatility_threshold}")
-
         # 2. 分解计算所有独立的信号条件
         # 条件A: 当前收盘价非常接近市场核心成本区
         is_price_near_cost_area = (df['close_D'] >= main_cost_area * (1 - proximity_threshold)) & \
@@ -1776,7 +1780,6 @@ class TrendFollowStrategy:
         # 条件C: 当日振幅收窄，表明是“横盘”换手，而非“拉升/下跌”换手
         daily_volatility = (df['high_D'] - df['low_D']) / df['close_D']
         is_low_volatility = daily_volatility < volatility_threshold
-        
         # 3. 组合最终信号
         final_signal = precondition & is_price_near_cost_area & is_volume_surged & is_low_volatility
 
