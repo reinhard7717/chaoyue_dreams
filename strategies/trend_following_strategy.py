@@ -1019,25 +1019,24 @@ class TrendFollowStrategy:
 
     def _find_capital_flow_divergence_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【剧本】【V4.0 斜率趋势版】“资金暗流” - 分析资金流变化趋势。
-        - 核心升级: 从判断资金“状态”进化为分析资金“趋势”。通过计算累计资金流的滚动斜率，捕捉资金流出减缓或即将拐头向上的领先信号。
+        【剧本】【V5.0 双重确认版】“资金暗流” - 左侧观察，右侧出击。
+        - 核心升级: 解决V4.0信号过早的问题。引入双重确认机制，先识别“背离状态”并加入观察名单，再等待“放量突破均线”的右侧信号进行确认。
         - 策略逻辑:
-          1. 计算累计主力净流入曲线。
-          2. 对该曲线进行滚动线性回归，得到每一天的“资金流斜率”。
-          3. 定义“背离状态”: a.价格弱势 b.资金流斜率出现改善迹象 (斜率上升或大于某个负阈值)。
-          4. 定义“确认信号”: 一根放量的、主力驱动的、有实体涨幅的阳线。
-          5. 最终信号: 当天同时满足“背离状态”和“确认信号”。
+          1. 定义“观察名单条件”(左侧信号): 价格弱势 + 资金流斜率改善。
+          2. 定义“突破扳机条件”(右侧信号): 价格放量从下方穿越长期均线，且有主力资金流入。
+          3. 最终信号: 当“突破扳机”被触发时，检查该股票在近期是否曾满足“观察名单条件”。
         """
         params = self._get_params_block(params, 'capital_flow_divergence_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        print("\n--- [法医级调试-资金暗流V4.0-斜率版] 开始 ---")
+        print("\n--- [法医级调试-资金暗流V5.0-双重确认版] 开始 ---")
 
         # --- 1. 参数与数据准备 ---
-        lookback = params.get('lookback_period', 20) # 用于计算斜率的窗口
+        slope_lookback = params.get('lookback_period', 20)
         trend_ma_period = params.get('trend_ma_period', 55)
-        slope_improvement_days = params.get('slope_improvement_days', 3) # 要求斜率连续改善的天数
+        slope_improvement_days = params.get('slope_improvement_days', 3)
+        watchlist_lookback = params.get('watchlist_lookback', 30) # 检查过去多少天内是否上过观察名单
         
         trend_ma_col = f"EMA_{trend_ma_period}_D"
         vol_ma_col = 'VOL_MA_21_D'
@@ -1049,63 +1048,52 @@ class TrendFollowStrategy:
         if df['net_main_force_amount_D'].dtype != 'float64':
             df['net_main_force_amount_D'] = df['net_main_force_amount_D'].astype(float)
 
-        # --- 2. 计算资金流斜率 ---
-        # 步骤A: 计算累计资金净流入
+        # --- 2. 阶段一: 定义“观察名单”条件 (左侧信号) ---
+        # 计算资金流斜率 (与V4.0相同)
         df['cumulative_net_mf'] = df['net_main_force_amount_D'].cumsum()
-        
-        # 步骤B: 定义一个函数来计算滚动线性回归的斜率
         def get_slope(y):
-            # 确保有足够的数据点且y不全为nan
-            if len(y.dropna()) < 2:
-                return np.nan
+            if len(y.dropna()) < 2: return np.nan
             x = np.arange(len(y))
-            # 使用 y.values 确保我们处理的是 numpy 数组
             slope, _ = np.polyfit(x, y.values, 1)
             return slope
-
-        # 步骤C: 应用滚动计算
-        # 注意：直接在 apply 中使用 lambda 会非常慢，定义一个具名函数是最佳实践
-        df['mf_slope'] = df['cumulative_net_mf'].rolling(window=lookback).apply(get_slope, raw=False) # raw=False 传递Series对象
-        print(f"    [调试-步骤2]: 资金流斜率计算完成。")
-        print(f"      -> 最近5日的资金流斜率: {df['mf_slope'].tail(5).to_list()}")
-
-        # --- 3. 定义“背离状态” (Divergence State) ---
-        # 条件A: 价格环境弱势
+        df['mf_slope'] = df['cumulative_net_mf'].rolling(window=slope_lookback).apply(get_slope, raw=False)
+        
+        # 条件A: 价格弱势
         is_price_weak = df['close_D'] < df[trend_ma_col]
-        print(f"    [调试-步骤3A]: 价格弱势天数 (close < {trend_ma_col}): {is_price_weak.sum()}")
-
-        # 条件B: 资金趋势在改善 (斜率连续N天上升)
+        # 条件B: 资金趋势改善
         is_slope_improving = (df['mf_slope'] > df['mf_slope'].shift(1)).rolling(window=slope_improvement_days).sum() == slope_improvement_days
-        print(f"    [调试-步骤3B]: 资金斜率连续{slope_improvement_days}日改善的天数: {is_slope_improving.sum()}")
+        
+        # 组合成“观察名单”状态
+        is_on_watchlist = is_price_weak & is_slope_improving
+        print(f"    [调试-阶段1]: 进入'观察名单'总天数: {is_on_watchlist.sum()}")
 
-        # 组合成“背离状态”
-        is_in_divergence_state = is_price_weak & is_slope_improving
-        print(f"    [调试-步骤3C]: ★★★ 核心状态: '背离状态'总天数: {is_in_divergence_state.sum()} ★★★")
+        # --- 3. 阶段二: 定义“突破扳机”条件 (右侧信号) ---
+        # 条件A: 价格从下方突破长期均线
+        is_price_breakout = (df['close_D'] > df[trend_ma_col]) & (df['close_D'].shift(1) <= df[trend_ma_col].shift(1))
+        print(f"    [调试-阶段2A]: 价格突破均线({trend_ma_col})天数: {is_price_breakout.sum()}")
 
-        # --- 4. 定义“确认信号” (Confirmation Signal) ---
-        # 条件A: 实体阳线且涨幅可观
-        is_strong_green_candle = (df['close_D'] > df['open_D']) & (df['close_D'].pct_change() > 0.01)
-        print(f"    [调试-步骤4A]: 确认信号-强阳线天数: {is_strong_green_candle.sum()}")
+        # 条件B: 突破时放量
+        is_volume_up = df['volume_D'] > df[vol_ma_col] * 1.5 # 突破要求更高的量
+        print(f"    [调试-阶段2B]: 放量天数: {is_volume_up.sum()}")
 
-        # 条件B: 放量
-        is_volume_up = df['volume_D'] > df[vol_ma_col] * 1.2
-        print(f"    [调试-步骤4B]: 确认信号-放量天数: {is_volume_up.sum()}")
-
-        # 条件C: 主力资金当日净流入
+        # 条件C: 突破时主力资金流入
         is_main_force_buying_today = df['net_main_force_amount_D'] > 0
-        print(f"    [调试-步骤4C]: 确认信号-主力当日买入天数: {is_main_force_buying_today.sum()}")
+        print(f"    [调试-阶段2C]: 主力当日买入天数: {is_main_force_buying_today.sum()}")
 
-        # 组合成“确认信号”
-        is_confirmation_signal = is_strong_green_candle & is_volume_up & is_main_force_buying_today
-        print(f"    [调试-步骤4D]: 组合'确认信号'总天数: {is_confirmation_signal.sum()}")
+        # 组合成“突破扳机”
+        is_breakout_trigger = is_price_breakout & is_volume_up & is_main_force_buying_today
+        print(f"    [调试-阶段2D]: ★★★ '突破扳机'被触发总天数: {is_breakout_trigger.sum()} ★★★")
 
-        # --- 5. 最终信号 ---
-        final_signal = is_in_divergence_state & is_confirmation_signal
-        print(f"    [调试-步骤5]: ★★★ 最终信号 (背离状态 & 确认信号): {final_signal.sum()} ★★★")
-        print("--- [法医级调试-资金暗流V4.0-斜率版] 结束 ---\n")
+        # --- 4. 最终信号: 双重确认 ---
+        # 检查在触发“突破扳机”之前的一段时期内，是否上过“观察名单”
+        had_watchlist_status_before = is_on_watchlist.shift(1).rolling(window=watchlist_lookback, min_periods=1).sum() > 0
+        
+        final_signal = had_watchlist_status_before & is_breakout_trigger
+        print(f"    [调试-阶段4]: ★★★ 最终信号 (前期上榜 & 当日突破): {final_signal.sum()} ★★★")
+        print("--- [法医级调试-资金暗流V5.0-双重确认版] 结束 ---\n")
         
         # 清理临时列
-        df.drop(columns=['cumulative_net_mf', 'mf_slope'], inplace=True)
+        df.drop(columns=['cumulative_net_mf', 'mf_slope'], inplace=True, errors='ignore')
         
         return final_signal
 
