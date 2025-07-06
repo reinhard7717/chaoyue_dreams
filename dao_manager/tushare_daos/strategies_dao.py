@@ -551,7 +551,7 @@ class StrategiesDAO(BaseDAO):
 
         # 3. 转换为DataFrame
         # ▼▼▼ 提取更丰富的字段 ▼▼▼
-        flow_fields = ['trade_time', 'buy_lg_amount', 'buy_elg_amount', 'net_mf_amount']
+        flow_fields = ['trade_time', 'buy_sm_amount', 'sell_sm_amount', 'buy_md_amount', 'sell_md_amount', 'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount', 'net_mf_amount']
         cyq_fields = ['trade_time', 'winner_rate', 'weight_avg', 'cost_15pct', 'cost_85pct', 'cost_95pct']
         
         df_flow = pd.DataFrame.from_records(fund_flow_qs.values(*flow_fields))
