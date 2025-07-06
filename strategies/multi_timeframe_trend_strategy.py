@@ -423,6 +423,12 @@ class MultiTimeframeTrendStrategy:
             if col in df_aligned.columns:
                 df_aligned[col].fillna(False, inplace=True)
 
+        # ▼▼▼【代码修改】: 在此处添加调试代码以打印所有可用列 ▼▼▼
+        print("\n--- [分钟级别数据列清单] ---")
+        # 使用 tolist() 转换为列表，打印更清晰
+        print(df_aligned.columns.to_list())
+        print("--- [清单结束] ---\n")
+
         # print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
         final_signal = pd.Series(True, index=df_aligned.index)
         final_signal &= df_aligned['is_daily_trend_ok']
