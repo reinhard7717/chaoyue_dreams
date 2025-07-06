@@ -18,9 +18,9 @@ PLAYBOOK_NAME_MAP = {
 
     # === 日线战术剧本 (主要机会信号) ===
     # --- 主力行为/高确定性 ---
-    'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线】筹码集中突破',
+    'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线-王牌】筹码集中突破',
     'COST_AREA_REINFORCEMENT': '【日线】成本区增强',
-    'CHIP_PRESSURE_RELEASE': '【日线】筹码压力释放',
+    'CHIP_PRESSURE_RELEASE': '【日线-王牌】筹码压力释放',
     'CHIP_COST_BREAKTHROUGH': '【日线】筹码成本区突破',
     'ENERGY_COMPRESSION_BREAKOUT': '【日线】潜龙在渊',
     'OLD_DUCK_HEAD': '【日线】老鸭头',

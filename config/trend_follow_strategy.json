@@ -380,16 +380,16 @@
             "score": 200,
             "description": "【终极信号】市场最强反转，给予压倒性高分。"
           },
-          "RESONANCE_FRACTAL_ROCKET": {
-            "name": "分形共振火箭",
-            "score": 160,
-            "description": "【王牌剧本】分钟线多级共振成功，是最高确定性的右侧追击信号。"
-          },
           "__CATEGORY_MASTER_PLAYS__": "--- 主力行为/高确定性 ---",
           "CHIP_CONCENTRATION_BREAKTHROUGH": {
             "name": "筹码集中突破",
             "score": 180,
             "description": "【全新王牌】筹码高度集中后的首次突破，是确定性极高的主力拉升信号。"
+          },
+          "RESONANCE_FRACTAL_ROCKET": {
+            "name": "分形共振火箭",
+            "score": 160,
+            "description": "【王牌剧本】分钟线多级共振成功，是最高确定性的右侧追击信号。"
           },
           "COST_AREA_REINFORCEMENT": {
             "name": "成本区增强",

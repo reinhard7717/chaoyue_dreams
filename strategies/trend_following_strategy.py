@@ -201,96 +201,92 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
         """
-        【V22.0 核心修复版】计算综合买入得分。
-        - 修复: 直接使用 'BASE_SIGNAL_BREAKOUT_TRIGGER' 作为王牌信号列，解决识别错误问题。
-        - 增强: 增加了更详细的调试日志，清晰展示王牌信号的互斥计分逻辑。
+        【V22.1 逻辑修正版】计算综合买入得分。
+        - 核心修正: 为所有“趋势启动/反转”型剧本松绑，使用宽松前提(tactical_precondition)替代严格前提(strict_precondition)。
+        - 重构: 分离了指标信号的计算和前提应用，允许对MACD金叉等信号进行精细化控制。
         """
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V22.2] 步骤1: 计算并记录周线战略背景基础分...")
-        # 1a. 【全面填充】将所有候选分数（包括王牌和原始剧本）全部写入DataFrame
-        all_base_score_cols = []
-        # 王牌信号: 直接使用最终列名 BASE_SIGNAL_BREAKOUT_TRIGGER
+        print("    [调试-计分V22.1] 步骤1: 计算并记录周线战略背景基础分...")
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
-        all_base_score_cols.append(king_signal_col) # 记录列名
         king_score = points.get('BREAKOUT_TRIGGER_SCORE', 150)
+        all_base_score_cols = [king_signal_col]
         if king_signal_col in df.columns and df[king_signal_col].any():
             score_details_df.loc[df[king_signal_col], king_signal_col] = king_score
-            print(f"    - [计分-基础分] 检测到 '{king_signal_col}' 王牌信号 {df[king_signal_col].sum()} 次。")
-        # 原始剧本
-        playbook_scores_map = self._get_params_block(params, 'playbook_scores', default_return={
-            'ma20_turn_up': 100, 'early_uptrend': 80, 'classic_breakout': 50,
-            'ma_uptrend': 30, 'box_breakout': 60
-        })
-        # 查找所有以 playbook_ 开头、以 _W 结尾的列
+        playbook_scores_map = self._get_params_block(params, 'playbook_scores', default_return={})
         playbook_cols = [col for col in df.columns if col.startswith('playbook_') and col.endswith('_W')]
         for col in playbook_cols:
             playbook_name = col.replace('playbook_', '').replace('_W', '')
             score = playbook_scores_map.get(playbook_name, 0)
             base_col_name = f"BASE_{playbook_name.upper()}"
-            all_base_score_cols.append(base_col_name) # 记录列名
+            all_base_score_cols.append(base_col_name)
             if score > 0 and df[col].any():
                 score_details_df.loc[df[col], base_col_name] = score
-                print(f"    - [计分-基础分] 检测到 '{col}' 剧本信号 {df[col].sum()} 次，计为 '{base_col_name}'。")
         score_details_df.fillna(0, inplace=True)
-        # 1b. 【铁腕清零】在王牌信号日，将所有其他基础分清零
         if king_signal_col in score_details_df.columns:
             king_signal_mask = (score_details_df[king_signal_col] > 0)
             if king_signal_mask.any():
-                # 优化日志输出，避免刷屏
-                print(f"    - [计分-互斥逻辑] 检测到 {king_signal_mask.sum()} 天王牌信号，已执行其他基础分清零。")
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
-        else:
-            # 这个日志现在代表“本股票从未触发过王牌信号”，是正常的信息
-            if self.verbose_logging:
-                print(f"    - [计分-信息] 王牌信号列 '{king_signal_col}' 在本股票历史中从未触发，跳过互斥计分。")
-        # --- 步骤2: 定义战术信号的前提条件 ---
+        # --- 步骤2: 定义战术信号的前提条件  ---
         base_score = score_details_df.sum(axis=1)
-        tactical_precondition = base_score > 0
-        strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index))
-        print(f"    [调试-计分V22.0] 步骤2: 定义战术前提... 满足基础分天数: {tactical_precondition.sum()}, 满足严格趋势天数: {strict_precondition.sum()}")
+        tactical_precondition = base_score > 0 # 宽松前提：周线有积极信号即可
+        strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index)) # 严格前提：周线多头趋势已确立
+        print(f"    [调试-计分V22.1] 步骤2: 定义战术前提... 满足宽松前提天数: {tactical_precondition.sum()}, 满足严格前提天数: {strict_precondition.sum()}")
+        
         # --- 步骤3: 计算所有独立的日线战术原子信号 ---
-        print("    [调试-计分V22.0] 步骤3: 计算日线战术原子信号...")
-        cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params) # 使用宽松前提
-        cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params) # 使用宽松前提
-        cond_v_reversal = self._find_v_reversal_entry(df, tactical_precondition, params) # 使用宽松前提
-        cond_pullback_setup, pullback_target_price = self._find_pullback_setup(df, strict_precondition, params) # 使用严格前提
-        df['pullback_target_price'] = pullback_target_price
-        cond_bottom_divergence = self._find_bottom_divergence_entry(df, params) # 左侧信号，无前提
-        cond_bias_reversal = self._find_bias_reversal_entry(df, params) # 左侧信号，无前提
-        cond_washout_reversal = self._find_washout_reversal_entry(df, tactical_precondition, params) # 使用宽松前提
-        cond_capital_flow_divergence = self._find_capital_flow_divergence_entry(df, params) # 左侧信号，无前提
-        cond_momentum = self._find_momentum_entry(df, strict_precondition, params) # 使用严格前提
-        cond_first_breakout = self._find_first_breakout_entry(df, strict_precondition, params) # 使用严格前提
-        # ▼▼▼ 布林收口突破是趋势启动信号，不应使用严格前提，改为宽松前提 ▼▼▼
-        cond_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, tactical_precondition, params) # 使用宽松前提
-        cond_doji_continuation = self._find_doji_continuation_entry(df, strict_precondition, params) # 使用严格前提
-        cond_old_duck_head = self._find_old_duck_head_entry(df, strict_precondition, params) # 使用严格前提
-        cond_n_shape_relay = self._find_n_shape_relay_entry(df, strict_precondition, params) # 使用严格前提
-        cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params) # 使用严格前提
-        cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, strict_precondition, params) # 使用严格前提
-        cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params) # 使用严格前提
-        cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params) # 使用严格前提
-        # ▼▼▼ 为不同筹码剧本分配合适的前提条件 ▼▼▼
-        # 成本区增强: 发生在横盘期，是拉升前兆，使用宽松前提。
-        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, tactical_precondition, params)
-        # 筹码集中突破: 趋势启动信号，使用宽松前提。
-        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, tactical_precondition, params)
-        # 投降坑反转: 典型的左侧信号，完全移除前提条件。
+        print("    [调试-计分V22.1] 步骤3: 计算日线战术原子信号...")
+        
+        # ▼▼▼ 为每个剧本分配合适的前提条件 ▼▼▼
+        
+        # --- A. 回踩与反转类 (趋势早期或转折点，使用宽松前提) ---
+        cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params)
+        cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params)
+        cond_v_reversal = self._find_v_reversal_entry(df, tactical_precondition, params)
+        cond_washout_reversal = self._find_washout_reversal_entry(df, tactical_precondition, params)
+        
+        # --- B. 左侧/底部信号类 (无前提条件) ---
+        cond_bottom_divergence = self._find_bottom_divergence_entry(df, params)
+        cond_bias_reversal = self._find_bias_reversal_entry(df, params)
+        cond_capital_flow_divergence = self._find_capital_flow_divergence_entry(df, params)
         cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params)
-        # 筹码成本突破: 趋势启动信号，使用宽松前提。
+
+        # --- C. 趋势启动/突破类 (关键！从严格前提改为宽松前提) ---
+        cond_first_breakout = self._find_first_breakout_entry(df, tactical_precondition, params)
+        cond_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, tactical_precondition, params)
+        cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, tactical_precondition, params)
+        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, tactical_precondition, params)
+        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, tactical_precondition, params)
         cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, tactical_precondition, params)
-        # 筹码压力释放: 趋势加速信号，发生在主升浪，保留严格前提。
+        cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & tactical_precondition
+        
+        # --- D. 趋势延续/加速类 (维持严格前提) ---
+        cond_pullback_setup, pullback_target_price = self._find_pullback_setup(df, strict_precondition, params)
+        df['pullback_target_price'] = pullback_target_price
+        cond_momentum = self._find_momentum_entry(df, strict_precondition, params)
+        cond_doji_continuation = self._find_doji_continuation_entry(df, strict_precondition, params)
+        cond_old_duck_head = self._find_old_duck_head_entry(df, strict_precondition, params)
+        cond_n_shape_relay = self._find_n_shape_relay_entry(df, strict_precondition, params)
+        cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params)
+        cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params)
+        cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params)
         cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
-        # 筹码关口扫清: 趋势确认信号，发生在主升浪，保留严格前提。
         cond_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, strict_precondition, params)
-        cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & strict_precondition # 使用严格前提
-        indicator_signals = self._find_indicator_entry(df, strict_precondition, params) # 使用严格前提
-        cond_dmi_cross, cond_macd_low_cross, cond_macd_zero_cross, cond_macd_high_cross = indicator_signals['dmi_cross'], indicator_signals['macd_low_cross'], indicator_signals['macd_zero_cross'], indicator_signals['macd_high_cross']
+        cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params)
+
+        # --- E. 指标信号类 (精细化控制前提) ---
+        # 先计算原始信号，不加任何前提
+        indicator_signals = self._find_indicator_entry(df, params)
+        # 再根据指标自身特性，应用不同前提
+        cond_dmi_cross = indicator_signals['dmi_cross'] & tactical_precondition # DMI金叉是趋势启动信号，用宽松前提
+        cond_macd_low_cross = indicator_signals['macd_low_cross'] & tactical_precondition # 低位金叉是反转信号，用宽松前提
+        cond_macd_zero_cross = indicator_signals['macd_zero_cross'] & tactical_precondition # 零轴金叉是趋势确立信号，用宽松前提
+        cond_macd_high_cross = indicator_signals['macd_high_cross'] & strict_precondition # 高位金叉是加速信号，用严格前提
+
+        # --- F. 其他确认信号与特殊形态  ---
         cond_cmf_confirm = self._check_cmf_confirmation(df, params)
         cond_vwap_support = self._check_vwap_confirmation(df_dict, params)
         cond_gap_support_state = self._check_upward_gap_support(df, params)
@@ -298,7 +294,6 @@ class TrendFollowStrategy:
         cond_earth_heaven_board, cond_turnover_board, cond_heaven_earth_board = board_patterns.get('earth_heaven_board', pd.Series(False, index=df.index)), board_patterns.get('turnover_board', pd.Series(False, index=df.index)), board_patterns.get('heaven_earth_board', pd.Series(False, index=df.index))
         cond_volume_breakdown = self._find_volume_breakdown_exit(df, params)
         cond_fund_flow_confirm = self._check_fund_flow_confirmation(df, params)
-        cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params) # 使用严格前提
         steady_climb_params = self._get_params_block(params, 'steady_climb_params')
         is_low_volatility = pd.Series(False, index=df.index)
         if steady_climb_params.get('enabled', False):
@@ -484,13 +479,15 @@ class TrendFollowStrategy:
             print(f"    - [行业协同] 已根据行业排名应用奖惩。弱势惩罚({(is_weak).sum()}天), 强势奖励({(is_strong).sum()}天), 龙头奖励({(is_top_tier).sum()}天)。")
         else:
             print("    - [行业协同] 未启用或缺少 'industry_strength_rank_D' 列，跳过此步骤。")
-        # 风险否决
+        # 最终风险否决层
+        final_score = score_details_df.fillna(0).sum(axis=1)
         final_score.loc[kline_strong_bearish] = 0
         final_score.loc[cond_volume_breakdown] = 0
         final_score.loc[cond_heaven_earth_board] = 0
-        is_reversal_play_final = cond_bottom_divergence | cond_bias_reversal | cond_capital_flow_divergence | cond_morning_star
+        # 最终否决：如果一个信号既不满足宽松前提，也不是左侧反转信号，则清零
+        is_reversal_play_final = cond_bottom_divergence | cond_bias_reversal | cond_capital_flow_divergence | cond_morning_star | cond_winner_rate_reversal
         final_score = final_score.where(tactical_precondition | is_reversal_play_final, 0)
-        print("    [调试-计分V22.0] 计分流程结束。")
+        print("    [调试-计分V22.1] 计分流程结束。")
         return final_score.round(0), atomic_signals, score_details_df.fillna(0)
 
     def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> dict:
@@ -1218,76 +1215,54 @@ class TrendFollowStrategy:
         is_volume_surge = df['volume_D'] > df[vol_ma_col] * params.get('volume_ratio', 1.5)
         return precondition & is_breakout & is_volume_surge
 
-    def _find_indicator_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> Dict[str, pd.Series]:
-        """【V5.0 参数适配版】使用新的辅助函数获取正确的指标周期。"""
+    def _find_indicator_entry(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V2.0 重构版】计算所有基于指标的原始买入信号，不应用任何前提条件。
+        返回一个包含各种原始信号布尔序列的字典。
+        """
         indicator_params = self._get_params_block(params, 'indicator_entry_params')
-        if not indicator_params.get('enabled', False): 
-            return { 'dmi_cross': pd.Series(False, index=df.index), 'macd_low_cross': pd.Series(False, index=df.index), 'macd_zero_cross': pd.Series(False, index=df.index), 'macd_high_cross': pd.Series(False, index=df.index) }
-        
-        fe_params = params.get('feature_engineering_params', {})
-        indicators_config = fe_params.get('indicators', {})
-        
-        dmi_signal = pd.Series(False, index=df.index)
-        macd_low_signal, macd_zero_signal, macd_high_signal = [pd.Series(False, index=df.index)] * 3
-        
-        # 价格稳定性过滤器 (逻辑不变)
-        mid_term_params = self._get_params_block(params, 'mid_term_trend_params')
-        key_ma_col = f"EMA_{mid_term_params.get('mid_ma', 60)}_D"
-        stability_period = params.get('price_stability_period', 3)
-        is_stable_above_ma = pd.Series(True, index=df.index)
-        if key_ma_col in df.columns:
-            is_stable_above_ma = (df['close_D'].shift(1) > df[key_ma_col].shift(1)).rolling(window=stability_period).min() == 1
-        final_precondition = precondition & is_stable_above_ma
+        if not indicator_params.get('enabled', False):
+            return {
+                'dmi_cross': pd.Series(False, index=df.index),
+                'macd_low_cross': pd.Series(False, index=df.index),
+                'macd_zero_cross': pd.Series(False, index=df.index),
+                'macd_high_cross': pd.Series(False, index=df.index),
+            }
 
-        # --- DMI 信号计算 (逻辑不变) ---
-        if indicator_params.get('use_dmi_adx', False):
-            # ▼▼▼使用新的辅助函数获取周期参数 ▼▼▼
-            dmi_config = indicators_config.get('dmi', {})
-            dmi_periods_list = self._get_periods_for_timeframe(dmi_config, 'D')
-            if dmi_periods_list:
-                dmi_period = dmi_periods_list[0]
+        # --- DMI 金叉 ---
+        dmi_params = indicator_params.get('dmi_cross', {})
+        dmi_period = self._get_periods_for_timeframe(self.daily_params.get('feature_engineering_params', {}).get('indicators', {}).get('dmi', {}), 'D')
+        dmi_cross_signal = pd.Series(False, index=df.index)
+        if dmi_params.get('enabled', False) and dmi_period:
+            pdi_col, mdi_col = f'DMP_{dmi_period[0]}_D', f'DMN_{dmi_period[0]}_D'
+            if pdi_col in df.columns and mdi_col in df.columns:
+                dmi_cross_signal = (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
 
-                pdi_col, ndi_col, adx_col = f'PDI_{dmi_period}_D', f'NDI_{dmi_period}_D', f'ADX_{dmi_period}_D'
-                if all(c in df.columns for c in [pdi_col, ndi_col, adx_col]):
-                    dmi_cross = (df[pdi_col] > df[ndi_col]) & (df[pdi_col].shift(1) <= df[ndi_col].shift(1))
-                    dmi_signal = dmi_cross & (df[adx_col] > indicator_params.get('adx_threshold', 25)) & final_precondition
-
-        # --- MACD 信号分类计算 ---
-        if indicator_params.get('use_macd_cross', False):
-            # ▼▼▼使用新的辅助函数获取周期参数 ▼▼▼
-            macd_config = indicators_config.get('macd', {})
-            macd_periods = self._get_periods_for_timeframe(macd_config, 'D')
-            if macd_periods:
-                macd_fast, macd_slow, macd_signal_p = macd_periods
-                dif_col = f"MACD_{macd_fast}_{macd_slow}_{macd_signal_p}_D"
-                dea_col = f"MACDs_{macd_fast}_{macd_slow}_{macd_signal_p}_D"
-            
-            if dif_col in df.columns and dea_col in df.columns:
-                # 1. 找到所有基础金叉点
-                basic_cross = (df[dif_col] > df[dea_col]) & (df[dif_col].shift(1) <= df[dea_col].shift(1))
+        # --- MACD 金叉 ---
+        macd_params = indicator_params.get('macd_cross', {})
+        macd_periods = self._get_periods_for_timeframe(self.daily_params.get('feature_engineering_params', {}).get('indicators', {}).get('macd', {}), 'D')
+        macd_low_cross_signal = pd.Series(False, index=df.index)
+        macd_zero_cross_signal = pd.Series(False, index=df.index)
+        macd_high_cross_signal = pd.Series(False, index=df.index)
+        if macd_params.get('enabled', False) and macd_periods:
+            p_fast, p_slow, p_signal = macd_periods
+            macd_col = f'MACD_{p_fast}_{p_slow}_{p_signal}_D'
+            signal_col = f'MACDs_{p_fast}_{p_slow}_{p_signal}_D'
+            if macd_col in df.columns and signal_col in df.columns:
+                is_golden_cross = (df[macd_col] > df[signal_col]) & (df[macd_col].shift(1) <= df[signal_col].shift(1))
                 
-                # 2. 获取分类阈值
-                low_threshold = params.get('macd_low_threshold', -0.5)   # 定义“低位”的DIF值
-                high_threshold = params.get('macd_high_threshold', 1.0)  # 定义“高位”的DIF值
+                low_level = macd_params.get('low_level', -0.5)
+                high_level = macd_params.get('high_level', 0.5)
                 
-                # 3. 根据DIF值对金叉进行分类
-                # 低位金叉: DIF < low_threshold
-                macd_low_signal = basic_cross & (df[dif_col] < low_threshold)
-                # 高位金叉: DIF > high_threshold
-                macd_high_signal = basic_cross & (df[dif_col] > high_threshold)
-                # 零轴金叉: 介于两者之间
-                macd_zero_signal = basic_cross & (df[dif_col] >= low_threshold) & (df[dif_col] <= high_threshold)
-
-                # 4. 应用最终的前置条件
-                macd_low_signal &= final_precondition
-                macd_zero_signal &= final_precondition
-                macd_high_signal &= final_precondition
+                macd_low_cross_signal = is_golden_cross & (df[macd_col] < low_level)
+                macd_zero_cross_signal = is_golden_cross & (df[macd_col] >= low_level) & (df[macd_col] <= high_level)
+                macd_high_cross_signal = is_golden_cross & (df[macd_col] > high_level)
 
         return {
-            'dmi_cross': dmi_signal,
-            'macd_low_cross': macd_low_signal,
-            'macd_zero_cross': macd_zero_signal,
-            'macd_high_cross': macd_high_signal,
+            'dmi_cross': dmi_cross_signal.fillna(False),
+            'macd_low_cross': macd_low_cross_signal.fillna(False),
+            'macd_zero_cross': macd_zero_cross_signal.fillna(False),
+            'macd_high_cross': macd_high_cross_signal.fillna(False),
         }
 
     def _find_bband_squeeze_breakout(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
@@ -1449,7 +1424,7 @@ class TrendFollowStrategy:
         divergence_params = self._get_params_block(params, 'divergence_params')
         if not divergence_params.get('enabled', False): return pd.Series(False, index=df.index)
 
-        # 动态获取指标列名 (逻辑不变)
+        # 动态获取指标列名 
         fe_params = params.get('feature_engineering_params', {})
         indicators_config = fe_params.get('indicators', {})
         macd_config = indicators_config.get('macd', {})
