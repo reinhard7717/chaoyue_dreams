@@ -1735,42 +1735,91 @@ class TrendFollowStrategy:
     # ▼▼▼ “成本区增强”剧本(使用精确CYQ数据) ▼▼▼
     def _find_cost_area_reinforcement_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【全新剧本/升级版】【V1.1 列名修复版】识别“成本区增强”信号，捕捉主力在关键成本区的吸筹或换手行为。
-        使用精确的CYQ加权平均成本(weight_avg)作为市场核心成本区。
+        【全新剧本/升级版】【V1.2-调试增强版】识别“成本区增强”信号，捕捉主力在关键成本区的吸筹或换手行为。
+        使用精确的CYQ加权平均成本(weight_avg_D)作为市场核心成本区。
         """
         # 从主配置中获取本剧本的参数块
         params = self._get_params_block(params, 'cost_area_reinforcement_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
-        
-        # 依赖检查
-        vol_ma_period = self._get_params_block(params, 'first_breakout_params').get('vol_ma_period', 20)
-        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
-        weight_avg_col = 'weight_avg' # 修正列名
+
+        print("\n--- [调试日志 - 剧本: 成本区增强 (COST_AREA_REINFORCEMENT)] ---")
+
+        # ▼▼▼【代码修正】: 修正了成本列名，并硬编码成交量均线列以解耦 ▼▼▼
+        weight_avg_col = 'weight_avg_D' # 修正列名，必须带 '_D' 后缀
+        vol_ma_col = 'VOL_MA_21_D'      # 直接使用配置文件中定义的21周期均线，移除跨剧本依赖
         required_cols = [weight_avg_col, 'close_D', 'volume_D', 'high_D', 'low_D', vol_ma_col]
-        if not all(col in df.columns and df[col].notna().any() for col in required_cols):
-            if self.verbose_logging:
-                print(f"    [调试-成本区增强]: 跳过，缺少必需的CYQ或基础列: {required_cols}")
+        
+        # 依赖检查，并提供详细的缺失列报告
+        missing_cols = [col for col in required_cols if col not in df.columns or df[col].isna().all()]
+        if missing_cols:
+            print(f"  - [依赖检查失败]: 跳过执行。缺失或全为空的列: {missing_cols}")
+            # 打印所有可用列以供参考
+            # print(f"    可用列: {df.columns.to_list()}")
             return pd.Series(False, index=df.index)
+        print("  - [依赖检查成功]: 所有必需列均存在。")
+        # ▲▲▲【代码修正结束】▲▲▲
+
         # 1. 参数获取
-        main_cost_area = df[weight_avg_col] # 使用正确的列
+        main_cost_area = df[weight_avg_col]
         proximity_threshold = params.get('proximity_threshold', 0.03)
         volume_ratio = params.get('volume_ratio', 1.5)
         volatility_threshold = params.get('volatility_threshold', 0.02)
-        # 2. 定义信号条件
+        print(f"  - [参数加载]: 接近阈值={proximity_threshold}, 成交量倍数={volume_ratio}, 振幅阈值={volatility_threshold}")
+
+        # 2. 分解计算所有独立的信号条件
         # 条件A: 当前收盘价非常接近市场核心成本区
         is_price_near_cost_area = (df['close_D'] >= main_cost_area * (1 - proximity_threshold)) & \
                                   (df['close_D'] <= main_cost_area * (1 + proximity_threshold))
         # 条件B: 当日成交量显著放大 (有大量换手)
         is_volume_surged = df['volume_D'] > (df[vol_ma_col] * volume_ratio)
         # 条件C: 当日振幅收窄，表明是“横盘”换手，而非“拉升/下跌”换手
-        is_low_volatility = (df['high_D'] - df['low_D']) / df['close_D'] < volatility_threshold
-        # 3. 组合信号
-        # 最终信号：在满足中期趋势的前提下，价格贴近成本区，并且放量、缩振
+        daily_volatility = (df['high_D'] - df['low_D']) / df['close_D']
+        is_low_volatility = daily_volatility < volatility_threshold
+        
+        # 3. 组合最终信号
         final_signal = precondition & is_price_near_cost_area & is_volume_surged & is_low_volatility
-        if self.verbose_logging and final_signal.any():
-            print(f"    [调试-成本区增强]: 剧本触发 {final_signal.sum()} 次。")
+
+        # ▼▼▼ 增加逐日详细验尸报告 ▼▼▼
+        print("  - [逐日详细诊断 - 2024年10月-12月]:")
+        debug_dates = df[(df.index >= '2024-10-01') & (df.index <= '2024-12-31')].index
+        triggered_in_period = False
+        for date in debug_dates:
+            # 为了日志清晰，只打印至少有一个条件为True的日子
+            if is_price_near_cost_area.get(date, False) or is_volume_surged.get(date, False):
+                pre_cond_val = precondition.get(date, False)
+                near_cost_val = is_price_near_cost_area.get(date, False)
+                volume_val = is_volume_surged.get(date, False)
+                low_vol_val = is_low_volatility.get(date, False)
+                result_val = final_signal.get(date, False)
+
+                # 获取原始数据以便追溯
+                close = df.loc[date, 'close_D']
+                cost = df.loc[date, weight_avg_col]
+                vol = df.loc[date, 'volume_D']
+                vol_ma = df.loc[date, vol_ma_col]
+                volatility = daily_volatility.loc[date]
+
+                print(f"    - {date.date()}:")
+                print(f"      -> 数据: 收盘价={close:.2f}, 成本={cost:.2f} | 成交量={int(vol)}, 均量={int(vol_ma)} | 振幅={volatility:.3f}")
+                print(f"      -> 条件: 前提={pre_cond_val}, 接近成本={near_cost_val}, 放量={volume_val}, 缩振={low_vol_val} -> 最终信号={result_val}")
+                if result_val:
+                    triggered_in_period = True
+        
+        if not triggered_in_period:
+            print("    - 在此期间未发现任何触发信号的日子。")
+
+        # 打印最终总结
+        print(f"  - [最终总结]:")
+        print(f"    - 总计满足 [前提] 天数: {precondition.sum()}")
+        print(f"    - 总计满足 [接近成本] 天数: {is_price_near_cost_area.sum()}")
+        print(f"    - 总计满足 [放量] 天数: {is_volume_surged.sum()}")
+        print(f"    - 总计满足 [缩振] 天数: {is_low_volatility.sum()}")
+        print(f"    - 总计满足 [全部条件] 天数: {final_signal.sum()}")
+        print("--- [调试日志结束 - 剧本: 成本区增强] ---\n")
+
         return final_signal.fillna(False)
+
 
     # ▼▼▼ “筹码高度集中突破”剧本 ▼▼▼
     def _find_chip_concentration_breakthrough_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
