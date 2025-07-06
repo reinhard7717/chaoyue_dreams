@@ -906,6 +906,16 @@ class TrendFollowStrategy:
                 # 使用 print 进行调试输出
                 print(f"    [调试-潜龙在渊-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
             return pd.Series(False, index=df.index)
+        
+        amount_cols_to_convert = [
+            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
+            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
+            'net_mf_amount_D' # 如果这个字段也可能从数据库来
+        ]
+        for col in amount_cols_to_convert:
+            if col in df.columns:
+                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
+                df[col] = df[col].astype(float)
 
         # --- 预计算资金流数据 (为了逻辑清晰) ---
         df['net_retail_amount_D'] = (df['buy_sm_amount_D'] + df['buy_md_amount_D']) - (df['sell_sm_amount_D'] + df['sell_md_amount_D'])
@@ -995,6 +1005,16 @@ class TrendFollowStrategy:
             if self.verbose_logging:
                 print(f"    [调试-资金暗流-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
             return pd.Series(False, index=df.index)
+        
+        amount_cols_to_convert = [
+            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
+            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
+            'net_mf_amount_D' # 如果这个字段也可能从数据库来
+        ]
+        for col in amount_cols_to_convert:
+            if col in df.columns:
+                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
+                df[col] = df[col].astype(float)
 
         # --- 预计算主力净买入额 ---
         df['net_main_force_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
@@ -1115,6 +1135,16 @@ class TrendFollowStrategy:
             if self.verbose_logging:
                 print(f"    [调试-智能回踩-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
             return pd.Series(False, index=df.index)
+        
+        amount_cols_to_convert = [
+            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
+            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
+            'net_mf_amount_D' # 如果这个字段也可能从数据库来
+        ]
+        for col in amount_cols_to_convert:
+            if col in df.columns:
+                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
+                df[col] = df[col].astype(float)
 
         # --- 预计算主力净买入额 ---
         # 确保该列存在，即使其他策略也计算了，这里再次计算也无妨，保证独立性
@@ -1187,6 +1217,16 @@ class TrendFollowStrategy:
             if self.verbose_logging:
                 print(f"    [调试-堡垒防卫-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
             return pd.Series(False, index=df.index)
+        
+        amount_cols_to_convert = [
+            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
+            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
+            'net_mf_amount_D' # 如果这个字段也可能从数据库来
+        ]
+        for col in amount_cols_to_convert:
+            if col in df.columns:
+                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
+                df[col] = df[col].astype(float)
 
         # --- 预计算主力净买入额 ---
         df['net_main_force_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
@@ -1259,6 +1299,16 @@ class TrendFollowStrategy:
             if self.verbose_logging:
                 print(f"    [调试-V型反转-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
             return pd.Series(False, index=df.index)
+        
+        amount_cols_to_convert = [
+            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
+            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
+            'net_mf_amount_D' # 如果这个字段也可能从数据库来
+        ]
+        for col in amount_cols_to_convert:
+            if col in df.columns:
+                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
+                df[col] = df[col].astype(float)
 
         # --- 预计算主力净买入额 ---
         df['net_main_force_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
