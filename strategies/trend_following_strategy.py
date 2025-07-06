@@ -933,92 +933,90 @@ class TrendFollowStrategy:
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V6.0 三重压缩斜率版】“潜龙在渊” - 用斜率量化能量压缩过程。
-        - 核心升级: 将“准备阶段”的定义从“低位状态”升级为“收缩趋势”。通过计算波动率、成交量、价格三个维度的斜率，精确捕捉能量压缩的动态过程。
+        【剧本】【V7.0 持续压缩与结构突破版】“潜龙在渊”
+        - 核心升级1 (持续压缩): 引入 min_compression_days 参数，要求准备期内必须有足够天数的“深度压缩状态”，过滤掉短暂的伪压缩。
+        - 核心升级2 (结构突破): 突破目标从“压缩顶”升级为“准备区天花板”(prep_phase_ceiling)，即整个准备期的最高价。确保突破的是真正的结构性压力位。
         - 策略逻辑:
-          1. 计算BBW、成交量均线、收盘价的滚动斜率。
-          2. 定义“深度压缩状态”: BBW斜率<0, 成交量斜率<0, 价格斜率绝对值极小。
-          3. 定义“压缩顶”: 在“深度压缩状态”期间形成的最高价。
-          4. 定义“点火信号”: 放量、阳线、主力买入。
-          5. 最终信号: “点火信号”当天，收盘价向上突破“压缩顶”。
+          1. 定义“深度压缩状态” (同V6.0)。
+          2. 检查在准备期内，是否满足“持续压缩”的条件。
+          3. 计算“准备区天花板”，即准备期内的最高价。
+          4. 定义“点火信号” (同V6.0)。
+          5. 最终信号: 在“持续压缩”的背景下，“点火信号”当天收盘价向上突破“准备区天花板”。
         """
         params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
         # --- 1. 参数与数据准备 ---
-        slope_lookback = params.get('slope_lookback', 10) # 计算斜率的回看窗口
-        prep_phase_lookback = params.get('prep_phase_lookback', 15) # 寻找压缩状态的回看窗口
+        slope_lookback = params.get('slope_lookback', 10)
+        prep_phase_lookback = params.get('prep_phase_lookback', 15)
+        min_compression_days = params.get('min_compression_days', 3) # 【新增参数】要求准备期内至少有3天是深度压缩状态
+
+        volatility_slope_threshold = params.get('volatility_slope_threshold', -0.001)
+        volume_slope_threshold = params.get('volume_slope_threshold', -1.0)
+        price_slope_threshold = params.get('price_slope_threshold', 0.05)
         
-        # 斜率阈值参数
-        volatility_slope_threshold = params.get('volatility_slope_threshold', -0.001) # BBW斜率必须为负
-        volume_slope_threshold = params.get('volume_slope_threshold', -1.0) # 成交量斜率必须为负
-        price_slope_threshold = params.get('price_slope_threshold', 0.05) # 价格斜率绝对值需小于此值，代表横盘
-        
-        # 点火日参数
         breakout_vol_ratio = params.get('breakout_volume_ratio', 1.8)
         breakout_pct_change = params.get('breakout_pct_change', 0.03)
 
+        # 【代码修改】: 修正主力资金列名以匹配您的数据源
+        net_mf_col = 'net_mf_amount_D'
         bbw_col = 'BBW_21_2.0_D'
         vol_ma_col = 'VOL_MA_21_D'
-        required_cols = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', bbw_col, vol_ma_col, 'net_main_force_amount_D']
+        required_cols = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', bbw_col, vol_ma_col, net_mf_col]
         if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"    [调试-潜龙在渊-致命错误]: 缺少必需列，剧本终止。缺失的列是: {missing}")
             return pd.Series(False, index=df.index)
         
-        if 'net_main_force_amount_D' in df.columns and df['net_main_force_amount_D'].dtype != 'float64':
-            df['net_main_force_amount_D'] = df['net_main_force_amount_D'].astype(float)
+        if df[net_mf_col].dtype != 'float64':
+            df[net_mf_col] = df[net_mf_col].astype(float)
 
-        print("\n--- [法医级调试-潜龙在渊V6.0-三重压缩斜率版] 开始 ---")
+        print("\n--- [法医级调试-潜龙在渊V7.0-持续压缩与结构突破版] 开始 ---")
 
-        # --- 2. 【核心升级】计算三个维度的斜率 ---
+        # --- 2. 计算三个维度的斜率 ---
         def get_slope(y):
             if len(y.dropna()) < 2: return np.nan
             x = np.arange(len(y))
             slope, _ = np.polyfit(x, y.values, 1)
             return slope
         
-        # 为避免成交量噪音，我们计算成交量均线的斜率
         df['bbw_slope'] = df[bbw_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['vol_ma_slope'] = df[vol_ma_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['price_slope'] = df['close_D'].rolling(window=slope_lookback).apply(get_slope, raw=False)
-        print(f"    [调试-步骤2]: 三重斜率计算完成。")
-        print(f"      -> 最近3日BBW斜率: {df['bbw_slope'].tail(3).to_list()}")
-        print(f"      -> 最近3日VOL_MA斜率: {df['vol_ma_slope'].tail(3).to_list()}")
-        print(f"      -> 最近3日价格斜率: {df['price_slope'].tail(3).to_list()}")
 
-        # --- 3. 定义“深度压缩状态” (Deep Compression State) ---
+        # --- 3. 定义“深度压缩状态”并检查“持续性” ---
         is_volatility_compressing = df['bbw_slope'] < volatility_slope_threshold
         is_volume_shrinking = df['vol_ma_slope'] < volume_slope_threshold
         is_price_sideways = df['price_slope'].abs() < price_slope_threshold
-        
         is_in_deep_compression = is_volatility_compressing & is_volume_shrinking & is_price_sideways
-        print(f"    [调试-步骤3]: 识别到'深度压缩状态'总数: {is_in_deep_compression.sum()} 天")
+        
+        # 【核心升级1】: 检查是否满足“持续压缩”条件
+        sustained_compression_count = is_in_deep_compression.shift(1).rolling(window=prep_phase_lookback, min_periods=1).sum()
+        had_sustained_compression = sustained_compression_count >= min_compression_days
+        print(f"    [调试-步骤3]: 识别到'持续压缩'背景总数: {had_sustained_compression.sum()} 天 (要求在{prep_phase_lookback}天内至少有{min_compression_days}天压缩)")
 
-        # --- 4. 计算“压缩顶 (Compression Ceiling)” (逻辑同V5.0，但基于新的压缩状态) ---
-        high_on_compression_days = df['high_D'].where(is_in_deep_compression)
-        compression_ceiling = high_on_compression_days.rolling(window=prep_phase_lookback, min_periods=1).max().ffill()
-        print(f"    [调试-步骤4]: '压缩顶'计算完成。最近5日压缩顶: {compression_ceiling.tail(5).to_list()}")
+        # --- 4. 【核心升级2】: 计算“准备区天花板 (Prep Phase Ceiling)” ---
+        prep_phase_ceiling = df['high_D'].shift(1).rolling(window=prep_phase_lookback, min_periods=1).max()
+        print(f"    [调试-步骤4]: '准备区天花板'计算完成。最近5日天花板: {prep_phase_ceiling.tail(5).to_list()}")
 
         # --- 5. 定义“点火信号” (Ignition Signal) ---
         is_strong_candle = df['close_D'] > df['open_D']
         is_pct_change_valid = df['close_D'].pct_change() > breakout_pct_change
         is_breakout_volume = df['volume_D'] > df[vol_ma_col] * breakout_vol_ratio
-        is_main_force_driving = df['net_main_force_amount_D'] > 0
+        is_main_force_driving = df[net_mf_col] > 0
         is_ignition_action = is_strong_candle & is_pct_change_valid & is_breakout_volume & is_main_force_driving
         print(f"    [调试-步骤5]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天")
 
-        # --- 6. 最终信号: 结构性突破扳机 ---
-        # 检查点火日之前的一段时期内，是否经历过“深度压缩”
-        had_deep_compression_before = is_in_deep_compression.shift(1).rolling(window=prep_phase_lookback, min_periods=1).sum() > 0
-        
+        # --- 6. 最终信号: 持续压缩背景下的结构性突破 ---
         is_breakout_trigger = (
+            had_sustained_compression &
             is_ignition_action &
-            (df['close_D'] > compression_ceiling.shift(1)) &
-            had_deep_compression_before
+            (df['close_D'] > prep_phase_ceiling) # 突破真正的结构压力位
         )
         
-        print(f"    [调试-步骤6]: ★★★ 最终信号 (深度压缩后 & 点火突破压缩顶): {is_breakout_trigger.sum()} ★★★")
-        print("--- [法医级调试-潜龙在渊V6.0-三重压缩斜率版] 结束 ---\n")
+        print(f"    [调试-步骤6]: ★★★ 最终信号 (持续压缩后 & 点火突破准备区天花板): {is_breakout_trigger.sum()} ★★★")
+        print("--- [法医级调试-潜龙在渊V7.0-持续压缩与结构突破版] 结束 ---\n")
 
         # 清理临时列
         df.drop(columns=['bbw_slope', 'vol_ma_slope', 'price_slope'], inplace=True, errors='ignore')
@@ -1161,33 +1159,46 @@ class TrendFollowStrategy:
 
     def _find_pullback_to_ma_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V4.0 三重斜率确认版】“智能回踩” - 用斜率量化健康回踩过程。
-        - 核心升级: 将回踩的定义从“单日状态”升级为“动态过程”。通过引入支撑均线、价格、成交量三个维度的斜率分析，确保回踩是在“上升趋势中的、抛压持续衰竭的、有序回撤”。
-        - 策略逻辑:
-          1. 定义“健康回踩过程”(因): 支撑均线斜率>0 (趋势向上) & 成交量斜率<0 (抛压衰竭) & 价格斜率温和为负 (有序回撤)。
-          2. 定义“反转触发点”(果): 价格探底回升、高质量反转K线、主力资金确认 (沿用V3.0精华)。
-          3. 最终信号: 当“反转触发点”出现时，检查其前序是否为“健康回踩过程”。
+        【剧本】【V4.1 列名修复与兼容性增强版】“智能回踩”
+        - 核心修复: 修正了主力净流入列名不匹配的致命BUG (net_main_force_amount_D -> net_mf_amount_D)。
+        - 兼容增强: 如果'net_mf_amount_D'不存在，则尝试从其组成部分计算，提高代码健壮性。
+        - 调试增强: 在错误日志中明确指出缺失的列名。
+        - 逻辑核心: 沿用V4.0的斜率分析，确保回踩是在“上升趋势中的、抛压持续衰竭的、有序回撤”。
         """
         pullback_params = self._get_params_block(params, 'pullback_ma_entry_params')
         if not pullback_params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        print("\n--- [法医级调试-智能回踩V4.0-三重斜率确认版] 开始 ---")
+        print("\n--- [法医级调试-智能回踩V4.1-列名修复版] 开始 ---")
 
-        # --- 1. 参数与数据准备 ---
+        # --- 1. 参数与数据准备 (已修复) ---
         support_ma_period = pullback_params.get('support_ma', 21)
         vol_ma_period = pullback_params.get('vol_ma_period', 21)
-        slope_lookback = pullback_params.get('slope_lookback', 5) # 计算斜率的回看期
+        slope_lookback = pullback_params.get('slope_lookback', 5)
         
+        # 标准化主力资金净流入列名
+        net_mf_col = 'net_mf_amount_D'
+        
+        # 检查并转换资金流数据类型，确保为 float
+        amount_cols = ['buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D', net_mf_col]
+        for col in amount_cols:
+            if col in df.columns and df[col].dtype != 'float64':
+                df[col] = df[col].astype(float)
+
+        # 如果 net_mf_amount_D 不存在，但其组成部分存在，则计算它 (增强兼容性)
+        if net_mf_col not in df.columns and all(c in df.columns for c in ['buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D']):
+            print(f"    [调试-智能回踩-信息]: '{net_mf_col}' 不存在，正在从组成部分计算...")
+            df[net_mf_col] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
+
         support_ma_col = f"EMA_{support_ma_period}_D"
         vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
-        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', support_ma_col, vol_ma_col, 'net_main_force_amount_D']
-        if not all(col in df.columns for col in required_cols):
-            print(f"    [调试-智能回踩-致命错误]: 缺少必需列，剧本终止。")
-            return pd.Series(False, index=df.index)
+        # 使用修正后的 net_mf_col 进行依赖检查
+        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', support_ma_col, vol_ma_col, net_mf_col]
         
-        if df['net_main_force_amount_D'].dtype != 'float64':
-            df['net_main_force_amount_D'] = df['net_main_force_amount_D'].astype(float)
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"    [调试-智能回踩-致命错误]: 缺少必需列，剧本终止。缺失的列是: {missing}")
+            return pd.Series(False, index=df.index)
 
         # --- 2. 【核心升级】定义“健康回踩过程” (The Healthy Pullback Process) ---
         def get_slope(y):
@@ -1196,39 +1207,33 @@ class TrendFollowStrategy:
             slope, _ = np.polyfit(x, y.values, 1)
             return slope
 
-        # 计算三个维度的斜率
         df['ma_slope'] = df[support_ma_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['price_slope'] = df['close_D'].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['volume_slope'] = df[vol_ma_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
         
-        # 条件A: 趋势确认 - 支撑均线本身在向上
         is_uptrend = df['ma_slope'] > 0
-        # 条件B: 抛压衰竭 - 成交量趋势在向下
         is_volume_drying_up = df['volume_slope'] < 0
-        # 条件C: 有序回撤 - 价格在温和下跌
         is_orderly_retreat = df['price_slope'] < 0
         
-        # 组合成“健康回踩过程”
         is_healthy_pullback_context = is_uptrend & is_volume_drying_up & is_orderly_retreat
         print(f"    [调试-步骤2]: 识别到'健康回踩过程'总天数: {is_healthy_pullback_context.sum()} 天")
 
-        # --- 3. 定义“反转触发点” (The Reversal Trigger - 沿用V3.0精华) ---
+        # --- 3. 定义“反转触发点” (The Reversal Trigger) ---
         dipped_and_recovered = (df['low_D'] <= df[support_ma_col]) & (df['close_D'] > df[support_ma_col])
         is_green_candle = df['close_D'] > df['open_D']
         is_closing_high = df['close_D'] > (df['high_D'] + df['low_D']) / 2
         has_lower_shadow = (df['open_D'] - df['low_D']) > 0.01
         is_strong_reversal_candle = is_green_candle & is_closing_high & has_lower_shadow
-        is_main_force_buying = df['net_main_force_amount_D'] > 0
+        # 使用修正后的 net_mf_col
+        is_main_force_buying = df[net_mf_col] > 0
         
-        # 组合成“反转触发点”
         is_reversal_trigger = dipped_and_recovered & is_strong_reversal_candle & is_main_force_buying
         print(f"    [调试-步骤3]: 识别到'反转触发点'总天数: {is_reversal_trigger.sum()} 天")
 
         # --- 4. 最终信号: 因果结合 ---
-        # 信号日当天是“反转触发点”，且前一天处于“健康回踩过程”中
         final_signal = is_healthy_pullback_context.shift(1).fillna(False) & is_reversal_trigger
         print(f"    [调试-步骤4]: ★★★ 最终信号 (健康回踩过程后出现反转触发): {final_signal.sum()} ★★★")
-        print("--- [法医级调试-智能回踩V4.0-三重斜率确认版] 结束 ---\n")
+        print("--- [法医级调试-智能回踩V4.1-列名修复版] 结束 ---\n")
 
         # 清理临时列
         df.drop(columns=['ma_slope', 'price_slope', 'volume_slope'], inplace=True, errors='ignore')
