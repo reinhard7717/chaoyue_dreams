@@ -201,16 +201,17 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
         """
-        【V22.1 逻辑修正版】计算综合买入得分。
-        - 核心修正: 为所有“趋势启动/反转”型剧本松绑，使用宽松前提(tactical_precondition)替代严格前提(strict_precondition)。
-        - 重构: 分离了指标信号的计算和前提应用，允许对MACD金叉等信号进行精细化控制。
+        【V23.0 架构解耦重构版】计算综合买入得分。
+        - 核心重构: 将“信号生成”与“前提过滤”完全解耦。先计算所有原始信号，再在计分时应用前提条件。
+        - 目的: 解决因“周线前提”过于严格而导致大量日线信号被扼杀的问题，让日志能反映真实信号数量。
         """
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
-        # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V22.1] 步骤1: 计算并记录周线战略背景基础分...")
+        
+        # --- 步骤1: 计算并记录战略背景基础分 (逻辑不变) ---
+        print("    [调试-计分V23.0] 步骤1: 计算周线战略背景基础分...")
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = points.get('BREAKOUT_TRIGGER_SCORE', 150)
         all_base_score_cols = [king_signal_col]
@@ -231,62 +232,51 @@ class TrendFollowStrategy:
             if king_signal_mask.any():
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
-        # --- 步骤2: 定义战术信号的前提条件  ---
+        
+        # --- 步骤2: 定义战术信号的前提条件 (逻辑不变) ---
         base_score = score_details_df.sum(axis=1)
-        tactical_precondition = base_score > 0 # 宽松前提：周线有积极信号即可
-        strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index)) # 严格前提：周线多头趋势已确立
-        print(f"    [调试-计分V22.1] 步骤2: 定义战术前提... 满足宽松前提天数: {tactical_precondition.sum()}, 满足严格前提天数: {strict_precondition.sum()}")
+        tactical_precondition = base_score > 0
+        strict_precondition = tactical_precondition & df.get('context_mid_term_bullish', pd.Series(False, index=df.index))
+        print(f"    [调试-计分V23.0] 步骤2: 定义战术前提... 满足宽松前提天数: {tactical_precondition.sum()}, 满足严格前提天数: {strict_precondition.sum()}")
         
-        # --- 步骤3: 计算所有独立的日线战术原子信号 ---
-        print("    [调试-计分V22.1] 步骤3: 计算日线战术原子信号...")
+        # --- 步骤3: 计算所有独立的日线战术【原始】信号 (RAW SIGNALS) ---
+        # ▼▼▼ 调用剧本函数时，不再传入 tactical_precondition，让它们生成最原始的信号。▼▼▼
+        print("    [调试-计分V23.0] 步骤3: 计算日线战术【原始】信号 (不受周线前提约束)...")
         
-        # ▼▼▼ 为每个剧本分配合适的前提条件 ▼▼▼
-        
-        # --- A. 回踩与反转类 (趋势早期或转折点，使用宽松前提) ---
-        cond_pullback_ma = self._find_pullback_to_ma_entry(df, tactical_precondition, params)
-        cond_pullback_structure = self._find_pullback_to_structure_entry(df, tactical_precondition, params)
-        cond_v_reversal = self._find_v_reversal_entry(df, tactical_precondition, params)
-        cond_washout_reversal = self._find_washout_reversal_entry(df, tactical_precondition, params)
-        
-        # --- B. 左侧/底部信号类 (无前提条件) ---
-        cond_bottom_divergence = self._find_bottom_divergence_entry(df, params)
-        cond_bias_reversal = self._find_bias_reversal_entry(df, params)
-        cond_capital_flow_divergence = self._find_capital_flow_divergence_entry(df, params)
-        cond_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params)
+        # 创建一个“永远为真”的伪前提，用于调用那些内部需要precondition参数的函数
+        always_true_precondition = pd.Series(True, index=df.index)
 
-        # --- C. 趋势启动/突破类 (关键！从严格前提改为宽松前提) ---
-        cond_first_breakout = self._find_first_breakout_entry(df, tactical_precondition, params)
-        cond_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, tactical_precondition, params)
-        cond_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, tactical_precondition, params)
-        cond_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, tactical_precondition, params)
-        cond_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, tactical_precondition, params)
-        cond_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, tactical_precondition, params)
-        cond_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index)) & tactical_precondition
-        
-        # --- D. 趋势延续/加速类 (维持严格前提) ---
-        cond_pullback_setup, pullback_target_price = self._find_pullback_setup(df, strict_precondition, params)
+        # --- 计算所有剧本的原始信号 ---
+        raw_pullback_ma = self._find_pullback_to_ma_entry(df, always_true_precondition, params)
+        raw_pullback_structure = self._find_pullback_to_structure_entry(df, always_true_precondition, params)
+        raw_v_reversal = self._find_v_reversal_entry(df, always_true_precondition, params)
+        raw_washout_reversal = self._find_washout_reversal_entry(df, always_true_precondition, params)
+        raw_bottom_divergence = self._find_bottom_divergence_entry(df, params) # 此函数无precondition参数
+        raw_bias_reversal = self._find_bias_reversal_entry(df, params) # 此函数无precondition参数
+        raw_capital_flow_divergence = self._find_capital_flow_divergence_entry(df, params) # 此函数无precondition参数
+        raw_winner_rate_reversal = self._find_winner_rate_reversal_entry(df, params) # 此函数无precondition参数
+        raw_first_breakout = self._find_first_breakout_entry(df, always_true_precondition, params)
+        raw_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, always_true_precondition, params)
+        raw_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, always_true_precondition, params)
+        raw_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, always_true_precondition, params)
+        raw_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, always_true_precondition, params)
+        raw_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, always_true_precondition, params)
+        raw_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index))
+        raw_pullback_setup, pullback_target_price = self._find_pullback_setup(df, always_true_precondition, params)
         df['pullback_target_price'] = pullback_target_price
-        cond_momentum = self._find_momentum_entry(df, strict_precondition, params)
-        cond_doji_continuation = self._find_doji_continuation_entry(df, strict_precondition, params)
-        cond_old_duck_head = self._find_old_duck_head_entry(df, strict_precondition, params)
-        cond_n_shape_relay = self._find_n_shape_relay_entry(df, strict_precondition, params)
-        cond_bullish_flag = self._find_bullish_flag_entry(df, strict_precondition, params)
-        cond_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, strict_precondition, params)
-        cond_ma_acceleration = self._find_ma_acceleration_entry(df, strict_precondition, params)
-        cond_chip_pressure_release = self._find_chip_pressure_release(df, strict_precondition, params)
-        cond_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, strict_precondition, params)
-        cond_fib_pullback = self._find_fibonacci_pullback_entry(df, strict_precondition, params)
-
-        # --- E. 指标信号类 (精细化控制前提) ---
-        # 先计算原始信号，不加任何前提
-        indicator_signals = self._find_indicator_entry(df, params)
-        # 再根据指标自身特性，应用不同前提
-        cond_dmi_cross = indicator_signals['dmi_cross'] & tactical_precondition # DMI金叉是趋势启动信号，用宽松前提
-        cond_macd_low_cross = indicator_signals['macd_low_cross'] & tactical_precondition # 低位金叉是反转信号，用宽松前提
-        cond_macd_zero_cross = indicator_signals['macd_zero_cross'] & tactical_precondition # 零轴金叉是趋势确立信号，用宽松前提
-        cond_macd_high_cross = indicator_signals['macd_high_cross'] & strict_precondition # 高位金叉是加速信号，用严格前提
-
-        # --- F. 其他确认信号与特殊形态  ---
+        raw_momentum = self._find_momentum_entry(df, always_true_precondition, params)
+        raw_doji_continuation = self._find_doji_continuation_entry(df, always_true_precondition, params)
+        raw_old_duck_head = self._find_old_duck_head_entry(df, always_true_precondition, params)
+        raw_n_shape_relay = self._find_n_shape_relay_entry(df, always_true_precondition, params)
+        raw_bullish_flag = self._find_bullish_flag_entry(df, always_true_precondition, params)
+        raw_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, always_true_precondition, params)
+        raw_ma_acceleration = self._find_ma_acceleration_entry(df, always_true_precondition, params)
+        raw_chip_pressure_release = self._find_chip_pressure_release(df, always_true_precondition, params)
+        raw_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, always_true_precondition, params)
+        raw_fib_pullback = self._find_fibonacci_pullback_entry(df, always_true_precondition, params)
+        raw_indicator_signals = self._find_indicator_entry(df, params) # 指标信号本身就是原始的
+        
+        # --- 其他信号与状态 (逻辑不变) ---
         cond_cmf_confirm = self._check_cmf_confirmation(df, params)
         cond_vwap_support = self._check_vwap_confirmation(df_dict, params)
         cond_gap_support_state = self._check_upward_gap_support(df, params)
@@ -300,161 +290,183 @@ class TrendFollowStrategy:
             atr_period, atr_lookback, atr_percentile = steady_climb_params.get('atr_period', 14), steady_climb_params.get('atr_lookback', 60), steady_climb_params.get('atr_percentile', 0.3)
             atr_col = f'ATRN_{atr_period}_D'
             if atr_col in df.columns: is_low_volatility = df[atr_col] < df[atr_col].rolling(atr_lookback).quantile(atr_percentile)
-        is_steady_climb_pullback = (cond_pullback_ma | cond_pullback_structure) & is_low_volatility
-        is_normal_pullback = (cond_pullback_ma | cond_pullback_structure) & ~is_low_volatility
+        
+        # 基于原始回踩信号，区分常规回踩和稳步回踩
+        raw_any_pullback = raw_pullback_ma | raw_pullback_structure
+        raw_steady_climb_pullback = raw_any_pullback & is_low_volatility
+        raw_normal_pullback = raw_any_pullback & ~is_low_volatility
+        
         kline_reversal_decent = df.get('kline_c_bullish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_piercing_line_decent', pd.Series(False, index=df.index)) | df.get('kline_s_hammer_shape_decent', pd.Series(False, index=df.index)) | df.get('kline_c_tweezer_bottom', pd.Series(False, index=df.index))
         kline_reversal_perfect = df.get('kline_c_bullish_engulfing_perfect', pd.Series(False, index=df.index)) | df.get('kline_c_piercing_line_perfect', pd.Series(False, index=df.index)) | df.get('kline_s_hammer_shape_perfect', pd.Series(False, index=df.index))
-        cond_morning_star = df.get('kline_c_morning_star', pd.Series(False, index=df.index))
-        cond_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
+        raw_morning_star = df.get('kline_c_morning_star', pd.Series(False, index=df.index))
+        raw_three_soldiers = df.get('kline_c_three_white_soldiers', pd.Series(False, index=df.index))
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
-        # ▼▼▼ “日线战术层 - 剧本计算总结”日志块 ▼▼▼
-        print("\n---【日线战术层 - 剧本计算总结 V2.1-调试增强】---")
+        # ▼▼▼ “日线战术层 - 剧本计算总结”日志块 (现在打印的是原始信号) ▼▼▼
+        print("\n---【日线战术层 - 剧本计算总结 V2.2-原始信号】---")
         playbook_summary = {
-            "均线加速上涨 (MA_ACCELERATION)": cond_ma_acceleration,
-            "筹码集中突破 (CHIP_CONCENTRATION_BREAKTHROUGH)": cond_chip_concentration_breakthrough,
-            "成本区增强 (COST_AREA_REINFORCEMENT)": cond_cost_area_reinforcement,
-            "投降坑反转 (WINNER_RATE_REVERSAL)": cond_winner_rate_reversal,
-            "筹码压力释放 (CHIP_PRESSURE_RELEASE)": cond_chip_pressure_release,
-            "筹码关口扫清 (CHIP_HURDLE_CLEAR)": cond_chip_hurdle_clear,
-            "筹码成本区突破 (CHIP_COST_BREAKTHROUGH)": cond_chip_cost_breakthrough,
-            "常规回踩 (PULLBACK_NORMAL)": is_normal_pullback,
-            "稳步回踩 (PULLBACK_STEADY_CLIMB)": is_steady_climb_pullback, # 新增
-            "V型反转 (V_SHAPE_REVERSAL)": cond_v_reversal,
-            "底部首板 (FIRST_BREAKOUT)": cond_first_breakout,
-            "布林收口突破 (BBAND_SQUEEZE_BREAKOUT)": cond_bb_squeeze_breakout,
-            "复合底背离 (BOTTOM_DIVERGENCE)": cond_bottom_divergence,
-            "资金暗流 (CAPITAL_FLOW_DIVERGENCE)": cond_capital_flow_divergence,
-            "老鸭头 (OLD_DUCK_HEAD)": cond_old_duck_head,
+            "均线加速上涨 (MA_ACCELERATION)": raw_ma_acceleration,
+            "筹码集中突破 (CHIP_CONCENTRATION_BREAKTHROUGH)": raw_chip_concentration_breakthrough,
+            "成本区增强 (COST_AREA_REINFORCEMENT)": raw_cost_area_reinforcement,
+            "投降坑反转 (WINNER_RATE_REVERSAL)": raw_winner_rate_reversal,
+            "筹码压力释放 (CHIP_PRESSURE_RELEASE)": raw_chip_pressure_release,
+            "筹码关口扫清 (CHIP_HURDLE_CLEAR)": raw_chip_hurdle_clear,
+            "筹码成本区突破 (CHIP_COST_BREAKTHROUGH)": raw_chip_cost_breakthrough,
+            "常规回踩 (PULLBACK_NORMAL)": raw_normal_pullback,
+            "稳步回踩 (PULLBACK_STEADY_CLIMB)": raw_steady_climb_pullback,
+            "V型反转 (V_SHAPE_REVERSAL)": raw_v_reversal,
+            "底部首板 (FIRST_BREAKOUT)": raw_first_breakout,
+            "布林收口突破 (BBAND_SQUEEZE_BREAKOUT)": raw_bb_squeeze_breakout,
+            "复合底背离 (BOTTOM_DIVERGENCE)": raw_bottom_divergence,
+            "资金暗流 (CAPITAL_FLOW_DIVERGENCE)": raw_capital_flow_divergence,
+            "老鸭头 (OLD_DUCK_HEAD)": raw_old_duck_head,
             "地天板 (EARTH_HEAVEN_BOARD)": cond_earth_heaven_board,
-            "盘整区突破 (CONSOLIDATION_BREAKOUT)": cond_dynamic_box_breakout,
-            "上升旗形 (BULLISH_FLAG)": cond_bullish_flag,
-            "潜龙在渊 (ENERGY_COMPRESSION_BREAKOUT)": cond_energy_compression_breakout,
-            "斐波那契回撤 (PULLBACK_FIBONACCI)": cond_fib_pullback,
-            "早晨之星 (KLINE_MORNING_STAR)": cond_morning_star,
-            "MACD零轴金叉 (MACD_ZERO_CROSS)": cond_macd_zero_cross,
-            "MACD低位金叉 (MACD_LOW_CROSS)": cond_macd_low_cross,
-            "DMI金叉 (DMI_CROSS)": cond_dmi_cross,
+            "盘整区突破 (CONSOLIDATION_BREAKOUT)": raw_dynamic_box_breakout,
+            "上升旗形 (BULLISH_FLAG)": raw_bullish_flag,
+            "潜龙在渊 (ENERGY_COMPRESSION_BREAKOUT)": raw_energy_compression_breakout,
+            "斐波那契回撤 (PULLBACK_FIBONACCI)": raw_fib_pullback,
+            "早晨之星 (KLINE_MORNING_STAR)": raw_morning_star,
+            "MACD零轴金叉 (MACD_ZERO_CROSS)": raw_indicator_signals['macd_zero_cross'],
+            "MACD低位金叉 (MACD_LOW_CROSS)": raw_indicator_signals['macd_low_cross'],
+            "DMI金叉 (DMI_CROSS)": raw_indicator_signals['dmi_cross'],
         }
-
-        # 定义我们关心的调试时间范围
         start_date = pd.to_datetime('2024-01-01').tz_localize('UTC')
         end_date = pd.to_datetime('2024-12-31').tz_localize('UTC')
-
         for name, condition in playbook_summary.items():
             trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
             print(f"【剧本-{name}】触发天数: {trigger_count}")
-
-            # 只有当剧本至少触发过一次时，才检查特定时间段
             if trigger_count > 0:
-                # 筛选出在指定时间范围内触发的日期
-                triggered_dates_in_period = condition.index[
-                    (condition.index >= start_date) &
-                    (condition.index <= end_date) &
-                    (condition == True)
-                ]
-
+                triggered_dates_in_period = condition.index[(condition.index >= start_date) & (condition.index <= end_date) & (condition == True)]
                 if not triggered_dates_in_period.empty:
-                    # 格式化日期列表以便清晰展示
                     date_list_str = ", ".join([d.strftime('%Y-%m-%d') for d in triggered_dates_in_period])
                     print(f"    -> [24年01-12月触发]: {date_list_str}")
         print("---【日线战术层 - 剧本计算总结结束】---\n")
 
-        # --- 步骤4: 记录所有战术信号得分 ---
-        print("    [调试-计分V22.0] 步骤4: 记录日线战术信号得分...")
-        def add_score(condition, name, default_score):
+        # --- 步骤4: 【计分】应用前提条件，并记录所有战术信号得分 ---
+        print("    [调试-计分V23.0] 步骤4: 应用前提并记录日线战术信号得分...")
+        def add_score(raw_condition, name, default_score, precondition_to_apply):
+            # 只有在满足前提条件时，信号才参与计分
+            condition = raw_condition & precondition_to_apply
             score = points.get(name, {}).get('score', default_score)
             if condition.any():
                 score_details_df.loc[condition, name] = score
-                print(f"    - [计分-战术分] 剧本 '{name}' 触发 {condition.sum()} 次，计分 {score}。")
-            atomic_signals[name] = condition
-        add_score(cond_ma_acceleration, 'MA_ACCELERATION', 130)
-        add_score(cond_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180)
-        add_score(cond_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160)
-        add_score(cond_winner_rate_reversal, 'WINNER_RATE_REVERSAL', 140)
-        add_score(cond_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150) # 95%线，高分
-        add_score(cond_chip_cost_breakthrough, 'CHIP_COST_BREAKTHROUGH', 130)
-        add_score(is_steady_climb_pullback, 'PULLBACK_STEADY_CLIMB', 110)
-        add_score(cond_chip_hurdle_clear, 'CHIP_HURDLE_CLEAR', 110) # 85%线，分数稍低
-        add_score(is_normal_pullback, 'PULLBACK_NORMAL', 100)
-        add_score(cond_v_reversal, 'V_SHAPE_REVERSAL', 95)
-        add_score(cond_momentum, 'MOMENTUM_BREAKOUT', 70)
-        add_score(cond_first_breakout, 'FIRST_BREAKOUT', 90)
-        add_score(cond_bb_squeeze_breakout, 'BBAND_SQUEEZE_BREAKOUT', 80)
-        add_score(cond_bottom_divergence, 'BOTTOM_DIVERGENCE', 120)
-        add_score(cond_bias_reversal, 'BIAS_REVERSAL', 75)
-        add_score(cond_washout_reversal, 'WASHOUT_REVERSAL', 115)
-        add_score(cond_doji_continuation, 'DOJI_CONTINUATION', 85)
-        add_score(cond_old_duck_head, 'OLD_DUCK_HEAD', 120)
-        add_score(cond_n_shape_relay, 'N_SHAPE_RELAY', 130)
-        add_score(cond_earth_heaven_board, 'EARTH_HEAVEN_BOARD', 200)
-        add_score(cond_dynamic_box_breakout, 'CONSOLIDATION_BREAKOUT', 125)
-        add_score(cond_bullish_flag, 'BULLISH_FLAG', 110)
-        add_score(cond_energy_compression_breakout, 'ENERGY_COMPRESSION_BREAKOUT', 140)
-        add_score(cond_capital_flow_divergence, 'CAPITAL_FLOW_DIVERGENCE', 135)
-        add_score(cond_relative_strength_maverick, 'RELATIVE_STRENGTH_MAVERICK', 100)
-        add_score(cond_fib_pullback, 'PULLBACK_FIBONACCI', points.get('PULLBACK_FIBONACCI', 120))
-        add_score(cond_dmi_cross, 'DMI_CROSS', 30)
-        add_score(cond_macd_low_cross, 'MACD_LOW_CROSS', 40)
-        add_score(cond_macd_zero_cross, 'MACD_ZERO_CROSS', 60)
-        add_score(cond_macd_high_cross, 'MACD_HIGH_CROSS', 25)
-        add_score(cond_pullback_setup, 'PULLBACK_SETUP', 50)
-        add_score(cond_morning_star, 'KLINE_MORNING_STAR', 140)
-        add_score(cond_three_soldiers & strict_precondition, 'KLINE_THREE_SOLDIERS', 100)
+                print(f"    - [计分-战术分] 剧本 '{name}' (过滤后) 触发 {condition.sum()} 次，计分 {score}。")
+            atomic_signals[name] = condition # 保存过滤后的信号
+        
+        # ▼▼▼ add_score 时传入原始信号和对应的前提条件 ▼▼▼
+        # A. 回踩与反转类 (宽松前提)
+        add_score(raw_normal_pullback, 'PULLBACK_NORMAL', 100, tactical_precondition)
+        add_score(raw_steady_climb_pullback, 'PULLBACK_STEADY_CLIMB', 110, tactical_precondition)
+        add_score(raw_v_reversal, 'V_SHAPE_REVERSAL', 95, tactical_precondition)
+        add_score(raw_washout_reversal, 'WASHOUT_REVERSAL', 115, tactical_precondition)
+        
+        # B. 左侧/底部信号类 (无前提，因为它们自己就是趋势的起点)
+        add_score(raw_bottom_divergence, 'BOTTOM_DIVERGENCE', 120, always_true_precondition)
+        add_score(raw_bias_reversal, 'BIAS_REVERSAL', 75, always_true_precondition)
+        add_score(raw_capital_flow_divergence, 'CAPITAL_FLOW_DIVERGENCE', 135, always_true_precondition)
+        add_score(raw_winner_rate_reversal, 'WINNER_RATE_REVERSAL', 140, always_true_precondition)
+        add_score(raw_morning_star, 'KLINE_MORNING_STAR', 140, always_true_precondition)
 
-        # --- 步骤5: 记录协同/冲突规则得分 ---
-        print("    [调试-计分V22.0] 步骤5: 记录协同/冲突规则得分...")
-        has_positive_score = score_details_df.sum(axis=1) > 0
-        add_score(cond_vwap_support & has_positive_score, 'BONUS_VWAP_SUPPORT', points.get('BONUS_VWAP_SUPPORT', 40))
-        add_score(cond_cmf_confirm & has_positive_score, 'BONUS_CMF_CONFIRM', points.get('CMF_CONFIRMATION_BONUS', 20))
-        add_score(cond_fund_flow_confirm & has_positive_score, 'BONUS_FUND_FLOW_CONFIRM', points.get('FUND_FLOW_CONFIRM_BONUS', 25))
-        add_score(cond_turnover_board.shift(1).fillna(False) & has_positive_score, 'BONUS_TURNOVER_BOARD', points.get('TURNOVER_BOARD_BONUS', 45))
-        is_any_pullback = is_steady_climb_pullback | is_normal_pullback | cond_v_reversal
-        add_score(is_any_pullback & kline_reversal_decent, 'BONUS_PULLBACK_KLINE_DECENT', points.get('PULLBACK_KLINE_DECENT_BONUS', 40))
-        add_score(is_any_pullback & kline_reversal_perfect, 'BONUS_PULLBACK_KLINE_PERFECT', points.get('PULLBACK_KLINE_PERFECT_BONUS', 35))
-        is_bb_momentum_combo = cond_bb_squeeze_breakout & (cond_momentum | cond_first_breakout)
-        add_score(is_bb_momentum_combo, 'BONUS_BB_MOMENTUM_COMBO', points.get('BB_MOMENTUM_COMBO_BONUS', 50))
-        is_perfect_entry = is_steady_climb_pullback & cond_macd_zero_cross
-        add_score(is_perfect_entry, 'BONUS_STEADY_CLIMB_MACD_ZERO', points.get('STEADY_CLIMB_MACD_ZERO_BONUS', 40))
-        current_score = score_details_df.fillna(0).sum(axis=1)
+        # C. 趋势启动/突破类 (宽松前提)
+        add_score(raw_first_breakout, 'FIRST_BREAKOUT', 90, tactical_precondition)
+        add_score(raw_bb_squeeze_breakout, 'BBAND_SQUEEZE_BREAKOUT', 80, tactical_precondition)
+        add_score(raw_energy_compression_breakout, 'ENERGY_COMPRESSION_BREAKOUT', 140, tactical_precondition)
+        add_score(raw_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160, tactical_precondition)
+        add_score(raw_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180, tactical_precondition)
+        add_score(raw_chip_cost_breakthrough, 'CHIP_COST_BREAKTHROUGH', 130, tactical_precondition)
+        add_score(raw_dynamic_box_breakout, 'CONSOLIDATION_BREAKOUT', 125, tactical_precondition)
+        add_score(raw_indicator_signals['dmi_cross'], 'DMI_CROSS', 30, tactical_precondition)
+        add_score(raw_indicator_signals['macd_low_cross'], 'MACD_LOW_CROSS', 40, tactical_precondition)
+        add_score(raw_indicator_signals['macd_zero_cross'], 'MACD_ZERO_CROSS', 60, tactical_precondition)
+
+        # D. 趋势延续/加速类 (严格前提)
+        add_score(raw_pullback_setup, 'PULLBACK_SETUP', 50, strict_precondition)
+        add_score(raw_momentum, 'MOMENTUM_BREAKOUT', 70, strict_precondition)
+        add_score(raw_doji_continuation, 'DOJI_CONTINUATION', 85, strict_precondition)
+        add_score(raw_old_duck_head, 'OLD_DUCK_HEAD', 120, strict_precondition)
+        add_score(raw_n_shape_relay, 'N_SHAPE_RELAY', 130, strict_precondition)
+        add_score(raw_bullish_flag, 'BULLISH_FLAG', 110, strict_precondition)
+        add_score(raw_relative_strength_maverick, 'RELATIVE_STRENGTH_MAVERICK', 100, strict_precondition)
+        add_score(raw_ma_acceleration, 'MA_ACCELERATION', 130, strict_precondition)
+        add_score(raw_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150, strict_precondition)
+        add_score(raw_chip_hurdle_clear, 'CHIP_HURDLE_CLEAR', 110, strict_precondition)
+        add_score(raw_fib_pullback, 'PULLBACK_FIBONACCI', points.get('PULLBACK_FIBONACCI', 120), strict_precondition)
+        add_score(raw_indicator_signals['macd_high_cross'], 'MACD_HIGH_CROSS', 25, strict_precondition)
+        add_score(raw_three_soldiers, 'KLINE_THREE_SOLDIERS', 100, strict_precondition)
+
+        # E. 特殊形态 (高优先级，通常无前提)
+        add_score(cond_earth_heaven_board, 'EARTH_HEAVEN_BOARD', 200, always_true_precondition)
+
+        # --- 步骤5: 记录协同/冲突规则得分 (逻辑不变，但基于已过滤的信号) ---
+        print("    [调试-计分V23.0] 步骤5: 记录协同/冲突规则得分...")
+       
+        # 定义一个辅助函数，专门用于添加奖励/惩罚分数，简化代码
+        def add_bonus_penalty_score(condition, name, default_score):
+            # 奖励和惩罚不应依赖于前提，它们是独立的逻辑层
+            # 但它们只在当天已经有其他基础分数时才应该生效
+            score = points.get(name, {}).get('score', default_score)
+            # 核心逻辑：只有在当天已经有其他剧本触发得分时，奖励才生效
+            has_base_playbook_score = score_details_df.sum(axis=1) > 0
+            final_condition = condition & has_base_playbook_score
+            if final_condition.any():
+                score_details_df.loc[final_condition, name] = score
+                print(f"    - [计分-协同/冲突] 规则 '{name}' 触发 {final_condition.sum()} 次，计分 {score}。")
+            # atomic_signals 中不记录这些奖励信号，它们不是独立的剧本
+        
+        # --- 协同奖励 (加分项) ---
+        add_bonus_penalty_score(cond_vwap_support, 'BONUS_VWAP_SUPPORT', points.get('BONUS_VWAP_SUPPORT', 40))
+        add_bonus_penalty_score(cond_cmf_confirm, 'BONUS_CMF_CONFIRM', points.get('CMF_CONFIRMATION_BONUS', 20))
+        add_bonus_penalty_score(cond_fund_flow_confirm, 'BONUS_FUND_FLOW_CONFIRM', points.get('FUND_FLOW_CONFIRM_BONUS', 25))
+        add_bonus_penalty_score(cond_turnover_board.shift(1).fillna(False), 'BONUS_TURNOVER_BOARD', points.get('TURNOVER_BOARD_BONUS', 45))
+
+        # --- 组合形态奖励 (使用 raw_ 变量) ---
+        is_any_pullback = raw_normal_pullback | raw_steady_climb_pullback | raw_v_reversal
+        add_bonus_penalty_score(is_any_pullback & kline_reversal_decent, 'BONUS_PULLBACK_KLINE_DECENT', points.get('PULLBACK_KLINE_DECENT_BONUS', 40))
+        add_bonus_penalty_score(is_any_pullback & kline_reversal_perfect, 'BONUS_PULLBACK_KLINE_PERFECT', points.get('PULLBACK_KLINE_PERFECT_BONUS', 35))
+        
+        is_bb_momentum_combo = raw_bb_squeeze_breakout & (raw_momentum | raw_first_breakout)
+        add_bonus_penalty_score(is_bb_momentum_combo, 'BONUS_BB_MOMENTUM_COMBO', points.get('BB_MOMENTUM_COMBO_BONUS', 50))
+        
+        is_perfect_entry = raw_steady_climb_pullback & raw_indicator_signals['macd_zero_cross']
+        add_bonus_penalty_score(is_perfect_entry, 'BONUS_STEADY_CLIMB_MACD_ZERO', points.get('STEADY_CLIMB_MACD_ZERO_BONUS', 40))
+
+        # --- 乘数奖励 ---
+        current_score_before_multiplier = score_details_df.fillna(0).sum(axis=1)
+        has_positive_score = current_score_before_multiplier > 0
         multiplier_bonus = pd.Series(0.0, index=df.index)
-        # 解释: 为了兼容JSON中类似 {"value": 1.2, "说明": "..."} 的格式，
-        # 我们先获取原始值，然后判断其是否为字典。如果是，则提取'value'键的值；否则直接使用。
-        # 这种方式对所有乘数参数都生效，增强了代码的健壮性。
-        # 处理 CMF 乘数
+        
         raw_cmf_multiplier = points.get('CMF_CONFIRMATION_MULTIPLIER', 1.2)
         cmf_multiplier = raw_cmf_multiplier.get('value', 1.2) if isinstance(raw_cmf_multiplier, dict) else raw_cmf_multiplier
-        print(f"调试信息: CMF 乘数解析值为: {cmf_multiplier}") # 增加调试信息
-        # 处理资金流乘数
+        
         raw_fund_multiplier = points.get('FUND_FLOW_CONFIRM_MULTIPLIER', 1.25)
         fund_multiplier = raw_fund_multiplier.get('value', 1.25) if isinstance(raw_fund_multiplier, dict) else raw_fund_multiplier
-        print(f"调试信息: 资金流乘数解析值为: {fund_multiplier}") # 增加调试信息
-        # 处理缺口乘数
+        
         raw_gap_multiplier = points.get('GAP_SUPPORT_MULTIPLIER', 1.3)
         gap_multiplier = raw_gap_multiplier.get('value', 1.3) if isinstance(raw_gap_multiplier, dict) else raw_gap_multiplier
-        print(f"调试信息: 缺口乘数解析值为: {gap_multiplier}") # 增加调试信息
-        multiplier_bonus.loc[cond_cmf_confirm & has_positive_score] += current_score * (cmf_multiplier - 1)
-        multiplier_bonus.loc[cond_fund_flow_confirm & has_positive_score] += current_score * (fund_multiplier - 1)
-        multiplier_bonus.loc[cond_gap_support_state & has_positive_score] += current_score * (gap_multiplier - 1)
+        
+        multiplier_bonus.loc[cond_cmf_confirm & has_positive_score] += current_score_before_multiplier * (cmf_multiplier - 1)
+        multiplier_bonus.loc[cond_fund_flow_confirm & has_positive_score] += current_score_before_multiplier * (fund_multiplier - 1)
+        multiplier_bonus.loc[cond_gap_support_state & has_positive_score] += current_score_before_multiplier * (gap_multiplier - 1)
         score_details_df['BONUS_MULTIPLIER'] = multiplier_bonus.where(multiplier_bonus > 0)
+
+        # --- 冲突惩罚 (减分项，使用 raw_ 变量) ---
         penalty_score = pd.Series(0.0, index=df.index)
-        is_reversal_play_conflict = cond_bottom_divergence | cond_bias_reversal
-        is_breakout_play_conflict = cond_momentum | cond_first_breakout | cond_bb_squeeze_breakout
+        is_reversal_play_conflict = raw_bottom_divergence | raw_bias_reversal
+        is_breakout_play_conflict = raw_momentum | raw_first_breakout | raw_bb_squeeze_breakout
         is_conflicting = is_reversal_play_conflict & is_breakout_play_conflict
-        # 解释: 再次应用健壮的参数获取模式，以处理JSON中包含说明的字典格式。
-        #   1. 先获取原始值，它可能是一个数字，也可能是一个字典。
-        #   2. 判断其类型，如果是字典，则提取 'value' 键的值。
-        #   3. 最后再进行数学运算。
+        
         raw_penalty = points.get('REVERSAL_BREAKOUT_CONFLICT_PENALTY', 0.8)
         penalty_value = raw_penalty.get('value', 0.8) if isinstance(raw_penalty, dict) else raw_penalty
-        print(f"调试信息: 冲突惩罚值解析为: {penalty_value}") # 增加调试信息
         conflict_penalty_rate = 1 - penalty_value
-        penalty_score.loc[is_conflicting] -= current_score * conflict_penalty_rate
+        
+        # 惩罚只对有正分的项生效
+        penalty_score.loc[is_conflicting & has_positive_score] -= current_score_before_multiplier * conflict_penalty_rate
         score_details_df['PENALTY_CONFLICT'] = penalty_score.where(penalty_score < 0)
-        # --- 步骤6: 计算总分并应用最终过滤器 ---
+        
+        # --- 步骤6: 计算总分并应用行业强度奖励 ---
+        print("    [调试-计分V23.0] 步骤6: 计算总分并应用行业强度奖励...")
         final_score = score_details_df.fillna(0).sum(axis=1)
-        # --- 步骤7: 应用行业强度奖励 ---
-        print("    [调试-计分V22.0] 步骤7: 应用行业强度奖励与惩罚...")
+        
         industry_params = self._get_params_block(params, 'industry_context_params', {})
         if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
             weak_rank_threshold = industry_params.get('weak_rank_threshold', 0.3)
@@ -464,30 +476,39 @@ class TrendFollowStrategy:
             top_tier_bonus = industry_params.get('top_tier_bonus', 30)
             rank_series = df['industry_strength_rank_D']
             has_entry_score = final_score > 0
+            
             multiplier = pd.Series(1.0, index=df.index)
             is_weak = (rank_series < weak_rank_threshold) & has_entry_score
             multiplier.loc[is_weak] = weak_penalty_multiplier
             is_strong = (rank_series >= weak_rank_threshold) & has_entry_score
             multiplier.loc[is_strong] = 1 + (rank_series * strength_multiplier_factor)
+            
             original_score_for_bonus_calc = final_score.copy()
             final_score *= multiplier
             score_change_from_multiplier = final_score - original_score_for_bonus_calc
             score_details_df['INDUSTRY_MULTIPLIER_ADJ'] = score_change_from_multiplier.where(score_change_from_multiplier != 0)
+            
             is_top_tier = (rank_series >= top_tier_rank_threshold) & has_entry_score
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
             print(f"    - [行业协同] 已根据行业排名应用奖惩。弱势惩罚({(is_weak).sum()}天), 强势奖励({(is_strong).sum()}天), 龙头奖励({(is_top_tier).sum()}天)。")
         else:
             print("    - [行业协同] 未启用或缺少 'industry_strength_rank_D' 列，跳过此步骤。")
-        # 最终风险否决层
+            
+        # --- 步骤7: 最终风险否决层 ---
+        print("    [调试-计分V23.0] 步骤7: 应用最终风险否决层...")
         final_score = score_details_df.fillna(0).sum(axis=1)
+        
+        # 否决条件
         final_score.loc[kline_strong_bearish] = 0
         final_score.loc[cond_volume_breakdown] = 0
         final_score.loc[cond_heaven_earth_board] = 0
+        
         # 最终否决：如果一个信号既不满足宽松前提，也不是左侧反转信号，则清零
-        is_reversal_play_final = cond_bottom_divergence | cond_bias_reversal | cond_capital_flow_divergence | cond_morning_star | cond_winner_rate_reversal
+        is_reversal_play_final = raw_bottom_divergence | raw_bias_reversal | raw_capital_flow_divergence | raw_morning_star | raw_winner_rate_reversal
         final_score = final_score.where(tactical_precondition | is_reversal_play_final, 0)
-        print("    [调试-计分V22.1] 计分流程结束。")
+        
+        print("    [调试-计分V23.0] 计分流程结束。")
         return final_score.round(0), atomic_signals, score_details_df.fillna(0)
 
     def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> dict:
@@ -1171,7 +1192,7 @@ class TrendFollowStrategy:
 
     def _find_indicator_entry(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V2.1 修复版】计算所有基于指标的原始买入信号。
+        【V2.2 修复版】计算所有基于指标的原始买入信号。
         - 修复: 修正了DMI指标的列名以匹配实际数据 (PDI/NDI)。
         - 增强: 增加了详细的调试日志。
         """
@@ -1190,9 +1211,9 @@ class TrendFollowStrategy:
         dmi_cross_signal = pd.Series(False, index=df.index)
         if dmi_params.get('enabled', False) and dmi_period_list:
             dmi_period = dmi_period_list[0]
-            # ▼▼▼ 使用 PDI 和 NDI 作为列名，以匹配您的实际数据列 ▼▼▼
+            # ▼▼▼【代码修改】: 使用 PDI 和 NDI 作为列名，以匹配您的实际数据列 ▼▼▼
             pdi_col, mdi_col = f'PDI_{dmi_period}_D', f'NDI_{dmi_period}_D'
-            
+            # ▲▲▲【代码修改结束】▲▲▲
             
             if self.verbose_logging:
                 print(f"    [调试-DMI金叉]: 正在检查DMI金叉，使用列名: {pdi_col}, {mdi_col}")
