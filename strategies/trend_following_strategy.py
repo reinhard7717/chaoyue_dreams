@@ -1019,71 +1019,95 @@ class TrendFollowStrategy:
 
     def _find_capital_flow_divergence_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【剧本】【V2.1 逻辑放宽与调试增强版】“资金暗流” - 识别价格与主力行为的深度背离。
-        - 核心修正: 放宽了过于严苛的组合条件，聚焦于“价跌”与“资增”的核心背离，并增加了详细的调试日志。
+        【剧本】【V4.0 斜率趋势版】“资金暗流” - 分析资金流变化趋势。
+        - 核心升级: 从判断资金“状态”进化为分析资金“趋势”。通过计算累计资金流的滚动斜率，捕捉资金流出减缓或即将拐头向上的领先信号。
         - 策略逻辑:
-          1. 表象(价格疲弱): 股价处于下跌趋势中（低于长期均线）。
-          2. 暗流(主力吸筹): 近期主力资金累计净流入为正，形成“价跌资增”的核心背离。
-          3. 确认信号: 在上述“背离状态”形成后，出现一根由主力资金净买入推动的确认阳线。
+          1. 计算累计主力净流入曲线。
+          2. 对该曲线进行滚动线性回归，得到每一天的“资金流斜率”。
+          3. 定义“背离状态”: a.价格弱势 b.资金流斜率出现改善迹象 (斜率上升或大于某个负阈值)。
+          4. 定义“确认信号”: 一根放量的、主力驱动的、有实体涨幅的阳线。
+          5. 最终信号: 当天同时满足“背离状态”和“确认信号”。
         """
         params = self._get_params_block(params, 'capital_flow_divergence_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        # --- 从配置中读取或使用默认值 ---
-        lookback = params.get('lookback_period', 20)
-        trend_ma_period = params.get('trend_ma_period', 55)
-        # 移除了 winner_rate_threshold，因为它过于严苛
+        print("\n--- [法医级调试-资金暗流V4.0-斜率版] 开始 ---")
 
-        # --- 准备所需列名 ---
+        # --- 1. 参数与数据准备 ---
+        lookback = params.get('lookback_period', 20) # 用于计算斜率的窗口
+        trend_ma_period = params.get('trend_ma_period', 55)
+        slope_improvement_days = params.get('slope_improvement_days', 3) # 要求斜率连续改善的天数
+        
         trend_ma_col = f"EMA_{trend_ma_period}_D"
-        required_cols = [
-            'low_D', 'close_D', 'open_D', trend_ma_col,
-            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            if self.verbose_logging:
-                print(f"    [调试-资金暗流-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
+        vol_ma_col = 'VOL_MA_21_D'
+        required_cols = ['close_D', 'open_D', 'volume_D', trend_ma_col, vol_ma_col, 'net_main_force_amount_D']
+        if not all(col in df.columns for col in required_cols):
+            print(f"    [调试-资金暗流-致命错误]: 缺少必需列，剧本终止。")
             return pd.Series(False, index=df.index)
         
-        # --- 【重要】确保资金流数据是float类型 ---
-        amount_cols_to_convert = [
-            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
-        ]
-        for col in amount_cols_to_convert:
-            if col in df.columns and df[col].dtype != 'float64':
-                df[col] = df[col].astype(float)
+        if df['net_main_force_amount_D'].dtype != 'float64':
+            df['net_main_force_amount_D'] = df['net_main_force_amount_D'].astype(float)
 
-        # --- 预计算主力净买入额 ---
-        df['net_main_force_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
+        # --- 2. 计算资金流斜率 ---
+        # 步骤A: 计算累计资金净流入
+        df['cumulative_net_mf'] = df['net_main_force_amount_D'].cumsum()
+        
+        # 步骤B: 定义一个函数来计算滚动线性回归的斜率
+        def get_slope(y):
+            # 确保有足够的数据点且y不全为nan
+            if len(y.dropna()) < 2:
+                return np.nan
+            x = np.arange(len(y))
+            # 使用 y.values 确保我们处理的是 numpy 数组
+            slope, _ = np.polyfit(x, y.values, 1)
+            return slope
 
-        # --- 阶段一：定义“背离状态” (Divergence Setup) ---
-        # 条件1: 表象 - 价格处于下跌趋势
+        # 步骤C: 应用滚动计算
+        # 注意：直接在 apply 中使用 lambda 会非常慢，定义一个具名函数是最佳实践
+        df['mf_slope'] = df['cumulative_net_mf'].rolling(window=lookback).apply(get_slope, raw=False) # raw=False 传递Series对象
+        print(f"    [调试-步骤2]: 资金流斜率计算完成。")
+        print(f"      -> 最近5日的资金流斜率: {df['mf_slope'].tail(5).to_list()}")
+
+        # --- 3. 定义“背离状态” (Divergence State) ---
+        # 条件A: 价格环境弱势
         is_price_weak = df['close_D'] < df[trend_ma_col]
+        print(f"    [调试-步骤3A]: 价格弱势天数 (close < {trend_ma_col}): {is_price_weak.sum()}")
 
-        # 条件2: 暗流 - 主力资金在逆势吸筹
-        cumulative_main_force_flow = df['net_main_force_amount_D'].rolling(lookback).sum()
-        is_capital_accumulating = cumulative_main_force_flow > 0
+        # 条件B: 资金趋势在改善 (斜率连续N天上升)
+        is_slope_improving = (df['mf_slope'] > df['mf_slope'].shift(1)).rolling(window=slope_improvement_days).sum() == slope_improvement_days
+        print(f"    [调试-步骤3B]: 资金斜率连续{slope_improvement_days}日改善的天数: {is_slope_improving.sum()}")
 
-        # 合成“背离状态”信号：两个核心条件需同时满足
-        is_divergence_setup = is_price_weak & is_capital_accumulating
+        # 组合成“背离状态”
+        is_in_divergence_state = is_price_weak & is_slope_improving
+        print(f"    [调试-步骤3C]: ★★★ 核心状态: '背离状态'总天数: {is_in_divergence_state.sum()} ★★★")
 
-        # --- 阶段二：定义“确认信号” (Confirmation Signal) ---
-        # 条件1: 当天是阳线
-        is_green_candle = df['close_D'] > df['open_D']
-        # 条件2: 当天主力资金必须是净买入
+        # --- 4. 定义“确认信号” (Confirmation Signal) ---
+        # 条件A: 实体阳线且涨幅可观
+        is_strong_green_candle = (df['close_D'] > df['open_D']) & (df['close_D'].pct_change() > 0.01)
+        print(f"    [调试-步骤4A]: 确认信号-强阳线天数: {is_strong_green_candle.sum()}")
+
+        # 条件B: 放量
+        is_volume_up = df['volume_D'] > df[vol_ma_col] * 1.2
+        print(f"    [调试-步骤4B]: 确认信号-放量天数: {is_volume_up.sum()}")
+
+        # 条件C: 主力资金当日净流入
         is_main_force_buying_today = df['net_main_force_amount_D'] > 0
-        is_confirmation_candle = is_green_candle & is_main_force_buying_today
+        print(f"    [调试-步骤4C]: 确认信号-主力当日买入天数: {is_main_force_buying_today.sum()}")
 
-        # --- 最终信号：前一日处于“背离状态”，今日出现“确认信号” ---
-        signal = is_divergence_setup.shift(1).fillna(False) & is_confirmation_candle
+        # 组合成“确认信号”
+        is_confirmation_signal = is_strong_green_candle & is_volume_up & is_main_force_buying_today
+        print(f"    [调试-步骤4D]: 组合'确认信号'总天数: {is_confirmation_signal.sum()}")
 
-        if self.verbose_logging:
-            print(f"    [调试-资金暗流V2.1]: 价格弱势天数: {is_price_weak.sum()}, 主力吸筹天数: {is_capital_accumulating.sum()}")
-            print(f"    [调试-资金暗流V2.1]: 背离状态准备: {is_divergence_setup.sum()}, 确认阳线: {is_confirmation_candle.sum()}, 最终信号: {signal.sum()}")
-
-        return signal
+        # --- 5. 最终信号 ---
+        final_signal = is_in_divergence_state & is_confirmation_signal
+        print(f"    [调试-步骤5]: ★★★ 最终信号 (背离状态 & 确认信号): {final_signal.sum()} ★★★")
+        print("--- [法医级调试-资金暗流V4.0-斜率版] 结束 ---\n")
+        
+        # 清理临时列
+        df.drop(columns=['cumulative_net_mf', 'mf_slope'], inplace=True)
+        
+        return final_signal
 
     def _find_relative_strength_maverick_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
@@ -1833,58 +1857,77 @@ class TrendFollowStrategy:
 
     def _find_old_duck_head_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V2.2 行为金融学重构版】识别“老鸭头”形态。
-        - 核心修正: 不再拘泥于死板的均线交叉，而是关注其行为本质：“主力拉高建仓 -> 缩量洗盘 -> 资金再次介入启动”。
-        - 调试增强: 增加了详细的日志输出。
+        【剧本】【V3.0 强制时序状态机版】识别“老鸭头”形态。
+        - 核心修正: 严格强制“头->颈->嘴”的发生顺序，解决时序逻辑混乱问题。
+        - 策略逻辑:
+          1. 识别所有金叉和死叉事件。
+          2. 寻找一个“死叉”，并验证其后是否为“缩量、价稳”的洗盘期。
+          3. 寻找洗盘期后的第一个“金叉”，作为买入信号候选。
+          4. 验证该“金叉”必须由放量和主力资金驱动。
         """
         params = self._get_params_block(params, 'old_duck_head_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        # --- 定义均线和参数 ---
+        print("\n--- [法医级调试-老鸭头V3.0] 开始 ---")
+
+        # --- 1. 参数与数据准备 ---
         fast_ma_period = params.get('fast_ma', 10)
         slow_ma_period = params.get('slow_ma', 55)
-        head_lookback = params.get('head_lookback', 40) # 形成鸭头（建仓）的回看期
-        neck_lookback = params.get('neck_lookback', 20) # 形成鸭颈（洗盘）的回看期
+        neck_max_days = params.get('neck_max_days', 30) # 鸭颈最长持续天数
         
         fast_ma_col = f"EMA_{fast_ma_period}_D"
         slow_ma_col = f"EMA_{slow_ma_period}_D"
         vol_ma_col = "VOL_MA_21_D"
 
-        required_cols = [fast_ma_col, slow_ma_col, vol_ma_col, 'low_D', 'close_D', 'open_D', 'volume_D', 'net_main_force_amount_D']
+        required_cols = [fast_ma_col, slow_ma_col, vol_ma_col, 'close_D', 'volume_D', 'net_main_force_amount_D']
         if not all(col in df.columns for col in required_cols):
-            if self.verbose_logging:
-                print(f"    [调试-老鸭头-警告]: 缺少列，跳过。")
+            print(f"    [调试-老鸭头-致命错误]: 缺少必需列，剧本终止。")
             return pd.Series(False, index=df.index)
+        
+        if df['net_main_force_amount_D'].dtype != 'float64':
+            df['net_main_force_amount_D'] = df['net_main_force_amount_D'].astype(float)
 
-        # --- 阶段一：识别“鸭头”形成 (主力拉高建仓) ---
-        # 定义：在head_lookback周期内，短期均线上穿了长期均线
-        was_golden_cross = (df[fast_ma_col].shift(1) > df[slow_ma_col].shift(1)) & (df[fast_ma_col].shift(2) <= df[slow_ma_col].shift(2))
-        has_head_formed = was_golden_cross.rolling(window=head_lookback, min_periods=1).sum() > 0
+        # --- 2. 识别基础事件：金叉和死叉 ---
+        is_golden_cross = (df[fast_ma_col] > df[slow_ma_col]) & (df[fast_ma_col].shift(1) <= df[slow_ma_col].shift(1))
+        is_dead_cross = (df[fast_ma_col] < df[slow_ma_col]) & (df[fast_ma_col].shift(1) >= df[slow_ma_col].shift(1))
+        print(f"    [调试-步骤2]: 金叉事件总数: {is_golden_cross.sum()}, 死叉事件总数: {is_dead_cross.sum()}")
 
-        # --- 阶段二：识别“鸭颈”形成 (缩量洗盘) ---
-        # 定义：在neck_lookback周期内，价格回落至长期均线附近，但成交量萎缩
-        is_price_near_slow_ma = (df['low_D'] <= df[slow_ma_col] * 1.03) & (df['close_D'] >= df[slow_ma_col] * 0.97)
-        is_volume_shrinking = df['volume_D'] < df[vol_ma_col]
-        is_washing_phase = is_price_near_slow_ma & is_volume_shrinking
-        has_neck_formed = is_washing_phase.rolling(window=neck_lookback, min_periods=1).sum() > 0
+        # --- 3. 识别“鸭颈洗盘期” ---
+        # 鸭颈期从死叉开始，到下一个金叉结束。我们给每个这样的区间一个ID。
+        neck_phase_id = (is_dead_cross | is_golden_cross).cumsum()
+        # 我们只关心从死叉开始的区间 (ID为奇数，如果第一个事件是死叉的话，但更稳妥的是检查区间起点)
+        is_in_neck_phase = (df[fast_ma_col] < df[slow_ma_col])
+        
+        # 在鸭颈期内，验证洗盘特征：缩量且价格稳定
+        is_volume_shrinking_during_neck = df['volume_D'] < df[vol_ma_col]
+        # 价格不能比死叉发生时的价格低太多
+        dead_cross_price = df['close_D'].where(is_dead_cross).ffill()
+        is_price_stable_during_neck = df['close_D'] > dead_cross_price * 0.90 # 回调不超过10%
+        
+        is_valid_neck_day = is_in_neck_phase & is_volume_shrinking_during_neck & is_price_stable_during_neck
+        print(f"    [调试-步骤3A]: 处于鸭颈期(快线<慢线)总天数: {is_in_neck_phase.sum()}")
+        print(f"    [调试-步骤3B]: 满足'缩量价稳'的有效洗盘日总数: {is_valid_neck_day.sum()}")
 
-        # --- 阶段三：识别“鸭嘴”张开 (再次启动) ---
-        # 定义：放量阳线，且主力资金净流入
-        is_strong_candle = df['close_D'] > df['open_D']
-        is_volume_up = df['volume_D'] > df[vol_ma_col] * 1.5
-        is_main_force_buying = df['net_main_force_amount_D'] > 0
-        is_beak_opening = is_strong_candle & is_volume_up & is_main_force_buying
+        # --- 4. 识别“鸭嘴张开”信号并验证前序条件 ---
+        # 信号候选点：金叉日
+        is_beak_opening_candidate = is_golden_cross
+        print(f"    [调试-步骤4A]: 鸭嘴张开候选(金叉日)总数: {is_beak_opening_candidate.sum()}")
 
-        # --- 最终信号：经历了“鸭头”和“鸭颈”阶段后，出现了“鸭嘴”张开信号 ---
-        # 使用.shift(1)确保我们在启动当天捕捉信号，而鸭头和鸭颈是已经发生的事实
-        signal = has_head_formed.shift(1) & has_neck_formed.shift(1) & is_beak_opening
+        # 验证条件A: 金叉当天必须放量且主力买入
+        is_volume_and_fund_confirmed = (df['volume_D'] > df[vol_ma_col] * 1.5) & (df['net_main_force_amount_D'] > 0)
+        print(f"    [调试-步骤4B]: 满足'放量+主力买入'的总天数: {is_volume_and_fund_confirmed.sum()}")
 
-        if self.verbose_logging:
-            print(f"    [调试-老鸭头V2.2]: 鸭头形成: {has_head_formed.sum()}, 鸭颈形成: {has_neck_formed.sum()}, 鸭嘴张开: {is_beak_opening.sum()}")
-            print(f"    [调试-老鸭头V2.2]: 最终信号: {signal.sum()}")
+        # 验证条件B: 在金叉发生前的 `neck_max_days` 内，必须有过“有效洗盘日”
+        had_valid_neck_before = is_valid_neck_day.shift(1).rolling(window=neck_max_days, min_periods=3).sum() > 0 # 要求至少有3天有效洗盘
+        print(f"    [调试-步骤4C]: 之前经历过有效洗盘的天数: {had_valid_neck_before.sum()}")
 
-        return signal.fillna(False) & precondition
+        # --- 5. 最终信号 ---
+        final_signal = is_beak_opening_candidate & is_volume_and_fund_confirmed & had_valid_neck_before
+        print(f"    [调试-步骤5]: ★★★ 最终信号 (候选 & 确认 & 前序洗盘): {final_signal.sum()} ★★★")
+        print("--- [法医级调试-老鸭头V3.0] 结束 ---\n")
+
+        return final_signal.fillna(False) & precondition
 
     def _find_n_shape_relay_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
