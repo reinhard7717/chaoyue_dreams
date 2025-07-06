@@ -1748,7 +1748,8 @@ class TrendFollowStrategy:
         # ▼▼▼ 修正了成本列名，并硬编码成交量均线列以解耦 ▼▼▼
         weight_avg_col = 'weight_avg_D' # 修正列名，必须带 '_D' 后缀
         # 从 feature_engineering_params 中安全地获取 vol_ma 的周期配置
-        vol_ma_config = self.config.get('feature_engineering_params', {}).get('indicators', {}).get('vol_ma', {})
+        fe_params = self.daily_params.get('feature_engineering_params', {})
+        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
         # 使用配置中的第一个周期值，如果未配置，则默认为21以保证健壮性
         vol_ma_period = vol_ma_config.get('periods', [21])[0]
         # 动态构建成交量均线列名
