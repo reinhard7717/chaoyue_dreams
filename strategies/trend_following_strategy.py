@@ -933,15 +933,15 @@ class TrendFollowStrategy:
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V7.0 持续压缩与结构突破版】“潜龙在渊”
-        - 核心升级1 (持续压缩): 引入 min_compression_days 参数，要求准备期内必须有足够天数的“深度压缩状态”，过滤掉短暂的伪压缩。
-        - 核心升级2 (结构突破): 突破目标从“压缩顶”升级为“准备区天花板”(prep_phase_ceiling)，即整个准备期的最高价。确保突破的是真正的结构性压力位。
+        【剧本】【V8.0 自适应压缩与趋势支撑版】“潜龙在渊”
+        - 核心升级1 (自适应压缩): 将价格斜率从“绝对值小于阈值”放宽为“在合理的走廊内”，使其能识别“温和回踩式”的压缩形态。
+        - 核心升级2 (趋势支撑): 增加关键均线作为“发射台”。要求点火日必须获得上升均线的支撑，确保突破建立在可靠的上升趋势之上。
         - 策略逻辑:
-          1. 定义“深度压缩状态” (同V6.0)。
-          2. 检查在准备期内，是否满足“持续压缩”的条件。
-          3. 计算“准备区天花板”，即准备期内的最高价。
-          4. 定义“点火信号” (同V6.0)。
-          5. 最终信号: 在“持续压缩”的背景下，“点火信号”当天收盘价向上突破“准备区天花板”。
+          1. 定义“深度压缩状态”，其中价格斜率条件被放宽。
+          2. 检查“持续压缩”条件。
+          3. 计算“准备区天花板”。
+          4. 定义“点火信号”，并增加“趋势支撑”作为必要条件。
+          5. 最终信号: 在“持续压缩”和“趋势支撑”的背景下，点火突破“准备区天花板”。
         """
         params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
@@ -950,20 +950,25 @@ class TrendFollowStrategy:
         # --- 1. 参数与数据准备 ---
         slope_lookback = params.get('slope_lookback', 10)
         prep_phase_lookback = params.get('prep_phase_lookback', 15)
-        min_compression_days = params.get('min_compression_days', 3) # 【新增参数】要求准备期内至少有3天是深度压缩状态
-
+        min_compression_days = params.get('min_compression_days', 3)
+        
         volatility_slope_threshold = params.get('volatility_slope_threshold', -0.001)
         volume_slope_threshold = params.get('volume_slope_threshold', -1.0)
-        price_slope_threshold = params.get('price_slope_threshold', 0.05)
+        # 【核心升级1 参数】: 定义价格斜率走廊，允许温和回撤
+        price_slope_threshold_upper = params.get('price_slope_threshold_upper', 0.05)
+        price_slope_threshold_lower = params.get('price_slope_threshold_lower', -0.1) # 允许温和为负的斜率
         
         breakout_vol_ratio = params.get('breakout_volume_ratio', 1.8)
         breakout_pct_change = params.get('breakout_pct_change', 0.03)
-
-        # 【代码修改】: 修正主力资金列名以匹配您的数据源
+        
+        # 【核心升级2 参数】: 引入趋势支撑均线
+        support_ma_period = params.get('support_ma', 21)
+        support_ma_col = f"EMA_{support_ma_period}_D"
+        
         net_mf_col = 'net_mf_amount_D'
         bbw_col = 'BBW_21_2.0_D'
         vol_ma_col = 'VOL_MA_21_D'
-        required_cols = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', bbw_col, vol_ma_col, net_mf_col]
+        required_cols = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', bbw_col, vol_ma_col, net_mf_col, support_ma_col]
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"    [调试-潜龙在渊-致命错误]: 缺少必需列，剧本终止。缺失的列是: {missing}")
@@ -972,9 +977,9 @@ class TrendFollowStrategy:
         if df[net_mf_col].dtype != 'float64':
             df[net_mf_col] = df[net_mf_col].astype(float)
 
-        print("\n--- [法医级调试-潜龙在渊V7.0-持续压缩与结构突破版] 开始 ---")
+        print("\n--- [法医级调试-潜龙在渊V8.0-自适应压缩与趋势支撑版] 开始 ---")
 
-        # --- 2. 计算三个维度的斜率 ---
+        # --- 2. 计算所有需要的斜率 ---
         def get_slope(y):
             if len(y.dropna()) < 2: return np.nan
             x = np.arange(len(y))
@@ -984,42 +989,50 @@ class TrendFollowStrategy:
         df['bbw_slope'] = df[bbw_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['vol_ma_slope'] = df[vol_ma_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['price_slope'] = df['close_D'].rolling(window=slope_lookback).apply(get_slope, raw=False)
+        df['ma_slope'] = df[support_ma_col].rolling(window=slope_lookback).apply(get_slope, raw=False) # 计算支撑均线的斜率
 
-        # --- 3. 定义“深度压缩状态”并检查“持续性” ---
+        # --- 3. 【核心升级1】定义“自适应深度压缩状态” ---
         is_volatility_compressing = df['bbw_slope'] < volatility_slope_threshold
         is_volume_shrinking = df['vol_ma_slope'] < volume_slope_threshold
-        is_price_sideways = df['price_slope'].abs() < price_slope_threshold
-        is_in_deep_compression = is_volatility_compressing & is_volume_shrinking & is_price_sideways
+        # 使用“价格斜率走廊”来判断，识别横盘和温和回撤
+        is_price_adapting = (df['price_slope'] < price_slope_threshold_upper) & (df['price_slope'] > price_slope_threshold_lower)
+        is_in_deep_compression = is_volatility_compressing & is_volume_shrinking & is_price_adapting
         
-        # 【核心升级1】: 检查是否满足“持续压缩”条件
         sustained_compression_count = is_in_deep_compression.shift(1).rolling(window=prep_phase_lookback, min_periods=1).sum()
         had_sustained_compression = sustained_compression_count >= min_compression_days
-        print(f"    [调试-步骤3]: 识别到'持续压缩'背景总数: {had_sustained_compression.sum()} 天 (要求在{prep_phase_lookback}天内至少有{min_compression_days}天压缩)")
+        print(f"    [调试-步骤3]: 识别到'持续自适应压缩'背景总数: {had_sustained_compression.sum()} 天")
 
-        # --- 4. 【核心升级2】: 计算“准备区天花板 (Prep Phase Ceiling)” ---
+        # --- 4. 计算“准备区天花板” ---
         prep_phase_ceiling = df['high_D'].shift(1).rolling(window=prep_phase_lookback, min_periods=1).max()
-        print(f"    [调试-步骤4]: '准备区天花板'计算完成。最近5日天花板: {prep_phase_ceiling.tail(5).to_list()}")
+        print(f"    [调试-步骤4]: '准备区天花板'计算完成。")
 
-        # --- 5. 定义“点火信号” (Ignition Signal) ---
+        # --- 5. 定义“点火信号”并加入“趋势支撑”确认 ---
         is_strong_candle = df['close_D'] > df['open_D']
         is_pct_change_valid = df['close_D'].pct_change() > breakout_pct_change
         is_breakout_volume = df['volume_D'] > df[vol_ma_col] * breakout_vol_ratio
         is_main_force_driving = df[net_mf_col] > 0
+        
+        # 【核心升级2】: 增加趋势支撑确认 (The Launchpad)
+        is_ma_rising = df['ma_slope'] > 0
+        is_above_support = df['low_D'] > df[support_ma_col]
+        has_trend_support = is_ma_rising & is_above_support
+        
         is_ignition_action = is_strong_candle & is_pct_change_valid & is_breakout_volume & is_main_force_driving
-        print(f"    [调试-步骤5]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天")
+        print(f"    [调试-步骤5]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天, 其中有'趋势支撑'的总数: {has_trend_support.sum()} 天")
 
-        # --- 6. 最终信号: 持续压缩背景下的结构性突破 ---
+        # --- 6. 最终信号: 持续压缩 + 趋势支撑 + 结构突破 ---
         is_breakout_trigger = (
             had_sustained_compression &
             is_ignition_action &
-            (df['close_D'] > prep_phase_ceiling) # 突破真正的结构压力位
+            has_trend_support & # 必须有趋势支撑
+            (df['close_D'] > prep_phase_ceiling)
         )
         
-        print(f"    [调试-步骤6]: ★★★ 最终信号 (持续压缩后 & 点火突破准备区天花板): {is_breakout_trigger.sum()} ★★★")
-        print("--- [法医级调试-潜龙在渊V7.0-持续压缩与结构突破版] 结束 ---\n")
+        print(f"    [调试-步骤6]: ★★★ 最终信号 (自适应压缩+趋势支撑+结构突破): {is_breakout_trigger.sum()} ★★★")
+        print("--- [法医级调试-潜龙在渊V8.0-自适应压缩与趋势支撑版] 结束 ---\n")
 
         # 清理临时列
-        df.drop(columns=['bbw_slope', 'vol_ma_slope', 'price_slope'], inplace=True, errors='ignore')
+        df.drop(columns=['bbw_slope', 'vol_ma_slope', 'price_slope', 'ma_slope'], inplace=True, errors='ignore')
 
         return is_breakout_trigger & precondition
 
