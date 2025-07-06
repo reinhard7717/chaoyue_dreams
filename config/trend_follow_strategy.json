@@ -338,6 +338,62 @@
         "confirmation_close_above_ma": true,
         "说明_confirmation": "是否要求收盘价必须在均线之上，以增加信号的可靠性，过滤掉加速过程中的假动作。"
       },
+      "mid_term_trend_params": {
+        "enabled": true,
+        "mid_ma": 55,
+        "slow_ma": 89,
+        "说明": "定义中期趋势判断所依赖的均线周期。"
+      },
+      "dynamic_box_params": {
+        "enabled": true,
+        "peak_distance": 10,
+        "peak_prominence": 0.02,
+        "trough_prominence": 0.02,
+        "max_width_ratio": 0.25,
+        "breakdown_sell_enabled": true,
+        "说明": "为'盘整区突破(CONSOLIDATION_BREAKOUT)'剧本提供参数。"
+      },
+      "pullback_ma_entry_params": {
+        "enabled": true,
+        "support_ma": 21,
+        "setup_proximity_threshold": 0.03,
+        "说明": "为'常规回踩'和'稳步回踩'剧本提供参数。"
+      },
+      "v_reversal_entry_params": {
+        "enabled": true,
+        "drop_days": 10,
+        "drop_pct": 0.20,
+        "lower_shadow_to_body_ratio": 2.0,
+        "upper_shadow_to_body_ratio": 1.0,
+        "说明": "为'V型反转'剧本提供参数。"
+      },
+      "bband_squeeze_params": {
+        "enabled": true,
+        "squeeze_lookback": 60,
+        "squeeze_percentile": 0.10,
+        "说明": "为'布林收口突破'剧本提供参数。"
+      },
+      "indicator_entry_params": {
+        "enabled": true,
+        "dmi_cross": { "enabled": true },
+        "macd_cross": {
+          "enabled": true,
+          "low_level": -0.5,
+          "high_level": 0.5
+        },
+        "说明": "为所有基于指标的交叉信号（DMI, MACD）提供总开关和参数。"
+      },
+      "old_duck_head_params": {
+        "enabled": true,
+        "说明": "为'老鸭头'剧本提供参数。"
+      },
+      "bullish_flag_params": {
+        "enabled": true,
+        "pole_lookback": 20,
+        "pole_rise_pct": 0.15,
+        "max_flag_days": 8,
+        "说明": "为'上升旗形'剧本提供参数。"
+      },
       "vwap_confirmation_params": {
         "enabled": true,
         "timeframe": "5",
@@ -404,7 +460,7 @@
           "CHIP_HURDLE_CLEAR": {
             "name": "筹码关口扫清",
             "score": 110,
-            "description": "【新增】突破85%成本线，是更早的趋势确认信号，但需警惕假突破。"
+            "description": "突破85%成本线，是更早的趋势确认信号，但需警惕假突破。"
           },
           "CHIP_COST_BREAKTHROUGH": {
             "name": "筹码成本区突破",

@@ -78,11 +78,6 @@ class TrendFollowStrategy:
         
         return None
 
-    def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> Any:
-        """安全地从参数字典中获取一个配置块。"""
-        default = default_return if default_return is not None else {}
-        return params.get(block_name, default)
-
     def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         # print("\n--- [战术策略层 apply_strategy V22.2] 开始执行 ---") # 日常运行时可注释
         df = df_dict.get('D')
@@ -746,54 +741,47 @@ class TrendFollowStrategy:
 
     def _find_bullish_flag_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V1.1 性能重构版】识别“上升三法”（或称旗形整理）。
-        此版本重构为完全向量化的实现，消除了性能瓶颈。
+        【剧本】【V2.0 实战重构版】识别“上升旗形”整理。
+        - 重构: 废弃理想化的模型，采用更鲁棒的定义：
+          1. 近期(如20天内)出现过一波快速上涨 (旗杆)。
+          2. 随后进入缩量盘整阶段 (旗面)，盘整低点不低于旗杆启动点。
+          3. 今日放量突破盘整区高点。
         """
         params = self._get_params_block(params, 'bullish_flag_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        pole_threshold = params.get('flagpole_threshold', 0.05)
-        max_flag_days = params.get('max_flag_days', 5)
+        pole_lookback = params.get('pole_lookback', 20) # 旗杆回看周期
+        pole_rise_pct = params.get('pole_rise_pct', 0.15) # 旗杆最小涨幅
+        flag_max_days = params.get('max_flag_days', 8) # 旗面最大天数
         
-        # 重构为向量化实现，避免使用低效的 for 循环
-        pct_change = df['close_D'].pct_change()
-        is_flagpole = pct_change > pole_threshold
+        # ▼▼▼ 动态获取 vol_ma 周期并构建列名 ▼▼▼
+        fe_params = self.daily_params.get('feature_engineering_params', {})
+        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
+        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+        if vol_ma_col not in df.columns: return pd.Series(False, index=df.index)
 
-        final_signal = pd.Series(False, index=df.index)
+        # 1. 识别突破日
+        is_breakout_candle = df['close_D'] > df['close_D'].shift(1)
+        is_breakout_volume = df['volume_D'] > df[vol_ma_col]
+        is_potential_breakout = is_breakout_candle & is_breakout_volume
 
-        # 遍历所有可能的旗面天数
-        for days in range(1, max_flag_days + 1):
-            # 假设今天(T)是突破日，那么旗杆就在 T-days-1 日
-            is_pole_day = is_flagpole.shift(days + 1)
-            
-            # 获取旗杆的相关数据
-            pole_open = df['open_D'].shift(days + 1)
-            pole_volume = df['volume_D'].shift(days + 1)
-            
-            # 获取旗面(T-days 到 T-1)和突破日(T)的数据
-            flag_period_lows = df['low_D'].shift(1).rolling(window=days).min()
-            flag_period_highs = df['high_D'].shift(1).rolling(window=days).max()
-            flag_period_volumes = df['volume_D'].shift(1).rolling(window=days).max()
-
-            # 验证旗面条件
-            is_supported = flag_period_lows > pole_open
-            is_volume_shrunk = flag_period_volumes < pole_volume
-            
-            # 验证突破日条件
-            is_breakout = df['close_D'] > flag_period_highs
-            
-            # 组合所有条件
-            current_signal = (
-                is_pole_day &
-                is_supported &
-                is_volume_shrunk &
-                is_breakout
-            )
-            
-            final_signal |= current_signal.fillna(False)
-
-        return final_signal & precondition
+        # 2. 回溯寻找旗杆和旗面
+        # 寻找近期的一个低点作为旗杆起点
+        pole_start_price = df['low_D'].shift(flag_max_days).rolling(window=pole_lookback).min()
+        # 寻找旗面期间的高点
+        flag_high_price = df['high_D'].shift(1).rolling(window=flag_max_days).max()
+        
+        # 3. 验证形态条件
+        # 条件a: 旗面高点相对旗杆起点有足够涨幅 (旗杆形成了)
+        has_pole = (flag_high_price / pole_start_price - 1) > pole_rise_pct
+        # 条件b: 今日收盘价突破了旗面高点
+        is_breakout = df['close_D'] > flag_high_price
+        
+        signal = is_potential_breakout & has_pole & is_breakout
+        
+        return signal.fillna(False) & precondition
 
     def _find_upthrust_distribution_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
@@ -857,32 +845,40 @@ class TrendFollowStrategy:
         特征：成交量和波动率（用ATRN衡量）在一段时期内持续萎缩，达到冰点。
         信号：在能量压缩到极致后，出现一根温和放量的中阳线，向上突破。
         """
-        params = self._get_params_block(params, 'energy_compression_params')
+        params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        lookback = params.get('lookback_period', 60)
-        vol_quantile = params.get('volume_quantile', 0.1) # 成交量处于过去60天10%分位数以下
-        atr_quantile = params.get('atr_quantile', 0.1)   # 波动率处于过去60天10%分位数以下
+        lookback = params.get('volatility_lookback', 60) # 参数名与json统一
+        vol_quantile = params.get('volume_quantile', 0.1)
+        atr_quantile = params.get('volatility_quantile', 0.1) # 参数名与json统一
         breakout_vol_ratio = params.get('breakout_volume_ratio', 1.5)
-        breakout_pct_change = params.get('breakout_pct_change', 0.03) # 突破日涨幅至少3%
+        breakout_pct_change = params.get('breakout_pct_change', 0.03)
 
-        atr_col = f'ATRN_{params.get("atr_period", 14)}_D'
-        vol_ma_col = f'VOL_MA_{params.get("vol_ma_period", 20)}_D'
+        # ▼▼▼ 动态获取指标周期并构建列名 ▼▼▼
+        fe_params = self.daily_params.get('feature_engineering_params', {})
+        # ATRN列名，假设它由DMI指标计算产生，周期与DMI一致
+        dmi_config = fe_params.get('indicators', {}).get('dmi', {})
+        atr_period = self._get_periods_for_timeframe(dmi_config, 'D')[0] if self._get_periods_for_timeframe(dmi_config, 'D') else 14
+        atr_col = f'ATRN_{atr_period}_D' # pandas_ta 默认生成 ATRN
+        
+        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
+        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+
         if atr_col not in df.columns or vol_ma_col not in df.columns:
+            if self.verbose_logging:
+                print(f"    [调试-潜龙在渊-警告]: 缺少列: {[c for c in [atr_col, vol_ma_col] if c not in df.columns]}，跳过。")
             return pd.Series(False, index=df.index)
 
-        # 1. 识别“能量压缩”状态
         is_volume_compressed = df['volume_D'] < df['volume_D'].rolling(lookback).quantile(vol_quantile)
         is_atr_compressed = df[atr_col] < df[atr_col].rolling(lookback).quantile(atr_quantile)
         is_energy_compressed = is_volume_compressed & is_atr_compressed
 
-        # 2. 识别“能量释放”信号
         is_breakout_candle = df['close_D'].pct_change() > breakout_pct_change
         is_breakout_volume = df['volume_D'] > df[vol_ma_col] * breakout_vol_ratio
         is_energy_release = is_breakout_candle & is_breakout_volume
 
-        # 信号：能量释放日的前一天，必须处于“能量压缩”状态
         signal = is_energy_compressed.shift(1).fillna(False) & is_energy_release
         return signal & precondition
 
@@ -954,22 +950,27 @@ class TrendFollowStrategy:
 
     # 专门用于捕捉A股特色的强势启动信号
     def _find_first_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【V2.6 】寻找A股特色的“首板”或强势启动信号。"""
+        """【V2.7 列名修复版】寻找A股特色的“首板”或强势启动信号。"""
         params = self._get_params_block(params, 'first_breakout_params')
         if not params.get('enabled', False): return pd.Series(False, index=df.index)
 
-        vol_ma_col = f"VOL_MA_{params.get('vol_ma_period', 20)}_D"
+        # ▼▼▼ 从配置文件动态获取 vol_ma 周期并构建列名 ▼▼▼
+        fe_params = self.daily_params.get('feature_engineering_params', {})
+        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
+        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+
         required_cols = ['close_D', 'open_D', 'volume_D', vol_ma_col]
-        if not all(col in df.columns for col in required_cols): return pd.Series(False, index=df.index)
+        if not all(col in df.columns for col in required_cols): 
+            if self.verbose_logging:
+                print(f"    [调试-底部首板-警告]: 缺少列: {[c for c in required_cols if c not in df.columns]}，跳过。")
+            return pd.Series(False, index=df.index)
 
-        # 条件1: 大阳线或涨停板 (涨幅超过阈值)
         price_increase_ratio = (df['close_D'] - df['open_D']) / df['open_D']
-        is_strong_candle = price_increase_ratio > params.get('price_increase_threshold', 0.05)
+        is_strong_candle = price_increase_ratio > params.get('rally_threshold', 0.05) # 参数名与json统一
 
-        # 条件2: 成交量显著放大 (放巨量)
-        is_volume_surge = df['volume_D'] > df[vol_ma_col] * params.get('volume_ratio', 2.5)
+        is_volume_surge = df['volume_D'] > df[vol_ma_col] * params.get('volume_ratio', 2.0)
 
-        # 信号必须在满足大趋势的前提下才有效
         return precondition & is_strong_candle & is_volume_surge
 
     def _find_pullback_to_ma_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
@@ -1532,51 +1533,45 @@ class TrendFollowStrategy:
 
     def _find_old_duck_head_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V1.1 性能重构版】识别“老鸭头”形态，一个经典的主力深度控盘后的二次启动信号。
-        此版本重构为完全向量化的实现，消除了性能瓶颈。
+        【剧本】【V2.1 JSON适配版】识别“老鸭头”形态。
+        - 改造: 适配新增的 old_duck_head_params JSON配置块。
+        - 逻辑: 回归经典定义：5/10日均线金叉60日线(鸭头)，随后死叉回踩60日线(鸭颈)，再次金叉(鸭嘴)并放量。
         """
         params = self._get_params_block(params, 'old_duck_head_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        peak_lookback = params.get('peak_lookback', 60)
-        neck_ma_period = params.get('neck_ma_period', 60)
-        volume_quantile = params.get('volume_quantile', 0.1)
-        breakout_volume_ratio = params.get('breakout_volume_ratio', 1.5)
-        volume_ma_period = params.get('volume_ma_period', 20)
+        fast_ma_period = 5
+        mid_ma_period = 10
+        slow_ma_period = 60
+        
+        fast_ma_col = f"EMA_{fast_ma_period}_D"
+        mid_ma_col = f"EMA_{mid_ma_period}_D"
+        slow_ma_col = f"EMA_{slow_ma_period}_D"
+        
+        fe_params = self.daily_params.get('feature_engineering_params', {})
+        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
+        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
 
-        neck_ma_col = f"EMA_{neck_ma_period}_D"
-        vol_ma_col = f"VOL_MA_{volume_ma_period}_D"
-        if neck_ma_col not in df.columns or vol_ma_col not in df.columns:
+        required_cols = [fast_ma_col, mid_ma_col, slow_ma_col, vol_ma_col, 'low_D', 'close_D', 'volume_D']
+        if not all(col in df.columns for col in required_cols):
+            if self.verbose_logging:
+                print(f"    [调试-老鸭头-警告]: 缺少列: {[c for c in required_cols if c not in df.columns]}，跳过。")
             return pd.Series(False, index=df.index)
 
-        # 重构为完全向量化的逻辑，避免使用低效的 for 循环
-        
-        # 步骤1: 找到每个时间点之前的“鸭头顶”高点
-        # 使用 rolling().max() 来高效地找到每个点之前的 peak_lookback 周期内的高点
-        prev_highs = df['high_D'].shift(1).rolling(window=peak_lookback, min_periods=5).max()
+        is_golden_cross_today = (df[fast_ma_col] > df[mid_ma_col]) & (df[fast_ma_col].shift(1) <= df[mid_ma_col].shift(1))
+        is_volume_up = df['volume_D'] > df[vol_ma_col]
 
-        # 步骤2: 识别“突破日” (鸭嘴部)
-        is_breakout_today = df['close_D'] > prev_highs
-        is_volume_surge_today = df['volume_D'] > (df[vol_ma_col] * breakout_volume_ratio)
-        is_potential_signal_day = is_breakout_today & is_volume_surge_today
+        lookback_period = 60
+        was_dead_cross = (df[fast_ma_col] < df[mid_ma_col]) & (df[fast_ma_col].shift(1) >= df[mid_ma_col].shift(1))
+        was_supported_by_neck = df['low_D'] > df[slow_ma_col]
+        has_neck_formation = (was_dead_cross.rolling(window=lookback_period).sum() > 0) & \
+                             (was_supported_by_neck.rolling(window=lookback_period).min() == True)
 
-        # 步骤3: 识别“鸭颈部”特征 (回调期)
-        # 这是一个复杂的部分，我们用一种近似但高效的向量化方法来识别
-        # 条件a: 回调期间，最低价始终在颈线(neck_ma_col)之上
-        # 我们检查突破日之前的 N 天 (例如10天) 是否满足此条件
-        neck_check_days = params.get('neck_check_days', 10)
-        neck_supported = (df['low_D'].shift(1).rolling(window=neck_check_days).min() > df[neck_ma_col].shift(1).rolling(window=neck_check_days).max())
-        
-        # 条件b: 回调期间，出现过极度缩量 (芝麻量)
-        volume_threshold = df['volume_D'].shift(1).rolling(window=peak_lookback).quantile(volume_quantile)
-        is_volume_shrunk = (df['volume_D'].shift(1).rolling(window=neck_check_days).min() < volume_threshold)
+        signal = is_golden_cross_today & is_volume_up & has_neck_formation.shift(1).fillna(False)
 
-        # 步骤4: 组合所有条件
-        # 只有在可能是信号日的日子，我们才需要检查其之前的颈部特征
-        final_signal = is_potential_signal_day & neck_supported & is_volume_shrunk
-        
-        return final_signal.fillna(False) & precondition
+        return signal & precondition
 
     def _find_n_shape_relay_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
@@ -1805,9 +1800,9 @@ class TrendFollowStrategy:
         lower_pct, upper_pct = min(percentiles), max(percentiles)
 
         # 动态构建依赖的列名
-        cost_lower_col = f'cost_{lower_pct}pct' # 修正列名
-        cost_upper_col = f'cost_{upper_pct}pct' # 修正列名
-        weight_avg_col = 'weight_avg' # 修正列名
+        cost_lower_col = f'cost_{lower_pct}pct_D'
+        cost_upper_col = f'cost_{upper_pct}pct_D'
+        weight_avg_col = 'weight_avg_D'
         
         required_cols = [cost_lower_col, cost_upper_col, weight_avg_col, 'close_D']
         if not all(col in df.columns for col in required_cols):
@@ -1872,22 +1867,29 @@ class TrendFollowStrategy:
         return final_signal.fillna(False)
 
     def _find_fibonacci_pullback_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """【V1.1 列名修复版】斐波那契回撤买入。"""
         fib_params = self._get_params_block(params, 'fibonacci_pullback_params')
         if not fib_params.get('enabled', False):
             return pd.Series(False, index=df.index)
-        print("    - [计分-战术] 正在执行斐波那契回撤买入剧本...")
-        retr_levels = fib_params.get('retracement_levels', [0.618])
+        
+        # print("    - [计分-战术] 正在执行斐波那契回撤买入剧本...") # 调试时可打开
+        retr_levels = fib_params.get('retracement_levels', [0.5, 0.618]) # 从json读取
         buffer = fib_params.get('pullback_buffer', 0.01)
         final_signal = pd.Series(False, index=df.index)
+        
         for level in retr_levels:
             col_name = f'fib_retr_{str(level).replace(".", "")}_D'
             if col_name not in df.columns:
+                if self.verbose_logging:
+                    print(f"    [调试-斐波那契-警告]: 缺少列: {col_name}，跳过此水平。")
                 continue
+                
             support_price = df[col_name]
             touched_support = df['low_D'] <= support_price * (1 + buffer)
             recovered_above_support = df['close_D'] > support_price
             signal = touched_support & recovered_above_support & precondition
             final_signal |= signal
+            
         return final_signal.fillna(False)
 
     # ▼▼▼“均线加速上涨”剧本方法 ▼▼▼

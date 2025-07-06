@@ -677,20 +677,20 @@ class IndicatorService:
         final_df = df_for_calc.rename(columns=rename_map)
 
         # 4. 调试输出，检查最终返回的数据是否符合预期
-        debug_cols_to_check = [
-            f'close{suffix}', f'winner_rate{suffix}', f'weight_avg{suffix}', 
-            f'cost_85pct{suffix}', f'cost_95pct{suffix}'
-        ]
-        # 筛选出实际存在于final_df中的列进行打印，避免KeyError
-        existing_debug_cols = [col for col in debug_cols_to_check if col in final_df.columns]
+        # debug_cols_to_check = [
+        #     f'close{suffix}', f'winner_rate{suffix}', f'weight_avg{suffix}', 
+        #     f'cost_85pct{suffix}', f'cost_95pct{suffix}'
+        # ]
+        # # 筛选出实际存在于final_df中的列进行打印，避免KeyError
+        # existing_debug_cols = [col for col in debug_cols_to_check if col in final_df.columns]
 
-        if existing_debug_cols:
-            debug_df = final_df[(final_df.index >= '2024-11-01') & (final_df.index <= '2024-12-31')]
-            if not debug_df.empty:
-                print(f"\n--- [IndicatorService V6.0 最终输出 - 周期 {timeframe_key}] ---")
-                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 220):
-                    print(debug_df[existing_debug_cols])
-                print(f"--- [IndicatorService V6.0 最终输出结束 - 周期 {timeframe_key}] ---\n")
+        # if existing_debug_cols:
+        #     debug_df = final_df[(final_df.index >= '2024-11-01') & (final_df.index <= '2024-12-31')]
+        #     if not debug_df.empty:
+        #         print(f"\n--- [IndicatorService V6.0 最终输出 - 周期 {timeframe_key}] ---")
+        #         with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 220):
+        #             print(debug_df[existing_debug_cols])
+        #         print(f"--- [IndicatorService V6.0 最终输出结束 - 周期 {timeframe_key}] ---\n")
 
         return final_df
 
