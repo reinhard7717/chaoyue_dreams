@@ -338,8 +338,8 @@ class TrendFollowStrategy:
         }
 
         # 定义我们关心的调试时间范围
-        start_date = pd.to_datetime('2024-09-01').tz_localize('UTC')
-        end_date = pd.to_datetime('2024-11-30').tz_localize('UTC')
+        start_date = pd.to_datetime('2024-01-01').tz_localize('UTC')
+        end_date = pd.to_datetime('2024-12-31').tz_localize('UTC')
 
         for name, condition in playbook_summary.items():
             trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
@@ -357,7 +357,7 @@ class TrendFollowStrategy:
                 if not triggered_dates_in_period.empty:
                     # 格式化日期列表以便清晰展示
                     date_list_str = ", ".join([d.strftime('%Y-%m-%d') for d in triggered_dates_in_period])
-                    print(f"    -> [24年09-11月触发]: {date_list_str}")
+                    print(f"    -> [24年01-12月触发]: {date_list_str}")
         print("---【日线战术层 - 剧本计算总结结束】---\n")
 
         # --- 步骤4: 记录所有战术信号得分 ---
@@ -953,48 +953,38 @@ class TrendFollowStrategy:
 
     def _find_pullback_to_ma_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【V2.20 逻辑与日志修正版】寻找均线回踩买点。
-        - 修正了“因果链”逻辑，确保“果”(Effect)是基于严格的过去发生的“因”(Cause)。
-        - 增加了对“因”与“果”不能发生在同一天的约束，以捕捉更明确的“先跌后涨”模式。
-        - 修正了调试日志，使其不再具有误导性。
+        【V2.30 逻辑简化重构版】寻找均线回踩买点。
+        - 核心逻辑: 废弃复杂的因果模型，回归经典、鲁棒的“下探回升”定义。
         """
-        params = self._get_params_block(params, 'pullback_ma_entry_params')
-        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+        pullback_params = self._get_params_block(params, 'pullback_ma_entry_params') # 使用您代码中的旧名
+        if not pullback_params.get('enabled', False): return pd.Series(False, index=df.index)
         
-        support_ma_col = f"EMA_{params.get('support_ma', 20)}_D"
-        confirmation_days = params.get('confirmation_days', 2)
-
-        bias_period = self._get_params_block(params, 'bias_reversal_entry_params').get('bias_period', 20)
-        bias_col = f"BIAS_{bias_period}_D"
-
-        required_cols = [support_ma_col, 'low_D', 'close_D', 'open_D', bias_col]
-        if not all(col in df.columns for col in required_cols):
+        support_ma_col = f"EMA_{pullback_params.get('support_ma', 20)}_D"
+        if support_ma_col not in df.columns:
+            if self.verbose_logging:
+                print(f"    [调试-回踩MA-警告]: 缺少均线列 '{support_ma_col}'，跳过此剧本。")
             return pd.Series(False, index=df.index)
 
-        # 1. 定义“因” (Cause): 健康的回踩触碰支撑
-        touches_support = df['low_D'] <= df[support_ma_col]
-        bias_lower_bound = params.get('bias_lower_bound', -8.0)
-        bias_upper_bound = params.get('bias_upper_bound', 3.0)
-        is_healthy_pullback = (df[bias_col] >= bias_lower_bound) & (df[bias_col] <= bias_upper_bound)
-        is_cause_day = touches_support & is_healthy_pullback
+        # ▼▼▼ 使用更鲁棒、更简洁的回踩逻辑 ▼▼▼
+        # 条件1: 昨天收盘价在均线之上 (确保是上涨或盘整趋势中的回踩)
+        was_above_ma = df['close_D'].shift(1) > df[support_ma_col].shift(1)
         
-        # 2. 定义“果” (Effect): 确认阳线
-        is_effect_day = df['close_D'] > df['open_D']
+        # 条件2: 今天最低价下探到均线之下或触及均线
+        dipped_below_ma = df['low_D'] <= df[support_ma_col]
         
-        # 3. 建立“因果”连接：在“果”出现时，回溯【过去】N天内是否存在“因”
-        has_recent_cause = is_cause_day.rolling(window=confirmation_days, min_periods=1).sum() > 0
-        
-        # 4. 生成最终信号：
-        # 核心约束：必须是“果”日，且近期有“因”，且“因”和“果”不能是同一天
-        # 将 has_recent_cause.shift(1) 应用于最终信号计算，确保因果关系
-        final_signal = precondition & is_effect_day & has_recent_cause.shift(1).fillna(False) & ~is_cause_day
+        # 条件3: 今天收盘价最终收回在均线之上 (形成支撑)
+        recovered_above_ma = df['close_D'] > df[support_ma_col]
 
-        # 修正了调试日志的统计口径，使其更准确、无误导性
+        # 最终信号: 三个条件同时满足，且满足外部传入的前提条件
+        final_signal = was_above_ma & dipped_below_ma & recovered_above_ma & precondition
+        
+
         if self.verbose_logging:
-            print(f"    [调试-回踩MA]: 长期趋势满足天数: {precondition.sum()} | "
-                f"触碰支撑(Cause)天数: {is_cause_day.sum()} | "
-                f"确认阳线(Effect)天数: {is_effect_day.sum()} | "
-                f"满足'先跌后涨'模式的最终信号: {final_signal.sum()}")
+            print(f"    [调试-回踩MA]: 前提满足: {precondition.sum()} | "
+                  f"昨日在均线上: {was_above_ma.sum()} | "
+                  f"今日下探: {dipped_below_ma.sum()} | "
+                  f"今日收回: {recovered_above_ma.sum()} | "
+                  f"最终信号: {final_signal.sum()}")
 
         return final_signal.fillna(False)
 
@@ -1039,74 +1029,38 @@ class TrendFollowStrategy:
 
     def _find_v_reversal_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【V2.21 形态学重构版】寻找触底当日的“V型反转”买点。
-        - 核心逻辑: 从过于严苛的“数学定义”转向经典的“形态学定义”，捕捉“锤子线”神韵。
-        - 形态特征: 1.下影线至少是实体的2倍; 2.上影线短于实体; 3.为阳线。
+        【V2.30 形态学增强版】寻找“V型反转”买点。
+        - 核心逻辑: 结合了“前期深跌”和“反转日K线形态(锤子线)”，构成完整V字。
         """
-        # 从配置文件中获取参数，如果不存在则使用默认值
-        params = self._get_params_block(params, 'v_reversal_entry_params')
-        if not params:
-            if self.verbose_logging:
-                print("    [调试-V型反转-错误]: 无法执行，因为在 config.json 中未找到 'v_reversal_entry_params' 配置块。请确保配置文件已更新。")
-            return pd.Series(False, index=df.index)
+        v_params = self._get_params_block(params, 'v_reversal_entry_params')
+        if not v_params.get('enabled', False): return pd.Series(False, index=df.index)
 
-        if not params.get('enabled', True): return pd.Series(False, index=df.index)
-        # 将支撑位检查逻辑解耦，使其更加健壮
+        # ▼▼▼ 增加前期深跌判断逻辑 ▼▼▼
+        # 条件1: 定义前期下跌
+        drop_days = v_params.get('drop_days', 10)
+        drop_pct = v_params.get('drop_pct', 0.20) # 10天下跌20%
+        # 计算过去N天内的最高价
+        high_in_period = df['high_D'].shift(1).rolling(window=drop_days).max()
+        # 判断当前最低价是否相比前期高点有显著回撤
+        is_deep_drop = (df['low_D'] / high_in_period - 1) < -drop_pct
         
-        # 初始化两个布尔序列，默认为全False
-        touches_ma_support = pd.Series(False, index=df.index)
-        touches_structure_support = pd.Series(False, index=df.index)
-
-        # 1. 独立检查均线支撑
-        support_ma_col = f"EMA_{params.get('support_ma', 20)}_D"
-        if support_ma_col in df.columns:
-            touches_ma_support = df['low_D'] <= df[support_ma_col]
-        else:
-            # 仅在首次或需要时打印警告，避免刷屏
-            if not hasattr(self, '_warned_missing_ma_support'):
-                if self.verbose_logging:
-                    print(f"    [调试-V型反转-警告]: 缺少均线支撑列 '{support_ma_col}'，将忽略此支撑类型。")
-                self._warned_missing_ma_support = True
-
-        # 2. 独立检查结构支撑
-        support_structure_col = 'prev_high_support_D'
-        if support_structure_col in df.columns:
-            touches_structure_support = df['low_D'] <= df[support_structure_col]
-        else:
-            if not hasattr(self, '_warned_missing_structure_support'):
-                if self.verbose_logging:
-                    print(f"    [调试-V型反转-警告]: 缺少结构支撑列 '{support_structure_col}'，将忽略此支撑类型。")
-                self._warned_missing_structure_support = True
-        
-        # 只要触碰到任意一个【存在的】支撑位即可
-        touches_any_support = touches_ma_support | touches_structure_support
-
-        # 3. 定义“果” (Effect): V型反转的K线形态 (经典锤子线定义)
-        # 检查基础K线数据是否存在
-        ohlc_cols = ['low_D', 'high_D', 'open_D', 'close_D']
-        if not all(col in df.columns for col in ohlc_cols):
-            if self.verbose_logging:
-                print(f"    [调试-V型反-错误]: 缺少核心OHLC数据，无法计算K线形态。")
-            return pd.Series(False, index=df.index)
-            
+        # 条件2: 定义反转日的K线形态 (沿用您的锤子线定义)
         body = abs(df['close_D'] - df['open_D']).replace(0, 0.0001) 
         upper_shadow = df['high_D'] - np.maximum(df['open_D'], df['close_D'])
         lower_shadow = np.minimum(df['open_D'], df['close_D']) - df['low_D']
-
-        has_long_lower_shadow = lower_shadow >= (body * params.get('lower_shadow_to_body_ratio', 2.0))
-        has_small_upper_shadow = upper_shadow <= (body * params.get('upper_shadow_to_body_ratio', 1.0))
+        has_long_lower_shadow = lower_shadow >= (body * v_params.get('lower_shadow_to_body_ratio', 2.0))
+        has_small_upper_shadow = upper_shadow <= (body * v_params.get('upper_shadow_to_body_ratio', 1.0))
         is_green_candle = df['close_D'] > df['open_D']
-        is_v_reversal_shape = has_long_lower_shadow & has_small_upper_shadow & is_green_candle
+        is_reversal_shape = has_long_lower_shadow & has_small_upper_shadow & is_green_candle
+        
+        # 最终信号: 满足前提 + 经历了深跌 + 当天形成反转形态
+        final_signal = precondition & is_deep_drop & is_reversal_shape
 
-        # 4. 生成最终信号：满足趋势 + 触碰支撑 + V反形态
-        final_signal = precondition & touches_any_support & is_v_reversal_shape
-
-        # 打印详细的调试信息
         if self.verbose_logging:
-            print(f"    [调试-V型反转]: 长期趋势满足天数: {precondition.sum()} | "
-                f"触碰支撑天数: {touches_any_support.sum()} | "
-                f"V反形态(阳线+长下影+短上影): {is_v_reversal_shape.sum()} | "
-                f"最终信号: {final_signal.sum()}")
+            print(f"    [调试-V型反转]: 前提满足: {precondition.sum()} | "
+                  f"经历深跌: {is_deep_drop.sum()} | "
+                  f"V反形态: {is_reversal_shape.sum()} | "
+                  f"最终信号: {final_signal.sum()}")
         
         return final_signal.fillna(False)
 
@@ -1217,8 +1171,9 @@ class TrendFollowStrategy:
 
     def _find_indicator_entry(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V2.0 重构版】计算所有基于指标的原始买入信号，不应用任何前提条件。
-        返回一个包含各种原始信号布尔序列的字典。
+        【V2.1 修复版】计算所有基于指标的原始买入信号。
+        - 修复: 修正了DMI指标的列名以匹配实际数据 (PDI/NDI)。
+        - 增强: 增加了详细的调试日志。
         """
         indicator_params = self._get_params_block(params, 'indicator_entry_params')
         if not indicator_params.get('enabled', False):
@@ -1231,12 +1186,22 @@ class TrendFollowStrategy:
 
         # --- DMI 金叉 ---
         dmi_params = indicator_params.get('dmi_cross', {})
-        dmi_period = self._get_periods_for_timeframe(self.daily_params.get('feature_engineering_params', {}).get('indicators', {}).get('dmi', {}), 'D')
+        dmi_period_list = self._get_periods_for_timeframe(self.daily_params.get('feature_engineering_params', {}).get('indicators', {}).get('dmi', {}), 'D')
         dmi_cross_signal = pd.Series(False, index=df.index)
-        if dmi_params.get('enabled', False) and dmi_period:
-            pdi_col, mdi_col = f'DMP_{dmi_period[0]}_D', f'DMN_{dmi_period[0]}_D'
+        if dmi_params.get('enabled', False) and dmi_period_list:
+            dmi_period = dmi_period_list[0]
+            # ▼▼▼ 使用 PDI 和 NDI 作为列名，以匹配您的实际数据列 ▼▼▼
+            pdi_col, mdi_col = f'PDI_{dmi_period}_D', f'NDI_{dmi_period}_D'
+            
+            
+            if self.verbose_logging:
+                print(f"    [调试-DMI金叉]: 正在检查DMI金叉，使用列名: {pdi_col}, {mdi_col}")
             if pdi_col in df.columns and mdi_col in df.columns:
                 dmi_cross_signal = (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
+                if self.verbose_logging:
+                    print(f"    [调试-DMI金叉]: 列存在。原始信号触发 {dmi_cross_signal.sum()} 次。")
+            elif self.verbose_logging:
+                print(f"    [调试-DMI金叉-警告]: DMI列名 {pdi_col} 或 {mdi_col} 在DataFrame中未找到！")
 
         # --- MACD 金叉 ---
         macd_params = indicator_params.get('macd_cross', {})
@@ -1250,13 +1215,13 @@ class TrendFollowStrategy:
             signal_col = f'MACDs_{p_fast}_{p_slow}_{p_signal}_D'
             if macd_col in df.columns and signal_col in df.columns:
                 is_golden_cross = (df[macd_col] > df[signal_col]) & (df[macd_col].shift(1) <= df[signal_col].shift(1))
-                
                 low_level = macd_params.get('low_level', -0.5)
                 high_level = macd_params.get('high_level', 0.5)
-                
                 macd_low_cross_signal = is_golden_cross & (df[macd_col] < low_level)
                 macd_zero_cross_signal = is_golden_cross & (df[macd_col] >= low_level) & (df[macd_col] <= high_level)
                 macd_high_cross_signal = is_golden_cross & (df[macd_col] > high_level)
+                if self.verbose_logging:
+                    print(f"    [调试-MACD金叉]: 列存在。金叉总触发 {is_golden_cross.sum()} 次 (低位: {macd_low_cross_signal.sum()}, 零轴: {macd_zero_cross_signal.sum()}, 高位: {macd_high_cross_signal.sum()})。")
 
         return {
             'dmi_cross': dmi_cross_signal.fillna(False),
@@ -1266,23 +1231,22 @@ class TrendFollowStrategy:
         }
 
     def _find_bband_squeeze_breakout(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【V5.0 参数适配版】寻找布林带收缩突破的买点。"""
+        """
+        【V5.1 逻辑优化版】寻找布林带收缩突破的买点。
+        - 修复: 将极端“最小值”条件放宽为更合理的“分位数”条件。
+        - 优化: 将突破上轨改为突破中轨，信号更早、更稳健。
+        """
         bband_params = self._get_params_block(params, 'bband_squeeze_params')
         if not bband_params.get('enabled', False): return pd.Series(False, index=df.index)
         
+        # 参数获取逻辑保持与您原始代码一致
         fe_params = params.get('feature_engineering_params', {})
         indicators_config = fe_params.get('indicators', {})
-        
-        # ▼▼▼【修改】: 使用新的辅助函数获取周期参数 ▼▼▼
-        # 布林带的参数比较特殊，periods是周期，std是标准差，需要单独处理
         boll_config = indicators_config.get('boll_bands_and_width', {})
         boll_periods_list = self._get_periods_for_timeframe(boll_config, 'D')
-        if not boll_periods_list:
-            logger.warning("日线BOLL周期未配置，跳过布林带收缩突破检测。")
-            return pd.Series(False, index=df.index)
+        if not boll_periods_list: return pd.Series(False, index=df.index)
         bb_period = boll_periods_list[0]
-        # std 通常不在 periods 里，需要从子配置中单独获取
-        bb_std = 2.0 # 默认值
+        bb_std = 2.0
         if 'configs' in boll_config:
             for config_item in boll_config['configs']:
                 if 'D' in config_item.get('apply_on', []):
@@ -1290,20 +1254,39 @@ class TrendFollowStrategy:
                     break
         else:
             bb_std = boll_config.get('std_dev', 2.0)
-        # ▲▲▲【修改】: 修改结束 ▲▲▲
-
+        
         squeeze_lookback = bband_params.get('squeeze_lookback', 60)
+        squeeze_percentile = bband_params.get('squeeze_percentile', 0.10) # 新增参数，可配置
 
+        # 列名构建与您数据一致，并增加中轨
         bbw_col = f'BBW_{bb_period}_{bb_std:.1f}_D'
-        bbu_col = f'BBU_{bb_period}_{bb_std:.1f}_D'
+        bbm_col = f'BBM_{bb_period}_{bb_std:.1f}_D'
 
-        required_cols = [bbw_col, bbu_col, 'close_D']
-        if not all(col in df.columns for col in required_cols): return pd.Series(False, index=df.index)
+        required_cols = [bbw_col, bbm_col, 'close_D']
+        if not all(col in df.columns for col in required_cols): 
+            if self.verbose_logging:
+                print(f"    [调试-布林突破-警告]: 缺少列: {[c for c in required_cols if c not in df.columns]}，跳过。")
+            return pd.Series(False, index=df.index)
 
-        is_squeeze = df[bbw_col] <= df[bbw_col].rolling(window=squeeze_lookback).min()
-        is_breakout = df['close_D'] > df[bbu_col]
-        signal = is_breakout & is_squeeze.shift(1).fillna(False)
-        return signal & precondition
+        # ▼▼▼ 使用分位数代替最小值，并修改突破逻辑 ▼▼▼
+        # 条件1: 布林带宽度处于过去N天的低位 (收口)
+        # 注意: .shift(1) 是为了确保我们用“昨天”的收口状态来判断“今天”的突破
+        low_bbw_threshold = df[bbw_col].shift(1).rolling(window=squeeze_lookback).quantile(squeeze_percentile)
+        is_squeeze = df[bbw_col].shift(1) < low_bbw_threshold
+        
+        # 条件2: 价格向上突破布林【中轨】，作为启动信号
+        is_breakout = (df['close_D'] > df[bbm_col]) & (df['close_D'].shift(1) <= df[bbm_col].shift(1))
+        
+        
+        signal = is_squeeze & is_breakout & precondition
+
+        if self.verbose_logging:
+            print(f"    [调试-布林突破]: 前提满足: {precondition.sum()} | "
+                  f"处于收口状态: {is_squeeze.sum()} | "
+                  f"突破中轨: {is_breakout.sum()} | "
+                  f"最终信号: {signal.sum()}")
+
+        return signal.fillna(False)
 
     # 寻找BIAS超跌反弹买点
     def _find_bias_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
