@@ -1735,17 +1735,14 @@ class TrendFollowStrategy:
     # ▼▼▼ “成本区增强”剧本(使用精确CYQ数据) ▼▼▼
     def _find_cost_area_reinforcement_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【全新剧本/升级版】【V1.4-逻辑松绑版】识别“成本区增强”信号。
-        - 核心修正: 移除了对 precondition (中期趋势)的硬性依赖。
-        - 策略定位: 将此剧本视为一个独立的“趋势构建/左侧”信号，而非“趋势跟踪”信号。
-                      它自身的触发就足以构成一个有效的买入理由，不应被周线趋势否决。
+        【剧本】【V1.6-资金验证版】成本区增强
+        在V1.5的基础上，加入“主力资金净流入”作为最终的确认条件，确保信号的含金量。
+        这要求“放量横盘”必须是由主力主动买入造成的，而非其他类型的换手。
         """
         # 从主配置中获取本剧本的参数块
         params = self._get_params_block(params, 'cost_area_reinforcement_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
-
-        print("\n--- [调试日志 - 剧本: 成本区增强 (COST_AREA_REINFORCEMENT) V1.4] ---")
 
         # 动态获取成交量均线周期
         fe_params = self.daily_params.get('feature_engineering_params', {})
@@ -1754,67 +1751,57 @@ class TrendFollowStrategy:
         vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
         
         weight_avg_col = 'weight_avg_D'
-        required_cols = [weight_avg_col, 'close_D', 'volume_D', vol_ma_col]
+        # ▼▼▼ 增加 net_mf_amount_D 到依赖检查中 ▼▼▼
+        required_cols = [weight_avg_col, 'close_D', 'volume_D', vol_ma_col, 'net_mf_amount_D']
         
-        missing_cols = [col for col in required_cols if col not in df.columns or df[col].isna().all()]
-        if missing_cols:
-            print(f"  - [依赖检查失败]: 跳过执行。缺失或全为空的列: {missing_cols}")
+        # 依赖检查
+        if any(col not in df.columns or df[col].isna().all() for col in required_cols):
+            # 为了避免日志刷屏，只在第一次或必要时打印
+            # print(f"成本区增强剧本依赖缺失，跳过执行。")
             return pd.Series(False, index=df.index)
-        print("  - [依赖检查成功]: 所有必需列均存在。")
 
         # 1. 参数获取
         proximity_threshold = params.get('proximity_threshold', 0.03)
         volume_ratio = params.get('volume_ratio', 1.5)
         sideways_threshold = params.get('sideways_threshold', 0.015)
-        print(f"  - [参数加载]: 接近阈值={proximity_threshold}, 成交量倍数={volume_ratio}, 横盘阈值={sideways_threshold}")
 
-        # 2. 分解计算所有独立的信号条件
+        # 2. 计算各个条件
+        # 条件A: 当前收盘价非常接近市场核心成本区
         main_cost_area = df[weight_avg_col]
         is_price_near_cost_area = (df['close_D'] >= main_cost_area * (1 - proximity_threshold)) & \
                                   (df['close_D'] <= main_cost_area * (1 + proximity_threshold))
+        
+        # 条件B: 当日成交量显著放大 (有大量换手)
         is_volume_surged = df['volume_D'] > (df[vol_ma_col] * volume_ratio)
+        
+        # 条件C: 当日收盘价涨跌幅极小，表明是“横盘”换手
         daily_pct_change = df['close_D'].pct_change().abs()
         is_sideways_consolidation = daily_pct_change < sideways_threshold
         
-        # ▼▼▼ 移除 precondition 的约束，让剧本独立判断 ▼▼▼
-        # 最终信号：价格贴近成本区，并且放量、横盘
-        final_signal = is_price_near_cost_area & is_volume_surged & is_sideways_consolidation
-
-        # 增强的逐日详细验尸报告
-        print("  - [逐日详细诊断 - 2024年01月-12月]:")
-        debug_dates = df[(df.index >= '2024-01-01') & (df.index <= '2024-12-31')].index
-        triggered_in_period = False
-        for date in debug_dates:
-            # 为了日志清晰，只打印至少有一个条件为True的日子
-            if is_price_near_cost_area.get(date, False) or is_volume_surged.get(date, False):
-                # ▼▼▼ 调试日志中不再显示 precondition ▼▼▼
-                near_cost_val = is_price_near_cost_area.get(date, False)
-                volume_val = is_volume_surged.get(date, False)
-                sideways_val = is_sideways_consolidation.get(date, False)
-                result_val = final_signal.get(date, False)
-                
-                close = df.loc[date, 'close_D']
-                cost = df.loc[date, weight_avg_col]
-                vol = df.loc[date, 'volume_D']
-                vol_ma = df.loc[date, vol_ma_col]
-                pct_chg = daily_pct_change.loc[date]
-
-                print(f"    - {date.date()}:")
-                print(f"      -> 数据: 收盘价={close:.2f}, 成本={cost:.2f} | 成交量={int(vol)}, 均量={int(vol_ma)} | 日涨跌幅={pct_chg:.3%}")
-                print(f"      -> 条件: 接近成本={near_cost_val}, 放量={volume_val}, 横盘={sideways_val} -> 最终信号={result_val}")
-                if result_val:
-                    triggered_in_period = True
+        # ▼▼▼ 增加全新的“资金流”验证条件 ▼▼▼
+        # 条件D: 当日主力资金必须是净流入状态
+        is_main_force_inflow = df['net_mf_amount_D'] > 0
         
-        if not triggered_in_period:
-            print("    - 在此期间未发现任何触发信号的日子。")
+        # ▼▼▼ 在最终信号中加入资金流验证 ▼▼▼
+        # 3. 组合最终信号：价格接近成本 + 放量 + 横盘 + 主力净流入
+        final_signal = is_price_near_cost_area & is_volume_surged & is_sideways_consolidation & is_main_force_inflow
 
-        # 打印最终总结
-        print(f"  - [最终总结]:")
-        print(f"    - 总计满足 [接近成本] 天数: {is_price_near_cost_area.sum()}")
-        print(f"    - 总计满足 [放量] 天数: {is_volume_surged.sum()}")
-        print(f"    - 总计满足 [横盘] 天数: {is_sideways_consolidation.sum()}")
-        print(f"    - 总计满足 [全部条件] 天数: {final_signal.sum()}")
-        print("--- [调试日志结束 - 剧本: 成本区增强] ---\n")
+        # (可选的调试日志) 如果需要再次调试，可以取消下面的注释
+        # print("\n--- [调试日志 - 剧本: 成本区增强 (COST_AREA_REINFORCEMENT) V1.6] ---")
+        # debug_dates = df[(df.index >= '2024-01-01') & (df.index <= '2024-12-31')].index
+        # for date in debug_dates:
+        #     if final_signal.get(date, False):
+        #         close = df.loc[date, 'close_D']
+        #         cost = df.loc[date, weight_avg_col]
+        #         vol = df.loc[date, 'volume_D']
+        #         vol_ma = df.loc[date, vol_ma_col]
+        #         pct_chg = daily_pct_change.loc[date]
+        #         net_mf = df.loc[date, 'net_mf_amount_D']
+        #         print(f"    - {date.date()}: 信号触发!")
+        #         print(f"      -> 数据: 收盘价={close:.2f}, 成本={cost:.2f}, 日涨跌幅={pct_chg:.3%}, 主力净流入={net_mf:,.0f}")
+        #         print(f"      -> 条件: 接近成本=True, 放量=True, 横盘=True, 资金流入=True")
+        # print(f"  - [最终总结]: 总计满足 [全部条件] 天数: {final_signal.sum()}")
+        # print("--- [调试日志结束] ---\n")
 
         return final_signal.fillna(False)
 
