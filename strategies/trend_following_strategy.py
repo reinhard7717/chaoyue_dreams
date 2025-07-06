@@ -933,17 +933,17 @@ class TrendFollowStrategy:
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V11.0 响应式趋势版 (最终决战版)】“潜龙在渊”
-        - 核心升级 (响应式趋势): 修复V10的“幽灵缺陷”。废除滞后的10日均线斜率(ma_slope)计算，
-          采用更灵敏、无延迟的趋势判断方法：只要当日EMA21 > 昨日EMA21，即认为趋势向上。
-          这确保了趋势确认与突破事件在时间尺度上的完美匹配。
+        【剧本】【V12.0 弹性支撑版 (最终形态)】“潜龙在渊”
+        - 核心升级 (弹性支撑): 修复V11的“完美主义”陷阱。将支撑判断从 `low > MA` 修改为 `close > MA`。
+          这个改动承认并接纳了市场中健康的“回踩确认”行为（即盘中最低价可能瞬间触碰或跌破均线，
+          但收盘价必须站稳在均线之上），使模型更符合实战，不再错杀关键信号。
         - 策略逻辑:
           1. 定义“深度压缩状态”。
           2. 定义“点火信号”。
-          3. 定义“响应式趋势支撑”。
+          3. 定义“弹性趋势支撑”。
           4. 检查“近期有过压缩”。
           5. 计算“动态天花板”。
-          6. 最终信号: 所有逻辑链完美对齐，捕捉趋势转折的黄金时刻。
+          6. 最终信号: 捕捉“压缩-回踩-突破”这一经典买入模式。
         """
         params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
@@ -976,9 +976,9 @@ class TrendFollowStrategy:
         if df[net_mf_col].dtype != 'float64':
             df[net_mf_col] = df[net_mf_col].astype(float)
 
-        print("\n--- [法医级调试-潜龙在渊V11.0-响应式趋势版] 开始 ---")
+        print("\n--- [法医级调试-潜龙在渊V12.0-弹性支撑版] 开始 ---")
 
-        # --- 2. 计算需要的斜率 (不再需要ma_slope) ---
+        # --- 2. 计算需要的斜率 ---
         def get_slope(y):
             if len(y.dropna()) < 2: return np.nan
             x = np.arange(len(y))
@@ -996,18 +996,18 @@ class TrendFollowStrategy:
         is_in_deep_compression = is_volatility_compressing & is_volume_shrinking & is_price_adapting
         print(f"    [调试-步骤3]: 识别到'深度压缩日'总数: {is_in_deep_compression.sum()} 天")
 
-        # --- 4. 定义“点火信号”与“响应式趋势支撑” ---
+        # --- 4. 定义“点火信号”与“弹性趋势支撑” ---
         is_strong_candle = df['close_D'] > df['open_D']
         is_pct_change_valid = df['close_D'].pct_change() > breakout_pct_change
         is_breakout_volume = df['volume_D'] > df[vol_ma_col] * breakout_vol_ratio
         is_main_force_driving = df[net_mf_col] > 0
         is_ignition_action = is_strong_candle & is_pct_change_valid & is_breakout_volume & is_main_force_driving
         
-        # 【核心升级】: 使用无延迟的响应式趋势判断
         is_ma_rising = df[support_ma_col] > df[support_ma_col].shift(1)
-        is_above_support = df['low_D'] > df[support_ma_col]
+        # 【核心升级】: 使用收盘价判断支撑，允许盘中“回吻”均线，这更符合实战。
+        is_above_support = df['close_D'] > df[support_ma_col]
         has_trend_support = is_ma_rising & is_above_support
-        print(f"    [调试-步骤4]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天, 其中有'响应式趋势支撑'的总数: {has_trend_support.sum()} 天")
+        print(f"    [调试-步骤4]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天, 其中有'弹性趋势支撑'的总数: {has_trend_support.sum()} 天")
 
         # --- 5. 检查“近期有过压缩”与计算“动态天花板” ---
         had_recent_compression = is_in_deep_compression.shift(1).rolling(window=release_window, min_periods=1).max().fillna(0).astype(bool)
@@ -1022,8 +1022,8 @@ class TrendFollowStrategy:
             (df['close_D'] > dynamic_ceiling)
         )
         
-        print(f"    [调试-步骤6]: ★★★ 最终信号 (响应式趋势模型): {is_breakout_trigger.sum()} ★★★")
-        print("--- [法医级调试-潜龙在渊V11.0-响应式趋势版] 结束 ---\n")
+        print(f"    [调试-步骤6]: ★★★ 最终信号 (弹性支撑模型): {is_breakout_trigger.sum()} ★★★")
+        print("--- [法医级调试-潜龙在渊V12.0-弹性支撑版] 结束 ---\n")
 
         # 清理临时列
         df.drop(columns=['bbw_slope', 'vol_ma_slope', 'price_slope'], inplace=True, errors='ignore')
