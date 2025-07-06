@@ -933,17 +933,15 @@ class TrendFollowStrategy:
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V12.0 弹性支撑版 (最终形态)】“潜龙在渊”
-        - 核心升级 (弹性支撑): 修复V11的“完美主义”陷阱。将支撑判断从 `low > MA` 修改为 `close > MA`。
-          这个改动承认并接纳了市场中健康的“回踩确认”行为（即盘中最低价可能瞬间触碰或跌破均线，
-          但收盘价必须站稳在均线之上），使模型更符合实战，不再错杀关键信号。
+        【剧本】【正式版】“潜龙在渊”
+        - 策略核心: 捕捉股价经过“深度压缩”蓄能后，在趋势支撑下放量突破“动态天花板”的启动点。
         - 策略逻辑:
-          1. 定义“深度压缩状态”。
-          2. 定义“点火信号”。
-          3. 定义“弹性趋势支撑”。
-          4. 检查“近期有过压缩”。
-          5. 计算“动态天花板”。
-          6. 最终信号: 捕捉“压缩-回踩-突破”这一经典买入模式。
+          1. 识别“深度压缩状态”: 布林带宽度、成交量、价格三者的斜率同时下降，表明市场能量收缩。
+          2. 检查“近期有过压缩”: 在一个短窗口内(如5天)回看，确认突破前具备蓄能背景。
+          3. 定义“点火信号”: 阳线、涨幅、成交量、主力资金流入等条件共同确认突破的有效性。
+          4. 定义“弹性趋势支撑”: 均线向上，且收盘价站稳在均线之上，允许盘中健康的“回踩确认”行为。
+          5. 定义“动态天花板”: 突破目标是近期压缩平台自身形成的顶部，而非固定的历史高点。
+          6. 最终信号: 满足以上所有条件，形成一个高胜率的买入信号。
         """
         params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
@@ -970,13 +968,14 @@ class TrendFollowStrategy:
         required_cols = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', bbw_col, vol_ma_col, net_mf_col, support_ma_col]
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
-            print(f"    [调试-潜龙在渊-致命错误]: 缺少必需列，剧本终止。缺失的列是: {missing}")
+            # 【代码修改】: 保留此关键错误信息，用于生产环境下的问题排查
+            print(f"    [潜龙在渊-策略警告]: 缺少必需列，剧本已跳过。缺失的列是: {missing}")
             return pd.Series(False, index=df.index)
         
         if df[net_mf_col].dtype != 'float64':
             df[net_mf_col] = df[net_mf_col].astype(float)
 
-        print("\n--- [法医级调试-潜龙在渊V12.0-弹性支撑版] 开始 ---")
+        # 【代码修改】: 移除调试信息 print("\n--- [法医级调试... 开始 ---")
 
         # --- 2. 计算需要的斜率 ---
         def get_slope(y):
@@ -994,7 +993,7 @@ class TrendFollowStrategy:
         is_volume_shrinking = df['vol_ma_slope'] < volume_slope_threshold
         is_price_adapting = (df['price_slope'] < price_slope_threshold_upper) & (df['price_slope'] > price_slope_threshold_lower)
         is_in_deep_compression = is_volatility_compressing & is_volume_shrinking & is_price_adapting
-        print(f"    [调试-步骤3]: 识别到'深度压缩日'总数: {is_in_deep_compression.sum()} 天")
+        # 【代码修改】: 移除调试信息 print(f"    [调试-步骤3]: ...")
 
         # --- 4. 定义“点火信号”与“弹性趋势支撑” ---
         is_strong_candle = df['close_D'] > df['open_D']
@@ -1004,15 +1003,14 @@ class TrendFollowStrategy:
         is_ignition_action = is_strong_candle & is_pct_change_valid & is_breakout_volume & is_main_force_driving
         
         is_ma_rising = df[support_ma_col] > df[support_ma_col].shift(1)
-        # 【核心升级】: 使用收盘价判断支撑，允许盘中“回吻”均线，这更符合实战。
         is_above_support = df['close_D'] > df[support_ma_col]
         has_trend_support = is_ma_rising & is_above_support
-        print(f"    [调试-步骤4]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天, 其中有'弹性趋势支撑'的总数: {has_trend_support.sum()} 天")
+        # 【代码修改】: 移除调试信息 print(f"    [调试-步骤4]: ...")
 
         # --- 5. 检查“近期有过压缩”与计算“动态天花板” ---
         had_recent_compression = is_in_deep_compression.shift(1).rolling(window=release_window, min_periods=1).max().fillna(0).astype(bool)
         dynamic_ceiling = df['high_D'].shift(1).rolling(window=release_window, min_periods=1).max()
-        print(f"    [调试-步骤5]: 识别到'近期有过压缩'背景总数: {had_recent_compression.sum()} 天, '动态天花板'计算完成。")
+        # 【代码修改】: 移除调试信息 print(f"    [调试-步骤5]: ...")
         
         # --- 6. 最终信号 ---
         is_breakout_trigger = (
@@ -1022,10 +1020,10 @@ class TrendFollowStrategy:
             (df['close_D'] > dynamic_ceiling)
         )
         
-        print(f"    [调试-步骤6]: ★★★ 最终信号 (弹性支撑模型): {is_breakout_trigger.sum()} ★★★")
-        print("--- [法医级调试-潜龙在渊V12.0-弹性支撑版] 结束 ---\n")
+        # 【代码修改】: 移除调试信息 print(f"    [调试-步骤6]: ...")
+        # 【代码修改】: 移除调试信息 print("--- [法医级调试... 结束 ---\n")
 
-        # 清理临时列
+        # --- 7. 清理临时列 ---
         df.drop(columns=['bbw_slope', 'vol_ma_slope', 'price_slope'], inplace=True, errors='ignore')
 
         return is_breakout_trigger & precondition
