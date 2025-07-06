@@ -688,48 +688,54 @@ class TrendFollowStrategy:
 
     def _identify_board_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【模块】识别A股特色的各种“板”形态。
-        这些是极端市场情绪的体现，拥有高优先级的判断价值。
-        返回一个包含各种形态布尔序列的字典。
+        【模块】【V2.1 容错增强版】识别A股特色的各种“板”形态。
+        - 核心修正: 增加了价格判断的容错缓冲，以应对真实市场中的微小价格波动和近似计算误差。
         """
         params = self._get_params_block(params, 'board_pattern_params')
         if not params.get('enabled', False):
             return {} # 如果禁用，返回空字典
 
-        # 准备基础数据
+        # --- 准备基础数据 ---
         prev_close = df['close_D'].shift(1)
         limit_up_threshold = params.get('limit_up_threshold', 0.098)
         limit_down_threshold = params.get('limit_down_threshold', -0.098)
-        high_turnover_rate = params.get('high_turnover_rate', 7.0) # 定义高换手率阈值
+        high_turnover_rate = params.get('high_turnover_rate', 7.0)
+        # ▼▼▼【代码修改】: 增加容错缓冲 ▼▼▼
+        price_buffer = params.get('price_buffer', 0.005) # 0.5%的价格缓冲
 
-        # 计算涨跌停价格（近似）
+        # --- 计算涨跌停价格（近似）---
         limit_up_price = prev_close * (1 + limit_up_threshold)
         limit_down_price = prev_close * (1 + limit_down_threshold)
 
+        # --- 识别涨跌停状态 (带缓冲) ---
+        # ▼▼▼【代码修改】: 在价格比较中应用缓冲 ▼▼▼
+        is_limit_up = df['close_D'] >= limit_up_price * (1 - price_buffer)
+        is_limit_down = df['close_D'] <= limit_down_price * (1 + price_buffer)
+        is_limit_up_high = df['high_D'] >= limit_up_price * (1 - price_buffer)
+        is_limit_down_low = df['low_D'] <= limit_down_price * (1 + price_buffer)
+
         # 1. 一字板 (Unbroken Board)
-        is_limit_up = df['close_D'] >= limit_up_price
-        is_limit_down = df['close_D'] <= limit_down_price
         is_one_word_shape = (df['open_D'] == df['high_D']) & (df['high_D'] == df['low_D']) & (df['low_D'] == df['close_D'])
         is_one_word_limit_up = is_limit_up & is_one_word_shape
         
         # 2. 换手板 (Turnover Board)
-        is_limit_up_close = (df['close_D'] == df['high_D']) & is_limit_up
+        # ▼▼▼【代码修改】: 放宽收盘价等于最高价的条件 ▼▼▼
+        is_limit_up_close = (df['close_D'] >= df['high_D'] * (1 - price_buffer)) & is_limit_up
         is_opened_during_day = df['open_D'] < df['high_D'] # 盘中开过板
         is_high_turnover = df.get('turnover_rate_D', pd.Series(0, index=df.index)) > high_turnover_rate
         is_turnover_board = is_limit_up_close & is_opened_during_day & is_high_turnover
 
         # 3. 天地板 (Heaven-Earth Board) - 强力卖出/风险信号
-        is_limit_up_high = df['high_D'] >= limit_up_price
-        is_limit_down_close = (df['close_D'] == df['low_D']) & is_limit_down
+        is_limit_down_close = (df['close_D'] <= df['low_D'] * (1 + price_buffer)) & is_limit_down
         is_heaven_earth_board = is_limit_up_high & is_limit_down_close
 
         # 4. 地天板 (Earth-Heaven Board) - 强力买入/反转信号
-        is_limit_down_low = df['low_D'] <= limit_down_price
         # is_limit_up_close 已在上面定义
         is_earth_heaven_board = is_limit_down_low & is_limit_up_close
-
-        # 注意：'天地天板'需要分钟级数据才能精确判断，此处基于日线数据不予实现。
         
+        if self.verbose_logging:
+            print(f"    [调试-板形态V2.1]: 地天板触发: {is_earth_heaven_board.sum()} 天, 天地板触发: {is_heaven_earth_board.sum()} 天")
+
         return {
             'one_word_limit_up': is_one_word_limit_up,
             'turnover_board': is_turnover_board,
@@ -741,77 +747,70 @@ class TrendFollowStrategy:
 
     def _find_bullish_flag_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V3.0 A股特化版】识别“上升旗形”整理。
-        - 核心优化: 深度融合A股特色数据（资金流、筹码），提升信号质量。
-        - 旗面验证: 增加“缩量”、“资金稳定”、“筹码锁定”等洗盘行为的量化验证。
-        - 突破确认: 要求突破日必须是“价、量、资”三位一体的共振。
+        【剧本】【V3.1 逻辑简化与调试增强版】识别“上升旗形”整理。
+        - 核心修正: 简化了过于复杂的验证逻辑，聚焦于“快涨+缩量盘整+放量突破”的核心模式。
+        - 调试增强: 增加了详细的日志输出，便于追踪信号未触发的原因。
         """
         params = self._get_params_block(params, 'bullish_flag_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
         # --- 从配置中读取或使用默认值 ---
-        pole_lookback = params.get('pole_lookback', 20)
-        pole_rise_pct = params.get('pole_rise_pct', 0.20) # 旗杆涨幅要求提高到20%
-        flag_max_days = params.get('max_flag_days', 10) # 旗面最长10天
-        flag_min_days = params.get('min_flag_days', 3)   # 旗面最短3天
-        # 新增参数，用于更精细的控制
-        flag_vol_shrink_ratio = params.get('flag_vol_shrink_ratio', 0.7) # 旗面成交量需萎缩至旗杆期均量的70%以下
-        breakout_vol_multiplier = params.get('breakout_vol_multiplier', 1.8) # 突破日成交量至少是旗面均量的1.8倍
-        support_ma_period = params.get('support_ma_period', 21) # 旗面整理期间应在21日线上方
+        pole_lookback = params.get('pole_lookback', 10) # 旗杆回看期缩短
+        pole_rise_pct = params.get('pole_rise_pct', 0.25) # 旗杆涨幅要求
+        flag_max_days = params.get('max_flag_days', 8)
+        flag_min_days = params.get('min_flag_days', 3)
+        flag_vol_shrink_ratio = params.get('flag_vol_shrink_ratio', 0.6) # 旗面成交量萎缩要求更严格
+        breakout_vol_multiplier = params.get('breakout_vol_multiplier', 1.8)
 
         # --- 准备所需列名 ---
-        support_ma_col = f"EMA_{support_ma_period}_D"
-        vol_ma_col = f"VOL_MA_21_D" # 固定使用21日量均线作为参考
-        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'net_mf_amount_D', support_ma_col, vol_ma_col]
+        vol_ma_col = "VOL_MA_21_D"
+        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'net_mf_amount_D', vol_ma_col]
         if not all(col in df.columns for col in required_cols):
             if self.verbose_logging:
-                print(f"    [调试-上升旗形-警告]: 缺少必需列: {[c for c in required_cols if c not in df.columns]}，剧本跳过。")
+                print(f"    [调试-上升旗形-警告]: 缺少必需列，剧本跳过。")
             return pd.Series(False, index=df.index)
 
-        # --- 向量化计算 ---
         signals = pd.Series(False, index=df.index)
 
-        # 循环遍历所有可能的旗面天数，以获得更精确的匹配
+        # --- 向量化计算，遍历所有可能的旗面天数 ---
         for flag_days in range(flag_min_days, flag_max_days + 1):
-            # 1. 定义旗面和旗杆的回看期
-            flag_period_df = df.shift(1).rolling(window=flag_days)
-            pole_period_df = df.shift(1 + flag_days).rolling(window=pole_lookback)
-
-            # 2. 验证旗杆 (Pole)
-            pole_start_price = pole_period_df['low_D'].min()
-            pole_top_price = flag_period_df['high_D'].max() # 旗面的最高点即为旗杆的顶
-            has_strong_pole = (pole_top_price / pole_start_price - 1) > pole_rise_pct
-
-            # 3. 验证旗面 (Flag) - 健康的缩量洗盘
-            flag_low_price = flag_period_df['low_D'].min()
-            flag_avg_volume = flag_period_df['volume_D'].mean()
-            pole_avg_volume = pole_period_df['volume_D'].mean()
+            # 1. 定义旗杆和旗面
+            # 旗杆是[T-flag_days-pole_lookback, T-flag_days-1]
+            # 旗面是[T-flag_days, T-1]
+            # 突破日是 T
             
-            # 条件a: 缩量 - 旗面成交量显著低于旗杆期
+            # 2. 验证旗杆 (Pole)
+            pole_high = df['high_D'].shift(flag_days + 1).rolling(pole_lookback).max()
+            pole_low = df['low_D'].shift(flag_days + 1).rolling(pole_lookback).min()
+            has_strong_pole = (pole_high / pole_low - 1) > pole_rise_pct
+
+            # 3. 验证旗面 (Flag)
+            flag_df = df.shift(1).rolling(flag_days)
+            flag_avg_volume = flag_df['volume_D'].mean()
+            pole_avg_volume = df['volume_D'].shift(flag_days + 1).rolling(pole_lookback).mean()
+            
+            # 条件a: 旗面缩量
             is_volume_shrinking = flag_avg_volume < (pole_avg_volume * flag_vol_shrink_ratio)
-            # 条件b: 价稳 - 回调期间守住关键支撑均线
-            is_price_supported = flag_low_price > flag_period_df[support_ma_col].min()
-            # 条件c: 资稳 - 洗盘期间主力资金未大幅流出
-            is_fund_flow_stable = flag_period_df['net_mf_amount_D'].sum() > - (df['amount_D'].rolling(pole_lookback).mean() * 0.1).shift(1+flag_days) # 允许少量流出，但不超过前期日均成交额的10%
+            # 条件b: 旗面回调不能太深，低点不能低于旗杆中点
+            is_pullback_shallow = flag_df['low_D'].min() > (pole_high + pole_low) / 2
+            
+            is_healthy_flag = has_strong_pole & is_volume_shrinking & is_pullback_shallow
 
-            is_healthy_flag = has_strong_pole & is_volume_shrinking & is_price_supported & is_fund_flow_stable
-
-            # 4. 验证突破日 (Breakout) - 价量资共振
-            # 条件a: 价格突破旗面高点
-            is_price_breakout = df['close_D'] > pole_top_price
-            # 条件b: 成交量显著放大
+            # 4. 验证突破日 (Breakout)
+            # 突破旗杆的最高点
+            is_price_breakout = df['close_D'] > pole_high
             is_volume_breakout = df['volume_D'] > (flag_avg_volume * breakout_vol_multiplier)
-            # 条件c: 主力资金当日大幅流入
             is_fund_flow_confirm = df['net_mf_amount_D'] > 0
-            # 条件d: 实体阳线
-            is_strong_candle = (df['close_D'] - df['open_D']) > (df['high_D'] - df['low_D']) * 0.5
-
-            is_valid_breakout = is_price_breakout & is_volume_breakout & is_fund_flow_confirm & is_strong_candle
+            is_valid_breakout = is_price_breakout & is_volume_breakout & is_fund_flow_confirm
 
             # 5. 合成信号
             current_signals = is_healthy_flag & is_valid_breakout
             signals |= current_signals
+
+            if self.verbose_logging and current_signals.any():
+                print(f"    [调试-上升旗形V3.1]: 在 flag_days={flag_days} 时发现信号: {current_signals.sum()} 个")
+                print(f"      -> 强旗杆: {has_strong_pole.sum()}, 健康旗面: {is_healthy_flag.sum()}, 有效突破: {is_valid_breakout.sum()}")
 
         return signals.fillna(False) & precondition
 
@@ -934,117 +933,98 @@ class TrendFollowStrategy:
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V3.2 洗盘识别版】“潜龙在渊” - 新增对主力“对倒洗盘”行为的识别。
-        - 核心升级: 能够识别两种主力准备模式：1. 隐蔽吸筹；2. 暴力洗盘。
-        - 洗盘定义: 识别“主力大单卖出，但股价异常坚挺”的特征，视为拉升前的最后清洗。
-        - 最终信号: 无论是“隐蔽吸筹”还是“暴力洗盘”之后，一旦出现主力点火突破，都视为有效信号。
+        【剧本】【V4.0 混合动力版】“潜龙在渊” - 平衡精确性与泛化能力。
+        - 核心升级: 从“单点判断”升级为“阶段判断”。不再要求突破前一天必须是准备日，而是检查突破前的某个窗口期内是否出现过准备特征。
+        - 策略逻辑:
+          1. 定义两种准备特征:
+             - 隐蔽吸筹: 一段时期内，波动率和成交量双低，且主力资金无明显外流。
+             - 暴力洗盘: 某一天出现“主力砸盘但股价不跌”的反常现象。
+          2. 定义准备阶段: 在突破前的N天内，只要出现过上述任一特征，就认为已进入“准备阶段”。
+          3. 定义点火信号: 当日出现“放量、阳线、主力资金大幅净流入”的强力启动信号。
+          4. 最终信号: 处于“准备阶段”后，首次出现“点火信号”。
         """
         params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
         # --- 从配置中读取或使用默认值 ---
-        lookback = params.get('volatility_lookback', 60)
-        volatility_quantile = params.get('volatility_quantile', 0.1)
+        prep_phase_lookback = params.get('prep_phase_lookback', 15) # 定义“准备阶段”的回看窗口
+        # 吸筹期参数
+        accum_lookback = params.get('volatility_lookback', 40) # 计算吸筹期指标的回看窗口
+        volatility_quantile = params.get('volatility_quantile', 0.15) # 放宽波动率分位数
+        volume_quantile = params.get('volume_quantile', 0.15) # 放宽成交量分位数
+        # 洗盘日参数
+        washout_vol_ratio = params.get('washout_volume_spike_ratio', 2.0)
+        max_washout_price_drop = params.get('max_washout_price_drop', -0.03) # 价格跌幅容忍度
+        # 点火日参数
+        breakout_vol_ratio = params.get('breakout_volume_ratio', 1.8)
         breakout_pct_change = params.get('breakout_pct_change', 0.03)
-        breakout_main_force_drive_ratio = params.get('breakout_main_force_drive_ratio', 0.4)
-        max_main_force_selling_ratio = params.get('max_main_force_selling_ratio', 0.15)
-        washout_volume_spike_ratio = params.get('washout_volume_spike_ratio', 2.0)
-        max_washout_price_drop = params.get('max_washout_price_drop', -0.05)
 
         # --- 准备所需列名 ---
-        # 注意：这个新版本需要更多的数据列，特别是精细的资金流数据和筹码数据
-        bbw_col = 'BBW_21_2.0_D' # 使用布林带宽度作为波动率指标
-        required_cols = [
-            'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'amount_D', 'winner_rate_D', 'weight_avg_D', bbw_col,
-            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
-            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
-        ]
-        # 检查所有必需列是否存在
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
+        bbw_col = 'BBW_21_2.0_D'
+        vol_ma_col = 'VOL_MA_21_D'
+        required_cols = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', bbw_col, vol_ma_col, 'net_main_force_amount_D']
+        if not all(col in df.columns for col in required_cols):
             if self.verbose_logging:
-                # 使用 print 进行调试输出
-                print(f"    [调试-潜龙在渊-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
+                print(f"    [调试-潜龙在渊V4.0-警告]: 缺少必需列，剧本跳过。")
             return pd.Series(False, index=df.index)
         
-        amount_cols_to_convert = [
-            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
-            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
-            'net_mf_amount_D' # 如果这个字段也可能从数据库来
-        ]
-        for col in amount_cols_to_convert:
-            if col in df.columns:
-                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
-                df[col] = df[col].astype(float)
+        # --- 确保资金列是float类型 ---
+        if 'net_main_force_amount_D' in df.columns and df['net_main_force_amount_D'].dtype != 'float64':
+            df['net_main_force_amount_D'] = df['net_main_force_amount_D'].astype(float)
 
-        # --- 预计算资金流数据 (为了逻辑清晰) ---
-        df['net_retail_amount_D'] = (df['buy_sm_amount_D'] + df['buy_md_amount_D']) - (df['sell_sm_amount_D'] + df['sell_md_amount_D'])
-        df['main_force_buy_amount_D'] = df['buy_lg_amount_D'] + df['buy_elg_amount_D']
-        df['main_force_sell_amount_D'] = df['sell_lg_amount_D'] + df['sell_elg_amount_D']
-        df['net_main_force_amount_D'] = df['main_force_buy_amount_D'] - df['main_force_sell_amount_D']
-        df['total_buy_amount_D'] = df['buy_sm_amount_D'] + df['buy_md_amount_D'] + df['main_force_buy_amount_D']
+        # --- 步骤1: 识别两种“准备特征” ---
+        # 特征A: “隐蔽吸筹”特征日
+        # 条件1: 能量压缩 - 波动率和成交量双低
+        is_low_volatility = df[bbw_col] < df[bbw_col].rolling(accum_lookback).quantile(volatility_quantile)
+        is_low_volume = df['volume_D'] < df['volume_D'].rolling(accum_lookback).quantile(volume_quantile)
+        # 条件2: 资金稳定 - 主力资金在此期间没有明显流出
+        avg_net_mf = df['net_main_force_amount_D'].rolling(accum_lookback).mean()
+        is_fund_stable = avg_net_mf > - (df['amount_D'].rolling(accum_lookback).mean() * 0.01) # 允许少量流出
+        is_stealth_accumulation_day = is_low_volatility & is_low_volume & is_fund_stable
 
-        # --- 阶段一，模式A：定义“主力隐蔽吸筹” (静默准备) ---
-        # 形态压缩: 波动率收缩 + 筹码锁定
-        is_form_compressed = (df[bbw_col] < df[bbw_col].rolling(lookback).quantile(volatility_quantile)) & (df['winner_rate_D'] < 20.0)
-        # 资金博弈: 主力惜售 + 散户离场
-        rolling_main_force_sell = df['main_force_sell_amount_D'].rolling(lookback).sum()
-        rolling_total_amount = df['amount_D'].rolling(lookback).sum()
-        is_main_force_holding_firm = (rolling_main_force_sell / (rolling_total_amount + 1e-9)) < max_main_force_selling_ratio
-        is_retail_wavering = df['net_retail_amount_D'].rolling(lookback).sum() < 0
-        # 合成“隐蔽吸筹”信号
-        is_stealth_accumulation = is_form_compressed & is_main_force_holding_firm & is_retail_wavering
-
-        # --- 阶段一，模式B：定义“主力对倒洗盘” (暴力准备) ---
-        # 条件1: 当日成交量显著放大
-        is_washout_volume = df['volume_D'] > df['volume_D'].rolling(lookback).mean() * washout_volume_spike_ratio
-        # 条件2: 主力资金呈现大幅净卖出
-        is_main_force_net_selling = df['net_main_force_amount_D'] < 0
-        # 条件3: 股价却异常坚挺，未出现崩溃式下跌 (核心反差)
+        # 特征B: “暴力洗盘”特征日
+        # 核心矛盾：主力大幅净卖出，但价格并未崩溃
+        is_washout_volume = df['volume_D'] > df[vol_ma_col] * washout_vol_ratio
+        is_main_force_selling = df['net_main_force_amount_D'] < 0
         is_price_resilient = df['close_D'].pct_change() > max_washout_price_drop
-        # 条件4: 当天有明显的下影线，说明承接有力 (形态确认)
+        # 形态确认：当天有明显的下影线，说明承接有力
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         lower_shadow_ratio = (df['close_D'] - df['low_D']) / total_range
-        has_strong_support_shadow = lower_shadow_ratio > 0.3
-        # 合成“对倒洗盘”信号
-        is_wash_trading_shakeout = is_washout_volume & is_main_force_net_selling & is_price_resilient & has_strong_support_shadow
+        has_support_shadow = lower_shadow_ratio > 0.4
+        is_violent_washout_day = is_washout_volume & is_main_force_selling & is_price_resilient & has_support_shadow
 
-        # --- 合并两种准备模式 ---
-        # 只要前一天是“隐蔽吸筹”或“对倒洗盘”，都视为潜龙准备就绪
-        is_ready_for_breakout = is_stealth_accumulation | is_wash_trading_shakeout
+        # --- 步骤2: 定义“准备阶段” ---
+        # 只要在 prep_phase_lookback 周期内，出现过任意一种准备特征，就认为处于准备阶段
+        has_prep_feature = is_stealth_accumulation_day | is_violent_washout_day
+        is_in_preparation_phase = has_prep_feature.rolling(window=prep_phase_lookback, min_periods=1).sum() > 0
 
-        # --- 阶段二：定义“主力点火的能量释放” (攻击信号) ---
-        # 价格行为: 放量阳线突破成本区
-        is_breakout_candle = df['close_D'].pct_change() > breakout_pct_change
-        is_breakout_volume = df['volume_D'] > df['volume_D'].rolling(10).mean() * 1.8
-        is_above_chip_cost = df['close_D'] > df['weight_avg_D']
-        is_price_action_valid = is_breakout_candle & is_breakout_volume & is_above_chip_cost
-        # 资金行为: 主力是买入的绝对驱动力
-        is_main_force_net_inflow = df['net_main_force_amount_D'] > 0
-        is_main_force_driving = (df['main_force_buy_amount_D'] / (df['total_buy_amount_D'] + 1e-9)) > breakout_main_force_drive_ratio
-        # 合成“能量释放”信号
-        is_energy_release = is_price_action_valid & is_main_force_net_inflow & is_main_force_driving
+        # --- 步骤3: 定义“点火信号” ---
+        is_strong_candle = df['close_D'] > df['open_D']
+        is_pct_change_valid = df['close_D'].pct_change() > breakout_pct_change
+        is_breakout_volume = df['volume_D'] > df[vol_ma_col] * breakout_vol_ratio
+        is_main_force_driving = df['net_main_force_amount_D'] > 0
+        is_ignition_signal = is_strong_candle & is_pct_change_valid & is_breakout_volume & is_main_force_driving
 
-        # --- 最终信号：前一日处于任一准备状态，今日发生“主力点火” ---
-        signal = is_ready_for_breakout.shift(1).fillna(False) & is_energy_release
+        # --- 步骤4: 最终信号 ---
+        # 前序时间处于“准备阶段”，且当天出现“点火信号”
+        signal = is_in_preparation_phase.shift(1).fillna(False) & is_ignition_signal
         
         if self.verbose_logging:
-            # 使用 print 进行调试输出
-            print(f"    [调试-潜龙在渊V3.2]: 隐蔽吸筹天数: {is_stealth_accumulation.sum()}, 对倒洗盘天数: {is_wash_trading_shakeout.sum()}, 准备就绪总天数: {is_ready_for_breakout.sum()}")
-            print(f"    [调试-潜龙在渊V3.2]: 主力点火天数: {is_energy_release.sum()}, 最终信号: {signal.sum()}")
+            print(f"    [调试-潜龙在渊V4.0]: 吸筹特征日: {is_stealth_accumulation_day.sum()}, 洗盘特征日: {is_violent_washout_day.sum()}")
+            print(f"    [调试-潜龙在渊V4.0]: 进入准备阶段天数: {is_in_preparation_phase.sum()}, 点火信号天数: {is_ignition_signal.sum()}")
+            print(f"    [调试-潜龙在渊V4.0]: 最终信号: {signal.sum()}")
 
         return signal & precondition
 
     def _find_capital_flow_divergence_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【剧本】【V2.0 行为博弈版】“资金暗流” - 识别价格与主力行为的深度背离。
-        - 核心定位: 专注于捕捉下跌或筑底过程中的“左侧交易”反转点。
+        【剧本】【V2.1 逻辑放宽与调试增强版】“资金暗流” - 识别价格与主力行为的深度背离。
+        - 核心修正: 放宽了过于严苛的组合条件，聚焦于“价跌”与“资增”的核心背离，并增加了详细的调试日志。
         - 策略逻辑:
-          1. 表象(价格疲弱): 股价处于中长期均线下方，且接近近期低点。
+          1. 表象(价格疲弱): 股价处于下跌趋势中（低于长期均线）。
           2. 暗流(主力吸筹): 近期主力资金累计净流入为正，形成“价跌资增”的核心背离。
-          3. 博弈(情绪冰点): 获利盘比例极低，市场完成“投降式”抛售。
-        - 确认信号: 在上述“背离状态”形成后，出现一根由主力资金净买入推动的确认阳线。
+          3. 确认信号: 在上述“背离状态”形成后，出现一根由主力资金净买入推动的确认阳线。
         """
         params = self._get_params_block(params, 'capital_flow_divergence_params')
         if not params.get('enabled', False):
@@ -1053,12 +1033,12 @@ class TrendFollowStrategy:
         # --- 从配置中读取或使用默认值 ---
         lookback = params.get('lookback_period', 20)
         trend_ma_period = params.get('trend_ma_period', 55)
-        winner_rate_threshold = params.get('winner_rate_threshold', 15.0) # 获利盘低于15%
+        # 移除了 winner_rate_threshold，因为它过于严苛
 
         # --- 准备所需列名 ---
         trend_ma_col = f"EMA_{trend_ma_period}_D"
         required_cols = [
-            'low_D', 'close_D', 'open_D', 'winner_rate_D', trend_ma_col,
+            'low_D', 'close_D', 'open_D', trend_ma_col,
             'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
@@ -1067,49 +1047,41 @@ class TrendFollowStrategy:
                 print(f"    [调试-资金暗流-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
             return pd.Series(False, index=df.index)
         
+        # --- 【重要】确保资金流数据是float类型 ---
         amount_cols_to_convert = [
-            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
-            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
-            'net_mf_amount_D' # 如果这个字段也可能从数据库来
+            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
         ]
         for col in amount_cols_to_convert:
-            if col in df.columns:
-                # 使用 astype(float) 将包含 Decimal 对象的列安全地转换为 float64
+            if col in df.columns and df[col].dtype != 'float64':
                 df[col] = df[col].astype(float)
 
         # --- 预计算主力净买入额 ---
         df['net_main_force_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
 
         # --- 阶段一：定义“背离状态” (Divergence Setup) ---
-        # 条件1: 表象 - 价格疲弱
-        is_below_trend_ma = df['close_D'] < df[trend_ma_col]
-        is_near_low = df['low_D'] <= df['low_D'].rolling(lookback).min() * 1.03 # 允许比最低点高3%的缓冲
-        is_price_weak = is_below_trend_ma & is_near_low
+        # 条件1: 表象 - 价格处于下跌趋势
+        is_price_weak = df['close_D'] < df[trend_ma_col]
 
         # 条件2: 暗流 - 主力资金在逆势吸筹
         cumulative_main_force_flow = df['net_main_force_amount_D'].rolling(lookback).sum()
         is_capital_accumulating = cumulative_main_force_flow > 0
 
-        # 条件3: 博弈 - 市场情绪冰点，筹码完成清洗
-        is_sentiment_bottom = df['winner_rate_D'] < winner_rate_threshold
-
-        # 合成“背离状态”信号：三个条件需同时满足
-        is_divergence_setup = is_price_weak & is_capital_accumulating & is_sentiment_bottom
+        # 合成“背离状态”信号：两个核心条件需同时满足
+        is_divergence_setup = is_price_weak & is_capital_accumulating
 
         # --- 阶段二：定义“确认信号” (Confirmation Signal) ---
         # 条件1: 当天是阳线
         is_green_candle = df['close_D'] > df['open_D']
-        # 条件2: 当天主力资金必须是净买入，确认“暗流”转“明流”
+        # 条件2: 当天主力资金必须是净买入
         is_main_force_buying_today = df['net_main_force_amount_D'] > 0
-        # 合成“确认信号”
         is_confirmation_candle = is_green_candle & is_main_force_buying_today
 
         # --- 最终信号：前一日处于“背离状态”，今日出现“确认信号” ---
-        # 这是一个典型的左侧交易信号，不应受限于 precondition (通常代表右侧趋势)
         signal = is_divergence_setup.shift(1).fillna(False) & is_confirmation_candle
 
         if self.verbose_logging:
-            print(f"    [调试-资金暗流V2.0]: 背离状态天数: {is_divergence_setup.sum()}, 确认阳线天数: {is_confirmation_candle.sum()}, 最终信号: {signal.sum()}")
+            print(f"    [调试-资金暗流V2.1]: 价格弱势天数: {is_price_weak.sum()}, 主力吸筹天数: {is_capital_accumulating.sum()}")
+            print(f"    [调试-资金暗流V2.1]: 背离状态准备: {is_divergence_setup.sum()}, 确认阳线: {is_confirmation_candle.sum()}, 最终信号: {signal.sum()}")
 
         return signal
 
@@ -1861,45 +1833,58 @@ class TrendFollowStrategy:
 
     def _find_old_duck_head_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V2.1 JSON适配版】识别“老鸭头”形态。
-        - 改造: 适配新增的 old_duck_head_params JSON配置块。
-        - 逻辑: 回归经典定义：5/10日均线金叉60日线(鸭头)，随后死叉回踩60日线(鸭颈)，再次金叉(鸭嘴)并放量。
+        【剧本】【V2.2 行为金融学重构版】识别“老鸭头”形态。
+        - 核心修正: 不再拘泥于死板的均线交叉，而是关注其行为本质：“主力拉高建仓 -> 缩量洗盘 -> 资金再次介入启动”。
+        - 调试增强: 增加了详细的日志输出。
         """
         params = self._get_params_block(params, 'old_duck_head_params')
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        fast_ma_period = 5
-        mid_ma_period = 10
-        slow_ma_period = 60
+        # --- 定义均线和参数 ---
+        fast_ma_period = params.get('fast_ma', 10)
+        slow_ma_period = params.get('slow_ma', 55)
+        head_lookback = params.get('head_lookback', 40) # 形成鸭头（建仓）的回看期
+        neck_lookback = params.get('neck_lookback', 20) # 形成鸭颈（洗盘）的回看期
         
         fast_ma_col = f"EMA_{fast_ma_period}_D"
-        mid_ma_col = f"EMA_{mid_ma_period}_D"
         slow_ma_col = f"EMA_{slow_ma_period}_D"
-        
-        fe_params = self.daily_params.get('feature_engineering_params', {})
-        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
-        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
-        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+        vol_ma_col = "VOL_MA_21_D"
 
-        required_cols = [fast_ma_col, mid_ma_col, slow_ma_col, vol_ma_col, 'low_D', 'close_D', 'volume_D']
+        required_cols = [fast_ma_col, slow_ma_col, vol_ma_col, 'low_D', 'close_D', 'open_D', 'volume_D', 'net_main_force_amount_D']
         if not all(col in df.columns for col in required_cols):
             if self.verbose_logging:
-                print(f"    [调试-老鸭头-警告]: 缺少列: {[c for c in required_cols if c not in df.columns]}，跳过。")
+                print(f"    [调试-老鸭头-警告]: 缺少列，跳过。")
             return pd.Series(False, index=df.index)
 
-        is_golden_cross_today = (df[fast_ma_col] > df[mid_ma_col]) & (df[fast_ma_col].shift(1) <= df[mid_ma_col].shift(1))
-        is_volume_up = df['volume_D'] > df[vol_ma_col]
+        # --- 阶段一：识别“鸭头”形成 (主力拉高建仓) ---
+        # 定义：在head_lookback周期内，短期均线上穿了长期均线
+        was_golden_cross = (df[fast_ma_col].shift(1) > df[slow_ma_col].shift(1)) & (df[fast_ma_col].shift(2) <= df[slow_ma_col].shift(2))
+        has_head_formed = was_golden_cross.rolling(window=head_lookback, min_periods=1).sum() > 0
 
-        lookback_period = 60
-        was_dead_cross = (df[fast_ma_col] < df[mid_ma_col]) & (df[fast_ma_col].shift(1) >= df[mid_ma_col].shift(1))
-        was_supported_by_neck = df['low_D'] > df[slow_ma_col]
-        has_neck_formation = (was_dead_cross.rolling(window=lookback_period).sum() > 0) & \
-                             (was_supported_by_neck.rolling(window=lookback_period).min() == True)
+        # --- 阶段二：识别“鸭颈”形成 (缩量洗盘) ---
+        # 定义：在neck_lookback周期内，价格回落至长期均线附近，但成交量萎缩
+        is_price_near_slow_ma = (df['low_D'] <= df[slow_ma_col] * 1.03) & (df['close_D'] >= df[slow_ma_col] * 0.97)
+        is_volume_shrinking = df['volume_D'] < df[vol_ma_col]
+        is_washing_phase = is_price_near_slow_ma & is_volume_shrinking
+        has_neck_formed = is_washing_phase.rolling(window=neck_lookback, min_periods=1).sum() > 0
 
-        signal = is_golden_cross_today & is_volume_up & has_neck_formation.shift(1).fillna(False)
+        # --- 阶段三：识别“鸭嘴”张开 (再次启动) ---
+        # 定义：放量阳线，且主力资金净流入
+        is_strong_candle = df['close_D'] > df['open_D']
+        is_volume_up = df['volume_D'] > df[vol_ma_col] * 1.5
+        is_main_force_buying = df['net_main_force_amount_D'] > 0
+        is_beak_opening = is_strong_candle & is_volume_up & is_main_force_buying
 
-        return signal & precondition
+        # --- 最终信号：经历了“鸭头”和“鸭颈”阶段后，出现了“鸭嘴”张开信号 ---
+        # 使用.shift(1)确保我们在启动当天捕捉信号，而鸭头和鸭颈是已经发生的事实
+        signal = has_head_formed.shift(1) & has_neck_formed.shift(1) & is_beak_opening
+
+        if self.verbose_logging:
+            print(f"    [调试-老鸭头V2.2]: 鸭头形成: {has_head_formed.sum()}, 鸭颈形成: {has_neck_formed.sum()}, 鸭嘴张开: {is_beak_opening.sum()}")
+            print(f"    [调试-老鸭头V2.2]: 最终信号: {signal.sum()}")
+
+        return signal.fillna(False) & precondition
 
     def _find_n_shape_relay_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
