@@ -933,14 +933,16 @@ class TrendFollowStrategy:
 
     def _find_energy_compression_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
-        【剧本】【V9.0 蓄能释放版 (弹簧效应模型)】“潜龙在渊”
-        - 核心升级 (弹簧效应): 解决“压缩”与“点火”的时间差悖论。不再要求点火前一天必须处于压缩状态，
-          而是检查点火日发生时，在近期的“释放窗口”内是否“曾经出现过”深度压缩日。
+        【剧本】【V10.0 动态天花板版 (终极版)】“潜龙在渊”
+        - 核心升级 (动态天花板): 解决V9.0的逻辑断裂问题。彻底废除固定的 prep_phase_lookback，
+          将突破目标(天花板)的计算周期与蓄能识别周期(release_window)统一。
+          这意味着，突破的是“本次”压缩整理平台的顶部，而非某个无关的“历史”高点。
         - 策略逻辑:
-          1. 定义“深度压缩状态” (同V8.0)。
-          2. 定义“点火信号”和“趋势支撑” (同V8.0)。
-          3. 检查“近期有过压缩”: 对每个“点火日”，回看N天内(释放窗口)，是否至少有1天是“深度压缩日”。
-          4. 最终信号: 满足“近期有过压缩” + “点火信号” + “趋势支撑” + “结构性突破”。
+          1. 定义“深度压缩状态”。
+          2. 定义“点火信号”和“趋势支撑”。
+          3. 检查“近期有过压缩” (回看 release_window)。
+          4. 计算“动态天花板” (同样回看 release_window)。
+          5. 最终信号: 满足“近期有过压缩” + “点火” + “支撑” + “突破动态天花板”。
         """
         params = self._get_params_block(params, 'energy_compression_breakout_params')
         if not params.get('enabled', False):
@@ -948,8 +950,7 @@ class TrendFollowStrategy:
 
         # --- 1. 参数与数据准备 ---
         slope_lookback = params.get('slope_lookback', 10)
-        prep_phase_lookback = params.get('prep_phase_lookback', 15)
-        # 【核心升级参数】: 定义释放窗口，即点火日可以距离最近的压缩日有多远
+        # 【核心升级】: 统一使用 release_window 作为核心周期，废除 prep_phase_lookback
         release_window = params.get('release_window', 5)
 
         volatility_slope_threshold = params.get('volatility_slope_threshold', -0.001)
@@ -975,7 +976,7 @@ class TrendFollowStrategy:
         if df[net_mf_col].dtype != 'float64':
             df[net_mf_col] = df[net_mf_col].astype(float)
 
-        print("\n--- [法医级调试-潜龙在渊V9.0-蓄能释放版] 开始 ---")
+        print("\n--- [法医级调试-潜龙在渊V10.0-动态天花板版] 开始 ---")
 
         # --- 2. 计算所有需要的斜率 ---
         def get_slope(y):
@@ -989,18 +990,16 @@ class TrendFollowStrategy:
         df['price_slope'] = df['close_D'].rolling(window=slope_lookback).apply(get_slope, raw=False)
         df['ma_slope'] = df[support_ma_col].rolling(window=slope_lookback).apply(get_slope, raw=False)
 
-        # --- 3. 定义“深度压缩状态” (Energy Storage State) ---
+        # --- 3. 定义“深度压缩状态” ---
         is_volatility_compressing = df['bbw_slope'] < volatility_slope_threshold
         is_volume_shrinking = df['vol_ma_slope'] < volume_slope_threshold
         is_price_adapting = (df['price_slope'] < price_slope_threshold_upper) & (df['price_slope'] > price_slope_threshold_lower)
         is_in_deep_compression = is_volatility_compressing & is_volume_shrinking & is_price_adapting
         print(f"    [调试-步骤3]: 识别到'深度压缩日'总数: {is_in_deep_compression.sum()} 天")
 
-        # --- 4. 【核心升级】检查“近期有过压缩” (Recent Compression Check) ---
-        # .shift(1)确保我们看的是点火日之前的日子
-        # .rolling().max() 在布尔序列上等同于 .rolling().any()，检查窗口内是否有至少一个True
+        # --- 4. 检查“近期有过压缩” ---
         had_recent_compression = is_in_deep_compression.shift(1).rolling(window=release_window, min_periods=1).max().fillna(0).astype(bool)
-        print(f"    [调试-步骤4]: 识别到'近期有过压缩'的背景总数: {had_recent_compression.sum()} 天 (释放窗口: {release_window}天)")
+        print(f"    [调试-步骤4]: 识别到'近期有过压缩'的背景总数: {had_recent_compression.sum()} 天 (核心窗口: {release_window}天)")
 
         # --- 5. 定义“点火信号”与“趋势支撑” ---
         is_strong_candle = df['close_D'] > df['open_D']
@@ -1014,18 +1013,19 @@ class TrendFollowStrategy:
         has_trend_support = is_ma_rising & is_above_support
         print(f"    [调试-步骤5]: 识别到'点火行为'总数: {is_ignition_action.sum()} 天, 其中有'趋势支撑'的总数: {has_trend_support.sum()} 天")
 
-        # --- 6. 计算“准备区天花板”并触发最终信号 ---
-        prep_phase_ceiling = df['high_D'].shift(1).rolling(window=prep_phase_lookback, min_periods=1).max()
+        # --- 6. 【核心升级】计算“动态天花板”并触发最终信号 ---
+        # 天花板的计算周期与压缩识别周期完全统一，确保逻辑自洽
+        dynamic_ceiling = df['high_D'].shift(1).rolling(window=release_window, min_periods=1).max()
         
         is_breakout_trigger = (
-            had_recent_compression &      # 条件1: 近期有过压缩 (新核心)
-            is_ignition_action &          # 条件2: 当天是点火日
-            has_trend_support &           # 条件3: 获得趋势支撑
-            (df['close_D'] > prep_phase_ceiling) # 条件4: 突破结构高点
+            had_recent_compression &
+            is_ignition_action &
+            has_trend_support &
+            (df['close_D'] > dynamic_ceiling) # 突破与本次压缩直接相关的顶部
         )
         
-        print(f"    [调试-步骤6]: ★★★ 最终信号 (蓄能释放模型): {is_breakout_trigger.sum()} ★★★")
-        print("--- [法医级调试-潜龙在渊V9.0-蓄能释放版] 结束 ---\n")
+        print(f"    [调试-步骤6]: ★★★ 最终信号 (动态天花板模型): {is_breakout_trigger.sum()} ★★★")
+        print("--- [法医级调试-潜龙在渊V10.0-动态天花板版] 结束 ---\n")
 
         # 清理临时列
         df.drop(columns=['bbw_slope', 'vol_ma_slope', 'price_slope', 'ma_slope'], inplace=True, errors='ignore')
