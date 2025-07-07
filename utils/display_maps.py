@@ -14,8 +14,6 @@ STRATEGY_NAME_MAP = {
 
 # 剧本(Playbook)与得分项(Scoring Item)名称映射
 PLAYBOOK_NAME_MAP = {
-    # ▼▼▼【代码修改】: 新增V22+版日线战术剧本，并按类型重新组织 ▼▼▼
-
     # === 日线战术剧本 (主要机会信号) ===
     # --- 主力行为/高确定性 ---
     'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线-王牌】筹码集中突破',
@@ -62,7 +60,6 @@ PLAYBOOK_NAME_MAP = {
     'INDUSTRY_MULTIPLIER_ADJ': '【行业】强度乘数调整',
     'INDUSTRY_TOP_TIER_BONUS': '【行业】龙头板块加分',
 
-    # ▲▲▲【代码修改结束】▲▲▲
 
     # === 周线战略得分项 (由周线剧本转换而来) ===
     'BASE_MA20_TURN_UP': '【周策】MA20拐头向上',
@@ -79,6 +76,12 @@ PLAYBOOK_NAME_MAP = {
     'playbook_ma_uptrend_W': '【周线】均线多头排列',
     'playbook_box_consolidation_breakout_W': '【周线】专业箱体突破',
     'playbook_ace_signal_breakout_trigger_W': '【周线】王牌突破信号',
+    # --- 新增周线策略ID映射 ---
+    'coppock_reversal_W': '【周策】估波曲线抄底',
+    'early_uptrend_W': '【周策】早期上升趋势',
+    'ma20_rising_state_W': '【周策】MA20持续上升',
+    'ma_uptrend_W': '【周策】均线多头排列',
+    'trix_golden_cross_W': '【周策】TRIX金叉',
 
     # === 分钟级执行剧本 (Execution Playbooks) ===
     'RESONANCE_FRACTAL_ROCKET': '【分钟】分形火箭',
@@ -91,11 +94,11 @@ PLAYBOOK_NAME_MAP = {
     # --- 止盈信号 (兼容旧版和新版) ---
     'INTRADAY_TAKE_PROFIT': '盘中止盈预警',
     # 一级预警 (黄色)
-    '30分钟趋势加速度转负': '【一级预警】趋势减速',
+    'EXIT_LEVEL_1': '【一级预警】趋势减速',
     # 二级警报 (橙色)
-    '15分钟MACD死叉且30分钟趋势不健康': '【二级警报】短期转弱',
+    'EXIT_LEVEL_2': '【二级警报】短期转弱',
     # 三级警报 (红色)
-    '价格跌破日线关键支撑(EMA_55_D)': '【三级警报】跌破日线支撑',
+    'EXIT_LEVEL_3': '【三级警报】跌破日线支撑',
     # 旧版兼容
     'EXIT_CODE_101': '15分钟MACD死叉',
     'EXIT_CODE_102': '15分钟RSI顶背离',
