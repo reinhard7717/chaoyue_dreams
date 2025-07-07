@@ -126,7 +126,7 @@ def save_fund_flow_daily_data_today(self):
         target_methods = [
             'save_today_fund_flow_daily_data',
             'save_today_fund_flow_daily_ths_data',
-            'save_today_fund_flow_daily_dc_data'
+            # 'save_today_fund_flow_daily_dc_data'
         ]
         # [修改] 使用列表推导式和 .s() 方法创建一组任务签名
         task_signatures = [

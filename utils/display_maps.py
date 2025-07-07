@@ -76,19 +76,17 @@ PLAYBOOK_NAME_MAP = {
     # --- B. 增强型指令 (作为右侧交易的强力加分项) ---
     'EVENT_STRATEGIC_ACCELERATING_W': '【周策-增强】战略性加速', # 来自 playbook_COPPOCK_ACCELERATING_W
     
-    # ▼▼▼【代码修改】: 更新周线剧本ID以匹配代码生成的大写全名，并补全缺失项 ▼▼▼
     # --- C. 基础背景/突破指令 (作为基础分) ---
     'BASE_SIGNAL_BREAKOUT_TRIGGER': '【周策-王牌】关键位突破', # 来自 ace_signal_breakout_trigger_playbook
-    'BASE_MA20_RISING_STATE': '【周策】MA21上升状态', # 来自 ma20_rising_state_playbook
-    'BASE_MA20_TURN_UP_EVENT': '【周策】MA21拐头向上', # 来自 ma20_turn_up_event_playbook
-    'BASE_EARLY_UPTREND': '【周策】早期上升趋势', # 来自 early_uptrend_playbook
-    'BASE_CLASSIC_BREAKOUT': '【周策】经典高点突破', # 来自 classic_breakout_playbook
-    'BASE_MA_UPTREND': '【周策】均线多头排列', # 来自 ma_uptrend_playbook
-    'BASE_BOX_CONSOLIDATION_BREAKOUT': '【周策】专业箱体突破', # 来自 box_consolidation_breakout_playbook
+    'MA20_RISING_STATE_W': '【周策】MA21上升状态', # 来自 ma20_rising_state_playbook
+    'MA20_TURN_UP_EVENT_W': '【周策】MA21拐头向上', # 来自 ma20_turn_up_event_playbook
+    'EARLY_UPTREND_W': '【周策】早期上升趋势', # 来自 early_uptrend_playbook
+    'CLASSIC_BREAKOUT_W': '【周策】经典高点突破', # 来自 classic_breakout_playbook
+    'MA_UPTREND_W': '【周策】均线多头排列', # 来自 ma_uptrend_playbook
+    'BOX_CONSOLIDATION_BREAKOUT_W': '【周策】专业箱体突破', # 来自 box_consolidation_breakout_playbook
     'BASE_OVERSOLD_REBOUND_BIAS': '【周策】BIAS超跌反弹', # 来自 oversold_rebound_bias_playbook
-    'BASE_TRIX_GOLDEN_CROSS': '【周策】TRIX金叉', # 来自 trix_golden_cross_playbook
+    'TRIX_GOLDEN_CROSS_W': '【周策】TRIX金叉', # 来自 trix_golden_cross_playbook
     'BASE_STRATEGIC_ACCEL': '【周策-王牌】估波曲线加速', # 来自 EVENT_STRATEGIC_ACCELERATING_W 的加分项
-    # ▲▲▲【代码修改结束】▲▲▲
 
     # ==================================================================
     # ===              协同/冲突规则 (Bonus & Penalty)               ===
@@ -120,7 +118,7 @@ PLAYBOOK_NAME_MAP = {
     # ===                  兼容性/旧版ID (Legacy)                    ===
     # ==================================================================
     'playbook_coppock_stabilizing_W': '【周线-原始】估波曲线企稳',
-    'playbook_coppock_accelerating_W': '【周线-原始】估波曲线加速',
+    'COPPOCK_ACCELERATING_W': '【周线-原始】估波曲线加速',
 }
 
 # 合并所有映射，方便过滤器调用
