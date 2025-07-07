@@ -87,6 +87,7 @@ PLAYBOOK_NAME_MAP = {
     'BASE_OVERSOLD_REBOUND_BIAS': '【周策】BIAS超跌反弹', # 来自 oversold_rebound_bias_playbook
     'TRIX_GOLDEN_CROSS_W': '【周策】TRIX金叉', # 来自 trix_golden_cross_playbook
     'BASE_STRATEGIC_ACCEL': '【周策-王牌】估波曲线加速', # 来自 EVENT_STRATEGIC_ACCELERATING_W 的加分项
+    'ACE_SIGNAL_BREAKOUT_TRIGGER': 'ACE信号突破',
 
     # ==================================================================
     # ===              协同/冲突规则 (Bonus & Penalty)               ===

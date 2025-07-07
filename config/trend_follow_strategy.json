@@ -555,21 +555,6 @@
             "name": "VWAP支撑加分",
             "score": 40,
             "description": "【协同奖励】当价格在5分钟图上站稳VWAP时，对其他买入信号的额外加分。"
-          },
-          "FUND_FLOW_CONFIRM_BONUS": {
-            "name": "主力资金确认加分",
-            "score": 25,
-            "description": "【协同奖励】当日主力资金呈净流入状态时，对信号的确认加分。"
-          },
-          "FUND_FLOW_CONFIRM_MULTIPLIER": {
-            "name": "主力资金确认乘数",
-            "score": 1.25,
-            "description": "【协同奖励】当日主力资金呈净流入状态时，对总分的奖励乘数。"
-          },
-          "CMF_CONFIRMATION_MULTIPLIER": {
-            "name": "资金流确认乘数",
-            "score": 1.2,
-            "description": "【协同奖励】当CMF>0（资金流入）时，对总分的奖励乘数。"
           }
         }
       }

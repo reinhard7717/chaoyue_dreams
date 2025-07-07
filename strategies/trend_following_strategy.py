@@ -204,11 +204,11 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
         """
-        【V23.1 信号分类应用重构版】根据信号性质应用不同的周线前提。
-        - 核心重构:
-          1. 定义三种前提：左侧许可、右侧健康、独立信号。
-          2. 将所有日线剧本归入这三类。
-          3. 在计分时，为每类剧本应用正确的前提条件，实现精准过滤。
+        【V25.0 弹性状态机驱动版】
+        - 核心修改:
+          1. 在计分前，先调用 `_analyze_chip_strategy_state_machine`。
+          2. 移除对原始、低阶筹码信号的直接计分。
+          3. 只对状态机输出的、经过“剧本链”确认并带有“范式”标签的高阶信号赋予高分。
         """
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
@@ -216,7 +216,7 @@ class TrendFollowStrategy:
         points = scoring_params.get('points', {})
         
         # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V23.1] 步骤1: 计算周线战略背景基础分...")
+        print("    [调试-计分V25.0] 步骤1: 计算周线战略背景基础分...")
         # 基础分计算逻辑保持不变...
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = points.get('BREAKOUT_TRIGGER_SCORE', 150)
@@ -233,10 +233,9 @@ class TrendFollowStrategy:
             if score > 0 and df[col].any():
                 score_details_df.loc[df[col], base_col_name] = score
         
-        # 新增：将周线加速事件作为高额基础分项
         strategic_accel_col = 'EVENT_STRATEGIC_ACCELERATING_W'
         if strategic_accel_col in df.columns and df[strategic_accel_col].any():
-            accel_score = points.get('STRATEGIC_ACCEL_SCORE', 100) # 可在JSON中配置
+            accel_score = points.get('STRATEGIC_ACCEL_SCORE', 100)
             score_details_df.loc[df[strategic_accel_col], 'BASE_STRATEGIC_ACCEL'] = accel_score
             all_base_score_cols.append('BASE_STRATEGIC_ACCEL')
 
@@ -248,20 +247,22 @@ class TrendFollowStrategy:
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
         
         # --- 步骤2: 定义三种战术信号的前提条件 ---
-        print("    [调试-计分V23.1] 步骤2: 定义三种战术前提...")
-        # 前提1: 左侧交易许可 (周线发出企稳信号)
+        print("    [调试-计分V25.0] 步骤2: 定义三种战术前提...")
         left_side_precondition = df.get('CONTEXT_STRATEGIC_BOTTOMING_W', pd.Series(False, index=df.index))
-        
-        # 前提2: 右侧交易健康 (周线趋势健康)
         right_side_precondition = df.get('context_mid_term_bullish', pd.Series(False, index=df.index))
-        
-        # 前提3: 独立信号 (永远为真，不受周线约束)
         independent_precondition = pd.Series(True, index=df.index)
-        
         print(f"    - 左侧许可天数: {left_side_precondition.sum()}, 右侧健康天数: {right_side_precondition.sum()}")
 
-        # --- 步骤3: 计算所有独立的日线战术【原始】信号 (逻辑不变) ---
-        print("    [调试-计分V23.1] 步骤3: 计算日线战术【原始】信号...")
+        # --- 步骤3: 计算所有独立的日线战术【原始】信号 ---
+        print("    [调试-计分V25.0] 步骤3: 计算原始信号并运行状态机...")
+        
+        # ▼▼▼ 调用弹性状态机，获取高阶筹码信号 ▼▼▼
+        # 这一步是本次升级的核心，它将原始筹码信号处理成带有范式标签的高阶信号
+        chained_chip_signals_df = self._analyze_chip_strategy_state_machine(df, params)
+        # 将高阶信号合并回主df，以便后续计分
+        df = pd.concat([df, chained_chip_signals_df], axis=1)
+
+        # 计算所有非筹码类的原始信号
         always_true_precondition = pd.Series(True, index=df.index)
         raw_pullback_ma = self._find_pullback_to_ma_entry(df, always_true_precondition, params)
         raw_pullback_structure = self._find_pullback_to_structure_entry(df, always_true_precondition, params)
@@ -274,9 +275,6 @@ class TrendFollowStrategy:
         raw_first_breakout = self._find_first_breakout_entry(df, always_true_precondition, params)
         raw_bb_squeeze_breakout = self._find_bband_squeeze_breakout(df, always_true_precondition, params)
         raw_energy_compression_breakout = self._find_energy_compression_breakout_entry(df, always_true_precondition, params)
-        raw_cost_area_reinforcement = self._find_cost_area_reinforcement_entry(df, always_true_precondition, params)
-        raw_chip_concentration_breakthrough = self._find_chip_concentration_breakthrough_entry(df, always_true_precondition, params)
-        raw_chip_cost_breakthrough = self._find_chip_cost_breakthrough(df, always_true_precondition, params)
         raw_dynamic_box_breakout = self.signals.get('dynamic_box_breakout', pd.Series(False, index=df.index))
         raw_pullback_setup, pullback_target_price = self._find_pullback_setup(df, always_true_precondition, params)
         df['pullback_target_price'] = pullback_target_price
@@ -287,8 +285,6 @@ class TrendFollowStrategy:
         raw_bullish_flag = self._find_bullish_flag_entry(df, always_true_precondition, params)
         raw_relative_strength_maverick = self._find_relative_strength_maverick_entry(df, always_true_precondition, params)
         raw_ma_acceleration = self._find_ma_acceleration_entry(df, always_true_precondition, params)
-        raw_chip_pressure_release = self._find_chip_pressure_release(df, always_true_precondition, params)
-        raw_chip_hurdle_clear = self._find_chip_hurdle_clear_entry(df, always_true_precondition, params)
         raw_fib_pullback = self._find_fibonacci_pullback_entry(df, always_true_precondition, params)
         raw_indicator_signals = self._find_indicator_entry(df, params)
         board_patterns = self._identify_board_patterns(df, params)
@@ -315,7 +311,7 @@ class TrendFollowStrategy:
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
 
         # --- 步骤4: 【计分】应用分类前提，并记录所有战术信号得分 ---
-        print("    [调试-计分V23.1] 步骤4: 应用分类前提并记录日线战术信号得分...")
+        print("    [调试-计分V25.0] 步骤4: 应用分类前提并记录日线战术信号得分...")
         def add_score(raw_condition, name, default_score, precondition_to_apply):
             condition = raw_condition & precondition_to_apply
             score = points.get(name, {}).get('score', default_score)
@@ -338,18 +334,26 @@ class TrendFollowStrategy:
         # B.1 回踩与反转类
         add_score(raw_normal_pullback, 'PULLBACK_NORMAL', 100, right_side_precondition)
         add_score(raw_steady_climb_pullback, 'PULLBACK_STEADY_CLIMB', 110, right_side_precondition)
-        # B.2 趋势启动/突破类
+        # B.2 趋势启动/突破类 (非筹码部分)
         add_score(raw_first_breakout, 'FIRST_BREAKOUT', 90, right_side_precondition)
         add_score(raw_bb_squeeze_breakout, 'BBAND_SQUEEZE_BREAKOUT', 80, right_side_precondition)
         add_score(raw_energy_compression_breakout, 'ENERGY_COMPRESSION_BREAKOUT', 140, right_side_precondition)
-        add_score(raw_cost_area_reinforcement, 'COST_AREA_REINFORCEMENT', 160, right_side_precondition)
-        add_score(raw_chip_concentration_breakthrough, 'CHIP_CONCENTRATION_BREAKTHROUGH', 180, right_side_precondition)
-        add_score(raw_chip_cost_breakthrough, 'CHIP_COST_BREAKTHROUGH', 130, right_side_precondition)
         add_score(raw_dynamic_box_breakout, 'CONSOLIDATION_BREAKOUT', 125, right_side_precondition)
         add_score(raw_indicator_signals['dmi_cross'], 'DMI_CROSS', 30, right_side_precondition)
         add_score(raw_indicator_signals['macd_low_cross'], 'MACD_LOW_CROSS', 40, right_side_precondition)
         add_score(raw_indicator_signals['macd_zero_cross'], 'MACD_ZERO_CROSS', 60, right_side_precondition)
+        
+        # ▼▼▼ 只对高阶筹码信号进行差异化计分 ▼▼▼
+        # 机构型突破：遵循经典路径，确定性高，给予最高分
+        add_score(df['INSTITUTIONAL_BREAKOUT'], 'INSTITUTIONAL_BREAKOUT', 220, right_side_precondition)
+        # 游资型突破：跳级启动，爆发力强但风险稍高，分数略低
+        add_score(df['HOT_MONEY_BREAKOUT'], 'HOT_MONEY_BREAKOUT', 180, right_side_precondition)
+
         # B.3 趋势延续/加速类
+        # ▼▼▼ 对确认的加速信号计分 ▼▼▼
+        # 确认的加速：无论哪种模式启动，进入加速期都是强信号
+        add_score(df['CONFIRMED_ACCELERATION'], 'CONFIRMED_ACCELERATION', 190, right_side_precondition)
+
         add_score(raw_pullback_setup, 'PULLBACK_SETUP', 50, right_side_precondition)
         add_score(raw_momentum, 'MOMENTUM_BREAKOUT', 70, right_side_precondition)
         add_score(raw_doji_continuation, 'DOJI_CONTINUATION', 85, right_side_precondition)
@@ -358,8 +362,6 @@ class TrendFollowStrategy:
         add_score(raw_bullish_flag, 'BULLISH_FLAG', 110, right_side_precondition)
         add_score(raw_relative_strength_maverick, 'RELATIVE_STRENGTH_MAVERICK', 100, right_side_precondition)
         add_score(raw_ma_acceleration, 'MA_ACCELERATION', 130, right_side_precondition)
-        add_score(raw_chip_pressure_release, 'CHIP_PRESSURE_RELEASE', 150, right_side_precondition)
-        add_score(raw_chip_hurdle_clear, 'CHIP_HURDLE_CLEAR', 110, right_side_precondition)
         add_score(raw_fib_pullback, 'PULLBACK_FIBONACCI', points.get('PULLBACK_FIBONACCI', 120), right_side_precondition)
         add_score(raw_indicator_signals['macd_high_cross'], 'MACD_HIGH_CROSS', 25, right_side_precondition)
         add_score(raw_three_soldiers, 'KLINE_THREE_SOLDIERS', 100, right_side_precondition)
@@ -369,7 +371,7 @@ class TrendFollowStrategy:
         add_score(cond_earth_heaven_board, 'EARTH_HEAVEN_BOARD', 200, independent_precondition)
 
         # --- 步骤5: 记录协同/冲突规则得分 (逻辑不变) ---
-        print("    [调试-计分V23.1] 步骤5: 记录协同/冲突规则得分...")
+        print("    [调试-计分V25.0] 步骤5: 记录协同/冲突规则得分...")
         def add_bonus_penalty_score(condition, name, default_score):
             score = points.get(name, {}).get('score', default_score)
             has_base_playbook_score = score_details_df.sum(axis=1) > 0
@@ -390,14 +392,8 @@ class TrendFollowStrategy:
         current_score_before_multiplier = score_details_df.fillna(0).sum(axis=1)
         has_positive_score = current_score_before_multiplier > 0
         multiplier_bonus = pd.Series(0.0, index=df.index)
-        raw_cmf_multiplier = points.get('CMF_CONFIRMATION_MULTIPLIER', 1.2)
-        cmf_multiplier = raw_cmf_multiplier.get('value', 1.2) if isinstance(raw_cmf_multiplier, dict) else raw_cmf_multiplier
-        raw_fund_multiplier = points.get('FUND_FLOW_CONFIRM_MULTIPLIER', 1.25)
-        fund_multiplier = raw_fund_multiplier.get('value', 1.25) if isinstance(raw_fund_multiplier, dict) else raw_fund_multiplier
         raw_gap_multiplier = points.get('GAP_SUPPORT_MULTIPLIER', 1.3)
         gap_multiplier = raw_gap_multiplier.get('value', 1.3) if isinstance(raw_gap_multiplier, dict) else raw_gap_multiplier
-        multiplier_bonus.loc[cond_cmf_confirm & has_positive_score] += current_score_before_multiplier * (cmf_multiplier - 1)
-        multiplier_bonus.loc[cond_fund_flow_confirm & has_positive_score] += current_score_before_multiplier * (fund_multiplier - 1)
         multiplier_bonus.loc[cond_gap_support_state & has_positive_score] += current_score_before_multiplier * (gap_multiplier - 1)
         score_details_df['BONUS_MULTIPLIER'] = multiplier_bonus.where(multiplier_bonus > 0)
         penalty_score = pd.Series(0.0, index=df.index)
@@ -411,8 +407,7 @@ class TrendFollowStrategy:
         score_details_df['PENALTY_CONFLICT'] = penalty_score.where(penalty_score < 0)
 
         # --- 步骤6: 计算总分并应用行业强度奖励 (逻辑不变) ---
-        print("    [调试-计分V23.1] 步骤6: 计算总分并应用行业强度奖励...")
-        # ... (行业强度奖励逻辑保持不变) ...
+        print("    [调试-计分V25.0] 步骤6: 计算总分并应用行业强度奖励...")
         final_score = score_details_df.fillna(0).sum(axis=1)
         industry_params = self._get_params_block(params, 'industry_context_params', {})
         if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
@@ -437,17 +432,146 @@ class TrendFollowStrategy:
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
         
         # --- 步骤7: 最终风险否决层 (逻辑不变) ---
-        print("    [调试-计分V23.1] 步骤7: 应用最终风险否决层...")
+        print("    [调试-计分V25.0] 步骤7: 应用最终风险否决层...")
         final_score = score_details_df.fillna(0).sum(axis=1)
         final_score.loc[kline_strong_bearish] = 0
         final_score.loc[cond_volume_breakdown] = 0
         final_score.loc[cond_heaven_earth_board] = 0
         
-        # 最终否决：如果一个信号既不满足其应有的前提，则清零
-        # 注意：这里不再需要复杂的最终否决逻辑，因为计分时已经应用了前提
+        # ▼▼▼ 清理状态机产生的临时列和高阶信号列 ▼▼▼
+        df.drop(columns=['INSTITUTIONAL_BREAKOUT', 'HOT_MONEY_BREAKOUT', 'CONFIRMED_ACCELERATION'], inplace=True, errors='ignore')
         
-        print("    [调试-计分V23.1] 计分流程结束。")
+        print("    [调试-计分V25.0] 计分流程结束。")
         return final_score.round(0), atomic_signals, score_details_df.fillna(0)
+
+    def _analyze_chip_strategy_state_machine(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V26.0 核心架构升级】筹码与资金融合的策略状态机
+        - 核心思想: 将资金流作为状态转移的“确认开关”，实现结构与力量的双重验证。
+        - 职责: 识别由真实主力资金驱动的、有效的筹码形态演变，生成最高置信度的交易信号。
+        """
+        print("    - [融合状态机] 开始运行筹码与资金融合的策略状态机...")
+        
+        # --- 1. 定义状态和范式常量 (保持不变) ---
+        STATE_NONE = 0
+        STATE_ACCUMULATING = 1
+        STATE_BREAKOUT = 2
+        STATE_ACCELERATING = 3
+        STATE_OBSERVING = 4
+        
+        PLAYER_TYPE_UNKNOWN = 0
+        PLAYER_TYPE_INSTITUTIONAL = 1
+        PLAYER_TYPE_HOT_MONEY = 2
+
+        # --- 2. 计算【原始】筹码信号 (作为“结构”基础) ---
+        always_true = pd.Series(True, index=df.index)
+        raw_reinforcement = self._find_cost_area_reinforcement_entry(df, always_true, params)
+        raw_conc_breakthrough = self._find_chip_concentration_breakthrough_entry(df, always_true, params)
+        raw_cost_breakthrough = self._find_chip_cost_breakthrough(df, always_true, params)
+        raw_hurdle_clear = self._find_chip_hurdle_clear_entry(df, always_true, params)
+        raw_pressure_release = self._find_chip_pressure_release(df, always_true, params)
+        
+        is_accumulation_structure = raw_reinforcement | raw_conc_breakthrough
+        is_breakout_structure = raw_cost_breakthrough
+        is_acceleration_structure = raw_hurdle_clear | raw_pressure_release
+
+        # --- 3. 【新增】计算【资金行为】信号 (作为“力量”确认) ---
+        print("    - [融合状态机] 正在计算资金行为信号...")
+        # 主力资金净买入额 = (大单买 + 特大单买) - (大单卖 + 特大单卖)
+        main_force_net_buy = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
+        # 散户资金净买入额
+        retail_net_buy = (df['buy_sm_amount_D']) - (df['sell_sm_amount_D'])
+        
+        # 行为信号1: 主力是否在强力净买入 (金额 > 当日成交额的5%)
+        is_main_force_buying = main_force_net_buy > (df['amount_D'] * 0.05)
+        
+        # 行为信号2: 主力是否在派发 (净卖出额 > 当日成交额的5%，且散户在接盘)
+        is_main_force_distributing = (main_force_net_buy < -(df['amount_D'] * 0.05)) & (retail_net_buy > 0)
+        
+        # 行为信号3: 是否为游资闪电战 (特大单净买入占主力净买入的大头，且成交量显著放大)
+        elg_net_buy = df['buy_elg_amount_D'] - df['sell_elg_amount_D']
+        is_volume_spike = df['volume_D'] > (df['VOL_MA_21_D'] * 2.0)
+        is_hot_money_blitz = is_main_force_buying & (elg_net_buy > main_force_net_buy * 0.7) & is_volume_spike
+        
+        # 行为信号4: 是否为机构式吸筹 (连续N天，主力温和净买入，且股价未大涨)
+        # (这里用一个简化的单日信号代替，真实场景需要rolling窗口)
+        is_institutional_accumulation = (main_force_net_buy > 0) & (main_force_net_buy < (df['amount_D'] * 0.08)) & (df['close_D'] / df['close_D'].shift(1) < 1.03)
+
+        # --- 4. 初始化状态和高阶信号列 ---
+        df['context_chip_phase'] = STATE_NONE
+        df['context_player_type'] = PLAYER_TYPE_UNKNOWN
+        df['INSTITUTIONAL_BREAKOUT'] = False
+        df['HOT_MONEY_BREAKOUT'] = False
+        df['CONFIRMED_ACCELERATION'] = False
+
+        # --- 5. 迭代执行【融合后】的状态转移逻辑 ---
+        for i in range(1, len(df)):
+            prev_phase = df.iat[i-1, df.columns.get_loc('context_chip_phase')]
+            prev_player_type = df.iat[i-1, df.columns.get_loc('context_player_type')]
+            current_phase = prev_phase
+            current_player_type = prev_player_type
+
+            # 风险重置：主力派发是最高优先级的一票否决
+            if is_main_force_distributing.iat[i]:
+                current_phase = STATE_NONE
+                current_player_type = PLAYER_TYPE_UNKNOWN
+                df.iat[i, df.columns.get_loc('context_chip_phase')] = current_phase
+                df.iat[i, df.columns.get_loc('context_player_type')] = current_player_type
+                continue
+
+            # --- 状态转移核心逻辑 (结构+力量双重确认) ---
+            if current_phase == STATE_NONE:
+                # 条件：出现吸筹结构 + 机构资金行为
+                if is_accumulation_structure.iat[i] and is_institutional_accumulation.iat[i]:
+                    current_phase = STATE_ACCUMULATING
+                    current_player_type = PLAYER_TYPE_INSTITUTIONAL
+                # 条件：出现突破结构 + 游资闪电战资金行为
+                elif is_breakout_structure.iat[i] and is_hot_money_blitz.iat[i]:
+                    df.iat[i, df.columns.get_loc('HOT_MONEY_BREAKOUT')] = True
+                    current_phase = STATE_BREAKOUT
+                    current_player_type = PLAYER_TYPE_HOT_MONEY
+                # 条件：出现突破结构 + 普通主力买入资金行为
+                elif is_breakout_structure.iat[i] and is_main_force_buying.iat[i]:
+                    # 也可以归为机构型，因为它不是典型的游资模式
+                    df.iat[i, df.columns.get_loc('INSTITUTIONAL_BREAKOUT')] = True
+                    current_phase = STATE_BREAKOUT
+                    current_player_type = PLAYER_TYPE_INSTITUTIONAL
+
+            elif current_phase == STATE_ACCUMULATING:
+                # 条件：出现突破结构 + 主力买入资金确认
+                if is_breakout_structure.iat[i] and is_main_force_buying.iat[i]:
+                    df.iat[i, df.columns.get_loc('INSTITUTIONAL_BREAKOUT')] = True
+                    current_phase = STATE_BREAKOUT
+                    current_player_type = PLAYER_TYPE_INSTITUTIONAL
+            
+            elif current_phase == STATE_BREAKOUT:
+                # 条件：出现加速结构 + 主力买入资金确认
+                if is_acceleration_structure.iat[i] and is_main_force_buying.iat[i]:
+                    df.iat[i, df.columns.get_loc('CONFIRMED_ACCELERATION')] = True
+                    current_phase = STATE_ACCELERATING
+            
+            elif current_phase == STATE_ACCELERATING:
+                # 条件：出现加速结构 + 主力买入资金确认 (趋势延续)
+                if is_acceleration_structure.iat[i] and is_main_force_buying.iat[i]:
+                    df.iat[i, df.columns.get_loc('CONFIRMED_ACCELERATION')] = True
+                else:
+                    # 加速中断，进入观察期
+                    current_phase = STATE_OBSERVING
+
+            elif current_phase == STATE_OBSERVING:
+                # 在观察期，如果重新出现加速结构和资金，则恢复
+                if is_acceleration_structure.iat[i] and is_main_force_buying.iat[i]:
+                    current_phase = STATE_ACCELERATING
+                # 如果出现新的突破结构和资金，则降级到突破
+                elif is_breakout_structure.iat[i] and is_main_force_buying.iat[i]:
+                    current_phase = STATE_BREAKOUT
+
+            # 更新当天的状态
+            df.iat[i, df.columns.get_loc('context_chip_phase')] = current_phase
+            df.iat[i, df.columns.get_loc('context_player_type')] = current_player_type
+
+        print(f"    - [融合状态机] 完成。机构突破: {df['INSTITUTIONAL_BREAKOUT'].sum()}个, 游资突破: {df['HOT_MONEY_BREAKOUT'].sum()}个, 确认加速: {df['CONFIRMED_ACCELERATION'].sum()}个。")
+        return df[['INSTITUTIONAL_BREAKOUT', 'HOT_MONEY_BREAKOUT', 'CONFIRMED_ACCELERATION']]
 
     def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> dict:
         # 修改行: 增加一个默认返回值，使调用更安全
