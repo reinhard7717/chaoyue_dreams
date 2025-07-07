@@ -185,6 +185,9 @@
     </section>
 </div>
 
+{% endblock %}
+
+{# ▼▼▼【代码修改】: 保留这个唯一且正确的script块 ▼▼▼ #}
 {% block scripts_extra %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -221,4 +224,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock scripts_extra %}
-
+{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
