@@ -14,7 +14,7 @@ from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from django.core.serializers.json import DjangoJSONEncoder
-from stock_models.stock_analytics import TrendFollowStrategyState
+from stock_models.stock_analytics import TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
@@ -288,7 +288,7 @@ def fav_trend_following_list(request):
         if state.triggered_playbooks:
             summary['playbooks'].update(state.triggered_playbooks)
 
-    # ▼▼▼【代码修改】: 核心修改部分，构建包含分级信息的最终列表 ▼▼▼
+    # ▼▼▼ 核心修改部分，构建包含分级信息的最终列表 ▼▼▼
     # 4. 基于聚合后的摘要信息，构建最终的、结构化的列表
     processed_list = []
     for summary in stock_summary.values():
@@ -343,7 +343,6 @@ def fav_trend_following_list(request):
                 item['sort_priority'] = 1
         
         processed_list.append(item)
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
 
     processed_list.sort(key=lambda x: (x['sort_priority'], x['latest_trade_time'] is None, x['latest_trade_time']), reverse=False)
 
