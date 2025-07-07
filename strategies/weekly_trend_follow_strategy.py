@@ -320,7 +320,6 @@ class WeeklyTrendFollowStrategy:
         
         return final_signal.fillna(False)
 
-    # ▼▼▼【代码修改】: 修复此函数，使其从params读取均线周期，不再硬编码 ▼▼▼
     def _playbook_early_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：捕捉周线趋势反转的早期“上拐”信号"""
         print(f"\n--- 剧本检查: [{params.get('说明', '早期上升趋势')}] ---")
@@ -358,7 +357,6 @@ class WeeklyTrendFollowStrategy:
         print(f"    - 子信号2 (趋势延续): {'[✓]' if ieu_last else '[✗]'}")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}] (逻辑: 拐点 OR 延续)")
         return final_signal.fillna(False)
-    # ▲▲▲【代码修改】: 修改结束 ▲▲▲
 
     def _playbook_classic_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：经典高点突破"""

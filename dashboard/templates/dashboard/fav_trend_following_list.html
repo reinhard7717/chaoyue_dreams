@@ -7,6 +7,7 @@
 
 {% block head_extra %}
 <style>
+    /* 这些是页面特有的、与折叠功能无关的样式，予以保留 */
     .status-tag {
         padding: 4px 10px;
         border-radius: 15px;
@@ -36,29 +37,9 @@
     .signal-details .reason-level-3 { color: #e53935; }
     .signal-details .time-info { color: #616161; font-size: 0.9em; }
 
-    /* ▼▼▼【代码修改】: 新增激活剧本折叠功能的CSS样式 ▼▼▼ */
-    .playbook-container .playbook-list.collapsible {
-        /* 默认折叠时，最大高度约等于一行标签的高度 */
-        max-height: 28px; 
-        overflow: hidden;
-        transition: max-height 0.3s ease-in-out;
-    }
-    .playbook-container .playbook-list.collapsible.expanded {
-        /* 展开时，设置一个足够大的高度以显示所有内容 */
-        max-height: 500px; 
-    }
-    .toggle-playbooks {
-        display: block;
-        margin-top: 5px;
-        font-size: 0.8em;
-        color: #007bff;
-        text-decoration: none;
-        cursor: pointer;
-    }
-    .toggle-playbooks:hover {
-        text-decoration: underline;
-    }
-    /* ▲▲▲【代码修改结束】▲▲▲ */
+    /* ▼▼▼【代码删除】: 移除此处所有关于折叠功能的CSS样式，统一由 dashboard.css 管理 ▼▼▼ */
+    /* 此处原有的 .playbook-container, .toggle-playbooks 等相关样式已被删除 */
+    /* ▲▲▲【代码删除结束】▲▲▲ */
 </style>
 {% endblock %}
 
@@ -134,7 +115,7 @@
                         </td>
                         <td>
                             {% if item.active_playbooks %}
-                                <!-- ▼▼▼【代码修改】: 借鉴trend_following_list.html，重构此部分以支持折叠 ▼▼▼ -->
+                                <!-- ▼▼▼【代码保持】: 此处的HTML结构是正确的，无需修改 ▼▼▼ -->
                                 <div class="playbook-container">
                                     {# 如果剧本数量超过3个，添加collapsible类以便CSS和JS进行处理 #}
                                     <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
@@ -161,7 +142,7 @@
                                         </a>
                                     {% endif %}
                                 </div>
-                                <!-- ▲▲▲【代码修改结束】▲▲▲ -->
+                                <!-- ▲▲▲【代码保持结束】▲▲▲ -->
                             {% else %}
                                 -
                             {% endif %}
@@ -191,7 +172,7 @@
 </div>
 {% endblock %}
 
-{# ▼▼▼【代码修改】: 新增JavaScript脚本块，用于处理折叠/展开逻辑 ▼▼▼ #}
+{# ▼▼▼【代码保持】: 此处的JavaScript逻辑是正确的，无需修改 ▼▼▼ #}
 {% block scripts_extra %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -233,4 +214,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock scripts_extra %}
-{# ▲▲▲【代码修改结束】▲▲▲ #}
+{# ▲▲▲【代码保持结束】▲▲▲ #}
