@@ -263,26 +263,66 @@ class MultiTimeframeTrendStrategy:
             logger.warning("周线数据为空，战略引擎跳过。")
             return pd.DataFrame()
         return self.strategic_engine.apply_strategy(df_weekly)
+
     def _merge_strategic_signals_to_daily(self, df_daily: pd.DataFrame, strategic_signals_df: pd.DataFrame) -> pd.DataFrame:
-        if strategic_signals_df is None or strategic_signals_df.empty: return df_daily
+        """
+        【V6.8 升级】将周线信号翻译并分发为日线级别的“作战指令”。
+        - 核心修改:
+          1. 识别新的Coppock双信号。
+          2. 将左侧企稳信号翻译为 `CONTEXT_STRATEGIC_BOTTOMING_W` (许可型指令)。
+          3. 将右侧加速信号翻译为 `EVENT_STRATEGIC_ACCELERATING_W` (增强型指令)。
+          4. 保持对其他 playbook 信号的兼容处理。
+        """
+        if strategic_signals_df is None or strategic_signals_df.empty:
+            return df_daily
+        print("---【总指挥-指令分发】开始将周线战略信号翻译并注入日线数据... ---")
         df_daily_copy = df_daily.copy()
-        df_merged = pd.merge_asof(left=df_daily_copy.sort_index(), right=strategic_signals_df.sort_index(), left_index=True, right_index=True, direction='backward')
+        # 使用 merge_asof 将周线信号对齐到日线，'backward'确保每个交易日都能获取到最近的周线信号
+        df_merged = pd.merge_asof(
+            left=df_daily_copy.sort_index(), 
+            right=strategic_signals_df.sort_index(), 
+            left_index=True, 
+            right_index=True, 
+            direction='backward'
+        )
+        # 遍历所有从周线合并过来的列
         for col in strategic_signals_df.columns:
             if col not in df_merged.columns: continue
-            if col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_')):
-                if col == 'signal_breakout_trigger_W':
-                    new_col_name = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
-                    df_merged.rename(columns={col: new_col_name}, inplace=True)
-                    df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
-                else: df_merged[col] = df_merged[col].fillna(False).astype(bool)
+            # --- 指令翻译与分发 ---
+            if col == 'signal_breakout_trigger_W':
+                # 指令1: 基础的右侧突破观察指令
+                new_col_name = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
+                df_merged.rename(columns={col: new_col_name}, inplace=True)
+                df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
+                print(f"    - [指令分发] 原始信号 '{col}' 已翻译为 -> '{new_col_name}'")
+            elif col == 'playbook_coppock_stabilizing_W':
+                # 指令2: 左侧“可以观察”的许可型指令
+                new_col_name = 'CONTEXT_STRATEGIC_BOTTOMING_W'
+                df_merged.rename(columns={col: new_col_name}, inplace=True)
+                df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
+                print(f"    - [指令分发] 原始信号 '{col}' 已翻译为 -> '{new_col_name}' (左侧观察许可)")
+            elif col == 'playbook_coppock_accelerating_W':
+                # 指令3: 右侧“确认加速”的增强型指令
+                new_col_name = 'EVENT_STRATEGIC_ACCELERATING_W'
+                df_merged.rename(columns={col: new_col_name}, inplace=True)
+                df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
+                print(f"    - [指令分发] 原始信号 '{col}' 已翻译为 -> '{new_col_name}' (右侧加速事件)")
+            # --- 其他信号的兼容处理 ---
+            elif col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_')):
+                # 对于其他未被特殊翻译的周线剧本，保持原名并填充默认值
+                df_merged[col] = df_merged[col].fillna(False).astype(bool)
             elif col.startswith(('washout_score_', 'rejection_signal_')):
+                # 对于评分和过滤器，填充0
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
+        print("---【总指挥-指令分发】完成。日线数据已获得周线战略指令加持。 ---")
         return df_merged
+
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         final_df, atomic_signals = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
         self.daily_analysis_df = final_df
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
+
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
         df_copy = df.copy()
         def get_slope(y):
