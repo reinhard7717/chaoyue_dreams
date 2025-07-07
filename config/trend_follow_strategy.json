@@ -439,8 +439,8 @@
           "__CATEGORY_MASTER_PLAYS__": "--- 主力行为/高确定性 ---",
           "CHIP_CONCENTRATION_BREAKTHROUGH": {
             "name": "筹码集中突破",
-            "score": 180,
-            "description": "【全新王牌】筹码高度集中后的首次突破，是确定性极高的主力拉升信号。"
+            "score": 150,
+            "description": "筹码高度集中后的首次突破，是确定性极高的主力拉升信号。"
           },
           "RESONANCE_FRACTAL_ROCKET": {
             "name": "分形共振火箭",
@@ -453,8 +453,8 @@
             "description": "【全新王牌】在主力成本区附近放量横盘，是即将拉升的强信号。"
           },
           "CHIP_PRESSURE_RELEASE": {
-            "name": "筹码压力释放",
-            "score": 150,
+            "name": "【日线-王牌】筹码压力释放",
+            "score": 180,
             "description": "股价上方无明显筹码套牢盘，进入“真空”加速区，是主升浪的特征。"
           },
           "CHIP_HURDLE_CLEAR": {

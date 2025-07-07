@@ -31,7 +31,7 @@ PLAYBOOK_NAME_MAP = {
     # --- B. 右侧交易剧本 (Right-Side Plays) ---
     # 描述: 追随已形成的趋势，通常需要周线趋势健康(context_mid_term_bullish)作为基础环境。
     # B.1 趋势启动/突破类
-    'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线-王牌】筹码集中突破',
+    'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线】筹码集中突破',
     'COST_AREA_REINFORCEMENT': '【日线-王牌】成本区增强',
     'ENERGY_COMPRESSION_BREAKOUT': '【日线-王牌】潜龙在渊',
     'FIRST_BREAKOUT': '【日线-右侧】底部首板',

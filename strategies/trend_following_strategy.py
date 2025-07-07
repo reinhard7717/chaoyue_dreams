@@ -1998,7 +1998,7 @@ class TrendFollowStrategy:
     def _find_chip_hurdle_clear_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """【新增剧本】筹码关口扫清：股价突破85%的套牢盘成本线，作为趋势确认信号。"""
         # 注意：这里我们复用 pressure_release 的参数块，或者你可以为其新建一个参数块
-        params = self._get_params_block(params, 'chip_pressure_release_params') # 假设复用参数
+        params = self._get_params_block(params, 'chip_hurdle_clear_params') # 假设复用参数
         close_col = 'close_D'
         cost_85pct_col = 'cost_85pct_D'
         if not params.get('enabled', False) or close_col not in df.columns or cost_85pct_col not in df.columns:
