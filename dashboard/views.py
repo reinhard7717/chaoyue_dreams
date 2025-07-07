@@ -209,7 +209,7 @@ def trend_following_list(request):
 
         # 新增：显式比较并更新为真正的最新交易时间
         if state.latest_trade_time > aggregated_results[stock_code]['latest_trade_time']:
-            print(f"调试: 股票 {stock_code} 的最新时间从 {aggregated_results[stock_code]['latest_trade_time']} 更新为 {state.latest_trade_time}") # 调试信息
+            # print(f"调试: 股票 {stock_code} 的最新时间从 {aggregated_results[stock_code]['latest_trade_time']} 更新为 {state.latest_trade_time}") # 调试信息
             aggregated_results[stock_code]['latest_trade_time'] = state.latest_trade_time
 
         # 更新为最高分数 (逻辑不变，但现在与时间更新逻辑并列，更清晰)
@@ -296,7 +296,7 @@ def fav_trend_following_list(request):
         # 之前的逻辑依赖于首次遇到的记录就是最新的，不够健壮。
         # 新逻辑对每一条记录都进行比较，确保找到真正的最新状态，与寻找buy/sell state的逻辑保持一致。
         if not summary['latest_state'] or state.trade_time > summary['latest_state'].trade_time:
-            print(f"调试: 股票 {stock_code} 的最新时间从 {summary['latest_state'].trade_time if summary['latest_state'] else 'None'} 更新为 {state.trade_time}") # 调试信息
+            # print(f"调试: 股票 {stock_code} 的最新时间从 {summary['latest_state'].trade_time if summary['latest_state'] else 'None'} 更新为 {state.trade_time}") # 调试信息
             summary['latest_state'] = state
         # ▲▲▲【代码修改结束】▲▲▲
 
