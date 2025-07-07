@@ -89,27 +89,43 @@
       }
     }
   },
+  "trend_analysis_params": {
+    "enabled": true,
+    "说明": "【趋势分析参数层】定义用于分析趋势速度（斜率）和加速度（二阶斜率）的核心参数。这是策略的'大脑'，用于判断当前趋势的健康状况。",
+    "ma_period": 21,
+    "说明_ma_period": "用于计算斜率和加速度的核心均线周期。21周EMA是中期趋势的绝佳代表，能有效反映趋势的速度和加速度变化。",
+    
+    "left_side_support": {
+      "enabled": true,
+      "说明": "【左侧交易支撑】配置用于识别战略性底部观察区的参数。当'减速下跌'状态与具体的底部特征信号结合时，激活此信号。",
+      "washout_score_min": 2,
+      "说明_washout_score_min": "在判断底部区域时，洗盘分数的最低阈值。这可以与右侧突破的阈值分开设置。"
+    }
+  },
   "strategy_playbooks": {
     "说明": "【战略剧本层】定义了本周线策略包含的各种交易剧本（Playbook）。每个剧本代表一种经过市场验证的、特定的K线/指标组合模式。剧本的输出是布尔信号（True/False），用于给日线策略提供战略背景。",
     "ma_uptrend_playbook": {
       "enabled": true,
-      "说明": "【剧本：均线多头排列】最基础的趋势判断剧本。识别短期、中期、长期均线是否形成多头排列，确认市场处于强势上涨趋势中。",
+      "说明": "【剧本 V3.3】均线多头排列(带容忍区)。识别强势趋势，同时容忍价格的正常波动。",
       "short_ma": 13,
       "mid_ma": 21,
       "long_ma": 55,
-      "说明_ma_periods": "定义了用于判断多头排列的短(13周)、中(21周)、长(55周)三条均线。"
+      "tolerance_pct": 0.02,
+      "说明_tolerance_pct": "支撑均线容忍度。0.02表示允许收盘价暂时低于中期均线2%而不破坏多头状态。"
     },
     "ma20_rising_state_playbook": {
       "enabled": true,
-      "说明": "【状态剧本：MA20处于上升状态】识别20周均线是否处于持续上升的健康状态。这是一个'状态'信号，适合作为趋势持仓的过滤条件。",
+      "说明": "【状态剧本 V3.1】识别MA21是否处于有效上升状态。引入斜率阈值，过滤伪上涨。",
       "ma_period": 21,
-      "说明_ma_period": "均线周期。使用21周EMA，更平滑，能更好地代表趋势状态。"
+      "slope_threshold_pct": 0.1,
+      "说明_slope_threshold_pct": "均线周涨幅百分比阈值。大于此值才算有效上涨。"
     },
     "ma20_turn_up_event_playbook": {
       "enabled": true,
-      "说明": "【事件剧本：MA20发生拐头向上】精确捕捉20周均线由平/跌转为上涨的那个'瞬间'。这是一个高价值的'事件'信号，适合作为趋势启动的触发器。",
+      "说明": "【事件剧本 V3.1】精确捕捉MA21“加速拐头向上”的瞬间。引入加速度判断。",
       "ma_period": 21,
-      "说明_ma_period": "均线周期。使用21周EMA，与状态信号保持一致。"
+      "accel_threshold": 0,
+      "说明_accel_threshold": "加速度阈值。要求拐头的力量必须大于此值，0表示只要有加速度即可。"
     },
     "early_uptrend_playbook": {
       "enabled": true,
@@ -149,15 +165,25 @@
     },
     "trix_golden_cross_playbook": {
       "enabled": true,
-      "说明": "【剧本：TRIX金叉】识别周线TRIX金叉，一个强大的中长期趋势确认信号。"
+      "说明": "【剧本 V3.2】识别周线TRIX“强力金叉”，引入斜率判断，过滤弱信号。",
+      "slope_threshold": 0.01,
+      "说明_slope_threshold": "TRIX线自身的斜率阈值。金叉时，TRIX周变化值必须大于此值，才被视为有效。用于确认动能。"
     },
     "coppock_reversal_playbook": {
       "enabled": true,
-      "说明": "【剧本：Coppock底部反转】识别周线Coppock估波曲线从底部反转，一个战略性的长期底部信号。"
+      "说明": "【剧本 V3.4】Coppock指标形态学。分离左侧'企稳'与右侧'加速'信号。",
+      "deep_value_threshold": -100,
+      "说明_deep_value_threshold": "【左侧】深水区阈值。企稳拐头的起点必须低于此值。",
+      "accel_threshold": 10,
+      "说明_accel_threshold": "【右侧】加速度阈值。Coppock周斜率的变化值(加速度)需大于此值，才确认为有效加速。"
     },
     "washout_score_playbook": {
       "enabled": true,
       "说明": "【诊断剧本：洗盘评分】通过多种模式量化周线级别的洗盘行为。得分越高，表明近期洗盘特征越明显。这是一个诊断工具，其分数可用于增强其他买入信号的权重。",
+      "immunity_score_threshold": 3,
+      "说明_immunity_score_threshold": "豁免分数阈值。当洗盘分数 >= 此值时，将激活'洗盘豁免'状态。",
+      "immunity_window": 3,
+      "说明_immunity_window": "豁免窗口(周)。激活豁免状态后，该状态将持续3周，在此期间可忽略某些负面信号。",
       "score_threshold": 2,
       "说明_score_threshold": "洗盘分数阈值。当分数 >= 2时，可认为出现了较明显的洗盘信号。",
       "support_type": "MA",

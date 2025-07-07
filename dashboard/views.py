@@ -145,7 +145,7 @@ def get_playbook_priority(playbook_name):
     if 'MA20' in playbook_name_upper or '均线' in playbook_name:
         return 5  # 最低优先级：基础形态确认
     return 3 # 默认优先级
-# ▲▲▲【代码修改】: 结束 ▲▲▲
+
 
 
 @login_required
@@ -160,7 +160,7 @@ def trend_following_list(request):
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
-    
+
     # 2. 获取URL中的筛选参数
     selected_playbooks = request.GET.getlist('playbooks')
 
@@ -197,7 +197,6 @@ def trend_following_list(request):
                 'strategy_names': set(),
             }
         
-        # ▼▼▼【代码修改】: 修正寻找最新时间和最高分的逻辑 ▼▼▼
         # 原逻辑只更新分数，不更新时间，导致时间戳可能不正确。
         # 新逻辑确保同时更新时间和分数，保证数据一致性。
         
@@ -214,7 +213,6 @@ def trend_following_list(request):
         # 更新为最高分数 (逻辑不变，但现在与时间更新逻辑并列，更清晰)
         if state.latest_score > aggregated_results[stock_code]['latest_score']:
             aggregated_results[stock_code]['latest_score'] = state.latest_score
-        # ▲▲▲【代码修改结束】▲▲▲
 
     # 8. 后处理和排序
     final_list = list(aggregated_results.values())
@@ -348,7 +346,6 @@ def fav_trend_following_list(request):
         
         processed_list.append(item)
 
-    # ▼▼▼【代码修改】: 使用最终正确的单行排序逻辑 ▼▼▼
     # 移除了之前导致错误的 min_aware_datetime 相关代码。
     # 这个 lambda 函数能正确处理所有情况，包括 latest_trade_time 为 None 的情况。
     processed_list.sort(key=lambda x: (
@@ -356,7 +353,6 @@ def fav_trend_following_list(request):
         -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0) # 次要排序键：按时间降序 (通过取负数实现)
     ))
     print(f"调试: 排序后第一个元素的优先级: {processed_list[0]['sort_priority'] if processed_list else 'N/A'}, 时间: {processed_list[0]['latest_trade_time'] if processed_list else 'N/A'}")
-    # ▲▲▲【代码修改结束】▲▲▲
 
     paginator = Paginator(processed_list, 25)
     page_number = request.GET.get('page')

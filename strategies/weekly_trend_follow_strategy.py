@@ -31,7 +31,11 @@ class WeeklyTrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【核心策略应用函数 V2.9.1】
+        【核心策略应用函数 V3.3 - 容忍噪音与识别洗盘】
+        - 核心修改: 
+          1. 新增“洗盘豁免”状态 (state_washout_immunity_W)。当近期出现高分洗盘时，此状态激活。
+          2. 在合成右侧信号时，如果处于“洗盘豁免”状态，则可以忽略“压力位拒绝”信号，防止被错误洗出。
+          3. 状态节点判读逻辑保持不变，但其基础信号的质量和鲁棒性得到提升。
         """
         if df is None or df.empty:
             logger.warning("周线策略输入DataFrame为空，无法应用。")
@@ -40,26 +44,48 @@ class WeeklyTrendFollowStrategy:
         # --- 步骤 1: 计算所有基础剧本和诊断信号 ---
         context_df = self._calculate_all_playbooks(df)
         
-        print("\n---【周线战略层(V2.9.1 信号合成与提纯)诊断】---")
-        # --- 步骤 2: 信号合成层 ---
-        washout_threshold = self.playbook_params.get('washout_score_playbook', {}).get('score_threshold', 2)
+        print("\n---【周线战略层(V3.3 容忍噪音)诊断】---")
+
+        # --- 步骤 2: 趋势状态分析 (斜率与加速度) ---
+        trend_params = self.params.get('trend_analysis_params', {})
+        ma_period = trend_params.get('ma_period', 21)
+        ma_col = f'EMA_{ma_period}_W'
         
-        accumulation_playbooks = [
-            'playbook_early_uptrend_W', 
-            'playbook_bias_rebound_W', 
-            'playbook_ma20_turn_up_event_W',
-            'playbook_trix_golden_cross_W',
-            'playbook_coppock_reversal_W'
-        ]
-        valid_accumulation_playbooks = [p for p in accumulation_playbooks if p in context_df.columns]
+        if ma_col in context_df.columns:
+            slope = context_df[ma_col].diff(1)
+            acceleration = slope.diff(1)
+            context_df['state_trend_accelerating_W'] = (slope > 0) & (acceleration > 0)
+            context_df['state_trend_stable_rising_W'] = (slope > 0) & (acceleration <= 0)
+            context_df['state_trend_decelerating_fall_W'] = (slope < 0) & (acceleration > 0)
+            context_df['state_trend_accelerating_fall_W'] = (slope < 0) & (acceleration < 0)
+            context_df['filter_trend_is_healthy_W'] = context_df['state_trend_accelerating_W'] | context_df['state_trend_stable_rising_W']
+        else:
+            print(f"【趋势分析-警告】缺少核心趋势分析列 {ma_col}，将跳过斜率分析。")
+            for col in ['filter_trend_is_healthy_W', 'state_trend_accelerating_W', 'state_trend_stable_rising_W', 'state_trend_decelerating_fall_W']:
+                context_df[col] = pd.Series(False, index=context_df.index)
+            context_df['filter_trend_is_healthy_W'] = True
+
+        # --- 步骤 3: 信号合成层 (引入洗盘豁免) ---
+        print("\n---【合成-右侧信号】---")
         
-        is_accumulation_signal = pd.Series(False, index=context_df.index)
-        if valid_accumulation_playbooks:
-            is_accumulation_signal = context_df[valid_accumulation_playbooks].any(axis=1)
-        
+        # === 3.1 新增：建立“洗盘豁免”状态 ===
+        washout_params = self.playbook_params.get('washout_score_playbook', {})
+        immunity_threshold = washout_params.get('immunity_score_threshold', 3)
+        immunity_window = washout_params.get('immunity_window', 3)
         if 'washout_score_W' in context_df.columns:
-            is_accumulation_signal |= (context_df['washout_score_W'] >= washout_threshold)
-        
+            # 检查过去N周内，是否曾出现过一次得分超过豁免阈值的洗盘
+            had_recent_strong_washout = (context_df['washout_score_W'].rolling(window=immunity_window).max().shift(1) >= immunity_threshold)
+            context_df['state_washout_immunity_W'] = had_recent_strong_washout.fillna(False)
+            print(f"【洗盘豁免】已启用。豁免分数阈值: {immunity_threshold}, 豁免窗口: {immunity_window}周。")
+            print(f"【洗盘豁免】最近一周豁免状态: {'[激活]' if context_df['state_washout_immunity_W'].iloc[-1] else '[未激活]'}")
+        else:
+            context_df['state_washout_immunity_W'] = pd.Series(False, index=context_df.index)
+            print("【洗盘豁免】未启用 (缺少 washout_score_W 列)。")
+
+        # === 3.2 右侧趋势跟踪信号合成 (修改) ===
+        accumulation_playbooks = ['playbook_early_uptrend_W', 'playbook_ma20_turn_up_event_W']
+        valid_accumulation_playbooks = [p for p in accumulation_playbooks if p in context_df.columns]
+        is_accumulation_signal = context_df[valid_accumulation_playbooks].any(axis=1) if valid_accumulation_playbooks else pd.Series(False, index=context_df.index)
         recent_accumulation_window = 12 
         had_recent_accumulation = is_accumulation_signal.rolling(window=recent_accumulation_window, min_periods=1).sum().shift(1) > 0
         context_df['state_had_recent_accumulation_W'] = had_recent_accumulation.fillna(False)
@@ -67,39 +93,79 @@ class WeeklyTrendFollowStrategy:
         breakout_playbooks = ['playbook_classic_breakout_W', 'playbook_box_breakout_W']
         valid_breakout_playbooks = [p for p in breakout_playbooks if p in context_df.columns]
         is_breakout_event = context_df[valid_breakout_playbooks].any(axis=1) if valid_breakout_playbooks else pd.Series(False, index=context_df.index)
-        
         context_df['event_is_breakout_week_W'] = is_breakout_event
+        
         is_breakout_initiation = context_df['state_had_recent_accumulation_W'] & context_df['event_is_breakout_week_W']
-        signal_breakout_initiation = (is_breakout_initiation) & (is_breakout_initiation.shift(1) == False)
-        context_df['signal_breakout_initiation_W'] = signal_breakout_initiation
         
-        is_rejection_week = pd.Series(False, index=context_df.index)
-        if 'rejection_signal_W' in context_df.columns:
-            is_rejection_week = context_df['rejection_signal_W'] < 0
+        # 修改：判断是否出现拒绝信号
+        is_rejection_week = context_df.get('rejection_signal_W', pd.Series(0, index=context_df.index)) < 0
+        # 核心修改：如果处于洗盘豁免期，则无视拒绝信号
+        is_rejection_week_final = is_rejection_week & ~context_df['state_washout_immunity_W']
 
-        breakout_event_group = context_df['signal_breakout_initiation_W'].cumsum()
-        rejections_in_group_so_far = is_rejection_week.groupby(breakout_event_group).cumsum()
+        breakout_event_group = is_breakout_initiation.cumsum()
+        rejections_in_group_so_far = is_rejection_week_final.groupby(breakout_event_group).cumsum()
         has_no_rejection_yet = (rejections_in_group_so_far == 0)
-        context_df['filter_has_no_rejection_yet_W'] = has_no_rejection_yet
         
-        base_trigger = is_breakout_initiation & has_no_rejection_yet
+        base_trigger = is_breakout_initiation & has_no_rejection_yet & context_df['filter_trend_is_healthy_W']
         ace_trigger = context_df.get('playbook_ace_signal_breakout_trigger_W', pd.Series(False, index=context_df.index))
         context_df['signal_breakout_trigger_W'] = base_trigger | ace_trigger
-
-        print(f"【合成-步骤1】近期有吸筹状态(state_had_recent_accumulation_W) 周数: {context_df['state_had_recent_accumulation_W'].sum()}")
-        print(f"【合成-步骤2】周线突破事件(event_is_breakout_week_W) 周数: {context_df['event_is_breakout_week_W'].sum()}")
-        print(f"【合成-步骤3】突破启动信号(signal_breakout_initiation_W) 周数: {context_df['signal_breakout_initiation_W'].sum()}")
-        print(f"【合成-步骤4】至今无拒绝信号(filter_has_no_rejection_yet_W) 周数: {context_df['filter_has_no_rejection_yet_W'].sum()}")
-        print(f"【合成-步骤5】最终突破观察信号(signal_breakout_trigger_W) 周数: {context_df['signal_breakout_trigger_W'].sum()} (已包含王牌信号)")
         
-        return context_df
+        print(f"【右侧】原始拒绝信号周数: {is_rejection_week.sum()}")
+        print(f"【右侧】豁免后有效拒绝周数: {is_rejection_week_final.sum()}")
+        print(f"【右侧】最终突破观察信号(signal_breakout_trigger_W)周数: {context_df['signal_breakout_trigger_W'].sum()}")
 
+        # === 3.3 左侧拐点观察信号合成 (逻辑不变) ===
+        left_side_params = trend_params.get('left_side_support', {})
+        if left_side_params.get('enabled', False):
+            bottoming_playbooks = ['playbook_bias_rebound_W', 'playbook_trix_golden_cross_W', 'playbook_coppock_reversal_W']
+            valid_bottoming_playbooks = [p for p in bottoming_playbooks if p in context_df.columns]
+            is_bottoming_signal = context_df[valid_bottoming_playbooks].any(axis=1) if valid_bottoming_playbooks else pd.Series(False, index=context_df.index)
+            washout_score_min = left_side_params.get('washout_score_min', 2)
+            if 'washout_score_W' in context_df.columns:
+                is_bottoming_signal |= (context_df['washout_score_W'] >= washout_score_min)
+            context_df['signal_potential_bottom_zone_W'] = context_df['state_trend_decelerating_fall_W'] & is_bottoming_signal
+        else:
+            context_df['signal_potential_bottom_zone_W'] = pd.Series(False, index=context_df.index)
+
+        # === 3.4 右侧信号增强 (新增) ===
+        # 将Coppock加速信号和TRIX金叉作为“点火期”的增强信号
+        ignition_enhancers = [
+            'playbook_trix_golden_cross_W',
+            'playbook_coppock_accelerating_W' # 新增：使用新的右侧加速信号
+        ]
+        valid_enhancers = [p for p in ignition_enhancers if p in context_df.columns]
+        if valid_enhancers:
+            is_ignition_enhancer_event = context_df[valid_enhancers].any(axis=1)
+            # 如果有增强信号，也可以触发突破观察（即使没有经典突破形态）
+            context_df['signal_breakout_trigger_W'] |= (is_ignition_enhancer_event & context_df['filter_trend_is_healthy_W'])
+            print(f"【右侧】点火增强信号源: {valid_enhancers}")
+            print(f"【右侧】增强后最终突破观察信号周数: {context_df['signal_breakout_trigger_W'].sum()}")
+
+        # --- 步骤 4: 状态节点判读 (修改) ---
+        print("\n---【状态节点判读】---")
+        context_df['state_node_bottoming_W'] = context_df['signal_potential_bottom_zone_W']
+        
+        # 点火期信号源：均线加速拐头、TRIX金叉、Coppock加速
+        ignition_signals = [
+            'playbook_ma20_turn_up_event_W', 
+            'playbook_trix_golden_cross_W',
+            'playbook_coppock_accelerating_W' # 修改：使用新的右侧加速信号
+        ]
+        valid_ignition_signals = [s for s in ignition_signals if s in context_df.columns]
+        context_df['state_node_ignition_W'] = context_df[valid_ignition_signals].any(axis=1) if valid_ignition_signals else pd.Series(False, index=context_df.index)
+        
+        context_df['state_node_main_ascent_W'] = context_df['state_trend_accelerating_W']
+        context_df['state_node_topping_W'] = context_df['state_trend_stable_rising_W'] & (context_df.get('rejection_signal_W', 0) < 0)
+        print(f"【状态节点】筑底区: {context_df['state_node_bottoming_W'].sum()}周 | 点火期: {context_df['state_node_ignition_W'].sum()}周 | 主升段: {context_df['state_node_main_ascent_W'].sum()}周 | 滞涨区: {context_df['state_node_topping_W'].sum()}周")
+
+        return context_df
+    
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.9.1 架构重构】动态遍历JSON配置，计算所有已启用的剧本。
+        【V3.4 架构升级】动态遍历JSON配置，并支持一个剧本函数输出多个信号列。
         """
         print("\n" + "="*80)
-        print(f"---【周线战略层(V2.9.1 终极一致性修复版) - 检查最新一周: {df.index[-1].date()}】---")
+        print(f"---【周线战略层(V3.4 多信号输出) - 检查最新一周: {df.index[-1].date()}】---")
         print("="*80)
         
         context_df = df.copy()
@@ -115,7 +181,7 @@ class WeeklyTrendFollowStrategy:
             'washout_score_playbook': self._playbook_calculate_washout_score,
             'rejection_filter_playbook': self._playbook_check_rejection_filters,
             'trix_golden_cross_playbook': self._playbook_trix_golden_cross,
-            'coppock_reversal_playbook': self._playbook_coppock_bottom_reversal,
+            'coppock_reversal_playbook': self._playbook_coppock_reversal, # 修改点：函数名统一
             'ace_signal_breakout_trigger_playbook': self._playbook_ace_signal_breakout_trigger,
         }
 
@@ -124,23 +190,29 @@ class WeeklyTrendFollowStrategy:
 
             if playbook_name in playbook_map:
                 if params.get('enabled', False):
-                    result_series = playbook_map[playbook_name](df, params)
+                    # 一个函数可能返回一个Series，也可能返回一个dict of Series
+                    results = playbook_map[playbook_name](df, params)
                     
-                    if 'score' in playbook_name:
-                        col_name = 'washout_score_W'
-                    elif 'filter' in playbook_name:
-                        col_name = 'rejection_signal_W'
-                    else:
-                        col_name = f"playbook_{playbook_name.replace('_playbook', '')}_W"
-                    
-                    context_df[col_name] = result_series
+                    if isinstance(results, dict):
+                        # 如果返回字典，则遍历字典中的每个信号
+                        for signal_suffix, result_series in results.items():
+                            context_df[f"playbook_{signal_suffix}_W"] = result_series
+                    elif isinstance(results, pd.Series):
+                        # 兼容旧的返回单个Series的函数
+                        if 'score' in playbook_name:
+                            col_name = 'washout_score_W'
+                        elif 'filter' in playbook_name:
+                            col_name = 'rejection_signal_W'
+                        else:
+                            col_name = f"playbook_{playbook_name.replace('_playbook', '')}_W"
+                        context_df[col_name] = result_series
                 else:
                     print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
                     print("    - 结论: [未启用]")
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
 
-        print("\n---【周线战略层(V2.9.1) - 剧本计算总结】---")
+        print("\n---【周线战略层(V3.4) - 剧本计算总结】---")
         for col in context_df.columns:
             if col.startswith('playbook_'):
                 label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
@@ -155,52 +227,92 @@ class WeeklyTrendFollowStrategy:
         return context_df
 
     def _playbook_ma20_is_rising(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """剧本：识别指定周线均线是否处于上升状态 (由JSON配置驱动)"""
+        """
+        【V3.1 升级剧本】: 识别指定周线均线是否处于“有效”上升状态。
+        - 核心修改: 引入斜率阈值，过滤掉几乎走平的“伪上涨”状态。
+        """
         print(f"\n--- 剧本检查: [{params.get('说明', '均线处于上升状态')}] ---")
         target_ma_period = params.get('ma_period', 21)
-        print(f"    - 配置参数: ma_period={target_ma_period}")
+        # 新增斜率阈值参数，要求均线每周至少上涨0.1%才算有效上涨
+        slope_threshold_pct = params.get('slope_threshold_pct', 0.1) 
+        print(f"    - 配置参数: ma_period={target_ma_period}, slope_threshold_pct={slope_threshold_pct}%")
+        
         ema_col = f'EMA_{target_ma_period}_W'
-        slope_col = f'{ema_col}_slope_state'
         close_col = 'close_W'
         if not self._check_dependencies(df, [ema_col, close_col], log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
-        df[slope_col] = df[ema_col].diff(1)
-        condition1 = df[slope_col] > 0
-        condition2 = df[close_col] > df[ema_col]
-        final_signal = condition1 & condition2
-        last = df.iloc[-1]
-        c1_last = condition1.iloc[-1]
-        c2_last = condition2.iloc[-1]
-        print(f"    - 条件1 (均线斜率 > 0): {'[✓]' if c1_last else '[✗]'} (实际值: {last.get(slope_col, float('nan')):.2f})")
-        print(f"    - 条件2 (收盘价 > 均线): {'[✓]' if c2_last else '[✗]'} (收盘价: {last.get(close_col, float('nan')):.2f} vs 均线: {last.get(ema_col, float('nan')):.2f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+
+        # 计算斜率，并进行标准化，使其不受股价绝对值影响
+        slope = df[ema_col].diff(1)
+        safe_ma = df[ema_col].shift(1).replace(0, 1e-9) # 防止除以零
+        normalized_slope_pct = (slope / safe_ma) * 100
+
+        # 条件1: 标准化后的斜率必须大于阈值
+        condition1_is_rising_effectively = normalized_slope_pct > slope_threshold_pct
+        
+        # 条件2: 收盘价在均线之上
+        condition2_price_confirm = df[close_col] > df[ema_col]
+        
+        final_signal = condition1_is_rising_effectively & condition2_price_confirm
+        
+        # 调试信息
+        # last = df.iloc[-1]
+        # c1_last = condition1_is_rising_effectively.iloc[-1]
+        # c2_last = condition2_price_confirm.iloc[-1]
+        
+        # print(f"    - 条件1 (均线有效上涨): {'[✓]' if c1_last else '[✗]'} (周涨幅: {normalized_slope_pct.iloc[-1]:.3f}% > 阈值: {slope_threshold_pct}%)")
+        # print(f"    - 条件2 (价格确认): {'[✓]' if c2_last else '[✗]'} (收盘价: {last.get(close_col, 0):.2f} vs 均线: {last.get(ema_col, 0):.2f})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        
         return final_signal.fillna(False)
 
     def _playbook_ma20_turn_up_event(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """【新增剧本】: 识别指定周线均线“拐头向上”的事件 (由JSON配置驱动)"""
+        """
+        【V3.1 升级剧本】: 识别指定周线均线“加速拐头向上”的事件。
+        - 核心修改: 引入二阶斜率（加速度）作为判断条件。
+                     要求拐头不仅是方向改变，还必须是“加速”的，以提高信号质量。
+        """
         print(f"\n--- 剧本检查: [{params.get('说明', '均线拐头向上事件')}] ---")
         target_ma_period = params.get('ma_period', 21)
-        print(f"    - 配置参数: ma_period={target_ma_period}")
+        # 新增加速度阈值参数，如果JSON中没有，则默认为0
+        accel_threshold = params.get('accel_threshold', 0) 
+        print(f"    - 配置参数: ma_period={target_ma_period}, accel_threshold={accel_threshold}")
+        
         ema_col = f'EMA_{target_ma_period}_W'
-        slope_col = f'{ema_col}_slope_event'
         close_col = 'close_W'
         if not self._check_dependencies(df, [ema_col, close_col], log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
-        df[slope_col] = df[ema_col].diff(1)
-        slope_is_positive = df[slope_col] > 0
-        slope_was_not_positive = df[slope_col].shift(1) <= 0
-        condition1 = slope_is_positive & slope_was_not_positive
-        condition2 = df[close_col] > df[ema_col]
-        final_signal = condition1 & condition2
+
+        # 计算斜率（速度）和二阶斜率（加速度）
+        slope = df[ema_col].diff(1)
+        acceleration = slope.diff(1)
+
+        # 条件1: 发生拐头 (本周斜率为正，上周为负或零)
+        slope_is_positive = slope > 0
+        slope_was_not_positive = slope.shift(1) <= 0
+        condition1_turn_up = slope_is_positive & slope_was_not_positive
+        
+        # 条件2 (新增): 加速度必须为正，且大于阈值，确保是“有力”的拐头
+        condition2_is_accelerating = acceleration > accel_threshold
+
+        # 条件3: 收盘价在均线之上作为确认
+        condition3_price_confirm = df[close_col] > df[ema_col]
+
+        final_signal = condition1_turn_up & condition2_is_accelerating & condition3_price_confirm
+        
+        # 调试信息
         last = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else last 
-        c1_last = condition1.iloc[-1]
-        c2_last = condition2.iloc[-1]
-        print(f"    - 条件1 (均线发生拐头): {'[✓]' if c1_last else '[✗]'} (本周斜率: {last.get(slope_col, 0):.2f} > 0 AND 上周斜率: {prev.get(slope_col, 0):.2f} <= 0)")
-        print(f"    - 条件2 (收盘价 > 均线): {'[✓]' if c2_last else '[✗]'} (收盘价: {last.get(close_col, float('nan')):.2f} vs 均线: {last.get(ema_col, float('nan')):.2f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        c1_last = condition1_turn_up.iloc[-1]
+        c2_last = condition2_is_accelerating.iloc[-1]
+        c3_last = condition3_price_confirm.iloc[-1]
+        
+        # print(f"    - 条件1 (均线发生拐头): {'[✓]' if c1_last else '[✗]'} (本周斜率: {slope.iloc[-1]:.2f} > 0 AND 上周斜率: {slope.shift(1).iloc[-1]:.2f} <= 0)")
+        # print(f"    - 条件2 (拐头正在加速): {'[✓]' if c2_last else '[✗]'} (加速度: {acceleration.iloc[-1]:.2f} > 阈值: {accel_threshold})")
+        # print(f"    - 条件3 (价格确认): {'[✓]' if c3_last else '[✗]'} (收盘价: {last.get(close_col, 0):.2f} vs 均线: {last.get(ema_col, 0):.2f})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        
         return final_signal.fillna(False)
 
     # ▼▼▼【代码修改】: 修复此函数，使其从params读取均线周期，不再硬编码 ▼▼▼
@@ -266,26 +378,43 @@ class WeeklyTrendFollowStrategy:
         return final_signal.fillna(False)
 
     def _playbook_check_ma_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """剧本：检查均线多头排列"""
+        """
+        【V3.3 升级剧本】: 检查均线多头排列 (引入容忍区)。
+        - 核心修改: 增加 tolerance_pct 参数，允许价格在支撑均线下方有小幅波动，
+                     以容忍市场噪音和毛刺，避免因轻微跌破而被错误过滤。
+        """
         print(f"\n--- 剧本检查: [{params.get('说明', '均线多头排列')}] ---")
         short_ma = params.get('short_ma', 13)
         mid_ma = params.get('mid_ma', 21)
         long_ma = params.get('long_ma', 55)
+        # 新增：从JSON获取容忍度参数，默认为1%，即允许股价跌破支撑均线1%
+        tolerance_pct = params.get('tolerance_pct', 0.01)
+        print(f"    - 配置参数: short={short_ma}, mid={mid_ma}, long={long_ma}, tolerance_pct={tolerance_pct*100}%")
+
         short_col, mid_col, long_col = f'EMA_{short_ma}_W', f'EMA_{mid_ma}_W', f'EMA_{long_ma}_W'
         if not self._check_dependencies(df, [short_col, mid_col, long_col, 'close_W'], log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
+
+        # 条件1: 均线排列关系不变
         ma_aligned = (df[short_col] > df[mid_col]) & (df[mid_col] > df[long_col])
-        price_above_support = df['close_W'] > df[mid_col]
-        final_signal = ma_aligned & price_above_support
+        
+        # 条件2 (修改): 股价在支撑均线的“容忍区”之上
+        support_level_with_tolerance = df[mid_col] * (1 - tolerance_pct)
+        price_above_support_zone = df['close_W'] > support_level_with_tolerance
+
+        final_signal = ma_aligned & price_above_support_zone
+        
         last = df.iloc[-1]
         ma_last = ma_aligned.iloc[-1]
-        pas_last = price_above_support.iloc[-1]
+        pas_last = price_above_support_zone.iloc[-1]
+        
         print(f"    - 条件1 (均线多头): {'[✓]' if ma_last else '[✗]'} (EMA{short_ma}: {last.get(short_col, 0):.2f} > EMA{mid_ma}: {last.get(mid_col, 0):.2f} > EMA{long_ma}: {last.get(long_col, 0):.2f})")
-        print(f"    - 条件2 (股价在支撑上): {'[✓]' if pas_last else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} > EMA{mid_ma}: {last.get(mid_col, 0):.2f})")
+        print(f"    - 条件2 (股价在支撑容忍区上): {'[✓]' if pas_last else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} > 支撑区下轨: {support_level_with_tolerance.iloc[-1]:.2f})")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        
         return final_signal.fillna(False)
-
+    
     def _playbook_oversold_rebound_bias(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：利用BIAS指标捕捉周线级别的超跌反弹机会"""
         print(f"\n--- 剧本检查: [{params.get('说明', 'BIAS超跌反弹')}] ---")
@@ -453,63 +582,104 @@ class WeeklyTrendFollowStrategy:
         return final_signal.fillna(False)
 
     def _playbook_trix_golden_cross(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """剧本：识别周线TRIX金叉，一个强大的中长期趋势确认信号。"""
+        """
+        【V3.2 升级剧本】: 识别周线TRIX“强力金叉”。
+        - 核心修改: 增加TRIX线自身斜率的判断，要求金叉时必须是“加速向上”的。
+        """
         print(f"\n--- 剧本检查: [{params.get('说明', 'TRIX金叉')}] ---")
         trix_cfg = self.indicator_cfg.get('trix', {})
-        trix_periods = None
-        if 'configs' in trix_cfg:
-            for config_item in trix_cfg['configs']:
-                if 'W' in config_item.get('apply_on', []):
-                    trix_periods = config_item.get('periods')
-                    break
+        trix_periods = next((c.get('periods') for c in trix_cfg.get('configs', []) if 'W' in c.get('apply_on', [])), None)
         if not trix_periods or len(trix_periods) < 2:
             print("    - 结论: [失败] TRIX周期参数配置不正确。")
             return pd.Series(False, index=df.index)
+        
         trix_len, signal_len = trix_periods[0], trix_periods[1]
+        slope_threshold = params.get('slope_threshold', 0.01) # 从JSON获取斜率阈值
+        print(f"    - 配置参数: trix_len={trix_len}, signal_len={signal_len}, slope_threshold={slope_threshold}")
+
         trix_col = f'TRIX_{trix_len}_{signal_len}_W'
         trix_signal_col = f'TRIXs_{trix_len}_{signal_len}_W'
         if not self._check_dependencies(df, [trix_col, trix_signal_col], log_details=True):
             print(f"    - 结论: [失败] 缺少必要的TRIX列。")
             return pd.Series(False, index=df.index)
-        is_golden_cross = (df[trix_col] > df[trix_signal_col]) & \
-                          (df[trix_col].shift(1) <= df[trix_signal_col].shift(1))
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        gc_last = is_golden_cross.iloc[-1]
-        print(f"    - 条件1 (本周TRIX > 信号线): {'[✓]' if last.get(trix_col, 0) > last.get(trix_signal_col, 0) else '[✗]'} (TRIX: {last.get(trix_col, 0):.2f} vs 信号线: {last.get(trix_signal_col, 0):.2f})")
-        print(f"    - 条件2 (上周TRIX <= 信号线): {'[✓]' if prev.get(trix_col, 0) <= prev.get(trix_signal_col, 0) else '[✗]'} (TRIX: {prev.get(trix_col, 0):.2f} vs 信号线: {prev.get(trix_signal_col, 0):.2f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if gc_last else '未触发'}]")
-        return is_golden_cross.fillna(False)
 
-    def _playbook_coppock_bottom_reversal(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """剧本：识别周线Coppock估波曲线从底部反转，一个战略性的长期底部信号。"""
-        print(f"\n--- 剧本检查: [{params.get('说明', 'Coppock底部反转')}] ---")
+        # 条件1: 经典金叉
+        condition1_is_golden_cross = (df[trix_col] > df[trix_signal_col]) & \
+                                     (df[trix_col].shift(1) <= df[trix_signal_col].shift(1))
+        
+        # 条件2 (新增): TRIX线自身斜率必须大于阈值，确保是强力金叉
+        trix_slope = df[trix_col].diff(1)
+        condition2_is_strong_momentum = trix_slope > slope_threshold
+
+        final_signal = condition1_is_golden_cross & condition2_is_strong_momentum
+        
+        last = df.iloc[-1]
+        c1_last = condition1_is_golden_cross.iloc[-1]
+        c2_last = condition2_is_strong_momentum.iloc[-1]
+        
+        print(f"    - 条件1 (发生金叉): {'[✓]' if c1_last else '[✗]'}")
+        print(f"    - 条件2 (动能强劲): {'[✓]' if c2_last else '[✗]'} (TRIX斜率: {trix_slope.iloc[-1]:.4f} > 阈值: {slope_threshold})")
+        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        
+        return final_signal.fillna(False)
+    
+    def _playbook_coppock_reversal(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V3.4 升级剧本】: Coppock指标形态学 - 分离左侧企稳与右侧加速信号。
+        - 核心修改: 不再输出单一信号，而是返回一个包含两个独立信号的字典：
+          1. coppock_stabilizing (左侧): 捕捉深水区“跌势衰竭，首次拐头”的瞬间。
+          2. coppock_accelerating (右侧): 捕捉拐头后“上涨加速，动能确认”的瞬间。
+        """
+        print(f"\n--- 剧本检查: [{params.get('说明', 'Coppock双信号反转')}] ---")
         coppock_cfg = self.indicator_cfg.get('coppock', {})
-        coppock_periods = None
-        if 'configs' in coppock_cfg:
-            for config_item in coppock_cfg['configs']:
-                if 'W' in config_item.get('apply_on', []):
-                    coppock_periods = config_item.get('periods')
-                    break
+        coppock_periods = next((c.get('periods') for c in coppock_cfg.get('configs', []) if 'W' in c.get('apply_on', [])), None)
         if not coppock_periods or len(coppock_periods) < 3:
             print("    - 结论: [失败] Coppock周期参数配置不正确。")
-            return pd.Series(False, index=df.index)
+            return {}
+        
         p1, p2, p3 = coppock_periods[0], coppock_periods[1], coppock_periods[2]
+        deep_value_threshold = params.get('deep_value_threshold', -100)
+        accel_threshold = params.get('accel_threshold', 10) # 上涨加速度阈值
+        print(f"    - 配置参数: deep_value={deep_value_threshold}, accel_threshold={accel_threshold}")
+
         coppock_col = f'COPP_{p1}_{p2}_{p3}_W'
         if not self._check_dependencies(df, [coppock_col], log_details=True):
             print(f"    - 结论: [失败] 缺少必要的Coppock列。")
-            return pd.Series(False, index=df.index)
-        is_turning_up = df[coppock_col] > df[coppock_col].shift(1)
-        was_below_zero = df[coppock_col].shift(1) < 0
-        final_signal = is_turning_up & was_below_zero
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        fs_last = final_signal.iloc[-1]
-        print(f"    - 条件1 (本周Coppock > 上周Coppock): {'[✓]' if last.get(coppock_col, 0) > prev.get(coppock_col, 0) else '[✗]'} (本周: {last.get(coppock_col, 0):.2f} vs 上周: {prev.get(coppock_col, 0):.2f})")
-        print(f"    - 条件2 (上周Coppock < 0): {'[✓]' if prev.get(coppock_col, 0) < 0 else '[✗]'} (上周值: {prev.get(coppock_col, 0):.2f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if fs_last else '未触发'}]")
-        return final_signal.fillna(False)
+            return {}
 
+        # --- 计算基础变量：斜率(速度)和加速度 ---
+        slope = df[coppock_col].diff(1)
+        acceleration = slope.diff(1)
+
+        # --- 信号1: 左侧企稳信号 (Coppock Stabilizing) ---
+        # 条件1.1: 发生拐头 (斜率由负/零转正)
+        is_turning_up = (slope > 0) & (slope.shift(1) <= 0)
+        # 条件1.2: 拐头必须发生在深水区
+        was_in_deep_zone = df[coppock_col].shift(1) < deep_value_threshold
+        signal_stabilizing = is_turning_up & was_in_deep_zone
+
+        # --- 信号2: 右侧加速信号 (Coppock Accelerating) ---
+        # 条件2.1: 必须已经处于上升趋势中 (斜率为正)
+        is_rising = slope > 0
+        # 条件2.2: 加速度首次超过阈值
+        is_accelerating = (acceleration > accel_threshold) & (acceleration.shift(1) <= accel_threshold)
+        signal_accelerating = is_rising & is_accelerating
+
+        # --- 调试信息 ---
+        last_idx = -1
+        s_stab_last = signal_stabilizing.iloc[last_idx]
+        s_accel_last = signal_accelerating.iloc[last_idx]
+        print(f"    - [左侧信号: 企稳]")
+        print(f"      - 条件1 (深水区拐头): {'[✓]' if s_stab_last else '[✗]'} (上周值: {df[coppock_col].shift(1).iloc[last_idx]:.2f} < {deep_value_threshold} AND 发生拐头)")
+        print(f"    - [右侧信号: 加速]")
+        print(f"      - 条件1 (上涨加速): {'[✓]' if s_accel_last else '[✗]'} (加速度: {acceleration.iloc[last_idx]:.2f} > {accel_threshold} AND 首次满足)")
+        print(f"    - 结论: 左侧信号=[{'触发' if s_stab_last else '未触发'}], 右侧信号=[{'触发' if s_accel_last else '未触发'}]")
+
+        return {
+            'coppock_stabilizing': signal_stabilizing.fillna(False),
+            'coppock_accelerating': signal_accelerating.fillna(False)
+        }
+   
     def _playbook_ace_signal_breakout_trigger(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """【新增剧本】: 王牌突破信号，结合年度高点突破、放量和TRIX确认。"""
         print(f"\n--- 剧本检查: [{params.get('说明', '王牌突破信号')}] ---")
