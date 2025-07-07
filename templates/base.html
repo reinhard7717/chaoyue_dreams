@@ -3,7 +3,7 @@
 <html lang="zh">
 <head>
     <meta charset="utf-8">
-    <link rel="icon" href="{% static 'images/favicon.ico' %}"> {# 替换为你自己的 favicon #}
+    <!-- <link rel="icon" href="{% static 'images/favicon.ico' %}"> {# 替换为你自己的 favicon #} -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1f1f1f"> {# 暗色主题颜色 #}
     <meta name="description" content="超越梦想 - A股量化分析与交易平台"> {# 修改为你的描述 #}
@@ -13,8 +13,10 @@
     <link rel="stylesheet" href="{% static 'css/theme.css' %}">
     <link rel="stylesheet" href="{% static 'css/dashboard.css' %}"> {# 如果有特定页面的 CSS #}
 
+    {# ▼▼▼【代码修改】: 统一块名称为 head_extra 以匹配子模板 ▼▼▼ #}
     {# --- 页面特定的额外 Head 内容 --- #}
-    {% block extra_head %}{% endblock %}
+    {% block head_extra %}{% endblock %}
+    {# ▲▲▲【代码修改结束】▲▲▲ #}
 </head>
 <body class="dark-theme {% block body_class %}{% endblock %}"> {# 允许子模板添加 body 类, 如 'has-sidebar' #}
 
@@ -61,10 +63,6 @@
                     <li><a href="{% url 'users:home' %}" class="active">主控台</a></li> {# 当前页面设为 active #}
                     <li><a href="{% url 'dashboard:trend_following_list' %}">策略监控中心</a></li>
                     <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
-                    <!-- <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
-                    <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li> -->
-                    <!-- <li><a href="#">数据中心</a></li> {# 替换为实际 URL #} -->
-                    <!-- <li><a href="{% url 'users:profile' %}">个人设置</a></li> -->
                 </ul>
             </nav>
         </aside>
@@ -92,9 +90,10 @@
     {# --- 全局 JavaScript (如果需要) --- #}
     {# <script src="{% static 'js/main.js' %}"></script> #}
 
+    {# ▼▼▼【代码修改】: 将两个脚本块合并为一个标准的 'scripts' 块，以简化和标准化 ▼▼▼ #}
     {# --- 页面特定的额外 Scripts --- #}
-    {% block extra_scripts %}{% endblock %}
-    {% block scripts_extra %}{% endblock %}
+    {% block scripts %}{% endblock %}
+    {# ▲▲▲【代码修改结束】▲▲▲ #}
 
 </body>
 </html>

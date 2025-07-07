@@ -7,7 +7,7 @@
 
 {% block head_extra %}
 <style>
-    /* 这些是页面特有的、与折叠功能无关的样式，予以保留 */
+    /* 这些是页面特有的、与折叠功能无关的样式，现在可以正确加载了 */
     .status-tag {
         padding: 4px 10px;
         border-radius: 15px;
@@ -36,10 +36,6 @@
     .signal-details .reason-level-2 { color: #fb8c00; }
     .signal-details .reason-level-3 { color: #e53935; }
     .signal-details .time-info { color: #616161; font-size: 0.9em; }
-
-    /* ▼▼▼【代码删除】: 移除此处所有关于折叠功能的CSS样式，统一由 dashboard.css 管理 ▼▼▼ */
-    /* 此处原有的 .playbook-container, .toggle-playbooks 等相关样式已被删除 */
-    /* ▲▲▲【代码删除结束】▲▲▲ */
 </style>
 {% endblock %}
 
@@ -115,9 +111,7 @@
                         </td>
                         <td>
                             {% if item.active_playbooks %}
-                                <!-- ▼▼▼【代码保持】: 此处的HTML结构是正确的，无需修改 ▼▼▼ -->
                                 <div class="playbook-container">
-                                    {# 如果剧本数量超过3个，添加collapsible类以便CSS和JS进行处理 #}
                                     <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
                                     {% for playbook in item.active_playbooks %}
                                         {% with playbook_display_name=playbook|playbook_display %}
@@ -133,7 +127,6 @@
                                         {% endwith %}
                                     {% endfor %}
                                     </ul>
-                                    {# 如果剧本数量超过3个，则显示“显示更多”按钮 #}
                                     {% if item.active_playbooks|length > 3 %}
                                         <a href="#" class="toggle-playbooks" 
                                            data-text-expand="显示更多 (共 {{ item.active_playbooks|length }} 条)" 
@@ -142,7 +135,6 @@
                                         </a>
                                     {% endif %}
                                 </div>
-                                <!-- ▲▲▲【代码保持结束】▲▲▲ -->
                             {% else %}
                                 -
                             {% endif %}
@@ -172,46 +164,50 @@
 </div>
 {% endblock %}
 
-{# ▼▼▼【代码保持】: 此处的JavaScript逻辑是正确的，无需修改 ▼▼▼ #}
-{% block scripts_extra %}
+{# ▼▼▼【代码修改】: 更新块名称为 'scripts' 并添加 console.log 用于调试 ▼▼▼ #}
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 使用事件委托，将点击事件监听器绑定在整个表格上
-    // 这样可以高效地处理所有行内的“显示更多”按钮，无需为每个按钮单独绑定
     const trendTable = document.getElementById('trend-table');
     if (trendTable) {
+        // 调试信息：确认脚本已加载并找到表格元素
+        console.log("折叠功能脚本已加载，并成功找到ID为 'trend-table' 的表格。");
+
         trendTable.addEventListener('click', function(event) {
-            // 检查被点击的元素是否是我们的目标按钮 (class="toggle-playbooks")
             const toggleBtn = event.target.closest('.toggle-playbooks');
             if (!toggleBtn) {
-                return; // 如果点击的不是按钮，则不执行任何操作
+                return;
             }
+            
+            // 调试信息：确认“显示更多”按钮被点击
+            console.log("检测到 'toggle-playbooks' 按钮被点击。");
 
-            // 阻止<a>标签的默认跳转行为（例如页面滚动到顶部）
             event.preventDefault(); 
             
-            // 找到与按钮关联的剧本容器和列表
             const container = toggleBtn.closest('.playbook-container');
             if (!container) return;
             
             const list = container.querySelector('.playbook-list');
             if (!list) return;
 
-            // 核心逻辑：切换 'expanded' 类，CSS会根据这个类来应用展开或收起的样式
             list.classList.toggle('expanded');
 
-            // 根据当前是否展开，更新按钮的显示文本
             const isExpanded = list.classList.contains('expanded');
+            
+            // 调试信息：输出当前列表的展开状态
+            console.log("列表 'expanded' 状态已切换为: ", isExpanded);
+
             if (isExpanded) {
-                // 如果已展开，从data-text-collapse属性获取“收起”文本
                 toggleBtn.textContent = toggleBtn.dataset.textCollapse;
             } else {
-                // 如果已收起，从data-text-expand属性获取“显示更多”文本
                 toggleBtn.textContent = toggleBtn.dataset.textExpand;
             }
         });
+    } else {
+        // 调试信息：如果找不到表格，则输出错误
+        console.error("错误：未能找到ID为 'trend-table' 的表格元素。");
     }
 });
 </script>
-{% endblock scripts_extra %}
-{# ▲▲▲【代码保持结束】▲▲▲ #}
+{% endblock scripts %}
+{# ▲▲▲【代码修改结束】▲▲▲ #}
