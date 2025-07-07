@@ -983,7 +983,7 @@ class TrendFollowStrategy:
         if not params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        print("\n--- [法医级调试-资金暗流V5.0-双重确认版] 开始 ---")
+        # print("\n--- [法医级调试-资金暗流V5.0-双重确认版] 开始 ---")
 
         # --- 1. 参数与数据准备 ---
         slope_lookback = params.get('lookback_period', 20)
@@ -1018,32 +1018,32 @@ class TrendFollowStrategy:
         
         # 组合成“观察名单”状态
         is_on_watchlist = is_price_weak & is_slope_improving
-        print(f"    [调试-阶段1]: 进入'观察名单'总天数: {is_on_watchlist.sum()}")
+        # print(f"    [调试-阶段1]: 进入'观察名单'总天数: {is_on_watchlist.sum()}")
 
         # --- 3. 阶段二: 定义“突破扳机”条件 (右侧信号) ---
         # 条件A: 价格从下方突破长期均线
         is_price_breakout = (df['close_D'] > df[trend_ma_col]) & (df['close_D'].shift(1) <= df[trend_ma_col].shift(1))
-        print(f"    [调试-阶段2A]: 价格突破均线({trend_ma_col})天数: {is_price_breakout.sum()}")
+        # print(f"    [调试-阶段2A]: 价格突破均线({trend_ma_col})天数: {is_price_breakout.sum()}")
 
         # 条件B: 突破时放量
         is_volume_up = df['volume_D'] > df[vol_ma_col] * 1.5 # 突破要求更高的量
-        print(f"    [调试-阶段2B]: 放量天数: {is_volume_up.sum()}")
+        # print(f"    [调试-阶段2B]: 放量天数: {is_volume_up.sum()}")
 
         # 条件C: 突破时主力资金流入
         is_main_force_buying_today = df['net_main_force_amount_D'] > 0
-        print(f"    [调试-阶段2C]: 主力当日买入天数: {is_main_force_buying_today.sum()}")
+        # print(f"    [调试-阶段2C]: 主力当日买入天数: {is_main_force_buying_today.sum()}")
 
         # 组合成“突破扳机”
         is_breakout_trigger = is_price_breakout & is_volume_up & is_main_force_buying_today
-        print(f"    [调试-阶段2D]: ★★★ '突破扳机'被触发总天数: {is_breakout_trigger.sum()} ★★★")
+        # print(f"    [调试-阶段2D]: ★★★ '突破扳机'被触发总天数: {is_breakout_trigger.sum()} ★★★")
 
         # --- 4. 最终信号: 双重确认 ---
         # 检查在触发“突破扳机”之前的一段时期内，是否上过“观察名单”
         had_watchlist_status_before = is_on_watchlist.shift(1).rolling(window=watchlist_lookback, min_periods=1).sum() > 0
         
         final_signal = had_watchlist_status_before & is_breakout_trigger
-        print(f"    [调试-阶段4]: ★★★ 最终信号 (前期上榜 & 当日突破): {final_signal.sum()} ★★★")
-        print("--- [法医级调试-资金暗流V5.0-双重确认版] 结束 ---\n")
+        # print(f"    [调试-阶段4]: ★★★ 最终信号 (前期上榜 & 当日突破): {final_signal.sum()} ★★★")
+        # print("--- [法医级调试-资金暗流V5.0-双重确认版] 结束 ---\n")
         
         # 清理临时列
         df.drop(columns=['cumulative_net_mf', 'mf_slope'], inplace=True, errors='ignore')
@@ -1116,7 +1116,7 @@ class TrendFollowStrategy:
         if not pullback_params.get('enabled', False):
             return pd.Series(False, index=df.index)
 
-        print("\n--- [法医级调试-智能回踩V4.1-列名修复版] 开始 ---")
+        # print("\n--- [法医级调试-智能回踩V4.1-列名修复版] 开始 ---")
 
         # --- 1. 参数与数据准备 (已修复) ---
         support_ma_period = pullback_params.get('support_ma', 21)
@@ -1134,7 +1134,7 @@ class TrendFollowStrategy:
 
         # 如果 net_mf_amount_D 不存在，但其组成部分存在，则计算它 (增强兼容性)
         if net_mf_col not in df.columns and all(c in df.columns for c in ['buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D']):
-            print(f"    [调试-智能回踩-信息]: '{net_mf_col}' 不存在，正在从组成部分计算...")
+            # print(f"    [调试-智能回踩-信息]: '{net_mf_col}' 不存在，正在从组成部分计算...")
             df[net_mf_col] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
 
         support_ma_col = f"EMA_{support_ma_period}_D"
@@ -1163,7 +1163,7 @@ class TrendFollowStrategy:
         is_orderly_retreat = df['price_slope'] < 0
         
         is_healthy_pullback_context = is_uptrend & is_volume_drying_up & is_orderly_retreat
-        print(f"    [调试-步骤2]: 识别到'健康回踩过程'总天数: {is_healthy_pullback_context.sum()} 天")
+        # print(f"    [调试-步骤2]: 识别到'健康回踩过程'总天数: {is_healthy_pullback_context.sum()} 天")
 
         # --- 3. 定义“反转触发点” (The Reversal Trigger) ---
         dipped_and_recovered = (df['low_D'] <= df[support_ma_col]) & (df['close_D'] > df[support_ma_col])
@@ -1175,12 +1175,12 @@ class TrendFollowStrategy:
         is_main_force_buying = df[net_mf_col] > 0
         
         is_reversal_trigger = dipped_and_recovered & is_strong_reversal_candle & is_main_force_buying
-        print(f"    [调试-步骤3]: 识别到'反转触发点'总天数: {is_reversal_trigger.sum()} 天")
+        # print(f"    [调试-步骤3]: 识别到'反转触发点'总天数: {is_reversal_trigger.sum()} 天")
 
         # --- 4. 最终信号: 因果结合 ---
         final_signal = is_healthy_pullback_context.shift(1).fillna(False) & is_reversal_trigger
-        print(f"    [调试-步骤4]: ★★★ 最终信号 (健康回踩过程后出现反转触发): {final_signal.sum()} ★★★")
-        print("--- [法医级调试-智能回踩V4.1-列名修复版] 结束 ---\n")
+        # print(f"    [调试-步骤4]: ★★★ 最终信号 (健康回踩过程后出现反转触发): {final_signal.sum()} ★★★")
+        # print("--- [法医级调试-智能回踩V4.1-列名修复版] 结束 ---\n")
 
         # 清理临时列
         df.drop(columns=['ma_slope', 'price_slope', 'volume_slope'], inplace=True, errors='ignore')
