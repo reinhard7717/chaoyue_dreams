@@ -7,51 +7,7 @@
 {% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
 {% block head_extra %}
-<style>
-    /* --- 保留这些基础样式 --- */
-    .playbook-list, .strategy-list {
-        list-style-type: none;
-        padding: 0;
-        margin: 0;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-    }
-    .playbook-tag {
-        background-color: #e0eafc;
-        color: #3d5afe;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.8em;
-        font-weight: 500;
-        white-space: nowrap;
-    }
-    .strategy-tag {
-        background-color: #e8f5e9;
-        color: #2e7d32;
-        padding: 3px 10px;
-        border-radius: 5px;
-        font-size: 0.85em;
-        font-weight: bold;
-    }
-    .playbook-tag.king-signal {
-        background-color: #ffd700;
-        color: #4d4000;
-        font-weight: bold;
-        border: 1px solid #ffc107;
-    }
-    .playbook-tag.expert-signal {
-        background-color: #e1f5fe;
-        color: #0277bd;
-        border: 1px solid #b3e5fc;
-    }
-    .playbook-tag.rocket-signal {
-        background-color: #ffebee;
-        color: #c62828;
-        font-weight: bold;
-        border: 1px solid #ffcdd2;
-    }
-</style>
+    {# 此处可以保留页面特有的CSS，当前为空是正常的 #}
 {% endblock %}
 
 
@@ -77,7 +33,7 @@
                 <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
                 {# 如果有已选的筛选条件，则显示“清除”按钮 #}
                 {% if selected_playbooks %}
-                    <a href="{% query_builder clear_all=True %}" class="clear-filters-btn">清除全部</a>
+                    <a href="{% url 'dashboard:trend_following_list' %}" class="clear-filters-btn">清除全部</a>
                 {% endif %}
             </div>
             <div class="filter-tags-container">
@@ -172,13 +128,13 @@
         <div class="pagination">
             {% if page_obj.has_other_pages %}
                 {% if page_obj.has_previous %}
-                    <a href="?page=1">&laquo; 首页</a>
-                    <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
+                    <a href="?page=1&{{ request.GET.urlencode }}">&laquo; 首页</a>
+                    <a href="?page={{ page_obj.previous_page_number }}&{{ request.GET.urlencode }}">上一页</a>
                 {% endif %}
                 <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
                 {% if page_obj.has_next %}
-                    <a href="?page={{ page_obj.next_page_number }}">下一页</a>
-                    <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
+                    <a href="?page={{ page_obj.next_page_number }}&{{ request.GET.urlencode }}">下一页</a>
+                    <a href="?page={{ page_obj.paginator.num_pages }}&{{ request.GET.urlencode }}">末页 &raquo;</a>
                 {% endif %}
             {% endif %}
         </div>
@@ -187,41 +143,43 @@
 
 {% endblock %}
 
-{# ▼▼▼【代码修改】: 保留这个唯一且正确的script块 ▼▼▼ #}
-{% block scripts_extra %}
+{# ▼▼▼【代码修改】: 将块名称从 'scripts_extra' 修改为 'scripts'，以匹配 base.html ▼▼▼ #}
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 使用事件委托来处理所有“显示更多/收起”按钮的点击事件
-    // 这样即使将来有分页加载，也无需重新绑定事件
     const trendTable = document.getElementById('trend-table');
     if (trendTable) {
+        // 调试信息：确认脚本已加载
+        console.log("折叠功能脚本已在 'trend_following_list.html' 页面加载。");
+
         trendTable.addEventListener('click', function(event) {
-            // 检查被点击的元素是否是我们的目标按钮
             const toggleBtn = event.target.closest('.toggle-playbooks');
             if (!toggleBtn) {
-                return; // 如果不是，则什么都不做
+                return;
             }
-            // 阻止<a>标签的默认跳转行为
             event.preventDefault(); 
-            // 找到与按钮相关的剧本容器和列表
+            
             const container = toggleBtn.closest('.playbook-container');
             if (!container) return;
+            
             const list = container.querySelector('.playbook-list');
             if (!list) return;
-            // 切换 'expanded' 类来实现展开和收起
+
             list.classList.toggle('expanded');
-            // 根据当前是否展开来更新按钮的文本
+
             const isExpanded = list.classList.contains('expanded');
+            
+            // 调试信息：确认点击事件和状态切换
+            console.log("按钮被点击，列表 'expanded' 状态切换为: ", isExpanded);
+
             if (isExpanded) {
-                // 如果已展开，显示“收起”文本
                 toggleBtn.textContent = toggleBtn.dataset.textCollapse;
             } else {
-                // 如果已收起，显示“显示更多”文本
                 toggleBtn.textContent = toggleBtn.dataset.textExpand;
             }
         });
     }
 });
 </script>
-{% endblock scripts_extra %}
-{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
+{% endblock scripts %}
+{# ▲▲▲【代码修改结束】▲▲▲ #}
