@@ -205,7 +205,12 @@ class WeeklyTrendFollowStrategy:
                             col_name = 'rejection_signal_W'
                         else:
                             col_name = f"playbook_{playbook_name.replace('_playbook', '')}_W"
-                        context_df[col_name] = result_series
+                        
+                        # ▼▼▼【代码修改】: 修复变量名错误 ▼▼▼
+                        # 将错误的 `result_series` 修正为正确的 `results`
+                        print(f"    - [单信号输出模式] 正在为 '{col_name}' 赋值...")
+                        context_df[col_name] = results
+                        # ▲▲▲【代码修改结束】▲▲▲
                 else:
                     print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
                     print("    - 结论: [未启用]")
