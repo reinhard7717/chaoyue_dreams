@@ -1,4 +1,4 @@
-{# 文件: templates/dashboard/trend_following_list.html (修正后) #}
+{# 文件: templates/dashboard/trend_following_list.html (最终修正版) #}
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
@@ -7,7 +7,7 @@
 {% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
 {% block head_extra %}
-    {# 此处可以保留页面特有的CSS，当前为空是正常的 #}
+    {# 此处为空是正常的，因为所有共享样式都已移至 dashboard.css #}
 {% endblock %}
 
 
@@ -31,7 +31,6 @@
         <div class="filter-section">
             <div class="filter-header">
                 <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
-                {# 如果有已选的筛选条件，则显示“清除”按钮 #}
                 {% if selected_playbooks %}
                     <a href="{% url 'dashboard:trend_following_list' %}" class="clear-filters-btn">清除全部</a>
                 {% endif %}
@@ -39,12 +38,10 @@
             <div class="filter-tags-container">
                 {% for playbook in all_playbooks %}
                     {% if playbook in selected_playbooks %}
-                        {# 已选中的标签：点击后移除此筛选条件 #}
                         <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">
                             {{ playbook|playbook_display }} <span class="remove-icon">&times;</span>
                         </a>
                     {% else %}
-                        {# 未选中的标签：点击后添加此筛选条件 #}
                         <a href="{% query_builder add_playbook=playbook %}" class="filter-tag">
                             {{ playbook|playbook_display }}
                         </a>
@@ -89,19 +86,21 @@
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
                                     <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
+                                    {# ▼▼▼【代码修改】: 将此处的判断逻辑与 fav_trend_following_list.html 完全同步 ▼▼▼ #}
                                     {% for playbook in item.active_playbooks %}
                                         {% with playbook_display_name=playbook|playbook_display %}
                                             {% if 'ROCKET' in playbook %}
                                                 <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                            {% elif 'BREAKOUT_TRIGGER_SCORE' in playbook %}
+                                            {% elif '王牌' in playbook_display_name %}
                                                 <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                            {% elif '【专家】' in playbook_display_name %}
+                                            {% elif '专家' in playbook_display_name %}
                                                 <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
                                             {% else %}
                                                 <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
                                             {% endif %}
                                         {% endwith %}
                                     {% endfor %}
+                                    {# ▲▲▲【代码修改结束】▲▲▲ #}
                                     </ul>
                                     {% if item.active_playbooks|length > 3 %}
                                         <a href="#" class="toggle-playbooks" 
@@ -143,35 +142,25 @@
 
 {% endblock %}
 
-{# ▼▼▼【代码修改】: 将块名称从 'scripts_extra' 修改为 'scripts'，以匹配 base.html ▼▼▼ #}
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const trendTable = document.getElementById('trend-table');
     if (trendTable) {
-        // 调试信息：确认脚本已加载
         console.log("折叠功能脚本已在 'trend_following_list.html' 页面加载。");
-
         trendTable.addEventListener('click', function(event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
             if (!toggleBtn) {
                 return;
             }
             event.preventDefault(); 
-            
             const container = toggleBtn.closest('.playbook-container');
             if (!container) return;
-            
             const list = container.querySelector('.playbook-list');
             if (!list) return;
-
             list.classList.toggle('expanded');
-
             const isExpanded = list.classList.contains('expanded');
-            
-            // 调试信息：确认点击事件和状态切换
             console.log("按钮被点击，列表 'expanded' 状态切换为: ", isExpanded);
-
             if (isExpanded) {
                 toggleBtn.textContent = toggleBtn.dataset.textCollapse;
             } else {
@@ -182,4 +171,3 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock scripts %}
-{# ▲▲▲【代码修改结束】▲▲▲ #}
