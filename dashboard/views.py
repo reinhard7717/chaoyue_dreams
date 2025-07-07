@@ -25,21 +25,14 @@ logger = logging.getLogger('dashboard') # 获取 logger 实例
 target_queue = 'dashboard'
 
 # 内部辅助函数，用于处理所有策略列表页的通用逻辑
-# 这个函数封装了排序、分页、数据处理和渲染的重复代码，使视图函数更简洁。
 def _render_strategy_list_page(request, base_queryset, page_title, template_name):
     """
     一个通用的辅助函数，用于渲染策略列表页面。
-    【最终修正版 V2】: 移除了此处的 .annotate() 调用。
-                     所有计算字段现在都由DAO层提供。
     """
     print(f"--- [View] 开始渲染页面: {page_title} ---")
     
-    # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-    # 【代码修改】删除整个 .annotate() 块。base_queryset 已包含所有字段。
-    #    现在 ordered_queryset 就是 base_queryset。
     ordered_queryset = base_queryset
     print("--- [View] DAO已提供完整数据，跳过视图层注解 ---")
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     paginator = Paginator(ordered_queryset, 25)  # 每页显示25条
     page_number = request.GET.get('page')
@@ -57,17 +50,13 @@ def _render_strategy_list_page(request, base_queryset, page_title, template_name
 def dashboard_view(request):
     user_dao = UserDAO()
     """渲染主控台页面"""
-    # 1. 获取当前用户的初始自选股列表
-    # --- 使用 async_to_sync 调用异步 DAO 方法 ---
-    get_favorites_async = user_dao.get_user_favorites # 获取异步方法本身
-    user_favorites = async_to_sync(get_favorites_async)(request.user.id) # 调用包装后的同步版本
-    # 2. 准备传递给模板的数据结构
+    get_favorites_async = user_dao.get_user_favorites
+    user_favorites = async_to_sync(get_favorites_async)(request.user.id)
     initial_favorites_data = [
         {
             'id': fav.id,
             'code': fav.stock.stock_code,
             'name': fav.stock.stock_name,
-            # 初始加载时，实时数据为空，等待 WebSocket 推送
             "current_price": None,
             "high_price": None,
             "low_price": None,
@@ -78,25 +67,20 @@ def dashboard_view(request):
             'change_percent': None,
             'signal': None,
         } 
-        for fav in user_favorites if fav.stock  # 只保留有 stock 的
+        for fav in user_favorites if fav.stock
     ]
     initial_favorites_json_string = json.dumps(initial_favorites_data, cls=DjangoJSONEncoder)
-    # 3. 定义上下文
     context = {
-        # 将初始数据转换为 JSON 字符串，以便在模板中安全地嵌入到 JavaScript 变量中
         'initial_favorites_json': initial_favorites_json_string,
     }
-    # 4. 渲染模板
     return render(request, 'dashboard/home.html', context)
 
-login_required
+@login_required
 def monthly_trend_strategy_list(request):
     """
     【重构】月线趋势跟踪策略列表页。
-    所有复杂逻辑已移至 _render_strategy_list_page 辅助函数。
     """
     str_dao = StrategiesDAO()
-    # 假设 get_latest_monthly_trend_reports 返回的是 QuerySet
     all_reports_queryset = async_to_sync(str_dao.get_latest_monthly_trend_reports)()
     
     return _render_strategy_list_page(
@@ -110,7 +94,6 @@ def monthly_trend_strategy_list(request):
 def fav_monthly_trend_list(request):
     """
     【重构】展示用户自选股的月线趋势策略信号。
-    所有复杂逻辑已移至 _render_strategy_list_page 辅助函数。
     """
     user_dao = UserDAO()
     str_dao = StrategiesDAO()
@@ -118,7 +101,6 @@ def fav_monthly_trend_list(request):
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     
-    # 假设 get_latest_monthly_trend_reports_by_stock_codes 返回的是 QuerySet
     all_reports_queryset = async_to_sync(str_dao.get_latest_monthly_trend_reports_by_stock_codes)(fav_codes)
 
     return _render_strategy_list_page(
@@ -130,31 +112,49 @@ def fav_monthly_trend_list(request):
 
 def get_playbook_priority(playbook_name):
     """
-    根据剧本名称中的关键字为其分配优先级。
+    【V2.0 修正版】根据剧本名称中的关键字为其分配优先级。
+    此函数的判断逻辑现在与模板中的样式逻辑完全一致，确保排序正确。
     返回值越小，优先级越高。
     """
-    playbook_name_upper = playbook_name.upper()
-    if 'ROCKET' in playbook_name_upper or '火箭' in playbook_name:
-        return 0  # 最高优先级：火箭信号
-    if 'BREAKOUT_TRIGGER_SCORE' in playbook_name_upper or '王牌突破' in playbook_name:
-        return 1  # 次高优先级：王牌信号
-    if '【专家】' in playbook_name:
-        return 2  # 专家信号
-    if '【加分】' in playbook_name or '资金流入' in playbook_name:
-        return 4  # 较低优先级：加分项和资金项
-    if 'MA20' in playbook_name_upper or '均线' in playbook_name:
-        return 5  # 最低优先级：基础形态确认
-    return 3 # 默认优先级
+    # 安全检查，防止 playbook_name 不是字符串类型导致错误
+    if not isinstance(playbook_name, str):
+        return 99 # 返回一个很大的值，使其排在最后
 
+    playbook_name_upper = playbook_name.upper()
+    
+    # ▼▼▼【代码修改】: 统一判断逻辑 ▼▼▼
+    # 优先级 0: 火箭信号 (与模板逻辑一致)
+    if 'ROCKET' in playbook_name_upper or '火箭' in playbook_name:
+        return 0
+    
+    # 优先级 1: 王牌信号 (修正为与模板逻辑一致，检查'王牌')
+    if 'BREAKOUT_TRIGGER_SCORE' in playbook_name_upper or '王牌' in playbook_name:
+        return 1
+        
+    # 优先级 2: 专家信号 (修正为与模板逻辑一致，检查'专家')
+    if '专家' in playbook_name:
+        return 2
+        
+    # 优先级 4: 加分项 (逻辑保持不变)
+    if '【加分】' in playbook_name or '资金流入' in playbook_name:
+        return 4
+        
+    # 优先级 5: 基础形态 (逻辑保持不变)
+    if 'MA20' in playbook_name_upper or '均线' in playbook_name:
+        return 5
+        
+    # 默认优先级
+    return 3
+    # ▲▲▲【代码修改结束】▲▲▲
 
 
 @login_required
 def trend_following_list(request):
     """
-    【V3.0 筛选区排序】策略状态监控中心视图
-    - 核心修正: 对筛选区的剧本标签也应用 get_playbook_priority 进行排序，确保UI一致性。
+    【V3.1 最终排序修正】策略状态监控中心视图
+    - 核心修正: get_playbook_priority 函数逻辑已与模板完全同步，确保排序正确。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V3.0 ---")
+    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V3.1 ---")
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
@@ -171,15 +171,12 @@ def trend_following_list(request):
         held_status_query
     ).values_list('active_playbooks', flat=True)
     
-    # ▼▼▼ 对【筛选区】的剧本标签列表 (unique_playbooks) 应用优先级排序 ▼▼▼
-    # 这一步是关键，它决定了页面顶部筛选标签的显示顺序。
-    # 我们使用 get_playbook_priority 函数作为排序的 key。
+    # 此处调用已修正的 get_playbook_priority 函数，现在排序将完全正确
     unique_playbooks = sorted(
         list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
         key=get_playbook_priority
     )
-    print(f"--- [View] 筛选区剧本已排序: {unique_playbooks[:5]}...") # 调试信息：打印排序后的前5个剧本
-    # ▲▲▲【代码修改结束】▲▲▲
+    print(f"--- [View] 筛选区剧本已按最终优先级排序: {unique_playbooks}") # 调试信息
 
     all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code')
 
@@ -209,7 +206,7 @@ def trend_following_list(request):
 
     final_list = list(aggregated_results.values())
     for item in final_list:
-        # 对表格内的剧本进行去重和排序 (此逻辑保持不变)
+        # 表格内的排序同样会使用修正后的函数，保持一致
         item['active_playbooks'] = sorted(list(set(item['active_playbooks'])), key=get_playbook_priority)
         item['strategy_names'] = sorted(list(item['strategy_names']))
     
@@ -223,7 +220,7 @@ def trend_following_list(request):
         'page_title': '策略状态监控中心',
         'page_obj': page_obj,
         'total_count': len(final_list),
-        'all_playbooks': unique_playbooks, # 将排好序的列表传递给模板
+        'all_playbooks': unique_playbooks,
         'selected_playbooks': selected_playbooks,
     }
     return render(request, 'dashboard/trend_following_list.html', context)
@@ -232,8 +229,6 @@ def trend_following_list(request):
 def fav_trend_following_list(request):
     """
     【V3.6 修复排序错误】
-    - 核心修正: 移除了导致 AttributeError 的错误代码，并使用更简洁、正确的单行排序逻辑。
-    - 排序规则: 1. 按优先级 (警报 > 持仓 > 等待)； 2. 在同一优先级内，按最新动态时间从新到旧。
     """
     user_dao = UserDAO()
     
@@ -247,7 +242,6 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    # 数据获取和聚合逻辑保持不变
     state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-trade_time')
@@ -278,7 +272,6 @@ def fav_trend_following_list(request):
         if state.triggered_playbooks:
             summary['playbooks'].update(state.triggered_playbooks)
 
-    # 构建列表的逻辑保持不变
     processed_list = []
     for stock_code, summary in stock_summary.items():
         buy_state = summary['buy_state']
@@ -294,7 +287,6 @@ def fav_trend_following_list(request):
             'sell_info': None,
             'latest_trade_time': latest_state.trade_time,
             'latest_score': latest_state.entry_score,
-            # 此处的排序逻辑是正确的，无需修改
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
@@ -335,11 +327,9 @@ def fav_trend_following_list(request):
         
         processed_list.append(item)
 
-    # 移除了之前导致错误的 min_aware_datetime 相关代码。
-    # 这个 lambda 函数能正确处理所有情况，包括 latest_trade_time 为 None 的情况。
     processed_list.sort(key=lambda x: (
-        x['sort_priority'], # 主要排序键：按优先级升序 (1, 2, 3)
-        -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0) # 次要排序键：按时间降序 (通过取负数实现)
+        x['sort_priority'],
+        -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0)
     ))
 
     paginator = Paginator(processed_list, 25)
@@ -356,41 +346,26 @@ def fav_trend_following_list(request):
 # --- DRF API 视图 ---
 
 class StockSearchView(generics.ListAPIView):
-    """
-    股票搜索 API (GET /api/dashboard/search/?q=...)
-    """
-    serializer_class = StockInfoSerializer # <--- 使用对应的 Serializer
+    serializer_class = StockInfoSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """根据 stock_code 或 stock_name 搜索 StockInfo"""
         query = self.request.query_params.get('q', None)
         if query:
-            # --- 使用正确的字段名进行过滤 ---
             return StockInfo.objects.filter(
                 Q(stock_code__icontains=query) | Q(stock_name__icontains=query)
-            )[:10] # 限制返回结果数量
-            # --- 修改结束 ---
-        return StockInfo.objects.none() # 如果没有查询参数，返回空
+            )[:10]
+        return StockInfo.objects.none()
 
 class FavoriteStockViewSet(viewsets.ModelViewSet):
-    """
-    自选股 API (GET, POST, DELETE /api/dashboard/favorites/)
-    """
     serializer_class = FavoriteStockSerializer
-    permission_classes = [IsAuthenticated] # 必须登录
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """只返回当前用户的自选股"""
         return FavoriteStock.objects.filter(user=self.request.user).select_related('stock')
 
     def perform_create(self, serializer):
-        """
-        处理添加自选股请求：保存到数据库，并触发后台任务获取详细数据后推送。
-        """
-        # 1. 保存 FavoriteStock 实例，并获取创建的对象
         favorite = serializer.save(user=self.request.user)
-        # 立即推送基础数据
         payload = {
             'id': favorite.id,
             'code': favorite.stock.stock_code,
@@ -410,12 +385,11 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             sub_type='favorite_added_with_data',
             payload=payload
         )
-        # 2. 触发 Celery 任务，异步获取行情并推送
         try:
             from tasks.tushare.stock_tasks import fetch_data_for_new_favorite
             task_args = (
                 self.request.user.id,
-                favorite.stock.stock_code,  # 注意这里是 stock_code
+                favorite.stock.stock_code,
                 favorite.id
             )
             
@@ -428,10 +402,9 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             logger.error(f"触发后台任务 fetch_data_for_new_favorite 时出错: {task_error}", exc_info=True)
     
     def perform_destroy(self, instance):
-        user_id = instance.user.id # 在删除前获取 user_id
+        user_id = instance.user.id
         instance.delete()
-        # --- 推送更新 ---
-        updated_list = self._get_formatted_favorites(user_id) # 需要根据 user_id 获取
+        updated_list = self._get_formatted_favorites(user_id)
         send_update_to_user_sync(
             user_id=user_id,
             sub_type='favorites_update',
@@ -439,10 +412,9 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         )
     
     def _get_formatted_favorites(self, user_or_id):
-        """辅助方法获取格式化的自选股列表"""
         if isinstance(user_or_id, int):
             favorites = FavoriteStock.objects.filter(user_id=user_or_id).select_related('stock').order_by('added_at')
-        else: # 假设是 User 对象
+        else:
              favorites = FavoriteStock.objects.filter(user=user_or_id).select_related('stock').order_by('added_at')
         return [
             {
@@ -461,19 +433,3 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             } 
             for fav in favorites
         ]
-    # ModelViewSet 自动处理 list (GET), create (POST), retrieve (GET /id/),
-    # update (PUT/PATCH /id/), destroy (DELETE /id/)
-    # 我们主要用 list, create, destroy
-
-
-
-
-
-
-
-
-
-
-
-
-
