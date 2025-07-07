@@ -330,22 +330,22 @@ class TrendFollowStrategy:
         for name, condition in playbook_summary.items():
             trigger_count = condition.sum() if hasattr(condition, 'sum') else 0
             print(f"【剧本-{name}】触发天数: {trigger_count}")
-            if trigger_count > 0:
-                triggered_dates_in_period = condition.index[(condition.index >= start_date) & (condition.index <= end_date) & (condition == True)]
-                if not triggered_dates_in_period.empty:
-                    date_list_str = ", ".join([d.strftime('%Y-%m-%d') for d in triggered_dates_in_period])
-                    print(f"    -> [24年01-12月触发]: {date_list_str}")
+            # if trigger_count > 0:
+            #     triggered_dates_in_period = condition.index[(condition.index >= start_date) & (condition.index <= end_date) & (condition == True)]
+            #     if not triggered_dates_in_period.empty:
+            #         date_list_str = ", ".join([d.strftime('%Y-%m-%d') for d in triggered_dates_in_period])
+            #         print(f"    -> [24年01-12月触发]: {date_list_str}")
         print("---【日线战术层 - 剧本计算总结结束】---\n")
 
         # --- 步骤4: 【计分】应用前提条件，并记录所有战术信号得分 ---
-        print("    [调试-计分V23.0] 步骤4: 应用前提并记录日线战术信号得分...")
+        # print("    [调试-计分V23.0] 步骤4: 应用前提并记录日线战术信号得分...")
         def add_score(raw_condition, name, default_score, precondition_to_apply):
             # 只有在满足前提条件时，信号才参与计分
             condition = raw_condition & precondition_to_apply
             score = points.get(name, {}).get('score', default_score)
             if condition.any():
                 score_details_df.loc[condition, name] = score
-                print(f"    - [计分-战术分] 剧本 '{name}' (过滤后) 触发 {condition.sum()} 次，计分 {score}。")
+                # print(f"    - [计分-战术分] 剧本 '{name}' (过滤后) 触发 {condition.sum()} 次，计分 {score}。")
             atomic_signals[name] = condition # 保存过滤后的信号
         
         # ▼▼▼ add_score 时传入原始信号和对应的前提条件 ▼▼▼
@@ -393,7 +393,7 @@ class TrendFollowStrategy:
         add_score(cond_earth_heaven_board, 'EARTH_HEAVEN_BOARD', 200, always_true_precondition)
 
         # --- 步骤5: 记录协同/冲突规则得分 (逻辑不变，但基于已过滤的信号) ---
-        print("    [调试-计分V23.0] 步骤5: 记录协同/冲突规则得分...")
+        # print("    [调试-计分V23.0] 步骤5: 记录协同/冲突规则得分...")
        
         # 定义一个辅助函数，专门用于添加奖励/惩罚分数，简化代码
         def add_bonus_penalty_score(condition, name, default_score):
@@ -405,7 +405,7 @@ class TrendFollowStrategy:
             final_condition = condition & has_base_playbook_score
             if final_condition.any():
                 score_details_df.loc[final_condition, name] = score
-                print(f"    - [计分-协同/冲突] 规则 '{name}' 触发 {final_condition.sum()} 次，计分 {score}。")
+                # print(f"    - [计分-协同/冲突] 规则 '{name}' 触发 {final_condition.sum()} 次，计分 {score}。")
             # atomic_signals 中不记录这些奖励信号，它们不是独立的剧本
         
         # --- 协同奖励 (加分项) ---
