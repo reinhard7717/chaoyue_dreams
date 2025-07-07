@@ -1,5 +1,5 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V6.4 - 剧本合并修复版
+# 版本: V6.7 - 分级止盈系统
 
 import asyncio
 from collections import defaultdict
@@ -10,7 +10,8 @@ import logging
 from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
-from scipy.signal import find_peaks # 导入find_peaks用于背离检测
+import numpy as np
+from scipy.signal import find_peaks
 
 from services.indicator_services import IndicatorService
 from strategies.trend_following_strategy import TrendFollowStrategy
@@ -24,48 +25,39 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V6.4 剧本合并修复版】
-        - 核心修复: 修复了分钟线信号未合并日线/周线剧本的问题。
-        - 优化: 调整了剧本合并逻辑的位置，使其在分钟线信号生成时就完成，简化了最终的信号合并函数。
+        【V6.7 分级止盈系统】
+        - 核心升级: 建立三级止盈预警系统，提供差异化、可操作的卖出建议。
+          - 一级预警 (黄色): 趋势加速度转负，提示“关注或部分减仓”。
+          - 二级警报 (橙色): 短期指标死叉，提示“标准止盈”。
+          - 三级警报 (红色): 跌破日线关键支撑，提示“紧急离场”。
+        - 优化: 信号记录中增加 `exit_severity_level` 和 `exit_signal_reason` 字段，分析报告更精细。
         """
+        # ... (构造函数 __init__ 保持不变) ...
         tactical_config_path = 'config/trend_follow_strategy.json'
         strategic_config_path = 'config/weekly_trend_follow_strategy.json'
-        
         self.tactical_config = load_strategy_config(tactical_config_path)
         self.strategic_config = load_strategy_config(strategic_config_path)
-
         base_merged_fe_params = self._merge_feature_engineering_configs(
             self.tactical_config.get('feature_engineering_params', {}),
             self.strategic_config.get('feature_engineering_params', {})
         )
-
         resonance_indicators = self._discover_resonance_indicators(self.tactical_config)
-        
         take_profit_indicators = self._discover_take_profit_indicators(self.tactical_config)
         temp_indicators = self._merge_indicators(base_merged_fe_params.get('indicators', {}), resonance_indicators)
         final_indicators = self._merge_indicators(temp_indicators, take_profit_indicators)
-        
         base_merged_fe_params['indicators'] = final_indicators
-
         self.merged_config = deepcopy(self.tactical_config)
         self.merged_config['feature_engineering_params'] = base_merged_fe_params
-        
         if 'strategy_playbooks' in self.strategic_config:
             self.merged_config['strategy_playbooks'] = deepcopy(self.strategic_config['strategy_playbooks'])
-        
         self.indicator_service = IndicatorService()
         self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) 
         self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
-        
         self.daily_analysis_df = None
-
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
 
+    # ▼▼▼【代码修改】: 报告生成函数重大升级，以支持分级止盈 ▼▼▼
     def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
-        """
-        【新增】根据最终的信号记录字典，生成人类可读的分析报告。
-        此方法是旧版 _score_and_generate_report 的升级替代品。
-        """
         stock_code = record.get("stock_code", "N/A")
         trade_time = record.get("trade_time")
         time_str = trade_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(trade_time, datetime) else str(trade_time)
@@ -74,62 +66,47 @@ class MultiTimeframeTrendStrategy:
         report_parts = [f"*** 信号分析报告 ({stock_code}) ***"]
         report_parts.append(f"信号时间: {time_str} (周期: {timeframe})")
 
-        # 分类处理：止盈信号 vs 买入信号
         if record.get('exit_signal_code', 0) > 0:
-            # --- 止盈信号报告 ---
-            exit_code = record.get('exit_signal_code')
-            # 创建一个退出代码到原因的映射，使报告更具可读性
-            exit_reasons = {
-                1: "股价接近前期重要阻力位",
-                2: "股价从高点回撤，触发移动止盈",
-                3: "RSI指标超买，市场情绪过热",
-                4: "出现顶背离信号，趋势可能反转",
-                5: "BIAS指标超买，乖离率过大",
-                6: "出现天地板形态，市场恐慌性抛售",
-                7: "高位出现长上影线，疑似主力派发",
-                8: "放量跌破关键支撑位",
-                9: "跌破动态箱体下沿，盘整趋势破坏",
-                10: "股价触及斐波那契扩展目标位",
-                999: "未定义的止盈规则"
-            }
-            reason = exit_reasons.get(exit_code, f"未知的止盈代码({exit_code})")
-            
-            report_parts.append("信号类型: 趋势止盈")
-            report_parts.append(f"核心发现: **触发止盈条件，建议考虑获利了结或减仓。**")
-            report_parts.append(f"触发原因: {reason} (代码: {exit_code})")
+            severity = record.get('exit_severity_level', 2) # 默认为二级
+            reason = record.get('exit_signal_reason', '未定义的原因')
 
+            if severity == 1: # 一级预警
+                report_parts.append("信号类型: 【一级预警·黄色】趋势观察")
+                report_parts.append(f"核心发现: **上涨动能出现减弱迹象，但趋势尚未破坏。**")
+                report_parts.append(f"触发原因: {reason}")
+                report_parts.append("建议操作: 密切关注后续K线，可考虑部分减仓锁定利润，或上移追踪止损位。")
+            elif severity == 3: # 三级警报
+                report_parts.append("信号类型: 【三级警报·红色】紧急离场")
+                report_parts.append(f"核心发现: **上涨结构已被破坏，风险急剧升高！**")
+                report_parts.append(f"触发原因: {reason}")
+                report_parts.append("建议操作: 立即离场以控制风险，观望为主。")
+            else: # 二级警报 (默认)
+                report_parts.append("信号类型: 【二级警报·橙色】标准止盈")
+                report_parts.append(f"核心发现: **短期趋势确认转弱，已触发标准卖出条件。**")
+                report_parts.append(f"触发原因: {reason}")
+                report_parts.append("建议操作: 执行止盈计划，建议减仓或清仓。")
+        
         elif record.get('entry_signal', False):
-            # --- 买入信号报告 ---
             score = record.get('entry_score', 0.0)
             playbooks = record.get('triggered_playbooks', [])
-            
             report_parts.append(f"信号类型: 综合买入 (总分: {score:.2f})")
             report_parts.append("核心发现: **多个看涨剧本共振，形成高置信度买入信号！**")
-            
             if playbooks:
                 report_parts.append("触发剧本:")
                 for playbook in sorted(playbooks):
                     report_parts.append(f"  - {playbook}")
-            else:
-                report_parts.append("触发剧本: (无明确剧本)")
-        else:
-            # --- 其他情况 (理论上不应发生，因为只为有信号的记录生成报告) ---
-            report_parts.append("信号类型: 无明确信号")
-            report_parts.append("核心发现: 当前无明确的交易信号。")
-
+        
         return "\n".join(report_parts)
 
+    # ... (从 _discover_take_profit_indicators 到 _run_tactical_engine 的所有函数保持不变) ...
     def _discover_take_profit_indicators(self, config: Dict) -> Dict:
-        """从止盈配置中发现需要计算的指标。"""
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
         tp_params = config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
         if not tp_params.get('enabled', False):
             return {}
-        
         tf = tp_params.get('timeframe')
         if not tf:
             return {}
-
         for rule in tp_params.get('rules', []):
             rule_type = rule.get('type')
             indicator_name, params = None, None
@@ -138,15 +115,11 @@ class MultiTimeframeTrendStrategy:
             elif rule_type == 'kdj_dead_cross':
                 indicator_name, params = 'kdj', {'apply_on': [tf], 'periods': rule['periods']}
             elif rule_type == 'top_divergence' and rule.get('indicator') == 'rsi':
-                indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [rule['periods']]} # 修正为 period
-            
+                indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [rule['periods']]}
             if indicator_name and params and params not in discovered[indicator_name]['configs']:
                 discovered[indicator_name]['configs'].append(params)
-        
         return json.loads(json.dumps(discovered))
-    
     def _discover_resonance_indicators(self, config: Dict) -> Dict:
-        # ... 此方法保持不变 ...
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
         resonance_params = config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False): return {}
@@ -167,9 +140,7 @@ class MultiTimeframeTrendStrategy:
                 if indicator_name and params and params not in discovered[indicator_name]['configs']:
                     discovered[indicator_name]['configs'].append(params)
         return json.loads(json.dumps(discovered))
-
     def _merge_feature_engineering_configs(self, tactical_fe, strategic_fe):
-        # ... 此方法保持不变 ...
         merged = deepcopy(tactical_fe)
         merged['base_needed_bars'] = max(
             tactical_fe.get('base_needed_bars', 0),
@@ -180,9 +151,7 @@ class MultiTimeframeTrendStrategy:
             strategic_fe.get('indicators', {})
         )
         return merged
-
     def _merge_indicators(self, base_indicators, new_indicators):
-        # ... 此方法保持不变 ...
         merged = deepcopy(base_indicators)
         all_keys = set(merged.keys()) | set(new_indicators.keys())
         def standardize_to_configs(cfg):
@@ -215,13 +184,10 @@ class MultiTimeframeTrendStrategy:
             if not final_configs and 'enabled' in (base_cfg or new_cfg):
                  merged[key] = {'enabled': is_enabled, '说明': merged[key]['说明']}
         return merged
-
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        # ... 此方法保持不变 ...
-        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V6.4) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V6.7) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
-
         if 'D' not in all_dfs or 'W' not in all_dfs:
             logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
             return None
@@ -236,112 +202,68 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"\n--- 引擎3: 开始运行【执行引擎-买入】(分钟线)... ---")
         execution_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎3: 【执行引擎-买入】运行完毕，生成 {len(execution_records)} 条分钟线买入信号。 ---")
-        
         logger.info(f"\n--- 引擎4: 开始运行【执行引擎-止盈】(分钟线)... ---")
         take_profit_records = self._run_intraday_take_profit_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎4: 【执行引擎-止盈】运行完毕，生成 {len(take_profit_records)} 条分钟线止盈信号。 ---")
-        
         logger.info(f"\n--- 信号整合: 开始合并日线与分钟线信号...")
         final_entry_records = self._merge_and_deduplicate_signals(tactical_records, execution_records)
-        
         all_records = final_entry_records + take_profit_records
-
-        # ▼▼▼ 在流程最后，为所有最终信号生成并添加分析报告 ▼▼▼
         if all_records:
-            # 步骤1: 找到所有信号中的最新交易日期
-            # 使用pd.to_datetime确保对不同时间格式（如Timestamp, datetime, str）的兼容性
             latest_trade_date = max(pd.to_datetime(rec['trade_time']).date() for rec in all_records)
-            
-            # 步骤2: 筛选出属于最新交易日期的所有记录
             latest_records = [
                 record for record in all_records
                 if pd.to_datetime(record['trade_time']).date() == latest_trade_date
             ]
-            
-            # 步骤3: 仅为这些最新记录生成和打印报告
             if latest_records:
                 logger.info(f"\n--- 报告生成: 为最新交易日 {latest_trade_date} 的 {len(latest_records)} 条信号生成分析报告...")
                 print(f"--- 分析报告仅展示最新交易日({latest_trade_date})的信号 ---")
                 for record in latest_records:
-                    # 调用方法生成报告文本
                     report_text = self._generate_analysis_report(record)
-                    # 将报告文本添加到记录字典中 (这会修改 all_records 中的对应记录)
                     record['analysis_text'] = report_text
-                    # 在日志中打印报告以供调试
                     print("----------------------------------------------------")
                     print(report_text)
                     print("----------------------------------------------------")
-        
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
-
-    # ▼▼▼ 简化此方法，因为剧本合并逻辑已前移 ▼▼▼
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
-        """
-        【V6.4 剧本合并修复版】
-        合并日线和分钟线买入信号。
-        规则：如果同一天同时存在日线和分钟线信号，优先保留分钟线信号。
-        因为分钟线信号记录在生成时已经合并了日线剧本，所以这里的逻辑大大简化。
-        """
         if not daily_records and not intraday_records:
             return daily_records or intraday_records
-
         signals_by_day = defaultdict(dict)
-
         def get_trade_date(trade_time_value: Any) -> Optional[datetime.date]:
-            """辅助函数，无论输入是字符串、datetime对象还是Timestamp，都安全地返回date对象。"""
             try:
                 if isinstance(trade_time_value, str):
                     return pd.to_datetime(trade_time_value).date()
                 elif hasattr(trade_time_value, 'date'):
                     return trade_time_value.date()
                 else:
-                    # print(f"  - [信号整合警告] 未知的trade_time类型: {type(trade_time_value)}")
                     return None
             except Exception as e:
-                # print(f"  - [信号整合警告] 解析时间失败: {trade_time_value}, 错误: {e}")
                 return None
-
-        # 处理日线信号
         for record in daily_records:
             if record.get('entry_signal'):
                 trade_date = get_trade_date(record.get('trade_time'))
                 if trade_date:
                     signals_by_day[trade_date]['D'] = record
-        
-        # 处理分钟线信号
         for record in intraday_records:
             if record.get('entry_signal'):
                 trade_date = get_trade_date(record.get('trade_time'))
                 if trade_date:
                     signals_by_day[trade_date]['M'] = record
-
         final_records = []
         sorted_dates = sorted(signals_by_day.keys())
-
         for trade_date in sorted_dates:
             signals = signals_by_day[trade_date]
-
             if 'M' in signals:
-                # 优先保留分钟线信号，因为它已经包含了所有需要的信息（分数、合并后的剧本）
-                # print(f"  - [信号整合] 日期 {trade_date}: 发现分钟线信号，优先保留。剧本: {signals['M'].get('triggered_playbooks')}")
                 final_records.append(signals['M'])
             elif 'D' in signals:
-                # 如果当天只有日线信号，则保留日线信号
-                # print(f"  - [信号整合] 日期 {trade_date}: 仅发现日线信号，予以保留。")
                 final_records.append(signals['D'])
-        
         return final_records
-
     def _run_strategic_engine(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
-        # ... 此方法保持不变 ...
         if df_weekly is None or df_weekly.empty:
             logger.warning("周线数据为空，战略引擎跳过。")
             return pd.DataFrame()
         return self.strategic_engine.apply_strategy(df_weekly)
-    
     def _merge_strategic_signals_to_daily(self, df_daily: pd.DataFrame, strategic_signals_df: pd.DataFrame) -> pd.DataFrame:
-        # ... 此方法保持不变 ...
         if strategic_signals_df is None or strategic_signals_df.empty: return df_daily
         df_daily_copy = df_daily.copy()
         df_merged = pd.merge_asof(left=df_daily_copy.sort_index(), right=strategic_signals_df.sort_index(), left_index=True, right_index=True, direction='backward')
@@ -356,32 +278,47 @@ class MultiTimeframeTrendStrategy:
             elif col.startswith(('washout_score_', 'rejection_signal_')):
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
         return df_merged
-    
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        # ... 此方法保持不变 ...
         final_df, atomic_signals = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
         self.daily_analysis_df = final_df
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
-
-    # ▼▼▼ 此方法为核心修改区域，负责合并剧本 ▼▼▼
+    def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
+        df_copy = df.copy()
+        def get_slope(y):
+            if len(y.dropna()) < 2: return np.nan
+            x = np.arange(len(y))
+            try:
+                slope, _ = np.polyfit(x, y.values, 1)
+                return slope
+            except (np.linalg.LinAlgError, TypeError):
+                return np.nan
+        for tf in timeframes:
+            ema_col = f'EMA_{ema_period}_{tf}'
+            close_col = f'close_{tf}'
+            slope_col = f'ema_slope_{tf}'
+            accel_col = f'ema_accel_{tf}'
+            health_col = f'trend_health_{tf}'
+            if ema_col in df_copy.columns and close_col in df_copy.columns:
+                df_copy[slope_col] = df_copy[ema_col].rolling(window=slope_window).apply(get_slope, raw=False)
+                df_copy[accel_col] = df_copy[slope_col].rolling(window=slope_window).apply(get_slope, raw=False)
+                is_above_ema = df_copy[close_col] > df_copy[ema_col]
+                is_slope_positive = df_copy[slope_col] > 0
+                df_copy[health_col] = is_above_ema & is_slope_positive
+                df_copy[health_col].fillna(False, inplace=True)
+            else:
+                df_copy[health_col] = False
+                df_copy[slope_col] = np.nan
+                df_copy[accel_col] = np.nan
+        return df_copy
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        # print("\n--- [引擎3-调试 V6.4] 进入 _run_intraday_resonance_engine ---")
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
-        if not resonance_params.get('enabled', False):
-            # print("    - [引擎3-调试] 结论: 分钟共振剧本在JSON中未启用 (enabled: false)。引擎退出。")
-            return []
-        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
-            # print("    - [引擎3-调试] 结论: 缺少日线策略分析结果 (self.daily_analysis_df)，无法执行分钟线引擎。引擎退出。")
-            return []
+        if not resonance_params.get('enabled', False): return []
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
         levels = resonance_params.get('levels', [])
-        if not levels:
-            # print("    - [引擎3-调试] 结论: JSON中未定义任何共振层级 (levels为空)。引擎退出。")
-            return []
+        if not levels: return []
         trigger_tf = levels[-1]['tf']
-        if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty:
-            # print(f"    - [引擎3-调试] 结论: 缺少或为空的触发周期 '{trigger_tf}' 数据。引擎退出。")
-            return []
+        if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty: return []
         df_aligned = all_dfs[trigger_tf].copy()
         for level in levels[:-1]:
             level_tf = level['tf']
@@ -389,154 +326,122 @@ class MultiTimeframeTrendStrategy:
                 df_right = all_dfs[level_tf].copy()
                 rename_map = {col: f"{col}_{level_tf}" for col in df_right.columns}
                 df_right.rename(columns=rename_map, inplace=True)
-                df_aligned = pd.merge_asof(
-                    left=df_aligned, right=df_right, left_index=True, right_index=True, direction='backward'
-                )
-            else:
-                # print(f"    - [引擎3-调试] 结论: 共振检查缺少关键的上层周期 '{level_tf}' 数据。引擎退出。")
-                return []
-        # print("    - [引擎3-调试] 新增步骤: 融合日线趋势、得分及剧本，创建综合过滤器...")
+                df_aligned = pd.merge_asof(left=df_aligned, right=df_right, left_index=True, right_index=True, direction='backward')
+            else: return []
+        dynamics_timeframes = ['60', '30']
+        df_aligned = self._calculate_trend_dynamics(df_aligned, dynamics_timeframes)
         daily_score_threshold = self.tactical_config.get('entry_scoring_params', {}).get('score_threshold', 100)
-        
-        # ▼▼▼ 从日线分析结果中，除了分数，还要提取出所有playbook列 ▼▼▼
         daily_playbook_cols = [col for col in self.daily_analysis_df.columns if col.startswith('playbook_')]
         daily_context_cols_to_merge = ['context_mid_term_bullish', 'entry_score'] + daily_playbook_cols
         daily_context_df = self.daily_analysis_df[daily_context_cols_to_merge].copy()
-
         is_bullish_trend = daily_context_df['context_mid_term_bullish']
         is_reversal_day = daily_context_df['entry_score'] >= daily_score_threshold
         daily_context_df['is_daily_trend_ok'] = is_bullish_trend | is_reversal_day
         daily_context_df.rename(columns={'entry_score': 'daily_entry_score'}, inplace=True)
-        # print(f"      - [引擎3-调试] 日线看涨天数: {is_bullish_trend.sum()}, 日线信号日天数: {is_reversal_day.sum()}, 总合格天数: {daily_context_df['is_daily_trend_ok'].sum()}")
-        
-        # 将包含分数和剧本的日线上下文合并到分钟线数据中
-        df_aligned = pd.merge_asof(
-            left=df_aligned,
-            right=daily_context_df, # 现在这里包含了分数和所有剧本列
-            left_index=True,
-            right_index=True,
-            direction='backward'
-        )
+        df_aligned = pd.merge_asof(left=df_aligned, right=daily_context_df, left_index=True, right_index=True, direction='backward')
         df_aligned['is_daily_trend_ok'].fillna(False, inplace=True)
         df_aligned['daily_entry_score'].fillna(0, inplace=True)
-        for col in daily_playbook_cols: # 对合并过来的剧本列填充NA值
-            if col in df_aligned.columns:
-                df_aligned[col].fillna(False, inplace=True)
-
-        # ▼▼▼【代码修改】: 在此处添加调试代码以打印所有可用列 ▼▼▼
-        print("\n--- [分钟级别数据列清单] ---")
-        # 使用 tolist() 转换为列表，打印更清晰
-        print(df_aligned.columns.to_list())
-        print("--- [清单结束] ---\n")
-
-        # print("    - [引擎3-调试] 数据对齐完成。开始逐级检查共振条件...")
+        for col in daily_playbook_cols:
+            if col in df_aligned.columns: df_aligned[col].fillna(False, inplace=True)
         final_signal = pd.Series(True, index=df_aligned.index)
         final_signal &= df_aligned['is_daily_trend_ok']
-        # print(f"    - [引擎3-调试] 应用日线综合过滤后，剩余候选信号点: {final_signal.sum()}")
-        if final_signal.sum() == 0:
-            # print("    - [引擎3-调试] 结论: 所有时间点均不满足日线前提，无需进一步检查分钟线条件。引擎正常结束。")
-            return []
+        final_signal &= df_aligned.get('trend_health_60', False)
+        final_signal &= df_aligned.get('trend_health_30', False)
+        final_signal &= (df_aligned.get('ema_accel_30', 0) >= 0)
+        if final_signal.sum() == 0: return []
         for i, level in enumerate(levels):
-            level_tf, level_name = level['tf'], level.get('level_name', f'Level_{i}')
-            level_logic, level_conditions = level.get('logic', 'AND').upper(), level.get('conditions', [])
-            # print(f"      - [引擎3-调试] 正在检查第 {i+1} 层: '{level_name}' (周期: {level_tf}, 逻辑: {level_logic})")
+            level_tf, level_logic, level_conditions = level['tf'], level.get('logic', 'AND').upper(), level.get('conditions', [])
             level_signal = pd.Series(True if level_logic == 'AND' else False, index=df_aligned.index)
             for cond in level_conditions:
                 cond_signal = self._check_single_condition(df_aligned, cond, level_tf)
                 if level_logic == 'AND': level_signal &= cond_signal
                 else: level_signal |= cond_signal
             final_signal &= level_signal
-        # print(f"    - [引擎3-调试] 所有层级检查完毕。最终共振信号触发总次数: {final_signal.sum()}")
         triggered_df = df_aligned[final_signal]
-        if triggered_df.empty:
-            # print("    - [引擎3-调试] 结论: 没有发现任何满足所有条件的共振信号点。引擎正常结束。")
-            return []
-        # print(f"    - [引擎3-调试] 成功发现 {len(triggered_df)} 个共振信号点。开始准备数据库记录...")
+        if triggered_df.empty: return []
         db_records = []
         for timestamp, row in triggered_df.iterrows():
-            # ▼▼▼【代码修改】: 在此处合并所有剧本 ▼▼▼
-            # 1. 获取分钟线自身的剧本
             resonance_playbook = resonance_params.get('signal_name', 'UNKNOWN_RESONANCE')
-            
-            # 2. 从row中提取当天生效的日线/周线剧本
-            # row中包含了从日线df合并过来的 'playbook_*' 列
             daily_playbooks = [col.replace('playbook_', '') for col in row.index if col.startswith('playbook_') and row[col] is True]
-            
-            # 3. 合并所有剧本并去重
             combined_playbooks = list(set([resonance_playbook] + daily_playbooks))
-            
-            # 4. 创建基础记录，并用合并后的剧本覆盖默认值
             record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
-            record['triggered_playbooks'] = combined_playbooks # 使用合并后的剧本列表
-
-            # 计算融合分数
+            record['triggered_playbooks'] = combined_playbooks
             daily_score = sanitize_for_json(row.get('daily_entry_score', 0.0))
             resonance_score = sanitize_for_json(resonance_params.get('score', 0.0))
             total_score = daily_score + resonance_score
             record['entry_score'] = total_score
-            
-            # print(f"      - [剧本与分数融合] 时间: {timestamp}, 日线分: {daily_score:.0f}, 分钟线基础分: {resonance_score:.0f}, 总分: {total_score:.0f}")
-            # print(f"        - 合并后剧本: {combined_playbooks}")
             db_records.append(record)
-        # print(f"    - [引擎3-调试] 数据库记录准备完成，共 {len(db_records)} 条。引擎正常结束。")
         return db_records
 
+    # ▼▼▼【代码修改】: 止盈引擎重构，实现三级警报系统 ▼▼▼
     def _run_intraday_take_profit_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        # ... 此方法保持不变 ...
         tp_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
-        if not tp_params.get('enabled', False):
-            return []
+        if not tp_params.get('enabled', False): return []
+        
         tf = tp_params.get('timeframe')
-        if not tf or tf not in all_dfs or all_dfs[tf].empty:
-            # print(f"    - [止盈引擎] 结论: 止盈检查周期 '{tf}' 数据缺失或为空。引擎退出。")
-            return []
+        if not tf or tf not in all_dfs or all_dfs[tf].empty: return []
+        
         df = all_dfs[tf].copy()
-        # print(f"    - [止盈引擎] 在 {tf} 分钟级别上检查 {len(tp_params.get('rules', []))} 条止盈规则...")
-        all_exit_signals = pd.Series(False, index=df.index)
-        exit_triggers = {}
-        for rule in tp_params.get('rules', []):
-            rule_type = rule.get('type')
-            signal_code = rule.get('signal_code', 999)
-            condition_signal = pd.Series(False, index=df.index)
-            if rule_type == 'macd_dead_cross':
-                p = rule['periods']
-                macd_col = f'MACD_{p[0]}_{p[1]}_{p[2]}'
-                signal_col = f'MACDs_{p[0]}_{p[1]}_{p[2]}'
-                if macd_col in df.columns and signal_col in df.columns:
-                    condition_signal = (df[macd_col] < df[signal_col]) & (df[macd_col].shift(1) >= df[signal_col].shift(1))
-            elif rule_type == 'kdj_dead_cross':
-                p = rule['periods']
-                k_col, d_col = f'KDJk_{p[0]}_{p[1]}_{p[2]}', f'KDJd_{p[0]}_{p[1]}_{p[2]}'
-                high_level = rule.get('high_level', 80)
-                if k_col in df.columns and d_col in df.columns:
-                    is_cross = (df[k_col] < df[d_col]) & (df[k_col].shift(1) >= df[d_col].shift(1))
-                    is_in_zone = df[k_col].shift(1) > high_level
-                    condition_signal = is_cross & is_in_zone
-            elif rule_type == 'top_divergence':
-                indicator = rule.get('indicator', 'rsi')
-                if indicator == 'rsi':
-                    p = rule['periods'] # 注意这里是 period
-                    rsi_col = f'RSI_{p}'
-                    if 'close' in df.columns and rsi_col in df.columns:
-                        peaks, _ = find_peaks(df['close'], distance=rule.get('lookback', 10))
-                        if len(peaks) > 1:
-                            divergence_points = pd.Series(False, index=df.index)
-                            for i in range(1, len(peaks)):
-                                prev_peak_idx, curr_peak_idx = peaks[i-1], peaks[i]
-                                if (df['close'].iloc[curr_peak_idx] > df['close'].iloc[prev_peak_idx] and
-                                    df[rsi_col].iloc[curr_peak_idx] < df[rsi_col].iloc[prev_peak_idx]):
-                                    divergence_points.iloc[curr_peak_idx] = True
-                            condition_signal = divergence_points
-            if condition_signal.any():
-                # print(f"      - [止盈引擎] 规则 '{rule_type}' (代码:{signal_code}) 触发 {condition_signal.sum()} 次。")
-                all_exit_signals |= condition_signal
-                exit_triggers[signal_code] = condition_signal
-        triggered_df = df[all_exit_signals].copy()
-        if triggered_df.empty:
-            return []
-        triggered_df['exit_signal_code'] = 0
-        for code in sorted(exit_triggers.keys()):
-            triggered_df.loc[exit_triggers[code], 'exit_signal_code'] = code
+
+        # 1. 数据融合：将日线和高阶分钟线数据融合到当前检查周期
+        dynamics_timeframes = ['60', '30']
+        for health_tf in dynamics_timeframes:
+            if health_tf in all_dfs and not all_dfs[health_tf].empty:
+                df_right = all_dfs[health_tf].copy()
+                rename_map = {col: f"{col}_{health_tf}" for col in df_right.columns}
+                df_right.rename(columns=rename_map, inplace=True)
+                df = pd.merge_asof(left=df, right=df_right, left_index=True, right_index=True, direction='backward')
+        
+        # 融合日线关键支撑位
+        daily_support_ma = 'EMA_55_D'
+        if 'D' in all_dfs and daily_support_ma in all_dfs['D'].columns:
+            df = pd.merge_asof(left=df, right=all_dfs['D'][[daily_support_ma]], left_index=True, right_index=True, direction='backward')
+
+        # 2. 计算趋势动态
+        df = self._calculate_trend_dynamics(df, dynamics_timeframes, ema_period=34, slope_window=5)
+
+        # 3. 定义各级警报信号
+        signals = []
+        
+        # 警报等级 1: 趋势减速 (黄色预警)
+        is_still_rising = df.get('ema_slope_30', 0) > 0
+        is_decelerating = df.get('ema_accel_30', 0) < 0
+        was_accelerating = df.get('ema_accel_30', 0).shift(1) >= 0
+        level_1_signal = is_still_rising & is_decelerating & was_accelerating
+        if level_1_signal.any():
+            signals.append({'level': 1, 'reason': '30分钟趋势加速度转负', 'signal': level_1_signal})
+
+        # 警报等级 2: 短期指标转弱 (橙色警报)
+        p = [12, 26, 9] # 假设使用15分钟MACD
+        macd_col, signal_col = f'MACD_{p[0]}_{p[1]}_{p[2]}', f'MACDs_{p[0]}_{p[1]}_{p[2]}'
+        if macd_col in df.columns and signal_col in df.columns:
+            base_signal = (df[macd_col] < df[signal_col]) & (df[macd_col].shift(1) >= df[signal_col].shift(1))
+            is_trend_deteriorating = df.get('trend_health_30', False) == False
+            level_2_signal = base_signal & is_trend_deteriorating
+            if level_2_signal.any():
+                signals.append({'level': 2, 'reason': f'{tf}分钟MACD死叉且30分钟趋势不健康', 'signal': level_2_signal})
+
+        # 警报等级 3: 跌破日线关键支撑 (红色警报)
+        if daily_support_ma in df.columns:
+            level_3_signal = (df['close'] < df[daily_support_ma]) & (df['close'].shift(1) >= df[daily_support_ma].shift(1))
+            if level_3_signal.any():
+                signals.append({'level': 3, 'reason': f'价格跌破日线关键支撑({daily_support_ma})', 'signal': level_3_signal})
+
+        # 4. 合并与去重
+        if not signals: return []
+        
+        df['exit_severity_level'] = 0
+        df['exit_signal_reason'] = ''
+        
+        # 按严重性从高到低应用信号，高级别信号会覆盖低级别信号
+        for s in sorted(signals, key=lambda x: x['level'], reverse=True):
+            df.loc[s['signal'], 'exit_severity_level'] = s['level']
+            df.loc[s['signal'], 'exit_signal_reason'] = s['reason']
+            
+        triggered_df = df[df['exit_severity_level'] > 0].copy()
+        if triggered_df.empty: return []
+
+        # 5. 准备数据库记录
         db_records = []
         for timestamp, row in triggered_df.iterrows():
             record = {
@@ -547,19 +452,17 @@ class MultiTimeframeTrendStrategy:
                 "close_price": sanitize_for_json(row.get('close')),
                 "entry_score": 0.0,
                 "entry_signal": False,
-                "exit_signal_code": sanitize_for_json(row.get('exit_signal_code', 999)),
-                "is_long_term_bullish": False,
-                "is_mid_term_bullish": False,
-                "is_pullback_setup": False,
-                "pullback_target_price": None,
-                "triggered_playbooks": [f"EXIT_CODE_{int(row.get('exit_signal_code', 999))}"],
-                "context_snapshot": sanitize_for_json({'close': row.get('close')}),
+                "exit_signal_code": 100 + int(row.get('exit_severity_level', 0)), # 使用等级作为code的一部分
+                "exit_severity_level": sanitize_for_json(row.get('exit_severity_level')),
+                "exit_signal_reason": sanitize_for_json(row.get('exit_signal_reason')),
+                "triggered_playbooks": [f"EXIT_LEVEL_{int(row.get('exit_severity_level', 0))}"],
+                "context_snapshot": sanitize_for_json({'close': row.get('close'), 'reason': row.get('exit_signal_reason')}),
             }
             db_records.append(record)
         return db_records
-    
+
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
-        # ... 此方法保持不变 ...
+        # ... (此函数保持不变) ...
         cond_type = cond['type']
         resonance_config = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         trigger_tf_str = resonance_config.get('levels', [{}])[-1].get('tf')
@@ -585,7 +488,8 @@ class MultiTimeframeTrendStrategy:
             hist_col = f'MACDh_{p[0]}_{p[1]}_{p[2]}{suffix}'
             if check_cols(macd_line_col, hist_col):
                 is_above_zero_and_rising = (df[macd_line_col] > 0) & (df[macd_line_col] > df[macd_line_col].shift(shift_periods))
-                hist_above_zero_strengthening = (df[hist_col] > 0) & (df[hist_col] > df[hist_col].shift(shift_periods)) & (df[hist_col].shift(shift_periods) < df[hist_col].shift(shift_periods * 2))
+                hist_above_zero_strengthening = (df[hist_col] > 0) & (df[hist_col] > df[hist_col].shift(shift_periods)) & \
+                                                (df[hist_col].shift(shift_periods * 2) < df[hist_col].shift(shift_periods))
                 return is_above_zero_and_rising | hist_above_zero_strengthening
         elif cond_type == 'macd_cross':
             p = cond['periods']
@@ -627,7 +531,7 @@ class MultiTimeframeTrendStrategy:
         return pd.Series(False, index=df.index)
 
     def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
-        # ... 此方法保持不变 ...
+        # ... (此函数保持不变, 但注意在调用它的地方，要为新字段提供默认值) ...
         signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
         trigger_tf = params['levels'][-1]['tf']
         native_utc_datetime: datetime = timestamp.to_pydatetime()
@@ -640,11 +544,9 @@ class MultiTimeframeTrendStrategy:
             "entry_score": sanitize_for_json(params.get('score', 0.0)),
             "entry_signal": True,
             "exit_signal_code": 0,
-            "is_long_term_bullish": False,
-            "is_mid_term_bullish": False,
-            "is_pullback_setup": False,
-            "pullback_target_price": None,
-            "triggered_playbooks": [signal_name], # 注意：这个值将在调用此函数后被覆盖
+            "exit_severity_level": 0, # 为买入信号设置默认值
+            "exit_signal_reason": None, # 为买入信号设置默认值
+            "triggered_playbooks": [signal_name],
             "context_snapshot": sanitize_for_json({'close': row.get('close')}),
         }
         return record

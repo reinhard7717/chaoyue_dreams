@@ -658,15 +658,15 @@ class TrendFollowStrategySignalLog(models.Model):
     strategy_name = models.CharField(max_length=100, db_index=True, help_text="产生信号的策略名称")
     
     # --- 信号详情 (通用) ---
-    # ▼▼▼ 修改行 ▼▼▼
     # 解释: 使用DecimalField替代FloatField以保证金融数据计算的精确性。
     close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
-    # ▲▲▲ 修改行 ▲▲▲
     entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
     
     # --- 信号类型 (细分) ---
     entry_signal = models.BooleanField(default=False, help_text="是否为最终的买入信号 (得分超过阈值)")
     exit_signal_code = models.IntegerField(default=0, help_text="卖出信号代码 (0:无, 1:压力位, 2:移动止盈, 3:指标)")
+    exit_severity_level = models.IntegerField(default=0, help_text="止盈信号的严重性等级 (0:无, 1:预警, 2:标准, 3:紧急)")
+    exit_signal_reason = models.CharField(max_length=255, blank=True, null=True, help_text="止盈信号的具体原因描述")
     
     # --- 【月线策略】核心买入剧本 ---
     is_pullback_entry = models.BooleanField(default=False, help_text="[月线策略]是否为回踩买入信号")
@@ -683,10 +683,8 @@ class TrendFollowStrategySignalLog(models.Model):
 
     # --- 【趋势策略】核心买入剧本 ---
     is_pullback_setup = models.BooleanField(default=False, help_text="[趋势策略]是否为回撤预备信号")
-    # ▼▼▼ 修改行 ▼▼▼
     # 解释: 同样使用DecimalField替代FloatField。
     pullback_target_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, default=None, help_text="[趋势/月线]回踩买入剧本的目标价格")
-    # ▲▲▲ 修改行 ▲▲▲
 
     # --- 信号追溯与元数据 ---
     triggered_playbooks = models.JSONField(default=list, help_text="触发信号的所有原子规则列表 (用于详细分析)", encoder=DecimalEncoder)

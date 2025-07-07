@@ -92,6 +92,7 @@ PLAYBOOK_NAME_MAP = {
     'EXIT_CODE_101': '15分钟MACD死叉',
     'EXIT_CODE_102': '15分钟RSI顶背离',
     'EXIT_CODE_103': '15分钟KDJ在高位死叉',
+    'EXIT_CODE_104':'【加速度预警】趋势减速',
     'INTRADAY_TAKE_PROFIT': '盘中止盈预警'
 }
 
