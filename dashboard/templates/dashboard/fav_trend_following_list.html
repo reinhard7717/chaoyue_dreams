@@ -7,7 +7,8 @@
 
 {% block head_extra %}
 <style>
-    /* 这些是页面特有的、与折叠功能无关的样式，现在可以正确加载了 */
+    /* ▼▼▼【代码修改】: 移除所有与 playbook 和 strategy 相关的样式，它们已移至 dashboard.css ▼▼▼ */
+    /* 只保留此页面特有的状态和信号详情样式 */
     .status-tag {
         padding: 4px 10px;
         border-radius: 15px;
@@ -24,18 +25,13 @@
     .status-alert-level-2 { background-color: #fb8c00; } /* 二级警报 (橙色) */
     .status-alert-level-3 { background-color: #e53935; } /* 三级警报 (红色) */
 
-    .playbook-list { list-style-type: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
-    .playbook-tag { background-color: #e0eafc; color: #3d5afe; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 500; white-space: nowrap; }
-    .playbook-tag.rocket-signal { background-color: #ffebee; color: #c62828; font-weight: bold; border: 1px solid #ffcdd2; }
-    .playbook-tag.king-signal { background-color: #ffd700; color: #4d4000; font-weight: bold; border: 1px solid #ffc107; }
-    .playbook-tag.expert-signal { background-color: #e1f5fe; color: #0277bd; border: 1px solid #b3e5fc; }
-
     .signal-details { font-size: 0.9em; }
     .signal-details .reason { font-weight: bold; }
     .signal-details .reason-level-1 { color: #c49102; }
     .signal-details .reason-level-2 { color: #fb8c00; }
     .signal-details .reason-level-3 { color: #e53935; }
     .signal-details .time-info { color: #616161; font-size: 0.9em; }
+    /* ▲▲▲【代码修改结束】▲▲▲ */
 </style>
 {% endblock %}
 
@@ -54,6 +50,7 @@
 {% endblock sidebar %}
 
 {% block content %}
+{# ... 此处内容无需修改，保持原样 ... #}
 <div class="dashboard-container">
     <section class="trend-list-section">
         <h2><span class="icon">🎯</span> {{ page_title }} (共 {{ total_count }} 条)</h2>
@@ -164,39 +161,27 @@
 </div>
 {% endblock %}
 
-{# ▼▼▼【代码修改】: 更新块名称为 'scripts' 并添加 console.log 用于调试 ▼▼▼ #}
 {% block scripts %}
+{# ... 此处脚本无需修改，保持原样 ... #}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const trendTable = document.getElementById('trend-table');
     if (trendTable) {
-        // 调试信息：确认脚本已加载并找到表格元素
         console.log("折叠功能脚本已加载，并成功找到ID为 'trend-table' 的表格。");
-
         trendTable.addEventListener('click', function(event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
             if (!toggleBtn) {
                 return;
             }
-            
-            // 调试信息：确认“显示更多”按钮被点击
             console.log("检测到 'toggle-playbooks' 按钮被点击。");
-
             event.preventDefault(); 
-            
             const container = toggleBtn.closest('.playbook-container');
             if (!container) return;
-            
             const list = container.querySelector('.playbook-list');
             if (!list) return;
-
             list.classList.toggle('expanded');
-
             const isExpanded = list.classList.contains('expanded');
-            
-            // 调试信息：输出当前列表的展开状态
             console.log("列表 'expanded' 状态已切换为: ", isExpanded);
-
             if (isExpanded) {
                 toggleBtn.textContent = toggleBtn.dataset.textCollapse;
             } else {
@@ -204,10 +189,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     } else {
-        // 调试信息：如果找不到表格，则输出错误
         console.error("错误：未能找到ID为 'trend-table' 的表格元素。");
     }
 });
 </script>
 {% endblock scripts %}
-{# ▲▲▲【代码修改结束】▲▲▲ #}

@@ -470,3 +470,93 @@ section h2 .icon {
     font-size: 1.2em;
     line-height: 1;
 }
+
+/* --- 策略和剧本列表通用样式 --- */
+.strategy-list,
+.playbook-list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px; /* 统一标签间距 */
+}
+
+/* --- 策略标签样式 (用于 trend_following_list.html) --- */
+.strategy-tag {
+    background-color: var(--semi-color-bg-2);
+    color: var(--semi-color-text-1);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 500;
+    white-space: nowrap;
+    border: 1px solid var(--semi-color-border);
+}
+
+/* --- 剧本标签基础样式 (用于两个页面) --- */
+.playbook-tag {
+    background-color: #e0eafc;
+    color: #3d5afe;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* --- 特殊剧本标签样式 --- */
+.playbook-tag.rocket-signal {
+    background-color: #ffebee;
+    color: #c62828;
+    font-weight: bold;
+    border: 1px solid #ffcdd2;
+}
+.playbook-tag.king-signal {
+    background-color: #ffd700;
+    color: #4d4000;
+    font-weight: bold;
+    border: 1px solid #ffc107;
+}
+.playbook-tag.expert-signal {
+    background-color: #e1f5fe;
+    color: #0277bd;
+    border: 1px solid #b3e5fc;
+}
+
+/* --- 剧本折叠功能样式 --- */
+.playbook-container {
+    position: relative;
+    max-width: 300px;
+}
+
+/* 折叠状态 (默认) */
+.playbook-list.collapsible {
+    max-height: 30px; /* 确保只显示一行的高度 */
+    overflow: hidden;
+    transition: max-height 0.3s ease-in-out;
+}
+
+/* 展开状态 */
+.playbook-list.collapsible.expanded {
+    max-height: 400px; /* 一个足够大的高度以显示所有内容 */
+}
+
+/* "显示更多/收起" 按钮 */
+.toggle-playbooks {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 0.8em;
+    font-weight: 500;
+    color: var(--semi-color-primary);
+    text-decoration: none;
+    cursor: pointer;
+    background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.toggle-playbooks:hover {
+    text-decoration: underline;
+    background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.2);
+}
