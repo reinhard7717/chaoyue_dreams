@@ -82,6 +82,9 @@ PLAYBOOK_NAME_MAP = {
     'ma20_rising_state_W': '【周策】MA20持续上升',
     'ma_uptrend_W': '【周策】均线多头排列',
     'trix_golden_cross_W': '【周策】TRIX金叉',
+    'ma20_turn_up_event_W': '【周策】MA20拐头向上',
+    'classic_breakout_W': '【周策】经典高点突破',
+    'ace_signal_breakout_trigger_W': '【周策-王牌】关键位突破',
 
     # === 分钟级执行剧本 (Execution Playbooks) ===
     'RESONANCE_FRACTAL_ROCKET': '【分钟】分形火箭',

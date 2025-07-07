@@ -17,7 +17,6 @@
         display: inline-block;
         min-width: 80px;
     }
-    /* ▼▼▼ 新增分级状态样式 ▼▼▼ */
     .status-holding { background-color: #43a047; } /* 持仓观察 (绿色) */
     .status-wait { background-color: #757575; } /* 等待建仓 (灰色) */
     .status-alert-level-1 { background-color: #fdd835; color: #424242; } /* 一级预警 (黄色) */
@@ -30,13 +29,36 @@
     .playbook-tag.king-signal { background-color: #ffd700; color: #4d4000; font-weight: bold; border: 1px solid #ffc107; }
     .playbook-tag.expert-signal { background-color: #e1f5fe; color: #0277bd; border: 1px solid #b3e5fc; }
 
-    /* ▼▼▼ 新增信号详情样式 ▼▼▼ */
     .signal-details { font-size: 0.9em; }
     .signal-details .reason { font-weight: bold; }
     .signal-details .reason-level-1 { color: #c49102; }
     .signal-details .reason-level-2 { color: #fb8c00; }
     .signal-details .reason-level-3 { color: #e53935; }
     .signal-details .time-info { color: #616161; font-size: 0.9em; }
+
+    /* ▼▼▼【代码修改】: 新增激活剧本折叠功能的CSS样式 ▼▼▼ */
+    .playbook-container .playbook-list.collapsible {
+        /* 默认折叠时，最大高度约等于一行标签的高度 */
+        max-height: 28px; 
+        overflow: hidden;
+        transition: max-height 0.3s ease-in-out;
+    }
+    .playbook-container .playbook-list.collapsible.expanded {
+        /* 展开时，设置一个足够大的高度以显示所有内容 */
+        max-height: 500px; 
+    }
+    .toggle-playbooks {
+        display: block;
+        margin-top: 5px;
+        font-size: 0.8em;
+        color: #007bff;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .toggle-playbooks:hover {
+        text-decoration: underline;
+    }
+    /* ▲▲▲【代码修改结束】▲▲▲ */
 </style>
 {% endblock %}
 
@@ -90,7 +112,6 @@
                             {% endif %}
                         </td>
                         <td>
-                            {# ▼▼▼ 全面重构止盈信号显示逻辑 ▼▼▼ #}
                             {% if item.sell_info %}
                                 <div class="signal-details">
                                     {% if item.sell_info.severity_level == 1 %}
@@ -106,7 +127,6 @@
                                     </span>
                                 </div>
                             {% else %}
-                                {# 如果没有卖出信号，显示最新动态 #}
                                 <strong>最新: {{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>分数: {{ item.latest_score|floatformat:0 }}</small>
@@ -114,21 +134,34 @@
                         </td>
                         <td>
                             {% if item.active_playbooks %}
-                                <ul class="playbook-list">
-                                {% for playbook in item.active_playbooks %}
-                                    {% with playbook_display_name=playbook|playbook_display %}
-                                        {% if 'ROCKET' in playbook %}
-                                            <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                        {% elif '王牌' in playbook_display_name %}
-                                            <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                        {% elif '专家' in playbook_display_name %}
-                                            <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
-                                        {% else %}
-                                            <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
-                                        {% endif %}
-                                    {% endwith %}
-                                {% endfor %}
-                                </ul>
+                                <!-- ▼▼▼【代码修改】: 借鉴trend_following_list.html，重构此部分以支持折叠 ▼▼▼ -->
+                                <div class="playbook-container">
+                                    {# 如果剧本数量超过3个，添加collapsible类以便CSS和JS进行处理 #}
+                                    <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
+                                    {% for playbook in item.active_playbooks %}
+                                        {% with playbook_display_name=playbook|playbook_display %}
+                                            {% if 'ROCKET' in playbook %}
+                                                <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
+                                            {% elif '王牌' in playbook_display_name %}
+                                                <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
+                                            {% elif '专家' in playbook_display_name %}
+                                                <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
+                                            {% else %}
+                                                <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% endfor %}
+                                    </ul>
+                                    {# 如果剧本数量超过3个，则显示“显示更多”按钮 #}
+                                    {% if item.active_playbooks|length > 3 %}
+                                        <a href="#" class="toggle-playbooks" 
+                                           data-text-expand="显示更多 (共 {{ item.active_playbooks|length }} 条)" 
+                                           data-text-collapse="收起">
+                                            显示更多 (共 {{ item.active_playbooks|length }} 条)
+                                        </a>
+                                    {% endif %}
+                                </div>
+                                <!-- ▲▲▲【代码修改结束】▲▲▲ -->
                             {% else %}
                                 -
                             {% endif %}
@@ -157,3 +190,47 @@
     </section>
 </div>
 {% endblock %}
+
+{# ▼▼▼【代码修改】: 新增JavaScript脚本块，用于处理折叠/展开逻辑 ▼▼▼ #}
+{% block scripts_extra %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 使用事件委托，将点击事件监听器绑定在整个表格上
+    // 这样可以高效地处理所有行内的“显示更多”按钮，无需为每个按钮单独绑定
+    const trendTable = document.getElementById('trend-table');
+    if (trendTable) {
+        trendTable.addEventListener('click', function(event) {
+            // 检查被点击的元素是否是我们的目标按钮 (class="toggle-playbooks")
+            const toggleBtn = event.target.closest('.toggle-playbooks');
+            if (!toggleBtn) {
+                return; // 如果点击的不是按钮，则不执行任何操作
+            }
+
+            // 阻止<a>标签的默认跳转行为（例如页面滚动到顶部）
+            event.preventDefault(); 
+            
+            // 找到与按钮关联的剧本容器和列表
+            const container = toggleBtn.closest('.playbook-container');
+            if (!container) return;
+            
+            const list = container.querySelector('.playbook-list');
+            if (!list) return;
+
+            // 核心逻辑：切换 'expanded' 类，CSS会根据这个类来应用展开或收起的样式
+            list.classList.toggle('expanded');
+
+            // 根据当前是否展开，更新按钮的显示文本
+            const isExpanded = list.classList.contains('expanded');
+            if (isExpanded) {
+                // 如果已展开，从data-text-collapse属性获取“收起”文本
+                toggleBtn.textContent = toggleBtn.dataset.textCollapse;
+            } else {
+                // 如果已收起，从data-text-expand属性获取“显示更多”文本
+                toggleBtn.textContent = toggleBtn.dataset.textExpand;
+            }
+        });
+    }
+});
+</script>
+{% endblock scripts_extra %}
+{# ▲▲▲【代码修改结束】▲▲▲ #}
