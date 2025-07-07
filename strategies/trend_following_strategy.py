@@ -175,9 +175,9 @@ class TrendFollowStrategy:
                 triggered_playbooks_list = [
                     item for item in active_items if not item.startswith(excluded_prefixes)
                 ]
-                print(f"--- 剧本过滤调试 for {timestamp.date()} ---")
-                print(f"    - 原始激活项: {active_items.tolist()}")
-                print(f"    - 过滤后核心剧本: {triggered_playbooks_list}")
+                # print(f"--- 剧本过滤调试 for {timestamp.date()} ---")
+                # print(f"    - 原始激活项: {active_items.tolist()}")
+                # print(f"    - 过滤后核心剧本: {triggered_playbooks_list}")
 
             is_setup_day = 'PULLBACK_SETUP' in triggered_playbooks_list
             context_dict = {k: v for k, v in row.items() if pd.notna(v)}
