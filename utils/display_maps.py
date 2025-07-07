@@ -1,5 +1,5 @@
 # 文件: utils/display_maps.py
-# 版本: V3.0 - 对齐V23.1+版策略，全面更新
+# 版本: V3.1 - 对齐周线策略大写命名规范
 # 描述: 这是一个集中的配置文件，用于将策略和剧本的内部英文ID映射到前端显示的中文名称。
 
 # 核心策略名称映射
@@ -71,20 +71,24 @@ PLAYBOOK_NAME_MAP = {
     #      日线策略能直接理解的作战指令。它们作为基础分项(BASE_)或前提条件出现。
 
     # --- A. 许可型指令 (用于解锁左侧交易) ---
-    'CONTEXT_STRATEGIC_BOTTOMING_W': '【周策-许可】战略性筑底', # 来自 playbook_coppock_stabilizing_W
+    'CONTEXT_STRATEGIC_BOTTOMING_W': '【周策-许可】战略性筑底', # 来自 playbook_COPPOCK_STABILIZING_W
 
     # --- B. 增强型指令 (作为右侧交易的强力加分项) ---
-    'EVENT_STRATEGIC_ACCELERATING_W': '【周策-增强】战略性加速', # 来自 playbook_coppock_accelerating_W
+    'EVENT_STRATEGIC_ACCELERATING_W': '【周策-增强】战略性加速', # 来自 playbook_COPPOCK_ACCELERATING_W
     
+    # ▼▼▼【代码修改】: 更新周线剧本ID以匹配代码生成的大写全名，并补全缺失项 ▼▼▼
     # --- C. 基础背景/突破指令 (作为基础分) ---
     'BASE_SIGNAL_BREAKOUT_TRIGGER': '【周策-王牌】关键位突破', # 来自 ace_signal_breakout_trigger_playbook
-    'BASE_MA20_TURN_UP': '【周策】MA21拐头向上', # 来自 ma20_turn_up_event_playbook
+    'BASE_MA20_RISING_STATE': '【周策】MA21上升状态', # 来自 ma20_rising_state_playbook
+    'BASE_MA20_TURN_UP_EVENT': '【周策】MA21拐头向上', # 来自 ma20_turn_up_event_playbook
     'BASE_EARLY_UPTREND': '【周策】早期上升趋势', # 来自 early_uptrend_playbook
     'BASE_CLASSIC_BREAKOUT': '【周策】经典高点突破', # 来自 classic_breakout_playbook
     'BASE_MA_UPTREND': '【周策】均线多头排列', # 来自 ma_uptrend_playbook
-    'BASE_BOX_BREAKOUT': '【周策】专业箱体突破', # 来自 box_consolidation_breakout_playbook
+    'BASE_BOX_CONSOLIDATION_BREAKOUT': '【周策】专业箱体突破', # 来自 box_consolidation_breakout_playbook
+    'BASE_OVERSOLD_REBOUND_BIAS': '【周策】BIAS超跌反弹', # 来自 oversold_rebound_bias_playbook
     'BASE_TRIX_GOLDEN_CROSS': '【周策】TRIX金叉', # 来自 trix_golden_cross_playbook
     'BASE_STRATEGIC_ACCEL': '【周策-王牌】估波曲线加速', # 来自 EVENT_STRATEGIC_ACCELERATING_W 的加分项
+    # ▲▲▲【代码修改结束】▲▲▲
 
     # ==================================================================
     # ===              协同/冲突规则 (Bonus & Penalty)               ===
