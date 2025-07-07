@@ -51,9 +51,6 @@
         font-weight: bold;
         border: 1px solid #ffcdd2;
     }
-    /* ▼▼▼【代码修改】: 移除此处所有不正确的折叠相关CSS ▼▼▼ */
-    /* (已删除 .playbook-container .playbook-tag.hidden 和 .btn-show-more 的样式) */
-    /* ▲▲▲【代码修改】: 结束 ▲▲▲ */
 </style>
 {% endblock %}
 
@@ -66,8 +63,6 @@
                 <li><a href="{% url 'users:home' %}">主控台</a></li>
                 <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">策略监控中心</a></li>
                 <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
-                <!-- <li><a href="{% url 'dashboard:monthly_trend_following' %}">月线跟踪</a></li>
-                <li><a href="{% url 'dashboard:fav_monthly_trend_list' %}">自选-月线</a></li> -->
             </ul>
         </nav>
     </aside>
@@ -190,12 +185,6 @@
     </section>
 </div>
 
-{# ▼▼▼【代码修改】: 移除此处多余的、错误的script块 ▼▼▼ #}
-{# (已删除) #}
-{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
-{% endblock %}
-
-{# ▼▼▼【代码修改】: 保留这个唯一且正确的script块 ▼▼▼ #}
 {% block scripts_extra %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -209,20 +198,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!toggleBtn) {
                 return; // 如果不是，则什么都不做
             }
-
             // 阻止<a>标签的默认跳转行为
             event.preventDefault(); 
-            
             // 找到与按钮相关的剧本容器和列表
             const container = toggleBtn.closest('.playbook-container');
             if (!container) return;
-            
             const list = container.querySelector('.playbook-list');
             if (!list) return;
-
             // 切换 'expanded' 类来实现展开和收起
             list.classList.toggle('expanded');
-
             // 根据当前是否展开来更新按钮的文本
             const isExpanded = list.classList.contains('expanded');
             if (isExpanded) {
@@ -237,4 +221,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock scripts_extra %}
-{# ▲▲▲【代码修改】: 结束 ▲▲▲ #}
+

@@ -245,12 +245,11 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.4 修正最新动态时间】
-    - 核心修正: 重构聚合逻辑，确保 'latest_state' 总是通过遍历所有记录来确定，而不是依赖初始排序。
-    - 数据结构: 保持不变，继续支持分级止盈展示。
-    - 前后端同步: 此版本与 fav_trend_following_list.html (V3.3) 完全匹配。
+    【V3.5 修正排序逻辑】
+    - 核心修正: 重构列表排序逻辑，确保在每个优先级内部，都按最新时间倒序排列。
+    - 排序规则: 1. 按优先级 (警报 > 持仓 > 等待)； 2. 在同一优先级内，按最新动态时间从新到旧。
     """
-    print("--- [View] 开始渲染自选股持仓监控页面 (fav_trend_following_list) ---") # 调试信息
+    print("--- [View] 开始渲染自选股持仓监控页面 (fav_trend_following_list) ---")
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
@@ -263,13 +262,10 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    # 1. 获取所有自选股相关的【所有策略状态日志】
-    # 排序依然保留，有助于提高找到最新买/卖点的效率，但我们的新逻辑不再强制依赖它
     state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-trade_time')
 
-    # 2. 使用字典按股票聚合状态
     stock_summary = {}
     for state in state_list_qs:
         stock_code = state.stock.stock_code
@@ -278,39 +274,30 @@ def fav_trend_following_list(request):
                 'stock': state.stock,
                 'buy_state': None,
                 'sell_state': None,
-                'latest_state': None, # 初始化为 None，强制每次都检查
+                'latest_state': None,
                 'playbooks': set()
             }
         
         summary = stock_summary[stock_code]
         
-        # 更新最新的买入状态 (entry_signal 为 True)
         if state.entry_signal and (not summary['buy_state'] or state.trade_time > summary['buy_state'].trade_time):
             summary['buy_state'] = state
         
-        # 更新最新的卖出状态 (exit_signal_code > 0)
         if state.exit_signal_code > 0 and (not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time):
             summary['sell_state'] = state
             
-        # ▼▼▼【代码修改】: 修正寻找最新状态的逻辑 ▼▼▼
-        # 之前的逻辑依赖于首次遇到的记录就是最新的，不够健壮。
-        # 新逻辑对每一条记录都进行比较，确保找到真正的最新状态，与寻找buy/sell state的逻辑保持一致。
         if not summary['latest_state'] or state.trade_time > summary['latest_state'].trade_time:
-            # print(f"调试: 股票 {stock_code} 的最新时间从 {summary['latest_state'].trade_time if summary['latest_state'] else 'None'} 更新为 {state.trade_time}") # 调试信息
             summary['latest_state'] = state
-        # ▲▲▲【代码修改结束】▲▲▲
 
         if state.triggered_playbooks:
             summary['playbooks'].update(state.triggered_playbooks)
 
-    # 3. 基于聚合后的摘要信息，构建最终的、结构化的列表
     processed_list = []
     for stock_code, summary in stock_summary.items():
         buy_state = summary['buy_state']
         sell_state = summary['sell_state']
         latest_state = summary['latest_state']
 
-        # 如果一个股票没有任何日志记录（理论上不应发生但做个保护），则跳过
         if not latest_state:
             continue
 
@@ -318,12 +305,12 @@ def fav_trend_following_list(request):
             'stock': summary['stock'],
             'buy_info': None,
             'sell_info': None,
-            'latest_trade_time': latest_state.trade_time, # 现在这里的时间戳绝对是正确的
+            'latest_trade_time': latest_state.trade_time,
             'latest_score': latest_state.entry_score,
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
-            'sort_priority': 3
+            'sort_priority': 3, # 值越小，优先级越高
         }
 
         if buy_state:
@@ -360,8 +347,25 @@ def fav_trend_following_list(request):
         
         processed_list.append(item)
 
-    # 4. 排序和分页
-    processed_list.sort(key=lambda x: (x['sort_priority'], x['latest_trade_time'] is None, x['latest_trade_time']), reverse=False)
+    # ▼▼▼【代码修改】: 修正排序逻辑 ▼▼▼
+    # 定义一个极早的、带时区的时间，用于处理 None 值，确保它们排在最后
+    min_aware_datetime = timezone.make_aware(datetime.min, timezone.utc)
+    
+    # 核心排序逻辑：
+    # 1. 按 'sort_priority' 升序排 (1, 2, 3)，使得警报在最前。
+    # 2. 在同一优先级内，按 'latest_trade_time' 降序排 (从新到旧)。
+    processed_list.sort(
+        key=lambda x: (x['sort_priority'], x['latest_trade_time'] or min_aware_datetime),
+        reverse=False # 优先级升序
+    )
+    # 由于Python的sort是稳定的，我们可以先按次要标准（时间）排序，再按主要标准（优先级）排序
+    # 这里采用一个更Pythonic的方式，直接在一个lambda中完成
+    processed_list.sort(key=lambda x: (
+        x['sort_priority'], # 主要排序键：优先级升序
+        -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0) # 次要排序键：时间降序（通过取负的时间戳实现）
+    ))
+    print(f"调试: 排序后第一个元素的优先级: {processed_list[0]['sort_priority'] if processed_list else 'N/A'}, 时间: {processed_list[0]['latest_trade_time'] if processed_list else 'N/A'}")
+    # ▲▲▲【代码修改结束】▲▲▲
 
     paginator = Paginator(processed_list, 25)
     page_number = request.GET.get('page')
