@@ -151,48 +151,38 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V2.9 剧本排序】策略状态监控中心视图
-    - 核心修正: 对筛选区的剧本标签也应用 get_playbook_priority 进行排序。
+    【V3.0 筛选区排序】策略状态监控中心视图
+    - 核心修正: 对筛选区的剧本标签也应用 get_playbook_priority 进行排序，确保UI一致性。
     """
-    # 1. 定义持仓状态的查询条件
+    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V3.0 ---")
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
 
-    # 2. 获取URL中的筛选参数
     selected_playbooks = request.GET.getlist('playbooks')
 
-    # 3. 构建基础查询集
     base_queryset = TrendFollowStrategyState.objects.filter(held_status_query)
 
-    # 4. 动态应用筛选条件
     if selected_playbooks:
         for playbook in selected_playbooks:
             base_queryset = base_queryset.filter(active_playbooks__contains=playbook)
     
-    # 5. 获取所有可用的剧本标签
     all_playbook_lists = TrendFollowStrategyState.objects.filter(
         held_status_query
     ).values_list('active_playbooks', flat=True)
     
-    # ▼▼▼【代码修改】: 使用 get_playbook_priority 对筛选标签进行排序 ▼▼▼
-    # 原来的代码: unique_playbooks = sorted(list(set(chain.from_iterable(p for p in all_playbook_lists if p))))
-    # 解释:
-    # 1. chain.from_iterable(...) 将所有剧本列表合并成一个长列表。
-    # 2. set(...) 去除重复的剧本。
-    # 3. list(...) 转换回列表。
-    # 4. sorted(..., key=get_playbook_priority) 使用我们的优先级函数进行排序。
+    # ▼▼▼ 对【筛选区】的剧本标签列表 (unique_playbooks) 应用优先级排序 ▼▼▼
+    # 这一步是关键，它决定了页面顶部筛选标签的显示顺序。
+    # 我们使用 get_playbook_priority 函数作为排序的 key。
     unique_playbooks = sorted(
         list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
         key=get_playbook_priority
     )
+    print(f"--- [View] 筛选区剧本已排序: {unique_playbooks[:5]}...") # 调试信息：打印排序后的前5个剧本
     # ▲▲▲【代码修改结束】▲▲▲
 
-    # 6. 从数据库获取满足条件的原始数据
-    # 这里的排序仅为初步排序，真正的最值将在聚合步骤中确定
     all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code')
 
-    # 7. 聚合处理
     aggregated_results = OrderedDict()
     for state in all_held_states:
         stock_code = state.stock.stock_code
@@ -207,43 +197,33 @@ def trend_following_list(request):
                 'strategy_names': set(),
             }
         
-        # 原逻辑只更新分数，不更新时间，导致时间戳可能不正确。
-        # 新逻辑确保同时更新时间和分数，保证数据一致性。
-        
-        # 更新激活剧本和策略名 (逻辑不变)
         if state.active_playbooks:
             aggregated_results[stock_code]['active_playbooks'].extend(state.active_playbooks)
         aggregated_results[stock_code]['strategy_names'].add(state.strategy_name)
 
-        # 新增：显式比较并更新为真正的最新交易时间
         if state.latest_trade_time > aggregated_results[stock_code]['latest_trade_time']:
             aggregated_results[stock_code]['latest_trade_time'] = state.latest_trade_time
 
-        # 更新为最高分数 (逻辑不变，但现在与时间更新逻辑并列，更清晰)
         if state.latest_score > aggregated_results[stock_code]['latest_score']:
             aggregated_results[stock_code]['latest_score'] = state.latest_score
 
-    # 8. 后处理和排序
     final_list = list(aggregated_results.values())
     for item in final_list:
-        # 对剧本进行去重和排序 (此处的排序逻辑是正确的，无需修改)
+        # 对表格内的剧本进行去重和排序 (此逻辑保持不变)
         item['active_playbooks'] = sorted(list(set(item['active_playbooks'])), key=get_playbook_priority)
         item['strategy_names'] = sorted(list(item['strategy_names']))
     
-    # 使用正确的最新时间进行最终排序
     final_list.sort(key=lambda x: (x['latest_trade_time'], x['latest_score']), reverse=True)
     
-    # 9. 分页
     paginator = Paginator(final_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 10. 准备上下文并渲染模板
     context = {
         'page_title': '策略状态监控中心',
         'page_obj': page_obj,
         'total_count': len(final_list),
-        'all_playbooks': unique_playbooks,
+        'all_playbooks': unique_playbooks, # 将排好序的列表传递给模板
         'selected_playbooks': selected_playbooks,
     }
     return render(request, 'dashboard/trend_following_list.html', context)
