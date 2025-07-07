@@ -152,45 +152,38 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V2.7 增加剧本筛选】策略状态监控中心视图
-    ... (原有注释不变) ...
-    新增功能:
-    - 动态生成所有活跃剧本的列表，作为筛选标签。
-    - 根据URL中的 'playbooks' 参数对结果进行筛选（AND逻辑）。
+    【V2.8 修正最新时间】策略状态监控中心视图
+    - 核心修正: 聚合逻辑中增加对 latest_trade_time 的显式比较和更新，确保其与 latest_score 一样，总是反映最真实的情况。
+    - 功能保持: 剧本筛选功能不变。
     """
-    # 1. 定义持仓状态的查询条件 (不变)
+    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) ---") # 调试信息
+    # 1. 定义持仓状态的查询条件
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
     
-    # ▼▼▼【代码修改】: 增加筛选逻辑 ▼▼▼
     # 2. 获取URL中的筛选参数
     selected_playbooks = request.GET.getlist('playbooks')
 
     # 3. 构建基础查询集
     base_queryset = TrendFollowStrategyState.objects.filter(held_status_query)
 
-    # 4. 动态应用筛选条件 (AND 逻辑)
-    # 如果用户选择了筛选标签，则对查询集进行链式过滤
-    # active_playbooks__contains 会检查JSONField数组是否包含指定元素
+    # 4. 动态应用筛选条件
     if selected_playbooks:
         for playbook in selected_playbooks:
             base_queryset = base_queryset.filter(active_playbooks__contains=playbook)
     
-    # 5. 从筛选后的结果中，获取所有可用的剧本标签，用于前端展示
-    # a. 获取所有记录的 active_playbooks 字段
+    # 5. 获取所有可用的剧本标签
     all_playbook_lists = TrendFollowStrategyState.objects.filter(
         held_status_query
     ).values_list('active_playbooks', flat=True)
-    # b. 扁平化、去重、排序，得到一个干净的剧本列表
-    # 使用 chain.from_iterable 高效扁平化列表的列表
     unique_playbooks = sorted(list(set(chain.from_iterable(p for p in all_playbook_lists if p))))
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
 
-    # 6. 从数据库获取满足条件的原始数据 (现在基于 base_queryset)
-    all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
+    # 6. 从数据库获取满足条件的原始数据
+    # 这里的排序仅为初步排序，真正的最值将在聚合步骤中确定
+    all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code')
 
-    # 7. 聚合处理 (不变)
+    # 7. 聚合处理
     aggregated_results = OrderedDict()
     for state in all_held_states:
         stock_code = state.stock.stock_code
@@ -204,43 +197,60 @@ def trend_following_list(request):
                 'active_playbooks': [],
                 'strategy_names': set(),
             }
+        
+        # ▼▼▼【代码修改】: 修正寻找最新时间和最高分的逻辑 ▼▼▼
+        # 原逻辑只更新分数，不更新时间，导致时间戳可能不正确。
+        # 新逻辑确保同时更新时间和分数，保证数据一致性。
+        
+        # 更新激活剧本和策略名 (逻辑不变)
         if state.active_playbooks:
             aggregated_results[stock_code]['active_playbooks'].extend(state.active_playbooks)
         aggregated_results[stock_code]['strategy_names'].add(state.strategy_name)
+
+        # 新增：显式比较并更新为真正的最新交易时间
+        if state.latest_trade_time > aggregated_results[stock_code]['latest_trade_time']:
+            print(f"调试: 股票 {stock_code} 的最新时间从 {aggregated_results[stock_code]['latest_trade_time']} 更新为 {state.latest_trade_time}") # 调试信息
+            aggregated_results[stock_code]['latest_trade_time'] = state.latest_trade_time
+
+        # 更新为最高分数 (逻辑不变，但现在与时间更新逻辑并列，更清晰)
         if state.latest_score > aggregated_results[stock_code]['latest_score']:
             aggregated_results[stock_code]['latest_score'] = state.latest_score
+        # ▲▲▲【代码修改结束】▲▲▲
 
-    # 8. 后处理和排序 (不变)
+    # 8. 后处理和排序
     final_list = list(aggregated_results.values())
     for item in final_list:
+        # 对剧本进行去重和排序
+        item['active_playbooks'] = sorted(list(set(item['active_playbooks'])), key=get_playbook_priority)
         item['strategy_names'] = sorted(list(item['strategy_names']))
+    
+    # 使用正确的最新时间进行最终排序
     final_list.sort(key=lambda x: (x['latest_trade_time'], x['latest_score']), reverse=True)
     
-    # 9. 分页 (不变)
+    # 9. 分页
     paginator = Paginator(final_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # ▼▼▼【代码修改】: 更新上下文 ▼▼▼
     # 10. 准备上下文并渲染模板
     context = {
         'page_title': '策略状态监控中心',
         'page_obj': page_obj,
         'total_count': len(final_list),
-        'all_playbooks': unique_playbooks,      # 新增：所有可筛选的剧本
-        'selected_playbooks': selected_playbooks, # 新增：当前已选择的剧本
+        'all_playbooks': unique_playbooks,
+        'selected_playbooks': selected_playbooks,
     }
-    # ▲▲▲【代码修改】: 结束 ▲▲▲
     return render(request, 'dashboard/trend_following_list.html', context)
 
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.3 分级止盈展示版】
-    - 核心升级: 视图逻辑现在可以解析信号日志中的 `exit_severity_level` 和 `exit_signal_reason`。
-    - 数据结构: 传递给模板的 `item` 字典中，`sell_info` 包含了分级信息，并根据等级动态生成 `swing_status` 和 `status_class`。
-    - 前后端同步: 此版本与 fav_trend_following_list.html (V3.3) 完全匹配，能够渲染出分级的止盈提示。
+    【V3.4 修正最新动态时间】
+    - 核心修正: 重构聚合逻辑，确保 'latest_state' 总是通过遍历所有记录来确定，而不是依赖初始排序。
+    - 数据结构: 保持不变，继续支持分级止盈展示。
+    - 前后端同步: 此版本与 fav_trend_following_list.html (V3.3) 完全匹配。
     """
+    print("--- [View] 开始渲染自选股持仓监控页面 (fav_trend_following_list) ---") # 调试信息
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
@@ -253,13 +263,13 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    # 2. 获取所有自选股相关的【所有策略状态日志】
-    # 注意：我们现在直接查询原始的 SignalLog，因为它包含最全的信息
+    # 1. 获取所有自选股相关的【所有策略状态日志】
+    # 排序依然保留，有助于提高找到最新买/卖点的效率，但我们的新逻辑不再强制依赖它
     state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-trade_time')
 
-    # 3. 使用字典按股票聚合状态，保留完整的状态对象
+    # 2. 使用字典按股票聚合状态
     stock_summary = {}
     for state in state_list_qs:
         stock_code = state.stock.stock_code
@@ -268,7 +278,7 @@ def fav_trend_following_list(request):
                 'stock': state.stock,
                 'buy_state': None,
                 'sell_state': None,
-                'latest_state': state,
+                'latest_state': None, # 初始化为 None，强制每次都检查
                 'playbooks': set()
             }
         
@@ -282,25 +292,33 @@ def fav_trend_following_list(request):
         if state.exit_signal_code > 0 and (not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time):
             summary['sell_state'] = state
             
-        if state.trade_time > summary['latest_state'].trade_time:
+        # ▼▼▼【代码修改】: 修正寻找最新状态的逻辑 ▼▼▼
+        # 之前的逻辑依赖于首次遇到的记录就是最新的，不够健壮。
+        # 新逻辑对每一条记录都进行比较，确保找到真正的最新状态，与寻找buy/sell state的逻辑保持一致。
+        if not summary['latest_state'] or state.trade_time > summary['latest_state'].trade_time:
+            print(f"调试: 股票 {stock_code} 的最新时间从 {summary['latest_state'].trade_time if summary['latest_state'] else 'None'} 更新为 {state.trade_time}") # 调试信息
             summary['latest_state'] = state
+        # ▲▲▲【代码修改结束】▲▲▲
 
         if state.triggered_playbooks:
             summary['playbooks'].update(state.triggered_playbooks)
 
-    # ▼▼▼ 核心修改部分，构建包含分级信息的最终列表 ▼▼▼
-    # 4. 基于聚合后的摘要信息，构建最终的、结构化的列表
+    # 3. 基于聚合后的摘要信息，构建最终的、结构化的列表
     processed_list = []
-    for summary in stock_summary.values():
+    for stock_code, summary in stock_summary.items():
         buy_state = summary['buy_state']
         sell_state = summary['sell_state']
         latest_state = summary['latest_state']
+
+        # 如果一个股票没有任何日志记录（理论上不应发生但做个保护），则跳过
+        if not latest_state:
+            continue
 
         item = {
             'stock': summary['stock'],
             'buy_info': None,
             'sell_info': None,
-            'latest_trade_time': latest_state.trade_time,
+            'latest_trade_time': latest_state.trade_time, # 现在这里的时间戳绝对是正确的
             'latest_score': latest_state.entry_score,
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
             'swing_status': '等待建仓',
@@ -319,7 +337,6 @@ def fav_trend_following_list(request):
             item['sort_priority'] = 2
 
             if sell_state and sell_state.trade_time > buy_state.trade_time:
-                # 填充卖出信号的详细信息，包括分级数据
                 item['sell_info'] = {
                     'time': sell_state.trade_time,
                     'strategy_name': sell_state.strategy_name,
@@ -328,22 +345,22 @@ def fav_trend_following_list(request):
                     'reason': sell_state.exit_signal_reason
                 }
                 
-                # 根据严重等级，动态设置状态文本和CSS类
                 level = sell_state.exit_severity_level
                 if level == 1:
                     item['swing_status'] = '一级预警'
-                    item['status_class'] = 'status-alert-level-1' # 黄色
+                    item['status_class'] = 'status-alert-level-1'
                 elif level == 3:
                     item['swing_status'] = '三级警报'
-                    item['status_class'] = 'status-alert-level-3' # 红色
-                else: # 默认 level 2 或其他
+                    item['status_class'] = 'status-alert-level-3'
+                else:
                     item['swing_status'] = '二级警报'
-                    item['status_class'] = 'status-alert-level-2' # 橙色
+                    item['status_class'] = 'status-alert-level-2'
                 
                 item['sort_priority'] = 1
         
         processed_list.append(item)
 
+    # 4. 排序和分页
     processed_list.sort(key=lambda x: (x['sort_priority'], x['latest_trade_time'] is None, x['latest_trade_time']), reverse=False)
 
     paginator = Paginator(processed_list, 25)
@@ -356,7 +373,6 @@ def fav_trend_following_list(request):
         'total_count': len(processed_list),
     }
     return render(request, 'dashboard/fav_trend_following_list.html', context)
-
 
 # --- DRF API 视图 ---
 
