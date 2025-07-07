@@ -162,10 +162,10 @@ class WeeklyTrendFollowStrategy:
     
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.4 架构升级】动态遍历JSON配置，并支持一个剧本函数输出多个信号列。
+        【V3.5 命名规范化版】动态遍历JSON配置，并确保输出的剧本名称为大写，与日线策略对齐。
         """
         print("\n" + "="*80)
-        print(f"---【周线战略层(V3.4 多信号输出) - 检查最新一周: {df.index[-1].date()}】---")
+        print(f"---【周线战略层(V3.5 命名规范化) - 检查最新一周: {df.index[-1].date()}】---")
         print("="*80)
         
         context_df = df.copy()
@@ -181,7 +181,7 @@ class WeeklyTrendFollowStrategy:
             'washout_score_playbook': self._playbook_calculate_washout_score,
             'rejection_filter_playbook': self._playbook_check_rejection_filters,
             'trix_golden_cross_playbook': self._playbook_trix_golden_cross,
-            'coppock_reversal_playbook': self._playbook_coppock_reversal, # 修改点：函数名统一
+            'coppock_reversal_playbook': self._playbook_coppock_reversal,
             'ace_signal_breakout_trigger_playbook': self._playbook_ace_signal_breakout_trigger,
         }
 
@@ -190,38 +190,39 @@ class WeeklyTrendFollowStrategy:
 
             if playbook_name in playbook_map:
                 if params.get('enabled', False):
-                    # 一个函数可能返回一个Series，也可能返回一个dict of Series
                     results = playbook_map[playbook_name](df, params)
                     
                     if isinstance(results, dict):
-                        # 如果返回字典，则遍历字典中的每个信号
                         for signal_suffix, result_series in results.items():
-                            context_df[f"playbook_{signal_suffix}_W"] = result_series
+                            # ▼▼▼【代码修改】: 规范化多信号输出的剧本名称 ▼▼▼
+                            # 将 'coppock_stabilizing' 转换为 'PLAYBOOK_COPPOCK_STABILIZING_W'
+                            col_name = f"playbook_{signal_suffix.upper()}_W"
+                            context_df[col_name] = result_series
+                            print(f"    - [多信号输出模式] 已生成规范化列: '{col_name}'")
                     elif isinstance(results, pd.Series):
-                        # 兼容旧的返回单个Series的函数
+                        # ▼▼▼【代码修改】: 规范化单信号输出的剧本名称 ▼▼▼
                         if 'score' in playbook_name:
                             col_name = 'washout_score_W'
                         elif 'filter' in playbook_name:
                             col_name = 'rejection_signal_W'
                         else:
-                            col_name = f"playbook_{playbook_name.replace('_playbook', '')}_W"
+                            # 将 'ma20_turn_up_event_playbook' 转换为 'PLAYBOOK_MA20_TURN_UP_EVENT_W'
+                            base_name = playbook_name.replace('_playbook', '').upper()
+                            col_name = f"playbook_{base_name}_W"
                         
-                        # ▼▼▼【代码修改】: 修复变量名错误 ▼▼▼
-                        # 将错误的 `result_series` 修正为正确的 `results`
-                        print(f"    - [单信号输出模式] 正在为 '{col_name}' 赋值...")
+                        print(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...")
                         context_df[col_name] = results
-                        # ▲▲▲【代码修改结束】▲▲▲
                 else:
                     print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
                     print("    - 结论: [未启用]")
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
 
-        print("\n---【周线战略层(V3.4) - 剧本计算总结】---")
+        print("\n---【周线战略层(V3.5) - 剧本计算总结】---")
         for col in context_df.columns:
             if col.startswith('playbook_'):
-                label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
-                print(f"【剧本-{label}】触发周数: {context_df[col].sum()}")
+                # label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
+                print(f"【剧本-{col}】触发周数: {context_df[col].sum()}")
         if 'washout_score_W' in context_df.columns:
             score = context_df['washout_score_W']
             print(f"【诊断-洗盘】有分数的周数: {(score > 0).sum()} (最高分: {score.max()})")
