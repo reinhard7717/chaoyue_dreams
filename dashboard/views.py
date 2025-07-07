@@ -1,8 +1,6 @@
 # dashboard/views.py
 import asyncio
 import json
-from datetime import datetime
-from django.utils import timezone
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Q
 from collections import OrderedDict # 导入 OrderedDict
@@ -246,11 +244,11 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.5 修正排序逻辑】
-    - 核心修正: 重构列表排序逻辑，确保在每个优先级内部，都按最新时间倒序排列。
+    【V3.6 修复排序错误】
+    - 核心修正: 移除了导致 AttributeError 的错误代码，并使用更简洁、正确的单行排序逻辑。
     - 排序规则: 1. 按优先级 (警报 > 持仓 > 等待)； 2. 在同一优先级内，按最新动态时间从新到旧。
     """
-    print("--- [View] 开始渲染自选股持仓监控页面 (fav_trend_following_list) ---")
+    print("--- [View] 开始渲染自选股持仓监控页面 (fav_trend_following_list) V3.6 ---") # 调试信息
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
@@ -263,6 +261,7 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
+    # 数据获取和聚合逻辑保持不变
     state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-trade_time')
@@ -293,6 +292,7 @@ def fav_trend_following_list(request):
         if state.triggered_playbooks:
             summary['playbooks'].update(state.triggered_playbooks)
 
+    # 构建列表的逻辑保持不变
     processed_list = []
     for stock_code, summary in stock_summary.items():
         buy_state = summary['buy_state']
@@ -311,7 +311,7 @@ def fav_trend_following_list(request):
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
-            'sort_priority': 3, # 值越小，优先级越高
+            'sort_priority': 3,
         }
 
         if buy_state:
@@ -348,22 +348,12 @@ def fav_trend_following_list(request):
         
         processed_list.append(item)
 
-    # ▼▼▼【代码修改】: 修正排序逻辑 ▼▼▼
-    # 定义一个极早的、带时区的时间，用于处理 None 值，确保它们排在最后
-    min_aware_datetime = timezone.make_aware(datetime.min, timezone.utc)
-    
-    # 核心排序逻辑：
-    # 1. 按 'sort_priority' 升序排 (1, 2, 3)，使得警报在最前。
-    # 2. 在同一优先级内，按 'latest_trade_time' 降序排 (从新到旧)。
-    processed_list.sort(
-        key=lambda x: (x['sort_priority'], x['latest_trade_time'] or min_aware_datetime),
-        reverse=False # 优先级升序
-    )
-    # 由于Python的sort是稳定的，我们可以先按次要标准（时间）排序，再按主要标准（优先级）排序
-    # 这里采用一个更Pythonic的方式，直接在一个lambda中完成
+    # ▼▼▼【代码修改】: 使用最终正确的单行排序逻辑 ▼▼▼
+    # 移除了之前导致错误的 min_aware_datetime 相关代码。
+    # 这个 lambda 函数能正确处理所有情况，包括 latest_trade_time 为 None 的情况。
     processed_list.sort(key=lambda x: (
-        x['sort_priority'], # 主要排序键：优先级升序
-        -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0) # 次要排序键：时间降序（通过取负的时间戳实现）
+        x['sort_priority'], # 主要排序键：按优先级升序 (1, 2, 3)
+        -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0) # 次要排序键：按时间降序 (通过取负数实现)
     ))
     print(f"调试: 排序后第一个元素的优先级: {processed_list[0]['sort_priority'] if processed_list else 'N/A'}, 时间: {processed_list[0]['latest_trade_time'] if processed_list else 'N/A'}")
     # ▲▲▲【代码修改结束】▲▲▲
@@ -378,6 +368,7 @@ def fav_trend_following_list(request):
         'total_count': len(processed_list),
     }
     return render(request, 'dashboard/fav_trend_following_list.html', context)
+
 
 # --- DRF API 视图 ---
 
