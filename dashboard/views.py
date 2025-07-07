@@ -236,14 +236,13 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.2 页面适配增强版】
-    - 核心升级: 彻底重构数据聚合逻辑，以传递给模板一个包含完整信息的、结构化的字典列表。
-    - 数据结构: 每个列表项现在是一个字典，清晰地包含 stock对象、buy_info、sell_info、active_playbooks等，解决了信息丢失问题。
-    - 前后端同步: 此版本与 fav_trend_following_list.html (V3.2) 完全匹配，确保所有字段都能正确显示。
+    【V3.3 分级止盈展示版】
+    - 核心升级: 视图逻辑现在可以解析信号日志中的 `exit_severity_level` 和 `exit_signal_reason`。
+    - 数据结构: 传递给模板的 `item` 字典中，`sell_info` 包含了分级信息，并根据等级动态生成 `swing_status` 和 `status_class`。
+    - 前后端同步: 此版本与 fav_trend_following_list.html (V3.3) 完全匹配，能够渲染出分级的止盈提示。
     """
     user_dao = UserDAO()
     
-    # 1. 获取用户自选股代码列表
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     
@@ -254,12 +253,12 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    # 2. 获取所有自选股相关的【所有策略状态】
-    state_list_qs = TrendFollowStrategyState.objects.filter(
+    # 2. 获取所有自选股相关的【所有策略状态日志】
+    # 注意：我们现在直接查询原始的 SignalLog，因为它包含最全的信息
+    state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
-    ).select_related('stock').order_by('stock__stock_code', '-latest_trade_time')
+    ).select_related('stock').order_by('stock__stock_code', '-trade_time')
 
-    # ▼▼▼【代码修改】: 核心修改部分，聚合时保留详细信息 ▼▼▼
     # 3. 使用字典按股票聚合状态，保留完整的状态对象
     stock_summary = {}
     for state in state_list_qs:
@@ -269,28 +268,27 @@ def fav_trend_following_list(request):
                 'stock': state.stock,
                 'buy_state': None,
                 'sell_state': None,
-                'latest_state': state, # 默认最新的就是第一个
+                'latest_state': state,
                 'playbooks': set()
             }
         
         summary = stock_summary[stock_code]
         
-        # 更新最新的买入状态
-        if state.last_buy_time and (not summary['buy_state'] or state.last_buy_time > summary['buy_state'].last_buy_time):
+        # 更新最新的买入状态 (entry_signal 为 True)
+        if state.entry_signal and (not summary['buy_state'] or state.trade_time > summary['buy_state'].trade_time):
             summary['buy_state'] = state
         
-        # 更新最新的卖出状态
-        if state.last_sell_time and (not summary['sell_state'] or state.last_sell_time > summary['sell_state'].last_sell_time):
+        # 更新最新的卖出状态 (exit_signal_code > 0)
+        if state.exit_signal_code > 0 and (not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time):
             summary['sell_state'] = state
             
-        # 更新最新的状态（用于获取分数）
-        if state.latest_trade_time > summary['latest_state'].latest_trade_time:
+        if state.trade_time > summary['latest_state'].trade_time:
             summary['latest_state'] = state
 
-        # 合并所有剧本
-        if state.active_playbooks:
-            summary['playbooks'].update(state.active_playbooks)
+        if state.triggered_playbooks:
+            summary['playbooks'].update(state.triggered_playbooks)
 
+    # ▼▼▼【代码修改】: 核心修改部分，构建包含分级信息的最终列表 ▼▼▼
     # 4. 基于聚合后的摘要信息，构建最终的、结构化的列表
     processed_list = []
     for summary in stock_summary.values():
@@ -302,9 +300,9 @@ def fav_trend_following_list(request):
             'stock': summary['stock'],
             'buy_info': None,
             'sell_info': None,
-            'latest_trade_time': latest_state.latest_trade_time,
-            'latest_score': latest_state.latest_score,
-            'active_playbooks': sorted(list(summary['playbooks'])),
+            'latest_trade_time': latest_state.trade_time,
+            'latest_score': latest_state.entry_score,
+            'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
             'sort_priority': 3
@@ -312,33 +310,43 @@ def fav_trend_following_list(request):
 
         if buy_state:
             item['buy_info'] = {
-                'time': buy_state.last_buy_time,
+                'time': buy_state.trade_time,
                 'strategy_name': buy_state.strategy_name,
-                'time_level': buy_state.time_level
+                'time_level': buy_state.timeframe
             }
-            # 默认是持仓中
             item['swing_status'] = '持仓观察'
             item['status_class'] = 'status-holding'
             item['sort_priority'] = 2
 
-            if sell_state and sell_state.last_sell_time > buy_state.last_buy_time:
+            if sell_state and sell_state.trade_time > buy_state.trade_time:
+                # 填充卖出信号的详细信息，包括分级数据
                 item['sell_info'] = {
-                    'time': sell_state.last_sell_time,
+                    'time': sell_state.trade_time,
                     'strategy_name': sell_state.strategy_name,
-                    'time_level': sell_state.time_level
+                    'time_level': sell_state.timeframe,
+                    'severity_level': sell_state.exit_severity_level,
+                    'reason': sell_state.exit_signal_reason
                 }
-                # 出现更新的卖出信号，变为预警
-                item['swing_status'] = '止盈预警'
-                item['status_class'] = 'status-alert'
+                
+                # 根据严重等级，动态设置状态文本和CSS类
+                level = sell_state.exit_severity_level
+                if level == 1:
+                    item['swing_status'] = '一级预警'
+                    item['status_class'] = 'status-alert-level-1' # 黄色
+                elif level == 3:
+                    item['swing_status'] = '三级警报'
+                    item['status_class'] = 'status-alert-level-3' # 红色
+                else: # 默认 level 2 或其他
+                    item['swing_status'] = '二级警报'
+                    item['status_class'] = 'status-alert-level-2' # 橙色
+                
                 item['sort_priority'] = 1
         
         processed_list.append(item)
     # ▲▲▲【代码修改】: 结束 ▲▲▲
 
-    # 5. 根据我们计算的优先级和时间进行排序
     processed_list.sort(key=lambda x: (x['sort_priority'], x['latest_trade_time'] is None, x['latest_trade_time']), reverse=False)
 
-    # 6. 分页处理
     paginator = Paginator(processed_list, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)

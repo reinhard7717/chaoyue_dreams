@@ -88,12 +88,19 @@ PLAYBOOK_NAME_MAP = {
     'EXPERT_PLAYBOOK_VOL_PRICE_DIVERGENCE': '【专家】量价背离抄底',
     'EXPERT_PLAYBOOK_LOW_VOL_BREAKOUT': '【专家】缩量蓄势突破',
 
-    # === 止盈信号  ===
+    # --- 止盈信号 (兼容旧版和新版) ---
+    'INTRADAY_TAKE_PROFIT': '盘中止盈预警',
+    # 一级预警 (黄色)
+    '30分钟趋势加速度转负': '【一级预警】趋势减速',
+    # 二级警报 (橙色)
+    '15分钟MACD死叉且30分钟趋势不健康': '【二级警报】短期转弱',
+    # 三级警报 (红色)
+    '价格跌破日线关键支撑(EMA_55_D)': '【三级警报】跌破日线支撑',
+    # 旧版兼容
     'EXIT_CODE_101': '15分钟MACD死叉',
     'EXIT_CODE_102': '15分钟RSI顶背离',
     'EXIT_CODE_103': '15分钟KDJ在高位死叉',
     'EXIT_CODE_104':'【加速度预警】趋势减速',
-    'INTRADAY_TAKE_PROFIT': '盘中止盈预警'
 }
 
 # 合并所有映射，方便过滤器调用
