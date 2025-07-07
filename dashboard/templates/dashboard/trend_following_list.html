@@ -36,19 +36,37 @@
                 {% endif %}
             </div>
             <div class="filter-tags-container">
+                {# ▼▼▼【代码修改】: 在筛选区循环中加入特殊样式的判断逻辑 ▼▼▼ #}
                 {% for playbook in all_playbooks %}
-                    {% if playbook in selected_playbooks %}
-                        <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">
-                            {{ playbook|playbook_display }} <span class="remove-icon">&times;</span>
-                        </a>
-                    {% else %}
-                        <a href="{% query_builder add_playbook=playbook %}" class="filter-tag">
-                            {{ playbook|playbook_display }}
-                        </a>
-                    {% endif %}
+                    {% with playbook_display_name=playbook|playbook_display %}
+                        {% if playbook in selected_playbooks %}
+                            {# --- 已选中的筛选标签 --- #}
+                            {% if 'ROCKET' in playbook %}
+                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active rocket-signal">🚀 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            {% elif '王牌' in playbook_display_name %}
+                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active king-signal">👑 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            {% elif '专家' in playbook_display_name %}
+                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active expert-signal">🎓 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            {% else %}
+                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            {% endif %}
+                        {% else %}
+                            {# --- 未选中的筛选标签 --- #}
+                            {% if 'ROCKET' in playbook %}
+                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag rocket-signal">🚀 {{ playbook_display_name }}</a>
+                            {% elif '王牌' in playbook_display_name %}
+                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag king-signal">👑 {{ playbook_display_name }}</a>
+                            {% elif '专家' in playbook_display_name %}
+                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag expert-signal">🎓 {{ playbook_display_name }}</a>
+                            {% else %}
+                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag">{{ playbook_display_name }}</a>
+                            {% endif %}
+                        {% endif %}
+                    {% endwith %}
                 {% empty %}
                     <span class="no-filters">暂无可用的筛选标签</span>
                 {% endfor %}
+                {# ▲▲▲【代码修改结束】▲▲▲ #}
             </div>
         </div>
         <div class="table-wrapper">
@@ -86,7 +104,6 @@
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
                                     <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
-                                    {# ▼▼▼【代码修改】: 将此处的判断逻辑与 fav_trend_following_list.html 完全同步 ▼▼▼ #}
                                     {% for playbook in item.active_playbooks %}
                                         {% with playbook_display_name=playbook|playbook_display %}
                                             {% if 'ROCKET' in playbook %}
@@ -100,7 +117,6 @@
                                             {% endif %}
                                         {% endwith %}
                                     {% endfor %}
-                                    {# ▲▲▲【代码修改结束】▲▲▲ #}
                                     </ul>
                                     {% if item.active_playbooks|length > 3 %}
                                         <a href="#" class="toggle-playbooks" 

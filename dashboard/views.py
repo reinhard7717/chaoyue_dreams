@@ -151,11 +151,9 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V2.8 修正最新时间】策略状态监控中心视图
-    - 核心修正: 聚合逻辑中增加对 latest_trade_time 的显式比较和更新，确保其与 latest_score 一样，总是反映最真实的情况。
-    - 功能保持: 剧本筛选功能不变。
+    【V2.9 剧本排序】策略状态监控中心视图
+    - 核心修正: 对筛选区的剧本标签也应用 get_playbook_priority 进行排序。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) ---") # 调试信息
     # 1. 定义持仓状态的查询条件
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
@@ -176,7 +174,19 @@ def trend_following_list(request):
     all_playbook_lists = TrendFollowStrategyState.objects.filter(
         held_status_query
     ).values_list('active_playbooks', flat=True)
-    unique_playbooks = sorted(list(set(chain.from_iterable(p for p in all_playbook_lists if p))))
+    
+    # ▼▼▼【代码修改】: 使用 get_playbook_priority 对筛选标签进行排序 ▼▼▼
+    # 原来的代码: unique_playbooks = sorted(list(set(chain.from_iterable(p for p in all_playbook_lists if p))))
+    # 解释:
+    # 1. chain.from_iterable(...) 将所有剧本列表合并成一个长列表。
+    # 2. set(...) 去除重复的剧本。
+    # 3. list(...) 转换回列表。
+    # 4. sorted(..., key=get_playbook_priority) 使用我们的优先级函数进行排序。
+    unique_playbooks = sorted(
+        list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
+        key=get_playbook_priority
+    )
+    # ▲▲▲【代码修改结束】▲▲▲
 
     # 6. 从数据库获取满足条件的原始数据
     # 这里的排序仅为初步排序，真正的最值将在聚合步骤中确定
@@ -207,7 +217,6 @@ def trend_following_list(request):
 
         # 新增：显式比较并更新为真正的最新交易时间
         if state.latest_trade_time > aggregated_results[stock_code]['latest_trade_time']:
-            # print(f"调试: 股票 {stock_code} 的最新时间从 {aggregated_results[stock_code]['latest_trade_time']} 更新为 {state.latest_trade_time}") # 调试信息
             aggregated_results[stock_code]['latest_trade_time'] = state.latest_trade_time
 
         # 更新为最高分数 (逻辑不变，但现在与时间更新逻辑并列，更清晰)
@@ -217,7 +226,7 @@ def trend_following_list(request):
     # 8. 后处理和排序
     final_list = list(aggregated_results.values())
     for item in final_list:
-        # 对剧本进行去重和排序
+        # 对剧本进行去重和排序 (此处的排序逻辑是正确的，无需修改)
         item['active_playbooks'] = sorted(list(set(item['active_playbooks'])), key=get_playbook_priority)
         item['strategy_names'] = sorted(list(item['strategy_names']))
     
@@ -246,7 +255,6 @@ def fav_trend_following_list(request):
     - 核心修正: 移除了导致 AttributeError 的错误代码，并使用更简洁、正确的单行排序逻辑。
     - 排序规则: 1. 按优先级 (警报 > 持仓 > 等待)； 2. 在同一优先级内，按最新动态时间从新到旧。
     """
-    print("--- [View] 开始渲染自选股持仓监控页面 (fav_trend_following_list) V3.6 ---") # 调试信息
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
@@ -306,6 +314,7 @@ def fav_trend_following_list(request):
             'sell_info': None,
             'latest_trade_time': latest_state.trade_time,
             'latest_score': latest_state.entry_score,
+            # 此处的排序逻辑是正确的，无需修改
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
@@ -352,7 +361,6 @@ def fav_trend_following_list(request):
         x['sort_priority'], # 主要排序键：按优先级升序 (1, 2, 3)
         -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0) # 次要排序键：按时间降序 (通过取负数实现)
     ))
-    print(f"调试: 排序后第一个元素的优先级: {processed_list[0]['sort_priority'] if processed_list else 'N/A'}, 时间: {processed_list[0]['latest_trade_time'] if processed_list else 'N/A'}")
 
     paginator = Paginator(processed_list, 25)
     page_number = request.GET.get('page')
@@ -364,7 +372,6 @@ def fav_trend_following_list(request):
         'total_count': len(processed_list),
     }
     return render(request, 'dashboard/fav_trend_following_list.html', context)
-
 
 # --- DRF API 视图 ---
 
