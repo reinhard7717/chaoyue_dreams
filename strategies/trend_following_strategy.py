@@ -1558,7 +1558,8 @@ class TrendFollowStrategy:
         print("      -> 正在计算'资金力量'信号...")
         mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index))
         institutional_buying_threshold = self._get_param_value(trigger_params.get('institutional_buying_ratio'), 0.05)
-        is_institutional_buying = mf_ratio > institutional_buying_threshold
+        is_institutional_buying = df.get('net_mf_amount_D', pd.Series(0, index=df.index)) > 0
+        # print(f"      -> [瓶颈修复] '机构买入'条件已放宽为'主力净流入 > 0'。")
         elg_net_buy = df.get('buy_elg_amount_D', 0) - df.get('sell_elg_amount_D', 0)
         net_mf_amount = df.get('net_mf_amount_D', 0)
         vol_ma_period = self._get_param_value(trigger_params.get('vol_ma_period'), 21)
