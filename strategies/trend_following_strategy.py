@@ -794,20 +794,18 @@ class TrendFollowStrategy:
     # ▼▼▼ 动态健康度计分引擎 (Dynamic Health Scoring Engine) ▼▼▼
     def _score_trend_dynamics(self, df: pd.DataFrame, params: dict, validated_premises: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V40.0 健壮参数版】
-        - 核心升级: 使用 `_get_param_value` 辅助函数来解析 `health_score_threshold`。
-        - 效果: 代码更简洁，并能同时处理新旧两种配置格式。
+        【V40.1 终极健壮版】
+        - 核心修复: 对从 `entry_scoring_params.points` 中读取的所有分数值，全面应用 `_get_param_value` 解析器。
+        - 效果: 彻底解决了因计分参数采用 `{'value':...}` 结构而导致的 TypeError，使整个计分流程对配置格式完全免疫。
         """
-        print("    - [动力学评分 V40.0] 开始基于'趋势健康度'进行动态计分...")
+        print("    - [动力学评分 V40.1] 开始基于'趋势健康度'进行动态计分...")
         
         # --- 准备参数和数据 ---
         scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         points = scoring_params.get('points', {})
         
-        # ▼▼▼【代码修改 V40.0】: 使用新的辅助函数简化参数获取 ▼▼▼
         trend_params = self._get_params_block(params, 'mid_term_trend_params', {})
         health_score_threshold = self._get_param_value(trend_params.get('health_score_threshold'), 4)
-        # ▲▲▲【代码修改 V40.0】▲▲▲
 
         # 从前提验证结果中获取核心数据
         trend_health_score = validated_premises.get('trend_health_score', pd.Series(0, index=df.index))
@@ -817,7 +815,8 @@ class TrendFollowStrategy:
         dynamics_score = pd.Series(0, index=df.index, dtype=float)
         
         # --- 1. 等级化健康度奖励 (Graded Health Bonus) ---
-        points_per_level = points.get('POINTS_PER_HEALTH_LEVEL', 10)
+        points_per_level = self._get_param_value(points.get('POINTS_PER_HEALTH_LEVEL'), 10)
+        
         score_above_threshold = (trend_health_score - health_score_threshold).clip(lower=0)
         graded_bonus = score_above_threshold * points_per_level
         
@@ -827,7 +826,7 @@ class TrendFollowStrategy:
             print(f"      -> '等级化健康度'奖励已应用。最高奖励: {graded_bonus.max()}分。")
 
         # --- 2. 完美健康度王牌奖励 (Perfect Health Ace Bonus) ---
-        perfect_health_bonus = points.get('BONUS_PERFECT_HEALTH', 50)
+        perfect_health_bonus = self._get_param_value(points.get('BONUS_PERFECT_HEALTH'), 50)
         is_perfect_health = (trend_health_score == 6)
         
         if is_perfect_health.any():
@@ -835,8 +834,8 @@ class TrendFollowStrategy:
             print(f"      -> '完美健康度(6/6)'王牌奖励触发了 {is_perfect_health.sum()} 天，奖励 {perfect_health_bonus} 分。")
 
         # --- 3. 趋势加速奖励 (Trend Acceleration Bonus) ---
-        accel_bonus = points.get('BONUS_TREND_ACCELERATING', 25)
-        
+        accel_bonus = self._get_param_value(points.get('BONUS_TREND_ACCELERATING'), 25)
+
         if is_trend_accelerating.any():
             dynamics_score.loc[is_trend_accelerating] += accel_bonus
             print(f"      -> '趋势加速'奖励触发了 {is_trend_accelerating.sum()} 天，奖励 {accel_bonus} 分。")
