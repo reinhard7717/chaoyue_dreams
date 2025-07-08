@@ -91,6 +91,34 @@ class TrendFollowStrategy:
         
         return None
 
+    def _ensure_numeric_types(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V40.4 新增】数据类型标准化引擎
+        - 核心职责: 在所有计算开始前，将可能为 decimal.Decimal 的列强制转换为 float64。
+        - 解决问题: 根除因数据库Decimal类型与Python float类型运算不兼容而导致的TypeError。
+        """
+        print("    - [类型标准化引擎 V40.4] 启动，检查并转换数据类型...")
+        # 定义需要进行数值转换的列名的常见前缀或全名
+        numeric_patterns = [
+            'open', 'high', 'low', 'close', 'volume', 'amount',
+            'buy_', 'sell_', 'cost_', 'winner_rate', 'weight_avg'
+        ]
+        
+        converted_cols = []
+        for col in df.columns:
+            # 如果列的数据类型是 'object'，且列名符合我们的模式，则很可能是Decimal类型
+            if df[col].dtype == 'object' and any(col.startswith(p) for p in numeric_patterns):
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                converted_cols.append(col)
+
+        if converted_cols:
+            print(f"      -> 已将以下 'object' 类型列转换为数值类型: {converted_cols}")
+        else:
+            print("      -> 所有数值列类型正常，无需转换。")
+        
+        print("    - [类型标准化引擎 V40.4] 类型检查完成。")
+        return df
+
     def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
         【V40.2 终极健壮版】
@@ -101,6 +129,8 @@ class TrendFollowStrategy:
         df = df_dict.get('D')
         if df is None or df.empty:
             return pd.DataFrame(), {}
+        
+        df = self._ensure_numeric_types(df)
 
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
 
@@ -936,7 +966,6 @@ class TrendFollowStrategy:
         return dynamics_score
 
     # ▼▼▼ 健康度感知上下文引擎 (Health-Aware Context Engine) ▼▼▼
-    # 重构本函数，使其能够根据趋势健康度，动态决定上下文的持续时间和优先级。
     def _update_contextual_states(self, df: pd.DataFrame, score_details_df: pd.DataFrame, validated_premises: Dict[str, pd.Series], params: dict) -> pd.DataFrame:
         """
         【V39.4 健康度感知上下文引擎版】
@@ -1053,7 +1082,6 @@ class TrendFollowStrategy:
         return df
 
     # ▼▼▼ 触发事件融合中心 (Trigger Event Fusion Center) ▼▼▼
-    # 重构本函数，使其不再依赖任何外部状态机，而是自主完成“结构”与“力量”的融合。
     def _define_trigger_events(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V40.3 修复版】

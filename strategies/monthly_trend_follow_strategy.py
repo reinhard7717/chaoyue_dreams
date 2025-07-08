@@ -564,7 +564,7 @@ class MonthlyTrendFollowStrategy:
 
     def _check_resistance_rejection(self, df: pd.DataFrame, resistance_col: str, params: dict) -> pd.Series:
         volume_multiplier = params.get('volume_multiplier', 1.5)
-        vol_ma_col = 'VOL_MA_20_D' 
+        vol_ma_col = 'VOL_MA_21_D' 
         if resistance_col not in df.columns or vol_ma_col not in df.columns:
             return pd.Series(0, index=df.index)
         pattern_condition = (df['high_D'] > df[resistance_col]) & (df['close_D'] < df[resistance_col])
