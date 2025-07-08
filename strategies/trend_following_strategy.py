@@ -909,15 +909,18 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('shock_bottom_params', {})
             if self._get_param_value(p.get('enabled'), False):
+                # ▼▼▼【代码修改 V41.13.6】: 优化参数获取并增加默认值 ▼▼▼
                 drop_days = self._get_param_value(p.get('drop_days'), 10)
-                drop_pct = self._get_param_value(p.get('drop_pct'), -0.25)
+                drop_pct = self._get_param_value(p.get('drop_pct'), -0.20) # 稍微放宽默认值
                 winner_rate_threshold = self._get_param_value(p.get('winner_rate_threshold'), 10.0)
+                # ▲▲▲【代码修改 V41.13.6】▲▲▲
                 
                 # 条件1: 快速大幅下跌
                 high_in_period = df['high_D'].rolling(window=drop_days).max()
-                is_deep_drop = (df['low_D'] / high_in_period - 1) < drop_pct
+                current_drop_pct = (df['low_D'] / high_in_period - 1)
+                is_deep_drop = current_drop_pct < drop_pct
                 
-                # 【V41.3 核心恢复】条件2: 下跌中主力资金是净流出的 (真摔)
+                # 条件2: 下跌中主力资金是净流出的 (真摔)
                 main_force_flow_during_drop = df['net_mf_amount_D'].rolling(window=drop_days).sum()
                 is_main_force_fleeing = main_force_flow_during_drop < 0
                 
@@ -926,6 +929,46 @@ class TrendFollowStrategy:
                 
                 setups['SETUP_SHOCK_BOTTOM'] = is_deep_drop & is_main_force_fleeing & is_panic_selling
                 print(f"      -> 'V反-休克谷底'准备状态定义完成 (V41.3 真摔版)，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
+
+                # ▼▼▼【代码修改 V41.13.6】: 加入精确定位的 print 调试信息 ▼▼▼
+                debug_date_str = '2025-06-23'
+                if pd.to_datetime(debug_date_str) in df.index:
+                    debug_date = pd.to_datetime(debug_date_str)
+                    print("\n--- [V反-休克谷底] 详细调试 for 2025-06-23 ---")
+                    print(f"  [参数] drop_days={drop_days}, drop_pct={drop_pct}, winner_rate_threshold={winner_rate_threshold}")
+                    
+                    # 检查条件1
+                    val1_high = high_in_period.loc[debug_date]
+                    val1_low = df.loc[debug_date, 'low_D']
+                    val1_pct = current_drop_pct.loc[debug_date]
+                    res1 = is_deep_drop.loc[debug_date]
+                    print(f"  [条件1: 深度下跌] is_deep_drop = {res1}")
+                    print(f"    - {drop_days}日内高点: {val1_high:.2f}")
+                    print(f"    - 当日低点: {val1_low:.2f}")
+                    print(f"    - 计算跌幅: {val1_pct:.2%}")
+                    print(f"    - 是否满足 (< {drop_pct:.2%})? {'是' if res1 else '否'}")
+
+                    # 检查条件2
+                    val2_flow = main_force_flow_during_drop.loc[debug_date]
+                    res2 = is_main_force_fleeing.loc[debug_date]
+                    print(f"  [条件2: 主力出逃] is_main_force_fleeing = {res2}")
+                    print(f"    - {drop_days}日内主力净流出合计: {val2_flow:,.2f}")
+                    print(f"    - 是否满足 (< 0)? {'是' if res2 else '否'}")
+
+                    # 检查条件3
+                    val3_winner = df.loc[debug_date, 'winner_rate_D']
+                    res3 = is_panic_selling.loc[debug_date]
+                    print(f"  [条件3: 恐慌盘] is_panic_selling = {res3}")
+                    print(f"    - 当日获利盘比例: {val3_winner:.2f}%")
+                    print(f"    - 是否满足 (< {winner_rate_threshold:.2f}%)? {'是' if res3 else '否'}")
+
+                    # 最终结果
+                    final_res = setups['SETUP_SHOCK_BOTTOM'].loc[debug_date]
+                    print(f"  -------------------------------------------------")
+                    print(f"  [最终结论] SETUP_SHOCK_BOTTOM on {debug_date_str} = {final_res}")
+                    print(f"--- 调试结束 ---\n")
+                # ▲▲▲【代码修改 V41.13.6】▲▲▲
+
         except Exception as e:
             print(f"      -> [警告] 计算'V反-休克谷底'时出错: {e}")
 
