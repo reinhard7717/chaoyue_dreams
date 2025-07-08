@@ -966,27 +966,23 @@ class TrendFollowStrategy:
     # 重构本函数，使其不再依赖任何外部状态机，而是自主完成“结构”与“力量”的融合。
     def _define_trigger_events(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V39.6 触发事件融合中心版】
+        【V39.8 类型安全版】
         - 核心升级:
-        1. 彻底移除对旧状态机的依赖，实现完全自洽。
-        2. 在函数内部直接计算“资金行为”（力量）信号。
-        3. 使用向量化布尔运算，将“筹码结构”与“资金力量”融合成高阶触发器。
-        4. 成为所有最终触发事件的唯一、统一的定义来源。
+        1. 在进行数值计算前，强制将从数据库读取的资金额相关列（可能为Decimal类型）转换为float类型。
+        2. 解决了 'decimal.Decimal' 与 'float' 无法直接运算的 TypeError。
+        3. 提升了资金流相关计算的性能和稳定性。
         """
-        print("    - [触发事件中心 V39.6] 启动，开始定义所有原子化触发事件...")
+        print("    - [触发事件中心 V39.8] 启动，开始定义所有原子化触发事件...")
         triggers = {}
         trigger_params = self._get_params_block(params, 'trigger_event_params', {})
         
         # --- 步骤1: 获取所有底层的、原子的“结构”信号 ---
-        # 这些信号是纯粹的形态或结构，等待“力量”的确认。
         try:
             chip_atomic_signals = self._define_chip_atomic_signals(df, params)
-            # 结构性突破信号
-            is_breakout_structure = chip_atomic_signals.get('TRIGGER_CHIP_COST_BREAKTHROUGH', pd.Series(False, index=df.index))
-            # 结构性加速信号
+            is_breakout_structure = chip_atomic_signals.get('ATOMIC_COST_BREAKTHROUGH', pd.Series(False, index=df.index))
             is_acceleration_structure = (
-                chip_atomic_signals.get('TRIGGER_CHIP_HURDLE_CLEAR', pd.Series(False, index=df.index)) |
-                chip_atomic_signals.get('TRIGGER_CHIP_PRESSURE_RELEASE', pd.Series(False, index=df.index))
+                chip_atomic_signals.get('ATOMIC_HURDLE_CLEAR', pd.Series(False, index=df.index)) |
+                chip_atomic_signals.get('ATOMIC_PRESSURE_RELEASE', pd.Series(False, index=df.index))
             )
             print("      -> '底层筹码结构'信号已加载。")
         except Exception as e:
@@ -996,35 +992,36 @@ class TrendFollowStrategy:
 
         # --- 步骤2: 计算“力量”信号 (资金行为的确认) ---
         print("      -> 正在计算'资金力量'信号...")
-        # 主力资金净买入额占比，依赖于 _prepare_derived_features 的计算
-        mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index))
+        
+        # ▼▼▼ 强制类型转换为float，解决Decimal与float的运算冲突 ▼▼▼
+        # 从数据库读取的Decimal类型需要转换为float才能与numpy/pandas进行高效的数值运算
+        mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index)).astype(float)
+        
+        buy_elg_amount = df.get('buy_elg_amount_D', pd.Series(0, index=df.index)).astype(float)
+        sell_elg_amount = df.get('sell_elg_amount_D', pd.Series(0, index=df.index)).astype(float)
+        elg_net_buy = buy_elg_amount - sell_elg_amount
+        
+        net_mf_amount = df.get('net_mf_amount_D', pd.Series(0, index=df.index)).astype(float)
         
         # 力量1: 机构式强力买入 (主力净买入占比显著)
         institutional_buying_threshold = trigger_params.get('institutional_buying_ratio', 0.05)
-        is_institutional_buying = mf_ratio > institutional_buying_threshold # 主力净买入额 > 当日成交额的5%
+        is_institutional_buying = mf_ratio > institutional_buying_threshold
         
         # 力量2: 游资闪电战 (特大单是主力买入的大头，且成交量激增)
-        elg_net_buy = df.get('buy_elg_amount_D', 0) - df.get('sell_elg_amount_D', 0)
-        net_mf_amount = df.get('net_mf_amount_D', 0)
         vol_ma_col = f"VOL_MA_{trigger_params.get('vol_ma_period', 21)}_D"
         is_volume_spike = df['volume_D'] > (df.get(vol_ma_col, df['volume_D']) * trigger_params.get('volume_spike_ratio', 2.0))
+        # 此处的 net_mf_amount 和 elg_net_buy 已经是安全的float类型了
         is_hot_money_blitz = is_institutional_buying & (elg_net_buy > net_mf_amount * 0.7) & is_volume_spike
         
         # --- 步骤3: 【核心】融合“结构”与“力量”，生成高阶触发器 ---
         print("      -> 正在融合'结构'与'力量'生成高阶触发器...")
-        # 机构突破 = 突破结构 + 机构资金行为 (排除掉游资模式，使其更纯粹)
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
-        
-        # 游资突破 = 突破结构 + 游资闪电战行为
         triggers['CHIP_HOT_MONEY_BREAKOUT'] = is_breakout_structure & is_hot_money_blitz
-        
-        # 确认加速 = 加速结构 + 机构资金行为
         triggers['CHIP_CONFIRMED_ACCELERATION'] = is_acceleration_structure & is_institutional_buying
         
         print(f"      -> 高阶触发器生成: 机构突破({triggers['CHIP_INSTITUTIONAL_BREAKOUT'].sum()}), 游资突破({triggers['CHIP_HOT_MONEY_BREAKOUT'].sum()}), 确认加速({triggers['CHIP_CONFIRMED_ACCELERATION'].sum()})")
 
         # --- 步骤4: 定义通用价量与形态触发器 (逻辑保持，代码更健壮) ---
-        # 强势阳线 (通用触发器)
         try:
             candle_params = trigger_params.get('positive_candle', {})
             if candle_params.get('enabled', True):
@@ -1037,7 +1034,6 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'强势阳线'触发器时出错: {e}")
 
-        # 通用放量突破 (通用触发器)
         try:
             vol_params = trigger_params.get('volume_spike_breakout', {})
             if vol_params.get('enabled', True):
@@ -1051,31 +1047,29 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'放量突破'触发器时出错: {e}")
 
-        # 收复关键均线 (特定场景触发器)
         try:
             ma_params = trigger_params.get('ma_reclaim', {})
             if ma_params.get('enabled', True):
-                ma_col = f"EMA_{ma_params.get('ma_period', 21)}_D" # 默认收复21日线
+                ma_col = f"EMA_{ma_params.get('ma_period', 21)}_D"
                 if ma_col in df.columns:
                     triggers['MA_RECLAIM'] = (df['close_D'] > df[ma_col]) & (df['close_D'].shift(1) <= df[ma_col].shift(1))
                     print(f"      -> '收复关键均线' 触发器定义完成，发现 {triggers.get('MA_RECLAIM', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'收复均线'触发器时出错: {e}")
 
-        # “V型反转”触发器 (TRIGGER_V_RECOVERY)
         try:
             v_params = self._get_params_block(params, 'v_reversal_entry_params', {})
             if v_params.get('enabled', True) and 'net_mf_amount_D' in df.columns:
                 is_strong_rally = (df['close_D'] / df['close_D'].shift(1) - 1) > v_params.get('reversal_rally_pct', 0.05)
                 is_strong_candle = (df['close_D'] - df['open_D']) > (df['high_D'] - df['low_D']) * 0.6
                 avg_amount_in_drop = df['amount_D'].shift(1).rolling(window=v_params.get('drop_days', 10)).mean()
-                is_huge_mf_inflow = df['net_mf_amount_D'].fillna(0) > (avg_amount_in_drop * 0.1)
+                # 此处的 net_mf_amount_D 也需要是 float 类型
+                is_huge_mf_inflow = df['net_mf_amount_D'].fillna(0).astype(float) > (avg_amount_in_drop * 0.1)
                 triggers['TRIGGER_V_RECOVERY'] = is_strong_rally & is_strong_candle & is_huge_mf_inflow
                 print(f"      -> 'V型反转修复' 触发器定义完成，发现 {triggers.get('TRIGGER_V_RECOVERY', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'V型反转修复'触发器时出错: {e}")
             
-        # “巨阴洗盘”触发器 (TRIGGER_WASHOUT_REVERSAL)
         try:
             washout_params = self._get_params_block(params, 'washout_reversal_params', {})
             if washout_params.get('enabled', True):
@@ -1087,28 +1081,27 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'巨阴洗盘反包'触发器时出错: {e}")
 
-        # “堡垒防卫”触发器 (TRIGGER_FORTRESS_DEFENSE)
         try:
             fort_params = self._get_params_block(params, 'pullback_structure_entry_params', {})
             if fort_params.get('enabled', True):
                 is_green_candle = df['close_D'] > df['open_D']
                 is_closing_high = df['close_D'] > (df['high_D'] + df['low_D']) / 2
                 is_strong_reversal_candle = is_green_candle & is_closing_high
-                is_main_force_buying = df.get('net_mf_amount_D', pd.Series(0, index=df.index)) > 0
+                # 此处的 net_mf_amount_D 也需要是 float 类型
+                is_main_force_buying = df.get('net_mf_amount_D', pd.Series(0, index=df.index)).fillna(0).astype(float) > 0
                 triggers['TRIGGER_FORTRESS_DEFENSE'] = is_strong_reversal_candle & is_main_force_buying
                 print(f"      -> '堡垒防卫' 触发器定义完成，发现 {triggers.get('TRIGGER_FORTRESS_DEFENSE', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'堡垒防卫'触发器时出错: {e}")
 
         # --- 步骤5: 最终清洗 ---
-        # 将所有原子触发器填充NA为False，确保后续布尔运算的安全性
-        for key in list(triggers.keys()): # 使用list(keys())来安全地迭代
+        for key in list(triggers.keys()):
             if triggers[key] is None:
                 triggers[key] = pd.Series(False, index=df.index)
             else:
                 triggers[key] = triggers[key].fillna(False)
 
-        print("    - [触发事件中心 V39.6] 所有原子化触发事件定义完成。")
+        print("    - [触发事件中心 V39.8] 所有原子化触发事件定义完成。")
         return triggers
 
     # ▼▼▼ “原子筹码信号提供器” (Atomic Chip Signal Provider) ▼▼▼
