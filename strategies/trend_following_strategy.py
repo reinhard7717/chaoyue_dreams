@@ -747,50 +747,55 @@ class TrendFollowStrategy:
     # ▼▼▼ 智能衍生特征引擎 (Intelligent Derived Feature Engine) ▼▼▼
     def _prepare_derived_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V39.5 智能衍生特征引擎版】
-        - 核心升级:
-        1. 智能回退: 优先使用数据层提供的预计算列，若不存在则自动计算，增强兼容性。
-        2. 新增特征: 计算'net_mf_amount_ratio_D' (主力净流入额占比)，为后续分析提供标准化的资金力度指标。
-        3. 代码加固: 增加对除零错误的保护。
+        【V40.5 终极净化版】
+        - 核心修复: 在函数内部，计算完所有可能产生Decimal的新列之后，但在进行除法运算之前，
+                    再次调用 _ensure_numeric_types 进行“再净化”。
+        - 解决问题: 彻底解决了因中间计算步骤重新引入Decimal类型而导致的TypeError。
         """
-        print("    - [衍生特征中心 V39.5] 启动智能衍生特征引擎...")
+        print("    - [衍生特征中心 V40.5] 启动智能衍生特征引擎...")
         
         # --- 步骤1: 资金流数据清洗与类型转换 (保持不变) ---
-        fund_flow_cols = [
-            'buy_sm_amount_D', 'sell_sm_amount_D', 'buy_md_amount_D', 'sell_md_amount_D',
-            'buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
-        ]
-        for col in fund_flow_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        # 注意：这里我们不再预先转换，让 _ensure_numeric_types 统一处理
         
         # --- 步骤2: 主力净流入额 (智能回退逻辑) ---
-        if 'net_mf_amount_D' in df.columns and not df['net_mf_amount_D'].isnull().all():
-            print("      -> 'net_mf_amount_D' (主力净流入) 已存在，使用预计算列。")
-        else:
-            print("      -> 'net_mf_amount_D' 不存在，执行回退计算...")
+        if 'net_mf_amount_D' not in df.columns or df['net_mf_amount_D'].isnull().all():
+            print("      -> 'net_mf_amount_D' 不存在或为空，执行回退计算...")
             if all(c in df.columns for c in ['buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D']):
-                df['net_mf_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
+                # 强制转换为数值类型以进行计算
+                buy_lg = pd.to_numeric(df['buy_lg_amount_D'], errors='coerce').fillna(0)
+                sell_lg = pd.to_numeric(df['sell_lg_amount_D'], errors='coerce').fillna(0)
+                buy_elg = pd.to_numeric(df['buy_elg_amount_D'], errors='coerce').fillna(0)
+                sell_elg = pd.to_numeric(df['sell_elg_amount_D'], errors='coerce').fillna(0)
+                df['net_mf_amount_D'] = (buy_lg + buy_elg) - (sell_lg + sell_elg)
                 print("        -> 回退计算 'net_mf_amount_D' 成功。")
             else:
                 print("        -> [警告] 缺少计算 'net_mf_amount_D' 所需的原始资金流列，该列将填充为0。")
                 df['net_mf_amount_D'] = 0
+        else:
+             print("      -> 'net_mf_amount_D' (主力净流入) 已存在，使用预计算列。")
 
         # --- 步骤3: 散户净流入额 (智能回退逻辑) ---
-        if 'net_retail_amount_D' in df.columns and not df['net_retail_amount_D'].isnull().all():
-            print("      -> 'net_retail_amount_D' (散户净流入) 已存在，使用预计算列。")
-        else:
-            print("      -> 'net_retail_amount_D' 不存在，执行回退计算...")
+        if 'net_retail_amount_D' not in df.columns or df['net_retail_amount_D'].isnull().all():
+            print("      -> 'net_retail_amount_D' 不存在或为空，执行回退计算...")
             if all(c in df.columns for c in ['buy_sm_amount_D', 'sell_sm_amount_D']):
-                df['net_retail_amount_D'] = df['buy_sm_amount_D'] - df['sell_sm_amount_D']
+                 # 强制转换为数值类型以进行计算
+                buy_sm = pd.to_numeric(df['buy_sm_amount_D'], errors='coerce').fillna(0)
+                sell_sm = pd.to_numeric(df['sell_sm_amount_D'], errors='coerce').fillna(0)
+                df['net_retail_amount_D'] = buy_sm - sell_sm
                 print("        -> 回退计算 'net_retail_amount_D' 成功。")
             else:
                 print("        -> [警告] 缺少计算 'net_retail_amount_D' 所需的原始资金流列，该列将填充为0。")
                 df['net_retail_amount_D'] = 0
+        else:
+            print("      -> 'net_retail_amount_D' (散户净流入) 已存在，使用预计算列。")
 
-        # --- 步骤4: 【新增】主力净流入额占比 (核心衍生特征) ---
+        # --- 步骤4: 【核心修复点】在进行除法运算前，对整个DataFrame进行最终净化 ---
+        # 此时，所有可能引入Decimal的列（包括新创建的net_mf_amount_D）都已存在
+        df = self._ensure_numeric_types(df)
+
+        # --- 步骤5: 【新增】主力净流入额占比 (现在可以安全计算) ---
         if 'amount_D' in df.columns and 'net_mf_amount_D' in df.columns:
-            # 使用 np.divide 进行安全除法，当 amount_D 为 0 时，结果为 0，避免错误
+            # 现在这里的除法是安全的，因为所有列都已经是float64
             df['net_mf_amount_ratio_D'] = np.divide(
                 df['net_mf_amount_D'], 
                 df['amount_D'], 
@@ -801,7 +806,7 @@ class TrendFollowStrategy:
         else:
             print("      -> [警告] 缺少 'amount_D' 或 'net_mf_amount_D'，无法计算主力净流入额占比。")
 
-        print("    - [衍生特征中心 V39.5] 衍生特征准备完成。")
+        print("    - [衍生特征中心 V40.5] 衍生特征准备完成。")
         return df
 
     # ▼▼▼ 多维趋势健康度审计中心 (Multi-Faceted Trend Health Audit Center) ▼▼▼
