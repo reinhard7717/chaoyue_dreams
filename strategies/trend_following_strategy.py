@@ -441,7 +441,7 @@ class TrendFollowStrategy:
             {
                 'name': 'OLD_DUCK_HEAD_TAKEOFF',
                 'setup': setup_conditions.get('SETUP_DUCK_NECK_FORMING', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('MA_RECLAIM'),
+                'trigger': trigger_events.get('MA_RECLAIM', default_series),
                 'score': 260,
                 'precondition': robust_right_side_precondition,
                 'comment': '经典的均线理论形态，从整理到再次发力的转折点。'
