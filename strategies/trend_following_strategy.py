@@ -607,6 +607,23 @@ class TrendFollowStrategy:
 
             if isinstance(setup, bool):
                 setup = pd.Series(setup, index=df.index)
+
+            # ▼▼▼【代码修改 V44.1】: 增加S级剧本的专用探针3 (最终评估) ▼▼▼
+            if playbook['name'] in ['PERFECT_STORM', 'AWAKENED_BEAST']:
+                daily_eval_df = pd.DataFrame({
+                    'setup(T-1)': setup.shift(1).fillna(False),
+                    'trigger(T)': trigger,
+                    'precondition(T)': playbook['precondition'],
+                    '~has_been_scored(T)': ~has_been_scored
+                })
+                # 只显示至少有一个条件为True的日子，避免日志爆炸
+                interesting_days = daily_eval_df[daily_eval_df.any(axis=1)]
+                if not interesting_days.empty:
+                    print(f"\n--- [探针-EVAL] 每日评估详情 for 剧本: {playbook['name']} ---")
+                    # 使用 to_string() 保证DataFrame被完整打印
+                    print(interesting_days.to_string())
+                    print(f"--- [探针-EVAL] 评估结束 for {playbook['name']} ---\n")
+            # ▲▲▲【代码修改 V44.1】▲▲▲
             
             if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL']:
                 condition = setup & trigger
@@ -868,6 +885,10 @@ class TrendFollowStrategy:
                     # 判断是否连续M天都处于压缩状态
                     setups['SETUP_PROLONGED_COMPRESSION'] = is_in_compression.rolling(window=duration).sum() >= duration
                     print(f"      -> '潜龙出海-长期蓄势'准备状态定义完成，发现 {setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series([])).sum()} 天。")
+                    # ▼▼▼【代码修改 V44.1】: 增加探针1 (准备状态) ▼▼▼
+                    if setups['SETUP_PROLONGED_COMPRESSION'].any():
+                        print(f"    [探针-SETUP]: '潜龙出海-长期蓄势' 准备状态成立的日期: {df.index[setups['SETUP_PROLONGED_COMPRESSION']].date.tolist()}")
+                    # ▲▲▲【代码修改 V44.1】▲▲▲
                 else:
                     print(f"      -> [警告] 缺少列 '{bbw_col}'，无法计算'潜龙出海-长期蓄势'。")
         except Exception as e:
@@ -926,6 +947,10 @@ class TrendFollowStrategy:
                     
                     setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = divergence_signals
                     print(f"      -> '资金暗流(底部背离)'准备状态重构完成 (V43.1)，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
+                    # ▼▼▼【代码修改 V44.1】: 增加探针1 (准备状态) ▼▼▼
+                    if setups['SETUP_CAPITAL_FLOW_DIVERGENCE'].any():
+                        print(f"    [探针-SETUP]: '猛兽苏醒-资金背离' 准备状态成立的日期: {df.index[setups['SETUP_CAPITAL_FLOW_DIVERGENCE']].date.tolist()}")
+                    # ▲▲▲【代码修改 V44.1】▲▲▲
                 else:
                     print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
         except Exception as e:
@@ -1547,6 +1572,36 @@ class TrendFollowStrategy:
         print("      -> 正在融合'结构'与'力量'生成高阶触发器...")
         # “机构突破”：定义为由主力资金驱动的突破，但明确排除了由“游资闪击”主导的突破。这旨在识别更稳健、持续性可能更强的机构建仓行为。
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
+        # ▼▼▼【代码修改 V44.1】: 增加探针2 (触发事件解剖) ▼▼▼
+        print("\n--- [探针-TRIGGER] 正在诊断 'CHIP_INSTITUTIONAL_BREAKOUT' (主力点火) 触发器 ---")
+        debug_df = pd.DataFrame({
+            'breakout_struct': is_breakout_structure,
+            'institut_buy': is_institutional_buying,
+            'NOT_hot_money': ~is_hot_money_blitz,
+            'FINAL_TRIGGER': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
+        })
+        triggered_days = debug_df[debug_df['FINAL_TRIGGER']]
+        if not triggered_days.empty:
+            print(f"  -> '主力点火' 触发器在以下日期为 TRUE:\n{triggered_days.to_string()}")
+        else:
+            print("  -> '主力点火' 触发器在整个回测期间从未为 TRUE。")
+            # 打印出任何一个条件为True的日子，帮助诊断
+            print("  -> 检查部分条件为 TRUE 的日子以进行分析:")
+            # 只显示为True的行，避免日志过长
+            breakout_true_days = debug_df[debug_df['breakout_struct']]
+            if not breakout_true_days.empty:
+                 print(f"    - 'breakout_struct' (上穿成本线) 为 TRUE 的日子:\n{breakout_true_days.to_string()}")
+            else:
+                 print("    - 'breakout_struct' (上穿成本线) 从未为 TRUE。")
+            
+            institut_true_days = debug_df[debug_df['institut_buy']]
+            if not institut_true_days.empty:
+                print(f"    - 'institut_buy' (机构买入) 为 TRUE 的日子:\n{institut_true_days.to_string()}")
+            else:
+                print("    - 'institut_buy' (机构买入) 从未为 TRUE。")
+        print("--- [探针-TRIGGER] 诊断结束 ---\n")
+        # ▲▲▲【代码修改 V44.1】▲▲▲
+
         # “游资突破”：定义为由“游资闪击”行为主导的突破，通常更具爆发性，但波动也可能更大。
         triggers['CHIP_HOT_MONEY_BREAKOUT'] = is_breakout_structure & is_hot_money_blitz
         # “确认加速”：定义为股价越过关键筹码压力位（85%或95%成本线），并得到机构资金的确认，是趋势加速的强烈信号。
