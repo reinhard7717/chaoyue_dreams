@@ -870,19 +870,6 @@ class FundFlowDao(BaseDAO):
         3. [适配] API接口从 moneyflow 更换为 hm_detail。
         4. [适配] 数据处理和入库逻辑适配 HmDetail 模型。
         """
-        # --- 1. 日期参数处理与验证 (逻辑复用) ---
-        if start_date and end_date and start_date > end_date:
-            logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
-            return
-        if start_date and end_date:
-            logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的游资数据采用客户端分块策略处理。")
-        elif trade_date:
-            start_date = end_date = trade_date
-            logger.info(f"接收到单日任务: {trade_date}")
-        else:
-            start_date = end_date = date.today()
-            logger.info(f"未提供日期，默认获取今日数据: {start_date}")
-
         # --- 2. [借鉴] 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 30  # 游资接口数据量可能较小，可适当调整分块大小
@@ -900,15 +887,15 @@ class FundFlowDao(BaseDAO):
             chunk_end_str = chunk_end.strftime('%Y%m%d')
             print(f"DAO: 开始处理游资数据日期块: {chunk_start_str} 到 {chunk_end_str}")
             offset = 0
-            limit = 5000 # 根据Tushare接口文档调整limit
+            limit = 2000 # 根据Tushare接口文档调整limit
             
             while True:
                 try:
                     # 【代码修改】API调用更换为 hm_detail 接口
                     df = self.ts_pro.hm_detail(**{
                         "trade_date": "", # 范围查询时，trade_date应为空
-                        "start_date": chunk_start_str, 
-                        "end_date": chunk_end_str, 
+                        "start_date": "", 
+                        "end_date": "", 
                         "limit": limit, 
                         "offset": offset
                     }, fields=[
