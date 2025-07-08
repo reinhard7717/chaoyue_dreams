@@ -203,9 +203,9 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V2.4 精准剧本过滤版】将策略分析结果DataFrame转换为用于数据库存储的字典列表。
-        - 核心修改: 在生成 `triggered_playbooks` 列表时，过滤掉非核心的背景、奖励、惩罚得分项，
-                     只保留纯粹的、大写的交易剧本名称，确保前端展示的干净与一致。
+        【V40.8 终极严谨版】将策略分析结果DataFrame转换为用于数据库存储的字典列表。
+        - 核心修复: 采用更严谨的逻辑解析 strategy_name，并使用 'unknown_strategy' 作为清晰的默认值。
+        - 解决问题: 彻底解决了 "unhashable type: 'dict'" TypeError，并提高了代码的健壮性和可维护性。
         """
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df['take_profit_signal'] > 0)
@@ -214,26 +214,26 @@ class TrendFollowStrategy:
             return []
         
         records = []
-        strategy_name = self._get_params_block(params, 'strategy_info').get('name', 'multi_timeframe_collaboration')
+        
+        # 1. 安全地获取 'strategy_info' 配置块，如果不存在则返回空字典
+        strategy_info_block = self._get_params_block(params, 'strategy_info', {})
+        
+        # 2. 从配置块中获取 'name' 参数，这可能是一个值，也可能是一个字典，如果不存在则为None
+        name_param = strategy_info_block.get('name')
+        
+        # 3. 使用 _get_param_value 最终解析出字符串值，并提供一个清晰的默认值 'unknown_strategy'
+        strategy_name = self._get_param_value(name_param, 'unknown_strategy')
+        
         timeframe = result_timeframe
 
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                 playbooks_with_scores = self._last_score_details_df.loc[timestamp]
-                # 筛选出所有得分大于0的项目
                 active_items = playbooks_with_scores[playbooks_with_scores > 0].index
                 
-                # 【核心过滤逻辑】
-                # 定义不希望展示在前端的名称前缀
                 excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_')
-                # 只保留不以这些前缀开头的核心剧本名称
-                triggered_playbooks_list = [
-                    item for item in active_items if not item.startswith(excluded_prefixes)
-                ]
-                # print(f"--- 剧本过滤调试 for {timestamp.date()} ---")
-                # print(f"    - 原始激活项: {active_items.tolist()}")
-                # print(f"    - 过滤后核心剧本: {triggered_playbooks_list}")
+                triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
 
             is_setup_day = 'PULLBACK_SETUP' in triggered_playbooks_list
             context_dict = {k: v for k, v in row.items() if pd.notna(v)}
@@ -243,7 +243,7 @@ class TrendFollowStrategy:
                 "stock_code": stock_code,
                 "trade_time": sanitize_for_json(timestamp),
                 "timeframe": timeframe,
-                "strategy_name": strategy_name,
+                "strategy_name": strategy_name, # 现在这里保证是字符串
                 "close_price": sanitize_for_json(row.get('close_D')),
                 "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
                 "entry_signal": sanitize_for_json(row.get('signal_entry', False)),
@@ -252,7 +252,7 @@ class TrendFollowStrategy:
                 "is_mid_term_bullish": sanitize_for_json(row.get('context_mid_term_bullish', False)),
                 "is_pullback_setup": is_setup_day,
                 "pullback_target_price": sanitize_for_json(row.get('pullback_target_price')),
-                "triggered_playbooks": triggered_playbooks_list, # 使用过滤后的干净列表
+                "triggered_playbooks": triggered_playbooks_list,
                 "context_snapshot": sanitized_context,
             }
             records.append(record)
