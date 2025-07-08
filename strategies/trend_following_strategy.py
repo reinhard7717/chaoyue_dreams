@@ -485,7 +485,12 @@ class TrendFollowStrategy:
             {
                 'name': 'V_REVERSAL_ENTRY',
                 'setup': setup_conditions.get('SETUP_SHOCK_BOTTOM', default_series),  # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('TRIGGER_V_RECOVERY', default_series),
+                # 修复背景: 原触发器 'TRIGGER_V_RECOVERY' 条件过于严苛 (全历史仅触发1次)，
+                # 很可能要求放量，导致6月23日的缩量V反被忽略。
+                # 修复逻辑: 将其更换为更通用的 'STRONG_POSITIVE_CANDLE' (强势阳线)。
+                # 在已经满足 'SETUP_SHOCK_BOTTOM' (休克谷底) 的极端超卖前提下，
+                # 任何一根确认性的阳线都足以构成一个有效的反转信号。
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
                 'score': 210,
                 'precondition': True,
                 'comment': '高风险高收益的左侧交易模式，捕捉情绪拐点。'
