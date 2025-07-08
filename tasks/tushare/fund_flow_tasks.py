@@ -181,7 +181,7 @@ def save_hm_detail_data_today(self):
 
 #  ================ （昨日）个股日级资金流向数据 （三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_fund_flow_dao_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
-def execute_fund_flow_dao_method(self, method_name: str):
+def execute_fund_flow_dao_method(self, method_name: str, trade_date: str):
     """
     [重构] 通用执行者子任务：
     执行FundFlowDao中的指定异步方法。此任务是原子化的，可重试的，并且可被任何编排者任务调用。
@@ -192,7 +192,7 @@ def execute_fund_flow_dao_method(self, method_name: str):
     try:
         fund_flow_dao = FundFlowDao()
         # 使用getattr动态获取DAO实例的异步方法
-        save_method = getattr(fund_flow_dao, method_name)
+        save_method = getattr(fund_flow_dao, method_name, trade_date)
         # 在独立的子任务中正确使用 asyncio.run() 来桥接同步和异步
         asyncio.run(save_method())
         logger.info(f"通用子任务成功: {method_name}")
@@ -215,14 +215,17 @@ def save_fund_flow_daily_data_yesterday(self):
     print(f"调试信息：主任务 {self.request.id} 启动，准备分派【昨日】资金流数据获取任务组。")
     try:
         # [修改] 定义需要并行执行的所有【昨日】数据保存方法名
+        today_date = timezone.now().date()
+        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         target_methods = [
-            'save_yesterday_fund_flow_daily_data',
-            'save_yesterday_fund_flow_daily_ths_data',
-            'save_yesterday_fund_flow_daily_dc_data'
+            'save_history_fund_flow_daily_data_by_trade_date',
+            'save_history_fund_flow_daily_ths_data_by_trade_date',
+            'save_history_fund_flow_cnt_ths_data',
+            'save_history_fund_flow_industry_ths_data'
         ]
         # [修改] 使用列表推导式和 .s() 方法创建一组对【通用执行者】的任务签名
         task_signatures = [
-            execute_fund_flow_dao_method.s(method_name=method)
+            execute_fund_flow_dao_method.s(method_name=method,trade_date=yesterday)
             for method in target_methods
         ]
         # [修改] 使用 group 将所有任务签名组合成一个可并行执行的任务组
