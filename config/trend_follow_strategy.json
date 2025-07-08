@@ -120,6 +120,12 @@
         "params": { "ma_periods": [3, 5, 10] },
         "说明": "【A股特色】计算资金流和筹码的衍生特征，如主力净买入的移动平均趋势、收盘价相对筹码成本的偏离度等高阶因子。"
       },
+      "bias": {
+        "enabled": true,
+        "apply_on": ["D"],
+        "periods": [20],
+        "说明": "【V41.9 新增】计算乖离率(BIAS)，为'BIAS超跌反转'剧本提供数据基础。"
+      },
       "fibonacci_levels": {
         "enabled": true,
         "apply_on": ["D"],
@@ -145,6 +151,35 @@
           "说明": "本策略的唯一标识名称。该名称将被写入数据库的`strategy_name`字段，用于区分不同版本或不同策略产生的信号，便于后续进行策略表现分析和回测归因。"
         }
       },
+      "chip_atomic_signal_params": {
+        "说明": "【V41.7 权威版】配置所有底层、原子化的筹码结构信号的参数。",
+        "enabled": { "value": true, "说明": "是否启用原子化筹码信号计算的总开关。" },
+        "reinforcement_params": {
+          "说明": "配置'成本区增强'（ATOMIC_REINFORCEMENT）信号的参数。",
+          "enabled": { "value": true, "说明": "启用'成本区增强'信号。" },
+          "proximity_threshold": { "value": 0.03, "说明": "收盘价贴近核心成本区的最大容忍浮动比例。" },
+          "volume_ratio": { "value": 1.5, "说明": "定义'放量'的成交量放大倍数。" },
+          "sideways_threshold": { "value": 0.015, "说明": "定义'横盘'的日涨跌幅绝对值上限。" }
+        },
+        "concentration_params": {
+          "说明": "配置'筹码高度集中'及'集中后突破'信号的参数。",
+          "enabled": { "value": true, "说明": "启用'筹码高度集中'状态和'集中后突破'信号。" },
+          "concentration_threshold": { "value": 0.10, "说明": "定义'高度集中'的阈值（筹码区间/平均成本）。" },
+          "concentration_percentiles": { "value": [15, 85], "说明": "用于计算筹码集中度的成本百分位。" }
+        },
+        "cost_breakthrough_params": {
+          "说明": "配置'上穿市场平均成本'（ATOMIC_COST_BREAKTHROUGH）信号的参数。",
+          "enabled": { "value": true, "说明": "启用此信号。" }
+        },
+        "pressure_release_params": {
+          "说明": "配置'突破95%套牢盘'（ATOMIC_PRESSURE_RELEASE）信号的参数。",
+          "enabled": { "value": true, "说明": "启用此信号。" }
+        },
+        "hurdle_clear_params": {
+          "说明": "配置'突破85%套牢盘'（ATOMIC_HURDLE_CLEAR）信号的参数。",
+          "enabled": { "value": true, "说明": "启用此信号。" }
+        }
+      },
       "slope_params": {
         "enabled": {
           "value": true,
@@ -158,7 +193,8 @@
             "net_mf_amount_D": [10, 20],
             "EMA_21_D": [5],
             "EMA_55_D": [10],
-            "net_retail_amount_D": [20]
+            "net_retail_amount_D": [20],
+            "CMF_21_D": [10]
           },
           "说明": "【代码修改】为适配V39.2的健康度审计，增加了 net_mf_amount_D 的10周期斜率计算。定义需要计算斜率的源数据列及其对应的回看周期。这是一个字典，键(key)是DataFrame中的列名，值(value)是一个包含一个或多个回看周期（整数）的列表。例如 'close_D': [5, 10] 会生成 SLOPE_close_D_5, ACCEL_close_D_5, SLOPE_close_D_10, ACCEL_close_D_10 四个新列。"
         }
@@ -201,9 +237,10 @@
           "bbw_slope_threshold": { "value": 0, "说明": "布林带宽度斜率的阈值。小于0表示波动正在收缩，市场趋于稳定。" }
         },
         "healthy_pullback_params": {
-          "说明": "配置'健康回踩'（SETUP_HEALTHY_PULLBACK）准备状态的参数。识别上升趋势中'价跌量缩'的有序回调。",
+          "说明": "【V41.3 修复】配置'健康回踩'准备状态的参数。恢复了对回踩过程的动态斜率验证。",
           "enabled": { "value": true, "说明": "是否启用此准备状态的计算。" },
-          "support_ma": { "value": 21, "说明": "定义上升趋势和回踩目标的支撑均线周期，21日线是常用的中期生命线。" }
+          "support_ma": { "value": 21, "说明": "定义支撑均线周期。" },
+          "slope_lookback": { "value": 5, "说明": "【新增】计算回踩过程相关斜率的回看期。" }
         },
         "duck_neck_forming_params": {
           "说明": "配置'老鸭头-鸭颈'（SETUP_DUCK_NECK_FORMING）准备状态的参数。识别老鸭头形态中洗盘、压制股价的'鸭颈'部分。",
@@ -220,7 +257,7 @@
           "washout_volume_ratio": { "value": 1.5, "说明": "定义'巨量'。当天成交量必须大于成交量均线的倍数。" }
         },
         "shock_bottom_params": {
-          "说明": "配置'V型反转-休克谷底'（SETUP_SHOCK_BOTTOM）准备状态的参数。识别经历快速、深度下跌后，市场情绪崩溃、抛压出清的极端底部区域。",
+          "说明": "【V41.3 增强】配置'V型反转-休克谷底'（SETUP_SHOCK_BOTTOM）准备状态的参数。识别经历快速、深度下跌后，市场情绪崩溃、抛压出清的极端底部区域。",
           "enabled": { "value": true, "说明": "是否启用此准备状态的计算。" },
           "drop_days": { "value": 10, "说明": "定义'快速下跌'的回看周期（天）。" },
           "drop_pct": { "value": -0.25, "说明": "在回看周期内的最小累计跌幅，用于确认'深度下跌'。" },
@@ -245,8 +282,12 @@
           "lookback_period": { "value": 5, "说明": "判断大盘和个股相对强弱的回看周期。" }
         },
         "fortress_siege_params": {
-          "说明": "配置'堡垒围攻'（SETUP_FORTRESS_SIEGE）准备状态的参数。识别股价在缩量状态下，回踩到一个被市场反复验证过的有效支撑位（堡垒）的时刻。",
+          "说明": "【V41.3 增强】配置'堡垒围攻'（SETUP_FORTRESS_SIEGE）准备状态的参数。识别股价在缩量状态下，回踩到一个被市场反复验证过的有效支撑位（堡垒）的时刻。",
           "enabled": { "value": true, "说明": "是否启用此准备状态的计算。" },
+          "support_col": { "value": "prev_high_support_D", "说明": "用于识别支撑位的列名，通常由数据工程层提供。" },
+          "fortress_lookback": { "value": 60, "说明": "验证堡垒有效性的历史回看期（天）。" },
+          "fortress_min_touches": { "value": 2, "说明": "一个支撑位在回看期内至少需要被触碰的次数，才能被视为'有效堡垒'。" },
+          "fortress_touch_buffer": { "value": 0.02, "说明": "定义'触碰'的缓冲范围。例如，0.02代表最低价进入支撑位上下2%的范围即视为触碰。" },
           "vol_ma_period": { "value": 21, "说明": "用于判断'缩量'的成交量均线周期。" }
         },
         "bottom_divergence_params": {
@@ -276,6 +317,23 @@
           "说明": "配置'趋势加速'（TREND_ACCELERATING）触发器的参数。这是一个强力的右侧信号，表示'推背感'十足。",
           "enabled": { "value": true, "说明": "是否启用此触发器的计算。" },
           "min_price_slope": { "value": 0.1, "说明": "价格斜率的最小值，要求必须处于明确的上涨趋势中才能触发加速信号。" }
+        },
+        "pullback_rebound_trigger_params": {
+          "说明": "【V41.3 新增】为'智能回踩'剧本配置专用的、高规格的'回踩反弹'（TRIGGER_PULLBACK_REBOUND）触发器参数。",
+          "enabled": { "value": true, "说明": "是否启用此专用触发器的计算。" },
+          "support_ma": { "value": 21, "说明": "定义回踩的关键支撑均线周期。" }
+        },
+        "fortress_defense_trigger_params": {
+          "说明": "【新增】为'堡垒防卫'剧本配置专用的'主力反击'（TRIGGER_FORTRESS_DEFENSE）触发器参数。",
+          "enabled": { "value": true, "说明": "是否启用此专用触发器的计算。" }
+        },
+        "energy_release_trigger_params": {
+          "说明": "【新增】为'潜龙在渊'剧本配置专用的、高规格的'能量释放'（TRIGGER_ENERGY_RELEASE）触发器参数。",
+          "enabled": { "value": true, "说明": "是否启用此专用触发器的计算。" },
+          "release_window": { "value": 5, "说明": "定义'近期'压缩平台的回看窗口，用于计算动态天花板和检查近期是否有过压缩。" },
+          "breakout_volume_ratio": { "value": 1.8, "说明": "点火信号要求的最小成交量放大倍数。" },
+          "breakout_pct_change": { "value": 0.03, "说明": "点火信号要求的最小日涨幅。" },
+          "support_ma": { "value": 21, "说明": "点火信号要求的趋势支撑均线周期。" }
         },
         "volume_spike_breakout": {
           "说明": "配置通用的'放量突破'（VOLUME_SPIKE_BREAKOUT）触发器的参数。",
@@ -333,15 +391,27 @@
           "enabled": { "value": true, "说明": "是否启用此触发器的计算。" }
         },
         "bband_breakout_params": {
-          "说明": "配置'布林带突破'（TRIGGER_BBAND_BREAKOUT）触发器的参数。突破中轨被视为趋势可能启动的早期信号。",
+          "说明": "【V41.4 新增】配置'布林带突破'（TRIGGER_BBAND_BREAKOUT）触发器，作为'布林带压缩'准备状态的点火器。",
           "enabled": { "value": true, "说明": "是否启用此触发器的计算。" }
         },
         "momentum_breakout_params": {
-          "说明": "配置'动量突破'（TRIGGER_MOMENTUM_BREAKOUT）触发器的参数。经典的右侧交易信号，突破前期高点。",
+          "说明": "【V41.4 新增】配置'动量突破'（TRIGGER_MOMENTUM_BREAKOUT）触发器，恢复经典'首板'逻辑。",
           "enabled": { "value": true, "说明": "是否启用此触发器的计算。" },
-          "vol_ma_period": { "value": 20, "说明": "用于判断'放量'的成交量均线周期。" },
-          "lookback_period": { "value": 20, "说明": "定义'前期高点'的回看周期。" },
-          "volume_ratio": { "value": 1.5, "说明": "突破必须伴随放量，成交量相对于均量的最小倍数。" }
+          "rally_threshold": { "value": 0.05, "说明": "定义'强势阳线'的最小涨幅（开盘价到收盘价）。" },
+          "volume_ratio": { "value": 2.0, "说明": "定义'放量'的最小成交量放大倍数。" },
+          "vol_ma_period": { "value": 21, "说明": "用于判断'放量'的成交量均线周期。" }
+        },
+        "indicator_cross_params": {
+          "说明": "【V41.4 新增】配置经典指标交叉触发器。",
+          "enabled": { "value": true, "说明": "是否启用指标交叉类触发器的总开关。" },
+          "dmi_cross": {
+            "enabled": { "value": true, "说明": "启用DMI金叉触发器。" }
+          },
+          "macd_cross": {
+            "enabled": { "value": true, "说明": "启用MACD金叉触发器。" },
+            "low_level": { "value": -0.5, "说明": "定义MACD金叉的'低位区'上限。" },
+            "high_level": { "value": 0.5, "说明": "定义MACD金叉的'高位区'下限。" }
+          }
         }
       },
       "entry_scoring_params": {
@@ -408,6 +478,48 @@
           }
         }
       },
+      "playbook_specific_params": {
+        "说明": "【V41.9 新增】为特定、独立的交易剧本配置专属参数。",
+        "bias_reversal_params": {
+          "enabled": { "value": true, "说明": "启用'BIAS超跌反转'剧本。" },
+          "bias_period": { "value": 20, "说明": "计算BIAS指标的周期。" },
+          "oversold_threshold": { "value": -15.0, "说明": "定义'极端超卖'的BIAS阈值。" }
+        },
+        "gap_support_params": {
+          "enabled": { "value": true, "说明": "启用'缺口支撑'状态和剧本。" },
+          "gap_check_days": { "value": 10, "说明": "向上跳空缺口保持有效的最长天数。" }
+        },
+        "earth_heaven_board_params": {
+          "enabled": { "value": true, "说明": "启用'地天板反转'剧本。" }
+        },
+        "n_shape_relay_params": {
+          "enabled": { "value": true, "说明": "启用'N字板接力'剧本。" },
+          "rally_threshold": { "value": 0.097, "说明": "定义'涨停/大阳线'的日涨幅阈值。" },
+          "body_rally_threshold": { "value": 0.05, "说明": "定义'大阳线'的实体最小涨幅。" },
+          "consolidation_days_max": { "value": 3, "说明": "N字整理阶段的最大天数。" },
+          "hold_above_key": { "value": "open_D", "说明": "整理期要求守住启动板的哪个价格之上 (open_D, close_D, low_D)。" }
+        },
+        "winner_rate_reversal_params": {
+          "enabled": { "value": true, "说明": "启用'获利盘洗净反转'剧本。" },
+          "washout_threshold": { "value": 10.0, "说明": "定义'获利盘洗净'的阈值(%)。" }
+        },
+        "fibonacci_pullback_params": {
+          "enabled": { "value": true, "说明": "启用'斐波那契引力区'剧本。" },
+          "peak_distance": { "value": 10, "说明": "寻找波峰/谷的最小间隔天数。" },
+          "peak_prominence": { "value": 0.05, "说明": "波峰/谷的最小显著性(相对价格范围的比例)。" },
+          "impulse_min_rise_pct": { "value": 0.25, "说明": "有效驱动浪的最小涨幅。" },
+          "impulse_min_duration": { "value": 10, "说明": "有效驱动浪的最短持续天数。" },
+          "impulse_min_adx": { "value": 20, "说明": "有效驱动浪期间的最低平均ADX值。" },
+          "retracement_levels": { "value": [0.382, 0.5, 0.618], "说明": "关注的斐波那契回撤水平。" },
+          "pullback_buffer": { "value": 0.015, "说明": "触及回撤位的价格缓冲范围。" }
+        },
+        "ma_acceleration_params": {
+          "enabled": { "value": true, "说明": "启用'趋势引爆'剧本。" },
+          "ma_period": { "value": 21, "说明": "用于判断加速的核心均线周期。" },
+          "volume_surge_ratio": { "value": 1.5, "说明": "定义'放量'的成交量放大倍数。" },
+          "min_adx_level": { "value": 20, "说明": "确认趋势状态的最低ADX值。" }
+        }
+      },
       "industry_context_params": {
         "说明": "【行业协同-奖惩模块】A股核心逻辑：跟随市场热点。根据个股所属行业的强度排名，对最终得分进行动态调整。",
         "enabled": { "value": false, "说明": "是否启用行业协同模块。" },
@@ -417,6 +529,49 @@
         "top_tier_rank_threshold": { "value": 0.9, "说明": "定义'龙头板块'的强度排名阈值。排名前10%的为市场核心热点。" },
         "top_tier_bonus": { "value": 30, "说明": "对'龙头板块'中的股票，在应用完乘数奖励后，再给予固定的额外奖励，使其在竞争中拥有绝对优势。" }
       }
+    }
+  },
+  "exit_strategy_params": {
+    "说明": "【V41.12 新增】智能出场矩阵的专属参数配置。",
+    "enabled": { "value": true, "说明": "是否启用智能出场矩阵。" },
+    "upthrust_distribution_params": {
+      "enabled": { "value": true, "说明": "启用'主力叛逃(高位派发)'出场剧本。" },
+      "overextension_ma_period": { "value": 55, "说明": "判断超涨状态所参考的均线周期。" },
+      "overextension_threshold": { "value": 0.3, "说明": "股价超过均线30%视为超涨。" },
+      "upper_shadow_ratio": { "value": 0.6, "说明": "上影线占K线总振幅的最小比例。" },
+      "high_volume_quantile": { "value": 0.85, "说明": "成交量需要超过过去N天成交量的85%分位数。" },
+      "exit_code": { "value": 16, "说明": "退出代码：主力高位派发。" }
+    },
+    "volume_breakdown_params": {
+      "enabled": { "value": true, "说明": "启用'结构崩溃(放量破位)'出场剧本。" },
+      "support_ma_period": { "value": 55, "说明": "关键动态支撑均线周期。" },
+      "volume_surge_ratio": { "value": 1.8, "说明": "破位日成交量需为均量的1.8倍以上。" },
+      "main_force_dump_ratio": { "value": 0.1, "说明": "主力净卖出额需大于近期日均成交额的10%。" },
+      "exit_code": { "value": 17, "说明": "退出代码：结构性放量崩溃。" }
+    },
+    "resistance_exit_params": {
+      "enabled": { "value": true, "说明": "启用'前期高点压力'止盈剧本。" },
+      "lookback_period": { "value": 90, "说明": "寻找前期高点的回看周期（天）。" },
+      "approach_threshold": { "value": 0.01, "说明": "距离前期高点1%以内即视为'接近'。" },
+      "exit_code": { "value": 11, "说明": "退出代码：结构性压力位止盈。" }
+    },
+    "trailing_stop_params": {
+      "enabled": { "value": true, "说明": "启用'移动止损'剧本。" },
+      "lookback_period": { "value": 20, "说明": "计算移动止损所参考的近期高点回看周期。" },
+      "percentage_pullback": { "value": 0.10, "说明": "从近期最高收盘价回撤10%触发止损。" },
+      "exit_code": { "value": 12, "说明": "退出代码：移动止损。" }
+    },
+    "indicator_exit_params": {
+      "enabled": { "value": true, "说明": "启用'指标超买'止盈剧本。" },
+      "rsi_threshold": { "value": 85, "说明": "RSI超买阈值。" },
+      "bias_threshold": { "value": 20.0, "说明": "BIAS超买阈值。" },
+      "exit_code_rsi": { "value": 13, "说明": "退出代码：RSI超买掉头。" },
+      "exit_code_bias": { "value": 14, "说明": "退出代码：BIAS超买掉头。" }
+    },
+    "divergence_exit_params": {
+      "enabled": { "value": true, "说明": "启用'顶背离'风险离场剧本。" },
+      "confirmation_days": { "value": 5, "说明": "顶背离发生后，等待确认信号的有效期（天）。" },
+      "exit_code": { "value": 15, "说明": "退出代码：顶背离确认。" }
     }
   }
 }

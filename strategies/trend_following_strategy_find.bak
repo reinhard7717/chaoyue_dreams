@@ -96,29 +96,6 @@
         signal = is_maverick_state.shift(1).fillna(False) & is_market_rebounding
         return signal & precondition
 
-    def _find_first_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
-        """【V2.7 列名修复版】寻找A股特色的“首板”或强势启动信号。"""
-        params = self._get_params_block(params, 'first_breakout_params')
-        if not params.get('enabled', False): return pd.Series(False, index=df.index)
-
-        # ▼▼▼ 从配置文件动态获取 vol_ma 周期并构建列名 ▼▼▼
-        fe_params = self.daily_params.get('feature_engineering_params', {})
-        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
-        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
-        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
-
-        required_cols = ['close_D', 'open_D', 'volume_D', vol_ma_col]
-        if not all(col in df.columns for col in required_cols): 
-            if self.verbose_logging:
-                print(f"    [调试-底部首板-警告]: 缺少列: {[c for c in required_cols if c not in df.columns]}，跳过。")
-            return pd.Series(False, index=df.index)
-
-        price_increase_ratio = (df['close_D'] - df['open_D']) / df['open_D']
-        is_strong_candle = price_increase_ratio > params.get('rally_threshold', 0.05) # 参数名与json统一
-
-        is_volume_surge = df['volume_D'] > df[vol_ma_col] * params.get('volume_ratio', 2.0)
-
-        return precondition & is_strong_candle & is_volume_surge
 
     def _find_pullback_to_ma_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
         """
@@ -385,6 +362,30 @@
         is_volume_surge = df['volume_D'] > df[vol_ma_col] * params.get('volume_ratio', 1.5)
         return precondition & is_breakout & is_volume_surge
 
+    def _find_first_breakout_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """【V2.7 列名修复版】寻找A股特色的“首板”或强势启动信号。"""
+        params = self._get_params_block(params, 'first_breakout_params')
+        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+
+        # ▼▼▼ 从配置文件动态获取 vol_ma 周期并构建列名 ▼▼▼
+        fe_params = self.daily_params.get('feature_engineering_params', {})
+        vol_ma_config = fe_params.get('indicators', {}).get('vol_ma', {})
+        vol_ma_period = self._get_periods_for_timeframe(vol_ma_config, 'D')[0] if self._get_periods_for_timeframe(vol_ma_config, 'D') else 21
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+
+        required_cols = ['close_D', 'open_D', 'volume_D', vol_ma_col]
+        if not all(col in df.columns for col in required_cols): 
+            if self.verbose_logging:
+                print(f"    [调试-底部首板-警告]: 缺少列: {[c for c in required_cols if c not in df.columns]}，跳过。")
+            return pd.Series(False, index=df.index)
+
+        price_increase_ratio = (df['close_D'] - df['open_D']) / df['open_D']
+        is_strong_candle = price_increase_ratio > params.get('rally_threshold', 0.05) # 参数名与json统一
+
+        is_volume_surge = df['volume_D'] > df[vol_ma_col] * params.get('volume_ratio', 2.0)
+
+        return precondition & is_strong_candle & is_volume_surge
+
     def _find_indicator_entry(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V2.2 修复版】计算所有基于指标的原始买入信号。
@@ -406,9 +407,7 @@
         dmi_cross_signal = pd.Series(False, index=df.index)
         if dmi_params.get('enabled', False) and dmi_period_list:
             dmi_period = dmi_period_list[0]
-            # ▼▼▼【代码修改】: 使用 PDI 和 NDI 作为列名，以匹配您的实际数据列 ▼▼▼
             pdi_col, mdi_col = f'PDI_{dmi_period}_D', f'NDI_{dmi_period}_D'
-            # ▲▲▲【代码修改结束】▲▲▲
             
             if self.verbose_logging:
                 print(f"    [调试-DMI金叉]: 正在检查DMI金叉，使用列名: {pdi_col}, {mdi_col}")
@@ -492,8 +491,7 @@
         
         # 条件2: 价格向上突破布林【中轨】，作为启动信号
         is_breakout = (df['close_D'] > df[bbm_col]) & (df['close_D'].shift(1) <= df[bbm_col].shift(1))
-        
-        
+
         signal = is_squeeze & is_breakout & precondition
 
         if self.verbose_logging:
@@ -948,4 +946,622 @@
             print(f"    [调试-筹码集中]: 使用 {lower_pct}/{upper_pct} 百分位，剧本触发 {final_signal.sum()} 次。")
 
         return final_signal.fillna(False)
+
+    def _find_chip_cost_breakthrough(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """【新剧本】【V2.1 列名修复版】筹码成本突破：股价上穿市场平均成本。"""
+        params = self._get_params_block(params, 'chip_cost_breakthrough_params')
+        close_col = 'close_D'
+        weight_avg_col = 'weight_avg_D'
+        if not params.get('enabled', False) or close_col not in df.columns or weight_avg_col not in df.columns:
+            return pd.Series(False, index=df.index)
+        
+        signal = (df[close_col] > df[weight_avg_col]) & (df[close_col].shift(1) <= df[weight_avg_col].shift(1))
+
+        return signal & precondition
+
+    def _find_chip_pressure_release(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """【新剧本】【V2.1 列名修复版】筹码压力释放：股价突破95%的套牢盘成本线。"""
+        params = self._get_params_block(params, 'chip_pressure_release_params')
+        close_col = 'close_D'
+        cost_95pct_col = 'cost_95pct_D'
+        if not params.get('enabled', False) or close_col not in df.columns or cost_95pct_col not in df.columns:
+            return pd.Series(False, index=df.index)
+            
+        signal = df[close_col] > df[cost_95pct_col]
+
+        return signal & precondition
+
+    # ▼▼▼ 突破85%成本线 ▼▼▼
+    def _find_chip_hurdle_clear_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """【新增剧本】筹码关口扫清：股价突破85%的套牢盘成本线，作为趋势确认信号。"""
+        # 注意：这里我们复用 pressure_release 的参数块，或者你可以为其新建一个参数块
+        params = self._get_params_block(params, 'chip_hurdle_clear_params') # 假设复用参数
+        close_col = 'close_D'
+        cost_85pct_col = 'cost_85pct_D'
+        if not params.get('enabled', False) or close_col not in df.columns or cost_85pct_col not in df.columns:
+            return pd.Series(False, index=df.index)
+        
+        signal = (df[close_col] > df[cost_85pct_col]) & (df[close_col].shift(1) <= df[cost_85pct_col].shift(1))
+
+        return signal & precondition
+
+    # 寻找BIAS超跌反弹买点
+    def _find_bias_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """【V2.10 】寻找BIAS极端超跌后的反弹买点。"""
+        params = self._get_params_block(params, 'bias_reversal_entry_params')
+        if not params.get('enabled', False): return pd.Series(False, index=df.index)
+
+        bias_col = f"BIAS_{params.get('bias_period', 20)}_D"
+        if bias_col not in df.columns: return pd.Series(False, index=df.index)
+
+        # 条件1: BIAS值低于极端阈值，表明严重超卖
+        is_extreme_oversold = df[bias_col] < params.get('oversold_threshold', -15.0)
+        
+        # 条件2: BIAS开始回升（今日BIAS > 昨日BIAS），出现反弹迹象
+        is_rebounding = df[bias_col] > df[bias_col].shift(1)
+
+        # 信号：前一日极端超卖，今日开始反弹
+        signal = is_extreme_oversold.shift(1).fillna(False) & is_rebounding
+        return signal
+
+    def _find_n_shape_relay_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【剧本】【V1.2 涨停识别修正版】识别“N字板”接力。
+        修正了对“涨停/大阳线”的识别逻辑，使其能正确捕捉包括一字板、T字板在内的所有强势形态。
+        """
+        params = self._get_params_block(params, 'n_shape_relay_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        rally_threshold = params.get('rally_threshold', 0.097)
+        consolidation_days_max = params.get('consolidation_days_max', 3)
+        hold_above_key = params.get('hold_above_key', 'open_D')
+
+        # 采用更鲁棒的“拉升日”识别逻辑，并保持向量化实现
+
+        # 步骤1: 识别所有可能的“拉升日” (启动板和接力板)
+        # 条件a: K线实体涨幅够大 (捕捉大阳线)
+        body_rally = (df['close_D'] - df['open_D']) / df['open_D'].replace(0, np.nan)
+        is_strong_body = body_rally > params.get('body_rally_threshold', 0.05) # 参数，默认为5%
+        
+        # 条件b: 日涨幅够大 (捕捉各类涨停板)
+        close_to_close_rally = df['close_D'].pct_change()
+        is_limit_up_rally = close_to_close_rally > rally_threshold
+
+        # 最终的“拉升日”定义：满足任一条件即可
+        is_rally_day = is_strong_body | is_limit_up_rally
+
+        final_signal = pd.Series(False, index=df.index)
+
+        # 步骤2: 遍历所有可能的整理周期 (1天到consolidation_days_max天)
+        for days in range(1, consolidation_days_max + 1):
+            # 假设今天(T)是接力板，那么启动板就在 T-days-1 日
+            is_second_rally = is_rally_day
+            is_first_rally = is_rally_day.shift(days + 1)
+
+            # 获取启动板和整理期的相关数据
+            first_rally_high = df['high_D'].shift(days + 1)
+            first_rally_support = df[hold_above_key].shift(days + 1)
+            first_rally_volume = df['volume_D'].shift(days + 1)
+
+            # 步骤3: 验证整理期 (T-days 到 T-1)
+            consolidation_lows = df['low_D'].shift(1).rolling(window=days).min()
+            consolidation_volumes = df['volume_D'].shift(1).rolling(window=days).max()
+
+            is_supported = consolidation_lows > first_rally_support
+            is_volume_shrunk = consolidation_volumes < first_rally_volume
+            
+            # 步骤4: 验证接力板(今天)是否突破了启动板的高点
+            is_breakout = df['close_D'] > first_rally_high
+
+            # 步骤5: 组合所有条件
+            current_signal = (
+                is_first_rally & 
+                is_supported & 
+                is_volume_shrunk & 
+                is_second_rally & 
+                is_breakout
+            )
+            
+            final_signal |= current_signal.fillna(False)
+
+        return final_signal & precondition
+
+    def _find_winner_rate_reversal_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【全新剧本】【V1.1 列名修复版】识别“获利盘洗净反转”信号 (或称“投降坑”反转)。
+        当获利盘比例极低（市场绝望），随后出现企稳阳线时，视为底部反转信号。
+        """
+        # 从主配置中获取本剧本的参数块
+        params = self._get_params_block(params, 'winner_rate_reversal_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+        # 检查必需的CYQ数据列是否存在
+        winner_rate_col = 'winner_rate_D'
+        close_col = 'close_D'
+        open_col = 'open_D'
+        required_cols = [winner_rate_col, close_col, open_col]
+        if not all(col in df.columns and df[col].notna().any() for col in required_cols):
+            if self.verbose_logging:
+                print(f"    [调试-获利盘洗净反转]: 跳过，缺少必需的CYQ列: {required_cols}")
+            return pd.Series(False, index=df.index)
+        # 1. 条件A: 前一日获利盘比例极低（市场已完成“投降式”抛售）
+        # 注意：winner_rate的单位是%，所以阈值也要是%
+        was_washed_out = df[winner_rate_col].shift(1) < params.get('washout_threshold', 10.0)
+        # 2. 条件B: 当日为企稳阳线
+        is_reversal_candle = df['close_D'] > df['open_D']
+        # 这个信号是典型的左侧交易信号，可以不依赖于严格的上升趋势前提(precondition)
+        final_signal = was_washed_out & is_reversal_candle
+
+        if self.verbose_logging and final_signal.any():
+            print(f"    [调试-获利盘洗净反转]: 剧本触发 {final_signal.sum()} 次。")
+        return final_signal.fillna(False)
+
+    def _find_fibonacci_pullback_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【剧本】【V2.0 动态行为版】“斐波那契引力区” - 动态识别并验证高质量的回踩。
+        - 核心修正: 不再依赖外部预计算的斐波那契列，改为在函数内部动态寻找波峰波谷并计算。
+        - 策略深化:
+          1. 驱动浪验证: 只对“高涨幅、强趋势(ADX)”的有效驱动浪进行分析。
+          2. 回踩质量验证: 要求回踩过程必须“缩量”，表明卖压衰竭。
+          3. 主力行为确认: 在斐波那契支撑位企稳反弹的当天，必须由“主力资金净流入”确认。
+        """
+        fib_params = self._get_params_block(params, 'fibonacci_pullback_params')
+        if not fib_params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        if self.verbose_logging:
+            print("\n--- [调试-斐波那契V2.0-启动] ---")
+
+        # --- 从配置中读取或使用默认值 ---
+        peak_distance = fib_params.get('peak_distance', 10)
+        peak_prominence = fib_params.get('peak_prominence', 0.05) # 波峰/谷的显著性(5%)
+        impulse_min_rise_pct = fib_params.get('impulse_min_rise_pct', 0.25) # 驱动浪最小涨幅25%
+        impulse_min_duration = fib_params.get('impulse_min_duration', 10) # 驱动浪最短持续10天
+        impulse_min_adx = fib_params.get('impulse_min_adx', 20) # 驱动浪期间ADX均值需大于20
+        fib_levels = fib_params.get('retracement_levels', [0.382, 0.5, 0.618])
+        pullback_buffer = fib_params.get('pullback_buffer', 0.015) # 1.5%的缓冲带
+
+        # --- 准备所需列名 ---
+        adx_col = 'ADX_14_D'
+        vol_ma_col = 'VOL_MA_21_D'
+        required_cols = [
+            'high_D', 'low_D', 'close_D', 'open_D', 'volume_D', adx_col, vol_ma_col, 'net_main_force_amount_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            if self.verbose_logging:
+                print(f"    [调试-斐波那契-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
+            return pd.Series(False, index=df.index)
+
+        # --- 步骤1: 动态识别所有显著的波峰和波谷 ---
+        price_range = df['high_D'].max() - df['low_D'].min()
+        if price_range == 0: return pd.Series(False, index=df.index) # 价格无波动则跳过
+        
+        # find_peaks 需要绝对显著性值，我们将其从相对值转换
+        absolute_prominence = price_range * peak_prominence
+        
+        swing_high_indices, _ = find_peaks(df['high_D'], distance=peak_distance, prominence=absolute_prominence)
+        swing_low_indices, _ = find_peaks(-df['low_D'], distance=peak_distance, prominence=absolute_prominence)
+
+        if self.verbose_logging:
+            print(f"    [调试] 发现 {len(swing_high_indices)} 个显著波峰, {len(swing_low_indices)} 个显著波谷。")
+
+        if len(swing_high_indices) == 0 or len(swing_low_indices) == 0:
+            return pd.Series(False, index=df.index)
+
+        final_signal = pd.Series(False, index=df.index)
+
+        # --- 步骤2: 遍历每个波峰，寻找并验证其前的驱动浪 ---
+        for high_idx in swing_high_indices:
+            # 找到此波峰之前最近的那个波谷
+            possible_lows = swing_low_indices[swing_low_indices < high_idx]
+            if len(possible_lows) == 0:
+                continue
+            low_idx = possible_lows[-1]
+
+            # --- 步骤2a: 验证驱动浪 (从 low_idx 到 high_idx) 的质量 ---
+            impulse_wave_df = df.iloc[low_idx:high_idx+1]
+            duration = len(impulse_wave_df)
+            rise_pct = (impulse_wave_df['high_D'].max() / impulse_wave_df['low_D'].min()) - 1
+            avg_adx = impulse_wave_df[adx_col].mean()
+
+            if not (duration >= impulse_min_duration and rise_pct >= impulse_min_rise_pct and avg_adx >= impulse_min_adx):
+                continue # 如果驱动浪质量不达标，则跳过这个波峰
+
+            if self.verbose_logging:
+                start_date, end_date = df.index[low_idx].date(), df.index[high_idx].date()
+                print(f"\n    [调试] 发现有效驱动浪: {start_date} -> {end_date} (涨幅: {rise_pct:.2%}, 持续: {duration}天, ADX: {avg_adx:.1f})")
+
+            # --- 步骤2b: 计算此驱动浪的斐波那契回撤水平 ---
+            swing_high_price = df['high_D'].iloc[high_idx]
+            swing_low_price = df['low_D'].iloc[low_idx]
+            retracement_range = swing_high_price - swing_low_price
+            
+            fib_support_levels = {
+                level: swing_high_price - retracement_range * level for level in fib_levels
+            }
+            if self.verbose_logging:
+                print(f"      -> 斐波那契支撑位: " + ", ".join([f"{lvl*100:.1f}%={price:.2f}" for lvl, price in fib_support_levels.items()]))
+
+            # --- 步骤3: 在驱动浪之后寻找符合条件的回踩买点 ---
+            # 只在驱动浪结束后的特定周期内寻找回踩，避免过时
+            search_period_df = df.iloc[high_idx + 1 : high_idx + 1 + 60] # 最多往后找60天
+            for date, row in search_period_df.iterrows():
+                for level, support_price in fib_support_levels.items():
+                    # 条件1: 价格触及斐波那契支撑位 (带缓冲)
+                    if row['low_D'] <= support_price * (1 + pullback_buffer) and row['low_D'] >= support_price * (1 - pullback_buffer):
+                        # 条件2: 回踩必须是缩量的
+                        is_volume_shrinking = row['volume_D'] < row[vol_ma_col]
+                        # 条件3: 企稳K线必须是阳线，且收盘价高于支撑位
+                        is_reversal_candle = row['close_D'] > row['open_D'] and row['close_D'] > support_price
+                        # 条件4: 主力资金必须净流入
+                        is_main_force_buying = row['net_main_force_amount_D'] > 0
+
+                        if is_volume_shrinking and is_reversal_candle and is_main_force_buying:
+                            if self.verbose_logging:
+                                print(f"      ★★ 信号触发! ★★ 日期: {date.date()}, 在 {level*100:.1f}% ({support_price:.2f}) 水平获得支撑。")
+                                print(f"          -> 缩量: {is_volume_shrinking}, K线确认: {is_reversal_candle}, 主力买入: {is_main_force_buying}")
+                            final_signal.loc[date] = True
+                            # 找到一个有效回踩后，就跳出对此驱动浪的后续搜索
+                            break 
+                if final_signal.loc[date]:
+                    break
+
+        if self.verbose_logging:
+            print(f"--- [调试-斐波那契V2.0-结束] 最终信号总数: {final_signal.sum()} ---")
+
+        return final_signal.fillna(False) & precondition
+
+    def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
+        """
+        【V2.5 最终修复版】检查VWAP支撑确认信号。
+        """
+        # print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...") # 可以注释掉常规日志
+        vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
+        if not vwap_params.get('enabled', False):
+            if 'D' in df_dict and not df_dict['D'].empty:
+                return pd.Series(False, index=df_dict['D'].index)
+            return pd.Series([])
+
+        tf = vwap_params.get('timeframe', '5')
+        buffer = vwap_params.get('confirmation_buffer', 0.001)
+
+        df_minute = df_dict.get(tf)
+        df_daily = df_dict.get('D')
+
+        if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
+             return pd.Series(False, index=df_daily.index if df_daily is not None else None)
+
+        # 检查VWAP列是否存在
+        vwap_col = f'VWAP_{tf}'
+        if vwap_col not in df_minute.columns: vwap_col = 'VWAP_D' # 兼容旧列名
+        if vwap_col not in df_minute.columns: return pd.Series(False, index=df_daily.index)
+
+        # 核心逻辑：检查分钟线是否在VWAP之上，然后按天聚合
+        # .normalize() 对UTC时区索引同样有效，会将其归一化到当天的零点
+        is_above_vwap = df_minute['close'] > df_minute[vwap_col] * (1 + buffer)
+        daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
+        
+        # 将聚合后的日线信号映射回原始的日线DataFrame
+        final_signal = pd.Series(False, index=df_daily.index)
+        
+        if not daily_confirmation.empty:
+            # 使用 .reindex() 是一种更健壮和简洁的映射方式
+            # 它会根据 df_daily 的归一化日期索引，从 daily_confirmation 中查找对应的值
+            # 找不到的日期会自动填充为 fill_value (默认为NaN，我们用 .fillna(False) 处理)
+            normalized_daily_index = df_daily.index.normalize()
+            final_signal = daily_confirmation.reindex(normalized_daily_index).fillna(False)
+            # reindex 后索引会变成归一化的日期，需要把它重置回原始的日线索引
+            final_signal.index = df_daily.index
+        # print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。") # 可以注释掉常规日志
+        return final_signal
+
+    def _check_cmf_confirmation(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【状态确认】检查CMF资金流指标是否为正，以确认买入信号。
+        这不是一个直接的买入信号，而是一个用于给其他信号加分或加权的确认状态。
+        返回一个布尔序列，表示当天CMF是否处于“资金流入”的确认状态。
+        """
+        # 从配置中获取参数
+        params = self._get_params_block(params, 'cmf_params')
+        if not params.get('enabled', True): # 默认启用
+            return pd.Series(False, index=df.index)
+
+        # 动态构建CMF列名
+        period = params.get('cmf_period', 21) # 默认值也更新为21
+        cmf_col = f'CMF_{period}_D'
+
+        # 检查必需的列是否存在，确保健壮性
+        if cmf_col not in df.columns:
+            # 仅在首次或需要时打印警告，避免刷屏
+            if not hasattr(self, '_warned_missing_cmf_col'):
+                logger.warning(f"缺少CMF列 '{cmf_col}'，CMF确认功能将不生效。请检查指标计算配置。")
+                print(f"columns: {df.columns.to_list()}")
+                # 使用一个实例属性来确保警告只打印一次
+                self._warned_missing_cmf_col = True
+            return pd.Series(False, index=df.index)
+
+        # 获取确认阈值，通常为0
+        threshold = params.get('threshold', 0)
+        
+        # CMF大于阈值（通常为0）表示资金流入，是有效的确认信号
+        is_confirmed = df[cmf_col] > threshold
+        if self.verbose_logging:
+            print(f"调试信息: CMF确认信号触发 {is_confirmed.sum()} 次 (CMF > {threshold})")
+        
+        return is_confirmed
+
+    def _check_upward_gap_support(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【状态确认】检查近期是否存在未回补的向上跳空缺口。
+        这不是一个直接的买入信号，而是一个强烈的趋势确认状态，用于给其他信号加分。
+        返回一个布尔序列，表示当天是否处于“缺口支撑”的强势状态下。
+        """
+        params = self._get_params_block(params, 'gap_support_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        gap_check_days = params.get('gap_check_days', 5)
+        
+        # 1. 识别所有向上跳空缺口，并记录缺口上沿（支撑位）
+        gap_support_level = df['high_D'].shift(1)
+        is_gap_up = df['low_D'] > gap_support_level
+        
+        # 2. 创建一个只在缺口日有值的支撑位序列
+        active_support = pd.Series(np.nan, index=df.index)
+        active_support.loc[is_gap_up] = gap_support_level[is_gap_up]
+        
+        # 3. 向前填充支撑位，模拟支撑的持续性，但有时间限制
+        active_support = active_support.ffill(limit=gap_check_days)
+        
+        # 4. 检查从缺口日之后，价格是否始终维持在支撑位之上
+        # 使用一个辅助列来判断是否在检查周期内
+        is_in_check_period = active_support.notna() & (active_support.diff() != 0).cumsum().ffill().gt(0)
+        
+        # 检查从缺口日到当前，最低价是否一直高于支撑位
+        # 使用 groupby 和 cummin 实现此逻辑
+        group = (active_support.diff() != 0).cumsum()
+        lowest_since_gap = df.groupby(group)['low_D'].transform('cummin')
+        
+        is_supported = lowest_since_gap > active_support
+        
+        return is_supported & is_in_check_period.fillna(False)
+
+    def _identify_board_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【模块】【V2.1 容错增强版】识别A股特色的各种“板”形态。
+        - 核心修正: 增加了价格判断的容错缓冲，以应对真实市场中的微小价格波动和近似计算误差。
+        """
+        params = self._get_params_block(params, 'board_pattern_params')
+        if not params.get('enabled', False):
+            return {} # 如果禁用，返回空字典
+
+        # --- 准备基础数据 ---
+        prev_close = df['close_D'].shift(1)
+        limit_up_threshold = params.get('limit_up_threshold', 0.098)
+        limit_down_threshold = params.get('limit_down_threshold', -0.098)
+        high_turnover_rate = params.get('high_turnover_rate', 7.0)
+        # ▼▼▼增加容错缓冲 ▼▼▼
+        price_buffer = params.get('price_buffer', 0.005) # 0.5%的价格缓冲
+
+        # --- 计算涨跌停价格（近似）---
+        limit_up_price = prev_close * (1 + limit_up_threshold)
+        limit_down_price = prev_close * (1 + limit_down_threshold)
+
+        # --- 识别涨跌停状态 (带缓冲) ---
+        # ▼▼▼在价格比较中应用缓冲 ▼▼▼
+        is_limit_up = df['close_D'] >= limit_up_price * (1 - price_buffer)
+        is_limit_down = df['close_D'] <= limit_down_price * (1 + price_buffer)
+        is_limit_up_high = df['high_D'] >= limit_up_price * (1 - price_buffer)
+        is_limit_down_low = df['low_D'] <= limit_down_price * (1 + price_buffer)
+
+        # 1. 一字板 (Unbroken Board)
+        is_one_word_shape = (df['open_D'] == df['high_D']) & (df['high_D'] == df['low_D']) & (df['low_D'] == df['close_D'])
+        is_one_word_limit_up = is_limit_up & is_one_word_shape
+        
+        # 2. 换手板 (Turnover Board)
+        # ▼▼▼放宽收盘价等于最高价的条件 ▼▼▼
+        is_limit_up_close = (df['close_D'] >= df['high_D'] * (1 - price_buffer)) & is_limit_up
+        is_opened_during_day = df['open_D'] < df['high_D'] # 盘中开过板
+        is_high_turnover = df.get('turnover_rate_D', pd.Series(0, index=df.index)) > high_turnover_rate
+        is_turnover_board = is_limit_up_close & is_opened_during_day & is_high_turnover
+
+        # 3. 天地板 (Heaven-Earth Board) - 强力卖出/风险信号
+        is_limit_down_close = (df['close_D'] <= df['low_D'] * (1 + price_buffer)) & is_limit_down
+        is_heaven_earth_board = is_limit_up_high & is_limit_down_close
+
+        # 4. 地天板 (Earth-Heaven Board) - 强力买入/反转信号
+        # is_limit_up_close 已在上面定义
+        is_earth_heaven_board = is_limit_down_low & is_limit_up_close
+        
+        if self.verbose_logging:
+            print(f"    [调试-板形态V2.1]: 地天板触发: {is_earth_heaven_board.sum()} 天, 天地板触发: {is_heaven_earth_board.sum()} 天")
+
+        return {
+            'one_word_limit_up': is_one_word_limit_up,
+            'turnover_board': is_turnover_board,
+            'heaven_earth_board': is_heaven_earth_board, # 风险信号
+            'earth_heaven_board': is_earth_heaven_board, # 机会信号
+        }
+
+    def _find_bottom_divergence_entry(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V4.1 增强调试版】识别“复合底背离”买入信号。
+        - 详细的print语句，用于追踪数据列、参数、中间计算结果，快速定位信号为0的问题。
+        """
+        # 步骤1: 获取并打印参数
+        div_params = self._get_params_block(params, 'bottom_divergence_params')
+        if not div_params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        # ▼▼▼ 增加详细的调试打印 ▼▼▼
+        if self.verbose_logging:
+            print("\n--- [调试-复合底背离-启动] ---")
+
+        # 从配置中读取参数
+        distance = div_params.get('distance', 5)
+        price_prominence = div_params.get('prominence_price', 0.02)
+        rsi_col = div_params.get('rsi_col', 'RSI_14_D')
+        prominence_rsi = div_params.get('prominence_rsi', 7.5)
+        macd_hist_col = div_params.get('macd_hist_col', 'MACD_HIST_ZSCORE_D')
+        prominence_macd = div_params.get('prominence_macd_zscore', 0.75)
+        confirmation_days = div_params.get('confirmation_days', 3)
+
+        if self.verbose_logging:
+            print(f"    [参数检查] distance: {distance}, price_prominence: {price_prominence}")
+            print(f"    [参数检查] rsi_col: '{rsi_col}', prominence_rsi: {prominence_rsi}")
+            print(f"    [参数检查] macd_hist_col: '{macd_hist_col}', prominence_macd: {prominence_macd}")
+            print(f"    [参数检查] confirmation_days: {confirmation_days}")
+
+        # 步骤2: 检查数据列是否存在
+        base_cols = ['low_D', 'close_D', 'open_D']
+        rsi_col_found = rsi_col in df.columns
+        macd_col_found = macd_hist_col in df.columns
+
+        if self.verbose_logging:
+            print(f"    [数据列检查] 核心价格列: {'存在' if all(c in df.columns for c in base_cols) else '缺失!'}")
+            print(f"    [数据列检查] RSI列 '{rsi_col}': {'存在' if rsi_col_found else '!!! 不存在 !!!'}")
+            print(f"    [数据列检查] MACD列 '{macd_hist_col}': {'存在' if macd_col_found else '!!! 不存在 !!!'}")
+
+        if not all(c in df.columns for c in base_cols):
+            if self.verbose_logging: print("    [调试终止] 缺少核心价格列，无法执行。")
+            return pd.Series(False, index=df.index)
+        
+        if not rsi_col_found and not macd_col_found:
+            if self.verbose_logging: print("    [调试终止] RSI和MACD列均不存在，无法执行。")
+            return pd.Series(False, index=df.index)
+
+        # 步骤3: 调用核心算法，计算所有“背离事件”
+        divergence_events = pd.Series(False, index=df.index)
+
+        # --- 计算RSI底背离 ---
+        if rsi_col_found:
+            rsi_trough_params = {"distance": distance, "prominence": price_prominence, "prominence_indicator": prominence_rsi}
+            _, rsi_bottom_div = self._find_divergence(df['low_D'], df[rsi_col], {}, rsi_trough_params)
+            divergence_events |= rsi_bottom_div
+            if self.verbose_logging:
+                # ▼▼▼ 增加详细的调试打印 ▼▼▼
+                print(f"    [RSI背离检测] 发现 {rsi_bottom_div.sum()} 个RSI背离事件。")
+
+        # --- 计算MACD底背离 ---
+        if macd_col_found:
+            macd_trough_params = {"distance": distance, "prominence": price_prominence, "prominence_indicator": prominence_macd}
+            _, macd_bottom_div = self._find_divergence(df['low_D'], df[macd_hist_col], {}, macd_trough_params)
+            divergence_events |= macd_bottom_div
+            if self.verbose_logging:
+                # ▼▼▼ 增加详细的调试打印 ▼▼▼
+                print(f"    [MACD背离检测] 发现 {macd_bottom_div.sum()} 个MACD背离事件。")
+
+        # 步骤4: 应用“因果律”确认逻辑
+        total_events = divergence_events.sum()
+        if self.verbose_logging:
+            # ▼▼▼ 增加详细的调试打印 ▼▼▼
+            print(f"    [事件汇总] 总计发现 {total_events} 个复合背离事件。")
+
+        if total_events == 0:
+            if self.verbose_logging:
+                print("    [调试终止] 未发现任何背离事件，无法生成最终信号。请检查参数是否过于严格或数据本身无此类形态。")
+                print("--- [调试-复合底背离-结束] ---\n")
+            return pd.Series(False, index=df.index)
+
+        is_green_candle = df['close_D'] > df['open_D']
+        has_recent_divergence = divergence_events.rolling(window=confirmation_days, min_periods=1).sum() > 0
+        final_signal = is_green_candle & has_recent_divergence.shift(1).fillna(False) & ~divergence_events
+        
+        # 步骤5: 打印最终结果并返回
+        if self.verbose_logging:
+            print(f"    [信号确认] 发现 {is_green_candle.sum()} 个阳线。")
+            print(f"    [信号确认] 经过'因果律'过滤后，最终生成 {final_signal.sum()} 个买入信号。")
+            print("--- [调试-复合底背离-结束] ---\n")
+              
+        return final_signal.fillna(False)
+
+    def _find_ma_acceleration_entry(self, df: pd.DataFrame, precondition: pd.Series, params: dict) -> pd.Series:
+        """
+        【剧本】【V2.0 动能共振版】“趋势引爆” - 识别多维度动能共振的爆发点。
+        - 核心升级: 从单一的均线数学形态，深化为对价格、成交量、资金、趋势强度四维共振的捕捉。
+        - 策略逻辑:
+          1. 趋势引擎 (均线加速): 保留均线斜率和加速度为正的核心逻辑。
+          2. 燃料供应 (成交量确认): 要求加速日成交量必须显著放大。
+          3. 驾驶员 (主力资金确认): 要求加速日必须由主力资金净流入驱动。
+          4. 路况检查 (趋势强度确认): 要求ADX指标显示当前处于明确的趋势行情中。
+        """
+        # 从JSON获取此剧本的专属配置
+        params = self._get_params_block(params, 'ma_acceleration_playbook')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        # --- 从配置中读取或使用默认值 ---
+        ma_period = params.get('ma_period', 21)
+        timeframe = params.get('timeframe', 'D')
+        volume_surge_ratio = params.get('volume_surge_ratio', 1.5) # 成交量放大倍数
+        min_adx_level = params.get('min_adx_level', 20) # ADX最低阈值
+
+        # --- 准备所需列名 ---
+        ema_col = f'EMA_{ma_period}_{timeframe}'
+        close_col = f'close_{timeframe}'
+        vol_ma_col = f'VOL_MA_21_{timeframe}' # 使用21日成交量均线
+        adx_col = f'ADX_14_{timeframe}' # 使用14日ADX
+        net_mf_col = f'net_main_force_amount_{timeframe}' # 主力净流入
+
+        # 使用独立后缀避免与其他剧本的列名冲突
+        slope_col = f'{ema_col}_slope_for_accel'
+        accel_col = f'{ema_col}_acceleration'
+
+        # --- 检查所有依赖列是否存在 ---
+        required_cols = [ema_col, close_col, vol_ma_col, adx_col, net_mf_col, 'volume_D']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            if self.verbose_logging:
+                print(f"    [调试-均线加速V2.0-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
+            return pd.Series(False, index=df.index)
+
+        # --- 核心计算逻辑 ---
+        # 1. 趋势引擎 (均线加速) - 保留原有逻辑
+        df[slope_col] = df[ema_col].diff(1)
+        df[accel_col] = df[slope_col].diff(1)
+        is_ma_accelerating = (df[slope_col] > 0) & (df[accel_col] > 0)
+
+        # 2. 燃料供应 (成交量确认)
+        is_volume_surged = df['volume_D'] > (df[vol_ma_col] * volume_surge_ratio)
+
+        # 3. 驾驶员 (主力资金确认)
+        is_main_force_driving = df[net_mf_col] > 0
+
+        # 4. 路况检查 (趋势强度确认)
+        is_in_trend = df[adx_col] > min_adx_level
+        
+        # --- 组合最终信号：四维共振 ---
+        final_signal = (
+            is_ma_accelerating &
+            is_volume_surged &
+            is_main_force_driving &
+            is_in_trend
+        )
+
+        # 最终信号必须满足外部传入的严格前提条件 (例如，周线多头)
+        final_signal &= precondition
+
+        if self.verbose_logging:
+            print(f"    [调试-均线加速V2.0]: 前提满足: {precondition.sum()} | "
+                  f"均线加速: {is_ma_accelerating.sum()} | "
+                  f"放量: {is_volume_surged.sum()} | "
+                  f"主力买入: {is_main_force_driving.sum()} | "
+                  f"趋势确认(ADX): {is_in_trend.sum()} | "
+                  f"最终信号: {final_signal.sum()}")
+
+        # 清理临时列，保持DataFrame干净
+        df.drop(columns=[slope_col, accel_col], inplace=True, errors='ignore')
+
+        return final_signal.fillna(False)
+
+
+
+
+
+
+
+
+
 
