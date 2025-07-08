@@ -590,3 +590,95 @@ class MultiTimeframeTrendStrategy:
             "context_snapshot": sanitize_for_json({'close': row.get('close')}),
         }
         return record
+
+    async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
+        """
+        【V6.8 新增】专用历史回溯调试方法。
+        - 核心功能: 对指定股票和时间段进行策略分析，并逐日打印详细的信号触发情况。
+        - 目的: 用于复盘主升浪或主跌浪期间，策略剧本的每日表现。
+        """
+        print("=" * 80)
+        print(f"--- [历史回溯调试启动] ---")
+        print(f"  - 股票代码: {stock_code}")
+        print(f"  - 回溯时段: {start_date} to {end_date}")
+        print("=" * 80)
+
+        try:
+            # 1. 一次性获取整个时间段所需的所有数据
+            #    我们将 trade_time 设置为 end_date，以确保 IndicatorService 获取到完整的历史数据
+            print(f"\n[步骤 1/4] 正在准备 {start_date} 到 {end_date} 的所有时间周期数据...")
+            all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
+                stock_code, self.merged_config, trade_time=end_date
+            )
+            if 'D' not in all_dfs or all_dfs['D'].empty:
+                print(f"[错误] 无法获取 {stock_code} 的日线数据，调试终止。")
+                return
+            print("[成功] 所有数据准备就绪。")
+
+            # 2. 运行战略引擎（周线）和战术引擎（日线）
+            print("\n[步骤 2/4] 正在运行周线战略引擎和日线战术引擎...")
+            strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
+            all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+            
+            # 运行战术引擎，这是我们分析的核心
+            final_df, _ = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
+            if final_df is None or final_df.empty:
+                print("[信息] 战术引擎运行完成，但未生成任何分析结果。")
+                return
+            print("[成功] 战术引擎分析完成。")
+
+            # 3. 筛选出我们关心的历史时段
+            print(f"\n[步骤 3/4] 正在筛选目标时段 ({start_date} to {end_date}) 的分析结果...")
+            debug_period_df = final_df.loc[start_date:end_date].copy()
+            if debug_period_df.empty:
+                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到数据。")
+                return
+            print(f"[成功] 筛选出 {len(debug_period_df)} 个交易日的分析数据。")
+
+            # 4. 逐日打印信号详情
+            print("\n[步骤 4/4] 开始逐日分析并打印信号详情...")
+            print("-" * 80)
+            
+            # 获取入场分数阈值
+            score_threshold = self.tactical_config.get('strategy_params', {})\
+                .get('trend_follow', {}).get('entry_scoring_params', {}).get('score_threshold', {}).get('value', 100)
+
+            for trade_date, row in debug_period_df.iterrows():
+                date_str = trade_date.strftime('%Y-%m-%d')
+                entry_score = row.get('entry_score', 0)
+
+                # 检查是否有入场信号
+                if entry_score >= score_threshold:
+                    # 找出所有被触发的剧本
+                    triggered_playbooks = [col.replace('playbook_', '') for col in row.index if col.startswith('playbook_') and row[col] is True]
+                    
+                    # 找出所有成立的准备状态
+                    active_setups = [col.replace('SETUP_', '') for col in row.index if col.startswith('SETUP_') and row[col] is True]
+                    
+                    print(f"【{date_str}】-> ★★★ 买入信号触发 ★★★")
+                    print(f"  - 总分: {entry_score:.2f} (阈值: {score_threshold})")
+                    print(f"  - 激活剧本: {triggered_playbooks}")
+                    print(f"  - 准备状态: {active_setups}")
+                    print(f"  - 核心前提: 右侧趋势成立 = {row.get('context_mid_term_bullish', False)}")
+                    print(f"  - 收盘价: {row.get('close_D', 'N/A'):.2f}, 涨跌幅: {row.get('pct_chg_D', 0):.2f}%")
+                    print("-" * 50)
+
+                # 检查是否有出场信号 (如果您的 final_df 中包含出场信号列)
+                exit_code = row.get('exit_signal_code', 0)
+                if exit_code > 0:
+                    exit_reason = row.get('exit_signal_reason', '未知原因')
+                    print(f"【{date_str}】-> !!! 卖出信号触发 !!!")
+                    print(f"  - 退出代码: {exit_code}")
+                    print(f"  - 触发原因: {exit_reason}")
+                    print(f"  - 收盘价: {row.get('close_D', 'N/A'):.2f}, 涨跌幅: {row.get('pct_chg_D', 0):.2f}%")
+                    print("-" * 50)
+
+            print("=" * 80)
+            print(f"--- [历史回溯调试完成] ---")
+            print("=" * 80)
+
+        except Exception as e:
+            print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
+

@@ -3,7 +3,6 @@
 
 import asyncio
 from datetime import datetime
-import json
 import logging
 from celery import Celery
 from asgiref.sync import async_to_sync
@@ -14,7 +13,6 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
-from strategies.trend_following_strategy import TrendFollowStrategy
 # from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
 
 logger = logging.getLogger('tasks')
@@ -46,7 +44,7 @@ async def _get_all_relevant_stock_codes_for_processing():
     return favorite_stock_codes_list, non_favorite_stock_codes
 
 
-# ▼▼▼【代码新增】: 将核心业务逻辑剥离到一个独立的、可复用的函数中 ▼▼▼
+# ▼▼▼ 将核心业务逻辑剥离到一个独立的、可复用的函数中 ▼▼▼
 def _execute_strategy_logic(stock_code: str, trade_date: str):
     """
     【V1.0 - 核心策略执行逻辑】
@@ -102,6 +100,94 @@ def _execute_strategy_logic(stock_code: str, trade_date: str):
         # 在函数内部处理异常并返回错误信息，而不是向上抛出
         return {"status": "error", "reason": str(e)}
 
+# ▼▼▼ 为调试任务增加更详细的注释，解释同步调用的原因 ▼▼▼
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_single_stock_analysis', queue='debug_tasks')
+def debug_single_stock_analysis(self, stock_code: str):
+    """
+    【V1.2 - 专用调试任务，修复死锁问题】
+    对单个股票执行最详细的策略分析，用于问题排查。
+    现在直接调用核心逻辑函数，避免Celery死锁。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [调试任务启动] ---")
+    logger.info(f"股票代码: {stock_code}")
+    
+    trade_date_str = datetime.now().strftime('%Y-%m-%d')
+    logger.info(f"分析日期: {trade_date_str}")
+
+    stock_time_trade_dao = StockTimeTradeDAO()
+    try:
+        latest_daily_quote = async_to_sync(stock_time_trade_dao.get_latest_daily_quote)(stock_code)
+        if latest_daily_quote:
+            pct_chg = latest_daily_quote.get('pct_chg', 0)
+            close_price = latest_daily_quote.get('close', 'N/A')
+            trade_date_db = latest_daily_quote.get('trade_date', 'N/A')
+            logger.info(f"数据库最新行情: 日期={trade_date_db}, 收盘价={close_price}, 涨跌幅={pct_chg}%")
+            if pct_chg > 0:
+                logger.info(f"诊断结论: [{stock_code}] 今日为上涨状态，是理想的调试对象。")
+            else:
+                logger.info(f"诊断结论: [{stock_code}] 今日为下跌或平盘状态。")
+        else:
+            logger.warning(f"未能获取到 [{stock_code}] 的最新日线行情。")
+    except Exception as e:
+        logger.error(f"获取 [{stock_code}] 最新行情时出错: {e}", exc_info=True)
+
+    logger.info("无论行情如何，都将强制执行详细的策略分析...")
+    logger.info("="*80)
+
+    try:
+        # 【关键修改】: 直接调用普通的Python函数，而不是Celery任务。
+        # 这样代码会在这里同步执行，日志连续，且完全避免了Celery的死锁问题。
+        result = _execute_strategy_logic(stock_code, trade_date_str)
+        
+        logger.info(f"--- [调试任务完成] ---")
+        logger.info(f"股票 [{stock_code}] 的策略分析执行完毕。")
+        logger.info(f"返回结果: {result}")
+        logger.info("="*80)
+        return {"status": "success", "stock_code": stock_code, "details": result}
+    except Exception as e:
+        # 这里的异常捕获现在是双重保险，因为_execute_strategy_logic内部已经有try-except
+        logger.error(f"在调试任务中调用 '_execute_strategy_logic' 时发生严重错误: {e}", exc_info=True)
+        logger.info("="*80)
+        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_stock_over_period', queue='debug_tasks')
+def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: str):
+    """
+    【V-Debug 专用历史回溯任务】
+    对单个股票在指定的历史时间段内，逐日运行策略分析并打印详细日志。
+    - 调用 MultiTimeframeTrendStrategy.debug_run_for_period 方法。
+    - 不会向数据库写入任何数据，纯日志分析。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [历史回溯调试任务启动] ---")
+    logger.info(f"  - 股票代码: {stock_code}")
+    logger.info(f"  - 分析时段: {start_date} to {end_date}")
+    logger.info("="*80)
+
+    try:
+        # 1. 实例化总指挥策略
+        strategy_orchestrator = MultiTimeframeTrendStrategy()
+
+        # 2. 同步执行我们新创建的异步调试方法
+        async_to_sync(strategy_orchestrator.debug_run_for_period)(
+            stock_code=stock_code,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        logger.info(f"--- [历史回溯调试任务完成] ---")
+        logger.info(f"股票 [{stock_code}] 的回溯分析执行完毕。")
+        logger.info("="*80)
+        return {"status": "success", "stock_code": stock_code, "period": f"{start_date}-{end_date}"}
+
+    except Exception as e:
+        logger.error(f"在执行历史回溯任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
+        logger.info("="*80)
+        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+
+
 # ▼▼▼ 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
 def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str):
@@ -148,77 +234,6 @@ def analyze_all_stocks(self):
         return {"status": "failed", "reason": str(e)}
 
 
-def load_strategy_params(config_path):
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-    
-# ▼▼▼【代码更新】: 为调试任务增加更详细的注释，解释同步调用的原因 ▼▼▼
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_single_stock_analysis', queue='debug_tasks')
-def debug_single_stock_analysis(self, stock_code: str):
-    """
-    【V1.2 - 专用调试任务，修复死锁问题】
-    对单个股票执行最详细的策略分析，用于问题排查。
-    现在直接调用核心逻辑函数，避免Celery死锁。
-    """
-    logger.info("="*80)
-    logger.info(f"--- [调试任务启动] ---")
-    logger.info(f"股票代码: {stock_code}")
-    
-    trade_date_str = datetime.now().strftime('%Y-%m-%d')
-    logger.info(f"分析日期: {trade_date_str}")
-
-    stock_time_trade_dao = StockTimeTradeDAO()
-    try:
-        latest_daily_quote = async_to_sync(stock_time_trade_dao.get_latest_daily_quote)(stock_code)
-        if latest_daily_quote:
-            pct_chg = latest_daily_quote.get('pct_chg', 0)
-            close_price = latest_daily_quote.get('close', 'N/A')
-            trade_date_db = latest_daily_quote.get('trade_date', 'N/A')
-            logger.info(f"数据库最新行情: 日期={trade_date_db}, 收盘价={close_price}, 涨跌幅={pct_chg}%")
-            if pct_chg > 0:
-                logger.info(f"诊断结论: [{stock_code}] 今日为上涨状态，是理想的调试对象。")
-            else:
-                logger.info(f"诊断结论: [{stock_code}] 今日为下跌或平盘状态。")
-        else:
-            logger.warning(f"未能获取到 [{stock_code}] 的最新日线行情。")
-    except Exception as e:
-        logger.error(f"获取 [{stock_code}] 最新行情时出错: {e}", exc_info=True)
-
-    logger.info("无论行情如何，都将强制执行详细的策略分析...")
-    logger.info("="*80)
-
-    try:
-        # 1. 加载策略配置
-        params = load_strategy_params('config/trend_follow_strategy.json')
-
-        # 2. 初始化策略实例
-        strategy = TrendFollowStrategy(params)
-
-        # 3. <<<<<<<  执行新的调试方法  >>>>>>>
-        # 定义要调试的股票、时间段和数据文件路径
-        stock_to_debug = '000158.SZ'
-        start_date = '2024-08-01'
-        end_date = '2024-11-07'
-        data_file_path = 'pasted_text_0.txt' # 确保这个文件和您的执行脚本在同一目录，或使用绝对路径
-
-        # 调用调试方法
-        strategy.debug_strategy_on_period(
-            stock_code=stock_to_debug,
-            start_date_str=start_date,
-            end_date_str=end_date,
-            data_path=data_file_path
-        )
-        
-        # logger.info(f"--- [调试任务完成] ---")
-        # logger.info(f"股票 [{stock_code}] 的策略分析执行完毕。")
-        # logger.info(f"返回结果: {result}")
-        # logger.info("="*80)
-        # return {"status": "success", "stock_code": stock_code, "details": result}
-    except Exception as e:
-        # 这里的异常捕获现在是双重保险，因为_execute_strategy_logic内部已经有try-except
-        logger.error(f"在调试任务中调用 '_execute_strategy_logic' 时发生严重错误: {e}", exc_info=True)
-        logger.info("="*80)
-        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
 
 
 
