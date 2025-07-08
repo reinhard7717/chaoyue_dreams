@@ -362,6 +362,8 @@ class TrendFollowStrategy:
 
         # --- 步骤5: 【核心重构】构建并评估“剧本矩阵” ---
         print("    [计分V37.0] 步骤5: 按优先级评估“剧本矩阵”...")
+
+        default_series = pd.Series(False, index=df.index)
         
         # ▼▼▼ 使用统一的字典 `setup_conditions` 来获取准备状态 ▼▼▼
         playbook_definitions = [
@@ -371,31 +373,31 @@ class TrendFollowStrategy:
             {
                 'name': 'EARTH_HEAVEN_BOARD',
                 'setup': True, # 纯事件驱动
-                'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD'),
+                'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
                 'score': 380, # 极高分，代表市场情绪的极端反转
                 'precondition': True, # 地天板本身就是最强的前提
                 'comment': '地天板，市场情绪从极度恐慌到极度贪婪的日内反转，最强的V反信号。'
             },
             {
                 'name': 'PERFECT_STORM',
-                'setup': setup_conditions.get('SETUP_PROLONGED_COMPRESSION'), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT'),
+                'setup': setup_conditions.get('SETUP_PROLONGED_COMPRESSION', default_series), # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
                 'score': 350,
                 'precondition': robust_right_side_precondition,
                 'comment': '长期蓄势 + 主力点火，确定性最高的趋势启动模式。'
             },
             {
                 'name': 'AWAKENED_BEAST',
-                'setup': setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE'), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT'),
+                'setup': setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE', default_series), # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
                 'score': 330,
                 'precondition': True,
                 'comment': '底部价量背离后的强力反转信号。'
             },
             {
                 'name': 'WASH_AND_RISE',
-                'setup': setup_conditions.get('SETUP_PULLBACK_WITH_MF_INFLOW'), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE'),
+                'setup': setup_conditions.get('SETUP_PULLBACK_WITH_MF_INFLOW', default_series), # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
                 'score': 310,
                 'precondition': robust_right_side_precondition,
                 'comment': '最经典的“假跌真吸”模式，回踩的质量极高。'
@@ -406,8 +408,8 @@ class TrendFollowStrategy:
             # =================================================================================
             {
                 'name': 'GAP_SUPPORT_CONFIRMED',
-                'setup': setup_conditions.get('SETUP_GAP_SUPPORT'),
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE'), # 触发器可以是简单的阳线确认
+                'setup': setup_conditions.get('SETUP_GAP_SUPPORT', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series), # 触发器可以是简单的阳线确认
                 'score': 290, # 高分，因为缺口不补是极强的趋势信号
                 'precondition': robust_right_side_precondition,
                 'comment': '强势上涨留下的缺口在回调中未被回补，并出现阳线确认，是趋势极强的表现。'
@@ -415,30 +417,30 @@ class TrendFollowStrategy:
             {
                 'name': 'FIBONACCI_PULLBACK',
                 'setup': True, # 逻辑完全封装在触发器中
-                'trigger': trigger_events.get('TRIGGER_FIBONACCI_REBOUND'),
+                'trigger': trigger_events.get('TRIGGER_FIBONACCI_REBOUND', default_series),
                 'score': 285,
                 'precondition': robust_right_side_precondition,
                 'comment': '在通过多重验证的有效驱动浪后，于关键斐波那契位获得主力资金支撑的反弹。'
             },
             {
                 'name': 'BREAKOUT_RETEST_GO',
-                'setup': setup_conditions.get('SETUP_PULLBACK_POST_BREAKOUT'), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE'),
+                'setup': setup_conditions.get('SETUP_PULLBACK_POST_BREAKOUT', default_series), # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
                 'score': 280,
                 'precondition': robust_right_side_precondition,
                 'comment': '最可靠的趋势延续形态之一：突破-回踩-再出发。'
             },
             {
                 'name': 'REVERSAL_FIRST_PULLBACK',
-                'setup': setup_conditions.get('SETUP_PULLBACK_POST_REVERSAL'), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE'),
+                'setup': setup_conditions.get('SETUP_PULLBACK_POST_REVERSAL', default_series), # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
                 'score': 270,
                 'precondition': robust_right_side_precondition,
                 'comment': '抓住新趋势的第一个上车点，通常有较好的盈亏比。'
             },
             {
                 'name': 'OLD_DUCK_HEAD_TAKEOFF',
-                'setup': setup_conditions.get('SETUP_DUCK_NECK_FORMING'), # 修改: setup_conditions_df -> setup_conditions
+                'setup': setup_conditions.get('SETUP_DUCK_NECK_FORMING', default_series), # 修改: setup_conditions_df -> setup_conditions
                 'trigger': trigger_events.get('MA_RECLAIM'),
                 'score': 260,
                 'precondition': robust_right_side_precondition,
@@ -451,7 +453,7 @@ class TrendFollowStrategy:
             {
                 'name': 'N_SHAPE_RELAY',
                 'setup': True, # 逻辑完全封装在触发器中
-                'trigger': trigger_events.get('TRIGGER_N_SHAPE_RELAY'),
+                'trigger': trigger_events.get('TRIGGER_N_SHAPE_RELAY', default_series),
                 'score': 245,
                 'precondition': robust_right_side_precondition,
                 'comment': '经典的“N字板”接力形态，缩量回调后的再次放量突破，是极强的趋势延续信号。'
@@ -459,31 +461,31 @@ class TrendFollowStrategy:
             {
                 'name': 'MA_ACCELERATION',
                 'setup': True, # 逻辑完全封装在触发器中
-                'trigger': trigger_events.get('TRIGGER_MA_ACCELERATION'),
+                'trigger': trigger_events.get('TRIGGER_MA_ACCELERATION', default_series),
                 'score': 235,
                 'precondition': robust_right_side_precondition,
                 'comment': '均线、成交量、资金、趋势强度四维共振的“趋势引爆点”，动能强劲。'
             },
             {
                 'name': 'ENERGY_RELEASE',
-                'setup': setup_conditions.get('SETUP_ENERGY_COMPRESSION'),
-                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE'),
+                'setup': setup_conditions.get('SETUP_ENERGY_COMPRESSION', default_series),
+                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
                 'score': 230,
                 'precondition': robust_right_side_precondition,
                 'comment': '通用性强的“盘久必涨”模式。'
             },
             {
                 'name': 'PULLBACK_REBOUND_CONFIRMED',
-                'setup': setup_conditions.get('SETUP_HEALTHY_PULLBACK'),
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND'),
+                'setup': setup_conditions.get('SETUP_HEALTHY_PULLBACK', default_series),
+                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 220,
                 'precondition': robust_right_side_precondition,
                 'comment': '最基础、最常见的趋势跟踪入场点。'
             },
             {
                 'name': 'V_REVERSAL_ENTRY',
-                'setup': setup_conditions.get('SETUP_SHOCK_BOTTOM'),  # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('TRIGGER_V_RECOVERY'),
+                'setup': setup_conditions.get('SETUP_SHOCK_BOTTOM', default_series),  # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('TRIGGER_V_RECOVERY', default_series),
                 'score': 210,
                 'precondition': True,
                 'comment': '高风险高收益的左侧交易模式，捕捉情绪拐点。'
@@ -494,24 +496,24 @@ class TrendFollowStrategy:
             # =================================================================================
             {
                 'name': 'WINNER_RATE_REVERSAL',
-                'setup': setup_conditions.get('SETUP_WINNER_RATE_WASHED_OUT'),
-                'trigger': trigger_events.get('TRIGGER_WINNER_RATE_REVERSAL'),
+                'setup': setup_conditions.get('SETUP_WINNER_RATE_WASHED_OUT', default_series),
+                'trigger': trigger_events.get('TRIGGER_WINNER_RATE_REVERSAL', default_series),
                 'score': 195,
                 'precondition': True, # 左侧交易，不依赖右侧前提
                 'comment': '“投降坑”反转，在获利盘几乎被完全洗净后出现的企稳阳线，博弈市场绝望后的情绪拐点。'
             },
             {
                 'name': 'WASHOUT_REVERSAL',
-                'setup': setup_conditions.get('SETUP_WASHOUT_DAY'),       # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('TRIGGER_WASHOUT_REVERSAL'),
+                'setup': setup_conditions.get('SETUP_WASHOUT_DAY', default_series),       # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('TRIGGER_WASHOUT_REVERSAL', default_series),
                 'score': 190,
                 'precondition': True,
                 'comment': '博弈主力洗盘后的快速拉升。'
             },
             {
                 'name': 'DOJI_CONTINUATION',
-                'setup': setup_conditions.get('SETUP_DOJI_PAUSE'),
-                'trigger': trigger_events.get('TRIGGER_DOJI_BREAKOUT'),
+                'setup': setup_conditions.get('SETUP_DOJI_PAUSE', default_series),
+                'trigger': trigger_events.get('TRIGGER_DOJI_BREAKOUT', default_series),
                 'score': 188, # 分数介于首板和相对强度之间
                 'precondition': robust_right_side_precondition,
                 'comment': '上涨中继形态，十字星分歧后转为一致，是趋势延续的信号。'
@@ -519,31 +521,31 @@ class TrendFollowStrategy:
             {
                 'name': 'MOMENTUM_BREAKOUT',
                 'setup': True, # 纯事件驱动，无特定准备状态
-                'trigger': trigger_events.get('TRIGGER_MOMENTUM_BREAKOUT'),
+                'trigger': trigger_events.get('TRIGGER_MOMENTUM_BREAKOUT', default_series),
                 'score': 185,
                 'precondition': robust_right_side_precondition,
                 'comment': '经典动量突破（首板）模式，捕捉趋势启动的爆发力。'
             },
             {
                 'name': 'RELATIVE_STRENGTH_LEADER',
-                'setup': setup_conditions.get('SETUP_RELATIVE_STRENGTH'), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE'),
+                'setup': setup_conditions.get('SETUP_RELATIVE_STRENGTH', default_series), # 修改: setup_conditions_df -> setup_conditions
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
                 'score': 180,
                 'precondition': robust_right_side_precondition,
                 'comment': '捕捉市场中最强的品种，通常是下一波行情的领涨股。'
             },
             {
                 'name': 'BBAND_SQUEEZE_BREAKOUT',
-                'setup': setup_conditions.get('SETUP_BBAND_SQUEEZE'),
-                'trigger': trigger_events.get('TRIGGER_BBAND_BREAKOUT'),
+                'setup': setup_conditions.get('SETUP_BBAND_SQUEEZE', default_series),
+                'trigger': trigger_events.get('TRIGGER_BBAND_BREAKOUT', default_series),
                 'score': 175,
                 'precondition': robust_right_side_precondition,
                 'comment': '布林带收口后的突破，经典的“盘久必涨”形态。'
             },
             {
                 'name': 'FORTRESS_DEFENDED',
-                'setup': setup_conditions.get('SETUP_FORTRESS_SIEGE'),
-                'trigger': trigger_events.get('TRIGGER_FORTRESS_DEFENSE'),
+                'setup': setup_conditions.get('SETUP_FORTRESS_SIEGE', default_series),
+                'trigger': trigger_events.get('TRIGGER_FORTRESS_DEFENSE', default_series),
                 'score': 170,
                 'precondition': robust_right_side_precondition & df.get('temp_is_fortress_valid', False),
                 'comment': '基于结构支撑的防守反击模式。'
@@ -551,15 +553,15 @@ class TrendFollowStrategy:
             {
                 'name': 'MACD_LOW_CROSS_REVERSAL',
                 'setup': True, # 纯事件驱动
-                'trigger': trigger_events.get('TRIGGER_MACD_LOW_CROSS'),
+                'trigger': trigger_events.get('TRIGGER_MACD_LOW_CROSS', default_series),
                 'score': 165,
                 'precondition': True, # 低位金叉通常是左侧信号，不依赖右侧前提
                 'comment': 'MACD在低位形成金叉，潜在的底部反转信号。'
             },
             {
                 'name': 'BIAS_REVERSAL',
-                'setup': setup_conditions.get('SETUP_BIAS_EXTREME_OVERSOLD'),
-                'trigger': trigger_events.get('TRIGGER_BIAS_REBOUND'),
+                'setup': setup_conditions.get('SETUP_BIAS_EXTREME_OVERSOLD', default_series),
+                'trigger': trigger_events.get('TRIGGER_BIAS_REBOUND', default_series),
                 'score': 160,
                 'precondition': True, # 左侧交易，不依赖右侧前提
                 'comment': '经典的乖离率（BIAS）指标超跌反弹，捕捉技术性修复行情。'
@@ -572,6 +574,9 @@ class TrendFollowStrategy:
         for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
+
+            if isinstance(setup, bool):
+                setup = pd.Series(setup, index=df.index)
             
             if setup is None or trigger is None:
                 print(f"    - [剧本警告] 剧本 '{playbook['name']}' 的 setup 或 trigger 未定义，跳过。")
