@@ -313,7 +313,7 @@ class TrendFollowStrategy:
         # --- 步骤1: 计算并记录战略背景基础分 (逻辑不变) ---
         print("    [调试-计分V34.0] 步骤1: 计算周线战略背景基础分...")
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
-        king_score = points.get('BREAKOUT_TRIGGER_SCORE', 150)
+        king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
         all_base_score_cols = [king_signal_col]
         if king_signal_col in df.columns and df[king_signal_col].any():
             score_details_df.loc[df[king_signal_col], king_signal_col] = king_score
@@ -329,7 +329,7 @@ class TrendFollowStrategy:
         
         strategic_accel_col = 'EVENT_STRATEGIC_ACCELERATING_W'
         if strategic_accel_col in df.columns and df[strategic_accel_col].any():
-            accel_score = points.get('STRATEGIC_ACCEL_SCORE', 100)
+            accel_score = self._get_param_value(points.get('STRATEGIC_ACCEL_SCORE'), 100)
             score_details_df.loc[df[strategic_accel_col], 'BASE_STRATEGIC_ACCEL'] = accel_score
             all_base_score_cols.append('BASE_STRATEGIC_ACCEL')
 
@@ -586,14 +586,14 @@ class TrendFollowStrategy:
             is_triggered = condition & playbook['precondition'] & ~has_been_scored
             
             if is_triggered.any():
-                score = points.get(playbook['name'], {}).get('score', playbook['score'])
+                score = self._get_param_value(points.get(playbook['name']), playbook['score'])
                 df.loc[is_triggered, 'base_score'] = score
                 score_details_df.loc[is_triggered, playbook['name']] = score
                 has_been_scored.loc[is_triggered] = True
                 print(f"    - [剧本命中] 命中剧本 '{playbook['name']}'，触发 {is_triggered.sum()} 天。")
 
         # 【观察分逻辑】
-        watching_score = points.get('WATCHING_SCORE', 50)
+        watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
         # ▼▼▼ 使用统一的字典 `setup_conditions` 来获取准备状态 ▼▼▼
         is_in_any_setup = (
             setup_conditions.get('SETUP_ENERGY_COMPRESSION', pd.Series(False, index=df.index)) |
@@ -626,11 +626,11 @@ class TrendFollowStrategy:
 
         cond_vwap_support = self._check_vwap_confirmation(df_dict, params)
         if (cond_vwap_support & has_primary_score).any():
-            bonus = points.get('BONUS_VWAP_SUPPORT', 20)
+            bonus = self._get_param_value(points.get('BONUS_VWAP_SUPPORT'), 20)
             final_score.loc[cond_vwap_support & has_primary_score] += bonus
             score_details_df.loc[cond_vwap_support & has_primary_score, 'BONUS_VWAP_SUPPORT'] = bonus
 
-        high_consensus_bonus = points.get('BONUS_HIGH_CONSENSUS', 30)
+        high_consensus_bonus = self._get_param_value(points.get('BONUS_HIGH_CONSENSUS'), 30)
         is_high_consensus = (validated_premises.get('trend_health_score', pd.Series(0)) >= 5) & has_primary_score
         if is_high_consensus.any():
             final_score.loc[is_high_consensus] += high_consensus_bonus
