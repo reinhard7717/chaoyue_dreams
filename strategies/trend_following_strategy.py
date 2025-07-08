@@ -587,6 +587,19 @@ class TrendFollowStrategy:
                 condition = setup & trigger
                 # 增加调试信息，方便观察哪个剧本使用了新逻辑
                 print(f"    - [剧本评估] 使用同步逻辑 (setup & trigger) 评估 '{playbook['name']}'。")
+                if playbook['name'] == 'V_REVERSAL_ENTRY':
+                    debug_date_str = '2025-06-23'
+                    if pd.to_datetime(debug_date_str) in df.index:
+                        debug_date = pd.to_datetime(debug_date_str)
+                        setup_val = setup.loc[debug_date]
+                        trigger_val = trigger.loc[debug_date]
+                        condition_val = condition.loc[debug_date]
+                        print(f"\n--- [V反剧本评估] 详细调试 for {debug_date_str} ---")
+                        print(f"  - Playbook: {playbook['name']}")
+                        print(f"  - 当日 Setup ('SETUP_SHOCK_BOTTOM') 状态: {setup_val}")
+                        print(f"  - 当日 Trigger ('STRONG_POSITIVE_CANDLE') 状态: {trigger_val}")
+                        print(f"  - 最终 Condition (setup & trigger) 状态: {condition_val}")
+                        print(f"--- 调试结束 ---\n")
             else:
                 # 传统逻辑: 准备状态(T-1) + 触发器(T)
                 condition = setup.shift(1).fillna(False) & trigger
