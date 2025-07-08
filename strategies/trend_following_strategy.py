@@ -79,13 +79,18 @@ class TrendFollowStrategy:
         return None
 
     def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
+        """
+        【V40.2 终极健壮版】
+        - 核心修复: 对 `score_threshold` 参数应用 `_get_param_value` 解析器。
+        - 效果: 确保了在进行最终信号判断时，分数阈值是一个正确的数值，而不是字典。
+        """
         # print("\n--- [战术策略层 apply_strategy V22.2] 开始执行 ---") # 日常运行时可注释
         df = df_dict.get('D')
         if df is None or df.empty:
             return pd.DataFrame(), {}
-        
+
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
-        
+
         # ▼▼▼ 精准的列名重命名逻辑 ▼▼▼
         rename_map = {
             col: f"{col}_D" for col in df.columns 
@@ -98,10 +103,10 @@ class TrendFollowStrategy:
 
         # 步骤 1: 准备所有衍生特征 (如主力/散户净流入)
         df = self._prepare_derived_features(df)
-        
+
         # 步骤 2: 基于准备好的特征，计算所有斜率
         df = self._calculate_trend_slopes(df, params)
-        
+
         self.signals, self.scores = {}, {}
         df = self.pattern_recognizer.identify_all(df)
         df.loc[:, 'signal_top_divergence'] = self._find_top_divergence_exit(df, params)
@@ -110,10 +115,12 @@ class TrendFollowStrategy:
         print("    - [信息] 核心计分流程开始...")
         df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, df_dict, params)
         self._last_score_details_df = score_details_df
-        
-        score_threshold = self._get_params_block(params, 'entry_scoring_params').get('score_threshold', 100)
+
+        entry_scoring_params = self._get_params_block(params, 'entry_scoring_params')
+        score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
+
         df.loc[:, 'signal_entry'] = df['entry_score'] >= score_threshold
-        
+
         print("    - [信息] 止盈逻辑判断开始...")
         df.loc[:, 'take_profit_signal'] = self._apply_take_profit_rules(df, df['signal_entry'], df['signal_top_divergence'], params)
 
