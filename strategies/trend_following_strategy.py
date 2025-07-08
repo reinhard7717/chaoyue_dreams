@@ -813,6 +813,20 @@ class TrendFollowStrategy:
         - 效果: 极大提升了策略对特定市场微观结构的感知精度，确保了剧本触发的前提是高质量的。
         """
         print("    - [准备状态中心 V41.3] 启动，开始计算所有准备状态...")
+
+        if not df.empty:
+            debug_date_str = '2025-06-23'
+            target_date = pd.to_datetime(debug_date_str)
+            # 检查时区问题，确保比较是可靠的
+            if df.index.tz is not None and target_date.tz is None:
+                target_date = target_date.tz_localize(df.index.tz)
+            
+            is_date_present = target_date in df.index
+            print("\n--- [数据范围诊断] 检查输入DataFrame的日期索引 ---")
+            print(f"  - DataFrame 起始日期: {df.index.min()}")
+            print(f"  - DataFrame 结束日期: {df.index.max()}")
+            print(f"  - 目标调试日期 '{debug_date_str}' 是否存在于索引中? {'是' if is_date_present else '否'}")
+            print("--- 诊断结束 ---\n")
         setups = {}
         setup_params = self._get_params_block(params, 'setup_condition_params', {})
         playbook_specific_params = self._get_params_block(params, 'playbook_specific_params', {})
