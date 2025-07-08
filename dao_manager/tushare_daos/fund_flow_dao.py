@@ -871,52 +871,41 @@ class FundFlowDao(BaseDAO):
         4. [适配] 数据处理和入库逻辑适配 HmDetail 模型。
         """
         # --- 2. [借鉴] 客户端日期分块逻辑 ---
-        date_chunks = []
-        chunk_size_days = 30  # 游资接口数据量可能较小，可适当调整分块大小
-        current_chunk_end = end_date
-        while current_chunk_end >= start_date:
-            current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
-            date_chunks.append((current_chunk_start, current_chunk_end))
-            current_chunk_end = current_chunk_start - timedelta(days=1)
         
         all_dfs = [] # 用于收集所有分块的数据
 
         # --- 3. [适配] 遍历分块并使用分页获取数据 ---
-        for chunk_start, chunk_end in date_chunks:
-            chunk_start_str = chunk_start.strftime('%Y%m%d')
-            chunk_end_str = chunk_end.strftime('%Y%m%d')
-            print(f"DAO: 开始处理游资数据日期块: {chunk_start_str} 到 {chunk_end_str}")
-            offset = 0
-            limit = 2000 # 根据Tushare接口文档调整limit
-            
-            while True:
-                try:
-                    # 【代码修改】API调用更换为 hm_detail 接口
-                    df = self.ts_pro.hm_detail(**{
-                        "trade_date": "", # 范围查询时，trade_date应为空
-                        "start_date": "", 
-                        "end_date": "", 
-                        "limit": limit, 
-                        "offset": offset
-                    }, fields=[
-                        "trade_date", "ts_code", "ts_name", "buy_amount", "sell_amount",
-                        "net_amount", "hm_name", "hm_orgs"
-                    ])
-                    await asyncio.sleep(0.55) # 保持友好的API调用频率
-                except Exception as e:
-                    logger.error(f"Tushare API调用失败 (hm_detail, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
-                    await asyncio.sleep(5) # 出错时等待更长时间
-                    df = pd.DataFrame()
+        offset = 0
+        limit = 2000 # 根据Tushare接口文档调整limit
+        
+        while True:
+            try:
+                # 【代码修改】API调用更换为 hm_detail 接口
+                df = self.ts_pro.hm_detail(**{
+                    "trade_date": "", # 范围查询时，trade_date应为空
+                    "start_date": "", 
+                    "end_date": "", 
+                    "limit": limit, 
+                    "offset": offset
+                }, fields=[
+                    "trade_date", "ts_code", "ts_name", "buy_amount", "sell_amount",
+                    "net_amount", "hm_name", "hm_orgs"
+                ])
+                await asyncio.sleep(0.55) # 保持友好的API调用频率
+            except Exception as e:
+                logger.error(f"Tushare API调用失败 (hm_detail): {e}")
+                await asyncio.sleep(5) # 出错时等待更长时间
+                df = pd.DataFrame()
 
-                if df.empty:
-                    break # 当前分块的当前分页无数据，结束此分块的分页
-                
-                all_dfs.append(df)
-                
-                if len(df) < limit:
-                    break # 当前分块的数据已全部获取完毕
-                
-                offset += limit
+            if df.empty:
+                break # 当前分块的当前分页无数据，结束此分块的分页
+            
+            all_dfs.append(df)
+            
+            if len(df) < limit:
+                break # 当前分块的数据已全部获取完毕
+            
+            offset += limit
         
         if not all_dfs:
             logger.info("在所有日期块中均未获取到任何游资明细数据。")
