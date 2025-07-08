@@ -2058,6 +2058,49 @@ class TrendFollowStrategy:
         # 8. 清理临时列
         df.drop(columns=['last_peak_price', 'last_trough_price'], inplace=True)
 
+    def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
+        """
+        【V2.5 最终修复版】检查VWAP支撑确认信号。
+        """
+        # print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...") # 可以注释掉常规日志
+        vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
+        if not vwap_params.get('enabled', False):
+            if 'D' in df_dict and not df_dict['D'].empty:
+                return pd.Series(False, index=df_dict['D'].index)
+            return pd.Series([])
+
+        tf = vwap_params.get('timeframe', '5')
+        buffer = vwap_params.get('confirmation_buffer', 0.001)
+
+        df_minute = df_dict.get(tf)
+        df_daily = df_dict.get('D')
+
+        if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
+             return pd.Series(False, index=df_daily.index if df_daily is not None else None)
+
+        # 检查VWAP列是否存在
+        vwap_col = f'VWAP_{tf}'
+        if vwap_col not in df_minute.columns: vwap_col = 'VWAP_D' # 兼容旧列名
+        if vwap_col not in df_minute.columns: return pd.Series(False, index=df_daily.index)
+
+        # 核心逻辑：检查分钟线是否在VWAP之上，然后按天聚合
+        # .normalize() 对UTC时区索引同样有效，会将其归一化到当天的零点
+        is_above_vwap = df_minute['close'] > df_minute[vwap_col] * (1 + buffer)
+        daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
+        
+        # 将聚合后的日线信号映射回原始的日线DataFrame
+        final_signal = pd.Series(False, index=df_daily.index)
+        
+        if not daily_confirmation.empty:
+            # 使用 .reindex() 是一种更健壮和简洁的映射方式
+            # 它会根据 df_daily 的归一化日期索引，从 daily_confirmation 中查找对应的值
+            # 找不到的日期会自动填充为 fill_value (默认为NaN，我们用 .fillna(False) 处理)
+            normalized_daily_index = df_daily.index.normalize()
+            final_signal = daily_confirmation.reindex(normalized_daily_index).fillna(False)
+            # reindex 后索引会变成归一化的日期，需要把它重置回原始的日线索引
+            final_signal.index = df_daily.index
+        # print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。") # 可以注释掉常规日志
+        return final_signal
 
 
 
