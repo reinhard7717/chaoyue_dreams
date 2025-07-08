@@ -1,7 +1,7 @@
 # 文件: strategies/trend_following_strategy.py
 # 版本: V21.0 - 适配新架构版
 import logging
-from services.indicator_services import IndicatorService
+from decimal import Decimal
 from utils.data_sanitizer import sanitize_for_json
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
@@ -93,30 +93,30 @@ class TrendFollowStrategy:
 
     def _ensure_numeric_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V40.4 新增】数据类型标准化引擎
-        - 核心职责: 在所有计算开始前，将可能为 decimal.Decimal 的列强制转换为 float64。
-        - 解决问题: 根除因数据库Decimal类型与Python float类型运算不兼容而导致的TypeError。
+        【V40.6 智能净化版】数据类型标准化引擎
+        - 核心升级: 不再依赖硬编码的列名，而是通过检查列中第一个非空元素是否为Decimal类型来智能识别需要转换的列。
+        - 解决问题: 彻底根除因任何列（包括动态生成的衍生列）包含Decimal类型而导致的TypeError。
         """
-        print("    - [类型标准化引擎 V40.4] 启动，检查并转换数据类型...")
-        # 定义需要进行数值转换的列名的常见前缀或全名
-        numeric_patterns = [
-            'open', 'high', 'low', 'close', 'volume', 'amount',
-            'buy_', 'sell_', 'cost_', 'winner_rate', 'weight_avg'
-        ]
-        
+        print("    - [类型标准化引擎 V40.6 智能版] 启动，检查并转换数据类型...")
         converted_cols = []
         for col in df.columns:
-            # 如果列的数据类型是 'object'，且列名符合我们的模式，则很可能是Decimal类型
-            if df[col].dtype == 'object' and any(col.startswith(p) for p in numeric_patterns):
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-                converted_cols.append(col)
+            # 只检查 object 类型的列，因为 Decimal 列会被 Pandas 识别为 object
+            if df[col].dtype == 'object':
+                # 尝试获取第一个非空值进行类型嗅探，以提高效率
+                first_valid_item = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+                
+                # 如果第一个有效项是Decimal，则转换整列
+                if isinstance(first_valid_item, Decimal):
+                    print(f"      -> 发现列 '{col}' 包含Decimal对象，执行转换...")
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    converted_cols.append(col)
 
         if converted_cols:
-            print(f"      -> 已将以下 'object' 类型列转换为数值类型: {converted_cols}")
+            print(f"      -> 已将以下 'object' 类型列智能转换为数值类型: {converted_cols}")
         else:
             print("      -> 所有数值列类型正常，无需转换。")
         
-        print("    - [类型标准化引擎 V40.4] 类型检查完成。")
+        print("    - [类型标准化引擎 V40.6] 类型检查完成。")
         return df
 
     def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
