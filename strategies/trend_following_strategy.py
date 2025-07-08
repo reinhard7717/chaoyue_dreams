@@ -530,18 +530,20 @@ class TrendFollowStrategy:
         ]
         return playbook_definitions
 
-    def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
+    def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V39.7 一致性重构版】
-        - 核心修改: 统一将“准备状态”和“触发事件”作为字典处理，消除了数据结构的不一致性，提升了代码的可读性和优雅性。
+        【V44.0 架构统一重构版】
+        - 核心重构: 彻底重写本函数，使其与 V41.8+ 的“准备/触发”分离架构完全兼容。
+        - 解决问题: 根除因版本混杂导致的逻辑冲突，确保 S 级剧本的信号能被正确评估。
         """
-        atomic_signals = {} # 初始化原子信号字典
+        print("    [计分V44.0] 启动架构统一的计分引擎...")
+        atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         
-        # --- 步骤1: 计算并记录战略背景基础分 ---
-        print("    [调试-计分V34.0] 步骤1: 计算周线战略背景基础分...")
+        # --- 步骤1: 计算并记录战略背景基础分 (逻辑不变) ---
+        print("    [计分V44.0] 步骤1: 计算周线战略背景基础分...")
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
         all_base_score_cols = [king_signal_col]
@@ -570,52 +572,30 @@ class TrendFollowStrategy:
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
         
-        # --- 步骤2: 进行核心前提交叉验证 ---
-        print("    [调试-计分V34.0] 步骤2: 进行核心前提交叉验证...")
+        # --- 步骤2: 进行核心前提交叉验证 (逻辑不变) ---
+        print("    [计分V44.0] 步骤2: 进行核心前提交叉验证...")
         validated_premises = self._validate_core_premises(df, params)
-        robust_right_side_precondition = validated_premises['robust_right_side_precondition']
 
-        # --- 步骤3: 计算所有“准备状态”和“触发事件” ---
-        print("    [计分V37.0] 步骤3: 计算所有准备状态和触发事件...")
-        print("    [计分V43.0] 步骤3: 计算所有准备状态和触发事件...")
+        # --- 步骤3: 【架构统一】调用独立的“准备”和“触发”中心 ---
+        print("    [计分V44.0] 步骤3: 调用独立的准备状态和触发事件中心...")
+        # 调用最新的准备状态函数 (V43.1)
         setup_conditions = self._calculate_setup_conditions(df, params)
-        trigger_events = {} # 初始化触发事件字典
-        try:
-            trigger_params = self._get_params_block(params, 'trigger_event_params', {})
-            p = trigger_params.get('institutional_breakout_params', {})
-            if self._get_param_value(p.get('enabled'), True):
-                price_lookback = self._get_param_value(p.get('price_lookback'), 20)
-                vol_lookback = self._get_param_value(p.get('vol_lookback'), 20)
-                vol_ratio = self._get_param_value(p.get('vol_ratio'), 1.8)
-                mf_threshold = self._get_param_value(p.get('mf_threshold'), 10_000_000) # 默认1000万
-
-                # 条件1: 价格创近期新高
-                cond_price = df['close_D'] >= df['high_D'].shift(1).rolling(window=price_lookback).max()
-                # 条件2: 成交量显著放大
-                vol_ma_col = f'VOL_MA_{vol_lookback}_D'
-                cond_vol = df['volume_D'] > (df[vol_ma_col] * vol_ratio)
-                # 条件3: 主力资金显著流入
-                cond_mf = df.get('net_mf_amount_D', pd.Series(0, index=df.index)) > mf_threshold
-
-                trigger_events['CHIP_INSTITUTIONAL_BREAKOUT'] = cond_price & cond_vol & cond_mf
-                print(f"      -> '主力点火'触发器定义完成，发现 {trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', pd.Series([])).sum()} 天。")
-        except Exception as e:
-            print(f"      -> [警告] 计算'主力点火'触发器时出错: {e}")
-
-        trigger_events.update(self._define_trigger_events(df, params)) # 假设此函数存在并返回其他触发器
-
+        # 调用最新的触发事件函数 (V41.8)
+        trigger_events = self._define_trigger_events(df, params)
+        
+        # 合并所有原子信号用于返回
         atomic_signals.update(setup_conditions)
         atomic_signals.update(trigger_events)
+        # 将 setup 状态写入主 df，供日志和后续分析使用
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
 
-        # --- 步骤4: 计算趋势动力学附加分 ---
-        print("    [调试-计分V34.0] 步骤4: 计算趋势动力学附加分...")
+        # --- 步骤4: 计算趋势动力学附加分 (逻辑不变) ---
+        print("    [计分V44.0] 步骤4: 计算趋势动力学附加分...")
         dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
 
-        # --- 步骤5: 【核心重构】构建并评估“剧本矩阵” ---
-        print("    [计分V42.0] 步骤5: 按优先级评估“剧本矩阵”...")
-        
+        # --- 步骤5: 【架构统一】构建并评估“剧本矩阵” ---
+        print("    [计分V44.0] 步骤5: 按优先级评估“剧本矩阵”...")
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
 
         df['base_score'] = 0.0
@@ -630,21 +610,6 @@ class TrendFollowStrategy:
             
             if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL']:
                 condition = setup & trigger
-                # 增加调试信息，方便观察哪个剧本使用了新逻辑
-                print(f"    - [剧本评估] 使用同步逻辑 (setup & trigger) 评估 '{playbook['name']}'。")
-                if playbook['name'] == 'V_REVERSAL_ENTRY':
-                    debug_date_str = '2025-06-23'
-                    if pd.to_datetime(debug_date_str) in df.index:
-                        debug_date = pd.to_datetime(debug_date_str)
-                        setup_val = setup.loc[debug_date]
-                        trigger_val = trigger.loc[debug_date]
-                        condition_val = condition.loc[debug_date]
-                        print(f"\n--- [V反剧本评估] 详细调试 for {debug_date_str} ---")
-                        print(f"  - Playbook: {playbook['name']}")
-                        print(f"  - 当日 Setup ('SETUP_SHOCK_BOTTOM') 状态: {setup_val}")
-                        print(f"  - 当日 Trigger ('STRONG_POSITIVE_CANDLE') 状态: {trigger_val}")
-                        print(f"  - 最终 Condition (setup & trigger) 状态: {condition_val}")
-                        print(f"--- 调试结束 ---\n")
             else:
                 # 传统逻辑: 准备状态(T-1) + 触发器(T)
                 condition = setup.shift(1).fillna(False) & trigger
@@ -659,9 +624,8 @@ class TrendFollowStrategy:
                 playbook_cn_name = playbook.get('cn_name', playbook['name'])
                 print(f"    - [剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
 
-        # 【观察分逻辑】
+        # 【观察分逻辑】(逻辑不变)
         watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
-        # ▼▼▼ 使用统一的字典 `setup_conditions` 来获取准备状态 ▼▼▼
         is_in_any_setup = (
             setup_conditions.get('SETUP_ENERGY_COMPRESSION', pd.Series(False, index=df.index)) |
             setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series(False, index=df.index)) |
@@ -683,8 +647,8 @@ class TrendFollowStrategy:
             score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
             print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
 
-        # --- 步骤6: 融合剧本分、动力学分与环境修正项 ---
-        print("    [调试-计分V34.0] 步骤6: 融合所有得分项...")
+        # --- 步骤6: 融合剧本分、动力学分与环境修正项 (逻辑不变) ---
+        print("    [计分V44.0] 步骤6: 融合所有得分项...")
         final_score = df['base_score'].copy()
         has_primary_score = final_score > 0
         if (has_primary_score).any():
@@ -724,20 +688,18 @@ class TrendFollowStrategy:
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
         
-        # --- 步骤7: 合并战略与战术得分 ---
-        print("    [调试-计分V34.0] 步骤7: 合并战略与战术得分...")
+        # --- 步骤7: 合并战略与战术得分 (逻辑不变) ---
+        print("    [计分V44.0] 步骤7: 合并战略与战术得分...")
         base_score_from_weekly = score_details_df.filter(regex='^BASE_').sum(axis=1)
         final_score += base_score_from_weekly
 
-        # --- 更新上下文状态 ---
-        print("    [计分V39.4] 步骤X: 更新上下文状态...")
+        # --- 更新上下文状态 (逻辑不变) ---
+        print("    [计分V44.0] 步骤X: 更新上下文状态...")
         df = self._update_contextual_states(df, score_details_df, validated_premises, params)
 
-        # --- 步骤8: 最终风险否决层 ---
-        print("    [调试-计分V34.0] 步骤8: 应用最终风险否决层...")
-        # ▼▼▼【代码修改 V39.7】: 使用统一的字典 `setup_conditions` 来获取风险信号 ▼▼▼
+        # --- 步骤8: 最终风险否决层 (逻辑不变) ---
+        print("    [计分V44.0] 步骤8: 应用最终风险否决层...")
         cond_trend_exhaustion = setup_conditions.get('RISK_TREND_EXHAUSTION', pd.Series(False, index=df.index))
-        # ▲▲▲【代码修改 V39.7】▲▲▲
         if cond_trend_exhaustion.any():
             final_score.loc[cond_trend_exhaustion] = 0
             print(f"    - [风险否决] '趋势衰竭'信号触发，否决了 {cond_trend_exhaustion.sum()} 天的买入信号。")
@@ -762,10 +724,9 @@ class TrendFollowStrategy:
 
         # 清理临时列
         df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore')
-        print("    [计分V43.0] 计分流程结束。")
+        print("    [计分V44.0] 计分流程结束。")
         
         return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
-
     def _calculate_exit_signals(self, df: pd.DataFrame, risk_states: Dict[str, pd.Series], params: dict) -> pd.Series:
         """
         【V41.12 智能出场矩阵版】

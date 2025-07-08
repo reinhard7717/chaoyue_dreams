@@ -678,52 +678,7 @@ class MultiTimeframeTrendStrategy:
                 if printing_started or line.strip().startswith(('---', '    [', '  - ', '======')):
                     print(line)
             print("--- [底层引擎日志结束] ---")
-            # ▲▲▲【代码修改 V6.12】▲▲▲
 
-            # 步骤 4: 逐日打印最终的诊断报告
-            print(f"\n[步骤 4/4] 开始逐日生成最终诊断报告...")
-            print("-" * 80)
-            
-            score_threshold = self.tactical_config.get('strategy_params', {})\
-                .get('trend_follow', {}).get('entry_scoring_params', {}).get('score_threshold', {}).get('value', 100)
-
-            for trade_date, row in debug_period_df.iterrows():
-                date_str = trade_date.strftime('%Y-%m-%d')
-                entry_score = row.get('entry_score', 0)
-                
-                pct_change_val = row.get('pct_chg_D', row.get('pct_change_D', row.get('pct_change', 0))) * 100
-                print(f"====== 日期: {date_str} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {pct_change_val:.2f}% ======")
-                print(f"  - 核心前提 (右侧趋势): {row.get('robust_right_side_precondition', False)}")
-
-                tactical_playbooks = [
-                    col.replace('playbook_', '') 
-                    for col in row.index 
-                    if col.startswith('playbook_') and not col.endswith('_W') and row[col] is True
-                ]
-                
-                active_setups = [col.replace('SETUP_', '') for col in row.index if col.startswith('SETUP_') and row[col] is True]
-
-                if entry_score >= score_threshold:
-                    print(f"  【✔ 买入信号触发】")
-                    print(f"    - 总分: {entry_score:.2f} (阈值: {score_threshold})")
-                    print(f"    - 激活的日线剧本: {tactical_playbooks if tactical_playbooks else '无 (可能为观察分或基础分)'}")
-                    print(f"    - 成立的准备状态: {active_setups if active_setups else '无'}")
-                else:
-                    print("  【- 无买入信号】")
-
-                failure_reasons = row.get('debug_info', [])
-                if failure_reasons:
-                    print("  【✖ 失败归因】")
-                    for reason in failure_reasons:
-                        print(f"    - {reason}")
-                
-                exit_code = row.get('exit_signal_code', 0)
-                if exit_code > 0:
-                    exit_reason = row.get('exit_signal_reason', '未知原因')
-                    print(f"  【! 卖出信号】")
-                    print(f"    - 代码: {exit_code}, 原因: {exit_reason}")
-                
-                print("-" * 60)
 
             print("=" * 80)
             print(f"--- [历史回溯调试完成] ---")
