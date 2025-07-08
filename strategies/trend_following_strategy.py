@@ -921,12 +921,15 @@ class TrendFollowStrategy:
         # --- 7. V反-休克谷底 (V41.3 核心恢复) ---
         try:
             p = setup_params.get('shock_bottom_params', {})
+            print("\n--- [配置诊断] 金丝雀测试: 检查 'shock_bottom_params' ---")
+            print(f"  - 程序实际读取到的 p = {p}")
+            print(f"  - enabled 的值将被解析为: {self._get_param_value(p.get('enabled'), '未找到或为None')}")
+            print("--- 诊断结束 ---\n")
+
             if self._get_param_value(p.get('enabled'), False):
-                # ▼▼▼【代码修改 V41.13.6】: 优化参数获取并增加默认值 ▼▼▼
                 drop_days = self._get_param_value(p.get('drop_days'), 10)
                 drop_pct = self._get_param_value(p.get('drop_pct'), -0.20) # 稍微放宽默认值
                 winner_rate_threshold = self._get_param_value(p.get('winner_rate_threshold'), 10.0)
-                # ▲▲▲【代码修改 V41.13.6】▲▲▲
                 
                 # 条件1: 快速大幅下跌
                 high_in_period = df['high_D'].rolling(window=drop_days).max()
