@@ -1,7 +1,10 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
 # 版本: V6.7 - 分级止盈系统
 
-import asyncio
+import io       # 导入 io
+import sys      # 导入 sys
+import re       # 导入 re
+from contextlib import redirect_stdout # 导入 redirect_stdout
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
@@ -593,41 +596,52 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V6.8 新增】专用历史回溯调试方法。
-        - 核心功能: 对指定股票和时间段进行策略分析，并逐日打印详细的信号触发情况。
-        - 目的: 用于复盘主升浪或主跌浪期间，策略剧本的每日表现。
+        【V6.12 精准日志控制版】
+        - 核心修改: 使用 stdout 重定向技术，在不影响全量数据计算的前提下，
+                    精确控制只输出目标时间段内的底层引擎日志，实现计算与日志的解耦。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动] ---")
+        print(f"--- [历史回溯调试启动 (V6.12 精准日志版)] ---") # 修改: 版本号
         print(f"  - 股票代码: {stock_code}")
-        print(f"  - 回溯时段: {start_date} to {end_date}")
+        print(f"  - 目标时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
-            # 1. 一次性获取整个时间段所需的所有数据
-            #    我们将 trade_time 设置为 end_date，以确保 IndicatorService 获取到完整的历史数据
-            print(f"\n[步骤 1/4] 正在准备 {start_date} 到 {end_date} 的所有时间周期数据...")
+            # 步骤 1: 获取全量历史数据，保持不变
+            print(f"\n[步骤 1/4] 正在准备从最早到 {end_date} 的所有时间周期数据...")
             all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
                 stock_code, self.merged_config, trade_time=end_date
             )
             if 'D' not in all_dfs or all_dfs['D'].empty:
                 print(f"[错误] 无法获取 {stock_code} 的日线数据，调试终止。")
                 return
-            print("[成功] 所有数据准备就绪。")
+            print("[成功] 所有原始数据准备就绪。")
 
-            # 2. 运行战略引擎（周线）和战术引擎（日线）
-            print("\n[步骤 2/4] 正在运行周线战略引擎和日线战术引擎...")
+            # 步骤 2: 运行战略引擎和战术引擎，并捕获日志
+            print("\n[步骤 2/4] 正在使用全量数据运行引擎 (日志将被捕获并过滤)...")
+            
+            # 运行周线战略引擎（通常日志较少，直接运行）
             strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
             all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
             
-            # 运行战术引擎，这是我们分析的核心
-            final_df, _ = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
+            # ▼▼▼【代码修改 V6.12】: 使用 stdout 重定向来捕获战术引擎的日志 ▼▼▼
+            log_capture_buffer = io.StringIO()
+            with redirect_stdout(log_capture_buffer):
+                # 在这个代码块内，所有 print 都会被写入 buffer
+                final_df, _ = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
+            
+            # 获取捕获到的所有日志
+            captured_logs = log_capture_buffer.getvalue()
+            # ▲▲▲【代码修改 V6.12】▲▲▲
+
             if final_df is None or final_df.empty:
                 print("[信息] 战术引擎运行完成，但未生成任何分析结果。")
+                # 即使没有结果，也打印捕获的日志以供调试
+                print("\n--- [捕获的底层引擎日志] ---\n" + captured_logs)
                 return
             print("[成功] 战术引擎分析完成。")
 
-            # 3. 筛选出我们关心的历史时段
+            # 步骤 3: 筛选目标时段的分析结果
             print(f"\n[步骤 3/4] 正在筛选目标时段 ({start_date} to {end_date}) 的分析结果...")
             debug_period_df = final_df.loc[start_date:end_date].copy()
             if debug_period_df.empty:
@@ -635,8 +649,39 @@ class MultiTimeframeTrendStrategy:
                 return
             print(f"[成功] 筛选出 {len(debug_period_df)} 个交易日的分析数据。")
 
-            # 4. 逐日打印诊断报告 (核心修改)
-            print("\n[步骤 4/4] 开始逐日生成诊断报告...")
+            # ▼▼▼【代码修改 V6.12】: 打印过滤后的日志 ▼▼▼
+            print("\n--- [底层引擎日志 (仅显示目标时段相关)] ---")
+            # 生成一个从 start_date 开始的所有年份的正则表达式，以匹配多行日志块
+            start_year = pd.to_datetime(start_date).year
+            current_year = pd.to_datetime(end_date).year
+            years_to_match = [str(y) for y in range(start_year, current_year + 2)] # 加到下一年以防跨年
+            
+            # 匹配如 "====== 日期: 2024-08-01" 或 "--- [V反剧本评估] 详细调试 for 2024-08-01 ---"
+            date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
+            
+            # 标记是否应该开始打印
+            printing_started = False
+            for line in captured_logs.splitlines():
+                # 检查日志行是否包含目标年份范围内的日期
+                match = date_pattern.search(line)
+                if match:
+                    log_date_str = match.group(1)
+                    try:
+                        log_date = pd.to_datetime(log_date_str)
+                        if log_date >= pd.to_datetime(start_date):
+                            printing_started = True
+                    except ValueError:
+                        pass # 如果日期格式不正确，则忽略
+
+                # 如果日志行本身不包含日期，但它属于一个从目标日期开始的日志块，也打印它
+                # 我们通过检查日志块的开头来判断，比如 "--- [" 或 "    ["
+                if printing_started or line.strip().startswith(('---', '    [', '  - ', '======')):
+                    print(line)
+            print("--- [底层引擎日志结束] ---")
+            # ▲▲▲【代码修改 V6.12】▲▲▲
+
+            # 步骤 4: 逐日打印最终的诊断报告
+            print(f"\n[步骤 4/4] 开始逐日生成最终诊断报告...")
             print("-" * 80)
             
             score_threshold = self.tactical_config.get('strategy_params', {})\
@@ -646,21 +691,18 @@ class MultiTimeframeTrendStrategy:
                 date_str = trade_date.strftime('%Y-%m-%d')
                 entry_score = row.get('entry_score', 0)
                 
-                # ▼▼▼【代码修改 V6.10】: 优化打印逻辑，使其更清晰、更准确 ▼▼▼
-                print(f"====== 日期: {date_str} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {row.get('pct_chg_D', 0):.2f}% ======")
+                pct_change_val = row.get('pct_chg_D', row.get('pct_change_D', row.get('pct_change', 0))) * 100
+                print(f"====== 日期: {date_str} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {pct_change_val:.2f}% ======")
                 print(f"  - 核心前提 (右侧趋势): {row.get('robust_right_side_precondition', False)}")
 
-                # 精准筛选“日线战术剧本”，排除周线剧本的干扰
                 tactical_playbooks = [
                     col.replace('playbook_', '') 
                     for col in row.index 
                     if col.startswith('playbook_') and not col.endswith('_W') and row[col] is True
                 ]
                 
-                # 查找所有成立的准备状态
                 active_setups = [col.replace('SETUP_', '') for col in row.index if col.startswith('SETUP_') and row[col] is True]
 
-                # 检查是否有入场信号
                 if entry_score >= score_threshold:
                     print(f"  【✔ 买入信号触发】")
                     print(f"    - 总分: {entry_score:.2f} (阈值: {score_threshold})")
@@ -669,21 +711,19 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print("  【- 无买入信号】")
 
-                # 打印失败原因
                 failure_reasons = row.get('debug_info', [])
                 if failure_reasons:
                     print("  【✖ 失败归因】")
                     for reason in failure_reasons:
                         print(f"    - {reason}")
                 
-                # 打印卖出信号
                 exit_code = row.get('exit_signal_code', 0)
                 if exit_code > 0:
                     exit_reason = row.get('exit_signal_reason', '未知原因')
                     print(f"  【! 卖出信号】")
                     print(f"    - 代码: {exit_code}, 原因: {exit_reason}")
                 
-                print("-" * 60) # 每日分隔符
+                print("-" * 60)
 
             print("=" * 80)
             print(f"--- [历史回溯调试完成] ---")
