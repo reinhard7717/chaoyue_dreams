@@ -2218,4 +2218,71 @@ class TrendFollowStrategy:
 
         return final_signal.fillna(False)
 
+    def _find_upthrust_distribution_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【卖出剧本】【V2.0 主力行为版】“主力叛逃” - 识别高位派发的真实意图。
+        - 核心升级: 从价量形态升级为对“价格行为”与“资金行为”背离的捕捉。
+        - 策略逻辑:
+          1. 舞台(风险区): 股价大幅偏离中长期均线，进入“超涨”状态。
+          2. 动作(虚假繁荣): 出现经典的高成交量、长上影线K线。
+          3. 动机(资金叛逃): 当日主力资金必须是净流出，这是确认派发的核心证据。
+        """
+        params = self._get_params_block(params, 'upthrust_distribution_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        # --- 从配置中读取或使用默认值 ---
+        lookback = params.get('lookback_period', 30)
+        upper_shadow_ratio = params.get('upper_shadow_ratio', 0.6)
+        high_vol_quantile = params.get('high_volume_quantile', 0.85) # 提高成交量要求
+        overextension_ma_period = params.get('overextension_ma_period', 55) # 用于判断超涨的均线
+        overextension_threshold = params.get('overextension_threshold', 0.3) # 股价超过均线30%视为超涨
+
+        # --- 准备所需列名 ---
+        overextension_ma_col = f"EMA_{overextension_ma_period}_D"
+        required_cols = [
+            'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', overextension_ma_col,
+            'net_main_force_amount_D' # 依赖预先计算的主力净流入
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            if self.verbose_logging:
+                print(f"    [调试-主力叛逃-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
+            return pd.Series(False, index=df.index)
+
+        # 1. 舞台 - 识别是否处于“超涨”风险区
+        is_overextended = (df['close_D'] / df[overextension_ma_col] - 1) > overextension_threshold
+
+        # 2. 动作 - 识别经典的长上影线 + 高成交量
+        total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        # 上影线定义更严格：必须是阳线实体上方或阴线实体上方的部分
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])) / total_range
+        has_long_upper_shadow = upper_shadow > upper_shadow_ratio
+        is_high_volume = df['volume_D'] > df['volume_D'].rolling(lookback).quantile(high_vol_quantile)
+        is_upthrust_action = has_long_upper_shadow & is_high_volume
+
+        # 3. 动机 - 识别主力资金是否在净卖出
+        is_main_force_selling = df['net_main_force_amount_D'] < 0
+
+        final_signal = is_overextended & is_upthrust_action & is_main_force_selling
+
+        if self.verbose_logging:
+            print(f"    [调试-主力叛逃V2.0]: 超涨天数: {is_overextended.sum()} | "
+                  f"派发动作: {is_upthrust_action.sum()} | "
+                  f"主力净卖出: {is_main_force_selling.sum()} | "
+                  f"最终信号: {final_signal.sum()}")
+
+        return final_signal.fillna(False)
+
+
+
+
+
+
+
+
+
+
+
+
 
