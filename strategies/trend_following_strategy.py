@@ -2102,6 +2102,62 @@ class TrendFollowStrategy:
         # print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。") # 可以注释掉常规日志
         return final_signal
 
+    def _identify_board_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【模块】【V2.1 容错增强版】识别A股特色的各种“板”形态。
+        - 核心修正: 增加了价格判断的容错缓冲，以应对真实市场中的微小价格波动和近似计算误差。
+        """
+        params = self._get_params_block(params, 'board_pattern_params')
+        if not params.get('enabled', False):
+            return {} # 如果禁用，返回空字典
+
+        # --- 准备基础数据 ---
+        prev_close = df['close_D'].shift(1)
+        limit_up_threshold = params.get('limit_up_threshold', 0.098)
+        limit_down_threshold = params.get('limit_down_threshold', -0.098)
+        high_turnover_rate = params.get('high_turnover_rate', 7.0)
+        # ▼▼▼增加容错缓冲 ▼▼▼
+        price_buffer = params.get('price_buffer', 0.005) # 0.5%的价格缓冲
+
+        # --- 计算涨跌停价格（近似）---
+        limit_up_price = prev_close * (1 + limit_up_threshold)
+        limit_down_price = prev_close * (1 + limit_down_threshold)
+
+        # --- 识别涨跌停状态 (带缓冲) ---
+        # ▼▼▼在价格比较中应用缓冲 ▼▼▼
+        is_limit_up = df['close_D'] >= limit_up_price * (1 - price_buffer)
+        is_limit_down = df['close_D'] <= limit_down_price * (1 + price_buffer)
+        is_limit_up_high = df['high_D'] >= limit_up_price * (1 - price_buffer)
+        is_limit_down_low = df['low_D'] <= limit_down_price * (1 + price_buffer)
+
+        # 1. 一字板 (Unbroken Board)
+        is_one_word_shape = (df['open_D'] == df['high_D']) & (df['high_D'] == df['low_D']) & (df['low_D'] == df['close_D'])
+        is_one_word_limit_up = is_limit_up & is_one_word_shape
+        
+        # 2. 换手板 (Turnover Board)
+        # ▼▼▼放宽收盘价等于最高价的条件 ▼▼▼
+        is_limit_up_close = (df['close_D'] >= df['high_D'] * (1 - price_buffer)) & is_limit_up
+        is_opened_during_day = df['open_D'] < df['high_D'] # 盘中开过板
+        is_high_turnover = df.get('turnover_rate_D', pd.Series(0, index=df.index)) > high_turnover_rate
+        is_turnover_board = is_limit_up_close & is_opened_during_day & is_high_turnover
+
+        # 3. 天地板 (Heaven-Earth Board) - 强力卖出/风险信号
+        is_limit_down_close = (df['close_D'] <= df['low_D'] * (1 + price_buffer)) & is_limit_down
+        is_heaven_earth_board = is_limit_up_high & is_limit_down_close
+
+        # 4. 地天板 (Earth-Heaven Board) - 强力买入/反转信号
+        # is_limit_up_close 已在上面定义
+        is_earth_heaven_board = is_limit_down_low & is_limit_up_close
+        
+        if self.verbose_logging:
+            print(f"    [调试-板形态V2.1]: 地天板触发: {is_earth_heaven_board.sum()} 天, 天地板触发: {is_heaven_earth_board.sum()} 天")
+
+        return {
+            'one_word_limit_up': is_one_word_limit_up,
+            'turnover_board': is_turnover_board,
+            'heaven_earth_board': is_heaven_earth_board, # 风险信号
+            'earth_heaven_board': is_earth_heaven_board, # 机会信号
+        }
 
 
 
