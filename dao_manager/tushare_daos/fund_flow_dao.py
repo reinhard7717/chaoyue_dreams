@@ -12,7 +12,7 @@ from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyDC, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
-from stock_models.market import LimitListThs
+from stock_models.market import HmDetail, LimitListThs
 from utils.data_format_process import FundFlowFormatProcess
 
 logger = logging.getLogger("dao")
@@ -862,7 +862,173 @@ class FundFlowDao(BaseDAO):
             raise
 
     # ============== 游资每日明细 ==============
-    
+    async def save_hm_detail_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
+        """
+        保存游资每日明细数据 (借鉴V3客户端分块策略)
+        1. [借鉴] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
+        2. [借鉴] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
+        3. [适配] API接口从 moneyflow 更换为 hm_detail。
+        4. [适配] 数据处理和入库逻辑适配 HmDetail 模型。
+        """
+        # --- 1. 日期参数处理与验证 (逻辑复用) ---
+        if start_date and end_date and start_date > end_date:
+            logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
+            return
+        if start_date and end_date:
+            logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的游资数据采用客户端分块策略处理。")
+        elif trade_date:
+            start_date = end_date = trade_date
+            logger.info(f"接收到单日任务: {trade_date}")
+        else:
+            start_date = end_date = date.today()
+            logger.info(f"未提供日期，默认获取今日数据: {start_date}")
+
+        # --- 2. [借鉴] 客户端日期分块逻辑 ---
+        date_chunks = []
+        chunk_size_days = 30  # 游资接口数据量可能较小，可适当调整分块大小
+        current_chunk_end = end_date
+        while current_chunk_end >= start_date:
+            current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
+            date_chunks.append((current_chunk_start, current_chunk_end))
+            current_chunk_end = current_chunk_start - timedelta(days=1)
+        
+        all_dfs = [] # 用于收集所有分块的数据
+
+        # --- 3. [适配] 遍历分块并使用分页获取数据 ---
+        for chunk_start, chunk_end in date_chunks:
+            chunk_start_str = chunk_start.strftime('%Y%m%d')
+            chunk_end_str = chunk_end.strftime('%Y%m%d')
+            print(f"DAO: 开始处理游资数据日期块: {chunk_start_str} 到 {chunk_end_str}")
+            offset = 0
+            limit = 5000 # 根据Tushare接口文档调整limit
+            
+            while True:
+                try:
+                    # 【代码修改】API调用更换为 hm_detail 接口
+                    df = self.ts_pro.hm_detail(**{
+                        "trade_date": "", # 范围查询时，trade_date应为空
+                        "start_date": chunk_start_str, 
+                        "end_date": chunk_end_str, 
+                        "limit": limit, 
+                        "offset": offset
+                    }, fields=[
+                        "trade_date", "ts_code", "ts_name", "buy_amount", "sell_amount",
+                        "net_amount", "hm_name", "hm_orgs"
+                    ])
+                    await asyncio.sleep(0.55) # 保持友好的API调用频率
+                except Exception as e:
+                    logger.error(f"Tushare API调用失败 (hm_detail, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
+                    await asyncio.sleep(5) # 出错时等待更长时间
+                    df = pd.DataFrame()
+
+                if df.empty:
+                    break # 当前分块的当前分页无数据，结束此分块的分页
+                
+                all_dfs.append(df)
+                
+                if len(df) < limit:
+                    break # 当前分块的数据已全部获取完毕
+                
+                offset += limit
+        
+        if not all_dfs:
+            logger.info("在所有日期块中均未获取到任何游资明细数据。")
+            return
+
+        # --- 4. [适配] 向量化数据处理与入库 ---
+        print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        # 【代码修改】联合唯一键变更为 'trade_date', 'ts_code', 'hm_name'
+        combined_df.drop_duplicates(subset=['trade_date', 'ts_code', 'hm_name'], keep='first', inplace=True)
+        combined_df.replace(['nan', 'NaN', 'None', ''], np.nan, inplace=True)
+        combined_df.dropna(subset=['ts_code', 'trade_date', 'hm_name'], inplace=True) # 关键字段不能为空
+        
+        # 【代码修改】关联股票外键 (逻辑复用)
+        all_ts_codes = combined_df['ts_code'].unique().tolist()
+        stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
+        
+        combined_df['stock'] = combined_df['ts_code'].map(stock_map)
+        combined_df.dropna(subset=['stock'], inplace=True)
+        if combined_df.empty:
+            logger.info("游资数据关联股票基础信息后为空，任务结束。")
+            return
+
+        # 【代码修改】数据类型转换以匹配模型
+        combined_df['trade_date'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        # 将金额从“万元”转换为“元”
+        amount_cols = ['buy_amount', 'sell_amount', 'net_amount']
+        for col in amount_cols:
+            combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce').fillna(0) * 10000
+
+        # 【代码修改】准备数据列表用于入库
+        # 由于是单一模型，不再需要按模型分组
+        final_df = combined_df.drop(columns=['ts_code']) # 已经有stock外键，ts_code列不再需要
+        data_list = final_df.to_dict('records')
+
+        if not data_list:
+            logger.info("最终处理后没有可供保存的游资数据。")
+            return
+
+        # 【代码修改】调用批量更新插入方法，适配HmDetail模型
+        await self._save_all_to_db_native_upsert(
+            model_class=HmDetail,
+            data_list=data_list,
+            unique_fields=['trade_date', 'stock', 'hm_name'] # 使用模型定义的联合唯一键
+        )
+        
+        print(f"所有游资每日明细数据处理完成，共处理/保存 {len(data_list)} 条记录。")
+        return
+
+    async def get_hm_detail_data(self, start_date: date, end_date: date, stock_codes: list[str] = None, hm_names: list[str] = None) -> pd.DataFrame:
+        """
+        查询游资每日明细数据
+        :param start_date: 起始日期
+        :param end_date: 结束日期
+        :param stock_codes: 股票代码列表 (可选)
+        :param hm_names: 游资名称列表 (可选)
+        :return: 包含查询结果的DataFrame
+        """
+        print(f"DAO: 开始查询游资数据，日期范围: {start_date} to {end_date}, 股票: {stock_codes}, 游资: {hm_names}")
+        
+        # 【代码新增】构建基础查询
+        qs = HmDetail.objects.filter(trade_date__range=(start_date, end_date))
+        
+        # 【代码新增】应用可选的股票代码过滤
+        if stock_codes:
+            qs = qs.filter(stock__stock_code__in=stock_codes)
+            
+        # 【代码新增】应用可选的游资名称过滤
+        if hm_names:
+            qs = qs.filter(hm_name__in=hm_names)
+            
+        # 【代码新增】使用select_related优化查询，避免N+1问题
+        qs = qs.select_related('stock')
+        
+        # 【代码新增】定义需要返回的字段
+        fields_to_get = [
+            'trade_date',
+            'stock__stock_code', # 通过外键获取股票代码
+            'ts_name',
+            'buy_amount',
+            'sell_amount',
+            'net_amount',
+            'hm_name',
+            'hm_orgs'
+        ]
+        
+        # 【代码新增】异步执行查询并转换为列表
+        data_list = [item async for item in qs.values(*fields_to_get)]
+        
+        if not data_list:
+            print("DAO: 未查询到符合条件的游资数据。")
+            return pd.DataFrame()
+            
+        # 【代码新增】将结果转换为DataFrame并重命名列以保持一致性
+        df = pd.DataFrame(data_list)
+        df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
+        
+        print(f"DAO: 查询完成，共返回 {len(df)} 条记录。")
+        return df
 
 
     # ============== 涨跌停榜单 - 同花顺 无权限，不用 ==============

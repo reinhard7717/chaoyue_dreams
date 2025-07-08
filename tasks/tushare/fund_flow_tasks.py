@@ -114,7 +114,7 @@ def execute_save_today_fund_flow_method(self, method_name: str):
 
 # [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
-def save_fund_flow_daily_data_today(self):
+def save_fund_flow_daily_data(self):
     """
     [修改] 调度器任务（编排者）：
     负责并行分派获取当日三种渠道资金流数据的子任务。
@@ -145,6 +145,40 @@ def save_fund_flow_daily_data_today(self):
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
 
 
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_hm_detail_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
+def save_hm_detail_data_today(self):
+    """
+    Celery任务：获取并保存【当天】的游资每日明细数据。
+    该任务不接收任何参数，会自动调用DAO层方法获取当天的最新数据。
+    """
+    # 打印任务开始信息，self.request.id 是Celery提供的唯一任务ID
+    print(f"开始执行Celery任务: save_hm_detail_data_today, Task ID: {self.request.id}")
+    try:
+        # 实例化数据访问对象
+        dao = FundFlowDao()
+        
+        # 【核心逻辑】
+        # 因为 save_hm_detail_data 是一个异步(async)方法，
+        # 而Celery任务函数本身是同步(def)的，
+        # 所以我们需要使用 asyncio.run() 来创建一个事件循环并运行这个异步方法。
+        # 我们不向 save_hm_detail_data 传递任何日期参数，
+        # 它将自动使用默认逻辑，获取当天的日期进行处理。
+        asyncio.run(dao.save_hm_detail_data())
+        
+        # 打印任务成功结束信息
+        print(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行成功。")
+        return f"成功获取并保存了当天的游资明细数据。"
+        
+    except Exception as e:
+        # 记录详细的错误日志
+        logger.error(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行失败: {e}", exc_info=True)
+        # 打印简化的错误信息
+        print(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行失败: {e}")
+        # 可以在这里根据需要进行任务重试
+        # self.retry(exc=e, countdown=60) # 例如：60秒后重试
+        # 抛出异常，让Celery将任务状态标记为FAILURE
+        raise
+
 #  ================ （昨日）个股日级资金流向数据 （三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_fund_flow_dao_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
 def execute_fund_flow_dao_method(self, method_name: str):
@@ -169,7 +203,7 @@ def execute_fund_flow_dao_method(self, method_name: str):
         print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
         # 触发Celery的重试机制，例如60秒后重试，最多3次
         raise self.retry(exc=e, countdown=60, max_retries=3)
-
+    
 # [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue=STOCKS_SAVE_API_DATA_QUEUE)
 def save_fund_flow_daily_data_yesterday(self):
