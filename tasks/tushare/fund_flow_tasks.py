@@ -152,7 +152,7 @@ def save_hm_detail_data_today(self):
     该任务不接收任何参数，会自动调用DAO层方法获取当天的最新数据。
     """
     # 打印任务开始信息，self.request.id 是Celery提供的唯一任务ID
-    print(f"开始执行Celery任务: save_hm_detail_data_today, Task ID: {self.request.id}")
+    print(f"开始执行Celery任务: 保存【当天】的游资每日明细数据。 save_hm_detail_data_today, Task ID: {self.request.id}")
     try:
         # 实例化数据访问对象
         dao = FundFlowDao()

@@ -1105,7 +1105,9 @@ class IndicatorService:
         required_cols = [high_col, low_col, close_col]
         if df is None or df.empty or not all(c in df.columns for c in required_cols):
             return None
-        if len(df) < period + signal_period:
+        min_length = period + signal_period + smooth_k_period
+        if len(df) < min_length:
+            print(f"调试信息: 数据长度 {len(df)} 小于计算KDJ所需的最小长度 {min_length}，跳过计算。")
             return None
 
         try:
