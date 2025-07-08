@@ -162,6 +162,18 @@ class TrendFollowStrategy:
         df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, df_dict, params)
         self._last_score_details_df = score_details_df
 
+        # 这一步至关重要，它让调试工具能看到日线级别的剧本
+        print("    - [信息] 正在将战术剧本触发详情合并到最终结果中...")
+        if score_details_df is not None and not score_details_df.empty:
+            # 排除非剧本的得分项，如基础分、奖励分等
+            excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP')
+            # 遍历所有得分项
+            for playbook_name in score_details_df.columns:
+                # 如果不是排除项，就认为是有效的战术剧本
+                if not playbook_name.startswith(excluded_prefixes):
+                    # 创建一个 'playbook_' 前缀的列，值为布尔型 (当天此剧本是否得分 > 0)
+                    df[f'playbook_{playbook_name}'] = score_details_df[playbook_name] > 0
+
         # ▼▼▼ 集成智能出场矩阵 ▼▼▼
         print("    - [信息] 智能出场逻辑判断开始...")
         # 步骤: 计算所有“风险状态”
@@ -355,6 +367,10 @@ class TrendFollowStrategy:
         # 直接更新字典，不再需要 .to_dict('series') 转换
         atomic_signals.update(setup_conditions)
         atomic_signals.update(trigger_events)
+
+        # 这一步修复了“准备状态”始终为空的问题
+        for setup_name, setup_signal in setup_conditions.items():
+            df[setup_name] = setup_signal
 
         # --- 步骤4: 计算趋势动力学附加分 (逻辑不变) ---
         print("    [调试-计分V34.0] 步骤4: 计算趋势动力学附加分...")
