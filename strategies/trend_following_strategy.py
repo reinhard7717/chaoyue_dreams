@@ -701,28 +701,41 @@ class TrendFollowStrategy:
         
         # --- 准备参数和列名 ---
         ma_params = self._get_params_block(params, 'mid_term_trend_params', {})
-        short_ma_col = f"EMA_{ma_params.get('short_ma', 21)}_D"
-        mid_ma_col = f"EMA_{ma_params.get('mid_ma', 55)}_D"
-        slow_ma_col = f"EMA_{ma_params.get('slow_ma', 89)}_D"
+        short_ma = self._get_param_value(ma_params.get('short_ma'), 21)
+        mid_ma = self._get_param_value(ma_params.get('mid_ma'), 55)
+        slow_ma = self._get_param_value(ma_params.get('slow_ma'), 89)
         
-        # 核心斜率和加速度列
+        short_ma_col = f"EMA_{short_ma}_D"
+        mid_ma_col = f"EMA_{mid_ma}_D"
+        slow_ma_col = f"EMA_{slow_ma}_D"
+        
         mid_ma_slope_col = f'SLOPE_{mid_ma_col}_10'
         mid_ma_accel_col = f'ACCEL_{mid_ma_col}_10'
         
-        # 新增的审计维度所需列
-        mf_slope_col = 'SLOPE_net_mf_amount_D_10' # 主力资金净流入的10日斜率
-        bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10' # 布林带宽度21,2的10日斜率
+        mf_slope_col = 'SLOPE_net_mf_amount_D_10'
+        bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10'
         adx_col = 'ADX_14_D'
         rsi_col = 'RSI_13_D'
+
+        # 解析嵌套的参数块
+        volatility_params = ma_params.get('volatility_params', {})
+        min_bbw_slope = self._get_param_value(volatility_params.get('min_bbw_slope'), 0)
+        max_bbw_slope = self._get_param_value(volatility_params.get('max_bbw_slope'), 0.01)
+
+        strength_params = ma_params.get('internal_strength_params', {})
+        adx_threshold = self._get_param_value(strength_params.get('adx_threshold'), 20)
+        rsi_exhaustion_threshold = self._get_param_value(strength_params.get('rsi_exhaustion_threshold'), 80)
+        
+        health_score_threshold = self._get_param_value(ma_params.get('health_score_threshold'), 4)
 
         required_cols = [
             short_ma_col, mid_ma_col, slow_ma_col, mid_ma_slope_col, mid_ma_accel_col,
             mf_slope_col, bbw_slope_col, adx_col, rsi_col
         ]
-        
+
         if not all(c in df.columns for c in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
-            print(f"    - [前提验证中心-警告]: 缺少审计所需的列: {missing}，前提验证将受限。请检查斜率计算配置。")
+            print(f"    - [前提验证中心-警告]: 缺少审计所需的列: {missing}，前提验证将受限。请检查指标和斜率计算配置。")
             return {
                 'robust_right_side_precondition': pd.Series(False, index=df.index),
                 'trend_health_score': pd.Series(0, index=df.index),
@@ -746,17 +759,10 @@ class TrendFollowStrategy:
         print(f"      -> 维度4 (资本流): {dimension_capital.sum()} 天满足。")
 
         # --- 维度5: 波动性 (Volatility) - 趋势扩张是否稳定？ ---
-        # 波动率温和扩张是健康的，爆炸式增长或持续萎缩则不佳
-        volatility_params = ma_params.get('volatility_params', {})
-        min_bbw_slope = volatility_params.get('min_bbw_slope', 0) # 要求波动率斜率至少为正
-        max_bbw_slope = volatility_params.get('max_bbw_slope', 0.01) # 过滤掉爆炸式增长
         dimension_volatility = (df[bbw_slope_col] > min_bbw_slope) & (df[bbw_slope_col] < max_bbw_slope)
         print(f"      -> 维度5 (波动性): {dimension_volatility.sum()} 天满足。")
 
         # --- 维度6: 内在强度 (Internal Strength) - 趋势是否强劲且未衰竭？ ---
-        strength_params = ma_params.get('internal_strength_params', {})
-        adx_threshold = strength_params.get('adx_threshold', 20)
-        rsi_exhaustion_threshold = strength_params.get('rsi_exhaustion_threshold', 80)
         is_trend_strong = df[adx_col] > adx_threshold
         is_not_exhausted = df[rsi_col] < rsi_exhaustion_threshold
         dimension_strength = is_trend_strong & is_not_exhausted
@@ -771,42 +777,37 @@ class TrendFollowStrategy:
             dimension_volatility.astype(int) +
             dimension_strength.astype(int)
         )
-        
-        # --- 定义最终的前提条件 ---
-        # 高置信度前提：至少有 N 个维度是健康的 (N可配置)
-        consensus_threshold = ma_params.get('health_score_threshold', 4) # 默认阈值提高到4
-        robust_precondition = (trend_health_score >= consensus_threshold)
-        
-        premises['robust_right_side_precondition'] = robust_precondition
-        premises['trend_health_score'] = trend_health_score # 保存健康度得分，用于后续更精细的评分
-        premises['is_trend_accelerating'] = dimension_momentum # 直接导出动量状态，用于奖励
 
-        print(f"      -> [审计完成] '高置信度'右侧前提 (健康分>={consensus_threshold}) 触发了 {robust_precondition.sum()} 天。")
-        
-        # 兼容旧的 evidence_strength 逻辑
+        # --- 定义最终的前提条件 ---
+        robust_precondition = (trend_health_score >= health_score_threshold)
+
+        premises['robust_right_side_precondition'] = robust_precondition
+        premises['trend_health_score'] = trend_health_score
+        premises['is_trend_accelerating'] = dimension_momentum
+
+        print(f"      -> [审计完成] '高置信度'右侧前提 (健康分>={health_score_threshold}) 触发了 {robust_precondition.sum()} 天。")
+
         premises['evidence_strength'] = trend_health_score 
-        
+
         return premises
 
     # ▼▼▼ 动态健康度计分引擎 (Dynamic Health Scoring Engine) ▼▼▼
     def _score_trend_dynamics(self, df: pd.DataFrame, params: dict, validated_premises: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V39.3 动态健康度计分引擎版】
-        - 核心升级: 从简单的二元奖励，升级为基于 trend_health_score 的等级化、系统性赋分。
-        - 计分逻辑:
-          1. 等级化奖励: 健康分每超过基础门槛1分，就获得一级奖励。
-          2. 王牌奖励: 健康分达到满分(6/6)时，获得额外的王牌奖励。
-          3. 加速奖励: 保留独立的趋势加速奖励，作为动能的直接体现。
-        - 输出: 一个综合了趋势健康度和当前动能的动态分数。
+        【V40.0 健壮参数版】
+        - 核心升级: 使用 `_get_param_value` 辅助函数来解析 `health_score_threshold`。
+        - 效果: 代码更简洁，并能同时处理新旧两种配置格式。
         """
-        print("    - [动力学评分 V39.3] 开始基于'趋势健康度'进行动态计分...")
+        print("    - [动力学评分 V40.0] 开始基于'趋势健康度'进行动态计分...")
         
         # --- 准备参数和数据 ---
         scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         points = scoring_params.get('points', {})
         
+        # ▼▼▼【代码修改 V40.0】: 使用新的辅助函数简化参数获取 ▼▼▼
         trend_params = self._get_params_block(params, 'mid_term_trend_params', {})
-        health_score_threshold = trend_params.get('health_score_threshold', 4)
+        health_score_threshold = self._get_param_value(trend_params.get('health_score_threshold'), 4)
+        # ▲▲▲【代码修改 V40.0】▲▲▲
 
         # 从前提验证结果中获取核心数据
         trend_health_score = validated_premises.get('trend_health_score', pd.Series(0, index=df.index))
@@ -817,13 +818,11 @@ class TrendFollowStrategy:
         
         # --- 1. 等级化健康度奖励 (Graded Health Bonus) ---
         points_per_level = points.get('POINTS_PER_HEALTH_LEVEL', 10)
-        # 计算超出阈值的部分
         score_above_threshold = (trend_health_score - health_score_threshold).clip(lower=0)
         graded_bonus = score_above_threshold * points_per_level
         
         dynamics_score += graded_bonus
         
-        # 调试信息
         if graded_bonus.sum() > 0:
             print(f"      -> '等级化健康度'奖励已应用。最高奖励: {graded_bonus.max()}分。")
 
@@ -836,7 +835,6 @@ class TrendFollowStrategy:
             print(f"      -> '完美健康度(6/6)'王牌奖励触发了 {is_perfect_health.sum()} 天，奖励 {perfect_health_bonus} 分。")
 
         # --- 3. 趋势加速奖励 (Trend Acceleration Bonus) ---
-        # 这个奖励与健康度评分独立，作为对“当前推背感”的直接奖励
         accel_bonus = points.get('BONUS_TREND_ACCELERATING', 25)
         
         if is_trend_accelerating.any():
@@ -1162,20 +1160,38 @@ class TrendFollowStrategy:
             default_return = {}
         return params.get('strategy_params', {}).get('trend_follow', {}).get(block_name, default_return)
 
+    def _get_param_value(self, param_obj: Any, default_value: Any) -> Any:
+        """
+        【V40.0 参数解析器】从参数对象中安全地提取'value'。
+        - 兼容新旧两种配置格式:
+          - 新格式: param_obj = {'value': 21, '说明': '...'} -> 返回 21
+          - 旧格式: param_obj = 21 -> 返回 21
+        - 如果解析失败或对象不存在，则返回指定的默认值。
+        """
+        if isinstance(param_obj, dict):
+            # 如果是字典格式，则从 'value' 键中取值
+            return param_obj.get('value', default_value)
+        elif param_obj is not None:
+            # 如果不是字典且不为None，说明是旧的直接值格式，直接返回
+            return param_obj
+        else:
+            # 如果对象为None（即在配置中未找到），返回默认值
+            return default_value
+
     def _analyze_dynamic_box_and_ma_trend(self, df: pd.DataFrame, params: dict):
         """
-        【V2.18 终极修正版 - 手动应用动态Prominence】
-        - 根源修复: 解决了 scipy.find_peaks 无法直接处理动态prominence序列导致的ValueError。
-        - 两步法实现:
-          1. 先用 find_peaks 找出所有候选波峰/波谷的索引 (不使用prominence参数)。
-          2. 再用 peak_prominences 计算这些候选点的实际prominence，并与我们自定义的动态阈值进行手动比较和筛选。
-        - 这彻底解决了底层库的限制，确保了动态箱体分析的健壮性和准确性。
+        【V40.0 健壮参数版】
+        - 核心升级: 使用 `_get_param_value` 辅助函数来解析均线周期参数。
+        - 效果: 适配新配置格式，确保均线趋势判断逻辑的健壮性。
         """
         box_params = self._get_params_block(params, 'dynamic_box_params')
+
         ma_params = self._get_params_block(params, 'mid_term_trend_params')
-        
-        mid_ma_col = f"EMA_{ma_params.get('mid_ma', 55)}_D"
-        slow_ma_col = f"EMA_{ma_params.get('slow_ma', 89)}_D"
+        mid_ma = self._get_param_value(ma_params.get('mid_ma'), 55)
+        slow_ma = self._get_param_value(ma_params.get('slow_ma'), 89)
+
+        mid_ma_col = f"EMA_{mid_ma}_D"
+        slow_ma_col = f"EMA_{slow_ma}_D"
 
         if df.empty or not box_params.get('enabled', False):
             if self.verbose_logging:
@@ -1188,14 +1204,13 @@ class TrendFollowStrategy:
             self.signals['dynamic_box_breakout'] = pd.Series(False, index=df.index)
             self.signals['dynamic_box_breakdown'] = pd.Series(False, index=df.index)
             return
-        
+
         # 1. 计算动态的 prominence 序列 (Series)，而不是标量
         prominence_base = df['close_D']
         peak_prominence_series = prominence_base * box_params.get('peak_prominence', 0.02)
         trough_prominence_series = prominence_base * box_params.get('trough_prominence', 0.02)
 
-                # --- 步骤 2: 【核心修改】手动应用动态 Prominence ---
-        
+         # --- 步骤 2: 【核心修改】手动应用动态 Prominence ---
         # 2.1: 找出所有候选波峰，不使用 prominence 参数
         candidate_peak_indices, _ = find_peaks(df['close_D'], distance=box_params.get('peak_distance', 10))
         
