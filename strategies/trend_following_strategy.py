@@ -578,11 +578,14 @@ class TrendFollowStrategy:
             if isinstance(setup, bool):
                 setup = pd.Series(setup, index=df.index)
             
-            if setup is None or trigger is None:
-                print(f"    - [剧本警告] 剧本 '{playbook['name']}' 的 setup 或 trigger 未定义，跳过。")
-                continue
-                
-            condition = setup.shift(1).fillna(False) & trigger
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL']:
+                condition = setup & trigger
+                # 增加调试信息，方便观察哪个剧本使用了新逻辑
+                print(f"    - [剧本评估] 使用同步逻辑 (setup & trigger) 评估 '{playbook['name']}'。")
+            else:
+                # 传统逻辑: 准备状态(T-1) + 触发器(T)
+                condition = setup.shift(1).fillna(False) & trigger
+
             is_triggered = condition & playbook['precondition'] & ~has_been_scored
             
             if is_triggered.any():
