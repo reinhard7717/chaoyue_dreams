@@ -311,18 +311,14 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_member(self) -> Dict:
         """
-        【优化版】获取同花顺概念板块成分列表并保存
+        【修复版】获取同花顺概念板块成分列表并保存
         
-        优化点:
-        1.  **消除N+1查询**: 先通过API获取所有原始数据，然后一次性查询所有需要的Stock对象，避免在循环中查询数据库。
-        2.  **修复逻辑Bug**: 将 `break` 修正为 `continue`，确保在某个板块无数据时能继续处理下一个。
-        3.  **移除冗余查询**: 直接复用外层循环的 `ths_index` 对象。
-        4.  **批量保存**: 引入批量保存机制，防止内存溢出，并提高写入效率。
-        5.  **异步优化**: 使用 `asyncio.sleep` 替代 `time.sleep`。
+        修复点:
+        1.  **解决外键约束错误**: 在组装数据前，主动移除API返回数据中可能冲突的'ts_code'字段，强制使用本地数据库的ths_index对象作为外键来源。
+        2.  (保留已有优化) 消除N+1查询, 修复逻辑Bug, 移除冗余查询, 批量保存, 异步优化。
         """
         # --- 1. 初始化和准备 ---
-        API_CALL_DELAY_SECONDS = 0.3 # API调用间隔 (180/m 限制，即每秒3次，0.3s间隔较安全)
-        
+        API_CALL_DELAY_SECONDS = 0.3
         final_result = {}
         data_to_save = []
         
@@ -339,78 +335,77 @@ class IndustryDao(BaseDAO):
         all_stock_codes = set()
 
         for i, ths_index in enumerate(ths_index_list):
-            logger.info(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
+            print(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
             try:
-                df = self.ts_pro.ths_member(ts_code=ths_index.ts_code)
+                # 【代码修改】明确指定需要的字段，减少不必要的数据传输
+                df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,name,weight,in_date,out_date,is_new")
                 
                 if df is None or df.empty:
                     logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")
-                    await asyncio.sleep(API_CALL_DELAY_SECONDS) # 即使无数据也稍作等待
-                    continue # 代码修改处: 使用 continue 而不是 break
+                    await asyncio.sleep(API_CALL_DELAY_SECONDS)
+                    continue
                 
-                # 收集原始数据行和股票代码
                 for row in df.itertuples(index=False):
-                    all_raw_members.append((ths_index, row)) # 将板块对象和API行数据一起存储
+                    all_raw_members.append((ths_index, row))
                     all_stock_codes.add(row.con_code)
 
             except Exception as e:
                 logger.error(f"获取板块 [{ths_index.name}] 成分股时发生API错误: {e}", exc_info=True)
             
-            await asyncio.sleep(API_CALL_DELAY_SECONDS) # 控制API调用频率
+            await asyncio.sleep(API_CALL_DELAY_SECONDS)
 
         logger.info(f"所有板块API数据获取完成，共 {len(all_raw_members)} 条成分股记录，涉及 {len(all_stock_codes)} 个独立股票。")
 
-        # --- 4. (核心优化) 一次性从数据库/缓存获取所有需要的股票信息 ---
-        logger.info("正在一次性获取所有涉及的股票信息...")
-        # 假设 stock_cache_get 有一个批量获取的方法，如果没有，则直接查库
-        # stock_map = await self.stock_cache_get.stock_data_by_codes_batch(list(all_stock_codes))
-        # 下面是直接查库的示例：
+        # --- 4. (核心优化) 一次性从数据库获取所有需要的股票信息 ---
+        print("正在一次性获取所有涉及的股票信息...")
         stock_queryset = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
         stock_map = {stock.stock_code: stock async for stock in stock_queryset}
-        logger.info(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
+        print(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
 
         # --- 5. 组装最终数据并批量保存 ---
-        logger.info("开始组装最终数据并准备写入数据库...")
+        print("开始组装最终数据并准备写入数据库...")
         for ths_index, row_data in all_raw_members:
             stock = stock_map.get(row_data.con_code)
             if not stock:
                 # logger.warning(f"在数据库中未找到股票代码为 {row_data.con_code} 的信息，该成分股将被忽略。")
                 continue
             
-            # 清洗单行数据
-            # 注意：Tushare返回的DataFrame列名可能与itertuples的属性名不完全一致，请确保row_data的属性名正确
-            # 这里假设df列名和row_data属性名一致
             cleaned_row_data = {field: getattr(row_data, field) for field in row_data._fields}
             df_temp = pd.Series(cleaned_row_data).replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
-
-            # 代码修改处: 直接复用 ths_index，不再查询
+            
+            # 【代码修改】这是解决问题的关键步骤
+            # 将API返回的行数据转为字典
+            api_data_dict = df_temp.to_dict()
+            # 主动移除字典中的'ts_code'键。这样下游函数就不会误用它。
+            # 我们强制它必须使用我们传入的 ths_index 对象。
+            api_data_dict.pop('ts_code', None) 
+            
+            # 现在传递给处理函数的数据是干净的，不包含冲突的外键信息
             ths_index_member_dict = self.data_format_process.set_ths_index_member_data(
-                ths_index=ths_index, 
+                ths_index=ths_index, # 这个是我们数据库里的对象，是“可信”的
                 stock=stock, 
-                df_data=df_temp.to_dict() # 传递字典或Series给处理函数
+                df_data=api_data_dict # 这个是API数据，但已经移除了冲突键
             )
             data_to_save.append(ths_index_member_dict)
 
-            # 达到批量大小，执行保存
             if len(data_to_save) >= BATCH_SAVE_SIZE:
-                logger.info(f"数据缓存池达到 {len(data_to_save)} 条，开始批量写入数据库...")
+                print(f"数据缓存池达到 {len(data_to_save)} 条，开始批量写入数据库...")
                 final_result = await self._save_all_to_db_native_upsert(
                     model_class=ThsIndexMember,
                     data_list=data_to_save,
                     unique_fields=['ths_index', 'stock']
                 )
-                logger.info(f"批量写入完成。结果: {final_result}")
+                print(f"批量写入完成。")
                 data_to_save.clear()
 
-        # 保存最后剩余的数据
         if data_to_save:
-            logger.info(f"正在保存最后剩余的 {len(data_to_save)} 条数据...")
+            print(f"正在保存最后剩余的 {len(data_to_save)} 条数据...")
             final_result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexMember,
                 data_list=data_to_save,
                 unique_fields=['ths_index', 'stock']
             )
-            logger.info(f"最后的批量写入完成。结果: {final_result}")
+            print(f"最后的批量写入完成。")
 
         logger.info("同花顺概念板块成分保存任务全部完成。")
         return final_result

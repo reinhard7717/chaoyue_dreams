@@ -46,9 +46,9 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
         daily_weekly_data_task_result = save_week_data_today_task.delay()
         logger.info(f"已分派当日周线采集任务。任务ID: {daily_weekly_data_task_result.id}")
 
-        logger.info("开始执行: 当日周线采集任务...")
+        logger.info("开始执行: 当日月线采集任务...")
         daily_monthly_data_task_result = save_month_data_today_task.delay()
-        logger.info(f"已分派当日周线采集任务。任务ID: {daily_monthly_data_task_result.id}")
+        logger.info(f"已分派当日月线采集任务。任务ID: {daily_monthly_data_task_result.id}")
 
         # 步骤4：执行指数每日指标
         logger.info("开始执行: 指数每日指标...")
