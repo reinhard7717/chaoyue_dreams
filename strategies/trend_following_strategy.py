@@ -18,6 +18,19 @@ class TrendFollowStrategy:
     - 核心修改: 移除 IndicatorService 和 asyncio 依赖，变为纯粹的同步计算类。
     - 职责定位: 接收一个包含所有时间框架数据的字典，应用复杂的战术剧本和计分系统，输出最终决策。
     """
+    def _get_param_value(self, param: Any, default: Any = None) -> Any:
+        """
+        【V40.3 新增】健壮的参数值解析器。
+        - 核心功能: 智能处理两种配置格式：
+          1. 简单值: "param": 10
+          2. 字典格式: "param": {"value": 10, "说明": "..."}
+        - 返回值: 始终返回参数的实际值。
+        """
+        if isinstance(param, dict) and 'value' in param:
+            return param['value']
+        if param is not None:
+            return param
+        return default
 
     def __init__(self, config: dict):
         """
@@ -217,28 +230,24 @@ class TrendFollowStrategy:
 
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V29.0 动力学版】趋势斜率计算中心
-        - 核心升级: 新增二阶斜率（加速度）的计算，用于捕捉趋势的动力学变化。
-        - 职责: 集中计算所有关键指标的一阶（速度）和二阶（加速度）斜率。
+        【V40.3 修复版】趋势斜率计算中心
+        - 核心修复: 使用 `_get_param_value` 解析器来获取 `series_to_slope` 参数，确保能正确处理 `{"value": {...}}` 结构。
         """
         print("    - [斜率中心] 开始计算关键指标的趋势斜率 (V29.0 动力学版)...")
         slope_params = self._get_params_block(params, 'slope_params', {})
-        if not slope_params.get('enabled', False):
+        if not self._get_param_value(slope_params.get('enabled'), False): # 修改: 应用解析器
             print("    - [斜率中心] 斜率计算被禁用。")
             return df
 
-        # 定义一个高效的斜率计算函数
         def get_slope(y):
             y_clean = y.dropna()
             if y_clean.shape[0] < 2:
                 return np.nan
             x = np.arange(len(y_clean))
-            # 使用一阶多项式拟合 (线性回归)
             slope, _ = np.polyfit(x, y_clean.values, 1)
             return slope
 
-        # 从配置中读取要计算斜率的序列和对应的回看周期
-        series_to_slope = slope_params.get('series_to_slope', {})
+        series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {}) # 修改: 应用解析器
         
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
@@ -246,18 +255,11 @@ class TrendFollowStrategy:
                 continue
             
             for lookback in lookbacks:
-                # --- 计算一阶斜率 (速度) ---
                 slope_col_name = f'SLOPE_{col_name}_{lookback}'
                 df[slope_col_name] = df[col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
-                print(f"      -> 已计算 '{col_name}' 的 {lookback} 周期一阶斜率(速度)，存入 '{slope_col_name}'。")
                 
-                # --- 计算二阶斜率 (加速度) ---
-                # 二阶斜率是“斜率的斜率”
                 accel_col_name = f'ACCEL_{col_name}_{lookback}'
-                # 我们对刚刚计算出的一阶斜率列，再次应用滚动斜率计算
-                # 注意：计算加速度的回看周期通常可以短一些，这里我们复用同一个lookback，也可以在配置中单独指定
                 df[accel_col_name] = df[slope_col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
-                print(f"      -> 已计算 '{col_name}' 的 {lookback} 周期二阶斜率(加速度)，存入 '{accel_col_name}'。")
                 
         print("    - [斜率中心] 所有斜率计算完成。")
         return df
@@ -571,61 +573,145 @@ class TrendFollowStrategy:
     # ▼▼▼ “准备状态中心” (Setup Condition Center) ▼▼▼
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V39.7 准备状态中心版】
-        - 核心职责: 统一计算所有策略的“准备状态”(Setup Conditions)。
-        - 整合了原有的筹码准备状态和趋势准备状态的逻辑。
+        【V40.3 完整实现版】
+        - 核心升级: 根据配置文件，完整实现了所有交易剧本所需的“准备状态”(Setup)的计算。
+        - 健壮性: 全面应用 `_get_param_value` 解析器，并为每个计算块增加 try-except 保护。
         """
-        print("    - [准备状态中心 V39.7] 启动，开始计算所有准备状态...")
+        print("    - [准备状态中心 V40.3] 启动，开始计算所有准备状态...")
         setups = {}
-        
+        setup_params = self._get_params_block(params, 'setup_condition_params', {})
+
         # --- 1. 获取底层的、原子的筹码信号 ---
-        # 注意：这里我们调用的是重构后的、只提供原子信号的函数
-        chip_atomic_signals = self._define_chip_atomic_signals(df, params)
-        
-        # --- 2. 定义基于筹码的准备状态 ---
-        # 筹码集中突破（结构性吸筹）
-        setups['SETUP_CHIP_CONCENTRATION_BREAK'] = chip_atomic_signals.get(
-            'ATOMIC_CONCENTRATION_BREAK', pd.Series(False, index=df.index)
-        )
-        # 筹码成本区强化（结构性吸筹）
-        setups['SETUP_CHIP_REINFORCEMENT'] = chip_atomic_signals.get(
-            'ATOMIC_REINFORCEMENT', pd.Series(False, index=df.index)
-        )
-        # 综合筹码吸筹准备状态
-        setups['SETUP_CHIP_ACCUMULATION'] = (
-            setups['SETUP_CHIP_CONCENTRATION_BREAK'] | setups['SETUP_CHIP_REINFORCEMENT']
-        )
-        print(f"      -> '筹码吸筹'准备状态定义完成，发现 {setups['SETUP_CHIP_ACCUMULATION'].sum()} 天。")
+        try:
+            chip_atomic_signals = self._define_chip_atomic_signals(df, params)
+            setups['SETUP_CHIP_ACCUMULATION'] = chip_atomic_signals.get('ATOMIC_REINFORCEMENT', pd.Series(False, index=df.index))
+            print(f"      -> '筹码吸筹'准备状态定义完成，发现 {setups['SETUP_CHIP_ACCUMULATION'].sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'筹码吸筹'时出错: {e}")
 
-        # --- 3. 定义基于趋势的准备状态 ---
-        trend_params = self._get_params_block(params, 'trend_setup_params', {})
-        if trend_params.get('enabled', True):
-            short_ma = f"EMA_{trend_params.get('short_ma', 21)}_D"
-            long_ma = f"EMA_{trend_params.get('long_ma', 55)}_D"
-            if short_ma in df.columns and long_ma in df.columns:
-                # 均线多头排列
-                is_ma_aligned = df[short_ma] > df[long_ma]
-                # 股价位于关键均线之上
-                is_price_above_ma = df['close_D'] > df[short_ma]
-                setups['SETUP_TREND_ALIGNMENT'] = is_ma_aligned & is_price_above_ma
-                print(f"      -> '趋势对齐'准备状态定义完成，发现 {setups['SETUP_TREND_ALIGNMENT'].sum()} 天。")
+        # --- 2. 能量压缩 (潜龙在渊) ---
+        try:
+            p = setup_params.get('energy_compression_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                volatility_slope_col = 'SLOPE_BBW_21_2.0_D_10'
+                volume_slope_col = 'SLOPE_VOL_MA_21_D_10'
+                price_slope_col = 'SLOPE_close_D_10'
+                if all(c in df.columns for c in [volatility_slope_col, volume_slope_col, price_slope_col]):
+                    cond1 = df[volatility_slope_col] < self._get_param_value(p.get('volatility_slope_threshold'), -0.001)
+                    cond2 = df[volume_slope_col] < self._get_param_value(p.get('volume_slope_threshold'), -1.0)
+                    cond3 = df[price_slope_col].between(
+                        self._get_param_value(p.get('price_slope_threshold_lower'), -0.1),
+                        self._get_param_value(p.get('price_slope_threshold_upper'), 0.05)
+                    )
+                    setups['SETUP_ENERGY_COMPRESSION'] = cond1 & cond2 & cond3
+                    print(f"      -> '能量压缩'准备状态定义完成，发现 {setups.get('SETUP_ENERGY_COMPRESSION', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'能量压缩'时出错: {e}")
 
-        # --- 4. 定义基于回撤结构的准备状态 ---
-        pullback_params = self._get_params_block(params, 'pullback_structure_entry_params', {})
-        if pullback_params.get('enabled', True):
-            support_ma = f"EMA_{pullback_params.get('support_ma', 55)}_D"
-            if support_ma in df.columns:
-                # 股价在支撑均线附近（比如上下5%区间内）
-                is_near_support = (df['low_D'] < df[support_ma] * (1 + pullback_params.get('tolerance', 0.05))) & \
-                                  (df['close_D'] > df[support_ma] * (1 - pullback_params.get('tolerance', 0.05)))
-                setups['SETUP_PULLBACK_TO_SUPPORT'] = is_near_support
-                print(f"      -> '回踩支撑'准备状态定义完成，发现 {setups['SETUP_PULLBACK_TO_SUPPORT'].sum()} 天。")
+        # --- 3. 资金暗流 (价量背离) ---
+        try:
+            p = setup_params.get('capital_flow_divergence_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
+                ma_col = f'EMA_{ma_period}_D'
+                mf_slope_col = 'SLOPE_net_mf_amount_D_10'
+                if all(c in df.columns for c in [ma_col, mf_slope_col]):
+                    cond1 = df['close_D'] < df[ma_col] # 价格弱势
+                    cond2 = df[mf_slope_col] > self._get_param_value(p.get('mf_slope_threshold'), 0) # 主力流入
+                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = cond1 & cond2
+                    print(f"      -> '资金暗流'准备状态定义完成，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'资金暗流'时出错: {e}")
 
-        # --- 5. 最终清洗 ---
+        # --- 4. 健康回踩 ---
+        try:
+            p = setup_params.get('healthy_pullback_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                ma_period = self._get_param_value(p.get('support_ma'), 21)
+                ma_col = f'EMA_{ma_period}_D'
+                if ma_col in df.columns:
+                    is_shrinking_vol = df['volume_D'] < df[f'VOL_MA_{ma_period}_D']
+                    is_pullback = (df['close_D'] < df['close_D'].shift(1)) & (df['low_D'] < df[ma_col])
+                    setups['SETUP_HEALTHY_PULLBACK'] = is_pullback & is_shrinking_vol
+                    print(f"      -> '健康回踩'准备状态定义完成，发现 {setups.get('SETUP_HEALTHY_PULLBACK', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'健康回踩'时出错: {e}")
+
+        # --- 5. 老鸭头-鸭颈 ---
+        try:
+            p = setup_params.get('duck_neck_forming_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                fast_ma = f"EMA_{self._get_param_value(p.get('fast_ma'), 10)}_D"
+                slow_ma = f"EMA_{self._get_param_value(p.get('slow_ma'), 55)}_D"
+                if all(c in df.columns for c in [fast_ma, slow_ma]):
+                    cond1 = df[fast_ma] < df[slow_ma] # 快线在慢线之下
+                    cond2 = df['volume_D'] < df['VOL_MA_21_D'] # 缩量
+                    setups['SETUP_DUCK_NECK_FORMING'] = cond1 & cond2
+                    print(f"      -> '老鸭头-鸭颈'准备状态定义完成，发现 {setups.get('SETUP_DUCK_NECK_FORMING', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'老鸭头-鸭颈'时出错: {e}")
+
+        # --- 6. 巨阴洗盘日 ---
+        try:
+            p = setup_params.get('washout_day_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                vol_ma_period = self._get_param_value(p.get('vol_ma_period'), 20)
+                vol_ma_col = f'VOL_MA_{vol_ma_period}_D'
+                change_pct = df['close_D'].pct_change()
+                is_big_drop = change_pct < self._get_param_value(p.get('washout_threshold'), -0.07)
+                is_high_vol = df['volume_D'] > (df[vol_ma_col] * self._get_param_value(p.get('washout_volume_ratio'), 1.5))
+                setups['SETUP_WASHOUT_DAY'] = (is_big_drop & is_high_vol).shift(1).fillna(False) # 准备状态是基于前一天的
+                print(f"      -> '巨阴洗盘日'准备状态定义完成，发现 {setups.get('SETUP_WASHOUT_DAY', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'巨阴洗盘日'时出错: {e}")
+
+        # --- 7. V反-休克谷底 ---
+        try:
+            p = setup_params.get('shock_bottom_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                drop_days = self._get_param_value(p.get('drop_days'), 10)
+                drop_pct = self._get_param_value(p.get('drop_pct'), -0.25)
+                winner_rate_threshold = self._get_param_value(p.get('winner_rate_threshold'), 10.0)
+                
+                highest_in_period = df['high_D'].rolling(window=drop_days).max()
+                is_deep_drop = (df['low_D'] / highest_in_period - 1) < drop_pct
+                is_panic_selling = df['winner_rate_D'] < winner_rate_threshold
+                setups['SETUP_SHOCK_BOTTOM'] = is_deep_drop & is_panic_selling
+                print(f"      -> 'V反-休克谷底'准备状态定义完成，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'V反-休克谷底'时出错: {e}")
+
+        # --- 8. 风险：趋势衰竭 ---
+        try:
+            p = setup_params.get('trend_exhaustion_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                slope_col = 'SLOPE_EMA_55_D_10'
+                accel_col = 'ACCEL_EMA_55_D_10'
+                if all(c in df.columns for c in [slope_col, accel_col]):
+                    is_still_rising = df[slope_col] > 0
+                    is_decelerating = df[accel_col] < 0
+                    setups['RISK_TREND_EXHAUSTION'] = is_still_rising & is_decelerating
+                    print(f"      -> '风险-趋势衰竭'状态定义完成，发现 {setups.get('RISK_TREND_EXHAUSTION', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'趋势衰竭'时出错: {e}")
+
+        # --- 9. 填充所有未计算的Setups为False，确保剧本矩阵安全 ---
+        all_needed_setups = [
+            'SETUP_PROLONGED_COMPRESSION', 'SETUP_CAPITAL_FLOW_DIVERGENCE', 'SETUP_PULLBACK_WITH_MF_INFLOW',
+            'SETUP_PULLBACK_POST_BREAKOUT', 'SETUP_PULLBACK_POST_REVERSAL', 'SETUP_DUCK_NECK_FORMING',
+            'SETUP_ENERGY_COMPRESSION', 'SETUP_HEALTHY_PULLBACK', 'SETUP_SHOCK_BOTTOM', 'SETUP_WASHOUT_DAY',
+            'SETUP_RELATIVE_STRENGTH', 'SETUP_FORTRESS_SIEGE', 'SETUP_CHIP_ACCUMULATION', 'RISK_TREND_EXHAUSTION',
+            'SETUP_DOJI_PAUSE', 'SETUP_BULLISH_FLAG_FORMING', 'SETUP_BOTTOM_DIVERGENCE', 'SETUP_BBAND_SQUEEZE'
+        ]
+        for setup_name in all_needed_setups:
+            if setup_name not in setups:
+                setups[setup_name] = pd.Series(False, index=df.index)
+
+        # --- 10. 最终清洗 ---
         for key in list(setups.keys()):
             setups[key] = setups[key].fillna(False)
             
-        print("    - [准备状态中心 V39.7] 所有准备状态计算完成。")
+        print("    - [准备状态中心 V40.3] 所有准备状态计算完成。")
         return setups
 
     # ▼▼▼ 智能衍生特征引擎 (Intelligent Derived Feature Engine) ▼▼▼
@@ -970,17 +1056,14 @@ class TrendFollowStrategy:
     # 重构本函数，使其不再依赖任何外部状态机，而是自主完成“结构”与“力量”的融合。
     def _define_trigger_events(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V39.8 类型安全版】
-        - 核心升级:
-        1. 在进行数值计算前，强制将从数据库读取的资金额相关列（可能为Decimal类型）转换为float类型。
-        2. 解决了 'decimal.Decimal' 与 'float' 无法直接运算的 TypeError。
-        3. 提升了资金流相关计算的性能和稳定性。
+        【V40.3 修复版】
+        - 核心修复: 全面应用 `_get_param_value` 解析器，解决因参数结构导致的 TypeError。
         """
-        print("    - [触发事件中心 V39.8] 启动，开始定义所有原子化触发事件...")
+        print("    - [触发事件中心 V40.3] 启动，开始定义所有原子化触发事件...")
         triggers = {}
         trigger_params = self._get_params_block(params, 'trigger_event_params', {})
         
-        # --- 步骤1: 获取所有底层的、原子的“结构”信号 ---
+        # --- 步骤1: 获取底层的、原子的“结构”信号 ---
         try:
             chip_atomic_signals = self._define_chip_atomic_signals(df, params)
             is_breakout_structure = chip_atomic_signals.get('ATOMIC_COST_BREAKTHROUGH', pd.Series(False, index=df.index))
@@ -996,25 +1079,18 @@ class TrendFollowStrategy:
 
         # --- 步骤2: 计算“力量”信号 (资金行为的确认) ---
         print("      -> 正在计算'资金力量'信号...")
+        mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index))
         
-        # ▼▼▼ 强制类型转换为float，解决Decimal与float的运算冲突 ▼▼▼
-        # 从数据库读取的Decimal类型需要转换为float才能与numpy/pandas进行高效的数值运算
-        mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index)).astype(float)
-        
-        buy_elg_amount = df.get('buy_elg_amount_D', pd.Series(0, index=df.index)).astype(float)
-        sell_elg_amount = df.get('sell_elg_amount_D', pd.Series(0, index=df.index)).astype(float)
-        elg_net_buy = buy_elg_amount - sell_elg_amount
-        
-        net_mf_amount = df.get('net_mf_amount_D', pd.Series(0, index=df.index)).astype(float)
-        
-        # 力量1: 机构式强力买入 (主力净买入占比显著)
-        institutional_buying_threshold = trigger_params.get('institutional_buying_ratio', 0.05)
+        # 核心修复: 使用解析器获取正确的阈值
+        institutional_buying_threshold = self._get_param_value(trigger_params.get('institutional_buying_ratio'), 0.05)
         is_institutional_buying = mf_ratio > institutional_buying_threshold
         
-        # 力量2: 游资闪电战 (特大单是主力买入的大头，且成交量激增)
-        vol_ma_col = f"VOL_MA_{trigger_params.get('vol_ma_period', 21)}_D"
-        is_volume_spike = df['volume_D'] > (df.get(vol_ma_col, df['volume_D']) * trigger_params.get('volume_spike_ratio', 2.0))
-        # 此处的 net_mf_amount 和 elg_net_buy 已经是安全的float类型了
+        elg_net_buy = df.get('buy_elg_amount_D', 0) - df.get('sell_elg_amount_D', 0)
+        net_mf_amount = df.get('net_mf_amount_D', 0)
+        vol_ma_period = self._get_param_value(trigger_params.get('vol_ma_period'), 21)
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
+        volume_spike_ratio = self._get_param_value(trigger_params.get('volume_spike_ratio'), 2.0)
+        is_volume_spike = df['volume_D'] > (df.get(vol_ma_col, df['volume_D']) * volume_spike_ratio)
         is_hot_money_blitz = is_institutional_buying & (elg_net_buy > net_mf_amount * 0.7) & is_volume_spike
         
         # --- 步骤3: 【核心】融合“结构”与“力量”，生成高阶触发器 ---
@@ -1022,77 +1098,88 @@ class TrendFollowStrategy:
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
         triggers['CHIP_HOT_MONEY_BREAKOUT'] = is_breakout_structure & is_hot_money_blitz
         triggers['CHIP_CONFIRMED_ACCELERATION'] = is_acceleration_structure & is_institutional_buying
-        
         print(f"      -> 高阶触发器生成: 机构突破({triggers['CHIP_INSTITUTIONAL_BREAKOUT'].sum()}), 游资突破({triggers['CHIP_HOT_MONEY_BREAKOUT'].sum()}), 确认加速({triggers['CHIP_CONFIRMED_ACCELERATION'].sum()})")
 
         # --- 步骤4: 定义通用价量与形态触发器 (逻辑保持，代码更健壮) ---
+        # 强势阳线 (通用触发器)
         try:
-            candle_params = trigger_params.get('positive_candle', {})
-            if candle_params.get('enabled', True):
+            p = trigger_params.get('positive_candle', {})
+            if self._get_param_value(p.get('enabled'), True):
                 is_green = df['close_D'] > df['open_D']
                 body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
                 body_ratio = (df['close_D'] - df['open_D']) / body_range
-                is_strong_body = body_ratio > candle_params.get('min_body_ratio', 0.6)
+                # 核心修复: 使用解析器获取正确的阈值
+                min_body_ratio = self._get_param_value(p.get('min_body_ratio'), 0.6)
+                is_strong_body = body_ratio > min_body_ratio
                 triggers['STRONG_POSITIVE_CANDLE'] = is_green & is_strong_body
                 print(f"      -> '强势阳线' 触发器定义完成，发现 {triggers.get('STRONG_POSITIVE_CANDLE', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'强势阳线'触发器时出错: {e}")
 
+        # 通用放量突破 (通用触发器)
         try:
-            vol_params = trigger_params.get('volume_spike_breakout', {})
-            if vol_params.get('enabled', True):
-                vol_ma_col = f"VOL_MA_{vol_params.get('vol_ma_period', 21)}_D"
+            p = trigger_params.get('volume_spike_breakout', {})
+            if self._get_param_value(p.get('enabled'), True):
+                vol_ma_period = self._get_param_value(p.get('vol_ma_period'), 21)
+                vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
                 if vol_ma_col in df.columns:
-                    is_volume_spike_gen = df['volume_D'] > df[vol_ma_col] * vol_params.get('volume_ratio', 2.0)
-                    lookback = vol_params.get('lookback_period', 10)
+                    volume_ratio = self._get_param_value(p.get('volume_ratio'), 2.0)
+                    lookback = self._get_param_value(p.get('lookback_period'), 10)
+                    is_volume_spike_gen = df['volume_D'] > df[vol_ma_col] * volume_ratio
                     is_price_breakout = df['close_D'] > df['high_D'].shift(1).rolling(lookback).max()
                     triggers['VOLUME_SPIKE_BREAKOUT'] = is_volume_spike_gen & is_price_breakout
                     print(f"      -> '放量突破' 触发器定义完成，发现 {triggers.get('VOLUME_SPIKE_BREAKOUT', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'放量突破'触发器时出错: {e}")
 
+        # 收复关键均线 (特定场景触发器)
         try:
-            ma_params = trigger_params.get('ma_reclaim', {})
-            if ma_params.get('enabled', True):
-                ma_col = f"EMA_{ma_params.get('ma_period', 21)}_D"
+            p = trigger_params.get('ma_reclaim', {})
+            if self._get_param_value(p.get('enabled'), True):
+                ma_period = self._get_param_value(p.get('ma_period'), 21)
+                ma_col = f"EMA_{ma_period}_D"
                 if ma_col in df.columns:
                     triggers['MA_RECLAIM'] = (df['close_D'] > df[ma_col]) & (df['close_D'].shift(1) <= df[ma_col].shift(1))
                     print(f"      -> '收复关键均线' 触发器定义完成，发现 {triggers.get('MA_RECLAIM', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'收复均线'触发器时出错: {e}")
 
+        # “V型反转”触发器 (TRIGGER_V_RECOVERY)
         try:
-            v_params = self._get_params_block(params, 'v_reversal_entry_params', {})
-            if v_params.get('enabled', True) and 'net_mf_amount_D' in df.columns:
-                is_strong_rally = (df['close_D'] / df['close_D'].shift(1) - 1) > v_params.get('reversal_rally_pct', 0.05)
+            p = self._get_params_block(params, 'v_reversal_entry_params', {}) # 注意这里参数块不同
+            if self._get_param_value(p.get('enabled'), True) and 'net_mf_amount_D' in df.columns:
+                reversal_rally_pct = self._get_param_value(p.get('reversal_rally_pct'), 0.05)
+                is_strong_rally = (df['close_D'] / df['close_D'].shift(1) - 1) > reversal_rally_pct
                 is_strong_candle = (df['close_D'] - df['open_D']) > (df['high_D'] - df['low_D']) * 0.6
-                avg_amount_in_drop = df['amount_D'].shift(1).rolling(window=v_params.get('drop_days', 10)).mean()
-                # 此处的 net_mf_amount_D 也需要是 float 类型
-                is_huge_mf_inflow = df['net_mf_amount_D'].fillna(0).astype(float) > (avg_amount_in_drop * 0.1)
+                drop_days = self._get_param_value(p.get('drop_days'), 10)
+                avg_amount_in_drop = df['amount_D'].shift(1).rolling(window=drop_days).mean()
+                is_huge_mf_inflow = df['net_mf_amount_D'].fillna(0) > (avg_amount_in_drop * 0.1)
                 triggers['TRIGGER_V_RECOVERY'] = is_strong_rally & is_strong_candle & is_huge_mf_inflow
                 print(f"      -> 'V型反转修复' 触发器定义完成，发现 {triggers.get('TRIGGER_V_RECOVERY', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'V型反转修复'触发器时出错: {e}")
             
+        # “巨阴洗盘”触发器 (TRIGGER_WASHOUT_REVERSAL)
         try:
-            washout_params = self._get_params_block(params, 'washout_reversal_params', {})
-            if washout_params.get('enabled', True):
+            p = self._get_params_block(params, 'washout_reversal_params', {})
+            if self._get_param_value(p.get('enabled'), True):
                 is_reversal_cover = df['close_D'] > df['close_D'].shift(1)
                 reversal_rally = (df['close_D'] - df['open_D']) / df['open_D'].replace(0, np.nan)
-                is_strong_reversal_candle = reversal_rally > washout_params.get('reversal_rally_threshold', 0.03)
+                reversal_rally_threshold = self._get_param_value(p.get('reversal_rally_threshold'), 0.03)
+                is_strong_reversal_candle = reversal_rally > reversal_rally_threshold
                 triggers['TRIGGER_WASHOUT_REVERSAL'] = is_reversal_cover & is_strong_reversal_candle
                 print(f"      -> '巨阴洗盘反包' 触发器定义完成，发现 {triggers.get('TRIGGER_WASHOUT_REVERSAL', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'巨阴洗盘反包'触发器时出错: {e}")
 
+        # “堡垒防卫”触发器 (TRIGGER_FORTRESS_DEFENSE)
         try:
-            fort_params = self._get_params_block(params, 'pullback_structure_entry_params', {})
-            if fort_params.get('enabled', True):
+            p = self._get_params_block(params, 'fortress_defense_params', {})
+            if self._get_param_value(p.get('enabled'), True):
                 is_green_candle = df['close_D'] > df['open_D']
                 is_closing_high = df['close_D'] > (df['high_D'] + df['low_D']) / 2
                 is_strong_reversal_candle = is_green_candle & is_closing_high
-                # 此处的 net_mf_amount_D 也需要是 float 类型
-                is_main_force_buying = df.get('net_mf_amount_D', pd.Series(0, index=df.index)).fillna(0).astype(float) > 0
+                is_main_force_buying = df.get('net_mf_amount_D', pd.Series(0, index=df.index)) > 0
                 triggers['TRIGGER_FORTRESS_DEFENSE'] = is_strong_reversal_candle & is_main_force_buying
                 print(f"      -> '堡垒防卫' 触发器定义完成，发现 {triggers.get('TRIGGER_FORTRESS_DEFENSE', pd.Series([])).sum()} 天。")
         except Exception as e:
@@ -1105,7 +1192,7 @@ class TrendFollowStrategy:
             else:
                 triggers[key] = triggers[key].fillna(False)
 
-        print("    - [触发事件中心 V39.8] 所有原子化触发事件定义完成。")
+        print("    - [触发事件中心 V40.3] 所有原子化触发事件定义完成。")
         return triggers
 
     # ▼▼▼ “原子筹码信号提供器” (Atomic Chip Signal Provider) ▼▼▼
@@ -1165,24 +1252,6 @@ class TrendFollowStrategy:
         if default_return is None:
             default_return = {}
         return params.get('strategy_params', {}).get('trend_follow', {}).get(block_name, default_return)
-
-    def _get_param_value(self, param_obj: Any, default_value: Any) -> Any:
-        """
-        【V40.0 参数解析器】从参数对象中安全地提取'value'。
-        - 兼容新旧两种配置格式:
-          - 新格式: param_obj = {'value': 21, '说明': '...'} -> 返回 21
-          - 旧格式: param_obj = 21 -> 返回 21
-        - 如果解析失败或对象不存在，则返回指定的默认值。
-        """
-        if isinstance(param_obj, dict):
-            # 如果是字典格式，则从 'value' 键中取值
-            return param_obj.get('value', default_value)
-        elif param_obj is not None:
-            # 如果不是字典且不为None，说明是旧的直接值格式，直接返回
-            return param_obj
-        else:
-            # 如果对象为None（即在配置中未找到），返回默认值
-            return default_value
 
     def _analyze_dynamic_box_and_ma_trend(self, df: pd.DataFrame, params: dict):
         """
