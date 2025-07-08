@@ -540,7 +540,7 @@ class TrendFollowStrategy:
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         
-        # --- 步骤1: 计算并记录战略背景基础分 (逻辑不变) ---
+        # --- 步骤1: 计算并记录战略背景基础分 ---
         print("    [调试-计分V34.0] 步骤1: 计算周线战略背景基础分...")
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
@@ -570,22 +570,46 @@ class TrendFollowStrategy:
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
         
-        # --- 步骤2: 进行核心前提交叉验证 (逻辑不变) ---
+        # --- 步骤2: 进行核心前提交叉验证 ---
         print("    [调试-计分V34.0] 步骤2: 进行核心前提交叉验证...")
         validated_premises = self._validate_core_premises(df, params)
         robust_right_side_precondition = validated_premises['robust_right_side_precondition']
 
         # --- 步骤3: 计算所有“准备状态”和“触发事件” ---
         print("    [计分V37.0] 步骤3: 计算所有准备状态和触发事件...")
-        # ▼▼▼ setup_conditions 将被返回，所以这里的计算逻辑保持不变 ▼▼▼
+        print("    [计分V43.0] 步骤3: 计算所有准备状态和触发事件...")
         setup_conditions = self._calculate_setup_conditions(df, params)
-        trigger_events = self._define_trigger_events(df, params)
+        trigger_events = {} # 初始化触发事件字典
+        try:
+            trigger_params = self._get_params_block(params, 'trigger_event_params', {})
+            p = trigger_params.get('institutional_breakout_params', {})
+            if self._get_param_value(p.get('enabled'), True):
+                price_lookback = self._get_param_value(p.get('price_lookback'), 20)
+                vol_lookback = self._get_param_value(p.get('vol_lookback'), 20)
+                vol_ratio = self._get_param_value(p.get('vol_ratio'), 1.8)
+                mf_threshold = self._get_param_value(p.get('mf_threshold'), 10_000_000) # 默认1000万
+
+                # 条件1: 价格创近期新高
+                cond_price = df['close_D'] >= df['high_D'].shift(1).rolling(window=price_lookback).max()
+                # 条件2: 成交量显著放大
+                vol_ma_col = f'VOL_MA_{vol_lookback}_D'
+                cond_vol = df['volume_D'] > (df[vol_ma_col] * vol_ratio)
+                # 条件3: 主力资金显著流入
+                cond_mf = df.get('net_mf_amount_D', pd.Series(0, index=df.index)) > mf_threshold
+
+                trigger_events['CHIP_INSTITUTIONAL_BREAKOUT'] = cond_price & cond_vol & cond_mf
+                print(f"      -> '主力点火'触发器定义完成，发现 {trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'主力点火'触发器时出错: {e}")
+
+        trigger_events.update(self._define_trigger_events(df, params)) # 假设此函数存在并返回其他触发器
+
         atomic_signals.update(setup_conditions)
         atomic_signals.update(trigger_events)
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
 
-        # --- 步骤4: 计算趋势动力学附加分 (逻辑不变) ---
+        # --- 步骤4: 计算趋势动力学附加分 ---
         print("    [调试-计分V34.0] 步骤4: 计算趋势动力学附加分...")
         dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
 
@@ -659,7 +683,7 @@ class TrendFollowStrategy:
             score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
             print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
 
-        # --- 步骤6: 融合剧本分、动力学分与环境修正项 (逻辑不变) ---
+        # --- 步骤6: 融合剧本分、动力学分与环境修正项 ---
         print("    [调试-计分V34.0] 步骤6: 融合所有得分项...")
         final_score = df['base_score'].copy()
         has_primary_score = final_score > 0
@@ -700,12 +724,12 @@ class TrendFollowStrategy:
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
         
-        # --- 步骤7: 合并战略与战术得分 (逻辑不变) ---
+        # --- 步骤7: 合并战略与战术得分 ---
         print("    [调试-计分V34.0] 步骤7: 合并战略与战术得分...")
         base_score_from_weekly = score_details_df.filter(regex='^BASE_').sum(axis=1)
         final_score += base_score_from_weekly
 
-        # --- 更新上下文状态 (逻辑不变) ---
+        # --- 更新上下文状态 ---
         print("    [计分V39.4] 步骤X: 更新上下文状态...")
         df = self._update_contextual_states(df, score_details_df, validated_premises, params)
 
@@ -737,8 +761,8 @@ class TrendFollowStrategy:
             print(f"    - [风险否决] '强看跌K线'信号触发，否决了 {kline_strong_bearish.sum()} 天的买入信号。")
 
         # 清理临时列
-        df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore') # 修改: 增加 temp_is_fortress_valid
-        print("    [计分V37.0] 计分流程结束。")
+        df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore')
+        print("    [计分V43.0] 计分流程结束。")
         
         return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
 
@@ -830,11 +854,13 @@ class TrendFollowStrategy:
     # ▼▼▼ “准备状态中心” (Setup Condition Center) ▼▼▼
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V41.3 逻辑复原版】
-        - 核心升级: 全面恢复“堡垒防卫”、“V型反转”等剧本在重构中被简化的、精细化的“准备状态”计算逻辑。
-        - 效果: 极大提升了策略对特定市场微观结构的感知精度，确保了剧本触发的前提是高质量的。
+        【V43.1 精准注入版】
+        - 核心升级: 
+          1. 新增 `SETUP_PROLONGED_COMPRESSION` (潜龙出海-准备) 的计算逻辑。
+          2. 重构 `SETUP_CAPITAL_FLOW_DIVERGENCE` (猛兽苏醒-准备) 的计算逻辑，修复 `cumsum` 缺陷。
         """
-        print("    - [准备状态中心 V41.3] 启动，开始计算所有准备状态...")
+        # ▼▼▼【代码修改 V43.1】: 使用您提供的完整函数替换原有函数 ▼▼▼
+        print("    - [准备状态中心 V43.1] 启动，开始计算所有准备状态...")
 
         if not df.empty:
             debug_date_str = '2025-06-23'
@@ -844,11 +870,11 @@ class TrendFollowStrategy:
                 target_date = target_date.tz_localize(df.index.tz)
             
             is_date_present = target_date in df.index
-            print("\n--- [数据范围诊断] 检查输入DataFrame的日期索引 ---")
-            print(f"  - DataFrame 起始日期: {df.index.min()}")
-            print(f"  - DataFrame 结束日期: {df.index.max()}")
-            print(f"  - 目标调试日期 '{debug_date_str}' 是否存在于索引中? {'是' if is_date_present else '否'}")
-            print("--- 诊断结束 ---\n")
+            # print("\n--- [数据范围诊断] 检查输入DataFrame的日期索引 ---")
+            # print(f"  - DataFrame 起始日期: {df.index.min()}")
+            # print(f"  - DataFrame 结束日期: {df.index.max()}")
+            # print(f"  - 目标调试日期 '{debug_date_str}' 是否存在于索引中? {'是' if is_date_present else '否'}")
+            # print("--- 诊断结束 ---\n")
         setups = {}
         setup_params = self._get_params_block(params, 'setup_condition_params', {})
         playbook_specific_params = self._get_params_block(params, 'playbook_specific_params', {})
@@ -864,7 +890,29 @@ class TrendFollowStrategy:
         setups['SETUP_CHIP_CONCENTRATION'] = chip_atomic_signals.get('ATOMIC_CONCENTRATED_STATE', pd.Series(False, index=df.index))
         print(f"      -> '筹码高度集中'准备状态定义完成，发现 {setups.get('SETUP_CHIP_CONCENTRATION', pd.Series([])).sum()} 天。")
 
-        # --- 2. 能量压缩 (逻辑不变) ---
+        # --- 新增: “潜龙出海” 的准备状态计算 ---
+        try:
+            p = playbook_specific_params.get('perfect_storm_params', {})
+            if self._get_param_value(p.get('enabled'), True): # 默认启用
+                bbw_col = 'BBW_21_2.0_D'
+                if bbw_col in df.columns:
+                    lookback = self._get_param_value(p.get('compression_lookback'), 120)
+                    percentile = self._get_param_value(p.get('compression_percentile'), 0.1)
+                    duration = self._get_param_value(p.get('compression_duration'), 20)
+                    
+                    # 计算过去N天的布林带宽度的低位阈值
+                    low_bbw_threshold = df[bbw_col].rolling(window=lookback, min_periods=duration).quantile(percentile)
+                    # 判断当前布林带宽度是否低于该阈值
+                    is_in_compression = df[bbw_col] < low_bbw_threshold
+                    # 判断是否连续M天都处于压缩状态
+                    setups['SETUP_PROLONGED_COMPRESSION'] = is_in_compression.rolling(window=duration).sum() >= duration
+                    print(f"      -> '潜龙出海-长期蓄势'准备状态定义完成，发现 {setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series([])).sum()} 天。")
+                else:
+                    print(f"      -> [警告] 缺少列 '{bbw_col}'，无法计算'潜龙出海-长期蓄势'。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'时出错: {e}")
+
+        # --- 能量压缩 ---
         try:
             p = setup_params.get('energy_compression_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -883,32 +931,46 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'能量压缩'时出错: {e}")
 
-        # --- 3. 资金暗流 (V41.1 修复逻辑不变) ---
+        # --- “资金暗流/猛兽苏醒” 的准备状态计算 ---
         try:
             p = setup_params.get('capital_flow_divergence_params', {})
             if self._get_param_value(p.get('enabled'), False):
-                trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
-                ma_col = f'EMA_{trend_ma_period}_D'
-                if 'net_mf_amount_D' in df.columns and ma_col in df.columns:
-                    df['temp_cumulative_net_mf'] = df['net_mf_amount_D'].cumsum()
+                price_col = 'low_D'
+                mf_col = 'net_mf_amount_D'
+                if mf_col in df.columns:
+                    lookback = self._get_param_value(p.get('divergence_lookback'), 20)
+                    # 寻找价格低点 (通过反转序列找高点)
+                    price_peaks_indices, _ = find_peaks(-df[price_col], distance=lookback//2)
+                    divergence_signals = pd.Series(False, index=df.index)
                     def get_slope(y):
                         y_clean = y.dropna()
                         if len(y_clean) < 2: return np.nan
                         x = np.arange(len(y_clean))
                         slope_val, _ = np.polyfit(x, y_clean.values, 1)
                         return slope_val
-                    slope_lookback = self._get_param_value(p.get('slope_lookback'), 20)
-                    df['temp_mf_slope'] = df['temp_cumulative_net_mf'].rolling(window=slope_lookback).apply(get_slope, raw=False)
-                    is_price_weak = df['close_D'] < df[ma_col]
-                    slope_improvement_days = self._get_param_value(p.get('slope_improvement_days'), 3)
-                    is_slope_improving = (df['temp_mf_slope'] > df['temp_mf_slope'].shift(1)).rolling(window=slope_improvement_days).sum() >= slope_improvement_days
-                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = is_price_weak & is_slope_improving
-                    df.drop(columns=['temp_cumulative_net_mf', 'temp_mf_slope'], inplace=True, errors='ignore')
-                    print(f"      -> '资金暗流'准备状态定义完成 (V41.1 经典累计版)，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
+                    for i in range(1, len(price_peaks_indices)):
+                        prev_peak_idx = price_peaks_indices[i-1]
+                        current_peak_idx = price_peaks_indices[i]
+                        prev_price_low = df[price_col].iloc[prev_peak_idx]
+                        current_price_low = df[price_col].iloc[current_peak_idx]
+                        # 条件1: 价格创出新低或次低 (底部背离)
+                        if current_price_low < prev_price_low * 1.02: # 允许一点误差
+                            # 提取这两个价格低点之间的资金流数据
+                            mf_slice = df[mf_col].iloc[prev_peak_idx:current_peak_idx+1]
+                            # 条件2: 这期间的资金流趋势是向上的
+                            mf_slope = get_slope(mf_slice)
+                            if mf_slope is not None and mf_slope > 0:
+                                # 在当前价格低点标记信号
+                                divergence_signals.iloc[current_peak_idx] = True
+                    
+                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = divergence_signals
+                    print(f"      -> '资金暗流(底部背离)'准备状态重构完成 (V43.1)，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
+                else:
+                    print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
         except Exception as e:
             print(f"      -> [警告] 计算'资金暗流'时出错: {e}")
 
-        # --- 4. 健康回踩 (V41.0 逻辑不变, 但现在服务于新的专用触发器) ---
+        # --- 4. 健康回踩 ---
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -926,7 +988,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'健康回踩'时出错: {e}")
 
-        # --- 5. 老鸭头-鸭颈 (逻辑不变) ---
+        # --- 5. 老鸭头-鸭颈 ---
         try:
             p = setup_params.get('duck_neck_forming_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -940,7 +1002,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'老鸭头-鸭颈'时出错: {e}")
 
-        # --- 6. 巨阴洗盘日 (逻辑不变) ---
+        # --- 6. 巨阴洗盘日 ---
         try:
             p = setup_params.get('washout_day_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -954,7 +1016,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'巨阴洗盘日'时出错: {e}")
 
-        # --- 7. V反-休克谷底 (V41.3 核心恢复) ---
+        # --- 7. V反-休克谷底 ---
         try:
             p = setup_params.get('shock_bottom_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -979,7 +1041,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'V反-休克谷底'时出错: {e}")
 
-        # --- 8. 堡垒围攻 (V41.3 核心恢复) ---
+        # --- 8. 堡垒围攻 ---
         try:
             p = setup_params.get('fortress_siege_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1492,7 +1554,7 @@ class TrendFollowStrategy:
         trigger_params = self._get_params_block(params, 'trigger_event_params', {})
         playbook_specific_params = self._get_params_block(params, 'playbook_specific_params', {})
         
-        # --- 步骤1: 获取底层的、原子的“结构”信号 (逻辑不变) ---
+        # --- 步骤1: 获取底层的、原子的“结构”信号 ---
         try:
             chip_atomic_signals = self._define_chip_atomic_signals(df, params)
             is_breakout_structure = chip_atomic_signals.get('ATOMIC_COST_BREAKTHROUGH', pd.Series(False, index=df.index))
@@ -1506,7 +1568,7 @@ class TrendFollowStrategy:
             is_breakout_structure = pd.Series(False, index=df.index)
             is_acceleration_structure = pd.Series(False, index=df.index)
 
-        # --- 步骤2: 计算“力量”信号 (资金行为的确认) (逻辑不变) ---
+        # --- 步骤2: 计算“力量”信号 (资金行为的确认) ---
         print("      -> 正在计算'资金力量'信号...")
         mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index))
         institutional_buying_threshold = self._get_param_value(trigger_params.get('institutional_buying_ratio'), 0.05)
@@ -1531,7 +1593,7 @@ class TrendFollowStrategy:
         print(f"      -> 高阶触发器生成: 机构突破({triggers['CHIP_INSTITUTIONAL_BREAKOUT'].sum()}), 游资突破({triggers['CHIP_HOT_MONEY_BREAKOUT'].sum()}), 确认加速({triggers['CHIP_CONFIRMED_ACCELERATION'].sum()})")
 
         # --- 步骤4: 定义专用的、高规格的剧本触发器 ---
-        # “能量释放”专用触发器 (逻辑不变)
+        # “能量释放”专用触发器
         try:
             p = trigger_params.get('energy_release_trigger_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1570,7 +1632,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'回踩反弹专用'触发器时出错: {e}")
 
-        # “V型反转”专用触发器 (逻辑不变)
+        # “V型反转”专用触发器
         try:
             p = self._get_params_block(params, 'v_recovery_params', {})
             if self._get_param_value(p.get('enabled'), True) and 'net_mf_amount_D' in df.columns:
@@ -1583,7 +1645,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'V型反转修复'触发器时出错: {e}")
             
-        # “巨阴洗盘反包”专用触发器 (逻辑不变)
+        # “巨阴洗盘反包”专用触发器
         try:
             p = self._get_params_block(params, 'washout_reversal_params', {})
             if self._get_param_value(p.get('enabled'), True):
@@ -1619,7 +1681,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'地天板反转'触发器时出错: {e}")
 
-        # “堡垒防卫”专用触发器 (逻辑不变)
+        # “堡垒防卫”专用触发器
         try:
             p = self._get_params_block(params, 'fortress_defense_params', {})
             if self._get_param_value(p.get('enabled'), True):
@@ -1633,7 +1695,7 @@ class TrendFollowStrategy:
             print(f"      -> [警告] 计算'堡垒防卫'触发器时出错: {e}")
 
         # --- 步骤5: 定义通用的、经典的触发器 ---
-        # 动量突破 (首板) (逻辑不变)
+        # 动量突破 (首板)
         try:
             p = trigger_params.get('momentum_breakout_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1662,7 +1724,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'通用放量突破'触发器时出错: {e}")
 
-        # 布林带突破 (中轨) (逻辑不变)
+        # 布林带突破 (中轨)
         try:
             p = trigger_params.get('bband_breakout_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1673,7 +1735,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'布林带突破'时出错: {e}")
 
-        # 指标交叉 (逻辑不变)
+        # 指标交叉
         try:
             p = trigger_params.get('indicator_cross_params', {})
             if self._get_param_value(p.get('enabled'), False):
