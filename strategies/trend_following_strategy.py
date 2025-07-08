@@ -159,7 +159,7 @@ class TrendFollowStrategy:
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
         print("    - [信息] 核心计分流程开始...")
-        df.loc[:, 'entry_score'], atomic_signals, score_details_df = self._calculate_entry_score(df, df_dict, params)
+        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, df_dict, params)
         self._last_score_details_df = score_details_df
 
         # 这一步至关重要，它让调试工具能看到日线级别的剧本
@@ -185,46 +185,58 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df.loc[:, 'signal_entry'] = df['entry_score'] >= score_threshold
 
-        print("\n---【多时间框架协同策略(V22.2 融合版) 逻辑链调试】---")
+        playbook_definitions_for_log = self._get_playbook_definitions(df, trigger_events={}, setup_conditions={})
+        playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_definitions_for_log}
+
+        print("\n---【多时间框架协同策略(V42.0 中文日志版) 逻辑链调试】---") # 修改: 版本号
         entry_signals = df[df['signal_entry']]
         print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)}")
         if not entry_signals.empty:
-            last_entry_date = entry_signals.index[-1]
-            last_entry_score = df.loc[last_entry_date, 'entry_score']
-            print(f"  - 最近一次买入: {last_entry_date.date()} (当日总分: {last_entry_score:.2f})")
-            
-            print(f"  --- 得分小票 for {last_entry_date.date()} ---")
-            score_breakdown = score_details_df.loc[last_entry_date].dropna()
-            base_score_items = {k: v for k, v in score_breakdown.items() if k.startswith('BASE_') and v > 0}
-            tactical_score_items = {k: v for k, v in score_breakdown.items() if not k.startswith('BASE_') and v != 0}
-            
-            base_total = sum(base_score_items.values())
-            print(f"    [战略基础分: {base_total:.2f} pts]")
-            if not base_score_items:
-                print("      - (无)")
-            else:
-                for item, score in base_score_items.items():
-                    print(f"      - {item}: {score:.2f} pts")
+            # ▼▼▼【代码修改 V42.0】: 增强日志输出 ▼▼▼
+            for entry_date, row in entry_signals.iterrows():
+                entry_score = row['entry_score']
+                # 优先获取 pct_change_D，如果不存在则获取 pct_change
+                pct_change_val = row.get('pct_change_D', row.get('pct_change', 0)) * 100
+                print(f"\n====== 日期: {entry_date.date()} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {pct_change_val:.2f}% ======")
+                print(f"  - 核心前提 (右侧趋势): {row.get('robust_right_side_precondition', '未知')}")
+                
+                score_breakdown = self._last_score_details_df.loc[entry_date].dropna()
+                active_playbooks = [
+                    k for k, v in score_breakdown.items() 
+                    if v > 0 and not k.startswith(('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP'))
+                ]
+                
+                # 获取准备状态
+                active_setups = [
+                    s.replace('SETUP_', '') for s in setup_conditions.keys()
+                    if s in setup_conditions and isinstance(setup_conditions[s], pd.Series) and not setup_conditions[s].empty and entry_date in setup_conditions[s].index and setup_conditions[s].at[entry_date]
+                ]
+                # 将准备状态的英文名也转换为中文名
+                setup_cn_name_map = {
+                    'ENERGY_COMPRESSION': '能量压缩', 'CAPITAL_FLOW_DIVERGENCE': '资金暗流',
+                    'HEALTHY_PULLBACK': '健康回踩', 'DUCK_NECK_FORMING': '老鸭颈',
+                    'CHIP_ACCUMULATION': '筹码吸筹', 'WASHOUT_DAY': '巨阴洗盘',
+                    'SHOCK_BOTTOM': '休克谷底', 'DOJI_PAUSE': '十字星暂停',
+                    'RELATIVE_STRENGTH': '相对强势', 'FORTRESS_SIEGE': '堡垒围攻',
+                    'BBAND_SQUEEZE': '布林压缩', 'WINNER_RATE_WASHED_OUT': '投降坑',
+                    'BIAS_EXTREME_OVERSOLD': 'BIAS超卖', 'GAP_SUPPORT': '缺口支撑',
+                    # ...可以继续添加其他准备状态的中文名...
+                }
+                active_setups_cn = [setup_cn_name_map.get(s, s) for s in active_setups]
 
-            tactical_total = sum(tactical_score_items.values())
-            print(f"    [战术叠加分: {tactical_total:.2f} pts]")
-            if not tactical_score_items:
-                print("      - (无)")
-            else:
-                for item, score in tactical_score_items.items():
-                    print(f"      - {item}: {score:.2f} pts")
-            
-            print(f"    ------------------------------------")
-            print(f"    [核算总分: {base_total + tactical_total:.2f} pts]")
+                print(f"  【✔ 买入信号触发】")
+                print(f"    - 总分: {entry_score:.2f} (阈值: {score_threshold})")
+                # 使用中文名打印剧本
+                print(f"    - 激活的日线剧本: {[playbook_cn_name_map.get(p, p) for p in active_playbooks]}")
+                print(f"    - 成立的准备状态: {active_setups_cn if active_setups_cn else '无'}")
 
         return df, atomic_signals
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V41.12 适配出场矩阵版】
-        - 核心修改: 将信号筛选和记录保存的逻辑从 'take_profit_signal' 切换到新的 'exit_signal_code'。
+        【V42.0 修复版】
+        - 核心修改: 修复了涨跌幅数据提取错误的问题，并增加了对准备状态的记录。
         """
-        # 使用 .get() 方法确保在列不存在时也能安全运行，默认为0
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df.get('exit_signal_code', 0) > 0)
         ].copy()
@@ -233,46 +245,65 @@ class TrendFollowStrategy:
         
         records = []
         
-        # 1. 安全地获取 'strategy_info' 配置块，如果不存在则返回空字典
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
-        
-        # 2. 从配置块中获取 'name' 参数，这可能是一个值，也可能是一个字典，如果不存在则为None
         name_param = strategy_info_block.get('name')
-        
-        # 3. 使用 _get_param_value 最终解析出字符串值，并提供一个清晰的默认值 'unknown_strategy'
         strategy_name = self._get_param_value(name_param, 'unknown_strategy')
-        
         timeframe = result_timeframe
+
+        # ▼▼▼【代码修改 V42.0】: 获取剧本中文名映射 ▼▼▼
+        # 为了获取中文名，我们需要再次调用 _get_playbook_definitions
+        # 由于不依赖于实际数据，传入空的 trigger 和 setup 即可
+        playbook_definitions = self._get_playbook_definitions(result_df, {}, {})
+        playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_definitions}
+        # ▲▲▲【代码修改 V42.0】▲▲▲
 
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
+            triggered_playbooks_cn_list = [] # 新增：用于存储中文名
+            
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                 playbooks_with_scores = self._last_score_details_df.loc[timestamp]
                 active_items = playbooks_with_scores[playbooks_with_scores > 0].index
                 
-                excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_')
+                excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP') # 移除 DYNAMICS_SCORE
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
+                # 使用映射表获取中文名
+                triggered_playbooks_cn_list = [ playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list ]
 
-            is_setup_day = 'PULLBACK_SETUP' in triggered_playbooks_list
+            # 查找当天成立的准备状态
+            active_setups = []
+            setup_cols = [col for col in row.index if col.startswith('SETUP_') and row[col] is True]
+            active_setups = [s.replace('SETUP_', '') for s in setup_cols]
+
             context_dict = {k: v for k, v in row.items() if pd.notna(v)}
             sanitized_context = sanitize_for_json(context_dict)
             
+            # ▼▼▼【代码修改 V42.0】: 修复涨跌幅提取逻辑 ▼▼▼
+            pct_change = row.get('pct_change_D', row.get('pct_change', 0.0))
+            # ▲▲▲【代码修改 V42.0】▲▲▲
+
             record = {
                 "stock_code": stock_code,
                 "trade_time": sanitize_for_json(timestamp),
                 "timeframe": timeframe,
-                "strategy_name": strategy_name, # 现在这里保证是字符串
+                "strategy_name": strategy_name,
                 "close_price": sanitize_for_json(row.get('close_D')),
+                "pct_change": sanitize_for_json(pct_change), # 新增：记录正确的涨跌幅
                 "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
                 "entry_signal": sanitize_for_json(row.get('signal_entry', False)),
                 "exit_signal_code": sanitize_for_json(row.get('exit_signal_code', 0)),
-                "is_long_term_bullish": sanitize_for_json(row.get('context_long_term_bullish', False)),
-                "is_mid_term_bullish": sanitize_for_json(row.get('context_mid_term_bullish', False)),
-                "is_pullback_setup": is_setup_day,
-                "pullback_target_price": sanitize_for_json(row.get('pullback_target_price')),
+                "is_right_side_trend": sanitize_for_json(row.get('robust_right_side_precondition', False)), # 新增：记录右侧前提
                 "triggered_playbooks": triggered_playbooks_list,
+                "triggered_playbooks_cn": triggered_playbooks_cn_list, # 新增：记录中文剧本
+                "active_setups": active_setups, # 新增：记录准备状态
                 "context_snapshot": sanitized_context,
             }
+            # 移除旧的、不准确的字段
+            record.pop("is_long_term_bullish", None)
+            record.pop("is_mid_term_bullish", None)
+            record.pop("is_pullback_setup", None)
+            record.pop("pullback_target_price", None)
+
             records.append(record)
         return records
 
@@ -311,6 +342,193 @@ class TrendFollowStrategy:
                 
         print("    - [斜率中心] 所有斜率计算完成。")
         return df
+
+    # ▼▼▼ 将剧本定义抽取为独立函数 ▼▼▼
+    def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series]) -> List[Dict]:
+        """
+        【V42.0 新增】剧本定义中心
+        - 核心功能: 集中定义所有交易剧本，并为其添加中文名，便于日志输出和调试。
+        - 返回: 一个包含所有剧本定义的列表。
+        """
+        default_series = pd.Series(False, index=df.index)
+        robust_right_side_precondition = df.get('robust_right_side_precondition', pd.Series(True, index=df.index))
+
+        playbook_definitions = [
+            # =================================================================================
+            # === S级 (Tier S) 剧本: "完美风暴" (分数 > 300) ===
+            # =================================================================================
+            {
+                'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '地天板',
+                'setup': True,
+                'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
+                'score': 380, 'precondition': True,
+                'comment': '地天板，市场情绪从极度恐慌到极度贪婪的日内反转，最强的V反信号。'
+            },
+            {
+                'name': 'PERFECT_STORM', 'cn_name': '潜龙出海',
+                'setup': setup_conditions.get('SETUP_PROLONGED_COMPRESSION', default_series),
+                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
+                'score': 350, 'precondition': True,
+                'comment': '长期蓄势 + 主力点火，确定性最高的趋势启动模式。'
+            },
+            {
+                'name': 'AWAKENED_BEAST', 'cn_name': '猛兽苏醒',
+                'setup': setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE', default_series),
+                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
+                'score': 330, 'precondition': True,
+                'comment': '底部价量背离后的强力反转信号。'
+            },
+            {
+                'name': 'WASH_AND_RISE', 'cn_name': '洗盘拉升',
+                'setup': setup_conditions.get('SETUP_PULLBACK_WITH_MF_INFLOW', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 310, 'precondition': robust_right_side_precondition,
+                'comment': '最经典的“假跌真吸”模式，回踩的质量极高。'
+            },
+            # =================================================================================
+            # === A+级 (Tier A+) 剧本: "高置信度" (分数 250-299) ===
+            # =================================================================================
+            {
+                'name': 'GAP_SUPPORT_CONFIRMED', 'cn_name': '缺口支撑',
+                'setup': setup_conditions.get('SETUP_GAP_SUPPORT', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 290, 'precondition': robust_right_side_precondition,
+                'comment': '强势上涨留下的缺口在回调中未被回补，并出现阳线确认，是趋势极强的表现。'
+            },
+            {
+                'name': 'FIBONACCI_PULLBACK', 'cn_name': '黄金回踩',
+                'setup': True,
+                'trigger': trigger_events.get('TRIGGER_FIBONACCI_REBOUND', default_series),
+                'score': 285, 'precondition': robust_right_side_precondition,
+                'comment': '在通过多重验证的有效驱动浪后，于关键斐波那契位获得主力资金支撑的反弹。'
+            },
+            {
+                'name': 'BREAKOUT_RETEST_GO', 'cn_name': '突破回踩',
+                'setup': setup_conditions.get('SETUP_PULLBACK_POST_BREAKOUT', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 280, 'precondition': robust_right_side_precondition,
+                'comment': '最可靠的趋势延续形态之一：突破-回踩-再出发。'
+            },
+            {
+                'name': 'REVERSAL_FIRST_PULLBACK', 'cn_name': '反转首踩',
+                'setup': setup_conditions.get('SETUP_PULLBACK_POST_REVERSAL', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 270, 'precondition': robust_right_side_precondition,
+                'comment': '抓住新趋势的第一个上车点，通常有较好的盈亏比。'
+            },
+            {
+                'name': 'OLD_DUCK_HEAD_TAKEOFF', 'cn_name': '老鸭回头',
+                'setup': setup_conditions.get('SETUP_DUCK_NECK_FORMING', default_series),
+                'trigger': trigger_events.get('MA_RECLAIM', default_series),
+                'score': 260, 'precondition': robust_right_side_precondition,
+                'comment': '经典的均线理论形态，从整理到再次发力的转折点。'
+            },
+            # =================================================================================
+            # === A级 (Tier A) 剧本: "标准可靠" (分数 200-249) ===
+            # =================================================================================
+            {
+                'name': 'N_SHAPE_RELAY', 'cn_name': 'N字接力',
+                'setup': True,
+                'trigger': trigger_events.get('TRIGGER_N_SHAPE_RELAY', default_series),
+                'score': 245, 'precondition': robust_right_side_precondition,
+                'comment': '经典的“N字板”接力形态，缩量回调后的再次放量突破，是极强的趋势延续信号。'
+            },
+            {
+                'name': 'MA_ACCELERATION', 'cn_name': '均线加速',
+                'setup': True,
+                'trigger': trigger_events.get('TRIGGER_MA_ACCELERATION', default_series),
+                'score': 235, 'precondition': robust_right_side_precondition,
+                'comment': '均线、成交量、资金、趋势强度四维共振的“趋势引爆点”，动能强劲。'
+            },
+            {
+                'name': 'ENERGY_RELEASE', 'cn_name': '能量释放',
+                'setup': setup_conditions.get('SETUP_ENERGY_COMPRESSION', default_series),
+                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
+                'score': 230, 'precondition': robust_right_side_precondition,
+                'comment': '通用性强的“盘久必涨”模式。'
+            },
+            {
+                'name': 'PULLBACK_REBOUND_CONFIRMED', 'cn_name': '回踩确认',
+                'setup': setup_conditions.get('SETUP_HEALTHY_PULLBACK', default_series),
+                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
+                'score': 220, 'precondition': robust_right_side_precondition,
+                'comment': '最基础、最常见的趋势跟踪入场点。'
+            },
+            {
+                'name': 'V_REVERSAL_ENTRY', 'cn_name': 'V型反转',
+                'setup': setup_conditions.get('SETUP_SHOCK_BOTTOM', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 210, 'precondition': True,
+                'comment': '高风险高收益的左侧交易模式，捕捉情绪拐点。'
+            },
+            # =================================================================================
+            # === B级 (Tier B) 剧本: "机会主义" (分数 < 200) ===
+            # =================================================================================
+            {
+                'name': 'WINNER_RATE_REVERSAL', 'cn_name': '投降坑反转',
+                'setup': setup_conditions.get('SETUP_WINNER_RATE_WASHED_OUT', default_series),
+                'trigger': trigger_events.get('TRIGGER_WINNER_RATE_REVERSAL', default_series),
+                'score': 195, 'precondition': True,
+                'comment': '“投降坑”反转，在获利盘几乎被完全洗净后出现的企稳阳线，博弈市场绝望后的情绪拐点。'
+            },
+            {
+                'name': 'WASHOUT_REVERSAL', 'cn_name': '洗盘反包',
+                'setup': setup_conditions.get('SETUP_WASHOUT_DAY', default_series),
+                'trigger': trigger_events.get('TRIGGER_WASHOUT_REVERSAL', default_series),
+                'score': 190, 'precondition': True,
+                'comment': '博弈主力洗盘后的快速拉升。'
+            },
+            {
+                'name': 'DOJI_CONTINUATION', 'cn_name': '十字星接力',
+                'setup': setup_conditions.get('SETUP_DOJI_PAUSE', default_series),
+                'trigger': trigger_events.get('TRIGGER_DOJI_BREAKOUT', default_series),
+                'score': 188, 'precondition': robust_right_side_precondition,
+                'comment': '上涨中继形态，十字星分歧后转为一致，是趋势延续的信号。'
+            },
+            {
+                'name': 'MOMENTUM_BREAKOUT', 'cn_name': '动量突破',
+                'setup': True,
+                'trigger': trigger_events.get('TRIGGER_MOMENTUM_BREAKOUT', default_series),
+                'score': 185, 'precondition': robust_right_side_precondition,
+                'comment': '经典动量突破（首板）模式，捕捉趋势启动的爆发力。'
+            },
+            {
+                'name': 'RELATIVE_STRENGTH_LEADER', 'cn_name': '相对强势',
+                'setup': setup_conditions.get('SETUP_RELATIVE_STRENGTH', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 180, 'precondition': robust_right_side_precondition,
+                'comment': '捕捉市场中最强的品种，通常是下一波行情的领涨股。'
+            },
+            {
+                'name': 'BBAND_SQUEEZE_BREAKOUT', 'cn_name': '布林压缩突破',
+                'setup': setup_conditions.get('SETUP_BBAND_SQUEEZE', default_series),
+                'trigger': trigger_events.get('TRIGGER_BBAND_BREAKOUT', default_series),
+                'score': 175, 'precondition': robust_right_side_precondition,
+                'comment': '布林带收口后的突破，经典的“盘久必涨”形态。'
+            },
+            {
+                'name': 'FORTRESS_DEFENDED', 'cn_name': '堡垒防守',
+                'setup': setup_conditions.get('SETUP_FORTRESS_SIEGE', default_series),
+                'trigger': trigger_events.get('TRIGGER_FORTRESS_DEFENSE', default_series),
+                'score': 170, 'precondition': robust_right_side_precondition & df.get('temp_is_fortress_valid', False),
+                'comment': '基于结构支撑的防守反击模式。'
+            },
+            {
+                'name': 'MACD_LOW_CROSS_REVERSAL', 'cn_name': 'MACD低位金叉',
+                'setup': True,
+                'trigger': trigger_events.get('TRIGGER_MACD_LOW_CROSS', default_series),
+                'score': 165, 'precondition': True,
+                'comment': 'MACD在低位形成金叉，潜在的底部反转信号。'
+            },
+            {
+                'name': 'BIAS_REVERSAL', 'cn_name': 'BIAS超跌反弹',
+                'setup': setup_conditions.get('SETUP_BIAS_EXTREME_OVERSOLD', default_series),
+                'trigger': trigger_events.get('TRIGGER_BIAS_REBOUND', default_series),
+                'score': 160, 'precondition': True,
+                'comment': '经典的乖离率（BIAS）指标超跌反弹，捕捉技术性修复行情。'
+            },
+        ]
+        return playbook_definitions
 
     def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame]:
         """
@@ -359,16 +577,11 @@ class TrendFollowStrategy:
 
         # --- 步骤3: 计算所有“准备状态”和“触发事件” ---
         print("    [计分V37.0] 步骤3: 计算所有准备状态和触发事件...")
-        # ▼▼▼ 统一使用字典作为容器 ▼▼▼
-        # 将变量名从 setup_conditions_df 改为 setup_conditions，以准确反映其字典类型
+        # ▼▼▼ setup_conditions 将被返回，所以这里的计算逻辑保持不变 ▼▼▼
         setup_conditions = self._calculate_setup_conditions(df, params)
         trigger_events = self._define_trigger_events(df, params)
-        
-        # 直接更新字典，不再需要 .to_dict('series') 转换
         atomic_signals.update(setup_conditions)
         atomic_signals.update(trigger_events)
-
-        # 这一步修复了“准备状态”始终为空的问题
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
 
@@ -377,217 +590,9 @@ class TrendFollowStrategy:
         dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
 
         # --- 步骤5: 【核心重构】构建并评估“剧本矩阵” ---
-        print("    [计分V37.0] 步骤5: 按优先级评估“剧本矩阵”...")
-
-        default_series = pd.Series(False, index=df.index)
+        print("    [计分V42.0] 步骤5: 按优先级评估“剧本矩阵”...")
         
-        # ▼▼▼ 使用统一的字典 `setup_conditions` 来获取准备状态 ▼▼▼
-        playbook_definitions = [
-            # =================================================================================
-            # === S级 (Tier S) 剧本: "完美风暴" (分数 > 300) ===
-            # =================================================================================
-            {
-                'name': 'EARTH_HEAVEN_BOARD',
-                'setup': True, # 纯事件驱动
-                'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
-                'score': 380, # 极高分，代表市场情绪的极端反转
-                'precondition': True, # 地天板本身就是最强的前提
-                'comment': '地天板，市场情绪从极度恐慌到极度贪婪的日内反转，最强的V反信号。'
-            },
-            {
-                'name': 'PERFECT_STORM',
-                'setup': setup_conditions.get('SETUP_PROLONGED_COMPRESSION', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
-                'score': 350,
-                'precondition': robust_right_side_precondition,
-                'comment': '长期蓄势 + 主力点火，确定性最高的趋势启动模式。'
-            },
-            {
-                'name': 'AWAKENED_BEAST',
-                'setup': setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
-                'score': 330,
-                'precondition': True,
-                'comment': '底部价量背离后的强力反转信号。'
-            },
-            {
-                'name': 'WASH_AND_RISE',
-                'setup': setup_conditions.get('SETUP_PULLBACK_WITH_MF_INFLOW', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
-                'score': 310,
-                'precondition': robust_right_side_precondition,
-                'comment': '最经典的“假跌真吸”模式，回踩的质量极高。'
-            },
-
-            # =================================================================================
-            # === A+级 (Tier A+) 剧本: "高置信度" (分数 250-299) ===
-            # =================================================================================
-            {
-                'name': 'GAP_SUPPORT_CONFIRMED',
-                'setup': setup_conditions.get('SETUP_GAP_SUPPORT', default_series),
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series), # 触发器可以是简单的阳线确认
-                'score': 290, # 高分，因为缺口不补是极强的趋势信号
-                'precondition': robust_right_side_precondition,
-                'comment': '强势上涨留下的缺口在回调中未被回补，并出现阳线确认，是趋势极强的表现。'
-            },
-            {
-                'name': 'FIBONACCI_PULLBACK',
-                'setup': True, # 逻辑完全封装在触发器中
-                'trigger': trigger_events.get('TRIGGER_FIBONACCI_REBOUND', default_series),
-                'score': 285,
-                'precondition': robust_right_side_precondition,
-                'comment': '在通过多重验证的有效驱动浪后，于关键斐波那契位获得主力资金支撑的反弹。'
-            },
-            {
-                'name': 'BREAKOUT_RETEST_GO',
-                'setup': setup_conditions.get('SETUP_PULLBACK_POST_BREAKOUT', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
-                'score': 280,
-                'precondition': robust_right_side_precondition,
-                'comment': '最可靠的趋势延续形态之一：突破-回踩-再出发。'
-            },
-            {
-                'name': 'REVERSAL_FIRST_PULLBACK',
-                'setup': setup_conditions.get('SETUP_PULLBACK_POST_REVERSAL', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
-                'score': 270,
-                'precondition': robust_right_side_precondition,
-                'comment': '抓住新趋势的第一个上车点，通常有较好的盈亏比。'
-            },
-            {
-                'name': 'OLD_DUCK_HEAD_TAKEOFF',
-                'setup': setup_conditions.get('SETUP_DUCK_NECK_FORMING', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('MA_RECLAIM', default_series),
-                'score': 260,
-                'precondition': robust_right_side_precondition,
-                'comment': '经典的均线理论形态，从整理到再次发力的转折点。'
-            },
-
-            # =================================================================================
-            # === A级 (Tier A) 剧本: "标准可靠" (分数 200-249) ===
-            # =================================================================================
-            {
-                'name': 'N_SHAPE_RELAY',
-                'setup': True, # 逻辑完全封装在触发器中
-                'trigger': trigger_events.get('TRIGGER_N_SHAPE_RELAY', default_series),
-                'score': 245,
-                'precondition': robust_right_side_precondition,
-                'comment': '经典的“N字板”接力形态，缩量回调后的再次放量突破，是极强的趋势延续信号。'
-            },
-            {
-                'name': 'MA_ACCELERATION',
-                'setup': True, # 逻辑完全封装在触发器中
-                'trigger': trigger_events.get('TRIGGER_MA_ACCELERATION', default_series),
-                'score': 235,
-                'precondition': robust_right_side_precondition,
-                'comment': '均线、成交量、资金、趋势强度四维共振的“趋势引爆点”，动能强劲。'
-            },
-            {
-                'name': 'ENERGY_RELEASE',
-                'setup': setup_conditions.get('SETUP_ENERGY_COMPRESSION', default_series),
-                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
-                'score': 230,
-                'precondition': robust_right_side_precondition,
-                'comment': '通用性强的“盘久必涨”模式。'
-            },
-            {
-                'name': 'PULLBACK_REBOUND_CONFIRMED',
-                'setup': setup_conditions.get('SETUP_HEALTHY_PULLBACK', default_series),
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 220,
-                'precondition': robust_right_side_precondition,
-                'comment': '最基础、最常见的趋势跟踪入场点。'
-            },
-            {
-                'name': 'V_REVERSAL_ENTRY',
-                'setup': setup_conditions.get('SETUP_SHOCK_BOTTOM', default_series),  # 修改: setup_conditions_df -> setup_conditions
-                # 修复背景: 原触发器 'TRIGGER_V_RECOVERY' 条件过于严苛 (全历史仅触发1次)，
-                # 很可能要求放量，导致6月23日的缩量V反被忽略。
-                # 修复逻辑: 将其更换为更通用的 'STRONG_POSITIVE_CANDLE' (强势阳线)。
-                # 在已经满足 'SETUP_SHOCK_BOTTOM' (休克谷底) 的极端超卖前提下，
-                # 任何一根确认性的阳线都足以构成一个有效的反转信号。
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
-                'score': 210,
-                'precondition': True,
-                'comment': '高风险高收益的左侧交易模式，捕捉情绪拐点。'
-            },
-
-            # =================================================================================
-            # === B级 (Tier B) 剧本: "机会主义" (分数 < 200) ===
-            # =================================================================================
-            {
-                'name': 'WINNER_RATE_REVERSAL',
-                'setup': setup_conditions.get('SETUP_WINNER_RATE_WASHED_OUT', default_series),
-                'trigger': trigger_events.get('TRIGGER_WINNER_RATE_REVERSAL', default_series),
-                'score': 195,
-                'precondition': True, # 左侧交易，不依赖右侧前提
-                'comment': '“投降坑”反转，在获利盘几乎被完全洗净后出现的企稳阳线，博弈市场绝望后的情绪拐点。'
-            },
-            {
-                'name': 'WASHOUT_REVERSAL',
-                'setup': setup_conditions.get('SETUP_WASHOUT_DAY', default_series),       # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('TRIGGER_WASHOUT_REVERSAL', default_series),
-                'score': 190,
-                'precondition': True,
-                'comment': '博弈主力洗盘后的快速拉升。'
-            },
-            {
-                'name': 'DOJI_CONTINUATION',
-                'setup': setup_conditions.get('SETUP_DOJI_PAUSE', default_series),
-                'trigger': trigger_events.get('TRIGGER_DOJI_BREAKOUT', default_series),
-                'score': 188, # 分数介于首板和相对强度之间
-                'precondition': robust_right_side_precondition,
-                'comment': '上涨中继形态，十字星分歧后转为一致，是趋势延续的信号。'
-            },
-            {
-                'name': 'MOMENTUM_BREAKOUT',
-                'setup': True, # 纯事件驱动，无特定准备状态
-                'trigger': trigger_events.get('TRIGGER_MOMENTUM_BREAKOUT', default_series),
-                'score': 185,
-                'precondition': robust_right_side_precondition,
-                'comment': '经典动量突破（首板）模式，捕捉趋势启动的爆发力。'
-            },
-            {
-                'name': 'RELATIVE_STRENGTH_LEADER',
-                'setup': setup_conditions.get('SETUP_RELATIVE_STRENGTH', default_series), # 修改: setup_conditions_df -> setup_conditions
-                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
-                'score': 180,
-                'precondition': robust_right_side_precondition,
-                'comment': '捕捉市场中最强的品种，通常是下一波行情的领涨股。'
-            },
-            {
-                'name': 'BBAND_SQUEEZE_BREAKOUT',
-                'setup': setup_conditions.get('SETUP_BBAND_SQUEEZE', default_series),
-                'trigger': trigger_events.get('TRIGGER_BBAND_BREAKOUT', default_series),
-                'score': 175,
-                'precondition': robust_right_side_precondition,
-                'comment': '布林带收口后的突破，经典的“盘久必涨”形态。'
-            },
-            {
-                'name': 'FORTRESS_DEFENDED',
-                'setup': setup_conditions.get('SETUP_FORTRESS_SIEGE', default_series),
-                'trigger': trigger_events.get('TRIGGER_FORTRESS_DEFENSE', default_series),
-                'score': 170,
-                'precondition': robust_right_side_precondition & df.get('temp_is_fortress_valid', False),
-                'comment': '基于结构支撑的防守反击模式。'
-            },
-            {
-                'name': 'MACD_LOW_CROSS_REVERSAL',
-                'setup': True, # 纯事件驱动
-                'trigger': trigger_events.get('TRIGGER_MACD_LOW_CROSS', default_series),
-                'score': 165,
-                'precondition': True, # 低位金叉通常是左侧信号，不依赖右侧前提
-                'comment': 'MACD在低位形成金叉，潜在的底部反转信号。'
-            },
-            {
-                'name': 'BIAS_REVERSAL',
-                'setup': setup_conditions.get('SETUP_BIAS_EXTREME_OVERSOLD', default_series),
-                'trigger': trigger_events.get('TRIGGER_BIAS_REBOUND', default_series),
-                'score': 160,
-                'precondition': True, # 左侧交易，不依赖右侧前提
-                'comment': '经典的乖离率（BIAS）指标超跌反弹，捕捉技术性修复行情。'
-            },
-        ]
+        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
 
         df['base_score'] = 0.0
         has_been_scored = pd.Series(False, index=df.index)
@@ -627,7 +632,8 @@ class TrendFollowStrategy:
                 df.loc[is_triggered, 'base_score'] = score
                 score_details_df.loc[is_triggered, playbook['name']] = score
                 has_been_scored.loc[is_triggered] = True
-                print(f"    - [剧本命中] 命中剧本 '{playbook['name']}'，触发 {is_triggered.sum()} 天。")
+                playbook_cn_name = playbook.get('cn_name', playbook['name'])
+                print(f"    - [剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
 
         # 【观察分逻辑】
         watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
@@ -734,7 +740,7 @@ class TrendFollowStrategy:
         df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore') # 修改: 增加 temp_is_fortress_valid
         print("    [计分V37.0] 计分流程结束。")
         
-        return final_score.round(0), atomic_signals, score_details_df.fillna(0)
+        return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
 
     def _calculate_exit_signals(self, df: pd.DataFrame, risk_states: Dict[str, pd.Series], params: dict) -> pd.Series:
         """
@@ -1189,18 +1195,18 @@ class TrendFollowStrategy:
     # 引入更多数据维度，对趋势健康度进行更全面的审计。
     def _validate_core_premises(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V39.2 多维趋势健康度审计中心版】
-        - 核心升级: 引入资金流、波动率、内部强度指标，将诊断维度从4个扩展到6个。
-        - 审计维度:
+        【V40.0 主升浪优化版】
+        - 核心升级: 移除对“趋势加速”的硬性要求，使其不再作为健康度评分的否决项，从而大幅提升对稳定主升浪的识别能力。
+        - 审计维度 (5个核心维度):
           1. 方向 (Direction): 趋势的速度。
-          2. 动量 (Momentum): 趋势的加速度。
-          3. 共识 (Consensus): 均线族排列。
-          4. 资本流 (Capital Flow): 主力资金流入的趋势。
-          5. 波动性 (Volatility): 趋势扩张的稳定性。
-          6. 内在强度 (Internal Strength): 趋势的强度与持续性 (ADX & RSI)。
-        - 输出: 一个包含0-6分制的“趋势健康度得分”和关键前提条件的字典。
+          2. 共识 (Consensus): 均线族排列。
+          3. 资本流 (Capital Flow): 主力资金流入的趋势。
+          4. 波动性 (Volatility): 趋势扩张的稳定性。
+          5. 内在强度 (Internal Strength): 趋势的强度与持续性 (ADX & RSI)。
+        - 备注: “趋势加速” (Momentum) 被降级为纯粹的动态加分项，在 `_score_trend_dynamics` 中处理。
+        - 输出: 一个包含0-5分制的“趋势健康度得分”和关键前提条件的字典。
         """
-        print("    - [前提验证中心 V39.2] 开始启动'多维趋势健康度审计'...")
+        print("    - [前提验证中心 V40.0 主升浪优化版] 开始启动'多维趋势健康度审计'...")
         premises = {}
         
         # --- 准备参数和列名 ---
@@ -1223,7 +1229,6 @@ class TrendFollowStrategy:
         adx_col = 'ADX_14_D'
         rsi_col = 'RSI_13_D'
 
-        # 解析嵌套的参数块
         volatility_params = ma_params.get('volatility_params', {})
         min_bbw_slope = self._get_param_value(volatility_params.get('min_bbw_slope'), 0)
         max_bbw_slope = self._get_param_value(volatility_params.get('max_bbw_slope'), 0.01)
@@ -1232,16 +1237,19 @@ class TrendFollowStrategy:
         adx_threshold = self._get_param_value(strength_params.get('adx_threshold'), 20)
         rsi_exhaustion_threshold = self._get_param_value(strength_params.get('rsi_exhaustion_threshold'), 80)
         
-        health_score_threshold = self._get_param_value(ma_params.get('health_score_threshold'), 4)
+        # 修改: 将默认健康分阈值从4(满分6)调整为3(满分5)，逻辑更合理
+        health_score_threshold = self._get_param_value(ma_params.get('health_score_threshold'), 3)
 
         required_cols = [
             short_ma_col, mid_ma_col, slow_ma_col, mid_ma_slope_col, mid_ma_accel_col,
             mf_slope_col, bbw_slope_col, adx_col, rsi_col, cmf_col, cmf_slope_col
         ]
 
+        # 检查缺失列的逻辑保持不变
         if not all(c in df.columns for c in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"    - [前提验证中心-警告]: 缺少审计所需的列: {missing}，前提验证将受限。请检查指标和斜率计算配置。")
+            # ... (返回空前提的逻辑不变)
             return {
                 'robust_right_side_precondition': pd.Series(False, index=df.index),
                 'trend_health_score': pd.Series(0, index=df.index),
@@ -1252,36 +1260,35 @@ class TrendFollowStrategy:
         dimension_direction = df[mid_ma_slope_col] > 0
         print(f"      -> 维度1 (方向): {dimension_direction.sum()} 天满足。")
 
-        # --- 维度2: 动量 (Momentum) - 趋势是否在加速？ ---
+        # --- 维度2: 动量 (Momentum) - 趋势是否在加速？ (仅计算，不计入核心健康分) ---
         dimension_momentum = df[mid_ma_accel_col] > 0
-        print(f"      -> 维度2 (动量): {dimension_momentum.sum()} 天满足。")
+        print(f"      -> (参考维度) 动量: {dimension_momentum.sum()} 天满足。 (注: 不计入核心健康分)")
 
         # --- 维度3: 共识 (Consensus) - 均线族是否呈多头排列？ ---
         dimension_consensus = (df[short_ma_col] > df[mid_ma_col]) & (df[mid_ma_col] > df[slow_ma_col])
-        print(f"      -> 维度3 (共识): {dimension_consensus.sum()} 天满足。")
+        print(f"      -> 维度2 (共识): {dimension_consensus.sum()} 天满足。")
 
         # --- 维度4: 资本流 (Capital Flow) - 主力资金是否持续流入？ ---
-        is_mf_inflow_improving = df[mf_slope_col] > 0 # 主力净买额趋势向好
-        is_cmf_inflow_improving = df[cmf_slope_col] > 0 # CMF资金流趋势向好
-        is_cmf_positive = df[cmf_col] > 0 # CMF为正，处于流入状态
-        # 核心逻辑：主力资金趋势向好是必须的，同时CMF的状态或趋势至少有一个是健康的
+        is_mf_inflow_improving = df[mf_slope_col] > 0
+        is_cmf_inflow_improving = df[cmf_slope_col] > 0
+        is_cmf_positive = df[cmf_col] > 0
         dimension_capital = is_mf_inflow_improving & (is_cmf_positive | is_cmf_inflow_improving)
-        print(f"      -> 维度4 (资本流-V41.11双重验证): {dimension_capital.sum()} 天满足。")
+        print(f"      -> 维度3 (资本流): {dimension_capital.sum()} 天满足。")
 
         # --- 维度5: 波动性 (Volatility) - 趋势扩张是否稳定？ ---
         dimension_volatility = (df[bbw_slope_col] > min_bbw_slope) & (df[bbw_slope_col] < max_bbw_slope)
-        print(f"      -> 维度5 (波动性): {dimension_volatility.sum()} 天满足。")
+        print(f"      -> 维度4 (波动性): {dimension_volatility.sum()} 天满足。")
 
         # --- 维度6: 内在强度 (Internal Strength) - 趋势是否强劲且未衰竭？ ---
         is_trend_strong = df[adx_col] > adx_threshold
         is_not_exhausted = df[rsi_col] < rsi_exhaustion_threshold
         dimension_strength = is_trend_strong & is_not_exhausted
-        print(f"      -> 维度6 (内在强度): {dimension_strength.sum()} 天满足。")
+        print(f"      -> 维度5 (内在强度): {dimension_strength.sum()} 天满足。")
 
-        # --- 形成健康度评分 (0-6分) ---
+        # --- 形成健康度评分 (0-5分) ---
+        # 修改: 移除了 dimension_momentum.astype(int)
         trend_health_score = (
             dimension_direction.astype(int) +
-            dimension_momentum.astype(int) +
             dimension_consensus.astype(int) +
             dimension_capital.astype(int) +
             dimension_volatility.astype(int) +
@@ -1290,17 +1297,19 @@ class TrendFollowStrategy:
 
         # --- 定义最终的前提条件 ---
         robust_precondition = (trend_health_score >= health_score_threshold)
+        # 将前提条件写入df，以便调试时查看
+        df['robust_right_side_precondition'] = robust_precondition
 
         premises['robust_right_side_precondition'] = robust_precondition
         premises['trend_health_score'] = trend_health_score
-        premises['is_trend_accelerating'] = dimension_momentum
+        premises['is_trend_accelerating'] = dimension_momentum # 仍然传递给下游用于加分
 
-        print(f"      -> [审计完成] '高置信度'右侧前提 (健康分>={health_score_threshold}) 触发了 {robust_precondition.sum()} 天。")
+        print(f"      -> [审计完成] '高置信度'右侧前提 (健康分>={health_score_threshold}/5) 触发了 {robust_precondition.sum()} 天。")
 
         premises['evidence_strength'] = trend_health_score 
 
         return premises
-
+    
     # ▼▼▼ 动态健康度计分引擎 (Dynamic Health Scoring Engine) ▼▼▼
     def _score_trend_dynamics(self, df: pd.DataFrame, params: dict, validated_premises: Dict[str, pd.Series]) -> pd.Series:
         """
