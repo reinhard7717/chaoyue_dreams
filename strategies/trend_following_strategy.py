@@ -2159,5 +2159,63 @@ class TrendFollowStrategy:
             'earth_heaven_board': is_earth_heaven_board, # 机会信号
         }
 
+    def _find_volume_breakdown_exit(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【卖出剧本】【V2.0 主力确认与筹码崩溃版】“结构崩溃” - 识别无法挽回的破位。
+        - 核心升级: 从“跌破一根线”升级为“支撑体系的崩溃”，并由主力行为确认。
+        - 策略逻辑:
+          1. 结构崩溃: 股价必须同时跌破动态支撑(MA)和静态支撑(市场平均成本)。
+          2. 主力砸盘: 破位必须伴随放量，且主力资金呈“大幅净流出”状态。
+          3. 买方放弃: K线形态为坚决的、实体较大的阴线，表明买方毫无抵抗。
+        """
+        params = self._get_params_block(params, 'volume_breakdown_params')
+        if not params.get('enabled', False):
+            return pd.Series(False, index=df.index)
+
+        # --- 从配置中读取或使用默认值 ---
+        support_ma_period = params.get('support_ma_period', 55) # 使用55日线作为关键支撑
+        volume_surge_ratio = params.get('volume_surge_ratio', 1.8)
+        main_force_dump_ratio = params.get('main_force_dump_ratio', 0.1) # 主力净卖出额 > 前20日均成交额的10%
+        
+        # --- 准备所需列名 ---
+        support_ma_col = f"EMA_{support_ma_period}_D"
+        vol_ma_col = f"VOL_MA_{params.get('vol_ma_period', 21)}_D"
+        cost_avg_col = 'weight_avg_D' # 市场平均成本
+        required_cols = [
+            'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'amount_D',
+            support_ma_col, vol_ma_col, cost_avg_col, 'net_main_force_amount_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            if self.verbose_logging:
+                print(f"    [调试-结构崩溃-警告]: 缺少必需列: {missing_cols}，剧本跳过。")
+            return pd.Series(False, index=df.index)
+
+        # 1. 结构 - 识别支撑体系是否被击穿
+        is_ma_broken = (df['close_D'] < df[support_ma_col]) & (df['close_D'].shift(1) >= df[support_ma_col].shift(1))
+        is_cost_line_broken = df['close_D'] < df[cost_avg_col]
+        is_structure_broken = is_ma_broken & is_cost_line_broken
+
+        # 2. 力量 - 识别主力是否在主动、大力度砸盘
+        is_volume_surge = df['volume_D'] > df[vol_ma_col] * volume_surge_ratio
+        avg_amount_20d = df['amount_D'].rolling(20).mean()
+        is_main_force_dumping = df['net_main_force_amount_D'] < -(avg_amount_20d * main_force_dump_ratio)
+        is_forceful_breakdown = is_volume_surge & is_main_force_dumping
+
+        # 3. 后果 - 识别买方是否放弃抵抗
+        is_bearish_candle = df['close_D'] < df['open_D']
+        # 阴线实体必须足够大，占据当天振幅的60%以上
+        is_conviction_candle = (df['open_D'] - df['close_D']) > (df['high_D'] - df['low_D']) * 0.6
+        is_buyer_absent = is_bearish_candle & is_conviction_candle
+
+        final_signal = is_structure_broken & is_forceful_breakdown & is_buyer_absent
+
+        if self.verbose_logging:
+            print(f"    [调试-结构崩溃V2.0]: 结构崩溃: {is_structure_broken.sum()} | "
+                  f"主力砸盘: {is_forceful_breakdown.sum()} | "
+                  f"买方放弃: {is_buyer_absent.sum()} | "
+                  f"最终信号: {final_signal.sum()}")
+
+        return final_signal.fillna(False)
 
 
