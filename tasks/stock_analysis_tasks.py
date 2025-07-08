@@ -3,6 +3,7 @@
 
 import asyncio
 from datetime import datetime
+import json
 import logging
 from celery import Celery
 from asgiref.sync import async_to_sync
@@ -13,6 +14,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
+from strategies.trend_following_strategy import TrendFollowStrategy
 # from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
 
 logger = logging.getLogger('tasks')
@@ -146,6 +148,10 @@ def analyze_all_stocks(self):
         return {"status": "failed", "reason": str(e)}
 
 
+def load_strategy_params(config_path):
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+    
 # ▼▼▼【代码更新】: 为调试任务增加更详细的注释，解释同步调用的原因 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_single_stock_analysis', queue='debug_tasks')
 def debug_single_stock_analysis(self, stock_code: str):
@@ -182,15 +188,32 @@ def debug_single_stock_analysis(self, stock_code: str):
     logger.info("="*80)
 
     try:
-        # 【关键修改】: 直接调用普通的Python函数，而不是Celery任务。
-        # 这样代码会在这里同步执行，日志连续，且完全避免了Celery的死锁问题。
-        result = _execute_strategy_logic(stock_code, trade_date_str)
+        # 1. 加载策略配置
+        params = load_strategy_params('config/trend_follow_strategy.json')
+
+        # 2. 初始化策略实例
+        strategy = TrendFollowStrategy(params)
+
+        # 3. <<<<<<<  执行新的调试方法  >>>>>>>
+        # 定义要调试的股票、时间段和数据文件路径
+        stock_to_debug = '000158.SZ'
+        start_date = '2024-08-01'
+        end_date = '2024-11-07'
+        data_file_path = 'pasted_text_0.txt' # 确保这个文件和您的执行脚本在同一目录，或使用绝对路径
+
+        # 调用调试方法
+        strategy.debug_strategy_on_period(
+            stock_code=stock_to_debug,
+            start_date_str=start_date,
+            end_date_str=end_date,
+            data_path=data_file_path
+        )
         
-        logger.info(f"--- [调试任务完成] ---")
-        logger.info(f"股票 [{stock_code}] 的策略分析执行完毕。")
-        logger.info(f"返回结果: {result}")
-        logger.info("="*80)
-        return {"status": "success", "stock_code": stock_code, "details": result}
+        # logger.info(f"--- [调试任务完成] ---")
+        # logger.info(f"股票 [{stock_code}] 的策略分析执行完毕。")
+        # logger.info(f"返回结果: {result}")
+        # logger.info("="*80)
+        # return {"status": "success", "stock_code": stock_code, "details": result}
     except Exception as e:
         # 这里的异常捕获现在是双重保险，因为_execute_strategy_logic内部已经有try-except
         logger.error(f"在调试任务中调用 '_execute_strategy_logic' 时发生严重错误: {e}", exc_info=True)

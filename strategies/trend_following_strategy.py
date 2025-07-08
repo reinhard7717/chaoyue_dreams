@@ -940,64 +940,20 @@ class TrendFollowStrategy:
                 drop_pct = self._get_param_value(p.get('drop_pct'), -0.20)
                 winner_rate_threshold = self._get_param_value(p.get('winner_rate_threshold'), 10.0)
                 
-                # 计算过程保持不变
+                # 条件1: 快速大幅下跌
                 high_in_period = df['high_D'].rolling(window=drop_days).max()
                 current_drop_pct = (df['low_D'] / high_in_period - 1)
                 is_deep_drop = current_drop_pct < drop_pct
+                
+                # 条件2: 下跌中主力资金是净流出的 (真摔)
                 main_force_flow_during_drop = df['net_mf_amount_D'].rolling(window=drop_days).sum()
                 is_main_force_fleeing = main_force_flow_during_drop < 0
+                
+                # 条件3: 获利盘被清洗
                 is_panic_selling = df['winner_rate_D'] < winner_rate_threshold
                 
                 setups['SETUP_SHOCK_BOTTOM'] = is_deep_drop & is_main_force_fleeing & is_panic_selling
                 print(f"      -> 'V反-休克谷底'准备状态定义完成 (V41.3 真摔版)，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
-
-                # ▼▼▼【代码修改 V41.13.10】: 修改调试逻辑，无论日期是否存在都打印信息 ▼▼▼
-                print(f"\n--- [变量追踪] 计算 'SETUP_SHOCK_BOTTOM' 之后 ---")
-                print(f"  - df.index.max() after calculation: {df.index.max()}")
-                is_date_present_after = target_date in df.index
-                print(f"  - '{debug_date_str}' in df.index after calculation? {is_date_present_after}")
-                print(f"--- 追踪结束 ---\n")
-
-                print("\n--- [V反-休克谷底] 详细调试 for 2025-06-23 ---")
-                if is_date_present_after:
-                    debug_date = target_date
-                    print(f"  [状态] 目标日期存在，开始详细数据检查。")
-                    print(f"  [参数] drop_days={drop_days}, drop_pct={drop_pct}, winner_rate_threshold={winner_rate_threshold}")
-                    
-                    # 打印每个条件的值
-                    val1_high = high_in_period.loc[debug_date]
-                    val1_low = df.loc[debug_date, 'low_D']
-                    val1_pct = current_drop_pct.loc[debug_date]
-                    res1 = is_deep_drop.loc[debug_date]
-                    print(f"  [条件1: 深度下跌] is_deep_drop = {res1}")
-                    print(f"    - {drop_days}日内高点: {val1_high:.2f}, 当日低点: {val1_low:.2f}, 计算跌幅: {val1_pct:.2%}, 是否满足 (< {drop_pct:.2%})? {'是' if res1 else '否'}")
-
-                    val2_flow = main_force_flow_during_drop.loc[debug_date]
-                    res2 = is_main_force_fleeing.loc[debug_date]
-                    print(f"  [条件2: 主力出逃] is_main_force_fleeing = {res2}")
-                    print(f"    - {drop_days}日内主力净流出合计: {val2_flow:,.2f}, 是否满足 (< 0)? {'是' if res2 else '否'}")
-
-                    val3_winner = df.loc[debug_date, 'winner_rate_D']
-                    res3 = is_panic_selling.loc[debug_date]
-                    print(f"  [条件3: 恐慌盘] is_panic_selling = {res3}")
-                    print(f"    - 当日获利盘比例: {val3_winner:.2f}%, 是否满足 (< {winner_rate_threshold:.2f}%)? {'是' if res3 else '否'}")
-                    
-                    final_res = setups['SETUP_SHOCK_BOTTOM'].loc[debug_date]
-                    print(f"  -------------------------------------------------")
-                    print(f"  [最终结论] SETUP_SHOCK_BOTTOM on {debug_date_str} = {final_res}")
-                else:
-                    print(f"  [状态] 目标日期 '{debug_date_str}' 不存在于 df.index 中。")
-                    print(f"  - 这解释了为何无法打印详细调试信息。")
-                    print(f"  - 请检查是否有上游代码（如 IndicatorService）在计算过程中修改或过滤了 DataFrame。")
-                    # 尝试打印一些最终状态以供参考
-                    if not df.empty:
-                        print(f"  - 当前 df 的最后日期是: {df.index.max()}")
-                    if 'SETUP_SHOCK_BOTTOM' in setups and not setups['SETUP_SHOCK_BOTTOM'].empty:
-                        print(f"  - 'SETUP_SHOCK_BOTTOM' series 的最后日期是: {setups['SETUP_SHOCK_BOTTOM'].index.max()}")
-
-                print(f"--- 调试结束 ---\n")
-                # ▲▲▲【代码修改 V41.13.10】▲▲▲
-
         except Exception as e:
             print(f"      -> [警告] 计算'V反-休克谷底'时出错: {e}")
 
@@ -2354,7 +2310,131 @@ class TrendFollowStrategy:
 
         return final_signal.fillna(False)
 
+    # ▼▼▼ 专用历史复盘调试方法 ▼▼▼
+    def debug_strategy_on_period(self, stock_code: str, start_date_str: str, end_date_str: str, data_path: str):
+        """
+        【V41.15.0 历史复盘专用】
+        在指定的历史时间段内运行策略，并打印出详细的信号触发情况。
+        该方法专门用于调试和复盘，独立于实时运行逻辑。
 
+        Args:
+            stock_code (str): 股票代码。
+            start_date_str (str): 调试开始日期 (e.g., '2024-08-01')。
+            end_date_str (str): 调试结束日期 (e.g., '2024-11-07')。
+            data_path (str): 包含历史数据的文本文件路径。
+        """
+        print("="*80)
+        print(f"[*] 启动历史复盘调试模式: {stock_code} from {start_date_str} to {end_date_str}")
+        print("="*80)
+
+        # 1. 从文本文件加载和准备数据
+        print(f"--- 1. 正在从 '{data_path}' 加载调试数据 ---")
+        try:
+            # 使用制表符作为分隔符读取数据
+            df = pd.read_csv(data_path, sep='\t')
+            # 将 trade_time 列转换为日期时间对象，并设为索引
+            df['trade_time'] = pd.to_datetime(df['trade_time']).dt.tz_localize(None) # 移除时区信息以简化
+            df.set_index('trade_time', inplace=True)
+            df.sort_index(inplace=True)
+            print(f"  - 成功加载 {len(df)} 条数据，日期范围: {df.index.min().date()} to {df.index.max().date()}")
+        except FileNotFoundError:
+            print(f"  - [错误] 数据文件未找到: {data_path}")
+            return
+        except Exception as e:
+            print(f"  - [错误] 加载数据时出错: {e}")
+            return
+
+        # 2. 标准化列名以匹配策略内部使用的名称
+        print("--- 2. 标准化列名和补充缺失数据 ---")
+        column_mapping = {
+            'open': 'open_D',
+            'high': 'high_D',
+            'low': 'low_D',
+            'close': 'close_D',
+            'vol': 'volume_D',
+            'amount': 'amount_D'
+        }
+        df.rename(columns=column_mapping, inplace=True)
+
+        # 关键步骤：补充策略需要的、但文件中缺失的数据列（用默认值填充）
+        # 这是为了防止代码因缺少列而崩溃。在实际分析中，应意识到这些信号的准确性会受影响。
+        if 'net_mf_amount_D' not in df.columns:
+            df['net_mf_amount_D'] = 0.0
+            print("  - [警告] 缺少 'net_mf_amount_D' (主力净流入) 数据，已用 0.0 填充。")
+        if 'winner_rate_D' not in df.columns:
+            df['winner_rate_D'] = 50.0 # 使用一个中性值
+            print("  - [警告] 缺少 'winner_rate_D' (获利盘) 数据，已用 50.0 填充。")
+        # 补充原子信号列，因为它们是某些准备状态的基础
+        atomic_chip_cols = [
+            'ATOMIC_CHIP_COST_ENHANCED', 'ATOMIC_CHIP_CONCENTRATED', 'ATOMIC_CHIP_BREAKTHROUGH',
+            'ATOMIC_COST_BREAKTHROUGH', 'ATOMIC_PRESSURE_RELEASE', 'ATOMIC_HURDLE_CLEAR'
+        ]
+        for col in atomic_chip_cols:
+            if col not in df.columns:
+                df[col] = False
+        print("  - [警告] 缺少原子筹码信号，相关策略将不受影响但无法触发。")
+
+
+        # 3. 计算所有技术指标
+        print("--- 3. 计算所有技术指标 ---")
+        try:
+            # 确保有足够的数据来计算长周期指标
+            # 注意：这里我们使用加载的全部数据来计算指标，以保证准确性
+            df_with_indicators, _ = self.indicator_service.calculate_all(
+                stock_code, df, self.params['feature_engineering_params']
+            )
+            print(f"  - 指标计算完成。DataFrame 尺寸: {df_with_indicators.shape}")
+        except Exception as e:
+            print(f"  - [严重错误] 指标计算失败: {e}")
+            # 打印更多调试信息
+            import traceback
+            traceback.print_exc()
+            return
+
+        # 4. 执行日线级别策略逻辑（信号生成、评分、剧本匹配）
+        print("--- 4. 执行日线级别策略逻辑 ---")
+        try:
+            signals_df = self._run_daily_logic(df_with_indicators, self.params)
+            print("  - 策略逻辑执行完成。")
+        except Exception as e:
+            print(f"  - [严重错误] 策略逻辑执行失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+
+        # 5. 筛选并打印指定时间段的信号
+        print(f"\n--- 5. 策略信号复盘 ({stock_code}: {start_date_str} to {end_date_str}) ---")
+        # 使用 .loc 按日期范围筛选
+        debug_df = signals_df.loc[start_date_str:end_date_str].copy()
+
+        buy_signals = debug_df[debug_df['final_buy_signal']]
+        print("\n--- [买入信号触发日] ---")
+        if not buy_signals.empty:
+            for trade_date, row in buy_signals.iterrows():
+                print(f"  -> {trade_date.strftime('%Y-%m-%d')}: [买入] 总分: {row['final_score']:.0f}, "
+                      f"触发剧本: {row['triggered_playbooks']}, "
+                      f"收盘价: {row['close_D']:.2f}, "
+                      f"涨跌幅: {row['pct_change'] * 100:.2f}%")
+        else:
+            print("  -> 在此期间未发现任何最终买入信号。")
+
+        print("\n--- [观察信号触发日 (未形成买点)] ---")
+        # 筛选出 'WATCHING' 信号，并且不是最终买入信号
+        watching_signals = debug_df[
+            (debug_df['final_signal_type'] == 'WATCHING') & (~debug_df['final_buy_signal'])
+        ]
+        if not watching_signals.empty:
+            for trade_date, row in watching_signals.iterrows():
+                 print(f"  -> {trade_date.strftime('%Y-%m-%d')}: [观察] 分数: {row['final_score']:.0f}, "
+                       f"准备状态: {row['active_setups']}, "
+                       f"收盘价: {row['close_D']:.2f}, "
+                       f"涨跌幅: {row['pct_change'] * 100:.2f}%")
+        else:
+            print("  -> 在此期间未发现任何独立的观察信号。")
+
+        print("\n" + "="*80)
+        print("[*] 复盘调试结束。")
+        print("="*80)
 
 
 
