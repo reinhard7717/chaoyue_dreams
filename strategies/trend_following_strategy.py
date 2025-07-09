@@ -405,6 +405,16 @@ class TrendFollowStrategy:
                 'comment': '内部辅助剧本，当资本背离条件满足时，开启一个持续数天的上下文状态，用于被其他剧本捕获。'
             },
             {
+                'name': 'CONTEXTUAL_MOMENTUM_IGNITION', 'cn_name': '上下文动能点火',
+                # 准备条件: “资本背离”的上下文状态必须激活
+                'setup': df.get('CONTEXT_CAPITAL_DIVERGENCE_ACTIVE', default_series),
+                # 触发条件: “动能拐点”剧本的原始条件同时满足
+                'trigger': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series) & trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
+                'score': 315, # 赋予比普通“动能拐点”更高的分数
+                'precondition': True, # 左侧信号，放宽右侧前提
+                'comment': '【协同剧本】在“资本背离”的有利背景下，由“动能拐点”事件点燃的更高质量的买入信号。'
+            },
+            {
                 'name': 'WASH_AND_RISE', 'cn_name': '洗盘拉升',
                 'setup': setup_conditions.get('SETUP_PULLBACK_WITH_MF_INFLOW', default_series),
                 'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
@@ -683,7 +693,7 @@ class TrendFollowStrategy:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
             if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST']:
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST', 'CONTEXTUAL_MOMENTUM_IGNITION']:
                 condition = setup & trigger
             else:
                 condition = setup.shift(1).fillna(False) & trigger
