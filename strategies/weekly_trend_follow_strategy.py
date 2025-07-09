@@ -200,7 +200,6 @@ class WeeklyTrendFollowStrategy:
                             context_df[col_name] = result_series
                             print(f"    - [多信号输出模式] 已生成规范化列: '{col_name}'")
                     elif isinstance(results, pd.Series):
-                        # ▼▼▼【代码修改】: 规范化单信号输出的剧本名称 ▼▼▼
                         if 'score' in playbook_name:
                             col_name = 'washout_score_W'
                         elif 'filter' in playbook_name:
@@ -218,17 +217,17 @@ class WeeklyTrendFollowStrategy:
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
 
-        print("\n---【周线战略层(V3.5) - 剧本计算总结】---")
-        for col in context_df.columns:
-            if col.startswith('playbook_'):
-                # label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
-                print(f"【剧本-{col}】触发周数: {context_df[col].sum()}")
-        if 'washout_score_W' in context_df.columns:
-            score = context_df['washout_score_W']
-            print(f"【诊断-洗盘】有分数的周数: {(score > 0).sum()} (最高分: {score.max()})")
-        if 'rejection_signal_W' in context_df.columns:
-            rejection = context_df['rejection_signal_W']
-            print(f"【诊断-风险】有拒绝信号的周数: {(rejection < 0).sum()}")
+        # print("\n---【周线战略层(V3.5) - 剧本计算总结】---")
+        # for col in context_df.columns:
+        #     if col.startswith('playbook_'):
+        #         # label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
+        #         print(f"【剧本-{col}】触发周数: {context_df[col].sum()}")
+        # if 'washout_score_W' in context_df.columns:
+        #     score = context_df['washout_score_W']
+        #     print(f"【诊断-洗盘】有分数的周数: {(score > 0).sum()} (最高分: {score.max()})")
+        # if 'rejection_signal_W' in context_df.columns:
+        #     rejection = context_df['rejection_signal_W']
+        #     print(f"【诊断-风险】有拒绝信号的周数: {(rejection < 0).sum()}")
         
         return context_df
 
