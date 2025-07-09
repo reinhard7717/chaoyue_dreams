@@ -894,6 +894,7 @@ class TrendFollowStrategy:
                     清晰地展示成功或失败的原因、阈值和实际值。
         """
         print("    - [准备状态中心 V51.0 统一探针版] 启动，开始计算所有准备状态...")
+        need_debug = False
         # ▼▼▼【代码修改】: 移除所有分散的探针和调试打印 ▼▼▼
         # probe_start_date = pd.to_datetime('2024-09-15').tz_localize(df.index.tz) # 移动到函数末尾
         # probe_end_date = pd.to_datetime('2024-12-15').tz_localize(df.index.tz) # 移动到函数末尾
@@ -1226,7 +1227,6 @@ class TrendFollowStrategy:
                     print(f"      -> '均线回撤预备'准备状态定义完成，发现 {setups.get('SETUP_PULLBACK_MA', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'均线回撤预备'时出错: {e}")
-        # ▲▲▲【代码修改结束】▲▲▲
 
         # --- 填充与清洗 ---
         all_needed_setups = [
@@ -1244,82 +1244,82 @@ class TrendFollowStrategy:
             else:
                 setups[setup_name].fillna(False, inplace=True)
         
-        # ▼▼▼【代码修改】: 新增统一的“准备状态诊断中心” ▼▼▼
         # --- 统一探针: 准备状态诊断中心 ---
-        probe_start_date = pd.to_datetime('2024-09-15').tz_localize(df.index.tz)
-        probe_end_date = pd.to_datetime('2024-12-15').tz_localize(df.index.tz)
-        
-        print(f"\n--- [统一探针 V51.0 | {probe_start_date.date()} to {probe_end_date.date()}] 诊断所有准备状态 ---")
-        
-        probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
+        if need_debug:
+            probe_start_date = pd.to_datetime('2024-09-15').tz_localize(df.index.tz)
+            probe_end_date = pd.to_datetime('2024-12-15').tz_localize(df.index.tz)
+            
+            print(f"\n--- [统一探针 V51.0 | {probe_start_date.date()} to {probe_end_date.date()}] 诊断所有准备状态 ---")
+            
+            probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
 
-        if not probe_df.empty:
-            for timestamp, row in probe_df.iterrows():
-                print(f"\n====== 日期: {timestamp.date()} ======")
-                
-                # --- 诊断1: 资本背离 (SETUP_CAPITAL_DIVERGENCE) ---
-                try:
-                    p = setup_params.get('capital_flow_divergence_params', {})
-                    if self._get_param_value(p.get('enabled'), True):
-                        print("  --- 诊断: 资本背离 (SETUP_CAPITAL_DIVERGENCE) ---")
-                        is_setup_ok = setups['SETUP_CAPITAL_DIVERGENCE'].get(timestamp, False)
-                        if is_setup_ok:
-                            print("    [✔ 成功] 所有条件均满足。")
-                        else:
-                            print("    [✖ 失败] 未满足以下条件:")
-                            trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
-                            trend_ma_col = f'EMA_{trend_ma_period}_D'
-                            mf_slope_col = 'SLOPE_net_mf_amount_D_10'
-                            mf_accel_col = 'ACCEL_net_mf_amount_D_10'
-                            retail_slope_col = 'SLOPE_net_retail_amount_D_20'
-                            price_accel_col = 'ACCEL_close_D_10'
-                            bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10'
-                            
-                            # 逐一检查
-                            if not (row['close_D'] < row[trend_ma_col]):
-                                print(f"      - 价格弱势: 失败 (要求: close < EMA_{trend_ma_period}, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})")
-                            if not (row[mf_slope_col] > self._get_param_value(p.get('mf_slope_threshold'), 0)):
-                                print(f"      - 主力资金斜率改善: 失败 (要求: > {self._get_param_value(p.get('mf_slope_threshold'), 0)}, 实际: {row[mf_slope_col]:.2f})")
-                            if not (row[mf_accel_col] > self._get_param_value(p.get('mf_accel_threshold'), 0)):
-                                print(f"      - 主力资金流入加速: 失败 (要求: > {self._get_param_value(p.get('mf_accel_threshold'), 0)}, 实际: {row[mf_accel_col]:.2f})")
-                            if not (row[retail_slope_col] < self._get_param_value(p.get('retail_slope_threshold'), 0)):
-                                print(f"      - 散户资金流出: 失败 (要求: < {self._get_param_value(p.get('retail_slope_threshold'), 0)}, 实际: {row[retail_slope_col]:.2f})")
-                            if not (row[price_accel_col] > self._get_param_value(p.get('price_accel_threshold'), 0)):
-                                print(f"      - 价格下跌趋缓: 失败 (要求: > {self._get_param_value(p.get('price_accel_threshold'), 0):.4f}, 实际: {row[price_accel_col]:.4f})")
-                            if not (row[bbw_slope_col] < self._get_param_value(p.get('bbw_slope_threshold'), 0)):
-                                print(f"      - 波动率收缩: 失败 (要求: < {self._get_param_value(p.get('bbw_slope_threshold'), 0):.4f}, 实际: {row[bbw_slope_col]:.4f})")
-                except Exception as e:
-                    print(f"    [✖ 错误] 诊断时发生异常: {e}")
+            if not probe_df.empty:
+                for timestamp, row in probe_df.iterrows():
+                    print(f"\n====== 日期: {timestamp.date()} ======")
+                    
+                    # --- 诊断1: 资本背离 (SETUP_CAPITAL_DIVERGENCE) ---
+                    try:
+                        p = setup_params.get('capital_flow_divergence_params', {})
+                        if self._get_param_value(p.get('enabled'), True):
+                            print("  --- 诊断: 资本背离 (SETUP_CAPITAL_DIVERGENCE) ---")
+                            is_setup_ok = setups['SETUP_CAPITAL_DIVERGENCE'].get(timestamp, False)
+                            if is_setup_ok:
+                                print("    [✔ 成功] 所有条件均满足。")
+                            else:
+                                print("    [✖ 失败] 未满足以下条件:")
+                                trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
+                                trend_ma_col = f'EMA_{trend_ma_period}_D'
+                                mf_slope_col = 'SLOPE_net_mf_amount_D_10'
+                                mf_accel_col = 'ACCEL_net_mf_amount_D_10'
+                                retail_slope_col = 'SLOPE_net_retail_amount_D_20'
+                                price_accel_col = 'ACCEL_close_D_10'
+                                bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10'
+                                
+                                # 逐一检查
+                                if not (row['close_D'] < row[trend_ma_col]):
+                                    print(f"      - 价格弱势: 失败 (要求: close < EMA_{trend_ma_period}, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})")
+                                if not (row[mf_slope_col] > self._get_param_value(p.get('mf_slope_threshold'), 0)):
+                                    print(f"      - 主力资金斜率改善: 失败 (要求: > {self._get_param_value(p.get('mf_slope_threshold'), 0)}, 实际: {row[mf_slope_col]:.2f})")
+                                if not (row[mf_accel_col] > self._get_param_value(p.get('mf_accel_threshold'), 0)):
+                                    print(f"      - 主力资金流入加速: 失败 (要求: > {self._get_param_value(p.get('mf_accel_threshold'), 0)}, 实际: {row[mf_accel_col]:.2f})")
+                                if not (row[retail_slope_col] < self._get_param_value(p.get('retail_slope_threshold'), 0)):
+                                    print(f"      - 散户资金流出: 失败 (要求: < {self._get_param_value(p.get('retail_slope_threshold'), 0)}, 实际: {row[retail_slope_col]:.2f})")
+                                if not (row[price_accel_col] > self._get_param_value(p.get('price_accel_threshold'), 0)):
+                                    print(f"      - 价格下跌趋缓: 失败 (要求: > {self._get_param_value(p.get('price_accel_threshold'), 0):.4f}, 实际: {row[price_accel_col]:.4f})")
+                                if not (row[bbw_slope_col] < self._get_param_value(p.get('bbw_slope_threshold'), 0)):
+                                    print(f"      - 波动率收缩: 失败 (要求: < {self._get_param_value(p.get('bbw_slope_threshold'), 0):.4f}, 实际: {row[bbw_slope_col]:.4f})")
+                    except Exception as e:
+                        print(f"    [✖ 错误] 诊断时发生异常: {e}")
 
-                # --- 诊断2: 动能背离 (SETUP_MOMENTUM_DIVERGENCE) ---
-                try:
-                    p = setup_params.get('momentum_divergence_params', {})
-                    if self._get_param_value(p.get('enabled'), True):
-                        print("  --- 诊断: 动能背离 (SETUP_MOMENTUM_DIVERGENCE) ---")
-                        is_setup_ok = setups['SETUP_MOMENTUM_DIVERGENCE'].get(timestamp, False)
-                        if is_setup_ok:
-                            print("    [✔ 成功] 所有条件均满足。")
-                        else:
-                            print("    [✖ 失败] 未满足以下条件:")
-                            lookback = self._get_param_value(p.get('lookback'), 20)
-                            vlong_period = self._get_param_value(p.get('regime_ma'), 144)
-                            accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
-                            jerk_col = f'SLOPE_{accel_col}_{lookback}'
-                            
-                            jerk_t = df.at[timestamp, jerk_col]
-                            jerk_t_minus_1 = df.shift(1).at[timestamp, jerk_col]
-                            jerk_t_minus_2 = df.shift(2).at[timestamp, jerk_col]
-                            
-                            if not ((jerk_t_minus_1 > jerk_t_minus_2) and (jerk_t_minus_1 > jerk_t)):
-                                print(f"      - Jerk峰值确认: 失败 (要求: T-1 > T-2 且 T-1 > T, 实际: {jerk_t_minus_1:.6f} vs {jerk_t_minus_2:.6f} 和 {jerk_t:.6f})")
-                except Exception as e:
-                    print(f"    [✖ 错误] 诊断时发生异常: {e}")
+                    # --- 诊断2: 动能背离 (SETUP_MOMENTUM_DIVERGENCE) ---
+                    try:
+                        p = setup_params.get('momentum_divergence_params', {})
+                        if self._get_param_value(p.get('enabled'), True):
+                            print("  --- 诊断: 动能背离 (SETUP_MOMENTUM_DIVERGENCE) ---")
+                            is_setup_ok = setups['SETUP_MOMENTUM_DIVERGENCE'].get(timestamp, False)
+                            if is_setup_ok:
+                                print("    [✔ 成功] 所有条件均满足。")
+                            else:
+                                print("    [✖ 失败] 未满足以下条件:")
+                                lookback = self._get_param_value(p.get('lookback'), 20)
+                                vlong_period = self._get_param_value(p.get('regime_ma'), 144)
+                                accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
+                                jerk_col = f'SLOPE_{accel_col}_{lookback}'
+                                
+                                jerk_t = df.at[timestamp, jerk_col]
+                                jerk_t_minus_1 = df.shift(1).at[timestamp, jerk_col]
+                                jerk_t_minus_2 = df.shift(2).at[timestamp, jerk_col]
+                                
+                                if not ((jerk_t_minus_1 > jerk_t_minus_2) and (jerk_t_minus_1 > jerk_t)):
+                                    print(f"      - Jerk峰值确认: 失败 (要求: T-1 > T-2 且 T-1 > T, 实际: {jerk_t_minus_1:.6f} vs {jerk_t_minus_2:.6f} 和 {jerk_t:.6f})")
+                    except Exception as e:
+                        print(f"    [✖ 错误] 诊断时发生异常: {e}")
 
-        print("\n--- [统一探针] 诊断结束 ---\n")
+            print("\n--- [统一探针] 诊断结束 ---\n")
             
         print("    - [准备状态中心 V51.0] 所有准备状态计算完成。")
         return setups
- 
+
     # ▼▼▼ 智能衍生特征引擎 (Intelligent Derived Feature Engine) ▼▼▼
     def _prepare_derived_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
