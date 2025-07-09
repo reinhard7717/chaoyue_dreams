@@ -848,51 +848,67 @@ class TrendFollowStrategy:
             p = playbook_specific_params.get('perfect_storm_params', {})
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('compression_lookback'), 60)
-                
-                mf_col = 'net_mf_amount_D'
-                slope_col_name = f'SLOPE_{mf_col}_{lookback}' # 将生成 'SLOPE_net_mf_amount_D_60'
+                slope_col_name = f'SLOPE_net_mf_amount_D_{lookback}'
                 
                 required_cols = ['cost_95pct_D', 'cost_15pct_D', 'close_D', slope_col_name]
                 if all(c in df.columns for c in required_cols):
-                    # --- 条件1: 筹码高度集中 (逻辑不变) ---
-                    concentration_threshold = self._get_param_value(p.get('chip_concentration_threshold'), 0.30)
-                    chip_concentration_ratio = (df['cost_95pct_D'] - df['cost_15pct_D']) / df['close_D']
-                    is_chip_concentrated = chip_concentration_ratio < concentration_threshold
-
-                    # --- 条件2: 价格站稳于筹码平台 (逻辑不变) ---
+                    # --- 步骤 A: 计算“瞬时”的准备条件 (与上一版逻辑相同) ---
+                    is_chip_concentrated = (df['cost_95pct_D'] - df['cost_15pct_D']) / df['close_D'] < self._get_param_value(p.get('chip_concentration_threshold'), 0.30)
                     is_price_on_platform = df['close_D'] > df['cost_15pct_D']
-
-                    # --- 条件3: 主力资金流入趋势为正 (新逻辑) ---
                     is_mf_trend_improving = df[slope_col_name] > 0
                     
-                    final_setup = is_chip_concentrated & is_price_on_platform & is_mf_trend_improving
+                    # 这是原始的、零散的信号
+                    initial_setup_signal = is_chip_concentrated & is_price_on_platform & is_mf_trend_improving
+
+                    # ▼▼▼【核心逻辑新增】: 状态持续性处理 ▼▼▼
+                    persistence_days = self._get_param_value(p.get('setup_persistence_days'), 5)
+                    
+                    # 1. 识别“首次进入”准备状态的信号
+                    # 当天满足条件，且前一天不满足，才是“首次进入”
+                    is_entering_setup = initial_setup_signal & ~initial_setup_signal.shift(1).fillna(False)
+                    
+                    # 2. 创建一个状态计时器
+                    setup_timer = pd.Series(0, index=df.index)
+                    setup_timer[is_entering_setup] = persistence_days # 首次进入时，重置计时器
+                    
+                    # 3. 模拟状态的持续
+                    for i in range(1, len(df)):
+                        # 如果前一天的计时器大于1，且今天不是新的进入点，则计时器减1
+                        if setup_timer.iloc[i-1] > 1 and not is_entering_setup.iloc[i]:
+                            setup_timer.iloc[i] = setup_timer.iloc[i-1] - 1
+                    
+                    # 4. 定义“状态破坏”信号
+                    break_threshold = self._get_param_value(p.get('setup_break_threshold'), 0.98)
+                    is_setup_broken = df['close_D'] < (df['cost_15pct_D'] * break_threshold)
+                    
+                    # 5. 最终的、具有持续性的Setup信号
+                    # 只要计时器>0，就认为状态持续，但如果被破坏信号命中，则强制为False
+                    final_setup = (setup_timer > 0) & ~is_setup_broken
+                    # ▲▲▲【核心逻辑新增】▲▲▲
+
                     setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
-                    print(f"      -> [重构] '潜龙出海'准备状态(架构回归版)定义完成，发现 {final_setup.sum()} 天。")
+                    print(f"      -> [重构] '潜龙出海'准备状态(状态持续版)定义完成，发现 {final_setup.sum()} 天。")
 
                     # --- 终极探针逻辑 (同步升级) ---
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True)
                     probe_df = pd.DataFrame({
-                        'Chip_Ratio_95_15': chip_concentration_ratio,
-                        'Chip_Thresh': concentration_threshold,
-                        'Chip_OK': is_chip_concentrated,
-                        'Price': df['close_D'],
-                        'Cost_15pct': df['cost_15pct_D'],
-                        'Price_OK': is_price_on_platform,
-                        'MF_Slope_60': df[slope_col_name], # 修改: 探针显示预计算的60日斜率
-                        'MF_OK': is_mf_trend_improving,
-                        'Final_Setup': final_setup
+                        'Initial_Setup': initial_setup_signal, # 新增: 显示原始信号
+                        'Timer': setup_timer,                  # 新增: 显示计时器
+                        'Is_Broken': is_setup_broken,          # 新增: 显示状态破坏信号
+                        'Final_Setup': final_setup             # 最终的持续状态信号
                     }).loc[probe_start_date:]
                     
-                    interesting_days = probe_df[probe_df[['Chip_OK', 'Price_OK', 'MF_OK']].any(axis=1)]
+                    # 只要原始信号或最终信号为True，就打印出来
+                    interesting_days = probe_df[probe_df[['Initial_Setup', 'Final_Setup']].any(axis=1)]
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '潜龙出海' (架构回归版) ---")
-                        print(interesting_days.to_string(float_format="%.2f"))
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '潜龙出海' (状态持续版) ---")
+                        print(interesting_days.to_string())
                         print("--- [终极探针] 诊断结束 ---\n")
                 else:
                     missing = [c for c in required_cols if c not in df.columns]
                     print(f"      -> [警告] 缺少列: {missing}。请确保在配置文件中为'net_mf_amount_D'增加了'{lookback}'周期的斜率计算。")
         except Exception as e:
-            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'(架构回归版)时出错: {e}")
+            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'(状态持续版)时出错: {e}")
 
         # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
         try:
