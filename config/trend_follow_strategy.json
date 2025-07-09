@@ -200,7 +200,7 @@
             "close_D": [5, 10],
             "VOL_MA_21_D": [10],
             "BBW_21_2.0_D": [10],
-            "net_mf_amount_D": [10, 20],
+            "net_mf_amount_D": [10, 20, 60],
             "EMA_21_D": [5],
             "EMA_55_D": [10],
             "net_retail_amount_D": [20],

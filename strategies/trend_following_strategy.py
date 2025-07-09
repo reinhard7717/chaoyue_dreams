@@ -307,6 +307,7 @@ class TrendFollowStrategy:
             records.append(record)
         return records
 
+    # 趋势斜率计算中心
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【V40.3 修复版】趋势斜率计算中心
@@ -848,52 +849,50 @@ class TrendFollowStrategy:
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('compression_lookback'), 60)
                 
-                required_cols = ['cost_95pct_D', 'cost_15pct_D', 'close_D', 'weight_avg_D', 'net_mf_amount_D']
+                mf_col = 'net_mf_amount_D'
+                slope_col_name = f'SLOPE_{mf_col}_{lookback}' # 将生成 'SLOPE_net_mf_amount_D_60'
+                
+                required_cols = ['cost_95pct_D', 'cost_15pct_D', 'close_D', slope_col_name]
                 if all(c in df.columns for c in required_cols):
-                    # --- 条件1: 筹码高度集中 (核心) ---
+                    # --- 条件1: 筹码高度集中 (逻辑不变) ---
                     concentration_threshold = self._get_param_value(p.get('chip_concentration_threshold'), 0.30)
                     chip_concentration_ratio = (df['cost_95pct_D'] - df['cost_15pct_D']) / df['close_D']
                     is_chip_concentrated = chip_concentration_ratio < concentration_threshold
 
-                    # ▼▼▼【代码修改】: 修正价格形态判断逻辑，解决“沉默杀手”问题 ▼▼▼
-                    # 旧逻辑: is_price_above_cost = df['close_D'] > df['weight_avg_D']
-                    # 新逻辑: 价格守在核心筹码区之上即可，无需高于平均成本
+                    # --- 条件2: 价格站稳于筹码平台 (逻辑不变) ---
                     is_price_on_platform = df['close_D'] > df['cost_15pct_D']
-                    # ▲▲▲【代码修改】▲▲▲
 
-                    # --- 条件3: 主力资金累计净流入 (动力) ---
-                    mf_col = 'net_mf_amount_D'
-                    mf_accumulation = df[mf_col].rolling(window=lookback).sum()
-                    is_mf_accumulating = mf_accumulation > 0
+                    # --- 条件3: 主力资金流入趋势为正 (新逻辑) ---
+                    is_mf_trend_improving = df[slope_col_name] > 0
                     
-                    final_setup = is_chip_concentrated & is_price_on_platform & is_mf_accumulating
+                    final_setup = is_chip_concentrated & is_price_on_platform & is_mf_trend_improving
                     setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
-                    print(f"      -> [重构] '潜龙出海'准备状态(最终修正版)定义完成，发现 {final_setup.sum()} 天。")
+                    print(f"      -> [重构] '潜龙出海'准备状态(架构回归版)定义完成，发现 {final_setup.sum()} 天。")
 
-                    # --- 终极探针逻辑 (同步更新) ---
+                    # --- 终极探针逻辑 (同步升级) ---
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True)
                     probe_df = pd.DataFrame({
                         'Chip_Ratio_95_15': chip_concentration_ratio,
                         'Chip_Thresh': concentration_threshold,
                         'Chip_OK': is_chip_concentrated,
                         'Price': df['close_D'],
-                        'Cost_15pct': df['cost_15pct_D'], # 修改: 探针显示15%成本线
-                        'Price_OK': is_price_on_platform, # 修改: 探针使用新的判断
-                        'MF_Accum': mf_accumulation,
-                        'MF_OK': is_mf_accumulating,
+                        'Cost_15pct': df['cost_15pct_D'],
+                        'Price_OK': is_price_on_platform,
+                        'MF_Slope_60': df[slope_col_name], # 修改: 探针显示预计算的60日斜率
+                        'MF_OK': is_mf_trend_improving,
                         'Final_Setup': final_setup
                     }).loc[probe_start_date:]
                     
                     interesting_days = probe_df[probe_df[['Chip_OK', 'Price_OK', 'MF_OK']].any(axis=1)]
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '潜龙出海' (最终修正版) ---")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '潜龙出海' (架构回归版) ---")
                         print(interesting_days.to_string(float_format="%.2f"))
                         print("--- [终极探针] 诊断结束 ---\n")
                 else:
                     missing = [c for c in required_cols if c not in df.columns]
-                    print(f"      -> [警告] 缺少筹码列: {missing}，无法计算'潜龙出海-长期蓄势'。")
+                    print(f"      -> [警告] 缺少列: {missing}。请确保在配置文件中为'net_mf_amount_D'增加了'{lookback}'周期的斜率计算。")
         except Exception as e:
-            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'(最终修正版)时出错: {e}")
+            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'(架构回归版)时出错: {e}")
 
         # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
         try:
