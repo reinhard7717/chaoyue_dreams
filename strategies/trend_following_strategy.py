@@ -852,7 +852,8 @@ class TrendFollowStrategy:
                 mf_col = 'net_mf_amount_D'
                 if all(c in df.columns for c in [volatility_col, mf_col]):
                     # 条件1: 60天内波动率处于低位 (例如，低于过去120天的30%分位数)
-                    low_volatility_threshold = df[volatility_col].rolling(window=lookback*2).quantile(0.3)
+                    # 允许更大的波动容忍度，更能适应主升浪前的预热阶段
+                    low_volatility_threshold = df[volatility_col].rolling(window=lookback*2).quantile(0.5) # 从 0.3 改为 0.5
                     is_low_volatility = df[volatility_col] < low_volatility_threshold
                     # 条件2: 60天内主力资金是累计净流入的
                     is_mf_accumulating = df[mf_col].rolling(window=lookback).sum() > 0
@@ -877,10 +878,10 @@ class TrendFollowStrategy:
                 mf_col = 'net_mf_amount_D'
                 if mf_col in df.columns:
                     # 条件1: 20天内价格没有创出新高 (处于下跌或盘整)
-                    is_price_consolidating = df['high_D'] <= df['high_D'].shift(1).rolling(window=lookback).max()
+                    # is_price_consolidating = df['high_D'] <= df['high_D'].shift(1).rolling(window=lookback).max()
                     # 条件2: 20天内主力资金是累计净流入的
                     is_mf_accumulating = df[mf_col].rolling(window=lookback).sum() > 0
-                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = is_price_consolidating & is_mf_accumulating
+                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = is_mf_accumulating
                     print(f"      -> [重构] '资金暗流(底部背离)'准备状态定义完成，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
                     if setups['SETUP_CAPITAL_FLOW_DIVERGENCE'].any():
                         probe_start_date = pd.to_datetime('2024-07-01', utc=True)
@@ -1545,10 +1546,11 @@ class TrendFollowStrategy:
         # --- 步骤3: 融合“结构”与“力量”，生成高阶触发器 (逻辑不变) ---
         print("      -> 正在融合'结构'与'力量'生成高阶触发器...")
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
-        # ▼▼▼【代码修改 V44.1】: 增加探针2 (触发事件解剖) ▼▼▼
+        # ▼▼▼【代码修改】: 重构 V44.1 的探针逻辑，使其行为统一 ▼▼▼
         print("\n--- [探针-TRIGGER | >24-07-01] 正在诊断 'CHIP_INSTITUTIONAL_BREAKOUT' (主力点火) 触发器 ---")
         probe_start_date = pd.to_datetime('2024-07-01', utc=True)
         
+        # 1. 创建包含所有相关条件的DataFrame
         debug_df = pd.DataFrame({
             'breakout_struct': is_breakout_structure,
             'institut_buy': is_institutional_buying,
@@ -1556,29 +1558,21 @@ class TrendFollowStrategy:
             'FINAL_TRIGGER': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
         })
         
+        # 2. 筛选出探针开始日期之后的数据
         debug_df_filtered = debug_df[debug_df.index >= probe_start_date]
-        triggered_days = debug_df_filtered[debug_df_filtered['FINAL_TRIGGER']]
         
-        if not triggered_days.empty:
-            # 只打印为True的行，确保日志简洁
-            print(triggered_days)
+        # 3. 定义新的筛选条件：只要任意一个子条件为True，就选中该行
+        sub_conditions = ['breakout_struct', 'institut_buy', 'NOT_hot_money']
+        interesting_days = debug_df_filtered[debug_df_filtered[sub_conditions].any(axis=1)]
+        
+        # 4. 统一打印输出
+        if not interesting_days.empty:
+            # 使用 to_string() 保证所有列和行都能被完整打印，便于分析
+            print(interesting_days.to_string())
         else:
-            print("  -> '主力点火' 触发器在目标时段内从未为 TRUE。")
-            print("  -> 检查部分条件为 TRUE 的日子以进行分析:")
+            print("  -> 从 2024-07-01 起，'主力点火'的所有子条件 ('breakout_struct', 'institut_buy', 'NOT_hot_money') 均未被触发。")
             
-            breakout_true_days = debug_df_filtered[debug_df_filtered['breakout_struct']]
-            if not breakout_true_days.empty:
-                 print(f"    - 'breakout_struct' (上穿成本线) 为 TRUE 的日子:\n{breakout_true_days.to_string()}")
-            else:
-                 print("    - 'breakout_struct' (上穿成本线) 在目标时段内从未为 TRUE。")
-            
-            institut_true_days = debug_df_filtered[debug_df_filtered['institut_buy']]
-            if not institut_true_days.empty:
-                print(f"    - 'institut_buy' (机构买入) 为 TRUE 的日子:\n{institut_true_days.to_string()}")
-            else:
-                print("    - 'institut_buy' (机构买入) 在目标时段内从未为 TRUE。")
         print("--- [探针-TRIGGER] 诊断结束 ---\n")
-        # ▲▲▲【代码修改 V44.1】▲▲▲
 
         # “游资突破”：定义为由“游资闪击”行为主导的突破，通常更具爆发性，但波动也可能更大。
         triggers['CHIP_HOT_MONEY_BREAKOUT'] = is_breakout_structure & is_hot_money_blitz
