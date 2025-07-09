@@ -940,8 +940,8 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                short_ma_period = self._get_param_value(p.get('short_ma'), 10)
-                long_ma_period = self._get_param_value(p.get('trend_ma'), 55) # 简化，只保留短、长周期
+                short_ma_period = 13
+                long_ma_period = 55
                 
                 short_ma_col = f'EMA_{short_ma_period}_D'
                 long_ma_col = f'EMA_{long_ma_period}_D'
