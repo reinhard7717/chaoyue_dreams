@@ -833,7 +833,7 @@ class TrendFollowStrategy:
         return exit_signal
 
     # ▼▼▼ “准备状态中心” (Setup Condition Center) ▼▼▼
-    def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+    def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V45.0 健壮重构版】
         - 核心重构: 彻底重写S级剧本的准备状态计算逻辑，放弃复杂脆弱的形态识别，
