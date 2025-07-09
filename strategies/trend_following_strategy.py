@@ -222,6 +222,7 @@ class TrendFollowStrategy:
                     'RELATIVE_STRENGTH': '相对强势', 'FORTRESS_SIEGE': '堡垒围攻',
                     'BBAND_SQUEEZE': '布林压缩', 'WINNER_RATE_WASHED_OUT': '投降坑',
                     'BIAS_EXTREME_OVERSOLD': 'BIAS超卖', 'GAP_SUPPORT': '缺口支撑',
+                    'MOMENTUM_DIVERGENCE': '动能拐点',
                 }
                 active_setups_cn = [setup_cn_name_map.get(s, s) for s in active_setups]
 
@@ -332,25 +333,28 @@ class TrendFollowStrategy:
 
         series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {})
         
+        capital_lookback = 20 # 保持与特征工程中的周期一致
+        capital_accum_col = f'mf_accumulation_{capital_lookback}_D'
+        if capital_accum_col not in series_to_slope:
+            series_to_slope[capital_accum_col] = [capital_lookback]
+            print(f"      -> 动态为 '{capital_accum_col}' 添加斜率计算任务。")
+
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
                 print(f"    - [斜率中心] 警告: 列 '{col_name}' 不存在，跳过斜率计算。")
                 continue
             
             for lookback in lookbacks:
-                # 一阶导数 (斜率)
                 slope_col_name = f'SLOPE_{col_name}_{lookback}'
                 df[slope_col_name] = df[col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
                 
-                # 二阶导数 (加速度)
                 accel_col_name = f'ACCEL_{col_name}_{lookback}'
                 df[accel_col_name] = df[slope_col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
                 
-                # 【核心修改】三阶导数 (加速度的斜率)
-                jerk_col_name = f'SLOPE_{accel_col_name}_{lookback}' # Jerk, 加加速度
+                jerk_col_name = f'SLOPE_{accel_col_name}_{lookback}'
                 df[jerk_col_name] = df[accel_col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
                 
-        print("    - [斜率中心 V45.47] 所有斜率计算完成。")
+        print("    - [斜率中心 V45.53] 所有斜率计算完成。")
         return df
 
     # ▼▼▼ 将剧本定义抽取为独立函数 ▼▼▼
@@ -383,10 +387,10 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'AWAKENED_BEAST', 'cn_name': '猛兽苏醒',
-                'setup': setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE', default_series),
-                'trigger': trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', default_series),
+                'setup': setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', default_series),
+                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
                 'score': 330, 'precondition': True,
-                'comment': '底部价量背离后的强力反转信号。'
+                'comment': '【V45.53 升级】捕捉主力资金流出减缓、并确认反转的“资本拐点”，是最高精度的资金驱动型反转信号。'
             },
             {
                 'name': 'WASH_AND_RISE', 'cn_name': '洗盘拉升',
@@ -667,7 +671,7 @@ class TrendFollowStrategy:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
             if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT']:
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST']:
                 condition = setup & trigger
             else:
                 condition = setup.shift(1).fillna(False) & trigger
@@ -957,7 +961,6 @@ class TrendFollowStrategy:
                             print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.50 终极解耦版) ---")
                             print(probe_df.to_string(float_format="%.6f"))
                             print("--- [终极探针] 诊断结束 ---\n")
-
         except Exception as e:
             print(f"      -> [警告] 计算'动能背离(终极解耦)'时出错: {e}")
             
@@ -967,49 +970,33 @@ class TrendFollowStrategy:
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('lookback'), 20)
                 long_period = self._get_param_value(p.get('trend_ma'), 55)
-                mf_col = 'net_mf_amount_D'
                 long_ma_col = f"EMA_{long_period}_D"
                 
-                required_cols = ['close_D', mf_col, long_ma_col]
+                # 【核心修改】定义资本Jerk相关的列名
+                capital_accum_col = f'mf_accumulation_{lookback}_D'
+                capital_accel_col = f'ACCEL_{capital_accum_col}_{lookback}'
+                capital_jerk_col = f'SLOPE_{capital_accel_col}_{lookback}'
+                
+                required_cols = ['close_D', long_ma_col, capital_jerk_col]
                 
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [前置检查失败] '资本背离' 无法计算，缺少列: {missing} ---\n")
+                    print(f"\n--- [前置检查失败] '资本背离(终极统一)' 无法计算，缺少列: {missing} ---\n")
                 else:
-                    is_price_weak = df['close_D'] < df[long_ma_col]
-                    mf_accumulation = df[mf_col].rolling(window=lookback).sum()
-                    is_capital_inflow = mf_accumulation > 0
-                    final_setup = is_price_weak & is_capital_inflow
+                    # 确认资本Jerk的峰值
+                    jerk_t = df[capital_jerk_col]
+                    jerk_t_minus_1 = df[capital_jerk_col].shift(1)
+                    jerk_t_minus_2 = df[capital_jerk_col].shift(2)
+                    
+                    is_capital_peak_confirmed = (jerk_t_minus_1 > jerk_t_minus_2) & (jerk_t_minus_1 > jerk_t)
+                    
+                    # 最终的准备状态只由核心事件决定
+                    final_setup = is_capital_peak_confirmed
+                    
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
-                    print(f"      -> '资本背离' 完成: 寻找“价弱 & 资金强”的背离，发现 {final_setup.sum()} 天。")
-
-                    # --- 【核心修改】聚焦探针逻辑 ---
-                    probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
-                    probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
-                    
-                    key_dates_to_check_raw = ['2024-08-13', '2024-08-21']
-                    key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
-
-                    df_dates = df.index.date
-                    is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
-                    
-                    window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
-                    interesting_days_mask = window_mask & (final_setup | is_key_date)
-
-                    if interesting_days_mask.any():
-                        probe_df = pd.DataFrame({
-                            'Close': df['close_D'], 'LMA_val': df[long_ma_col], 'PriceWeakOK': is_price_weak,
-                            'CapitalAccum': mf_accumulation, 'CapitalOK': is_capital_inflow,
-                            '_SETUP': final_setup
-                        }).loc[interesting_days_mask]
-
-                        if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '资本背离' (V45.45 聚焦版) ---")
-                            print(probe_df.to_string(float_format="%.4f"))
-                            print("--- [终极探针] 诊断结束 ---\n")
-
+                    print(f"      -> '资本背离'(终极统一版) 完成: 寻找“资本Jerk峰值已过”的事件日，发现 {final_setup.sum()} 天。")
         except Exception as e:
-            print(f"      -> [警告] 计算'资本背离'时出错: {e}")
+            print(f"      -> [警告] 计算'资本背离(终极统一)'时出错: {e}")
 
         # --- 能量压缩 ---
         try:
@@ -1338,6 +1325,13 @@ class TrendFollowStrategy:
                 df['net_mf_amount_D'] = 0
         else:
              print("      -> 'net_mf_amount_D' (主力净流入) 已存在，使用预计算列。")
+
+        # 【核心修改】将资本累积指标的计算提前
+        # 注意：这里的lookback周期需要与后续setup中使用的保持一致。为简化，暂时硬编码。
+        # 一个更优的方案是从参数文件中读取，但为聚焦当前问题，我们先用20。
+        capital_lookback = 20 
+        df[f'mf_accumulation_{capital_lookback}_D'] = df['net_mf_amount_D'].rolling(window=capital_lookback).sum()
+        print(f"      -> 已计算 'mf_accumulation_{capital_lookback}_D' (主力资金{capital_lookback}日累积)。")
 
         # --- 步骤2: 散户净流入额 (智能回退逻辑) ---
         if 'net_retail_amount_D' not in df.columns or df['net_retail_amount_D'].isnull().all():
