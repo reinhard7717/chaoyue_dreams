@@ -188,7 +188,6 @@ class TrendFollowStrategy:
         playbook_definitions_for_log = self._get_playbook_definitions(df, trigger_events={}, setup_conditions={})
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_definitions_for_log}
 
-        print("\n---【多时间框架协同策略(V42.0 中文日志版) 逻辑链调试】---") # 修改: 版本号
         entry_signals = df[df['signal_entry']]
         print("\n---【多时间框架协同策略(V45.2 日志过滤版) 逻辑链调试】---")
         
@@ -1537,23 +1536,39 @@ class TrendFollowStrategy:
             is_acceleration_structure = pd.Series(False, index=df.index)
 
         # --- 步骤2: 计算“力量”信号 (资金行为的确认) ---
-        print("      -> 正在计算'资金力量'信号...")
-        mf_ratio = df.get('net_mf_amount_ratio_D', pd.Series(0, index=df.index))
-        institutional_buying_threshold = self._get_param_value(trigger_params.get('institutional_buying_ratio'), 0.05)
-        is_institutional_buying = df.get('net_mf_amount_D', pd.Series(0, index=df.index)) > 0
-        # print(f"      -> [瓶颈修复] '机构买入'条件已放宽为'主力净流入 > 0'。")
-        elg_net_buy = df.get('buy_elg_amount_D', 0) - df.get('sell_elg_amount_D', 0)
-        net_mf_amount = df.get('net_mf_amount_D', 0)
+        print("      -> 正在计算'资金力量'信号 (强制日线数据源)...")
+        
+        # 定义需要检查的日线资金流列名
+        mf_col = 'net_mf_amount_D'
+        elg_buy_col = 'buy_elg_amount_D'
+        elg_sell_col = 'sell_elg_amount_D'
         vol_ma_period = self._get_param_value(trigger_params.get('vol_ma_period'), 21)
         vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
-        volume_spike_ratio = self._get_param_value(trigger_params.get('volume_spike_ratio'), 2.0)
-        is_volume_spike = df['volume_D'] > (df.get(vol_ma_col, df['volume_D']) * volume_spike_ratio)
-        # “游资闪击”的定义：在机构买入的背景下，超大单的净买入占主力净买入的绝大部分（如>70%），且当日放量。
-        is_hot_money_blitz = is_institutional_buying & (elg_net_buy > net_mf_amount * 0.7) & is_volume_spike
+        volume_col = 'volume_D'
         
-        # --- 步骤3: 融合“结构”与“力量”，生成高阶触发器 ---
+        required_force_cols = [mf_col, elg_buy_col, elg_sell_col, vol_ma_col, volume_col]
+        
+        # 严格检查所有需要的列是否存在于日线df中
+        if not all(c in df.columns for c in required_force_cols):
+            missing_cols = [c for c in required_force_cols if c not in df.columns]
+            print(f"      -> [严重警告] 缺少计算'资金力量'所需的日线列: {missing_cols}。所有依赖此逻辑的触发器将不会被激活。")
+            is_institutional_buying = pd.Series(False, index=df.index)
+            is_hot_money_blitz = pd.Series(False, index=df.index)
+        else:
+            # 所有计算都明确使用带 '_D' 后缀的列
+            is_institutional_buying = df[mf_col] > 0
+            
+            elg_net_buy = df[elg_buy_col] - df[elg_sell_col]
+            net_mf_amount = df[mf_col]
+            
+            volume_spike_ratio = self._get_param_value(trigger_params.get('volume_spike_ratio'), 2.0)
+            is_volume_spike = df[volume_col] > (df[vol_ma_col] * volume_spike_ratio)
+            
+            # “游资闪击”的定义
+            is_hot_money_blitz = is_institutional_buying & (elg_net_buy > net_mf_amount * 0.7) & is_volume_spike
+
+        # --- 步骤3: 融合“结构”与“力量”，生成高阶触发器 (逻辑不变) ---
         print("      -> 正在融合'结构'与'力量'生成高阶触发器...")
-        # “机构突破”：定义为由主力资金驱动的突破，但明确排除了由“游资闪击”主导的突破。这旨在识别更稳健、持续性可能更强的机构建仓行为。
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
         # ▼▼▼【代码修改 V44.1】: 增加探针2 (触发事件解剖) ▼▼▼
         print("\n--- [探针-TRIGGER | >24-07-01] 正在诊断 'CHIP_INSTITUTIONAL_BREAKOUT' (主力点火) 触发器 ---")
@@ -1566,12 +1581,12 @@ class TrendFollowStrategy:
             'FINAL_TRIGGER': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
         })
         
-        # 在使用前先对整个调试DataFrame进行过滤
         debug_df_filtered = debug_df[debug_df.index >= probe_start_date]
-
         triggered_days = debug_df_filtered[debug_df_filtered['FINAL_TRIGGER']]
+        
         if not triggered_days.empty:
-            print(f"  -> '主力点火' 触发器在以下日期为 TRUE:\n{triggered_days.to_string()}")
+            # 只打印为True的行，确保日志简洁
+            print(triggered_days)
         else:
             print("  -> '主力点火' 触发器在目标时段内从未为 TRUE。")
             print("  -> 检查部分条件为 TRUE 的日子以进行分析:")
