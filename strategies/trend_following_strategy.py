@@ -940,23 +940,22 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                # 定义三条均线，代表短、中、长三个周期
-                short_ma_period = 13
-                mid_ma_period = 21
-                long_ma_period = 55
+                short_ma_period = self._get_param_value(p.get('short_ma'), 10)
+                long_ma_period = self._get_param_value(p.get('trend_ma'), 55) # 简化，只保留短、长周期
                 
                 short_ma_col = f'EMA_{short_ma_period}_D'
-                mid_ma_col = f'EMA_{mid_ma_period}_D'
                 long_ma_col = f'EMA_{long_ma_period}_D'
+                long_ma_slope_col = f'SLOPE_{long_ma_col}_5' # 使用长期均线的5日斜率
                 
-                required_cols = [short_ma_col, mid_ma_col, long_ma_col, 'VOL_MA_21_D']
+                required_cols = [short_ma_col, long_ma_col, long_ma_slope_col, 'VOL_MA_21_D']
                 if all(c in df.columns for c in required_cols):
-                    # 条件1: 长期趋势健康 (趋势的根基)
-                    # 收盘价必须在长期均线之上，且长期均线本身是向上走的
-                    is_long_trend_ok = (df['close_D'] > df[long_ma_col]) & (df[long_ma_col] > df[long_ma_col].shift(1))
+                    # 条件1: 长期趋势健康 (趋势的根基) - 鲁棒版
+                    # 价格在长期均线之上，并且该均线的短期斜率大于0 (核心修正)
+                    is_price_above_lma = df['close_D'] > df[long_ma_col]
+                    is_lma_slope_ok = df[long_ma_slope_col] > 0
+                    is_long_trend_ok = is_price_above_lma & is_lma_slope_ok
                     
                     # 条件2: 处于回踩状态 (短暂的回归)
-                    # 收盘价有效跌破短期攻击均线，表明攻击暂缓，进入回调
                     is_in_pullback_state = df['close_D'] < df[short_ma_col]
                     
                     # 条件3: 量能配合 (缩量)
@@ -964,27 +963,32 @@ class TrendFollowStrategy:
 
                     final_setup = is_long_trend_ok & is_in_pullback_state & is_volume_shrinking
                     setups['SETUP_HEALTHY_PULLBACK'] = final_setup
-                    print(f"      -> '健康回踩'(哲学重构版)准备状态定义完成，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '健康回踩'(最终修正版)准备状态定义完成，发现 {final_setup.sum()} 天。")
 
                     # --- “健康回踩”专属探针 (同步升级) ---
-                    probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                    probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
                     probe_df = pd.DataFrame({
-                        'Long_Trend_OK': is_long_trend_ok,
-                        'In_Pullback_OK': is_in_pullback_state,
-                        'Vol_Shrink_OK': is_volume_shrinking,
+                        'Price_Above_LMA': is_price_above_lma,          # 探针细化: 价格是否在长均线之上
+                        'LMA_Slope_OK': is_lma_slope_ok,                # 探针细化: 长均线斜率是否为正
+                        'In_Pullback_OK': is_in_pullback_state,         # 探针细化: 是否处于短期回踩状态
+                        'Vol_Shrink_OK': is_volume_shrinking,           # 探针细化: 是否缩量
                         '_Setup': final_setup
                     }).loc[probe_start_date:]
                     
-                    interesting_days = probe_df[probe_df['_Setup']]
+                    # 只显示那些曾经触发过最终信号的日期，以及我们关心的关键日期
+                    key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21'], utc=True if df.index.tz else None)
+                    interesting_days_mask = probe_df['_Setup'] | probe_df.index.isin(key_dates_to_check)
+                    interesting_days = probe_df[interesting_days_mask]
+                    
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (哲学重构版) ---")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (最终修正版) ---")
                         print(interesting_days.to_string())
                         print("--- [终极探针] 诊断结束 ---\n")
                 else:
                     missing_cols_str = ", ".join([c for c in required_cols if c not in df.columns])
-                    print(f"      -> [警告] 缺少列: {missing_cols_str}。无法计算'健康回踩'(哲学重构版)。")
+                    print(f"      -> [警告] 缺少列: {missing_cols_str}。无法计算'健康回踩'(最终修正版)。请确保在斜率中心配置了对'EMA_55_D'的斜率计算。")
         except Exception as e:
-            print(f"      -> [警告] 计算'健康回踩'(哲学重构版)时出错: {e}")
+            print(f"      -> [警告] 计算'健康回踩'(最终修正版)时出错: {e}")
 
         # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
         try:
