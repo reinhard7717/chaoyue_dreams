@@ -610,17 +610,23 @@ class TrendFollowStrategy:
 
             # ▼▼▼【代码修改 V44.1】: 增加S级剧本的专用探针3 (最终评估) ▼▼▼
             if playbook['name'] in ['PERFECT_STORM', 'AWAKENED_BEAST']:
+                probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                
                 daily_eval_df = pd.DataFrame({
                     'setup(T-1)': setup.shift(1).fillna(False),
                     'trigger(T)': trigger,
                     'precondition(T)': playbook['precondition'],
                     '~has_been_scored(T)': ~has_been_scored
                 })
-                # 只显示至少有一个条件为True的日子，避免日志爆炸
-                interesting_days = daily_eval_df[daily_eval_df.any(axis=1)]
+                
+                # 组合筛选条件：1. 日期符合要求 2. 至少有一个条件为True
+                interesting_days = daily_eval_df[
+                    (daily_eval_df.index >= probe_start_date) & 
+                    (daily_eval_df.any(axis=1))
+                ]
+                
                 if not interesting_days.empty:
-                    print(f"\n--- [探针-EVAL] 每日评估详情 for 剧本: {playbook['name']} ---")
-                    # 使用 to_string() 保证DataFrame被完整打印
+                    print(f"\n--- [探针-EVAL | >24-07-01] 每日评估详情 for 剧本: {playbook['name']} ---")
                     print(interesting_days.to_string())
                     print(f"--- [探针-EVAL] 评估结束 for {playbook['name']} ---\n")
             # ▲▲▲【代码修改 V44.1】▲▲▲
@@ -832,67 +838,69 @@ class TrendFollowStrategy:
     # ▼▼▼ “准备状态中心” (Setup Condition Center) ▼▼▼
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V43.1 精准注入版】
-        - 核心升级: 
-          1. 新增 `SETUP_PROLONGED_COMPRESSION` (潜龙出海-准备) 的计算逻辑。
-          2. 重构 `SETUP_CAPITAL_FLOW_DIVERGENCE` (猛兽苏醒-准备) 的计算逻辑，修复 `cumsum` 缺陷。
+        【V45.0 健壮重构版】
+        - 核心重构: 彻底重写S级剧本的准备状态计算逻辑，放弃复杂脆弱的形态识别，
+                    改用基于滚动窗口的、更健壮的“区间状态”判断，确保信号能被稳定识别。
         """
-        # ▼▼▼【代码修改 V43.1】: 使用您提供的完整函数替换原有函数 ▼▼▼
-        print("    - [准备状态中心 V43.1] 启动，开始计算所有准备状态...")
-
-        if not df.empty:
-            debug_date_str = '2025-06-23'
-            target_date = pd.to_datetime(debug_date_str)
-            # 检查时区问题，确保比较是可靠的
-            if df.index.tz is not None and target_date.tz is None:
-                target_date = target_date.tz_localize(df.index.tz)
-            
-            is_date_present = target_date in df.index
-            # print("\n--- [数据范围诊断] 检查输入DataFrame的日期索引 ---")
-            # print(f"  - DataFrame 起始日期: {df.index.min()}")
-            # print(f"  - DataFrame 结束日期: {df.index.max()}")
-            # print(f"  - 目标调试日期 '{debug_date_str}' 是否存在于索引中? {'是' if is_date_present else '否'}")
-            # print("--- 诊断结束 ---\n")
+        print("    - [准备状态中心 V45.0] 启动，开始计算所有准备状态...")
         setups = {}
         setup_params = self._get_params_block(params, 'setup_condition_params', {})
         playbook_specific_params = self._get_params_block(params, 'playbook_specific_params', {})
 
-        # --- 1. 调用原子信号中心 ---
+        # --- 1. 调用原子信号中心 (逻辑不变) ---
         chip_atomic_signals = self._define_chip_atomic_signals(df, params)
-
-        # --- 2. 筹码吸筹 (由原子信号驱动) ---
         setups['SETUP_CHIP_ACCUMULATION'] = chip_atomic_signals.get('ATOMIC_REINFORCEMENT', pd.Series(False, index=df.index))
-        print(f"      -> '筹码吸筹'准备状态定义完成，发现 {setups.get('SETUP_CHIP_ACCUMULATION', pd.Series([])).sum()} 天。")
-
-        # --- 3. 筹码高度集中 (由原子信号驱动) ---
         setups['SETUP_CHIP_CONCENTRATION'] = chip_atomic_signals.get('ATOMIC_CONCENTRATED_STATE', pd.Series(False, index=df.index))
-        print(f"      -> '筹码高度集中'准备状态定义完成，发现 {setups.get('SETUP_CHIP_CONCENTRATION', pd.Series([])).sum()} 天。")
 
-        # --- 新增: “潜龙出海” 的准备状态计算 ---
+        # --- 2. 【S级剧本重构】“潜龙出海”的准备状态 (SETUP_PROLONGED_COMPRESSION) ---
         try:
             p = playbook_specific_params.get('perfect_storm_params', {})
-            if self._get_param_value(p.get('enabled'), True): # 默认启用
-                bbw_col = 'BBW_21_2.0_D'
-                if bbw_col in df.columns:
-                    lookback = self._get_param_value(p.get('compression_lookback'), 120)
-                    percentile = self._get_param_value(p.get('compression_percentile'), 0.1)
-                    duration = self._get_param_value(p.get('compression_duration'), 20)
-                    
-                    # 计算过去N天的布林带宽度的低位阈值
-                    low_bbw_threshold = df[bbw_col].rolling(window=lookback, min_periods=duration).quantile(percentile)
-                    # 判断当前布林带宽度是否低于该阈值
-                    is_in_compression = df[bbw_col] < low_bbw_threshold
-                    # 判断是否连续M天都处于压缩状态
-                    setups['SETUP_PROLONGED_COMPRESSION'] = is_in_compression.rolling(window=duration).sum() >= duration
-                    print(f"      -> '潜龙出海-长期蓄势'准备状态定义完成，发现 {setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series([])).sum()} 天。")
-                    # ▼▼▼【代码修改 V44.1】: 增加探针1 (准备状态) ▼▼▼
+            if self._get_param_value(p.get('enabled'), True):
+                lookback = self._get_param_value(p.get('compression_lookback'), 60) # 观察窗口60天
+                volatility_col = 'ATR_14_D' # 使用ATR作为波动率指标
+                mf_col = 'net_mf_amount_D'
+                if all(c in df.columns for c in [volatility_col, mf_col]):
+                    # 条件1: 60天内波动率处于低位 (例如，低于过去120天的30%分位数)
+                    low_volatility_threshold = df[volatility_col].rolling(window=lookback*2).quantile(0.3)
+                    is_low_volatility = df[volatility_col] < low_volatility_threshold
+                    # 条件2: 60天内主力资金是累计净流入的
+                    is_mf_accumulating = df[mf_col].rolling(window=lookback).sum() > 0
+                    setups['SETUP_PROLONGED_COMPRESSION'] = is_low_volatility & is_mf_accumulating
+                    print(f"      -> [重构] '潜龙出海-长期蓄势'准备状态定义完成，发现 {setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series([])).sum()} 天。")
                     if setups['SETUP_PROLONGED_COMPRESSION'].any():
-                        print(f"    [探针-SETUP]: '潜龙出海-长期蓄势' 准备状态成立的日期: {df.index[setups['SETUP_PROLONGED_COMPRESSION']].date.tolist()}")
-                    # ▲▲▲【代码修改 V44.1】▲▲▲
+                        probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                        triggered_dates = df.index[setups['SETUP_PROLONGED_COMPRESSION']]
+                        filtered_dates = triggered_dates[triggered_dates >= probe_start_date]
+                        if not filtered_dates.empty:
+                            print(f"    [探针-SETUP | >24-07-01]: '潜龙出海-长期蓄势' 准备状态成立的日期: {filtered_dates.date.tolist()}")
                 else:
-                    print(f"      -> [警告] 缺少列 '{bbw_col}'，无法计算'潜龙出海-长期蓄势'。")
+                    print(f"      -> [警告] 缺少列 '{volatility_col}' 或 '{mf_col}'，无法计算'潜龙出海-长期蓄势'。")
         except Exception as e:
             print(f"      -> [警告] 计算'潜龙出海-长期蓄势'时出错: {e}")
+
+        # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
+        try:
+            p = setup_params.get('capital_flow_divergence_params', {})
+            if self._get_param_value(p.get('enabled'), False):
+                lookback = self._get_param_value(p.get('divergence_lookback'), 20) # 观察窗口20天
+                mf_col = 'net_mf_amount_D'
+                if mf_col in df.columns:
+                    # 条件1: 20天内价格没有创出新高 (处于下跌或盘整)
+                    is_price_consolidating = df['high_D'] <= df['high_D'].shift(1).rolling(window=lookback).max()
+                    # 条件2: 20天内主力资金是累计净流入的
+                    is_mf_accumulating = df[mf_col].rolling(window=lookback).sum() > 0
+                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = is_price_consolidating & is_mf_accumulating
+                    print(f"      -> [重构] '资金暗流(底部背离)'准备状态定义完成，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
+                    if setups['SETUP_CAPITAL_FLOW_DIVERGENCE'].any():
+                        probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                        triggered_dates = df.index[setups['SETUP_CAPITAL_FLOW_DIVERGENCE']]
+                        filtered_dates = triggered_dates[triggered_dates >= probe_start_date]
+                        if not filtered_dates.empty:
+                            print(f"    [探针-SETUP | >24-07-01]: '猛兽苏醒-资金背离' 准备状态成立的日期: {filtered_dates.date.tolist()}")
+                else:
+                    print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'资金暗流'时出错: {e}")
 
         # --- 能量压缩 ---
         try:
@@ -912,49 +920,6 @@ class TrendFollowStrategy:
                     print(f"      -> '能量压缩'准备状态定义完成，发现 {setups.get('SETUP_ENERGY_COMPRESSION', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'能量压缩'时出错: {e}")
-
-        # --- “资金暗流/猛兽苏醒” 的准备状态计算 ---
-        try:
-            p = setup_params.get('capital_flow_divergence_params', {})
-            if self._get_param_value(p.get('enabled'), False):
-                price_col = 'low_D'
-                mf_col = 'net_mf_amount_D'
-                if mf_col in df.columns:
-                    lookback = self._get_param_value(p.get('divergence_lookback'), 20)
-                    # 寻找价格低点 (通过反转序列找高点)
-                    price_peaks_indices, _ = find_peaks(-df[price_col], distance=lookback//2)
-                    divergence_signals = pd.Series(False, index=df.index)
-                    def get_slope(y):
-                        y_clean = y.dropna()
-                        if len(y_clean) < 2: return np.nan
-                        x = np.arange(len(y_clean))
-                        slope_val, _ = np.polyfit(x, y_clean.values, 1)
-                        return slope_val
-                    for i in range(1, len(price_peaks_indices)):
-                        prev_peak_idx = price_peaks_indices[i-1]
-                        current_peak_idx = price_peaks_indices[i]
-                        prev_price_low = df[price_col].iloc[prev_peak_idx]
-                        current_price_low = df[price_col].iloc[current_peak_idx]
-                        # 条件1: 价格创出新低或次低 (底部背离)
-                        if current_price_low < prev_price_low * 1.02: # 允许一点误差
-                            # 提取这两个价格低点之间的资金流数据
-                            mf_slice = df[mf_col].iloc[prev_peak_idx:current_peak_idx+1]
-                            # 条件2: 这期间的资金流趋势是向上的
-                            mf_slope = get_slope(mf_slice)
-                            if mf_slope is not None and mf_slope > 0:
-                                # 在当前价格低点标记信号
-                                divergence_signals.iloc[current_peak_idx] = True
-                    
-                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = divergence_signals
-                    print(f"      -> '资金暗流(底部背离)'准备状态重构完成 (V43.1)，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
-                    # ▼▼▼【代码修改 V44.1】: 增加探针1 (准备状态) ▼▼▼
-                    if setups['SETUP_CAPITAL_FLOW_DIVERGENCE'].any():
-                        print(f"    [探针-SETUP]: '猛兽苏醒-资金背离' 准备状态成立的日期: {df.index[setups['SETUP_CAPITAL_FLOW_DIVERGENCE']].date.tolist()}")
-                    # ▲▲▲【代码修改 V44.1】▲▲▲
-                else:
-                    print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
-        except Exception as e:
-            print(f"      -> [警告] 计算'资金暗流'时出错: {e}")
 
         # --- 4. 健康回踩 ---
         try:
@@ -1574,32 +1539,37 @@ class TrendFollowStrategy:
         # “机构突破”：定义为由主力资金驱动的突破，但明确排除了由“游资闪击”主导的突破。这旨在识别更稳健、持续性可能更强的机构建仓行为。
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
         # ▼▼▼【代码修改 V44.1】: 增加探针2 (触发事件解剖) ▼▼▼
-        print("\n--- [探针-TRIGGER] 正在诊断 'CHIP_INSTITUTIONAL_BREAKOUT' (主力点火) 触发器 ---")
+        print("\n--- [探针-TRIGGER | >24-07-01] 正在诊断 'CHIP_INSTITUTIONAL_BREAKOUT' (主力点火) 触发器 ---")
+        probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+        
         debug_df = pd.DataFrame({
             'breakout_struct': is_breakout_structure,
             'institut_buy': is_institutional_buying,
             'NOT_hot_money': ~is_hot_money_blitz,
             'FINAL_TRIGGER': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
         })
-        triggered_days = debug_df[debug_df['FINAL_TRIGGER']]
+        
+        # 在使用前先对整个调试DataFrame进行过滤
+        debug_df_filtered = debug_df[debug_df.index >= probe_start_date]
+
+        triggered_days = debug_df_filtered[debug_df_filtered['FINAL_TRIGGER']]
         if not triggered_days.empty:
             print(f"  -> '主力点火' 触发器在以下日期为 TRUE:\n{triggered_days.to_string()}")
         else:
-            print("  -> '主力点火' 触发器在整个回测期间从未为 TRUE。")
-            # 打印出任何一个条件为True的日子，帮助诊断
+            print("  -> '主力点火' 触发器在目标时段内从未为 TRUE。")
             print("  -> 检查部分条件为 TRUE 的日子以进行分析:")
-            # 只显示为True的行，避免日志过长
-            breakout_true_days = debug_df[debug_df['breakout_struct']]
+            
+            breakout_true_days = debug_df_filtered[debug_df_filtered['breakout_struct']]
             if not breakout_true_days.empty:
                  print(f"    - 'breakout_struct' (上穿成本线) 为 TRUE 的日子:\n{breakout_true_days.to_string()}")
             else:
-                 print("    - 'breakout_struct' (上穿成本线) 从未为 TRUE。")
+                 print("    - 'breakout_struct' (上穿成本线) 在目标时段内从未为 TRUE。")
             
-            institut_true_days = debug_df[debug_df['institut_buy']]
+            institut_true_days = debug_df_filtered[debug_df_filtered['institut_buy']]
             if not institut_true_days.empty:
                 print(f"    - 'institut_buy' (机构买入) 为 TRUE 的日子:\n{institut_true_days.to_string()}")
             else:
-                print("    - 'institut_buy' (机构买入) 从未为 TRUE。")
+                print("    - 'institut_buy' (机构买入) 在目标时段内从未为 TRUE。")
         print("--- [探针-TRIGGER] 诊断结束 ---\n")
         # ▲▲▲【代码修改 V44.1】▲▲▲
 
