@@ -400,7 +400,7 @@ class TrendFollowStrategy:
                 'setup': True, # 无需前置setup
                 # 触发条件: “资本背离”准备状态成立的当天
                 'trigger': setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', default_series),
-                'score': 0, # 不产生任何分数，仅用于触发上下文
+                'score': 1, # 不产生任何分数，仅用于触发上下文
                 'precondition': True,
                 'comment': '内部辅助剧本，当资本背离条件满足时，开启一个持续数天的上下文状态，用于被其他剧本捕获。'
             },
