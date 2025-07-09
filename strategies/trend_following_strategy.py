@@ -396,6 +396,13 @@ class TrendFollowStrategy:
             # === A+级 (Tier A+) 剧本: "高置信度" (分数 250-299) ===
             # =================================================================================
             {
+                'name': 'MOMENTUM_INFLECTION_POINT', 'cn_name': '动能拐点',
+                'setup': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series),
+                'trigger': trigger_events.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series),
+                'score': 295, 'precondition': True, # 前提放宽，因为这是左侧信号
+                'comment': '捕捉下跌动能的“加加速度”达到峰值后的第一个确认阳线，是最高精度的左侧反转信号。'
+            },
+            {
                 'name': 'GAP_SUPPORT_CONFIRMED', 'cn_name': '缺口支撑',
                 'setup': setup_conditions.get('SETUP_GAP_SUPPORT', default_series),
                 'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
@@ -657,8 +664,10 @@ class TrendFollowStrategy:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
             if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL']: condition = setup & trigger
-            else: condition = setup.shift(1).fillna(False) & trigger
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT']:
+                condition = setup & trigger
+            else:
+                condition = setup.shift(1).fillna(False) & trigger
             is_triggered = condition & playbook['precondition'] & ~has_been_scored
             if is_triggered.any():
                 score = self._get_param_value(points.get(playbook['name']), playbook['score'])
@@ -902,31 +911,29 @@ class TrendFollowStrategy:
                 
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [前置检查失败] '动能背离(终极确认)' 无法计算，缺少列: {missing} ---\n")
+                    print(f"\n--- [前置检查失败] '动能背离(终极解耦)' 无法计算，缺少列: {missing} ---\n")
                 else:
-                    # 条件1: 价格弱势 (背景)
+                    # 【核心修改】将这些条件作为诊断信息，而不是信号的组成部分
                     is_price_weak = df['close_D'] < df[long_ma_col]
-                    # 条件2: 加速度为正 (一阶拐点已发生)
                     is_accel_positive = df[accel_col] > 0
                     
-                    # 【核心修改】在T日，确认T-1日是Jerk的峰值
                     jerk_t = df[jerk_col]
                     jerk_t_minus_1 = df[jerk_col].shift(1)
                     jerk_t_minus_2 = df[jerk_col].shift(2)
                     
                     is_peak_confirmed = (jerk_t_minus_1 > jerk_t_minus_2) & (jerk_t_minus_1 > jerk_t)
                     
-                    # 最终信号：在价格弱势和下跌减速的背景下，我们确认了“减速势头”的峰值刚刚过去
-                    final_setup = is_price_weak & is_accel_positive & is_peak_confirmed
+                    # 最终的准备状态(Setup)只由核心事件决定
+                    final_setup = is_peak_confirmed
                     
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
-                    print(f"      -> '动能背离'(终极确认版) 完成: 寻找“Jerk峰值已过”事件，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '动能背离'(终极解耦版) 完成: 寻找“Jerk峰值已过”的事件日，发现 {final_setup.sum()} 天。")
 
-                    # --- 聚焦探针逻辑 (增加峰值确认诊断) ---
+                    # --- 聚焦探针逻辑 (诊断信息更全面) ---
                     probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
                     probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
                     
-                    key_dates_to_check_raw = ['2024-08-21', '2024-08-22'] # 关注峰值日和确认日
+                    key_dates_to_check_raw = ['2024-08-21', '2024-08-22']
                     key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
                     
                     df_dates = df.index.date
@@ -939,20 +946,17 @@ class TrendFollowStrategy:
                         probe_df = pd.DataFrame({
                             'Close': df['close_D'], 'PriceWeakOK': is_price_weak,
                             'Accel': df[accel_col], 'AccelOK': is_accel_positive,
-                            'Jerk(T-2)': jerk_t_minus_2,
-                            'Jerk(T-1)': jerk_t_minus_1,
-                            'Jerk(T)': jerk_t,
-                            'PeakConfirmOK': is_peak_confirmed,
+                            'Jerk(T-1)': jerk_t_minus_1, 'Jerk(T)': jerk_t,
                             '_SETUP': final_setup
                         }).loc[interesting_days_mask]
                         
                         if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.49 终极确认版) ---")
+                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.50 终极解耦版) ---")
                             print(probe_df.to_string(float_format="%.6f"))
                             print("--- [终极探针] 诊断结束 ---\n")
 
         except Exception as e:
-            print(f"      -> [警告] 计算'动能背离(终极确认)'时出错: {e}")
+            print(f"      -> [警告] 计算'动能背离(终极解耦)'时出错: {e}")
             
         # --- 剧本B: 资本背离 (Capital Divergence) ---
         try:
