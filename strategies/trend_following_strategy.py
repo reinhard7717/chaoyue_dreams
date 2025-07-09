@@ -123,14 +123,17 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V45.8 终极架构版】
-        - 核心架构修复: 函数签名从接收 df_dict 改为直接接收一个完全预处理好的日线DataFrame (df)。
-        本模块不再关心任何其他时间周期的原始数据，职责更加纯粹。
+        【V50.0 状态机升华版】
+        - 核心架构修复: 彻底重构了核心流程，引入“状态机”思想。
+          1. 先计算“准备状态(Setup)”作为“事件(Event)”。
+          2. 再调用“状态机上下文中心”，由“事件”开启一个持续N天的“状态(State)”。
+          3. 最后执行计分，剧本的准备条件(setup)依赖于这个持久化的“状态”。
+        - 解决了什么问题: 完美融合了“事件”的精确性和“状态”的持久性，解决了之前所有版本中逻辑断裂或定义冲突的根本问题。
         """
         print("\n" + "="*60)
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V45.8】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V50.0 状态机升华版】 ======")
         
-        # --- 步骤 0: 输入验证 ---
+        # --- 步骤 0: 输入验证与数据预处理 (不变) ---
         if df is None or df.empty:
             print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
@@ -140,11 +143,10 @@ class TrendFollowStrategy:
 
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
 
-        # ▼▼▼ 精准的列名重命名逻辑 (保持不变) ▼▼▼
         rename_map = {
             col: f"{col}_D" for col in df.columns 
             if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
-            and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_', 'cond_')) # 增加对 cond_ 前缀的排除
+            and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_', 'cond_'))
         }
         if 'close_D' in df.columns:
             df['pct_change_D'] = df['close_D'].pct_change()
@@ -153,23 +155,37 @@ class TrendFollowStrategy:
         if rename_map:
             df = df.rename(columns=rename_map)
 
-        # 步骤 1: 准备衍生特征 (保持不变)
+        # --- 步骤 1: 准备基础衍生特征 (不变) ---
         df = self._prepare_derived_features(df)
 
-        # 步骤 2: 计算斜率 (保持不变)
+        # --- 步骤 2: 计算斜率 (不变) ---
         df = self._calculate_trend_slopes(df, params)
-
-        # 步骤 2.5: 计算背景上下文 (新)
-        df = self._calculate_background_contexts(df, params)
 
         self.signals, self.scores = {}, {}
         df = self.pattern_recognizer.identify_all(df)
 
+        # 这是一个独立的分析模块，位置可以保持不变
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
-        print("    - [信息] 核心计分流程开始...")
-        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, params)
+        # ▼▼▼【代码修改】: 核心流程重构，引入状态机三步法 ▼▼▼
+        print("    - [信息] 核心计分流程开始 (V50.0 状态机三步法)...")
+
+        # 步骤 3.1: 计算“准备状态(Setup)”和“触发事件(Trigger)”
+        # 这是所有判断的“事件”基础
+        print("    - [主流程 V50.0] 步骤3.1: 计算准备状态和触发事件...")
+        trigger_events = self._define_trigger_events(df, params)
+        setup_conditions = self._calculate_setup_conditions(df, params, trigger_events)
+
+        # 步骤 3.2: 基于“准备状态(事件)”，计算拥有持久性的“状态机上下文(State)”
+        # 这是让“事件”拥有记忆的关键一步
+        print("    - [主流程 V50.0] 步骤3.2: 计算状态机上下文...")
+        df = self._calculate_background_contexts(df, params, setup_conditions)
+
+        # 步骤 3.3: 执行最终计分，剧本将依赖持久化的“状态”进行判断
+        print("    - [主流程 V50.0] 步骤3.3: 执行最终计分...")
+        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, params, trigger_events, setup_conditions)
         self._last_score_details_df = score_details_df
+        # ▲▲▲【代码修改结束】▲▲▲
 
         print("    - [信息] 正在将战术剧本触发详情合并到最终结果中...")
         if score_details_df is not None and not score_details_df.empty:
@@ -190,7 +206,7 @@ class TrendFollowStrategy:
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_definitions_for_log}
 
         entry_signals = df[df['signal_entry']]
-        print("\n---【多时间框架协同策略(V45.8 终极架构版) 逻辑链调试】---")
+        print("\n---【多时间框架协同策略(V50.0 状态机升华版) 逻辑链调试】---")
         
         log_start_date = pd.to_datetime('2024-07-01').date()
         filtered_entry_signals = entry_signals[entry_signals.index.date >= log_start_date]
@@ -213,28 +229,39 @@ class TrendFollowStrategy:
                 else:
                     active_playbooks = []
 
+                # ▼▼▼【代码修改】: 使用最终的 setup_conditions 进行日志记录 ▼▼▼
                 active_setups = [
                     s.replace('SETUP_', '') for s in setup_conditions.keys()
                     if s in setup_conditions and isinstance(setup_conditions[s], pd.Series) and not setup_conditions[s].empty and entry_date in setup_conditions[s].index and setup_conditions[s].at[entry_date]
                 ]
+                # 修正命名，让日志更清晰，避免“准备状态”和“剧本”同名
                 setup_cn_name_map = {
-                    'PROLONGED_COMPRESSION': '长期蓄势', 'CAPITAL_FLOW_DIVERGENCE': '资金暗流', 'CAPITAL_DIVERGENCE': '猛兽苏醒',
-                    'ENERGY_COMPRESSION': '能量压缩', 'HEALTHY_PULLBACK': '健康回踩', 'DUCK_NECK_FORMING': '老鸭颈',
-                    'CHIP_ACCUMULATION': '筹码吸筹', 'WASHOUT_DAY': '巨阴洗盘',
-                    'SHOCK_BOTTOM': '休克谷底', 'DOJI_PAUSE': '十字星暂停',
-                    'RELATIVE_STRENGTH': '相对强势', 'FORTRESS_SIEGE': '堡垒围攻',
-                    'BBAND_SQUEEZE': '布林压缩', 'WINNER_RATE_WASHED_OUT': '投降坑',
-                    'BIAS_EXTREME_OVERSOLD': 'BIAS超卖', 'GAP_SUPPORT': '缺口支撑',
+                    'PROLONGED_COMPRESSION': '长期蓄势',
+                    'CAPITAL_DIVERGENCE': '资本背离起点', # 这是一个“事件”，不是剧本
+                    'ENERGY_COMPRESSION': '能量压缩',
+                    'HEALTHY_PULLBACK': '健康回踩',
+                    'DUCK_NECK_FORMING': '老鸭颈',
+                    'CHIP_ACCUMULATION': '筹码吸筹',
+                    'WASHOUT_DAY': '巨阴洗盘',
+                    'SHOCK_BOTTOM': '休克谷底',
+                    'DOJI_PAUSE': '十字星暂停',
+                    'RELATIVE_STRENGTH': '相对强势',
+                    'FORTRESS_SIEGE': '堡垒围攻',
+                    'BBAND_SQUEEZE': '布林压缩',
+                    'WINNER_RATE_WASHED_OUT': '投降坑',
+                    'BIAS_EXTREME_OVERSOLD': 'BIAS超卖',
+                    'GAP_SUPPORT': '缺口支撑',
                     'MOMENTUM_DIVERGENCE': '动能拐点',
                 }
                 active_setups_cn = [setup_cn_name_map.get(s, s) for s in active_setups]
+                # ▲▲▲【代码修改结束】▲▲▲
 
                 print(f"  【✔ 买入信号触发】")
                 print(f"    - 总分: {entry_score:.2f} (阈值: {score_threshold})")
                 print(f"    - 激活的日线剧本: {[playbook_cn_name_map.get(p, p) for p in active_playbooks]}")
                 print(f"    - 成立的准备状态: {active_setups_cn if active_setups_cn else '无'}")
 
-        print(f"====== 【战术引擎 V45.8】执行完毕 ======")
+        print(f"====== 【战术引擎 V50.0】执行完毕 ======")
         print("="*60 + "\n")
 
         return df, atomic_signals
@@ -361,44 +388,62 @@ class TrendFollowStrategy:
         return df
 
     # 背景上下文计算中心 (条件驱动)
-    def _calculate_background_contexts(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    def _calculate_background_contexts(self, df: pd.DataFrame, params: dict, setup_conditions: Dict[str, pd.Series]) -> pd.DataFrame:
         """
-        【V47.0 新增】背景上下文计算中心 (条件驱动)
-        - 核心思想: 将上下文的定义从“事件驱动+计时器”模式，升级为“持续条件驱动”模式。
-        - 解决了什么问题: 彻底解决了上下文状态因计时器过短而过早失效，导致后续协同剧本无法触发的根本性逻辑缺陷。
+        【V50.0 状态机升华版】背景上下文中心
+        - 核心思想: 将此函数从简单的“条件驱动”升级为真正的“状态机”。
+                    由一个严格的“事件”(Setup)开启一个持续N天的“状态窗口”，并设有提前失效的“破坏条件”。
+        - 解决了什么问题: 完美融合了“事件”的精确性和“状态”的持久性，解决了之前所有版本中逻辑断裂或定义冲突的根本问题。
+        - @param setup_conditions: 依赖上游计算好的“准备状态”作为状态机的入口事件。
         - 返回: 增加了 'CONTEXT_*_ACTIVE' 列的DataFrame。
         """
-        print("    - [上下文中心 V47.0] 开始计算'条件驱动'的背景状态...")
+        print("    - [上下文中心 V50.0 状态机版] 启动...")
         
-        # --- 上下文1: 资本背离激活 (CONTEXT_CAPITAL_DIVERGENCE_ACTIVE) ---
+        # --- 状态机1: 资本背离机会窗口 (CONTEXT_CAPITAL_DIVERGENCE_ACTIVE) ---
         context_active = pd.Series(False, index=df.index)
         try:
-            # 复用'资本背离'准备状态中的参数
             p = self._get_params_block(params, 'setup_condition_params', {}).get('capital_flow_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
-                mf_slope_threshold = self._get_param_value(p.get('mf_slope_threshold'), 0)
+                # 状态机入口事件：使用最严格的资本背离定义
+                entry_event = setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', pd.Series(False, index=df.index))
                 
+                # 状态机参数
+                persistence_days = self._get_param_value(p.get('state_persistence_days'), 15) # 状态默认持续15天
+                trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
                 trend_ma_col = f'EMA_{trend_ma_period}_D'
-                mf_slope_col = 'SLOPE_net_mf_amount_D_10'
 
-                required_cols = ['close_D', trend_ma_col, mf_slope_col]
-                if all(col in df.columns for col in required_cols):
-                    # 核心条件：1. 价格弱势 (低于趋势线) AND 2. 主力资金斜率改善 (持续流入)
-                    cond_price_weak = df['close_D'] < df[trend_ma_col]
-                    cond_mf_slope_improving = df[mf_slope_col] > mf_slope_threshold
+                if trend_ma_col in df.columns and entry_event.any():
+                    # 状态破坏条件：价格重新走强，不再是“背离”状态
+                    break_condition = df['close_D'] > df[trend_ma_col]
                     
-                    context_active = cond_price_weak & cond_mf_slope_improving
-                    print(f"      -> '资本背离'背景状态计算完成，共激活 {context_active.sum()} 天。")
+                    # 初始化计时器
+                    timer = pd.Series(0, index=df.index)
+                    
+                    # 遍历数据，应用状态机逻辑
+                    for i in range(1, len(df)):
+                        prev_timer = timer.iloc[i-1]
+                        
+                        if entry_event.iloc[i]:
+                            # 如果今天触发了入口事件，重置计时器
+                            timer.iloc[i] = persistence_days
+                        elif prev_timer > 0:
+                            # 如果昨天在状态中，今天递减计时器
+                            timer.iloc[i] = prev_timer - 1
+                        else:
+                            # 否则计时器为0
+                            timer.iloc[i] = 0
+                    
+                    # 最终状态：计时器大于0 且 未触发破坏条件
+                    context_active = (timer > 0) & ~break_condition
+                    print(f"      -> '资本背离机会窗口'状态机计算完成，共激活 {context_active.sum()} 天。")
                 else:
-                    missing = [col for col in required_cols if col not in df.columns]
-                    print(f"      -> [警告] '资本背离'背景状态无法计算，缺少列: {missing}")
+                    print(f"      -> [警告] '资本背离机会窗口'无法计算，缺少列或入口事件从未触发。")
         except Exception as e:
-            print(f"      -> [警告] 计算'资本背离'背景状态时出错: {e}")
+            print(f"      -> [警告] 计算'资本背离机会窗口'时出错: {e}")
             
         df['CONTEXT_CAPITAL_DIVERGENCE_ACTIVE'] = context_active
         
-        # 未来可以按此模式添加更多上下文...
+        # 未来可以按此模式添加更多状态机...
 
         return df
 
@@ -432,13 +477,13 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'AWAKENED_BEAST', 'cn_name': '猛兽苏醒',
-                # 准备条件(T-1日): 市场处于“资本背离”的有利背景之下。
+                # 准备条件(T-1日): “资本背离机会窗口”状态机为激活状态。
                 'setup': df.get('CONTEXT_CAPITAL_DIVERGENCE_ACTIVE', default_series),
-                # 触发条件(T日): “动能拐点”的完整信号出现（Jerk峰值已过 + 确认阳线）。
+                # 触发条件(T日): “动能拐点”的完整信号出现。
                 'trigger': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series) & trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
                 'score': 330, 
                 'precondition': True, # 左侧信号，放宽右侧前提
-                'comment': '【V48.0 终极版】在“资本背离”背景(T-1)确立后，由“动能拐点”(T)事件点燃的终极反转信号。'
+                'comment': '【V50.0 状态机版】在“资本背离机会窗口”开启后，由“动能拐点”事件点燃的终极反转信号。'
             },
             {
                 'name': 'WASH_AND_RISE', 'cn_name': '洗盘拉升',
@@ -599,7 +644,7 @@ class TrendFollowStrategy:
         ]
         return playbook_definitions
 
-    def _calculate_entry_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
+    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
         【V47.0 架构简化版】
         - 核心重构: 由于上下文状态已由上游的 _calculate_background_contexts 函数预先计算好，
@@ -613,10 +658,7 @@ class TrendFollowStrategy:
         points = scoring_params.get('points', {})
         
         # --- 步骤1: 准备基础数据 ---
-        print("    [计分V47.0] 步骤1: 调用准备状态和触发事件中心...")
-        trigger_events = self._define_trigger_events(df, params)
         atomic_signals.update(trigger_events)
-        setup_conditions = self._calculate_setup_conditions(df, params, trigger_events)
         atomic_signals.update(setup_conditions)
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
