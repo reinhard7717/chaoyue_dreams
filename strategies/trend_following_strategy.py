@@ -963,6 +963,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'动能背离(终极解耦)'时出错: {e}")
             
+        # --- 剧本B: 资本背离 (Capital Divergence) ---
         try:
             # 修正: 从 'capital_flow_divergence_params' 读取参数，而不是 'capital_divergence_params'
             p = setup_params.get('capital_flow_divergence_params', {})
@@ -996,17 +997,11 @@ class TrendFollowStrategy:
                     setups['SETUP_CAPITAL_DIVERGENCE'] = pd.Series(False, index=df.index)
                 else:
                     # 4. 根据JSON参数构建所有条件
-                    # 条件1: 价格处于弱势区 (收盘价低于长期均线)
                     cond_price_weak = df['close_D'] < df[trend_ma_col]
-                    # 条件2: 主力资金流入趋势改善 (斜率 > 阈值)
                     cond_mf_slope_improving = df[mf_slope_col] > mf_slope_threshold
-                    # 条件3: 主力资金流入加速 (加速度 > 阈值)
                     cond_mf_accelerating = df[mf_accel_col] > mf_accel_threshold
-                    # 条件4: 散户资金流出 (斜率 < 阈值)
                     cond_retail_selling = df[retail_slope_col] < retail_slope_threshold
-                    # 条件5: 价格下跌趋缓 (加速度 > 阈值)
                     cond_price_stabilizing = df[price_accel_col] > price_accel_threshold
-                    # 条件6: 波动率收缩 (斜率 < 阈值)
                     cond_volatility_squeezing = df[bbw_slope_col] < bbw_slope_threshold
 
                     # 5. 组合所有条件形成最终的准备状态
@@ -1019,32 +1014,48 @@ class TrendFollowStrategy:
                         cond_volatility_squeezing
                     )
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
+
+                    # --- 新增: 深度诊断探针 ---
+                    print("\n--- [深度探针-SETUP] 诊断 '资本背离' (JSON参数驱动版) ---")
+                    probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
+                    probe_df = df[df.index >= probe_start_date]
+
+                    for timestamp, row in probe_df.iterrows():
+                        is_setup_ok_today = final_setup.get(timestamp, False)
+                        
+                        if is_setup_ok_today:
+                            print(f"====== 日期: {timestamp.date()} | [✔ 成功] ======")
+                            print("  - 所有条件均满足。")
+                        else:
+                            print(f"====== 日期: {timestamp.date()} | [✖ 失败] ======")
+                            failure_reasons = []
+                            # 逐一检查每个条件，并记录失败原因、阈值和实际值
+                            if not cond_price_weak.get(timestamp, True):
+                                reason = f"  - 价格弱势: 失败 (要求: close < EMA_55, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_mf_slope_improving.get(timestamp, True):
+                                reason = f"  - 主力资金斜率改善: 失败 (要求: > {mf_slope_threshold}, 实际: {row[mf_slope_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_mf_accelerating.get(timestamp, True):
+                                reason = f"  - 主力资金流入加速: 失败 (要求: > {mf_accel_threshold}, 实际: {row[mf_accel_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_retail_selling.get(timestamp, True):
+                                reason = f"  - 散户资金流出: 失败 (要求: < {retail_slope_threshold}, 实际: {row[retail_slope_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_price_stabilizing.get(timestamp, True):
+                                reason = f"  - 价格下跌趋缓: 失败 (要求: > {price_accel_threshold}, 实际: {row[price_accel_col]:.4f})"
+                                failure_reasons.append(reason)
+                            if not cond_volatility_squeezing.get(timestamp, True):
+                                reason = f"  - 波动率收缩: 失败 (要求: < {bbw_slope_threshold}, 实际: {row[bbw_slope_col]:.4f})"
+                                failure_reasons.append(reason)
+                            
+                            if failure_reasons:
+                                for r in failure_reasons:
+                                    print(r)
+                            else:
+                                print("  - 状态为失败但所有子条件检查通过，可能存在数据问题或逻辑边缘情况。")
                     
-                    # --- 新增: 资本背离探针 ---
-                    probe_start_date = pd.to_datetime('2024-09-01').tz_localize(df.index.tz)
-                    window_mask = (df.index >= probe_start_date)
-                    # 仅当准备状态成立时才显示，便于聚焦
-                    interesting_days_mask = window_mask & final_setup
-
-                    if interesting_days_mask.any():
-                        probe_df = pd.DataFrame({
-                            'PriceWeak': cond_price_weak,
-                            'MFSlope>0': cond_mf_slope_improving,
-                            'MFAccel>0': cond_mf_accelerating,
-                            'RetailSell': cond_retail_selling,
-                            'PriceStab': cond_price_stabilizing,
-                            'VolSqueeze': cond_volatility_squeezing,
-                            '_SETUP_OK': final_setup,
-                            'MFSlope': df[mf_slope_col],
-                            'MFAccel': df[mf_accel_col],
-                            'PriceAccel': df[price_accel_col],
-                        }).loc[interesting_days_mask]
-
-                        if not probe_df.empty:
-                            print("\n--- [探针-SETUP] 诊断 '资本背离' (JSON参数驱动版) ---")
-                            print(f"--- (仅显示从 {probe_start_date.date()} 开始，且准备状态为True的日期) ---")
-                            print(probe_df.to_string(float_format="%.4f"))
-                            print("--- [探针] 诊断结束 ---\n")
+                    print("--- [探针] 诊断结束 ---\n")
                     
                     print(f"      -> '资本背离'(JSON参数驱动版) 完成: 发现 {final_setup.sum()} 天满足所有条件。")
         except Exception as e:
