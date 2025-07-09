@@ -638,14 +638,14 @@ class TrendFollowStrategy:
                 (daily_eval_df.any(axis=1))
             ]
             
-            if not interesting_days.empty:
-                print("\n" + "="*25 + " [S级剧本-每日评估探针] " + "="*25)
-                print(f"--- (仅显示从 {probe_start_date.date()} 开始，且至少有一个条件为True的日期) ---")
-                # 使用 to_string() 保证所有列都能显示
-                print(interesting_days.to_string())
-                print("="*75 + "\n")
-            else:
-                print("\n--- [S级剧本-探针信息] 从 2024-07-01 起，未发现任何S级剧本的准备或触发条件成立。---\n")
+            # if not interesting_days.empty:
+            #     print("\n" + "="*25 + " [S级剧本-每日评估探针] " + "="*25)
+            #     print(f"--- (仅显示从 {probe_start_date.date()} 开始，且至少有一个条件为True的日期) ---")
+            #     # 使用 to_string() 保证所有列都能显示
+            #     print(interesting_days.to_string())
+            #     print("="*75 + "\n")
+            # else:
+            #     print("\n--- [S级剧本-探针信息] 从 2024-07-01 起，未发现任何S级剧本的准备或触发条件成立。---\n")
         # ▲▲▲【代码修改 V45.9】▲▲▲
         for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
