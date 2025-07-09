@@ -190,22 +190,38 @@ class TrendFollowStrategy:
 
         print("\n---【多时间框架协同策略(V42.0 中文日志版) 逻辑链调试】---") # 修改: 版本号
         entry_signals = df[df['signal_entry']]
-        print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)}")
-        if not entry_signals.empty:
-            # ▼▼▼【代码修改 V42.0】: 增强日志输出 ▼▼▼
-            for entry_date, row in entry_signals.iterrows():
+        print("\n---【多时间框架协同策略(V45.2 日志过滤版) 逻辑链调试】---")
+        
+        # 定义日志的起始日期
+        log_start_date = pd.to_datetime('2024-07-01').date() # 使用 .date() 来比较日期部分
+        
+        # 筛选出所有买入信号
+        entry_signals = df[df['signal_entry']]
+        
+        # 在打印前再次筛选日期
+        filtered_entry_signals = entry_signals[entry_signals.index.date >= log_start_date]
+        
+        print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)} | 24年7月后信号数: {len(filtered_entry_signals)}")
+        
+        if not filtered_entry_signals.empty:
+            # 遍历过滤后的信号进行打印
+            for entry_date, row in filtered_entry_signals.iterrows():
                 entry_score = row['entry_score']
                 # 优先获取 pct_change_D，如果不存在则获取 pct_change
                 pct_change_val = row.get('pct_change_D', row.get('pct_change', 0)) * 100
                 print(f"\n====== 日期: {entry_date.date()} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {pct_change_val:.2f}% ======")
                 print(f"  - 核心前提 (右侧趋势): {row.get('robust_right_side_precondition', '未知')}")
                 
-                score_breakdown = self._last_score_details_df.loc[entry_date].dropna()
-                active_playbooks = [
-                    k for k, v in score_breakdown.items() 
-                    if v > 0 and not k.startswith(('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP'))
-                ]
-                
+                # 检查 entry_date 是否存在于 score_details_df 的索引中
+                if self._last_score_details_df is not None and entry_date in self._last_score_details_df.index:
+                    score_breakdown = self._last_score_details_df.loc[entry_date].dropna()
+                    active_playbooks = [
+                        k for k, v in score_breakdown.items() 
+                        if v > 0 and not k.startswith(('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP'))
+                    ]
+                else:
+                    active_playbooks = [] # 如果找不到对应的得分详情，则为空列表
+
                 # 获取准备状态
                 active_setups = [
                     s.replace('SETUP_', '') for s in setup_conditions.keys()
@@ -213,14 +229,15 @@ class TrendFollowStrategy:
                 ]
                 # 将准备状态的英文名也转换为中文名
                 setup_cn_name_map = {
-                    'ENERGY_COMPRESSION': '能量压缩', 'CAPITAL_FLOW_DIVERGENCE': '资金暗流',
+                    'PROLONGED_COMPRESSION': '长期蓄势', # 新增S级准备状态的中文名
+                    'CAPITAL_FLOW_DIVERGENCE': '资金暗流',
+                    'ENERGY_COMPRESSION': '能量压缩', 
                     'HEALTHY_PULLBACK': '健康回踩', 'DUCK_NECK_FORMING': '老鸭颈',
                     'CHIP_ACCUMULATION': '筹码吸筹', 'WASHOUT_DAY': '巨阴洗盘',
                     'SHOCK_BOTTOM': '休克谷底', 'DOJI_PAUSE': '十字星暂停',
                     'RELATIVE_STRENGTH': '相对强势', 'FORTRESS_SIEGE': '堡垒围攻',
                     'BBAND_SQUEEZE': '布林压缩', 'WINNER_RATE_WASHED_OUT': '投降坑',
                     'BIAS_EXTREME_OVERSOLD': 'BIAS超卖', 'GAP_SUPPORT': '缺口支撑',
-                    # ...可以继续添加其他准备状态的中文名...
                 }
                 active_setups_cn = [setup_cn_name_map.get(s, s) for s in active_setups]
 
