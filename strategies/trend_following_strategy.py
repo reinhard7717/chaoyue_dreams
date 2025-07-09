@@ -1028,51 +1028,52 @@ class TrendFollowStrategy:
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
 
                     # --- 新增: 深度诊断探针 (指定时间范围) ---
-                    # 修改: 定义探针的开始和结束日期
-                    # probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
-                    # probe_end_date = pd.to_datetime('2024-9-30').tz_localize(df.index.tz)
-                    # print(f"\n--- [深度探针-SETUP | {probe_start_date.date()} to {probe_end_date.date()}] 诊断 '资本背离' ---")
-                    
-                    # # 修改: 根据指定的开始和结束日期筛选数据
-                    # probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
+                    # 定义探针的开始和结束日期，聚焦于问题发生的时间段
+                probe_start_date = pd.to_datetime('2024-08-15').tz_localize(df.index.tz)
+                probe_end_date = pd.to_datetime('2024-08-25').tz_localize(df.index.tz)
+                print(f"\n--- [深度探针-SETUP | {probe_start_date.date()} to {probe_end_date.date()}] 诊断 '资本背离' ---")
+                
+                # 根据指定的开始和结束日期筛选数据
+                probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
 
-                    # for timestamp, row in probe_df.iterrows():
-                    #     is_setup_ok_today = final_setup.get(timestamp, False)
+                # 检查probe_df是否为空，避免在没有数据时报错
+                if not probe_df.empty:
+                    for timestamp, row in probe_df.iterrows():
+                        is_setup_ok_today = final_setup.get(timestamp, False)
                         
-                    #     if is_setup_ok_today:
-                    #         print(f"====== 日期: {timestamp.date()} | [✔ 成功] ======")
-                    #         print("  - 所有条件均满足。")
-                    #     else:
-                    #         print(f"====== 日期: {timestamp.date()} | [✖ 失败] ======")
-                    #         failure_reasons = []
-                    #         # 逐一检查每个条件，并记录失败原因、阈值和实际值
-                    #         if not cond_price_weak.get(timestamp, True):
-                    #             reason = f"  - 价格弱势: 失败 (要求: close < EMA_55, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})"
-                    #             failure_reasons.append(reason)
-                    #         if not cond_mf_slope_improving.get(timestamp, True):
-                    #             reason = f"  - 主力资金斜率改善: 失败 (要求: > {mf_slope_threshold}, 实际: {row[mf_slope_col]:.2f})"
-                    #             failure_reasons.append(reason)
-                    #         if not cond_mf_accelerating.get(timestamp, True):
-                    #             reason = f"  - 主力资金流入加速: 失败 (要求: > {mf_accel_threshold}, 实际: {row[mf_accel_col]:.2f})"
-                    #             failure_reasons.append(reason)
-                    #         if not cond_retail_selling.get(timestamp, True):
-                    #             reason = f"  - 散户资金流出: 失败 (要求: < {retail_slope_threshold}, 实际: {row[retail_slope_col]:.2f})"
-                    #             failure_reasons.append(reason)
-                    #         if not cond_price_stabilizing.get(timestamp, True):
-                    #             reason = f"  - 价格下跌趋缓: 失败 (要求: > {price_accel_threshold}, 实际: {row[price_accel_col]:.4f})"
-                    #             failure_reasons.append(reason)
-                    #         if not cond_volatility_squeezing.get(timestamp, True):
-                    #             reason = f"  - 波动率收缩: 失败 (要求: < {bbw_slope_threshold}, 实际: {row[bbw_slope_col]:.4f})"
-                    #             failure_reasons.append(reason)
+                        if is_setup_ok_today:
+                            print(f"====== 日期: {timestamp.date()} | [✔ 成功] ======")
+                            print("  - 所有条件均满足。")
+                        else:
+                            print(f"====== 日期: {timestamp.date()} | [✖ 失败] ======")
+                            failure_reasons = []
+                            # 逐一检查每个条件，并记录失败原因、阈值和实际值
+                            if not cond_price_weak.get(timestamp, True):
+                                reason = f"  - 价格弱势: 失败 (要求: close < EMA_55, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_mf_slope_improving.get(timestamp, True):
+                                reason = f"  - 主力资金斜率改善: 失败 (要求: > {mf_slope_threshold}, 实际: {row[mf_slope_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_mf_accelerating.get(timestamp, True):
+                                reason = f"  - 主力资金流入加速: 失败 (要求: > {mf_accel_threshold}, 实际: {row[mf_accel_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_retail_selling.get(timestamp, True):
+                                reason = f"  - 散户资金流出: 失败 (要求: < {retail_slope_threshold}, 实际: {row[retail_slope_col]:.2f})"
+                                failure_reasons.append(reason)
+                            if not cond_price_stabilizing.get(timestamp, True):
+                                reason = f"  - 价格下跌趋缓: 失败 (要求: > {price_accel_threshold}, 实际: {row[price_accel_col]:.4f})"
+                                failure_reasons.append(reason)
+                            if not cond_volatility_squeezing.get(timestamp, True):
+                                reason = f"  - 波动率收缩: 失败 (要求: < {bbw_slope_threshold}, 实际: {row[bbw_slope_col]:.4f})"
+                                failure_reasons.append(reason)
                             
-                    #         if failure_reasons:
-                    #             for r in failure_reasons:
-                    #                 print(r)
-                    #         else:
-                    #             # 此处处理一种边缘情况：如果probe_df中的某天在原始df中不存在于final_setup的索引中
-                    #             print("  - 状态为失败但所有子条件检查通过，可能存在数据对齐问题或逻辑边缘情况。")
-                    
-                    # print("--- [探针] 诊断结束 ---\n")
+                            if failure_reasons:
+                                for r in failure_reasons:
+                                    print(r)
+                            else:
+                                print("  - 状态为失败但所有子条件检查通过，可能存在数据对齐问题或逻辑边缘情况。")
+                
+                    print("--- [探针] 诊断结束 ---\n")
                     
                     print(f"      -> '资本背离'(JSON参数驱动版) 完成: 发现 {final_setup.sum()} 天满足所有条件。")
         except Exception as e:
