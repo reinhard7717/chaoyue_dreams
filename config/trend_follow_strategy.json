@@ -143,6 +143,19 @@
       }
     }
   },
+  "hot_money_params": {
+    "enabled": true,
+    "说明": "控制是否启用游资席位信号的分析。启用后，IndicatorService会获取并处理游资数据。",
+    "coordination_threshold": 3,
+    "top_tier_list": [
+      "中信证券股份有限公司上海分公司",
+      "华泰证券股份有限公司总部",
+      "中国国际金融股份有限公司上海分公司",
+      "招商证券股份有限公司深圳招商证券大厦证券营业部",
+      "国泰君安证券股份有限公司上海分公司",
+      "东方财富证券股份有限公司拉萨团结路第二证券营业部"
+    ]
+  },
   "strategy_params": {
     "trend_follow": {
       "debug_params": {

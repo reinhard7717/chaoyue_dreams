@@ -286,10 +286,39 @@ class IndicatorService:
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             logger.warning(f"[{stock_code}] 基础数据准备失败，无法继续。")
             return all_dfs
+        
+        df_daily = all_dfs['D']
+        start_date = df_daily.index.min().date()
+        end_date = df_daily.index.max().date()
 
         # --- 步骤 2: 【核心升级】使用递归搜索来检查配置 ---
         industry_params = self._find_params_recursively(config, 'industry_context_params')
         is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
+        
+
+         # --- 步骤 3: 检查并注入游资信号数据 ---
+        hot_money_params = self._find_params_recursively(config, 'hot_money_params')
+        is_hm_enabled = hot_money_params.get('enabled', False) if hot_money_params else False
+
+        if not is_hm_enabled:
+            print("    - [配置信息] 在策略配置中未启用 'hot_money_params'，跳过游资信号计算。")
+        else:
+            print("    - [配置信息] 检测到游资分析已启用，开始获取并处理游资信号...")
+            hm_signals_df = await self._prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
+            
+            if not hm_signals_df.empty:
+                # 将游资信号合并到日线DataFrame
+                df_daily = df_daily.merge(hm_signals_df, left_index=True, right_index=True, how='left')
+                
+                # 对于布尔信号，用False填充缺失值
+                for col in hm_signals_df.columns:
+                    if col in df_daily.columns:
+                        df_daily[col] = df_daily[col].fillna(False).astype(bool)
+                
+                print(f"    - [游资信号注入] 已将游资原子信号列注入日线数据。")
+        
+        # 更新 all_dfs 中的日线数据
+        all_dfs['D'] = df_daily
 
         if not is_industry_enabled:
             print("    - [配置信息] 在策略配置中未找到启用的 'industry_context_params'，跳过行业强度计算。")
@@ -465,6 +494,61 @@ class IndicatorService:
 
         print(f"--- [数据准备V7.7-日志增强版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
+
+    # ▼▼▼ 新增一个专门生成游资信号的函数 ▼▼▼
+    async def _prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
+        """
+        根据游资明细数据，生成一系列与日线数据对齐的原子信号。
+        这些信号将被合并到日线DataFrame中。
+
+        Args:
+            stock_code (str): 股票代码。
+            start_date (date): 数据查询的开始日期。
+            end_date (date): 数据查询的结束日期。
+            params (dict): 从配置文件中读取的 hot_money_params。
+
+        Returns:
+            pd.DataFrame: 一个包含多个布尔信号列的DataFrame，索引为日期。
+        """
+        print("    - [游资信号引擎] 开始准备游资原子信号...")
+        
+        # 从DAO获取原始游资数据
+        hm_df = await self.fund_flow_dao.get_hm_detail_data(start_date, end_date, stock_codes=[stock_code])
+
+        if hm_df.empty:
+            print("    - [游资信号引擎] 无游资数据，返回空DataFrame。")
+            return pd.DataFrame()
+
+        hm_df['trade_date'] = pd.to_datetime(hm_df['trade_date'])
+        
+        # 按交易日期聚合，计算每日的游资行为
+        daily_summary = {}
+
+        # --- 信号1: 当日有任意游资净买入 (HM_ACTIVE_ANY_D) ---
+        any_buy_dates = hm_df[hm_df['net_amount'] > 0]['trade_date'].unique()
+        daily_summary['HM_ACTIVE_ANY_D'] = pd.Series(True, index=any_buy_dates)
+        
+        # --- 信号2: 当日有顶级游资净买入 (HM_ACTIVE_TOP_TIER_D) ---
+        top_tier_list = params.get('top_tier_list', [])
+        top_tier_df = hm_df[hm_df['hm_name'].isin(top_tier_list)]
+        top_tier_buy_dates = top_tier_df[top_tier_df['net_amount'] > 0]['trade_date'].unique()
+        daily_summary['HM_ACTIVE_TOP_TIER_D'] = pd.Series(True, index=top_tier_buy_dates)
+
+        # --- 信号3: 游资协同攻击 (HM_COORDINATED_ATTACK_D) ---
+        coordination_threshold = params.get('coordination_threshold', 3)
+        # 按天分组，计算当天净买入的独立游资家数
+        buyers_count_daily = hm_df[hm_df['net_amount'] > 0].groupby('trade_date')['hm_name'].nunique()
+        coordinated_dates = buyers_count_daily[buyers_count_daily >= coordination_threshold].index
+        daily_summary['HM_COORDINATED_ATTACK_D'] = pd.Series(True, index=coordinated_dates)
+
+        # 将所有信号合并成一个DataFrame
+        signals_df = pd.DataFrame(daily_summary)
+        
+        print(f"      -> '任意游资活跃'信号: {daily_summary['HM_ACTIVE_ANY_D'].sum()} 天")
+        print(f"      -> '顶级游资活跃'信号: {daily_summary['HM_ACTIVE_TOP_TIER_D'].sum()} 天")
+        print(f"      -> '游资协同攻击'信号: {daily_summary['HM_COORDINATED_ATTACK_D'].sum()} 天")
+        
+        return signals_df
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
         """

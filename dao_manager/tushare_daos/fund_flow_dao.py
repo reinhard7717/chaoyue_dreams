@@ -12,7 +12,7 @@ from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyDC, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
-from stock_models.market import HmDetail, LimitListThs
+from stock_models.market import HmDetail, HmList, LimitListThs
 from utils.data_format_process import FundFlowFormatProcess
 
 logger = logging.getLogger("dao")
@@ -864,28 +864,26 @@ class FundFlowDao(BaseDAO):
     # ============== 游资每日明细 ==============
     async def save_hm_detail_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
-        保存游资每日明细数据 (借鉴V3客户端分块策略)
+        保存游资每日明细数据，并同步更新游资名录 (借鉴V3客户端分块策略)
         1. [借鉴] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
         2. [借鉴] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
         3. [适配] API接口从 moneyflow 更换为 hm_detail。
         4. [适配] 数据处理和入库逻辑适配 HmDetail 模型。
+        5. [新增] 在保存明细数据的同时，提取游资信息，更新至 HmList (游资名录) 表。
         """
-        # --- 2. [借鉴] 客户端日期分块逻辑 ---
-        
+        # --- 1 & 2. [借鉴] 客户端日期分块逻辑 & 分页获取数据 ---
         all_dfs = [] # 用于收集所有分块的数据
-
-        # --- 3. [适配] 遍历分块并使用分页获取数据 ---
         offset = 0
         limit = 2000 # 根据Tushare接口文档调整limit
         
         while True:
             try:
-                # 【代码修改】API调用更换为 hm_detail 接口
+                # API调用更换为 hm_detail 接口
                 df = self.ts_pro.hm_detail(**{
                     "trade_date": "", # 范围查询时，trade_date应为空
-                    "start_date": "", 
-                    "end_date": "", 
-                    "limit": limit, 
+                    "start_date": "",
+                    "end_date": "",
+                    "limit": limit,
                     "offset": offset
                 }, fields=[
                     "trade_date", "ts_code", "ts_name", "buy_amount", "sell_amount",
@@ -911,15 +909,35 @@ class FundFlowDao(BaseDAO):
             logger.info("在所有日期块中均未获取到任何游资明细数据。")
             return
 
-        # --- 4. [适配] 向量化数据处理与入库 ---
+        # --- 3. [适配] 向量化数据处理 ---
         print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        # 【代码修改】联合唯一键变更为 'trade_date', 'ts_code', 'hm_name'
+        # 联合唯一键变更为 'trade_date', 'ts_code', 'hm_name'
         combined_df.drop_duplicates(subset=['trade_date', 'ts_code', 'hm_name'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', 'None', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['ts_code', 'trade_date', 'hm_name'], inplace=True) # 关键字段不能为空
+
+        # --- 4. [新增] 更新游资名录 (HmList) ---
+        # 从获取的明细数据中提取唯一的游资信息
+        hm_list_df = combined_df[['hm_name', 'hm_orgs']].copy()
+        hm_list_df.drop_duplicates(subset=['hm_name'], keep='first', inplace=True)
+        hm_list_df.rename(columns={'hm_name': 'name', 'hm_orgs': 'orgs'}, inplace=True)
+        hm_list_df['orgs'] = hm_list_df['orgs'].fillna('') # 确保 orgs 字段为字符串，以匹配模型定义
         
-        # 【代码修改】关联股票外键 (逻辑复用)
+        hm_list_data = hm_list_df.to_dict('records')
+
+        if hm_list_data:
+            print(f"DAO: 准备更新游资名录，共 {len(hm_list_data)} 条...")
+            await self._save_all_to_db_native_upsert(
+                model_class=HmList,
+                data_list=hm_list_data,
+                unique_fields=['name'] # HmList模型的唯一键是'name'
+            )
+            print(f"DAO: 游资名录更新完成。")
+        # --- 游资名录更新逻辑结束 ---
+
+        # --- 5. [适配] 处理并保存游资每日明细 (HmDetail) ---
+        # 关联股票外键 (逻辑复用)
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
@@ -929,15 +947,14 @@ class FundFlowDao(BaseDAO):
             logger.info("游资数据关联股票基础信息后为空，任务结束。")
             return
 
-        # 【代码修改】数据类型转换以匹配模型
+        # 数据类型转换以匹配模型
         combined_df['trade_date'] = pd.to_datetime(combined_df['trade_date']).dt.date
         # 将金额从“万元”转换为“元”
         amount_cols = ['buy_amount', 'sell_amount', 'net_amount']
         for col in amount_cols:
             combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce').fillna(0) * 10000
 
-        # 【代码修改】准备数据列表用于入库
-        # 由于是单一模型，不再需要按模型分组
+        # 准备数据列表用于入库
         final_df = combined_df.drop(columns=['ts_code']) # 已经有stock外键，ts_code列不再需要
         data_list = final_df.to_dict('records')
 
@@ -945,7 +962,7 @@ class FundFlowDao(BaseDAO):
             logger.info("最终处理后没有可供保存的游资数据。")
             return
 
-        # 【代码修改】调用批量更新插入方法，适配HmDetail模型
+        # 调用批量更新插入方法，适配HmDetail模型
         await self._save_all_to_db_native_upsert(
             model_class=HmDetail,
             data_list=data_list,
@@ -966,21 +983,21 @@ class FundFlowDao(BaseDAO):
         """
         print(f"DAO: 开始查询游资数据，日期范围: {start_date} to {end_date}, 股票: {stock_codes}, 游资: {hm_names}")
         
-        # 【代码新增】构建基础查询
+        # 构建基础查询
         qs = HmDetail.objects.filter(trade_date__range=(start_date, end_date))
         
-        # 【代码新增】应用可选的股票代码过滤
+        # 应用可选的股票代码过滤
         if stock_codes:
             qs = qs.filter(stock__stock_code__in=stock_codes)
             
-        # 【代码新增】应用可选的游资名称过滤
+        # 应用可选的游资名称过滤
         if hm_names:
             qs = qs.filter(hm_name__in=hm_names)
             
-        # 【代码新增】使用select_related优化查询，避免N+1问题
+        # 使用select_related优化查询，避免N+1问题
         qs = qs.select_related('stock')
         
-        # 【代码新增】定义需要返回的字段
+        # 定义需要返回的字段
         fields_to_get = [
             'trade_date',
             'stock__stock_code', # 通过外键获取股票代码
@@ -992,14 +1009,14 @@ class FundFlowDao(BaseDAO):
             'hm_orgs'
         ]
         
-        # 【代码新增】异步执行查询并转换为列表
+        # 异步执行查询并转换为列表
         data_list = [item async for item in qs.values(*fields_to_get)]
         
         if not data_list:
             print("DAO: 未查询到符合条件的游资数据。")
             return pd.DataFrame()
             
-        # 【代码新增】将结果转换为DataFrame并重命名列以保持一致性
+        # 将结果转换为DataFrame并重命名列以保持一致性
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         

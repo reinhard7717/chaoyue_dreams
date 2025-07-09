@@ -1007,7 +1007,7 @@ class TrendFollowStrategy:
                     is_setup_broken = df['close_D'] < (df['cost_15pct_D'] * break_threshold)
                     final_setup = (setup_timer > 0) & ~is_setup_broken
                     setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
-                    print(f"      -> '潜龙出海'准备状态定义完成，发现 {final_setup.sum()} 天。")
+                    # print(f"      -> '潜龙出海'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'潜龙出海'时出错: {e}")
 
@@ -1032,7 +1032,7 @@ class TrendFollowStrategy:
                     is_peak_confirmed = (jerk_t_minus_1 > jerk_t_minus_2) & (jerk_t_minus_1 > jerk_t)
                     final_setup = is_peak_confirmed
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
-                    print(f"      -> '动能背离'准备状态定义完成，发现 {final_setup.sum()} 天。")
+                    # print(f"      -> '动能背离'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'动能背离'时出错: {e}")
             
@@ -1066,7 +1066,7 @@ class TrendFollowStrategy:
                     cond_volatility_squeezing = df[bbw_slope_col] < bbw_slope_threshold
                     final_setup = (cond_price_weak & cond_mf_slope_improving & cond_mf_accelerating & cond_retail_selling & cond_price_stabilizing & cond_volatility_squeezing)
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
-                    print(f"      -> '资本背离'准备状态定义完成，发现 {final_setup.sum()} 天。")
+                    # print(f"      -> '资本背离'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'资本背离'时出错: {e}")
 
@@ -1082,7 +1082,7 @@ class TrendFollowStrategy:
                     cond2 = df[volume_slope_col] < self._get_param_value(p.get('volume_slope_threshold'), -1.0)
                     cond3 = df[price_slope_col].between(self._get_param_value(p.get('price_slope_threshold_lower'), -0.1), self._get_param_value(p.get('price_slope_threshold_upper'), 0.05))
                     setups['SETUP_ENERGY_COMPRESSION'] = cond1 & cond2 & cond3
-                    print(f"      -> '能量压缩'准备状态定义完成，发现 {setups.get('SETUP_ENERGY_COMPRESSION', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '能量压缩'准备状态定义完成，发现 {setups.get('SETUP_ENERGY_COMPRESSION', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'能量压缩'时出错: {e}")
 
@@ -1110,7 +1110,7 @@ class TrendFollowStrategy:
                     is_testing_mma = df['low_D'] <= df[mid_ma_col] * self._get_param_value(p.get('support_buffer_mid'), 1.02)
                     shallow_pullback_setup = is_lma_slope_ok & is_far_above_lma & is_testing_mma & common_conditions_ok
                     setups['SETUP_HEALTHY_PULLBACK'] = deep_pullback_setup | shallow_pullback_setup
-                    print(f"      -> '健康回踩'准备状态定义完成，发现 {setups.get('SETUP_HEALTHY_PULLBACK', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '健康回踩'准备状态定义完成，发现 {setups.get('SETUP_HEALTHY_PULLBACK', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'健康回踩'时出错: {e}")
 
@@ -1130,7 +1130,7 @@ class TrendFollowStrategy:
                 is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
                 final_setup = is_pullback_to_support & is_volume_shrinking
                 setups['SETUP_PULLBACK_POST_BREAKOUT'] = final_setup
-                print(f"      -> '突破后回踩'准备状态定义完成，发现 {final_setup.sum()} 天。")
+                # print(f"      -> '突破后回踩'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'突破后回踩'时出错: {e}")
 
@@ -1144,7 +1144,7 @@ class TrendFollowStrategy:
                     cond1 = df[fast_ma] < df[slow_ma]
                     cond2 = df['volume_D'] < df['VOL_MA_21_D']
                     setups['SETUP_DUCK_NECK_FORMING'] = cond1 & cond2
-                    print(f"      -> '老鸭头-鸭颈'准备状态定义完成，发现 {setups.get('SETUP_DUCK_NECK_FORMING', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '老鸭头-鸭颈'准备状态定义完成，发现 {setups.get('SETUP_DUCK_NECK_FORMING', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'老鸭头-鸭颈'时出错: {e}")
 
@@ -1158,7 +1158,7 @@ class TrendFollowStrategy:
                 is_big_drop = change_pct < self._get_param_value(p.get('washout_threshold'), -0.07)
                 is_high_vol = df['volume_D'] > (df[vol_ma_col] * self._get_param_value(p.get('washout_volume_ratio'), 1.5))
                 setups['SETUP_WASHOUT_DAY'] = (is_big_drop & is_high_vol).shift(1).fillna(False)
-                print(f"      -> '巨阴洗盘日'准备状态定义完成，发现 {setups.get('SETUP_WASHOUT_DAY', pd.Series([])).sum()} 天。")
+                # print(f"      -> '巨阴洗盘日'准备状态定义完成，发现 {setups.get('SETUP_WASHOUT_DAY', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'巨阴洗盘日'时出错: {e}")
 
@@ -1176,7 +1176,7 @@ class TrendFollowStrategy:
                 is_main_force_fleeing = main_force_flow_during_drop < 0
                 is_panic_selling = df['winner_rate_D'] < winner_rate_threshold
                 setups['SETUP_SHOCK_BOTTOM'] = is_deep_drop & is_main_force_fleeing & is_panic_selling
-                print(f"      -> 'V反-休克谷底'准备状态定义完成，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
+                # print(f"      -> 'V反-休克谷底'准备状态定义完成，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'V反-休克谷底'时出错: {e}")
 
@@ -1195,7 +1195,7 @@ class TrendFollowStrategy:
                     touched_support = df['low_D'] <= df[support_col]
                     is_volume_shrinking_before = df['volume_D'].shift(1) < df[vol_ma_col].shift(1)
                     setups['SETUP_FORTRESS_SIEGE'] = touched_support & is_volume_shrinking_before
-                    print(f"      -> '堡垒围攻'准备状态定义完成，发现 {setups.get('SETUP_FORTRESS_SIEGE', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '堡垒围攻'准备状态定义完成，发现 {setups.get('SETUP_FORTRESS_SIEGE', pd.Series([])).sum()} 天。")
                 else:
                     df['temp_is_fortress_valid'] = False
         except Exception as e:
@@ -1211,7 +1211,7 @@ class TrendFollowStrategy:
                 prev_range = (df['high_D'].shift(1) - df['low_D'].shift(1)).replace(0, np.nan)
                 is_doji_yesterday = (prev_body / prev_range) < body_ratio_threshold
                 setups['SETUP_DOJI_PAUSE'] = is_doji_yesterday.fillna(False)
-                print(f"      -> '十字星暂停'准备状态定义完成，发现 {setups.get('SETUP_DOJI_PAUSE', pd.Series([])).sum()} 天。")
+                # print(f"      -> '十字星暂停'准备状态定义完成，发现 {setups.get('SETUP_DOJI_PAUSE', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'十字星暂停'时出错: {e}")
         
@@ -1224,7 +1224,7 @@ class TrendFollowStrategy:
                 if bias_col in df.columns:
                     oversold_threshold = self._get_param_value(p.get('oversold_threshold'), -15.0)
                     setups['SETUP_BIAS_EXTREME_OVERSOLD'] = df[bias_col] < oversold_threshold
-                    print(f"      -> 'BIAS极端超卖'准备状态定义完成，发现 {setups.get('SETUP_BIAS_EXTREME_OVERSOLD', pd.Series([])).sum()} 天。")
+                    # print(f"      -> 'BIAS极端超卖'准备状态定义完成，发现 {setups.get('SETUP_BIAS_EXTREME_OVERSOLD', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'BIAS极端超卖'时出错: {e}")
 
@@ -1236,7 +1236,7 @@ class TrendFollowStrategy:
                 if winner_rate_col in df.columns:
                     washout_threshold = self._get_param_value(p.get('washout_threshold'), 10.0)
                     setups['SETUP_WINNER_RATE_WASHED_OUT'] = df[winner_rate_col].shift(1) < washout_threshold
-                    print(f"      -> '获利盘洗净'准备状态定义完成，发现 {setups.get('SETUP_WINNER_RATE_WASHED_OUT', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '获利盘洗净'准备状态定义完成，发现 {setups.get('SETUP_WINNER_RATE_WASHED_OUT', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'获利盘洗净'时出错: {e}")
 
@@ -1250,7 +1250,7 @@ class TrendFollowStrategy:
                     squeeze_percentile = self._get_param_value(p.get('squeeze_percentile'), 0.10)
                     low_bbw_threshold = df[bbw_col].shift(1).rolling(window=squeeze_lookback).quantile(squeeze_percentile)
                     setups['SETUP_BBAND_SQUEEZE'] = df[bbw_col].shift(1) < low_bbw_threshold
-                    print(f"      -> '布林带压缩'准备状态定义完成，发现 {setups.get('SETUP_BBAND_SQUEEZE', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '布林带压缩'准备状态定义完成，发现 {setups.get('SETUP_BBAND_SQUEEZE', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'布林带压缩'时出错: {e}")
 
@@ -1268,7 +1268,7 @@ class TrendFollowStrategy:
                 lowest_since_gap = df.groupby(group)['low_D'].transform('cummin')
                 is_supported = lowest_since_gap > active_support
                 setups['SETUP_GAP_SUPPORT'] = is_supported.fillna(False)
-                print(f"      -> '缺口支撑'准备状态定义完成，发现 {setups.get('SETUP_GAP_SUPPORT', pd.Series([])).sum()} 天。")
+                # print(f"      -> '缺口支撑'准备状态定义完成，发现 {setups.get('SETUP_GAP_SUPPORT', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'缺口支撑'时出错: {e}")
 
@@ -1298,7 +1298,7 @@ class TrendFollowStrategy:
                     is_close_to_support = (df['close_D'] / df[support_ma_col] - 1) < proximity_threshold
                     setups['SETUP_PULLBACK_MA'] = precondition & is_above_support & is_close_to_support
                     df[f'target_price_{support_ma_col}'] = df[support_ma_col].where(setups['SETUP_PULLBACK_MA'])
-                    print(f"      -> '均线回撤预备'准备状态定义完成，发现 {setups.get('SETUP_PULLBACK_MA', pd.Series([])).sum()} 天。")
+                    # print(f"      -> '均线回撤预备'准备状态定义完成，发现 {setups.get('SETUP_PULLBACK_MA', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'均线回撤预备'时出错: {e}")
 
