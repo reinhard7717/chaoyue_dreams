@@ -1612,35 +1612,23 @@ class TrendFollowStrategy:
             is_hot_money_blitz = is_institutional_buying & (elg_net_buy > net_mf_amount * 0.7) & is_volume_spike
 
         # --- 步骤3: 融合“结构”与“力量”，生成高阶触发器 (逻辑不变) ---
-        print("      -> 正在融合'结构'与'力量'生成高阶触发器...")
+        # --- 步骤3.1: 定义“主力点火”触发器 ---
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
-        # ▼▼▼【代码修改】: 重构 V44.1 的探针逻辑，使其行为统一 ▼▼▼
-        print("\n--- [探针-TRIGGER | >24-07-01] 正在诊断 'CHIP_INSTITUTIONAL_BREAKOUT' (主力点火) 触发器 ---")
+        
+        # --- 步骤3.2: “主力点火”专属诊断探针 ---
         probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-        
-        # 1. 创建包含所有相关条件的DataFrame
-        debug_df = pd.DataFrame({
-            'breakout_struct': is_breakout_structure,
-            'institut_buy': is_institutional_buying,
-            'NOT_hot_money': ~is_hot_money_blitz,
-            'FINAL_TRIGGER': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
-        })
-        
-        # 2. 筛选出探针开始日期之后的数据
-        debug_df_filtered = debug_df[debug_df.index >= probe_start_date]
-        
-        # 3. 定义新的筛选条件：只要任意一个子条件为True，就选中该行
-        sub_conditions = ['breakout_struct', 'institut_buy', 'NOT_hot_money']
-        interesting_days = debug_df_filtered[debug_df_filtered[sub_conditions].any(axis=1)]
-        
-        # 4. 统一打印输出
+        probe_df = pd.DataFrame({
+            'Struct_OK': is_breakout_structure,
+            'MF_OK': is_institutional_buying,
+            'Not_HotMoney': ~is_hot_money_blitz,
+            '_Trigger': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
+        }).loc[probe_start_date:]
+
+        interesting_days = probe_df[probe_df.any(axis=1)]
         if not interesting_days.empty:
-            # 使用 to_string() 保证所有列和行都能被完整打印，便于分析
+            print("\n--- [终极探针-TRIGGER | >24-07-01] 诊断 '主力点火' (CHIP_INSTITUTIONAL_BREAKOUT) ---")
             print(interesting_days.to_string())
-        else:
-            print("  -> 从 2024-07-01 起，'主力点火'的所有子条件 ('breakout_struct', 'institut_buy', 'NOT_hot_money') 均未被触发。")
-            
-        print("--- [探针-TRIGGER] 诊断结束 ---\n")
+            print("--- [终极探针] 诊断结束 ---\n")
 
         # “游资突破”：定义为由“游资闪击”行为主导的突破，通常更具爆发性，但波动也可能更大。
         triggers['CHIP_HOT_MONEY_BREAKOUT'] = is_breakout_structure & is_hot_money_blitz
