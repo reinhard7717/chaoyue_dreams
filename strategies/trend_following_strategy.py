@@ -1619,44 +1619,38 @@ class TrendFollowStrategy:
     # ▼▼▼ 健康度感知上下文引擎 (Health-Aware Context Engine) ▼▼▼
     def _update_contextual_states(self, df: pd.DataFrame, score_details_df: pd.DataFrame, validated_premises: Dict[str, pd.Series], params: dict) -> pd.DataFrame:
         """
-        【V39.4 健康度感知上下文引擎版】
+        【V39.5 状态失效感知版 + 调试探针】
         - 核心升级:
         1. 动态持续时间: 上下文的倒计时天数由触发当日的 trend_health_score 决定。
         2. 动态优先级: 上下文的优先级也由 trend_health_score 决定。
-        - 机制:
-          - 配置文件中为每个剧本定义多个“质量等级”(tiers)。
-          - 触发时，根据健康分匹配最高等级，获取对应的持续时间和优先级。
+        3. 状态失效条件: 新增逻辑，允许为上下文状态定义一个明确的“失效条件”，使其在被破坏时能提前终止。
+        4. 调试探针: 增加了详细的print输出，用于追踪状态的开启、继承和失效过程。
         """
-        print("      - [上下文中心 V39.4] 正在启动'健康度感知上下文引擎'...")
+        # ▼▼▼【代码修改】: 替换整个函数为 V39.5-Debug 版本 ▼▼▼
+        print("      - [上下文中心 V39.5-Debug] 正在启动'健康度感知与失效上下文引擎'...")
 
         # --- 步骤 1: 从配置加载上下文定义 ---
         context_params = self._get_params_block(params, 'context_setting_params', {})
         context_definitions = context_params.get('definitions', {})
-
-        # ▼▼▼【代码修改 V39.5】: 动态注入“资本背离”上下文的定义，并为其增加失效条件 ▼▼▼
+        
+        # 动态注入“资本背离”的上下文定义，确保它一定存在
         if 'INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE' not in context_definitions:
             context_definitions['INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE'] = {
                 'base_name': 'CAPITAL_DIVERGENCE_ACTIVE',
                 'tiers': [{'min_score': 0, 'priority': 5, 'duration': 3}],
-                # 新增：定义状态的失效条件
                 'invalidation': {
                     'enabled': True,
-                    # 当状态开启时，记录当时的最低价作为“防守底线”
                     'anchor_metric': 'low_D', 
-                    # 如果后续收盘价跌破了“防守底线”，则状态失效
                     'check_metric': 'close_D',
-                    'condition': 'less' # check_metric < anchor_metric
+                    'condition': 'less'
                 }
             }
             print("        -> [动态注入] 已为'资本背离'状态添加上下文定义(含失效条件)。")
-        
-        # 从前提验证结果中获取健康度评分
+
         trend_health_score = validated_premises.get('trend_health_score', pd.Series(0, index=df.index))
 
         # --- 步骤 2: 初始化或衰减所有计时器 ---
-        print("        -> 步骤2.1: 初始化/衰减所有上下文计时器...")
         all_timer_cols = []
-        # 从定义中动态收集所有可能的上下文基础名
         all_base_names = {v['base_name'] for k, v in context_definitions.items()}
         
         for base_name in all_base_names:
@@ -1668,11 +1662,8 @@ class TrendFollowStrategy:
                 df[timer_col] = 0
 
         # --- 步骤 3: 根据当日触发的剧本，【动态地】重置计时器和优先级 ---
-        print("        -> 步骤2.2: 检查当日剧本触发，动态重置计时器和优先级...")
-        # 创建用于存储当天动态优先级和持续时间的临时列
         df['temp_priority'] = 0
         df['temp_duration'] = 0
-        # ▼▼▼【代码修改 V39.5】: 初始化锚点价格列 ▼▼▼
         for playbook_name, definition in context_definitions.items():
             if definition.get('invalidation', {}).get('enabled', False):
                 anchor_col = f"CONTEXT_{definition['base_name']}_ANCHOR"
@@ -1688,23 +1679,24 @@ class TrendFollowStrategy:
                 continue
 
             base_name = definition['base_name']
-            tiers = sorted(definition['tiers'], key=lambda x: x['min_score'], reverse=True) # 按min_score从高到低排序
+            tiers = sorted(definition['tiers'], key=lambda x: x['min_score'], reverse=True)
             
-            # 对每个触发日，根据其健康分查找对应的等级
             for idx in df.index[triggered_mask]:
                 score_at_trigger = trend_health_score.at[idx]
                 
-                # 匹配最高可用等级
-                matched_tier = tiers[0] # 默认最高级
+                matched_tier = tiers[0]
                 for tier in tiers:
                     if score_at_trigger >= tier['min_score']:
                         matched_tier = tier
-                        break # 找到第一个满足的最高等级就跳出
+                        break
                 
                 current_priority = df.at[idx, 'temp_priority']
                 if matched_tier['priority'] > current_priority:
                     df.at[idx, 'temp_priority'] = matched_tier['priority']
                     df.at[idx, 'temp_duration'] = matched_tier['duration']
+                    # 检查CONTEXT_ACTIVE_NAME列是否存在，如果不存在则创建
+                    if 'CONTEXT_ACTIVE_NAME' not in df.columns:
+                        df['CONTEXT_ACTIVE_NAME'] = 'NONE'
                     df.at[idx, 'CONTEXT_ACTIVE_NAME'] = base_name
                     
                     if definition.get('invalidation', {}).get('enabled', False):
@@ -1714,31 +1706,27 @@ class TrendFollowStrategy:
                             df.at[idx, anchor_col] = df.at[idx, anchor_metric]
                             # ▼▼▼【调试探针 1: 状态开启与锚点记录】▼▼▼
                             print(f"          - [上下文引擎探针] 日期 {idx.date()}: 剧本 '{playbook_name}' 触发，开启 '{base_name}' 状态，持续 {matched_tier['duration']} 天。记录锚点价格 ({anchor_metric}): {df.at[idx, anchor_col]:.2f}")
+                            # ▲▲▲【调试探针结束】▲▲▲
 
         # --- 步骤 4: 更新计时器和主导上下文状态 ---
-        print("        -> 步骤2.3: 更新主导上下文状态...")
-        # 初始化主导上下文列
         if 'CONTEXT_ACTIVE_NAME' not in df.columns:
             df['CONTEXT_ACTIVE_NAME'] = 'NONE'
         
-        # 状态继承：如果今天没有新事件，则继承昨天的状态
         df['CONTEXT_ACTIVE_NAME'] = df['CONTEXT_ACTIVE_NAME'].where(df['temp_priority'] > 0, df['CONTEXT_ACTIVE_NAME'].shift(1).fillna('NONE'))
-        # ▼▼▼【代码修改 V39.5】: 继承锚点价格 ▼▼▼
+        
         for playbook_name, definition in context_definitions.items():
              if definition.get('invalidation', {}).get('enabled', False):
                 base_name = definition['base_name']
                 anchor_col = f"CONTEXT_{base_name}_ANCHOR"
-                # 如果今天没有新设置锚点，就继承昨天的
                 df[anchor_col] = df[anchor_col].fillna(method='ffill')
-        
-        # 更新所有计时器
+
         for base_name in all_base_names:
             timer_col = f"CONTEXT_{base_name}_TIMER"
-            # 如果今天的主导叙事是这个，就用动态计算出的duration重置计时器
             reset_mask = (df['CONTEXT_ACTIVE_NAME'] == base_name) & (df['temp_duration'] > 0)
             if reset_mask.any():
                 df.loc[reset_mask, timer_col] = df.loc[reset_mask, 'temp_duration']
-        # ▼▼▼【代码修改 V39.5-Debug】: 应用状态失效逻辑并增加详细探针 ▼▼▼
+
+        # 应用状态失效逻辑并增加详细探针
         for playbook_name, definition in context_definitions.items():
             invalidation_params = definition.get('invalidation', {})
             if invalidation_params.get('enabled', False):
@@ -1748,6 +1736,7 @@ class TrendFollowStrategy:
                 check_metric_col = invalidation_params['check_metric']
                 
                 if all(c in df.columns for c in [timer_col, anchor_col, check_metric_col]):
+                    # 状态失效条件：昨天是激活的，但今天检查条件不满足了
                     is_active_yesterday = df[timer_col].shift(1) > 0
                     is_invalidated = df[check_metric_col] < df[anchor_col]
                     invalidation_mask = is_active_yesterday & is_invalidated
@@ -1763,13 +1752,13 @@ class TrendFollowStrategy:
                     if invalidation_mask.any():
                         df.loc[invalidation_mask, timer_col] = 0
                         df.loc[invalidation_mask, anchor_col] = np.nan
+                        # 如果失效的状态是当前主导状态，则将主导状态也重置
                         df.loc[invalidation_mask & (df['CONTEXT_ACTIVE_NAME'] == base_name), 'CONTEXT_ACTIVE_NAME'] = 'NONE'
                         # ▼▼▼【调试探针 3: 状态失效执行】▼▼▼
                         print(f"          - [上下文引擎探针] [!!] '{base_name}' 状态因跌破锚点而在 {invalidation_mask.sum()} 天被强制终止。")
                         # ▲▲▲【调试探针结束】▲▲▲
 
         # --- 步骤 5: 更新主导上下文的剩余时间和最终的原子布尔状态 ---
-        print("        -> 步骤2.4: 更新主导上下文计时器和原子状态...")
         df['CONTEXT_ACTIVE_TIMER'] = 0
         for base_name in all_base_names:
             timer_col = f"CONTEXT_{base_name}_TIMER"
@@ -1780,27 +1769,17 @@ class TrendFollowStrategy:
                 df.loc[mask, 'CONTEXT_ACTIVE_TIMER'] = df.loc[mask, timer_col]
                 
             df[bool_col] = df[timer_col] > 0
-
+            
             # ▼▼▼【调试探针 4: 每日最终状态】▼▼▼
             active_today = df[bool_col]
-            if active_today.any():
+            # 仅在关键的资本背离状态激活时打印日志，避免信息过载
+            if base_name == 'CAPITAL_DIVERGENCE_ACTIVE' and active_today.any():
                 for idx in df.index[active_today]:
                      print(f"          - [上下文引擎探针] 日期 {idx.date()}: '{base_name}' 最终状态为 Active, 计时器剩余: {df.at[idx, timer_col]:.0f}")
             # ▲▲▲【调试探针结束】▲▲▲
 
-        # 清理临时列
-        df.drop(columns=['temp_priority', 'temp_duration'], inplace=True)
-
-        active_days = (df['CONTEXT_ACTIVE_NAME'] != 'NONE').sum()
-        if active_days > 0:
-            last_active_day = df[df['CONTEXT_ACTIVE_NAME'] != 'NONE'].index[-1]
-            last_active_context = df.loc[last_active_day, 'CONTEXT_ACTIVE_NAME']
-            last_active_timer = df.loc[last_active_day, 'CONTEXT_ACTIVE_TIMER']
-            print(f"      - [上下文中心 V39.4] 状态机更新完成。共发现 {active_days} 个处于上下文状态的交易日。")
-            print(f"        -> 最近的上下文: 日期={last_active_day.date()}, 主导叙事='{last_active_context}', 剩余时间={last_active_timer:.0f}天。")
-        else:
-            print("      - [上下文中心 V39.4] 状态机更新完成。未发现任何处于上下文状态的交易日。")
-
+        df.drop(columns=['temp_priority', 'temp_duration'], inplace=True, errors='ignore')
+        print("      - [上下文中心 V39.5-Debug] 状态机更新完成。")
         return df
 
     # ▼▼▼ 触发事件融合中心 (Trigger Event Fusion Center) ▼▼▼
