@@ -1003,23 +1003,23 @@ class TrendFollowStrategy:
                 print(f"      -> '突破后回踩'(架构重构版)准备状态定义完成，发现 {final_setup.sum()} 天。")
 
                 # --- 专属探针逻辑 (同步升级) ---
-                probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                probe_df = pd.DataFrame({
-                    'IgnitionDay': ignition_trigger,
-                    'SupportLine': active_support,
-                    'DayLow': df['low_D'],
-                    'ZoneLower': gravity_zone_lower, # 新增: 引力区下轨
-                    'ZoneUpper': gravity_zone_upper, # 新增: 引力区上轨
-                    'Price_OK': is_pullback_to_support,
-                    'Volume_OK': is_volume_shrinking,
-                    '_Setup': final_setup
-                }).loc[probe_start_date:]
+                # probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                # probe_df = pd.DataFrame({
+                #     'IgnitionDay': ignition_trigger,
+                #     'SupportLine': active_support,
+                #     'DayLow': df['low_D'],
+                #     'ZoneLower': gravity_zone_lower, # 新增: 引力区下轨
+                #     'ZoneUpper': gravity_zone_upper, # 新增: 引力区上轨
+                #     'Price_OK': is_pullback_to_support,
+                #     'Volume_OK': is_volume_shrinking,
+                #     '_Setup': final_setup
+                # }).loc[probe_start_date:]
                 
-                interesting_days = probe_df[probe_df[['IgnitionDay', '_Setup']].any(axis=1)]
-                if not interesting_days.empty:
-                    print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '突破后回踩' (精准引力区版) ---")
-                    print(interesting_days.to_string(float_format="%.2f"))
-                    print("--- [终极探针] 诊断结束 ---\n")
+                # interesting_days = probe_df[probe_df[['IgnitionDay', '_Setup']].any(axis=1)]
+                # if not interesting_days.empty:
+                #     print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '突破后回踩' (精准引力区版) ---")
+                #     print(interesting_days.to_string(float_format="%.2f"))
+                #     print("--- [终极探针] 诊断结束 ---\n")
 
         except Exception as e:
             print(f"      -> [警告] 计算'突破后回踩'(架构重构版)时出错: {e}")
