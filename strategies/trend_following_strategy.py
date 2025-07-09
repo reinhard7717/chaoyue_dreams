@@ -940,64 +940,105 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                # 1. 定义所有需要的均线和列 (短周期默认值改为13)
-                short_ma_col = f"EMA_{self._get_param_value(p.get('short_ma'), 13)}_D"
-                mid_ma_col = f"EMA_{self._get_param_value(p.get('mid_ma'), 21)}_D"
-                long_ma_col = f"EMA_{self._get_param_value(p.get('trend_ma'), 55)}_D"
-                vlong_ma_col = f"EMA_{self._get_param_value(p.get('regime_ma'), 89)}_D"
+                # 1. 定义所有需要的斐波那契周期
+                short_period = self._get_param_value(p.get('short_ma'), 13)
+                mid_period = self._get_param_value(p.get('mid_ma'), 21)
+                long_period = self._get_param_value(p.get('trend_ma'), 55)
+                vlong_period = self._get_param_value(p.get('regime_ma'), 144) # 使用144作为超长周期
+
+                # 2. 定义所有列名
+                short_ma_col = f"EMA_{short_period}_D"
+                mid_ma_col = f"EMA_{mid_period}_D"
+                long_ma_col = f"EMA_{long_period}_D"
+                vlong_ma_col = f"EMA_{vlong_period}_D"
                 long_ma_slope_col = f'SLOPE_{long_ma_col}_5'
-                vlong_ma_slope_col = f'SLOPE_{vlong_ma_col}_20' # 深度回踩的“压舱石”
+                vlong_ma_slope_col = f'SLOPE_{vlong_ma_col}_20'
                 vol_ma_col = 'VOL_MA_21_D'
                 required_cols = [short_ma_col, mid_ma_col, long_ma_col, vlong_ma_col, long_ma_slope_col, vlong_ma_slope_col, vol_ma_col]
 
-                # 2. 前置诊断，确保所有依赖项都存在
+                # 3. 前置诊断
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print("\n--- [诊断探针-前置检查] '健康回踩' 依赖项检查失败 ---")
-                    print(f"错误: 缺少必要的计算列: {missing}。")
-                    print("请务必检查策略配置文件中的'slope_params'，确保为EMA_55_D和EMA_120_D都配置了斜率计算。")
-                    print("--- [诊断探针] 检查结束 ---\n")
+                    print(f"\n--- [诊断探针-前置检查] '健康回踩' 依赖项检查失败，缺少列: {missing} ---\n")
                 else:
-                    # 3. 定义两个场景通用的条件
+                    # 4. 计算所有布尔条件
                     is_volume_shrinking = df['volume_D'] < df[vol_ma_col]
                     is_in_pullback_state = df['close_D'] < df[short_ma_col]
                     common_conditions_ok = is_volume_shrinking & is_in_pullback_state
 
-                    # 4. 定义【场景B: 深度回踩】(最终修正版)
-                    is_bull_regime = df[vlong_ma_slope_col] > 0 # 核心修正：牛市背景看最长均线的斜率
+                    # 【场景B: 深度回踩】(最终修正版)
+                    is_structure_ok = df[long_ma_col] > df[vlong_ma_col]
+                    is_momentum_ok = df[vlong_ma_slope_col] > 0
+                    is_bull_regime = is_structure_ok | is_momentum_ok # 核心修正：结构或动能，满足其一即可
                     is_testing_lma = df['low_D'] <= df[long_ma_col] * self._get_param_value(p.get('support_buffer_long'), 1.02)
                     deep_pullback_setup = is_bull_regime & is_testing_lma & common_conditions_ok
 
-                    # 5. 定义【场景A: 浅度回踩】(逻辑不变)
+                    # 【场景A: 浅度回踩】(逻辑不变)
                     is_lma_slope_ok = df[long_ma_slope_col] > 0
                     is_far_above_lma = df['low_D'] > df[long_ma_col]
                     is_testing_mma = df['low_D'] <= df[mid_ma_col] * self._get_param_value(p.get('support_buffer_mid'), 1.02)
                     shallow_pullback_setup = is_lma_slope_ok & is_far_above_lma & is_testing_mma & common_conditions_ok
 
-                    # 6. 最终融合：满足任意一个场景即可
+                    # 最终融合
                     final_setup = deep_pullback_setup | shallow_pullback_setup
                     setups['SETUP_HEALTHY_PULLBACK'] = final_setup
-                    print(f"      -> '健康回踩'(最终决战版)完成: 深度场景发现{deep_pullback_setup.sum()}天, 浅度场景发现{shallow_pullback_setup.sum()}天, 共{final_setup.sum()}天。")
+                    print(f"      -> '健康回踩'(终极诊断版)完成: 深度场景发现{deep_pullback_setup.sum()}天, 浅度场景发现{shallow_pullback_setup.sum()}天, 共{final_setup.sum()}天。")
 
-                    # 7. 终极诊断探针
+                    # 5. 构建【终极诊断探针】
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
-                    probe_df = pd.DataFrame({
-                        'Deep_RegimeOK': is_bull_regime, 'Deep_TestLMA': is_testing_lma,
-                        'Shallow_SlopeOK': is_lma_slope_ok, 'Shallow_TestMMA': is_testing_mma,
-                        'IsPullback': is_in_pullback_state, 'IsVolShrink': is_volume_shrinking,
-                        '_DEEP': deep_pullback_setup, '_SHALLOW': shallow_pullback_setup, '_Setup': final_setup
-                    }).loc[probe_start_date:]
+                    probe_df = pd.DataFrame(index=df.loc[probe_start_date:].index)
                     
+                    # --- 深度回踩诊断 ---
+                    probe_df['LMA_val'] = df[long_ma_col]
+                    probe_df['VLMA_val'] = df[vlong_ma_col]
+                    probe_df['VLMA_Slope'] = df[vlong_ma_slope_col]
+                    probe_df['DeepRegimeOK'] = is_bull_regime # (LMA>VLMA or VLMA_Slope>0)
+                    probe_df['DayLow'] = df['low_D']
+                    probe_df['LMA_Zone'] = df[long_ma_col] * self._get_param_value(p.get('support_buffer_long'), 1.02)
+                    probe_df['DeepTestOK'] = is_testing_lma
+                    
+                    # --- 浅度回踩诊断 ---
+                    probe_df['LMA_Slope'] = df[long_ma_slope_col]
+                    probe_df['ShallowSlopeOK'] = is_lma_slope_ok
+                    probe_df['MMA_Zone'] = df[mid_ma_col] * self._get_param_value(p.get('support_buffer_mid'), 1.02)
+                    probe_df['ShallowTestOK'] = is_testing_mma
+                    
+                    # --- 通用条件诊断 ---
+                    probe_df['Close'] = df['close_D']
+                    probe_df['ShortMA'] = df[short_ma_col]
+                    probe_df['PullbackOK'] = is_in_pullback_state
+                    probe_df['Volume'] = df['volume_D']
+                    probe_df['VolMA'] = df[vol_ma_col]
+                    probe_df['VolShrinkOK'] = is_volume_shrinking
+                    
+                    # --- 最终结果 ---
+                    probe_df['_DEEP'] = deep_pullback_setup
+                    probe_df['_SHALLOW'] = shallow_pullback_setup
+                    probe_df['_SETUP'] = final_setup
+
                     key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21', '2024-09-09', '2024-11-14'], utc=True if df.index.tz else None)
-                    interesting_days_mask = probe_df['_Setup'] | probe_df.index.isin(key_dates_to_check)
-                    interesting_days = probe_df[interesting_days_mask]
+                    interesting_days_mask = probe_df['_SETUP'] | probe_df.index.isin(key_dates_to_check)
+                    interesting_days = probe_df.loc[interesting_days_mask]
 
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (最终决战版) ---")
-                        print(interesting_days.to_string())
-                        print("--- [终极探针] 诊断结束 ---\n")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (终极诊断版) ---")
+                        # 为了可读性，分块打印
+                        deep_cols = ['LMA_val', 'VLMA_val', 'VLMA_Slope', 'DeepRegimeOK', 'DayLow', 'LMA_Zone', 'DeepTestOK']
+                        shallow_cols = ['LMA_Slope', 'ShallowSlopeOK', 'DayLow', 'MMA_Zone', 'ShallowTestOK']
+                        common_cols = ['Close', 'ShortMA', 'PullbackOK', 'Volume', 'VolMA', 'VolShrinkOK']
+                        result_cols = ['_DEEP', '_SHALLOW', '_SETUP']
+                        
+                        print("\n--- [深度回踩诊断] ---")
+                        print(interesting_days[deep_cols].to_string(float_format="%.2f"))
+                        print("\n--- [浅度回踩诊断] ---")
+                        print(interesting_days[shallow_cols].to_string(float_format="%.2f"))
+                        print("\n--- [通用条件诊断] ---")
+                        print(interesting_days[common_cols].to_string(float_format="%.2f"))
+                        print("\n--- [最终结果] ---")
+                        print(interesting_days[result_cols].to_string())
+                        print("\n--- [终极探针] 诊断结束 ---\n")
         except Exception as e:
-            print(f"      -> [警告] 计算'健康回踩'(双轨并行版)时出错: {e}")
+            print(f"      -> [警告] 计算'健康回踩'(终极诊断版)时出错: {e}")
 
         # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
         try:
