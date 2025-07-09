@@ -169,20 +169,25 @@ class TrendFollowStrategy:
 
         print("    - [信息] 核心计分流程开始 (V50.0 状态机三步法)...")
 
-        # 步骤 3.1: 计算“准备状态(Setup)”和“触发事件(Trigger)”
-        # 这是所有判断的“事件”基础
-        print("    - [主流程 V50.0] 步骤3.1: 计算准备状态和触发事件...")
-        trigger_events = self._define_trigger_events(df, params)
-        setup_conditions = self._calculate_setup_conditions(df, params, trigger_events)
+        # 步骤 3.1: 计算最底层的“原子筹码信号”
+        print("    - [主流程 V51.0] 步骤3.1: 计算原子筹码信号...")
+        chip_atomic_signals = self._define_chip_atomic_signals(df, params)
 
-        # 步骤 3.2: 基于“准备状态(事件)”，计算拥有持久性的“状态机上下文(State)”
-        # 这是让“事件”拥有记忆的关键一步
-        print("    - [主流程 V50.0] 步骤3.2: 计算状态机上下文...")
+        # 步骤 3.2: 计算“触发事件(Trigger)”，它可能会用到筹码信号
+        print("    - [主流程 V51.0] 步骤3.2: 计算触发事件...")
+        trigger_events = self._define_trigger_events(df, params, chip_atomic_signals)
+
+        # 步骤 3.3: 计算“准备状态(Setup)”，它也可能会用到筹码信号
+        print("    - [主流程 V51.0] 步骤3.3: 计算准备状态...")
+        setup_conditions = self._calculate_setup_conditions(df, params, trigger_events, chip_atomic_signals)
+
+        # 步骤 3.4: 计算拥有持久性的“状态机上下文(State)”
+        print("    - [主流程 V51.0] 步骤3.4: 计算状态机上下文...")
         df = self._calculate_background_contexts(df, params, setup_conditions)
 
-        # 步骤 3.3: 执行最终计分，剧本将依赖持久化的“状态”进行判断
-        print("    - [主流程 V50.0] 步骤3.3: 执行最终计分...")
-        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, params, trigger_events, setup_conditions)
+        # 步骤 3.5: 执行最终计分，它需要所有信息来进行“分数叠加”
+        print("    - [主流程 V51.0] 步骤3.5: 执行最终计分...")
+        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, params, trigger_events, setup_conditions, chip_atomic_signals)
         self._last_score_details_df = score_details_df
 
         print("    - [信息] 正在将战术剧本触发详情合并到最终结果中...")
@@ -506,6 +511,13 @@ class TrendFollowStrategy:
                 'comment': '强势上涨留下的缺口在回调中未被回补，并出现阳线确认，是趋势极强的表现。'
             },
             {
+                'name': 'INSTITUTIONAL_ACCELERATION', 'cn_name': '主力加速突破',
+                'setup': True, # 这是一个纯事件驱动的信号，无需额外准备状态
+                'trigger': trigger_events.get('CHIP_CONFIRMED_ACCELERATION', default_series),
+                'score': 288, 'precondition': robust_right_side_precondition,
+                'comment': '【V51.1 新增】主力资金推动下，股价突破85%或95%的关键成本线，表明脱离成本区进入“海阔天空”的加速阶段。'
+            },
+            {
                 'name': 'FIBONACCI_PULLBACK', 'cn_name': '黄金回踩',
                 'setup': True,
                 'trigger': trigger_events.get('TRIGGER_FIBONACCI_REBOUND', default_series),
@@ -518,6 +530,13 @@ class TrendFollowStrategy:
                 'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
                 'score': 280, 'precondition': robust_right_side_precondition,
                 'comment': '最可靠的趋势延续形态之一：突破-回踩-再出发。'
+            },
+            {
+                'name': 'CONCENTRATION_BREAKOUT', 'cn_name': '筹码集中突破',
+                'setup': True, # 该信号本身包含T-1的状态，可简化setup
+                'trigger': trigger_events.get('ATOMIC_CONCENTRATION_BREAKOUT', default_series),
+                'score': 275, 'precondition': robust_right_side_precondition,
+                'comment': '【V51.0 新增】筹码高度集中后，首次向上突破关键成本区，是极强的启动信号。'
             },
             {
                 'name': 'REVERSAL_FIRST_PULLBACK', 'cn_name': '反转首踩',
@@ -563,6 +582,13 @@ class TrendFollowStrategy:
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 220, 'precondition': robust_right_side_precondition,
                 'comment': '最基础、最常见的趋势跟踪入场点。'
+            },
+            {
+                'name': 'CHIP_ACCUMULATION_BREAKOUT', 'cn_name': '筹码吸筹突破',
+                'setup': setup_conditions.get('SETUP_CHIP_ACCUMULATION', default_series),
+                'trigger': trigger_events.get('STRONG_POSITIVE_CANDLE', default_series),
+                'score': 215, 'precondition': robust_right_side_precondition,
+                'comment': '【V51.0 新增】主力在成本区附近完成吸筹后，出现强势阳线突破，是潜在的拉升起点。'
             },
             {
                 'name': 'V_REVERSAL_ENTRY', 'cn_name': 'V型反转',
@@ -640,7 +666,7 @@ class TrendFollowStrategy:
         ]
         return playbook_definitions
 
-    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
+    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], chip_atomic_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
         【V47.0 架构简化版】
         - 核心重构: 由于上下文状态已由上游的 _calculate_background_contexts 函数预先计算好，
@@ -884,7 +910,7 @@ class TrendFollowStrategy:
         return exit_signal
 
     # ▼▼▼ “准备状态中心” (Setup Condition Center) ▼▼▼
-    def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], chip_atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V51.0 统一探针版】
         - 核心重构: 移除了所有分散在函数内部的探针和调试打印语句。
@@ -902,7 +928,6 @@ class TrendFollowStrategy:
         playbook_specific_params = self._get_params_block(params, 'playbook_specific_params', {})
 
         # --- 1. 调用原子信号中心 ---
-        chip_atomic_signals = self._define_chip_atomic_signals(df, params)
         setups['SETUP_CHIP_ACCUMULATION'] = chip_atomic_signals.get('ATOMIC_REINFORCEMENT', pd.Series(False, index=df.index))
 
         # --- 2. “潜龙出海”的准备状态 (SETUP_PROLONGED_COMPRESSION) ---
@@ -1551,7 +1576,7 @@ class TrendFollowStrategy:
         return dynamics_score
 
     # ▼▼▼ 触发事件融合中心 (Trigger Event Fusion Center) ▼▼▼
-    def _define_trigger_events(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+    def _define_trigger_events(self, df: pd.DataFrame, params: dict, chip_atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V41.8 精炼增强版】
         - 核心升级: 在V41.5的基础上，进行最终的精炼与增强。
@@ -1567,15 +1592,15 @@ class TrendFollowStrategy:
         
         # --- 步骤1: 获取底层的、原子的“结构”信号 ---
         try:
-            chip_atomic_signals = self._define_chip_atomic_signals(df, params)
+            # chip_atomic_signals = self._define_chip_atomic_signals(df, params) # 此行被删除
             is_breakout_structure = chip_atomic_signals.get('ATOMIC_COST_BREAKTHROUGH', pd.Series(False, index=df.index))
             is_acceleration_structure = (
                 chip_atomic_signals.get('ATOMIC_HURDLE_CLEAR', pd.Series(False, index=df.index)) |
                 chip_atomic_signals.get('ATOMIC_PRESSURE_RELEASE', pd.Series(False, index=df.index))
             )
-            print("      -> '底层筹码结构'信号已加载。")
+            print("      -> '底层筹码结构'信号已从上游加载。")
         except Exception as e:
-            print(f"    - [错误] 底层筹码信号计算失败: {e}，将使用空信号继续。")
+            print(f"    - [错误] 处理底层筹码信号失败: {e}，将使用空信号继续。")
             is_breakout_structure = pd.Series(False, index=df.index)
             is_acceleration_structure = pd.Series(False, index=df.index)
 
@@ -1958,6 +1983,8 @@ class TrendFollowStrategy:
                     print(f"      -> '趋势引爆' 触发器定义完成，发现 {triggers.get('TRIGGER_MA_ACCELERATION', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'趋势引爆'触发器时出错: {e}")
+        print("      -> 正在将原子筹码信号整合为可用触发器...")
+        triggers.update(chip_atomic_signals)
 
         # --- 步骤6: 最终清洗 ---
         for key in list(triggers.keys()):
