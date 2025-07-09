@@ -575,20 +575,110 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V45.8 终极架构版】
-        - 核心重构: 彻底移除 df_dict 参数，函数现在只依赖一个被完全预处理过的日线DataFrame。
-        - 依赖解耦: 所有对多时间框架数据的依赖（周线信号、分钟线VWAP）均由上游的总指挥模块处理完毕，
-                    本函数只负责在日线层面进行计分，职责单一且清晰。
+        【V46.0 时序重构版】
+        - 核心重构: 彻底重构计分流程为三阶段模式，解决上下文状态计算的时序依赖问题。
+          1. 【阶段一】先处理“内部”剧本，这些剧本是状态变化的“因”。
+          2. 【阶段二】基于“因”，调用上下文引擎，计算出当天的最终状态（“果”）。
+          3. 【阶段三】在状态完备后，再处理所有依赖这些状态的“交易”剧本。
+        - 效果: 确保了像 'CONTEXTUAL_MOMENTUM_IGNITION' 这样的协同剧本，能够正确读取到当天激活的上下文状态。
         """
-        print("    [计分V45.8] 启动终极架构计分引擎...")
+        print("    [计分V46.0 时序重构版] 启动三阶段计分引擎...")
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         
-        # --- 步骤1: 计算战略背景基础分 (逻辑不变) ---
-        # ... (此部分代码保持不变) ...
-        print("    [计分V45.8] 步骤1: 计算周线战略背景基础分...")
+        # --- 准备工作  ---
+        print("    [计分V46.0] 步骤A: 准备基础数据...")
+        validated_premises = self._validate_core_premises(df, params)
+        print("    [计分V46.0] 步骤B: 调用独立的准备状态和触发事件中心...")
+        trigger_events = self._define_trigger_events(df, params)
+        atomic_signals.update(trigger_events)
+        setup_conditions = self._calculate_setup_conditions(df, params, trigger_events)
+        atomic_signals.update(setup_conditions)
+        for setup_name, setup_signal in setup_conditions.items():
+            df[setup_name] = setup_signal
+
+        # --- 阶段一: 处理“内部”上下文设置剧本 ---
+        print("    [计分V46.0] 阶段一: 处理内部上下文设置剧本...")
+        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
+        
+        # 筛选出所有用于设置上下文的内部剧本
+        context_setting_playbooks = [
+            p for p in playbook_definitions if p['name'].startswith('INTERNAL_SET_CONTEXT')
+        ]
+        
+        # 仅对这些内部剧本进行一次迷你计分，目的是为了填充 score_details_df
+        for playbook in context_setting_playbooks:
+            # 内部剧本通常是setup & trigger同日生效
+            condition = playbook.get('setup', True) & playbook.get('trigger', pd.Series(False, index=df.index))
+            is_triggered = condition & playbook.get('precondition', True)
+            if is_triggered.any():
+                # 内部剧本的分数通常为1或0，仅作标记
+                score = self._get_param_value(points.get(playbook['name']), playbook['score'])
+                score_details_df.loc[is_triggered, playbook['name']] = score
+                print(f"    - [内部剧本命中] '{playbook['name']}' 触发 {is_triggered.sum()} 天，准备设置上下文。")
+
+        # --- 阶段二: 计算最终的上下文状态 ---
+        print("    [计分V46.0] 阶段二: 更新上下文状态机...")
+        # 此时，score_details_df 已经包含了触发上下文所需的信息
+        df = self._update_contextual_states(df, score_details_df, validated_premises, params)
+        # 经过这一步，df 中已经包含了 'CONTEXT_CAPITAL_DIVERGENCE_ACTIVE' 等列，并且值是正确的
+
+        # --- 阶段三: 评估所有“交易”剧本 ---
+        print("    [计分V46.0] 阶段三: 评估所有交易剧本...")
+        # 重新获取一次剧本定义，确保它们能读取到刚刚更新到df中的上下文状态
+        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
+        
+        # 筛选出所有交易剧本（非内部剧本）
+        trading_playbooks = [
+            p for p in playbook_definitions if not p['name'].startswith('INTERNAL_SET_CONTEXT')
+        ]
+
+        df['base_score'] = 0.0
+        has_been_scored = pd.Series(False, index=df.index)
+
+        for playbook in trading_playbooks:
+            setup = playbook.get('setup', pd.Series(False, index=df.index))
+            trigger = playbook.get('trigger', pd.Series(False, index=df.index))
+            if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
+            
+            # 同日生效的判断列表保持不变
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST', 'CONTEXTUAL_MOMENTUM_IGNITION']:
+                condition = setup & trigger
+            else:
+                condition = setup.shift(1).fillna(False) & trigger
+            
+            is_triggered = condition & playbook['precondition'] & ~has_been_scored
+            
+            if is_triggered.any():
+                score = self._get_param_value(points.get(playbook['name']), playbook['score'])
+                df.loc[is_triggered, 'base_score'] = score
+                # 注意：这里要用 is_triggered 作为 mask，确保只给触发的日期加分
+                score_details_df.loc[is_triggered, playbook['name']] = score
+                has_been_scored.loc[is_triggered] = True
+                playbook_cn_name = playbook.get('cn_name', playbook['name'])
+                print(f"    - [交易剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
+
+        # 观察分逻辑
+        watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
+        is_in_any_setup = pd.concat([s for k, s in setup_conditions.items() if k.startswith('SETUP_') and isinstance(s, pd.Series) and not s.empty], axis=1).any(axis=1)
+        is_watching = is_in_any_setup & ~has_been_scored
+        if is_watching.any():
+            df.loc[is_watching, 'base_score'] = watching_score
+            score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
+            print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
+
+        # 融合动力学分
+        print("    [计分V46.0] 步骤C: 融合所有得分项...")
+        dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
+        final_score = df['base_score'].copy()
+        has_primary_score = final_score > 0
+        if (has_primary_score).any():
+            final_score.loc[has_primary_score] += dynamics_score.loc[has_primary_score]
+            score_details_df.loc[has_primary_score, 'DYNAMICS_SCORE'] = dynamics_score.loc[has_primary_score]
+
+        # 融合战略背景分 (周线)
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
         all_base_score_cols = [king_signal_col]
@@ -614,126 +704,16 @@ class TrendFollowStrategy:
             if king_signal_mask.any():
                 other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
-        
-        # --- 步骤2: 进行核心前提交叉验证 (逻辑不变) ---
-        print("    [计分V45.8] 步骤2: 进行核心前提交叉验证...")
-        validated_premises = self._validate_core_premises(df, params)
+        base_score_from_weekly = score_details_df.filter(regex='^BASE_').sum(axis=1)
+        final_score += base_score_from_weekly
 
-        # --- 步骤3: 调用独立的“准备”和“触发”中心 (逻辑不变) ---
-        print("    [计分V45.8] 步骤3: 调用独立的准备状态和触发事件中心...")
-        # ---【先】调用“触发事件中心”，获得所有触发器 ---
-        print("    [计分V45.27] 步骤3: 【先】调用触发事件中心...")
-        trigger_events = self._define_trigger_events(df, params)
-        atomic_signals.update(trigger_events)
-
-        # --- 【后】调用“准备状态中心”，并将触发器作为输入传入 ---
-        print("    [计分V45.27] 步骤4: 【后】调用准备状态中心 (传入触发器)...")
-        setup_conditions = self._calculate_setup_conditions(df, params, trigger_events) # 修改: 传入 trigger_events
-        atomic_signals.update(setup_conditions)
-        for setup_name, setup_signal in setup_conditions.items():
-            df[setup_name] = setup_signal
-
-        # --- 步骤4: 计算趋势动力学附加分 (逻辑不变) ---
-        print("    [计分V45.8] 步骤4: 计算趋势动力学附加分...")
-        dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
-
-        # --- 步骤5: 构建并评估“剧本矩阵” (逻辑不变) ---
-        print("    [计分V45.8] 步骤5: 按优先级评估“剧本矩阵”...")
-        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
-        df['base_score'] = 0.0
-        has_been_scored = pd.Series(False, index=df.index)
-        # ▼▼▼【代码修改 V45.9】: 植入S级剧本专用探针 ▼▼▼
-        # 定义探针的起始日期
-        probe_start_date = pd.to_datetime('2024-07-01').tz_localize('UTC') if df.index.tz else pd.to_datetime('2024-07-01')
-        
-        # 筛选出需要探针的剧本
-        s_tier_playbooks_to_probe = ['PERFECT_STORM', 'AWAKENED_BEAST']
-        
-        # 为这些剧本创建一个每日评估的DataFrame
-        daily_eval_data = {}
-        for playbook in playbook_definitions:
-            if playbook['name'] in s_tier_playbooks_to_probe:
-                # 准备状态(T-1)
-                setup_signal = playbook.get('setup', pd.Series(False, index=df.index))
-                if isinstance(setup_signal, bool):
-                    setup_signal = pd.Series(setup_signal, index=df.index)
-                
-                # 触发事件(T)
-                trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
-                
-                # 核心前提(T)
-                precondition_signal = playbook.get('precondition', pd.Series(False, index=df.index))
-                if isinstance(precondition_signal, bool):
-                    precondition_signal = pd.Series(precondition_signal, index=df.index)
-
-                # 收集数据
-                daily_eval_data[f"{playbook['name']}_Setup(T-1)"] = setup_signal.shift(1).fillna(False)
-                daily_eval_data[f"{playbook['name']}_Trigger(T)"] = trigger_signal
-                daily_eval_data[f"{playbook['name']}_Precondition(T)"] = precondition_signal
-
-        # 将收集到的数据转换为DataFrame，并筛选目标日期
-        if daily_eval_data:
-            daily_eval_df = pd.DataFrame(daily_eval_data, index=df.index)
-            # 筛选出2024-07-01之后，且至少有一个条件为True的日期，便于观察
-            interesting_days = daily_eval_df[
-                (daily_eval_df.index >= probe_start_date) & 
-                (daily_eval_df.any(axis=1))
-            ]
-            
-            # if not interesting_days.empty:
-            #     print("\n" + "="*25 + " [S级剧本-每日评估探针] " + "="*25)
-            #     print(f"--- (仅显示从 {probe_start_date.date()} 开始，且至少有一个条件为True的日期) ---")
-            #     # 使用 to_string() 保证所有列都能显示
-            #     print(interesting_days.to_string())
-            #     print("="*75 + "\n")
-            # else:
-            #     print("\n--- [S级剧本-探针信息] 从 2024-07-01 起，未发现任何S级剧本的准备或触发条件成立。---\n")
-        # ▲▲▲【代码修改 V45.9】▲▲▲
-        for playbook in playbook_definitions:
-            setup = playbook.get('setup', pd.Series(False, index=df.index))
-            trigger = playbook.get('trigger', pd.Series(False, index=df.index))
-            if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST', 'CONTEXTUAL_MOMENTUM_IGNITION']:
-                condition = setup & trigger
-            else:
-                condition = setup.shift(1).fillna(False) & trigger
-            is_triggered = condition & playbook['precondition'] & ~has_been_scored
-            if is_triggered.any():
-                score = self._get_param_value(points.get(playbook['name']), playbook['score'])
-                df.loc[is_triggered, 'base_score'] = score
-                score_details_df.loc[is_triggered, playbook['name']] = score
-                has_been_scored.loc[is_triggered] = True
-                playbook_cn_name = playbook.get('cn_name', playbook['name'])
-                print(f"    - [剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
-
-        # --- 观察分逻辑 (逻辑不变) ---
-        watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
-        is_in_any_setup = pd.concat([s for k, s in setup_conditions.items() if k.startswith('SETUP_') and isinstance(s, pd.Series) and not s.empty], axis=1).any(axis=1)
-        is_watching = is_in_any_setup & ~has_been_scored
-        if is_watching.any():
-            df.loc[is_watching, 'base_score'] = watching_score
-            score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
-            print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
-
-        # --- 步骤6: 融合剧本分、动力学分与环境修正项 ---
-        print("    [计分V45.8] 步骤6: 融合所有得分项...")
-        final_score = df['base_score'].copy()
-        has_primary_score = final_score > 0
-        if (has_primary_score).any():
-            final_score.loc[has_primary_score] += dynamics_score.loc[has_primary_score]
-            score_details_df.loc[has_primary_score, 'DYNAMICS_SCORE'] = dynamics_score.loc[has_primary_score]
-
-        # ▼▼▼【代码修改 V45.8】: 直接使用预处理好的VWAP支撑列，不再需要df_dict或任何相关函数 ▼▼▼
+        # 其他加分项
         cond_vwap_support = df.get('cond_vwap_support', pd.Series(False, index=df.index))
-        # ▲▲▲【代码修改 V45.8】▲▲▲
-        
         if (cond_vwap_support & has_primary_score).any():
             bonus = self._get_param_value(points.get('BONUS_VWAP_SUPPORT'), 20)
             final_score.loc[cond_vwap_support & has_primary_score] += bonus
             score_details_df.loc[cond_vwap_support & has_primary_score, 'BONUS_VWAP_SUPPORT'] = bonus
-
-        # --- 后续所有奖励、惩罚、合并、否决等逻辑都保持不变 ---
-        # ... (此部分代码保持不变) ...
+        
         high_consensus_bonus = self._get_param_value(points.get('BONUS_HIGH_CONSENSUS'), 30)
         is_high_consensus = (validated_premises.get('trend_health_score', pd.Series(0)) >= 5) & has_primary_score
         if is_high_consensus.any():
@@ -759,12 +739,8 @@ class TrendFollowStrategy:
             is_top_tier = (rank_series >= top_tier_rank_threshold) & has_primary_score
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
-        print("    [计分V45.8] 步骤7: 合并战略与战术得分...")
-        base_score_from_weekly = score_details_df.filter(regex='^BASE_').sum(axis=1)
-        final_score += base_score_from_weekly
-        print("    [计分V45.8] 步骤X: 更新上下文状态...")
-        df = self._update_contextual_states(df, score_details_df, validated_premises, params)
-        print("    [计分V45.8] 步骤8: 应用最终风险否决层...")
+       
+        print("    [计分V46.0] 步骤D: 应用最终风险否决层...")
         cond_trend_exhaustion = setup_conditions.get('RISK_TREND_EXHAUSTION', pd.Series(False, index=df.index))
         if cond_trend_exhaustion.any():
             final_score.loc[cond_trend_exhaustion] = 0
@@ -787,7 +763,7 @@ class TrendFollowStrategy:
 
         # 清理临时列
         df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore')
-        print("    [计分V45.8] 计分流程结束。")
+        print("    [计分V46.0 时序重构版] 计分流程结束。")
         
         return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
 
