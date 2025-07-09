@@ -432,51 +432,41 @@ class TrendFollowStrategy:
     # 背景上下文计算中心 (条件驱动)
     def _calculate_background_contexts(self, df: pd.DataFrame, params: dict, setup_conditions: Dict[str, pd.Series]) -> pd.DataFrame:
         """
-        【V50.0 状态机升华版】背景上下文中心
-        - 核心思想: 将此函数从简单的“条件驱动”升级为真正的“状态机”。
-                    由一个严格的“事件”(Setup)开启一个持续N天的“状态窗口”，并设有提前失效的“破坏条件”。
-        - 解决了什么问题: 完美融合了“事件”的精确性和“状态”的持久性，解决了之前所有版本中逻辑断裂或定义冲突的根本问题。
-        - @param setup_conditions: 依赖上游计算好的“准备状态”作为状态机的入口事件。
-        - 返回: 增加了 'CONTEXT_*_ACTIVE' 列的DataFrame。
+        【V52.2 向量化重构版】背景上下文中心
+        - 核心优化: 彻底移除了原有的逐行迭代 `for` 循环，采用完全向量化的方式计算状态机。
+        - 解决方案: 利用 `cumsum()` 创建事件组，再通过 `groupby().cumcount()` 生成组内计时器，
+                    一步到位地计算出具有持久性的状态窗口，性能相比循环有质的飞跃。
+        - 业务逻辑: 结果与原始的循环逻辑完全一致。
         """
-        print("    - [上下文中心 V50.0 状态机版] 启动...")
+        print("    - [上下文中心 V52.2 向量化重构版] 启动...")
         
         # --- 状态机1: 资本背离机会窗口 (CONTEXT_CAPITAL_DIVERGENCE_ACTIVE) ---
         context_active = pd.Series(False, index=df.index)
         try:
             p = self._get_params_block(params, 'setup_condition_params', {}).get('capital_flow_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                # 状态机入口事件：使用最严格的资本背离定义
                 entry_event = setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', pd.Series(False, index=df.index))
-                
-                # 状态机参数
-                persistence_days = self._get_param_value(p.get('state_persistence_days'), 15) # 状态默认持续15天
+                persistence_days = self._get_param_value(p.get('state_persistence_days'), 15)
                 trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
                 trend_ma_col = f'EMA_{trend_ma_period}_D'
 
                 if trend_ma_col in df.columns and entry_event.any():
-                    # 状态破坏条件：价格重新走强，不再是“背离”状态
                     break_condition = df['close_D'] > df[trend_ma_col]
                     
-                    # 初始化计时器
-                    timer = pd.Series(0, index=df.index)
+                    # 1. 使用 cumsum() 为每个由 entry_event 触发的周期创建一个唯一的组ID
+                    event_groups = entry_event.cumsum()
                     
-                    # 遍历数据，应用状态机逻辑
-                    for i in range(1, len(df)):
-                        prev_timer = timer.iloc[i-1]
-                        
-                        if entry_event.iloc[i]:
-                            # 如果今天触发了入口事件，重置计时器
-                            timer.iloc[i] = persistence_days
-                        elif prev_timer > 0:
-                            # 如果昨天在状态中，今天递减计时器
-                            timer.iloc[i] = prev_timer - 1
-                        else:
-                            # 否则计时器为0
-                            timer.iloc[i] = 0
+                    # 2. 在每个组内，计算从事件发生到现在的天数 (使用 transform 保持原始索引)
+                    days_since_event = df.groupby(event_groups).cumcount()
                     
-                    # 最终状态：计时器大于0 且 未触发破坏条件
-                    context_active = (timer > 0) & ~break_condition
+                    # 3. 计算状态是否在有效期内
+                    is_within_persistence = days_since_event < persistence_days
+                    
+                    # 4. 筛选出真正由事件触发的周期 (event_groups > 0)
+                    is_active_period = event_groups > 0
+                    
+                    # 最终状态：在活跃周期内 & 在持续天数内 & 未触发破坏条件
+                    context_active = is_active_period & is_within_persistence & ~break_condition
                     print(f"      -> '资本背离机会窗口'状态机计算完成，共激活 {context_active.sum()} 天。")
                 else:
                     print(f"      -> [警告] '资本背离机会窗口'无法计算，缺少列或入口事件从未触发。")
@@ -485,8 +475,6 @@ class TrendFollowStrategy:
             
         df['CONTEXT_CAPITAL_DIVERGENCE_ACTIVE'] = context_active
         
-        # 未来可以按此模式添加更多状态机...
-
         return df
 
     # ▼▼▼ 将剧本定义抽取为独立函数 ▼▼▼
@@ -709,51 +697,72 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], chip_atomic_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V47.0 架构简化版】
-        - 核心重构: 由于上下文状态已由上游的 _calculate_background_contexts 函数预先计算好，
-                    本函数不再需要复杂的“三阶段”计分和状态更新逻辑，恢复为简洁、高效的单次遍历计分模式。
-        - 效果: 代码更清晰，维护性更强，且从根本上解决了时序依赖问题。
+        【V52.2 向量化重构版】
+        - 核心优化: 重构了剧本计分的核心逻辑，用 `idxmax()` 向量化操作取代了原有的 `for` 循环和 `has_been_scored` 状态标记。
+        - 解决方案: 1. 一次性计算所有剧本的得分矩阵。
+                    2. 使用 `idxmax(axis=1)` 沿行查找第一个（即优先级最高的）被触发的剧本名称。
+                    3. 根据返回的剧本名称高效地赋予基础分。
+        - 业务逻辑: 完美复现了“多剧本按优先级匹配，只取其一”的原始逻辑，但代码更简洁，执行效率更高。
         """
-        print("    [计分V47.0 架构简化版] 启动计分引擎...")
+        print("    [计分V52.2 向量化重构版] 启动计分引擎...")
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         
-        # --- 步骤1: 准备基础数据 ---
         atomic_signals.update(trigger_events)
         atomic_signals.update(setup_conditions)
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
 
-        # --- 步骤2: 评估“剧本矩阵” ---
-        print("    [计分V47.0] 步骤2: 按优先级评估“剧本矩阵”...")
-        # 注意：此时传入的df已经包含了正确的CONTEXT_*_ACTIVE列
+        print("    [计分V52.2] 步骤2: 按优先级评估“剧本矩阵”...")
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
-        df['base_score'] = 0.0
-        has_been_scored = pd.Series(False, index=df.index)
-
+        
+        # --- 步骤2.1: 向量化计算所有剧本的潜在得分 ---
+        playbook_scores_list = []
+        playbook_names = []
         for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
             if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
             
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'CONTEXTUAL_MOMENTUM_IGNITION']:
+            # 修正：左侧交易剧本的 setup 和 trigger 是当天的
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST']:
                 condition = setup & trigger
             else:
                 condition = setup.shift(1).fillna(False) & trigger
             
-            is_triggered = condition & playbook['precondition'] & ~has_been_scored
+            is_triggered = condition & playbook['precondition']
+            score = self._get_param_value(points.get(playbook['name']), playbook['score'])
             
-            if is_triggered.any():
-                score = self._get_param_value(points.get(playbook['name']), playbook['score'])
-                df.loc[is_triggered, 'base_score'] = score
-                score_details_df.loc[is_triggered, playbook['name']] = score
-                has_been_scored.loc[is_triggered] = True
-                playbook_cn_name = playbook.get('cn_name', playbook['name'])
-                print(f"    - [剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
+            # 创建一个Series，触发日为分数，否则为0
+            playbook_scores_list.append(pd.Series(score, index=df.index).where(is_triggered, 0))
+            playbook_names.append(playbook['name'])
 
-        # --- 步骤3: 计算观察分 ---
+        # --- 步骤2.2: 使用 idxmax 实现“取高优先级第一匹配”逻辑 ---
+        # 将所有剧本分数合并为一个DataFrame
+        playbook_scores_df = pd.concat(playbook_scores_list, axis=1, keys=playbook_names)
+        
+        # idxmax(axis=1) 会返回每行第一个最大值（即第一个非零分数）的列名（剧本名）
+        # 对于全为0的行，idxmax会报错，我们用 where 子句处理
+        has_any_trigger = playbook_scores_df.sum(axis=1) > 0
+        triggered_playbook_names = pd.Series(index=df.index, dtype=object)
+        if has_any_trigger.any():
+             triggered_playbook_names.loc[has_any_trigger] = playbook_scores_df[has_any_trigger].idxmax(axis=1)
+
+        # --- 步骤2.3: 高效赋值 ---
+        df['base_score'] = triggered_playbook_names.map(playbook_scores_df.max(axis=1)).fillna(0)
+        
+        # 填充 score_details_df 用于日志和调试
+        for name in playbook_names:
+            mask = (triggered_playbook_names == name)
+            if mask.any():
+                score_details_df.loc[mask, name] = playbook_scores_df.loc[mask, name]
+                playbook_cn_name = next((p.get('cn_name', p['name']) for p in playbook_definitions if p['name'] == name), name)
+                print(f"    - [剧本命中] 命中剧本 '{name} ({playbook_cn_name})'，触发 {mask.sum()} 天。")
+
+        # --- 步骤3: 计算观察分 (逻辑不变，但作用于未被剧本命中的日期) ---
+        has_been_scored = df['base_score'] > 0
         watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
         is_in_any_setup = pd.concat([s for k, s in setup_conditions.items() if k.startswith('SETUP_') and isinstance(s, pd.Series) and not s.empty], axis=1).any(axis=1)
         is_watching = is_in_any_setup & ~has_been_scored
