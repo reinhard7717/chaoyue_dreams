@@ -1015,10 +1015,14 @@ class TrendFollowStrategy:
                     )
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
 
-                    # --- 新增: 深度诊断探针 ---
-                    print("\n--- [深度探针-SETUP] 诊断 '资本背离' (JSON参数驱动版) ---")
+                    # --- 新增: 深度诊断探针 (指定时间范围) ---
+                    # 修改: 定义探针的开始和结束日期
                     probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
-                    probe_df = df[df.index >= probe_start_date]
+                    probe_end_date = pd.to_datetime('2024-9-30').tz_localize(df.index.tz)
+                    print(f"\n--- [深度探针-SETUP | {probe_start_date.date()} to {probe_end_date.date()}] 诊断 '资本背离' ---")
+                    
+                    # 修改: 根据指定的开始和结束日期筛选数据
+                    probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
 
                     for timestamp, row in probe_df.iterrows():
                         is_setup_ok_today = final_setup.get(timestamp, False)
@@ -1053,7 +1057,8 @@ class TrendFollowStrategy:
                                 for r in failure_reasons:
                                     print(r)
                             else:
-                                print("  - 状态为失败但所有子条件检查通过，可能存在数据问题或逻辑边缘情况。")
+                                # 此处处理一种边缘情况：如果probe_df中的某天在原始df中不存在于final_setup的索引中
+                                print("  - 状态为失败但所有子条件检查通过，可能存在数据对齐问题或逻辑边缘情况。")
                     
                     print("--- [探针] 诊断结束 ---\n")
                     
