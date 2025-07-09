@@ -310,12 +310,12 @@ class TrendFollowStrategy:
     # 趋势斜率计算中心
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V40.3 修复版】趋势斜率计算中心
-        - 核心修复: 使用 `_get_param_value` 解析器来获取 `series_to_slope` 参数，确保能正确处理 `{"value": {...}}` 结构。
+        【V45.47 二阶斜率版】趋势斜率计算中心
+        - 核心升级: 在计算完一阶斜率(SLOPE)和二阶导数(ACCEL)后，继续计算二阶导数的斜率(SLOPE_of_ACCEL)。
         """
-        print("    - [斜率中心] 开始计算关键指标的趋势斜率 (V29.0 动力学版)...")
+        print("    - [斜率中心 V45.47] 开始计算关键指标的趋势斜率 (含二阶斜率)...")
         slope_params = self._get_params_block(params, 'slope_params', {})
-        if not self._get_param_value(slope_params.get('enabled'), False): # 修改: 应用解析器
+        if not self._get_param_value(slope_params.get('enabled'), False):
             print("    - [斜率中心] 斜率计算被禁用。")
             return df
 
@@ -327,7 +327,7 @@ class TrendFollowStrategy:
             slope, _ = np.polyfit(x, y_clean.values, 1)
             return slope
 
-        series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {}) # 修改: 应用解析器
+        series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {})
         
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
@@ -335,13 +335,19 @@ class TrendFollowStrategy:
                 continue
             
             for lookback in lookbacks:
+                # 一阶导数 (斜率)
                 slope_col_name = f'SLOPE_{col_name}_{lookback}'
                 df[slope_col_name] = df[col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
                 
+                # 二阶导数 (加速度)
                 accel_col_name = f'ACCEL_{col_name}_{lookback}'
                 df[accel_col_name] = df[slope_col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
                 
-        print("    - [斜率中心] 所有斜率计算完成。")
+                # 【核心修改】三阶导数 (加速度的斜率)
+                jerk_col_name = f'SLOPE_{accel_col_name}_{lookback}' # Jerk, 加加速度
+                df[jerk_col_name] = df[accel_col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
+                
+        print("    - [斜率中心 V45.47] 所有斜率计算完成。")
         return df
 
     # ▼▼▼ 将剧本定义抽取为独立函数 ▼▼▼
@@ -889,21 +895,29 @@ class TrendFollowStrategy:
                 vlong_period = self._get_param_value(p.get('regime_ma'), 144)
                 
                 long_ma_col = f"EMA_{long_period}_D"
-                vlong_ma_accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
+                accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
+                jerk_col = f'SLOPE_{accel_col}_{lookback}' # 加速度的斜率
                 
-                required_cols = ['close_D', long_ma_col, vlong_ma_accel_col]
+                required_cols = ['close_D', long_ma_col, accel_col, jerk_col]
                 
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [前置检查失败] '动能背离' 无法计算，缺少列: {missing} ---\n")
+                    print(f"\n--- [前置检查失败] '动能背离(二阶)' 无法计算，缺少列: {missing} ---\n")
                 else:
+                    # 条件1: 价格弱势 (背景)
                     is_price_weak = df['close_D'] < df[long_ma_col]
-                    is_momentum_turning = df[vlong_ma_accel_col] > 0
-                    final_setup = is_price_weak & is_momentum_turning
+                    # 条件2: 加速度为正 (一阶拐点)
+                    is_accel_positive = df[accel_col] > 0
+                    # 条件3: 加速度的斜率为正 (二阶拐点)
+                    is_jerk_positive = df[jerk_col] > 0
+                    
+                    # 【核心修改】形成二阶共振信号
+                    final_setup = is_price_weak & is_accel_positive & is_jerk_positive
+                    
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
-                    print(f"      -> '动能背离' 完成: 寻找“价弱 & 加速强”的拐点，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '动能背离'(二阶拐点版) 完成: 寻找“价弱 & 加速为正 & 加速的加速也为正”的共振，发现 {final_setup.sum()} 天。")
 
-                    # --- 【核心修改】聚焦探针逻辑 ---
+                    # --- 聚焦探针逻辑 (增加二阶诊断) ---
                     probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
                     probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
                     
@@ -913,25 +927,24 @@ class TrendFollowStrategy:
                     df_dates = df.index.date
                     is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
                     
-                    # 1. 先筛选出时间窗口内的数据
                     window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
-                    # 2. 在时间窗口内，寻找满足条件的日子
                     interesting_days_mask = window_mask & (final_setup | is_key_date)
                     
                     if interesting_days_mask.any():
                         probe_df = pd.DataFrame({
                             'Close': df['close_D'], 'LMA_val': df[long_ma_col], 'PriceWeakOK': is_price_weak,
-                            'MomentumAccel': df[vlong_ma_accel_col], 'MomentumOK': is_momentum_turning,
+                            'Accel': df[accel_col], 'AccelOK': is_accel_positive,
+                            'Jerk': df[jerk_col], 'JerkOK': is_jerk_positive,
                             '_SETUP': final_setup
                         }).loc[interesting_days_mask]
                         
                         if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.45 聚焦版) ---")
-                            print(probe_df.to_string(float_format="%.4f"))
+                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.47 二阶拐点版) ---")
+                            print(probe_df.to_string(float_format="%.6f")) # 提高精度以便观察
                             print("--- [终极探针] 诊断结束 ---\n")
 
         except Exception as e:
-            print(f"      -> [警告] 计算'动能背离'时出错: {e}")
+            print(f"      -> [警告] 计算'动能背离(二阶)'时出错: {e}")
             
         # --- 剧本B: 资本背离 (Capital Divergence) ---
         try:
