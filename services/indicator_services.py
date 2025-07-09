@@ -520,7 +520,7 @@ class IndicatorService:
             'dmi': self.calculate_dmi, 'roc': self.calculate_roc, 'boll_bands_and_width': self.calculate_boll_bands_and_width,
             'cmf': self.calculate_cmf, 'bias': self.calculate_bias, 'atrn': self.calculate_atrn,
             'atrr': self.calculate_atrr, 'obv': self.calculate_obv, 'kdj': self.calculate_kdj,
-            'uo': self.calculate_uo, 'vwap': self.calculate_vwap,
+            'uo': self.calculate_uo, 'vwap': self.calculate_vwap, 'atr': self.calculate_atr,
             'consolidation_period': self.calculate_consolidation_period,
             'advanced_fund_features': self.calculate_advanced_fund_features,
             'fibonacci_levels': self.calculate_fibonacci_levels,
