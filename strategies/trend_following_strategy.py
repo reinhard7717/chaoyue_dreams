@@ -883,41 +883,48 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('capital_flow_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                # 1. 定义周期和列名 (逻辑不变)
+                # 1. 定义周期和列名
                 lookback = self._get_param_value(p.get('divergence_lookback'), 20)
-                mf_col = 'net_mf_amount_D'
+                long_period = self._get_param_value(p.get('trend_ma'), 55)
                 vlong_period = self._get_param_value(p.get('regime_ma'), 144)
+                
+                mf_col = 'net_mf_amount_D'
+                long_ma_col = f"EMA_{long_period}_D"
                 vlong_ma_accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
                 
-                required_cols = ['high_D', 'low_D', mf_col, vlong_ma_accel_col]
+                required_cols = ['close_D', mf_col, long_ma_col, vlong_ma_accel_col]
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
                     print(f"\n--- [诊断探针-前置检查] '资金暗流' 依赖项检查失败，缺少列: {missing} ---\n")
                 else:
-                    # 2. 计算所有条件 (逻辑不变)
-                    rolling_max_high = df['high_D'].shift(1).rolling(window=lookback).max()
-                    is_price_consolidating = df['high_D'] <= rolling_max_high
+                    # 2. 计算三个核心条件
+                    # 条件A: 价格处于明确的弱势背景 (新定义)
+                    is_price_weak = df['close_D'] < df[long_ma_col]
+                    
+                    # 条件B: 资本背离 (资金开始流入)
                     mf_accumulation = df[mf_col].rolling(window=lookback).sum()
                     is_capital_divergence = mf_accumulation > 0
+                    
+                    # 条件C: 动能背离 (下跌加速度转正)
                     is_momentum_divergence = df[vlong_ma_accel_col] > 0
-                    final_setup = is_price_consolidating & (is_capital_divergence | is_momentum_divergence)
+                    
+                    # 3. 【核心修改】最终融合：必须是三个条件的“共振”
+                    final_setup = is_price_weak & is_capital_divergence & is_momentum_divergence
                     setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = final_setup
-                    print(f"      -> '资金暗流'(终极透明版)完成: 资本背离发现{is_capital_divergence.sum()}天, 动能背离发现{is_momentum_divergence.sum()}天, 共{final_setup.sum()}天。")
+                    print(f"      -> '资金暗流'(逻辑收紧版)完成: 寻找“价格弱 & 资金强 & 动能强”的共振点，发现 {final_setup.sum()} 天。")
 
-                    # 3. 【核心修改】构建终极透明探针
+                    # 4. 构建终极透明探针
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
                     probe_df = pd.DataFrame(index=df.loc[probe_start_date:].index)
-                    # 价格盘整诊断
-                    probe_df['DayHigh'] = df['high_D']
-                    probe_df['LookbackMaxHigh'] = rolling_max_high
-                    probe_df['PriceConsolidOK'] = is_price_consolidating
+                    # 价格弱势诊断
+                    probe_df['Close'] = df['close_D']
+                    probe_df['LMA_val'] = df[long_ma_col]
+                    probe_df['PriceWeakOK'] = is_price_weak
                     # 资本背离诊断
                     probe_df['CapitalAccum'] = mf_accumulation
-                    probe_df['CapitalThresh'] = 0.0
                     probe_df['CapitalDivOK'] = is_capital_divergence
                     # 动能背离诊断
                     probe_df['MomentumAccel'] = df[vlong_ma_accel_col]
-                    probe_df['MomentumThresh'] = 0.0
                     probe_df['MomentumDivOK'] = is_momentum_divergence
                     # 最终结果
                     probe_df['_SETUP'] = final_setup
@@ -927,24 +934,11 @@ class TrendFollowStrategy:
                     interesting_days = probe_df.loc[interesting_days_mask]
 
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (终极透明版) ---")
-                        # 为了可读性，重新组织打印列
-                        price_cols = ['DayHigh', 'LookbackMaxHigh', 'PriceConsolidOK']
-                        capital_cols = ['CapitalAccum', 'CapitalThresh', 'CapitalDivOK']
-                        momentum_cols = ['MomentumAccel', 'MomentumThresh', 'MomentumDivOK']
-                        result_cols = ['_SETUP']
-                        
-                        print("\n--- [价格盘整诊断] ---")
-                        print(interesting_days[price_cols].to_string(float_format="%.2f"))
-                        print("\n--- [资本背离诊断] ---")
-                        print(interesting_days[capital_cols].to_string(float_format="%.2f"))
-                        print("\n--- [动能背离诊断] ---")
-                        print(interesting_days[momentum_cols].to_string(float_format="%.4f"))
-                        print("\n--- [最终结果] ---")
-                        print(interesting_days[result_cols].to_string())
-                        print("\n--- [终极探针] 诊断结束 ---\n")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (逻辑收紧版) ---")
+                        print(interesting_days.to_string(float_format="%.4f"))
+                        print("--- [终极探针] 诊断结束 ---\n")
         except Exception as e:
-            print(f"      -> [警告] 计算'资金暗流'(终极透明版)时出错: {e}")
+            print(f"      -> [警告] 计算'资金暗流'(逻辑收紧版)时出错: {e}")
 
         # --- 能量压缩 ---
         try:
@@ -1658,19 +1652,19 @@ class TrendFollowStrategy:
         triggers['CHIP_INSTITUTIONAL_BREAKOUT'] = is_breakout_structure & is_institutional_buying & ~is_hot_money_blitz
         
         # --- 步骤3.2: “主力点火”专属诊断探针 ---
-        probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-        probe_df = pd.DataFrame({
-            'Struct_OK': is_breakout_structure,
-            'MF_OK': is_institutional_buying,
-            'Not_HotMoney': ~is_hot_money_blitz,
-            '_Trigger': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
-        }).loc[probe_start_date:]
+        # probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+        # probe_df = pd.DataFrame({
+        #     'Struct_OK': is_breakout_structure,
+        #     'MF_OK': is_institutional_buying,
+        #     'Not_HotMoney': ~is_hot_money_blitz,
+        #     '_Trigger': triggers['CHIP_INSTITUTIONAL_BREAKOUT']
+        # }).loc[probe_start_date:]
 
-        interesting_days = probe_df[probe_df.any(axis=1)]
-        if not interesting_days.empty:
-            print("\n--- [终极探针-TRIGGER | >24-07-01] 诊断 '主力点火' (CHIP_INSTITUTIONAL_BREAKOUT) ---")
-            print(interesting_days.to_string())
-            print("--- [终极探针] 诊断结束 ---\n")
+        # interesting_days = probe_df[probe_df.any(axis=1)]
+        # if not interesting_days.empty:
+        #     print("\n--- [终极探针-TRIGGER | >24-07-01] 诊断 '主力点火' (CHIP_INSTITUTIONAL_BREAKOUT) ---")
+        #     print(interesting_days.to_string())
+        #     print("--- [终极探针] 诊断结束 ---\n")
 
         # “游资突破”：定义为由“游资闪击”行为主导的突破，通常更具爆发性，但波动也可能更大。
         triggers['CHIP_HOT_MONEY_BREAKOUT'] = is_breakout_structure & is_hot_money_blitz
