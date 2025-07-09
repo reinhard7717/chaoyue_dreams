@@ -940,55 +940,60 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                short_ma_period = self._get_param_value(p.get('short_ma'), 13)
-                long_ma_period = self._get_param_value(p.get('trend_ma'), 55)
-                
-                short_ma_col = f'EMA_{short_ma_period}_D'
-                long_ma_col = f'EMA_{long_ma_period}_D'
+                # 1. 定义所有需要的均线和列
+                short_ma_col = f"EMA_{self._get_param_value(p.get('short_ma'), 13)}_D"
+                mid_ma_col = f"EMA_{self._get_param_value(p.get('mid_ma'), 21)}_D"
+                long_ma_col = f"EMA_{self._get_param_value(p.get('trend_ma'), 55)}_D"
+                vlong_ma_col = f"EMA_{self._get_param_value(p.get('regime_ma'), 144)}_D"
                 long_ma_slope_col = f'SLOPE_{long_ma_col}_5'
-                
-                required_cols = [short_ma_col, long_ma_col, long_ma_slope_col, 'VOL_MA_21_D']
-                if all(c in df.columns for c in required_cols):
-                    # 条件1: 长期趋势的根基依然稳固 (核心修正)
-                    # 不再要求斜率>0，而是要求它没有明确转为下降趋势，允许走平或微跌。
-                    slope_tolerance = self._get_param_value(p.get('slope_tolerance'), -0.005)
-                    is_long_trend_intact = df[long_ma_slope_col] > slope_tolerance
-                    
-                    # 条件2: 价格正在考验长期支撑 (核心修正)
-                    # 不再要求价格>长期均线，而是要求最低价触及均线附近的支撑区。
-                    support_buffer = self._get_param_value(p.get('support_buffer'), 1.02) # 允许最低价触及均线上方2%
-                    is_testing_long_ma = df['low_D'] <= df[long_ma_col] * support_buffer
+                vol_ma_col = 'VOL_MA_21_D'
+                required_cols = [short_ma_col, mid_ma_col, long_ma_col, vlong_ma_col, long_ma_slope_col, vol_ma_col]
 
-                    # 条件3: 处于短期回踩状态 (逻辑不变)
+                # 2. 前置诊断，确保所有依赖项都存在
+                if not all(col in df.columns for col in required_cols):
+                    missing = [col for col in required_cols if col not in df.columns]
+                    print(f"\n--- [诊断探针-前置检查] '健康回踩' 依赖项检查失败，缺少列: {missing} ---\n")
+                else:
+                    # 3. 定义两个场景通用的条件
+                    is_volume_shrinking = df['volume_D'] < df[vol_ma_col]
                     is_in_pullback_state = df['close_D'] < df[short_ma_col]
-                    
-                    # 条件4: 量能配合 (缩量，逻辑不变)
-                    is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
+                    common_conditions_ok = is_volume_shrinking & is_in_pullback_state
 
-                    final_setup = is_long_trend_intact & is_testing_long_ma & is_in_pullback_state & is_volume_shrinking
+                    # 4. 定义【场景B: 深度回踩】(修复8月案例)
+                    is_bull_regime = df[long_ma_col] > df[vlong_ma_col]
+                    is_testing_lma = df['low_D'] <= df[long_ma_col] * self._get_param_value(p.get('support_buffer_long'), 1.02)
+                    deep_pullback_setup = is_bull_regime & is_testing_lma & common_conditions_ok
+
+                    # 5. 定义【场景A: 浅度回踩】(修复9月/11月案例)
+                    is_lma_slope_ok = df[long_ma_slope_col] > 0
+                    is_far_above_lma = df['low_D'] > df[long_ma_col] # 价格并未触及长期均线
+                    is_testing_mma = df['low_D'] <= df[mid_ma_col] * self._get_param_value(p.get('support_buffer_mid'), 1.02)
+                    shallow_pullback_setup = is_lma_slope_ok & is_far_above_lma & is_testing_mma & common_conditions_ok
+
+                    # 6. 最终融合：满足任意一个场景即可
+                    final_setup = deep_pullback_setup | shallow_pullback_setup
                     setups['SETUP_HEALTHY_PULLBACK'] = final_setup
-                    print(f"      -> '健康回踩'(最终决战版)准备状态定义完成，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '健康回踩'(双轨并行版)完成: 深度场景发现{deep_pullback_setup.sum()}天, 浅度场景发现{shallow_pullback_setup.sum()}天, 共{final_setup.sum()}天。")
 
-                    # --- “健康回踩”专属探针 (同步升级) ---
+                    # 7. 终极诊断探针
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
                     probe_df = pd.DataFrame({
-                        'LMA_Slope_OK': is_long_trend_intact,      # 探针: 长期趋势是否完好
-                        'Is_Testing_LMA': is_testing_long_ma,     # 探针: 是否在考验长期均线
-                        'In_Pullback_OK': is_in_pullback_state,   # 探针: 是否处于短期回踩
-                        'Vol_Shrink_OK': is_volume_shrinking,     # 探针: 是否缩量
-                        '_Setup': final_setup
+                        'Deep_RegimeOK': is_bull_regime, 'Deep_TestLMA': is_testing_lma,
+                        'Shallow_SlopeOK': is_lma_slope_ok, 'Shallow_TestMMA': is_testing_mma,
+                        'IsPullback': is_in_pullback_state, 'IsVolShrink': is_volume_shrinking,
+                        '_DEEP': deep_pullback_setup, '_SHALLOW': shallow_pullback_setup, '_Setup': final_setup
                     }).loc[probe_start_date:]
                     
-                    key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21'], utc=True if df.index.tz else None)
+                    key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21', '2024-09-09', '2024-11-13'], utc=True if df.index.tz else None)
                     interesting_days_mask = probe_df['_Setup'] | probe_df.index.isin(key_dates_to_check)
                     interesting_days = probe_df[interesting_days_mask]
-                    
+
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (最终决战版) ---")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (双轨并行版) ---")
                         print(interesting_days.to_string())
                         print("--- [终极探针] 诊断结束 ---\n")
         except Exception as e:
-            print(f"      -> [警告] 计算'健康回踩'(最终修正版)时出错: {e}")
+            print(f"      -> [警告] 计算'健康回踩'(双轨并行版)时出错: {e}")
 
         # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
         try:
