@@ -269,54 +269,67 @@ class MultiTimeframeTrendStrategy:
 
     def _merge_strategic_signals_to_daily(self, df_daily: pd.DataFrame, strategic_signals_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V6.8 升级】将周线信号翻译并分发为日线级别的“作战指令”。
-        - 核心修改:
-          1. 识别新的Coppock双信号。
-          2. 将左侧企稳信号翻译为 `CONTEXT_STRATEGIC_BOTTOMING_W` (许可型指令)。
-          3. 将右侧加速信号翻译为 `EVENT_STRATEGIC_ACCELERATING_W` (增强型指令)。
-          4. 保持对其他 playbook 信号的兼容处理。
+        【V6.13 净化合并版】
+        - 核心修复: 从根源上解决日线DataFrame被周线数据污染的问题。
+          在合并前，对周线信号DataFrame进行“净化”，只保留明确需要传递给日线引擎的、
+          以 '_W' 结尾或特定前缀开头的信号列，防止任何可能冲突的列被合并。
         """
         if strategic_signals_df is None or strategic_signals_df.empty:
             return df_daily
-        print("---【总指挥-指令分发】开始将周线战略信号翻译并注入日线数据... ---")
+        
+        print("---【总指挥-指令分发 V6.13】开始将周线战略信号翻译并注入日线数据... ---")
         df_daily_copy = df_daily.copy()
-        # 使用 merge_asof 将周线信号对齐到日线，'backward'确保每个交易日都能获取到最近的周线信号
+
+        # --- 步骤1: 净化周线信号，只保留需要的列 ---
+        # 定义需要保留的周线信号列的规则
+        cols_to_keep = [
+            col for col in strategic_signals_df.columns 
+            if col.endswith('_W') or col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_', 'washout_score_', 'rejection_signal_'))
+        ]
+        
+        # 如果没有找到任何需要保留的列，则直接返回原始日线df
+        if not cols_to_keep:
+            print("    - [警告] 在周线信号中未找到任何需要合并的列，跳过合并。")
+            return df_daily_copy
+
+        # 创建一个只包含所需信号的干净的周线DataFrame
+        clean_strategic_df = strategic_signals_df[cols_to_keep].copy()
+        print(f"    - [净化] 从周线DataFrame中筛选出 {len(cols_to_keep)} 个信号列进行合并。")
+        
+        # --- 步骤2: 使用净化后的周线信号进行合并 ---
         df_merged = pd.merge_asof(
             left=df_daily_copy.sort_index(), 
-            right=strategic_signals_df.sort_index(), 
+            right=clean_strategic_df.sort_index(), # 使用净化后的DataFrame
             left_index=True, 
             right_index=True, 
             direction='backward'
         )
+        
+        # --- 步骤3: 指令翻译与分发 (逻辑不变) ---
         # 遍历所有从周线合并过来的列
-        for col in strategic_signals_df.columns:
+        for col in clean_strategic_df.columns: # 遍历净化后的列
             if col not in df_merged.columns: continue
-            # --- 指令翻译与分发 ---
+            
             if col == 'signal_breakout_trigger_W':
-                # 指令1: 基础的右侧突破观察指令
                 new_col_name = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
                 df_merged.rename(columns={col: new_col_name}, inplace=True)
                 df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
                 print(f"    - [指令分发] 原始信号 '{col}' 已翻译为 -> '{new_col_name}'")
             elif col == 'playbook_coppock_stabilizing_W':
-                # 指令2: 左侧“可以观察”的许可型指令
                 new_col_name = 'CONTEXT_STRATEGIC_BOTTOMING_W'
                 df_merged.rename(columns={col: new_col_name}, inplace=True)
                 df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
                 print(f"    - [指令分发] 原始信号 '{col}' 已翻译为 -> '{new_col_name}' (左侧观察许可)")
             elif col == 'playbook_coppock_accelerating_W':
-                # 指令3: 右侧“确认加速”的增强型指令
                 new_col_name = 'EVENT_STRATEGIC_ACCELERATING_W'
                 df_merged.rename(columns={col: new_col_name}, inplace=True)
                 df_merged[new_col_name] = df_merged[new_col_name].fillna(False).astype(bool)
                 print(f"    - [指令分发] 原始信号 '{col}' 已翻译为 -> '{new_col_name}' (右侧加速事件)")
-            # --- 其他信号的兼容处理 ---
             elif col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_')):
-                # 对于其他未被特殊翻译的周线剧本，保持原名并填充默认值
                 df_merged[col] = df_merged[col].fillna(False).astype(bool)
             elif col.startswith(('washout_score_', 'rejection_signal_')):
-                # 对于评分和过滤器，填充0
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
+                
         print("---【总指挥-指令分发】完成。日线数据已获得周线战略指令加持。 ---")
         return df_merged
 
