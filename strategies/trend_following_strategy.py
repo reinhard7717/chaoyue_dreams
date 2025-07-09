@@ -860,31 +860,30 @@ class TrendFollowStrategy:
                     # 这是原始的、零散的信号
                     initial_setup_signal = is_chip_concentrated & is_price_on_platform & is_mf_trend_improving
 
-                    # ▼▼▼【核心逻辑新增】: 状态持续性处理 ▼▼▼
+                    # ▼▼▼【核心逻辑修正】: 完善状态机计时器逻辑 ▼▼▼
                     persistence_days = self._get_param_value(p.get('setup_persistence_days'), 5)
                     
-                    # 1. 识别“首次进入”准备状态的信号
-                    # 当天满足条件，且前一天不满足，才是“首次进入”
-                    is_entering_setup = initial_setup_signal & ~initial_setup_signal.shift(1).fillna(False)
+                    # 1. 初始化计时器
+                    setup_timer = pd.Series(0, index=df.index, dtype=int)
                     
-                    # 2. 创建一个状态计时器
-                    setup_timer = pd.Series(0, index=df.index)
-                    setup_timer[is_entering_setup] = persistence_days # 首次进入时，重置计时器
+                    # 2. 循环处理每一天，实现正确的状态机逻辑
+                    for i in range(len(df)):
+                        current_index = df.index[i]
+                        # 规则1 (重置/刷新): 如果今天满足初始条件，计时器设为最大值
+                        if initial_setup_signal.at[current_index]:
+                            setup_timer.at[current_index] = persistence_days
+                        # 规则2 (递减): 如果今天不满足，但昨天在状态中，则计时器减1
+                        elif i > 0:
+                            prev_index = df.index[i-1]
+                            if setup_timer.at[prev_index] > 0:
+                                setup_timer.at[current_index] = setup_timer.at[prev_index] - 1
                     
-                    # 3. 模拟状态的持续
-                    for i in range(1, len(df)):
-                        # 如果前一天的计时器大于1，且今天不是新的进入点，则计时器减1
-                        if setup_timer.iloc[i-1] > 1 and not is_entering_setup.iloc[i]:
-                            setup_timer.iloc[i] = setup_timer.iloc[i-1] - 1
-                    
-                    # 4. 定义“状态破坏”信号
+                    # 3. 定义“状态破坏”信号 (逻辑不变)
                     break_threshold = self._get_param_value(p.get('setup_break_threshold'), 0.98)
                     is_setup_broken = df['close_D'] < (df['cost_15pct_D'] * break_threshold)
                     
-                    # 5. 最终的、具有持续性的Setup信号
-                    # 只要计时器>0，就认为状态持续，但如果被破坏信号命中，则强制为False
+                    # 4. 最终的、具有持续性的Setup信号 (逻辑不变)
                     final_setup = (setup_timer > 0) & ~is_setup_broken
-                    # ▲▲▲【核心逻辑新增】▲▲▲
 
                     setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
                     print(f"      -> [重构] '潜龙出海'准备状态(状态持续版)定义完成，发现 {final_setup.sum()} 天。")
