@@ -893,22 +893,25 @@ class TrendFollowStrategy:
                 
                 required_cols = ['close_D', long_ma_col, vlong_ma_accel_col]
                 
-                # 【核心修改】增加强制性的前置检查站
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
                     print(f"\n--- [前置检查失败] '动能背离' 无法计算，缺少列: {missing} ---\n")
                 else:
-                    # 只有在所有列都存在时，才执行核心逻辑
                     is_price_weak = df['close_D'] < df[long_ma_col]
                     is_momentum_turning = df[vlong_ma_accel_col] > 0
                     final_setup = is_price_weak & is_momentum_turning
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
                     print(f"      -> '动能背离' 完成: 寻找“价弱 & 加速强”的拐点，发现 {final_setup.sum()} 天。")
 
-                    # --- 动能背离专属探针 ---
-                    probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
-                    key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21'], utc=True if df.index.tz else None)
-                    interesting_days_mask = final_setup.loc[probe_start_date:] | df.index.isin(key_dates_to_check)
+                    # --- 【核心修改】强制对齐探针 ---
+                    key_dates_to_check_raw = ['2024-08-13', '2024-08-21']
+                    key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
+                    
+                    # 创建一个布尔Series，标记出所有我们感兴趣的日期
+                    # 逻辑：当天信号为True，或者，当天的日期是我们强制要检查的日期
+                    df_dates = df.index.date
+                    is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
+                    interesting_days_mask = final_setup | is_key_date
                     
                     if interesting_days_mask.any():
                         probe_df = pd.DataFrame({
@@ -918,9 +921,15 @@ class TrendFollowStrategy:
                         }).loc[interesting_days_mask]
                         
                         if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.42) ---")
+                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.43 强制对齐版) ---")
                             print(probe_df.to_string(float_format="%.4f"))
                             print("--- [终极探针] 诊断结束 ---\n")
+                        else:
+                            # 增加一个保险的打印，如果掩码为True但最终df为空
+                            print("\n--- [探针警告] '动能背离' 掩码为True但未能生成探针数据，请检查数据对齐问题。---\n")
+                    else:
+                        # 增加一个保险的打印，如果连掩码都为False
+                        print("\n--- [探针警告] '动能背离' 未发现任何信号，也未匹配到任何关键日期。---\n")
 
         except Exception as e:
             print(f"      -> [警告] 计算'动能背离'时出错: {e}")
@@ -936,12 +945,10 @@ class TrendFollowStrategy:
                 
                 required_cols = ['close_D', mf_col, long_ma_col]
                 
-                # 【核心修改】增加强制性的前置检查站
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
                     print(f"\n--- [前置检查失败] '资本背离' 无法计算，缺少列: {missing} ---\n")
                 else:
-                    # 只有在所有列都存在时，才执行核心逻辑
                     is_price_weak = df['close_D'] < df[long_ma_col]
                     mf_accumulation = df[mf_col].rolling(window=lookback).sum()
                     is_capital_inflow = mf_accumulation > 0
