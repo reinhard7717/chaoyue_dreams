@@ -625,22 +625,22 @@ class TrendFollowStrategy:
                 daily_eval_data[f"{playbook['name']}_Precondition(T)"] = precondition_signal
 
         # 将收集到的数据转换为DataFrame，并筛选目标日期
-        if daily_eval_data:
-            daily_eval_df = pd.DataFrame(daily_eval_data, index=df.index)
-            # 筛选出2024-07-01之后，且至少有一个条件为True的日期，便于观察
-            interesting_days = daily_eval_df[
-                (daily_eval_df.index >= probe_start_date) & 
-                (daily_eval_df.any(axis=1))
-            ]
+        # if daily_eval_data:
+        #     daily_eval_df = pd.DataFrame(daily_eval_data, index=df.index)
+        #     # 筛选出2024-07-01之后，且至少有一个条件为True的日期，便于观察
+        #     interesting_days = daily_eval_df[
+        #         (daily_eval_df.index >= probe_start_date) & 
+        #         (daily_eval_df.any(axis=1))
+        #     ]
             
-            if not interesting_days.empty:
-                print("\n" + "="*25 + " [S级剧本-每日评估探针] " + "="*25)
-                print(f"--- (仅显示从 {probe_start_date.date()} 开始，且至少有一个条件为True的日期) ---")
-                # 使用 to_string() 保证所有列都能显示
-                print(interesting_days.to_string())
-                print("="*75 + "\n")
-            else:
-                print("\n--- [S级剧本-探针信息] 从 2024-07-01 起，未发现任何S级剧本的准备或触发条件成立。---\n")
+        #     if not interesting_days.empty:
+        #         print("\n" + "="*25 + " [S级剧本-每日评估探针] " + "="*25)
+        #         print(f"--- (仅显示从 {probe_start_date.date()} 开始，且至少有一个条件为True的日期) ---")
+        #         # 使用 to_string() 保证所有列都能显示
+        #         print(interesting_days.to_string())
+        #         print("="*75 + "\n")
+        #     else:
+        #         print("\n--- [S级剧本-探针信息] 从 2024-07-01 起，未发现任何S级剧本的准备或触发条件成立。---\n")
         # ▲▲▲【代码修改 V45.9】▲▲▲
         for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
