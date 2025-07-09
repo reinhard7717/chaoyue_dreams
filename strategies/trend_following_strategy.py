@@ -841,54 +841,92 @@ class TrendFollowStrategy:
         # --- 1. 调用原子信号中心 (逻辑不变) ---
         chip_atomic_signals = self._define_chip_atomic_signals(df, params)
         setups['SETUP_CHIP_ACCUMULATION'] = chip_atomic_signals.get('ATOMIC_REINFORCEMENT', pd.Series(False, index=df.index))
-        setups['SETUP_CHIP_CONCENTRATION'] = chip_atomic_signals.get('ATOMIC_CONCENTRATED_STATE', pd.Series(False, index=df.index))
 
         # --- 2. 【S级剧本重构】“潜龙出海”的准备状态 (SETUP_PROLONGED_COMPRESSION) ---
         try:
             p = playbook_specific_params.get('perfect_storm_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                lookback = self._get_param_value(p.get('compression_lookback'), 60) # 观察窗口60天
-                volatility_col = 'ATR_14_D' # 使用ATR作为波动率指标
-                mf_col = 'net_mf_amount_D'
-                if all(c in df.columns for c in [volatility_col, mf_col]):
-                    # 条件1: 60天内波动率处于低位 (例如，低于过去120天的30%分位数)
-                    # 允许更大的波动容忍度，更能适应主升浪前的预热阶段
-                    low_volatility_threshold = df[volatility_col].rolling(window=lookback*2).quantile(0.5) # 从 0.3 改为 0.5
-                    is_low_volatility = df[volatility_col] < low_volatility_threshold
-                    # 条件2: 60天内主力资金是累计净流入的
-                    is_mf_accumulating = df[mf_col].rolling(window=lookback).sum() > 0
-                    setups['SETUP_PROLONGED_COMPRESSION'] = is_low_volatility & is_mf_accumulating
-                    print(f"      -> [重构] '潜龙出海-长期蓄势'准备状态定义完成，发现 {setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series([])).sum()} 天。")
-                    if setups['SETUP_PROLONGED_COMPRESSION'].any():
-                        probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                        triggered_dates = df.index[setups['SETUP_PROLONGED_COMPRESSION']]
-                        filtered_dates = triggered_dates[triggered_dates >= probe_start_date]
-                        if not filtered_dates.empty:
-                            print(f"    [探针-SETUP | >24-07-01]: '潜龙出海-长期蓄势' 准备状态成立的日期: {filtered_dates.date.tolist()}")
+                lookback = self._get_param_value(p.get('compression_lookback'), 60)
+                
+                # 明确使用 95/15 筹码区间
+                required_cols = ['cost_95pct_D', 'cost_15pct_D', 'close_D', 'weight_avg_D', 'net_mf_amount_D']
+                if all(c in df.columns for c in required_cols):
+                    # --- 条件1: 筹码高度集中 (核心) ---
+                    # 使用 95/15 区间，覆盖80%的核心筹码，比 85/15 更全面，比 95/5 更聚焦
+                    concentration_threshold = self._get_param_value(p.get('chip_concentration_threshold'), 0.30) # 阈值放宽到30%，因为观察区间更广
+                    chip_concentration_ratio = (df['cost_95pct_D'] - df['cost_15pct_D']) / df['close_D']
+                    is_chip_concentrated = chip_concentration_ratio < concentration_threshold
+
+                    # --- 条件2: 价格站稳于成本区之上 (确认) ---
+                    is_price_above_cost = df['close_D'] > df['weight_avg_D']
+
+                    # --- 条件3: 主力资金累计净流入 (动力) ---
+                    mf_col = 'net_mf_amount_D'
+                    mf_accumulation = df[mf_col].rolling(window=lookback).sum()
+                    is_mf_accumulating = mf_accumulation > 0
+                    
+                    final_setup = is_chip_concentrated & is_price_above_cost & is_mf_accumulating
+                    setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
+                    print(f"      -> [重构] '潜龙出海'准备状态(95/15筹码版)定义完成，发现 {final_setup.sum()} 天。")
+
+                    # --- 终极探针逻辑 (保持不变) ---
+                    probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                    probe_df = pd.DataFrame({
+                        'Chip_Ratio_95_15': chip_concentration_ratio,
+                        'Chip_Thresh': concentration_threshold,
+                        'Chip_OK': is_chip_concentrated,
+                        'Price': df['close_D'],
+                        'Avg_Cost': df['weight_avg_D'],
+                        'Price_OK': is_price_above_cost,
+                        'MF_Accum': mf_accumulation,
+                        'MF_OK': is_mf_accumulating,
+                        'Final_Setup': final_setup
+                    }).loc[probe_start_date:]
+                    
+                    interesting_days = probe_df[probe_df[['Chip_OK', 'Price_OK', 'MF_OK']].any(axis=1)]
+                    if not interesting_days.empty:
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '潜龙出海' (95/15筹码版) ---")
+                        print(interesting_days.to_string(float_format="%.2f"))
+                        print("--- [终极探针] 诊断结束 ---\n")
                 else:
-                    print(f"      -> [警告] 缺少列 '{volatility_col}' 或 '{mf_col}'，无法计算'潜龙出海-长期蓄势'。")
+                    missing = [c for c in required_cols if c not in df.columns]
+                    print(f"      -> [警告] 缺少筹码列: {missing}，无法计算'潜龙出海-长期蓄势'。")
         except Exception as e:
-            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'时出错: {e}")
+            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'(筹码版)时出错: {e}")
 
         # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
         try:
             p = setup_params.get('capital_flow_divergence_params', {})
-            if self._get_param_value(p.get('enabled'), False):
-                lookback = self._get_param_value(p.get('divergence_lookback'), 20) # 观察窗口20天
+            if self._get_param_value(p.get('enabled'), True): # 注意这里是从 setup_params 获取
+                lookback = self._get_param_value(p.get('divergence_lookback'), 20)
                 mf_col = 'net_mf_amount_D'
                 if mf_col in df.columns:
-                    # 条件1: 20天内价格没有创出新高 (处于下跌或盘整)
-                    # is_price_consolidating = df['high_D'] <= df['high_D'].shift(1).rolling(window=lookback).max()
+                    # 恢复其“背离”的原始定义，与“潜龙出海”形成互补
+                    # 条件1: 价格在20天内没有创出新高 (处于下跌或盘整)
+                    is_price_consolidating = df['high_D'] <= df['high_D'].shift(1).rolling(window=lookback).max()
+                    
                     # 条件2: 20天内主力资金是累计净流入的
-                    is_mf_accumulating = df[mf_col].rolling(window=lookback).sum() > 0
-                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = is_mf_accumulating
-                    print(f"      -> [重构] '资金暗流(底部背离)'准备状态定义完成，发现 {setups.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series([])).sum()} 天。")
-                    if setups['SETUP_CAPITAL_FLOW_DIVERGENCE'].any():
-                        probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                        triggered_dates = df.index[setups['SETUP_CAPITAL_FLOW_DIVERGENCE']]
-                        filtered_dates = triggered_dates[triggered_dates >= probe_start_date]
-                        if not filtered_dates.empty:
-                            print(f"    [探针-SETUP | >24-07-01]: '猛兽苏醒-资金背离' 准备状态成立的日期: {filtered_dates.date.tolist()}")
+                    mf_accumulation = df[mf_col].rolling(window=lookback).sum()
+                    is_mf_accumulating = mf_accumulation > 0
+                    
+                    final_setup = is_price_consolidating & is_mf_accumulating
+                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = final_setup
+                    print(f"      -> [重构] '资金暗流(底部背离)'准备状态定义完成，发现 {final_setup.sum()} 天。")
+
+                    # --- 猛兽苏醒的专属探针 ---
+                    probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                    probe_df = pd.DataFrame({
+                        'Price_Consolidating': is_price_consolidating,
+                        'MF_Accum': mf_accumulation,
+                        'MF_OK': is_mf_accumulating,
+                        'Final_Setup': final_setup
+                    }).loc[probe_start_date:]
+                    
+                    interesting_days = probe_df[probe_df[['Price_Consolidating', 'MF_OK']].any(axis=1)]
+                    if not interesting_days.empty:
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (背离版) ---")
+                        print(interesting_days.to_string(float_format="%.2f"))
+                        print("--- [终极探针] 诊断结束 ---\n")
                 else:
                     print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
         except Exception as e:
