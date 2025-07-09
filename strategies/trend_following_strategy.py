@@ -899,19 +899,19 @@ class TrendFollowStrategy:
                     print(f"      -> [重构] '资金暗流(底部背离)'准备状态定义完成，发现 {final_setup.sum()} 天。")
 
                     # --- 猛兽苏醒的专属探针 ---
-                    probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                    probe_df = pd.DataFrame({
-                        'Price_Consolidating': is_price_consolidating,
-                        'MF_Accum': mf_accumulation,
-                        'MF_OK': is_mf_accumulating,
-                        'Final_Setup': final_setup
-                    }).loc[probe_start_date:]
+                    # probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                    # probe_df = pd.DataFrame({
+                    #     'Price_Consolidating': is_price_consolidating,
+                    #     'MF_Accum': mf_accumulation,
+                    #     'MF_OK': is_mf_accumulating,
+                    #     'Final_Setup': final_setup
+                    # }).loc[probe_start_date:]
                     
-                    interesting_days = probe_df[probe_df[['Price_Consolidating', 'MF_OK']].any(axis=1)]
-                    if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (背离版) ---")
-                        print(interesting_days.to_string(float_format="%.2f"))
-                        print("--- [终极探针] 诊断结束 ---\n")
+                    # interesting_days = probe_df[probe_df[['Price_Consolidating', 'MF_OK']].any(axis=1)]
+                    # if not interesting_days.empty:
+                    #     print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (背离版) ---")
+                    #     print(interesting_days.to_string(float_format="%.2f"))
+                    #     print("--- [终极探针] 诊断结束 ---\n")
                 else:
                     print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
         except Exception as e:
