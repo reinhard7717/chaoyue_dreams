@@ -953,16 +953,19 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('pullback_post_breakout_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                # 1. 识别关键的突破日 (复用“潜龙出海”的最终信号)
-                breakout_signal = setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series(False, index=df.index))
-                is_first_day_of_breakout = breakout_signal & ~breakout_signal.shift(1).fillna(False)
                 
-                # 2. 找到每次突破发生时的平台高点或关键支撑作为回踩的“防守线”
-                support_level_on_breakout = df['cost_95pct_D'].shift(1).where(is_first_day_of_breakout)
+                # 1. 启动器: 精确监听“主力点火”这个【触发事件】
+                # 为了让本模块独立，我们在此重新计算一次该触发器
+                is_breakout_structure = chip_atomic_signals.get('ATOMIC_COST_BREAKTHROUGH', pd.Series(False, index=df.index))
+                is_institutional_buying = df.get('net_mf_amount_D', pd.Series(0)).fillna(0) > 0
+                ignition_trigger = is_breakout_structure & is_institutional_buying
                 
-                # 3. 让这个支撑位在突破后持续有效一段时间
+                # 2. 支撑线: 在“主力点火”当天，捕获当日的95%成本线作为支撑
+                support_level_on_ignition = df['cost_95pct_D'].where(ignition_trigger)
+                
+                # 3. 让支撑位在点火后持续有效N天
                 lookback_days = self._get_param_value(p.get('lookback_days'), 15)
-                active_support = support_level_on_breakout.ffill(limit=lookback_days)
+                active_support = support_level_on_ignition.ffill(limit=lookback_days)
                 
                 # 4. 定义回踩状态
                 proximity = self._get_param_value(p.get('proximity_pct'), 1.02)
@@ -971,12 +974,12 @@ class TrendFollowStrategy:
                 
                 final_setup = is_pullback_to_support & is_volume_shrinking
                 setups['SETUP_PULLBACK_POST_BREAKOUT'] = final_setup
-                print(f"      -> '突破后回踩'准备状态定义完成，发现 {final_setup.sum()} 天。")
+                print(f"      -> '突破后回踩'(事件驱动版)准备状态定义完成，发现 {final_setup.sum()} 天。")
 
-                # --- 专属探针逻辑 ---
+                # --- 专属探针逻辑 (同步升级) ---
                 probe_start_date = pd.to_datetime('2024-07-01', utc=True)
                 probe_df = pd.DataFrame({
-                    'BreakoutDay': is_first_day_of_breakout,
+                    'IgnitionDay': ignition_trigger, # 修改: 探针监听“点火日”
                     'SupportLine': active_support,
                     'DayLow': df['low_D'],
                     'SupportThresh': active_support * proximity,
@@ -984,17 +987,17 @@ class TrendFollowStrategy:
                     'Volume': df['volume_D'],
                     'Vol_MA21': df['VOL_MA_21_D'],
                     'Volume_OK': is_volume_shrinking,
-                    'Final_Setup': final_setup
+                    '_Setup': final_setup
                 }).loc[probe_start_date:]
                 
-                interesting_days = probe_df[probe_df[['Price_OK', 'Volume_OK', 'BreakoutDay']].any(axis=1)]
+                interesting_days = probe_df[probe_df[['IgnitionDay', '_Setup']].any(axis=1)]
                 if not interesting_days.empty:
-                    print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '突破后回踩' ---")
+                    print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '突破后回踩' (事件驱动版) ---")
                     print(interesting_days.to_string(float_format="%.2f"))
                     print("--- [终极探针] 诊断结束 ---\n")
 
         except Exception as e:
-            print(f"      -> [警告] 计算'突破后回踩'时出错: {e}")
+            print(f"      -> [警告] 计算'突破后回踩'(事件驱动版)时出错: {e}")
 
         # --- 5. 老鸭头-鸭颈 ---
         try:
