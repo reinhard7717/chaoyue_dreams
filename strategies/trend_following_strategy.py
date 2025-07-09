@@ -940,40 +940,51 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                ma_period = self._get_param_value(p.get('support_ma'), 21)
-                ma_col = f'EMA_{ma_period}_D'
-                vol_ma_col = 'VOL_MA_21_D'
+                # 定义三条均线，代表短、中、长三个周期
+                short_ma_period = 13
+                mid_ma_period = 21
+                long_ma_period = 55
                 
-                if all(c in df.columns for c in [ma_col, vol_ma_col, f'SLOPE_{ma_col}_5', f'SLOPE_{vol_ma_col}_10', 'SLOPE_close_D_5']):
-                    # 条件1: 趋势向上 (均线斜率为正)
-                    is_uptrend = df[f'SLOPE_{ma_col}_5'] > 0
-                    # 条件2: 回踩缩量 (成交量均线斜率为负)
-                    is_volume_drying_up = df[f'SLOPE_{vol_ma_col}_10'] < 0
-                    # 条件3: 价格有序回落 (收盘价斜率为负)
-                    is_orderly_retreat = df['SLOPE_close_D_5'] < 0
+                short_ma_col = f'EMA_{short_ma_period}_D'
+                mid_ma_col = f'EMA_{mid_ma_period}_D'
+                long_ma_col = f'EMA_{long_ma_period}_D'
+                
+                required_cols = [short_ma_col, mid_ma_col, long_ma_col, 'VOL_MA_21_D']
+                if all(c in df.columns for c in required_cols):
+                    # 条件1: 长期趋势健康 (趋势的根基)
+                    # 收盘价必须在长期均线之上，且长期均线本身是向上走的
+                    is_long_trend_ok = (df['close_D'] > df[long_ma_col]) & (df[long_ma_col] > df[long_ma_col].shift(1))
                     
-                    final_setup = is_uptrend & is_volume_drying_up & is_orderly_retreat
-                    setups['SETUP_HEALTHY_PULLBACK'] = final_setup
-                    print(f"      -> '健康回踩'(通用型)准备状态定义完成，发现 {final_setup.sum()} 天。")
+                    # 条件2: 处于回踩状态 (短暂的回归)
+                    # 收盘价有效跌破短期攻击均线，表明攻击暂缓，进入回调
+                    is_in_pullback_state = df['close_D'] < df[short_ma_col]
+                    
+                    # 条件3: 量能配合 (缩量)
+                    is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
 
-                    # --- “健康回踩”专属探针 ---
+                    final_setup = is_long_trend_ok & is_in_pullback_state & is_volume_shrinking
+                    setups['SETUP_HEALTHY_PULLBACK'] = final_setup
+                    print(f"      -> '健康回踩'(哲学重构版)准备状态定义完成，发现 {final_setup.sum()} 天。")
+
+                    # --- “健康回踩”专属探针 (同步升级) ---
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True)
                     probe_df = pd.DataFrame({
-                        'Uptrend_OK': is_uptrend,
-                        'Vol_Shrink_OK': is_volume_drying_up,
-                        'Price_Retreat_OK': is_orderly_retreat,
+                        'Long_Trend_OK': is_long_trend_ok,
+                        'In_Pullback_OK': is_in_pullback_state,
+                        'Vol_Shrink_OK': is_volume_shrinking,
                         '_Setup': final_setup
                     }).loc[probe_start_date:]
                     
                     interesting_days = probe_df[probe_df['_Setup']]
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (通用型) ---")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (哲学重构版) ---")
                         print(interesting_days.to_string())
                         print("--- [终极探针] 诊断结束 ---\n")
                 else:
-                    print(f"      -> [警告] 缺少计算'健康回踩'所需的列，跳过。")
+                    missing_cols_str = ", ".join([c for c in required_cols if c not in df.columns])
+                    print(f"      -> [警告] 缺少列: {missing_cols_str}。无法计算'健康回踩'(哲学重构版)。")
         except Exception as e:
-            print(f"      -> [警告] 计算'健康回踩'(通用型)时出错: {e}")
+            print(f"      -> [警告] 计算'健康回踩'(哲学重构版)时出错: {e}")
 
         # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
         try:
