@@ -442,7 +442,7 @@ class IndicatorService:
 
             if tf == 'D':
                 print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
-                self._log_alignment_check(df_with_indicators)
+                # self._log_alignment_check(df_with_indicators)
             
             return tf, df_with_indicators
 

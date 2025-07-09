@@ -133,7 +133,7 @@ class TrendFollowStrategy:
         
         df = self._ensure_numeric_types(df)
         # 在每次运行时重置筹码信号的缓存
-        self._chip_atomic_signals_cache = None
+        self._chip_atomic_signals_cache_by_tf = {}
 
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
 
@@ -1932,26 +1932,55 @@ class TrendFollowStrategy:
     # ▼▼▼ “原子筹码信号提供器” (Atomic Chip Signal Provider) ▼▼▼
     def _define_chip_atomic_signals(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V41.7 权威合并版】
-        - 核心功能: 融合了所有分散的筹码剧本逻辑，成为计算底层筹码信号的唯一“真理之源”。
-                    本函数将取代所有旧的、分散的筹码计算函数和旧版的原子信号函数。
-        - 优化: 内置缓存机制，避免在同一次`apply_strategy`调用中重复计算。
-        - 输出: 一个包含多个布尔型Series的字典，每个代表一个原子筹码信号。
+        【V45.5 时间框架感知缓存版】
+        - 核心功能: 融合所有分散的筹码剧本逻辑，成为计算底层筹码信号的唯一“真理之源”。
+        - 根本性修复: 引入按时间框架区分的缓存机制 (self._chip_atomic_signals_cache_by_tf)，
+                      彻底解决因缓存污染导致日线计算返回周线结果的根本问题。
+        - 增强诊断: 在函数入口增加“数据完整性探针”，验证传入df的索引是否为日线。
         """
-        # 检查缓存，如果存在则直接返回，避免重复计算
-        if hasattr(self, '_chip_atomic_signals_cache') and self._chip_atomic_signals_cache is not None:
-            print("      -> [筹码原子信号中心 V41.7] 从缓存加载信号。")
-            return self._chip_atomic_signals_cache
+        # --- 步骤 0: 数据完整性探针 (治本的第一步：验证输入) ---
+        print("\n--- [探针-CHIP_INPUT | V45.5] 正在检查 _define_chip_atomic_signals 的输入DataFrame ---")
+        if df.empty:
+            print("  -> 输入的DataFrame为空，无法进行诊断和计算。")
+            return {}
+        try:
+            # 尝试推断索引频率
+            freq = pd.infer_freq(df.index)
+            print(f"  -> 输入 df 的推断索引频率: {freq}")
+            print(f"  -> 输入 df 的总行数: {len(df)}")
+            print(f"  -> 输入 df 的起始日期: {df.index[0].date()}")
+            print(f"  -> 输入 df 的结束日期: {df.index[-1].date()}")
+            # 从列名中推断时间框架，作为缓存的key
+            tf_key = 'D' # 默认为日线
+            for col in df.columns:
+                if col.endswith('_W'):
+                    tf_key = 'W'
+                    break
+                elif col.endswith('_M'):
+                    tf_key = 'M'
+                    break
+            print(f"  -> 从列名推断的时间框架(缓存Key): '{tf_key}'")
+        except Exception as e:
+            print(f"  -> [警告] 诊断输入df时发生错误: {e}")
+            tf_key = 'D' # 出错时默认
+        print("--- [探针-CHIP_INPUT] 检查结束 ---\n")
+
+        # --- 步骤 1: 检查“时间框架感知”的缓存 ---
+        if hasattr(self, '_chip_atomic_signals_cache_by_tf') and tf_key in self._chip_atomic_signals_cache_by_tf:
+            print(f"      -> [筹码原子信号中心 V45.5] 从缓存加载 '{tf_key}' 框架的信号。")
+            return self._chip_atomic_signals_cache_by_tf[tf_key]
         
-        print("      -> [筹码原子信号中心 V41.7] 启动，开始计算所有底层筹码信号...")
+        print(f"      -> [筹码原子信号中心 V45.5] 启动，为 '{tf_key}' 框架计算所有底层筹码信号...")
         signals = {}
-        # 注意：这里的参数块名称与JSON配置完全对应
         chip_params = self._get_params_block(params, 'chip_atomic_signal_params', {})
         if not self._get_param_value(chip_params.get('enabled'), False):
             print("        -> [警告] 原子化筹码信号计算被禁用，返回空信号。")
-            self._chip_atomic_signals_cache = {} # 缓存空结果
+            if hasattr(self, '_chip_atomic_signals_cache_by_tf'):
+                self._chip_atomic_signals_cache_by_tf[tf_key] = {} # 缓存空结果
             return {}
 
+        # --- 步骤 2: 信号计算 (逻辑保持不变，但现在是安全的) ---
+        # ... (此处的计算逻辑与您之前的版本完全相同，无需修改) ...
         # --- 1. 成本区增强 (ATOMIC_REINFORCEMENT) ---
         try:
             p = chip_params.get('reinforcement_params', {})
@@ -2002,7 +2031,6 @@ class TrendFollowStrategy:
         try:
             p = chip_params.get('pressure_release_params', {})
             if self._get_param_value(p.get('enabled'), False) and 'cost_95pct_D' in df.columns:
-                # 定义为“突破”事件，而非仅仅是“高于”
                 signals['ATOMIC_PRESSURE_RELEASE'] = (df['close_D'] > df['cost_95pct_D']) & (df['close_D'].shift(1) <= df['cost_95pct_D'].shift(1))
                 print(f"        -> '突破95%套牢盘'信号计算完成，发现 {signals.get('ATOMIC_PRESSURE_RELEASE', pd.Series([])).sum()} 天。")
         except Exception as e:
@@ -2016,8 +2044,8 @@ class TrendFollowStrategy:
                 print(f"        -> '突破85%套牢盘'信号计算完成，发现 {signals.get('ATOMIC_HURDLE_CLEAR', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"        -> [警告] 计算'突破85%套牢盘'信号时出错: {e}")
-            
-        # --- 6. 填充与清洗 ---
+
+        # --- 步骤 3: 填充、清洗并存入“时间框架感知”的缓存 ---
         all_atomic_signals = [
             'ATOMIC_REINFORCEMENT', 'ATOMIC_CONCENTRATED_STATE', 'ATOMIC_CONCENTRATION_BREAKOUT',
             'ATOMIC_COST_BREAKTHROUGH', 'ATOMIC_PRESSURE_RELEASE', 'ATOMIC_HURDLE_CLEAR'
@@ -2028,8 +2056,10 @@ class TrendFollowStrategy:
             else:
                 signals[sig_name].fillna(False, inplace=True)
         
-        self._chip_atomic_signals_cache = signals # 缓存结果
-        print("      -> [筹码原子信号中心 V41.7] 计算完成。")
+        if hasattr(self, '_chip_atomic_signals_cache_by_tf'):
+            self._chip_atomic_signals_cache_by_tf[tf_key] = signals # 按推断出的时间框架key缓存结果
+        
+        print(f"      -> [筹码原子信号中心 V45.5] 为 '{tf_key}' 框架计算完成并已缓存。")
         return signals
 
     # ▼▼▼ 风险状态定义中心 ▼▼▼
