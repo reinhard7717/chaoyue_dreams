@@ -903,12 +903,20 @@ class TrendFollowStrategy:
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
                     print(f"      -> '动能背离' 完成: 寻找“价弱 & 加速强”的拐点，发现 {final_setup.sum()} 天。")
 
-                    # --- 动能背离专属探针 (V45.43版，已验证有效) ---
+                    # --- 【核心修改】聚焦探针逻辑 ---
+                    probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
+                    probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
+                    
                     key_dates_to_check_raw = ['2024-08-13', '2024-08-21']
                     key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
+                    
                     df_dates = df.index.date
                     is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
-                    interesting_days_mask = final_setup | is_key_date
+                    
+                    # 1. 先筛选出时间窗口内的数据
+                    window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
+                    # 2. 在时间窗口内，寻找满足条件的日子
+                    interesting_days_mask = window_mask & (final_setup | is_key_date)
                     
                     if interesting_days_mask.any():
                         probe_df = pd.DataFrame({
@@ -918,7 +926,7 @@ class TrendFollowStrategy:
                         }).loc[interesting_days_mask]
                         
                         if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.44) ---")
+                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.45 聚焦版) ---")
                             print(probe_df.to_string(float_format="%.4f"))
                             print("--- [终极探针] 诊断结束 ---\n")
 
@@ -947,12 +955,18 @@ class TrendFollowStrategy:
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
                     print(f"      -> '资本背离' 完成: 寻找“价弱 & 资金强”的背离，发现 {final_setup.sum()} 天。")
 
-                    # --- 【核心修改】为资本背离增加专属探针 ---
+                    # --- 【核心修改】聚焦探针逻辑 ---
+                    probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
+                    probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
+                    
                     key_dates_to_check_raw = ['2024-08-13', '2024-08-21']
                     key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
+
                     df_dates = df.index.date
                     is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
-                    interesting_days_mask = final_setup | is_key_date
+                    
+                    window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
+                    interesting_days_mask = window_mask & (final_setup | is_key_date)
 
                     if interesting_days_mask.any():
                         probe_df = pd.DataFrame({
@@ -962,7 +976,7 @@ class TrendFollowStrategy:
                         }).loc[interesting_days_mask]
 
                         if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '资本背离' (V45.44) ---")
+                            print("\n--- [终极探针-SETUP] 诊断 '资本背离' (V45.45 聚焦版) ---")
                             print(probe_df.to_string(float_format="%.4f"))
                             print("--- [终极探针] 诊断结束 ---\n")
 
