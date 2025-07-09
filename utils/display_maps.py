@@ -18,51 +18,76 @@ PLAYBOOK_NAME_MAP = {
     # ===               日线战术剧本 (Tactical Playbooks)             ===
     # ==================================================================
     
-    # --- A. 左侧交易剧本 (Left-Side Plays) ---
-    # 描述: 捕捉趋势转折点，通常需要周线企稳信号(CONTEXT_STRATEGIC_BOTTOMING_W)作为前置许可。
-    'BOTTOM_DIVERGENCE': '【日线-左侧】复合底背离',
-    'CAPITAL_FLOW_DIVERGENCE': '【日线-左侧】资金暗流',
-    'WINNER_RATE_REVERSAL': '【日线-左侧】投降坑反转',
-    'V_SHAPE_REVERSAL': '【日线-左侧】V型反转',
-    'WASHOUT_REVERSAL': '【日线-左侧】巨阴洗盘反转',
-    'KLINE_MORNING_STAR': '【日线-左侧】早晨之星',
-    'BIAS_REVERSAL': '【日线-左侧】BIAS超跌反弹',
+    'EARTH_HEAVEN_BOARD': '【日线-S】地天板',
+    'PERFECT_STORM': '【日线-S】潜龙出海',
+    'AWAKENED_BEAST': '【日线-S】猛兽苏醒',
+    'WASH_AND_RISE': '【日线-S】洗盘拉升',
+    'MOMENTUM_INFLECTION_POINT': '【日线-A+】动能拐点',
+    'GAP_SUPPORT_CONFIRMED': '【日线-A+】缺口支撑',
+    'FIBONACCI_PULLBACK': '【日线-A+】黄金回踩',
+    'BREAKOUT_RETEST_GO': '【日线-A+】突破回踩',
+    'REVERSAL_FIRST_PULLBACK': '【日线-A+】反转首踩',
+    'OLD_DUCK_HEAD_TAKEOFF': '【日线-A+】老鸭回头',
+    'N_SHAPE_RELAY': '【日线-A】N字接力',
+    'MA_ACCELERATION': '【日线-A】均线加速',
+    'ENERGY_RELEASE': '【日线-A】能量释放',
+    'PULLBACK_REBOUND_CONFIRMED': '【日线-A】回踩确认',
+    'V_REVERSAL_ENTRY': '【日线-A】V型反转',
+    'WINNER_RATE_REVERSAL': '【日线-B】投降坑反转',
+    'WASHOUT_REVERSAL': '【日线-B】洗盘反包',
+    'DOJI_CONTINUATION': '【日线-B】十字星接力',
+    'MOMENTUM_BREAKOUT': '【日线-B】动量突破',
+    'RELATIVE_STRENGTH_LEADER': '【日线-B】相对强势',
+    'BBAND_SQUEEZE_BREAKOUT': '【日线-B】布林压缩突破',
+    'FORTRESS_DEFENDED': '【日线-B】堡垒防守',
+    'MACD_LOW_CROSS_REVERSAL': '【日线-B】MACD低位金叉',
+    'BIAS_REVERSAL': '【日线-B】BIAS超跌反弹',
+    
+    # # --- A. 左侧交易剧本 (Left-Side Plays) ---
+    # # 描述: 捕捉趋势转折点，通常需要周线企稳信号(CONTEXT_STRATEGIC_BOTTOMING_W)作为前置许可。
+    # 'BOTTOM_DIVERGENCE': '【日线-左侧】复合底背离',
+    # 'CAPITAL_FLOW_DIVERGENCE': '【日线-左侧】资金暗流',
+    # 'WINNER_RATE_REVERSAL': '【日线-左侧】投降坑反转',
+    # 'V_SHAPE_REVERSAL': '【日线-左侧】V型反转',
+    # 'WASHOUT_REVERSAL': '【日线-左侧】巨阴洗盘反转',
+    # 'KLINE_MORNING_STAR': '【日线-左侧】早晨之星',
+    # 'BIAS_REVERSAL': '【日线-左侧】BIAS超跌反弹',
 
-    # --- B. 右侧交易剧本 (Right-Side Plays) ---
-    # 描述: 追随已形成的趋势，通常需要周线趋势健康(context_mid_term_bullish)作为基础环境。
-    # B.1 趋势启动/突破类
-    'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线】筹码集中突破',
-    'COST_AREA_REINFORCEMENT': '【日线-王牌】成本区增强',
-    'ENERGY_COMPRESSION_BREAKOUT': '【日线-王牌】潜龙在渊',
-    'FIRST_BREAKOUT': '【日线-右侧】底部首板',
-    'BBAND_SQUEEZE_BREAKOUT': '【日线-右侧】布林收口突破',
-    'CONSOLIDATION_BREAKOUT': '【日线-右侧】盘整区突破',
-    'CHIP_COST_BREAKTHROUGH': '【日线-右侧】筹码成本区突破',
-    # B.2 趋势持续/加速类
-    'OLD_DUCK_HEAD': '【日线-王牌】老鸭头',
-    'CHIP_PRESSURE_RELEASE': '【日线-王牌】筹码压力释放',
-    'MA_ACCELERATION': '【日线-右侧】均线加速上涨',
-    'N_SHAPE_RELAY': '【日线-右侧】N字板接力',
-    'BULLISH_FLAG': '【日线-右侧】上升旗形',
-    'CHIP_HURDLE_CLEAR': '【日线-右侧】筹码关口扫清',
-    'KLINE_THREE_SOLDIERS': '【日线-右侧】红三兵',
-    'MOMENTUM_BREAKOUT': '【日线-右侧】动量突破',
-    'DOJI_CONTINUATION': '【日线-右侧】十字星中继',
-    'RELATIVE_STRENGTH_MAVERICK': '【日线-右侧】逆市强人',
-    # B.3 回踩买入类
-    'PULLBACK_FIBONACCI': '【日线-右侧】斐波那契回撤',
-    'PULLBACK_NORMAL': '【日线-右侧】常规回踩',
-    'PULLBACK_STEADY_CLIMB': '【日线-右侧】稳步回踩',
-    'PULLBACK_SETUP': '【日线-右侧】回踩准备', # 注意：这是一个准备信号，不是直接买点
-    # B.4 指标确认类
-    'MACD_ZERO_CROSS': '【日线-指标】MACD零轴金叉',
-    'MACD_LOW_CROSS': '【日线-指标】MACD低位金叉',
-    'MACD_HIGH_CROSS': '【日线-指标】MACD高位金叉',
-    'DMI_CROSS': '【日线-指标】DMI金叉',
+    # # --- B. 右侧交易剧本 (Right-Side Plays) ---
+    # # 描述: 追随已形成的趋势，通常需要周线趋势健康(context_mid_term_bullish)作为基础环境。
+    # # B.1 趋势启动/突破类
+    # 'CHIP_CONCENTRATION_BREAKTHROUGH': '【日线】筹码集中突破',
+    # 'COST_AREA_REINFORCEMENT': '【日线-王牌】成本区增强',
+    # 'ENERGY_COMPRESSION_BREAKOUT': '【日线-王牌】潜龙在渊',
+    # 'FIRST_BREAKOUT': '【日线-右侧】底部首板',
+    # 'BBAND_SQUEEZE_BREAKOUT': '【日线-右侧】布林收口突破',
+    # 'CONSOLIDATION_BREAKOUT': '【日线-右侧】盘整区突破',
+    # 'CHIP_COST_BREAKTHROUGH': '【日线-右侧】筹码成本区突破',
+    # # B.2 趋势持续/加速类
+    # 'OLD_DUCK_HEAD': '【日线-王牌】老鸭头',
+    # 'CHIP_PRESSURE_RELEASE': '【日线-王牌】筹码压力释放',
+    # 'MA_ACCELERATION': '【日线-右侧】均线加速上涨',
+    # 'N_SHAPE_RELAY': '【日线-右侧】N字板接力',
+    # 'BULLISH_FLAG': '【日线-右侧】上升旗形',
+    # 'CHIP_HURDLE_CLEAR': '【日线-右侧】筹码关口扫清',
+    # 'KLINE_THREE_SOLDIERS': '【日线-右侧】红三兵',
+    # 'MOMENTUM_BREAKOUT': '【日线-右侧】动量突破',
+    # 'DOJI_CONTINUATION': '【日线-右侧】十字星中继',
+    # 'RELATIVE_STRENGTH_MAVERICK': '【日线-右侧】逆市强人',
+    # # B.3 回踩买入类
+    # 'PULLBACK_FIBONACCI': '【日线-右侧】斐波那契回撤',
+    # 'PULLBACK_NORMAL': '【日线-右侧】常规回踩',
+    # 'PULLBACK_STEADY_CLIMB': '【日线-右侧】稳步回踩',
+    # 'PULLBACK_SETUP': '【日线-右侧】回踩准备', # 注意：这是一个准备信号，不是直接买点
+    # # B.4 指标确认类
+    # 'MACD_ZERO_CROSS': '【日线-指标】MACD零轴金叉',
+    # 'MACD_LOW_CROSS': '【日线-指标】MACD低位金叉',
+    # 'MACD_HIGH_CROSS': '【日线-指标】MACD高位金叉',
+    # 'DMI_CROSS': '【日线-指标】DMI金叉',
 
-    # --- C. 独立/特殊剧本 (Context-Independent Plays) ---
-    # 描述: 基于极端市场情绪或特殊结构，无需常规周线前提。
-    'EARTH_HEAVEN_BOARD': '【日线-终极】地天板',
+    # # --- C. 独立/特殊剧本 (Context-Independent Plays) ---
+    # # 描述: 基于极端市场情绪或特殊结构，无需常规周线前提。
+    # 'EARTH_HEAVEN_BOARD': '【日线-终极】地天板',
 
     # ==================================================================
     # ===            周线战略指令 (Strategic Directives)             ===

@@ -708,7 +708,6 @@ class TrendFollowStrategy:
             score_details_df.loc[has_primary_score, 'DYNAMICS_SCORE'] = dynamics_score.loc[has_primary_score]
 
         # 融合战略背景分 (周线)
-        # ... (这部分代码保持不变，直接从您原来的函数中复制过来即可) ...
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
         all_base_score_cols = [king_signal_col]
