@@ -594,6 +594,53 @@ class TrendFollowStrategy:
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
         df['base_score'] = 0.0
         has_been_scored = pd.Series(False, index=df.index)
+        # ▼▼▼【代码修改 V45.9】: 植入S级剧本专用探针 ▼▼▼
+        # 定义探针的起始日期
+        probe_start_date = pd.to_datetime('2024-07-01').tz_localize('UTC') if df.index.tz else pd.to_datetime('2024-07-01')
+        
+        # 筛选出需要探针的剧本
+        s_tier_playbooks_to_probe = ['PERFECT_STORM', 'AWAKENED_BEAST']
+        
+        # 为这些剧本创建一个每日评估的DataFrame
+        daily_eval_data = {}
+        for playbook in playbook_definitions:
+            if playbook['name'] in s_tier_playbooks_to_probe:
+                # 准备状态(T-1)
+                setup_signal = playbook.get('setup', pd.Series(False, index=df.index))
+                if isinstance(setup_signal, bool):
+                    setup_signal = pd.Series(setup_signal, index=df.index)
+                
+                # 触发事件(T)
+                trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
+                
+                # 核心前提(T)
+                precondition_signal = playbook.get('precondition', pd.Series(False, index=df.index))
+                if isinstance(precondition_signal, bool):
+                    precondition_signal = pd.Series(precondition_signal, index=df.index)
+
+                # 收集数据
+                daily_eval_data[f"{playbook['name']}_Setup(T-1)"] = setup_signal.shift(1).fillna(False)
+                daily_eval_data[f"{playbook['name']}_Trigger(T)"] = trigger_signal
+                daily_eval_data[f"{playbook['name']}_Precondition(T)"] = precondition_signal
+
+        # 将收集到的数据转换为DataFrame，并筛选目标日期
+        if daily_eval_data:
+            daily_eval_df = pd.DataFrame(daily_eval_data, index=df.index)
+            # 筛选出2024-07-01之后，且至少有一个条件为True的日期，便于观察
+            interesting_days = daily_eval_df[
+                (daily_eval_df.index >= probe_start_date) & 
+                (daily_eval_df.any(axis=1))
+            ]
+            
+            if not interesting_days.empty:
+                print("\n" + "="*25 + " [S级剧本-每日评估探针] " + "="*25)
+                print(f"--- (仅显示从 {probe_start_date.date()} 开始，且至少有一个条件为True的日期) ---")
+                # 使用 to_string() 保证所有列都能显示
+                print(interesting_days.to_string())
+                print("="*75 + "\n")
+            else:
+                print("\n--- [S级剧本-探针信息] 从 2024-07-01 起，未发现任何S级剧本的准备或触发条件成立。---\n")
+        # ▲▲▲【代码修改 V45.9】▲▲▲
         for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
