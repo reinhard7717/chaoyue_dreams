@@ -433,16 +433,16 @@ class IndicatorService:
                 if df_supplemental is not None and not df_supplemental.empty:
                     print("    - [数据融合] 正在将补充数据(资金流、筹码等)合并到日线...")
                     df_supplemental_std = self._standardize_df_index_to_utc(df_supplemental)
-                    print(f"    - [数据流追踪] 步骤2: 日线合并前，行数: {len(df)}, 补充数据行数: {len(df_supplemental_std)}")
+                    # print(f"    - [数据流追踪] 步骤2: 日线合并前，行数: {len(df)}, 补充数据行数: {len(df_supplemental_std)}")
                     df = pd.merge(df, df_supplemental_std, left_index=True, right_index=True, how='left')
                     df[list(df_supplemental_std.columns)] = df[list(df_supplemental_std.columns)].ffill()
-                    print(f"    - [数据流追踪] 步骤3: 日线合并后，行数: {len(df)}, 列: {df.columns.tolist()}")
+                    # print(f"    - [数据流追踪] 步骤3: 日线合并后，行数: {len(df)}, 列: {df.columns.tolist()}")
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
 
-            # if tf == 'D':
-            #     print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
-            #     self._log_alignment_check(df_with_indicators)
+            if tf == 'D':
+                print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
+                self._log_alignment_check(df_with_indicators)
             
             return tf, df_with_indicators
 
