@@ -159,6 +159,9 @@ class TrendFollowStrategy:
         # 步骤 2: 计算斜率 (保持不变)
         df = self._calculate_trend_slopes(df, params)
 
+        # 步骤 2.5: 计算背景上下文 (新)
+        df = self._calculate_background_contexts(df, params)
+
         self.signals, self.scores = {}, {}
         df = self.pattern_recognizer.identify_all(df)
 
@@ -205,7 +208,7 @@ class TrendFollowStrategy:
                     score_breakdown = self._last_score_details_df.loc[entry_date].dropna()
                     active_playbooks = [
                         k for k, v in score_breakdown.items() 
-                        if v > 0 and not k.startswith(('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP'))
+                        if v > 0 and not k.startswith(('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP', 'INTERNAL_'))
                     ]
                 else:
                     active_playbooks = []
@@ -355,6 +358,48 @@ class TrendFollowStrategy:
                 df[jerk_col_name] = df[accel_col_name].rolling(window=lookback, min_periods=max(2, lookback // 2)).apply(get_slope, raw=False)
                 
         print("    - [斜率中心 V45.53] 所有斜率计算完成。")
+        return df
+
+    # 背景上下文计算中心 (条件驱动)
+    def _calculate_background_contexts(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V47.0 新增】背景上下文计算中心 (条件驱动)
+        - 核心思想: 将上下文的定义从“事件驱动+计时器”模式，升级为“持续条件驱动”模式。
+        - 解决了什么问题: 彻底解决了上下文状态因计时器过短而过早失效，导致后续协同剧本无法触发的根本性逻辑缺陷。
+        - 返回: 增加了 'CONTEXT_*_ACTIVE' 列的DataFrame。
+        """
+        print("    - [上下文中心 V47.0] 开始计算'条件驱动'的背景状态...")
+        
+        # --- 上下文1: 资本背离激活 (CONTEXT_CAPITAL_DIVERGENCE_ACTIVE) ---
+        context_active = pd.Series(False, index=df.index)
+        try:
+            # 复用'资本背离'准备状态中的参数
+            p = self._get_params_block(params, 'setup_condition_params', {}).get('capital_flow_divergence_params', {})
+            if self._get_param_value(p.get('enabled'), True):
+                trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
+                mf_slope_threshold = self._get_param_value(p.get('mf_slope_threshold'), 0)
+                
+                trend_ma_col = f'EMA_{trend_ma_period}_D'
+                mf_slope_col = 'SLOPE_net_mf_amount_D_10'
+
+                required_cols = ['close_D', trend_ma_col, mf_slope_col]
+                if all(col in df.columns for col in required_cols):
+                    # 核心条件：1. 价格弱势 (低于趋势线) AND 2. 主力资金斜率改善 (持续流入)
+                    cond_price_weak = df['close_D'] < df[trend_ma_col]
+                    cond_mf_slope_improving = df[mf_slope_col] > mf_slope_threshold
+                    
+                    context_active = cond_price_weak & cond_mf_slope_improving
+                    print(f"      -> '资本背离'背景状态计算完成，共激活 {context_active.sum()} 天。")
+                else:
+                    missing = [col for col in required_cols if col not in df.columns]
+                    print(f"      -> [警告] '资本背离'背景状态无法计算，缺少列: {missing}")
+        except Exception as e:
+            print(f"      -> [警告] 计算'资本背离'背景状态时出错: {e}")
+            
+        df['CONTEXT_CAPITAL_DIVERGENCE_ACTIVE'] = context_active
+        
+        # 未来可以按此模式添加更多上下文...
+
         return df
 
     # ▼▼▼ 将剧本定义抽取为独立函数 ▼▼▼
