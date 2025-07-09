@@ -896,28 +896,30 @@ class TrendFollowStrategy:
                 
                 long_ma_col = f"EMA_{long_period}_D"
                 accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
-                jerk_col = f'SLOPE_{accel_col}_{lookback}' # 加速度的斜率
+                jerk_col = f'SLOPE_{accel_col}_{lookback}'
                 
                 required_cols = ['close_D', long_ma_col, accel_col, jerk_col]
                 
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [前置检查失败] '动能背离(二阶)' 无法计算，缺少列: {missing} ---\n")
+                    print(f"\n--- [前置检查失败] '动能背离(终极拐点)' 无法计算，缺少列: {missing} ---\n")
                 else:
                     # 条件1: 价格弱势 (背景)
                     is_price_weak = df['close_D'] < df[long_ma_col]
-                    # 条件2: 加速度为正 (一阶拐点)
+                    # 条件2: 加速度为正 (一阶拐点已发生)
                     is_accel_positive = df[accel_col] > 0
-                    # 条件3: 加速度的斜率为正 (二阶拐点)
-                    is_jerk_positive = df[jerk_col] > 0
                     
-                    # 【核心修改】形成二阶共振信号
-                    final_setup = is_price_weak & is_accel_positive & is_jerk_positive
+                    # 【核心修改】寻找Jerk的近期峰值
+                    rolling_max_jerk = df[jerk_col].rolling(window=lookback, center=False).max()
+                    is_inflection_point = (df[jerk_col] == rolling_max_jerk)
+                    
+                    # 最终信号：在价格弱势和下跌减速的背景下，出现了“减速势头”最猛烈的一天
+                    final_setup = is_price_weak & is_accel_positive & is_inflection_point
                     
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
-                    print(f"      -> '动能背离'(二阶拐点版) 完成: 寻找“价弱 & 加速为正 & 加速的加速也为正”的共振，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '动能背离'(终极拐点版) 完成: 寻找“Jerk峰值”事件，发现 {final_setup.sum()} 天。")
 
-                    # --- 聚焦探针逻辑 (增加二阶诊断) ---
+                    # --- 聚焦探针逻辑 (增加极值点诊断) ---
                     probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
                     probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
                     
@@ -932,19 +934,21 @@ class TrendFollowStrategy:
                     
                     if interesting_days_mask.any():
                         probe_df = pd.DataFrame({
-                            'Close': df['close_D'], 'LMA_val': df[long_ma_col], 'PriceWeakOK': is_price_weak,
+                            'Close': df['close_D'], 'PriceWeakOK': is_price_weak,
                             'Accel': df[accel_col], 'AccelOK': is_accel_positive,
-                            'Jerk': df[jerk_col], 'JerkOK': is_jerk_positive,
+                            'Jerk': df[jerk_col],
+                            'RollingMaxJerk': rolling_max_jerk,
+                            'InflectionOK': is_inflection_point,
                             '_SETUP': final_setup
                         }).loc[interesting_days_mask]
                         
                         if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.47 二阶拐点版) ---")
-                            print(probe_df.to_string(float_format="%.6f")) # 提高精度以便观察
+                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.48 终极拐点版) ---")
+                            print(probe_df.to_string(float_format="%.6f"))
                             print("--- [终极探针] 诊断结束 ---\n")
 
         except Exception as e:
-            print(f"      -> [警告] 计算'动能背离(二阶)'时出错: {e}")
+            print(f"      -> [警告] 计算'动能背离(终极拐点)'时出错: {e}")
             
         # --- 剧本B: 资本背离 (Capital Divergence) ---
         try:
