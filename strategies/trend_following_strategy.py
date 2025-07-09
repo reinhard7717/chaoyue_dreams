@@ -215,7 +215,7 @@ class TrendFollowStrategy:
                     if s in setup_conditions and isinstance(setup_conditions[s], pd.Series) and not setup_conditions[s].empty and entry_date in setup_conditions[s].index and setup_conditions[s].at[entry_date]
                 ]
                 setup_cn_name_map = {
-                    'PROLONGED_COMPRESSION': '长期蓄势', 'CAPITAL_FLOW_DIVERGENCE': '资金暗流',
+                    'PROLONGED_COMPRESSION': '长期蓄势', 'CAPITAL_FLOW_DIVERGENCE': '资金暗流', 'CAPITAL_DIVERGENCE': '猛兽苏醒',
                     'ENERGY_COMPRESSION': '能量压缩', 'HEALTHY_PULLBACK': '健康回踩', 'DUCK_NECK_FORMING': '老鸭颈',
                     'CHIP_ACCUMULATION': '筹码吸筹', 'WASHOUT_DAY': '巨阴洗盘',
                     'SHOCK_BOTTOM': '休克谷底', 'DOJI_PAUSE': '十字星暂停',
@@ -920,7 +920,6 @@ class TrendFollowStrategy:
                     missing = [col for col in required_cols if col not in df.columns]
                     print(f"\n--- [前置检查失败] '动能背离(终极解耦)' 无法计算，缺少列: {missing} ---\n")
                 else:
-                    # 【核心修改】将这些条件作为诊断信息，而不是信号的组成部分
                     is_price_weak = df['close_D'] < df[long_ma_col]
                     is_accel_positive = df[accel_col] > 0
                     
@@ -937,66 +936,119 @@ class TrendFollowStrategy:
                     print(f"      -> '动能背离'(终极解耦版) 完成: 寻找“Jerk峰值已过”的事件日，发现 {final_setup.sum()} 天。")
 
                     # --- 聚焦探针逻辑 (诊断信息更全面) ---
-                    probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
-                    probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
+                    # probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
+                    # probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
                     
-                    key_dates_to_check_raw = ['2024-08-21', '2024-08-22']
-                    key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
+                    # key_dates_to_check_raw = ['2024-08-21', '2024-08-22']
+                    # key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
                     
-                    df_dates = df.index.date
-                    is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
+                    # df_dates = df.index.date
+                    # is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
                     
-                    window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
-                    interesting_days_mask = window_mask & (final_setup | is_key_date)
+                    # window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
+                    # interesting_days_mask = window_mask & (final_setup | is_key_date)
                     
-                    if interesting_days_mask.any():
-                        probe_df = pd.DataFrame({
-                            'Close': df['close_D'], 'PriceWeakOK': is_price_weak,
-                            'Accel': df[accel_col], 'AccelOK': is_accel_positive,
-                            'Jerk(T-1)': jerk_t_minus_1, 'Jerk(T)': jerk_t,
-                            '_SETUP': final_setup
-                        }).loc[interesting_days_mask]
+                    # if interesting_days_mask.any():
+                    #     probe_df = pd.DataFrame({
+                    #         'Close': df['close_D'], 'PriceWeakOK': is_price_weak,
+                    #         'Accel': df[accel_col], 'AccelOK': is_accel_positive,
+                    #         'Jerk(T-1)': jerk_t_minus_1, 'Jerk(T)': jerk_t,
+                    #         '_SETUP': final_setup
+                    #     }).loc[interesting_days_mask]
                         
-                        if not probe_df.empty:
-                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.50 终极解耦版) ---")
-                            print(probe_df.to_string(float_format="%.6f"))
-                            print("--- [终极探针] 诊断结束 ---\n")
+                    #     if not probe_df.empty:
+                    #         print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.50 终极解耦版) ---")
+                    #         print(probe_df.to_string(float_format="%.6f"))
+                    #         print("--- [终极探针] 诊断结束 ---\n")
         except Exception as e:
             print(f"      -> [警告] 计算'动能背离(终极解耦)'时出错: {e}")
             
-        # --- 剧本B: 资本背离 (Capital Divergence) ---
         try:
-            p = setup_params.get('capital_divergence_params', {})
+            # 修正: 从 'capital_flow_divergence_params' 读取参数，而不是 'capital_divergence_params'
+            p = setup_params.get('capital_flow_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                lookback = self._get_param_value(p.get('lookback'), 20)
-                long_period = self._get_param_value(p.get('trend_ma'), 55)
-                long_ma_col = f"EMA_{long_period}_D"
-                
-                # 【核心修改】定义资本Jerk相关的列名
-                capital_accum_col = f'mf_accumulation_{lookback}_D'
-                capital_accel_col = f'ACCEL_{capital_accum_col}_{lookback}'
-                capital_jerk_col = f'SLOPE_{capital_accel_col}_{lookback}'
-                
-                required_cols = ['close_D', long_ma_col, capital_jerk_col]
-                
+                print("      -> '资本背离' (JSON参数驱动版) 启动...")
+                # 1. 从JSON加载所有参数
+                trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
+                mf_slope_threshold = self._get_param_value(p.get('mf_slope_threshold'), 0)
+                mf_accel_threshold = self._get_param_value(p.get('mf_accel_threshold'), 0)
+                retail_slope_threshold = self._get_param_value(p.get('retail_slope_threshold'), 0)
+                price_accel_threshold = self._get_param_value(p.get('price_accel_threshold'), 0)
+                bbw_slope_threshold = self._get_param_value(p.get('bbw_slope_threshold'), 0)
+
+                # 2. 定义所有需要的列名 (与 slope_params 中的定义匹配)
+                trend_ma_col = f'EMA_{trend_ma_period}_D'
+                mf_slope_col = 'SLOPE_net_mf_amount_D_10' # 使用10周期斜率
+                mf_accel_col = 'ACCEL_net_mf_amount_D_10' # 使用10周期加速度
+                retail_slope_col = 'SLOPE_net_retail_amount_D_20' # 使用20周期斜率
+                price_accel_col = 'ACCEL_close_D_10' # 使用10周期加速度
+                bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10' # 使用10周期斜率
+
+                required_cols = [
+                    'close_D', trend_ma_col, mf_slope_col, mf_accel_col,
+                    retail_slope_col, price_accel_col, bbw_slope_col
+                ]
+
+                # 3. 检查所有必需的列是否存在
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [前置检查失败] '资本背离(终极统一)' 无法计算，缺少列: {missing} ---\n")
+                    print(f"      -> [警告] '资本背离'无法计算，缺少衍生列: {missing}")
+                    setups['SETUP_CAPITAL_DIVERGENCE'] = pd.Series(False, index=df.index)
                 else:
-                    # 确认资本Jerk的峰值
-                    jerk_t = df[capital_jerk_col]
-                    jerk_t_minus_1 = df[capital_jerk_col].shift(1)
-                    jerk_t_minus_2 = df[capital_jerk_col].shift(2)
-                    
-                    is_capital_peak_confirmed = (jerk_t_minus_1 > jerk_t_minus_2) & (jerk_t_minus_1 > jerk_t)
-                    
-                    # 最终的准备状态只由核心事件决定
-                    final_setup = is_capital_peak_confirmed
-                    
+                    # 4. 根据JSON参数构建所有条件
+                    # 条件1: 价格处于弱势区 (收盘价低于长期均线)
+                    cond_price_weak = df['close_D'] < df[trend_ma_col]
+                    # 条件2: 主力资金流入趋势改善 (斜率 > 阈值)
+                    cond_mf_slope_improving = df[mf_slope_col] > mf_slope_threshold
+                    # 条件3: 主力资金流入加速 (加速度 > 阈值)
+                    cond_mf_accelerating = df[mf_accel_col] > mf_accel_threshold
+                    # 条件4: 散户资金流出 (斜率 < 阈值)
+                    cond_retail_selling = df[retail_slope_col] < retail_slope_threshold
+                    # 条件5: 价格下跌趋缓 (加速度 > 阈值)
+                    cond_price_stabilizing = df[price_accel_col] > price_accel_threshold
+                    # 条件6: 波动率收缩 (斜率 < 阈值)
+                    cond_volatility_squeezing = df[bbw_slope_col] < bbw_slope_threshold
+
+                    # 5. 组合所有条件形成最终的准备状态
+                    final_setup = (
+                        cond_price_weak &
+                        cond_mf_slope_improving &
+                        cond_mf_accelerating &
+                        cond_retail_selling &
+                        cond_price_stabilizing &
+                        cond_volatility_squeezing
+                    )
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
-                    print(f"      -> '资本背离'(终极统一版) 完成: 寻找“资本Jerk峰值已过”的事件日，发现 {final_setup.sum()} 天。")
+                    
+                    # --- 新增: 资本背离探针 ---
+                    probe_start_date = pd.to_datetime('2024-09-01').tz_localize(df.index.tz)
+                    window_mask = (df.index >= probe_start_date)
+                    # 仅当准备状态成立时才显示，便于聚焦
+                    interesting_days_mask = window_mask & final_setup
+
+                    if interesting_days_mask.any():
+                        probe_df = pd.DataFrame({
+                            'PriceWeak': cond_price_weak,
+                            'MFSlope>0': cond_mf_slope_improving,
+                            'MFAccel>0': cond_mf_accelerating,
+                            'RetailSell': cond_retail_selling,
+                            'PriceStab': cond_price_stabilizing,
+                            'VolSqueeze': cond_volatility_squeezing,
+                            '_SETUP_OK': final_setup,
+                            'MFSlope': df[mf_slope_col],
+                            'MFAccel': df[mf_accel_col],
+                            'PriceAccel': df[price_accel_col],
+                        }).loc[interesting_days_mask]
+
+                        if not probe_df.empty:
+                            print("\n--- [探针-SETUP] 诊断 '资本背离' (JSON参数驱动版) ---")
+                            print(f"--- (仅显示从 {probe_start_date.date()} 开始，且准备状态为True的日期) ---")
+                            print(probe_df.to_string(float_format="%.4f"))
+                            print("--- [探针] 诊断结束 ---\n")
+                    
+                    print(f"      -> '资本背离'(JSON参数驱动版) 完成: 发现 {final_setup.sum()} 天满足所有条件。")
         except Exception as e:
-            print(f"      -> [警告] 计算'资本背离(终极统一)'时出错: {e}")
+            print(f"      -> [警告] 计算'资本背离(JSON参数驱动版)'时出错: {e}")
 
         # --- 能量压缩 ---
         try:
