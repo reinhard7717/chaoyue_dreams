@@ -882,40 +882,69 @@ class TrendFollowStrategy:
         # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
         try:
             p = setup_params.get('capital_flow_divergence_params', {})
-            if self._get_param_value(p.get('enabled'), True): # 注意这里是从 setup_params 获取
+            if self._get_param_value(p.get('enabled'), True):
+                # 1. 定义周期和列名 (逻辑不变)
                 lookback = self._get_param_value(p.get('divergence_lookback'), 20)
                 mf_col = 'net_mf_amount_D'
-                if mf_col in df.columns:
-                    # 恢复其“背离”的原始定义，与“潜龙出海”形成互补
-                    # 条件1: 价格在20天内没有创出新高 (处于下跌或盘整)
-                    is_price_consolidating = df['high_D'] <= df['high_D'].shift(1).rolling(window=lookback).max()
-                    
-                    # 条件2: 20天内主力资金是累计净流入的
-                    mf_accumulation = df[mf_col].rolling(window=lookback).sum()
-                    is_mf_accumulating = mf_accumulation > 0
-                    
-                    final_setup = is_price_consolidating & is_mf_accumulating
-                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = final_setup
-                    print(f"      -> [重构] '资金暗流(底部背离)'准备状态定义完成，发现 {final_setup.sum()} 天。")
-
-                    # --- 猛兽苏醒的专属探针 ---
-                    # probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                    # probe_df = pd.DataFrame({
-                    #     'Price_Consolidating': is_price_consolidating,
-                    #     'MF_Accum': mf_accumulation,
-                    #     'MF_OK': is_mf_accumulating,
-                    #     'Final_Setup': final_setup
-                    # }).loc[probe_start_date:]
-                    
-                    # interesting_days = probe_df[probe_df[['Price_Consolidating', 'MF_OK']].any(axis=1)]
-                    # if not interesting_days.empty:
-                    #     print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (背离版) ---")
-                    #     print(interesting_days.to_string(float_format="%.2f"))
-                    #     print("--- [终极探针] 诊断结束 ---\n")
+                vlong_period = self._get_param_value(p.get('regime_ma'), 144)
+                vlong_ma_accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
+                
+                required_cols = ['high_D', 'low_D', mf_col, vlong_ma_accel_col]
+                if not all(col in df.columns for col in required_cols):
+                    missing = [col for col in required_cols if col not in df.columns]
+                    print(f"\n--- [诊断探针-前置检查] '资金暗流' 依赖项检查失败，缺少列: {missing} ---\n")
                 else:
-                    print(f"      -> [警告] 缺少列 '{mf_col}'，无法计算'资金暗流'。")
+                    # 2. 计算所有条件 (逻辑不变)
+                    rolling_max_high = df['high_D'].shift(1).rolling(window=lookback).max()
+                    is_price_consolidating = df['high_D'] <= rolling_max_high
+                    mf_accumulation = df[mf_col].rolling(window=lookback).sum()
+                    is_capital_divergence = mf_accumulation > 0
+                    is_momentum_divergence = df[vlong_ma_accel_col] > 0
+                    final_setup = is_price_consolidating & (is_capital_divergence | is_momentum_divergence)
+                    setups['SETUP_CAPITAL_FLOW_DIVERGENCE'] = final_setup
+                    print(f"      -> '资金暗流'(终极透明版)完成: 资本背离发现{is_capital_divergence.sum()}天, 动能背离发现{is_momentum_divergence.sum()}天, 共{final_setup.sum()}天。")
+
+                    # 3. 【核心修改】构建终极透明探针
+                    probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
+                    probe_df = pd.DataFrame(index=df.loc[probe_start_date:].index)
+                    # 价格盘整诊断
+                    probe_df['DayHigh'] = df['high_D']
+                    probe_df['LookbackMaxHigh'] = rolling_max_high
+                    probe_df['PriceConsolidOK'] = is_price_consolidating
+                    # 资本背离诊断
+                    probe_df['CapitalAccum'] = mf_accumulation
+                    probe_df['CapitalThresh'] = 0.0
+                    probe_df['CapitalDivOK'] = is_capital_divergence
+                    # 动能背离诊断
+                    probe_df['MomentumAccel'] = df[vlong_ma_accel_col]
+                    probe_df['MomentumThresh'] = 0.0
+                    probe_df['MomentumDivOK'] = is_momentum_divergence
+                    # 最终结果
+                    probe_df['_SETUP'] = final_setup
+                    
+                    key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21'], utc=True if df.index.tz else None)
+                    interesting_days_mask = probe_df['_SETUP'] | probe_df.index.isin(key_dates_to_check)
+                    interesting_days = probe_df.loc[interesting_days_mask]
+
+                    if not interesting_days.empty:
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '资金暗流' (终极透明版) ---")
+                        # 为了可读性，重新组织打印列
+                        price_cols = ['DayHigh', 'LookbackMaxHigh', 'PriceConsolidOK']
+                        capital_cols = ['CapitalAccum', 'CapitalThresh', 'CapitalDivOK']
+                        momentum_cols = ['MomentumAccel', 'MomentumThresh', 'MomentumDivOK']
+                        result_cols = ['_SETUP']
+                        
+                        print("\n--- [价格盘整诊断] ---")
+                        print(interesting_days[price_cols].to_string(float_format="%.2f"))
+                        print("\n--- [资本背离诊断] ---")
+                        print(interesting_days[capital_cols].to_string(float_format="%.2f"))
+                        print("\n--- [动能背离诊断] ---")
+                        print(interesting_days[momentum_cols].to_string(float_format="%.4f"))
+                        print("\n--- [最终结果] ---")
+                        print(interesting_days[result_cols].to_string())
+                        print("\n--- [终极探针] 诊断结束 ---\n")
         except Exception as e:
-            print(f"      -> [警告] 计算'资金暗流'时出错: {e}")
+            print(f"      -> [警告] 计算'资金暗流'(终极透明版)时出错: {e}")
 
         # --- 能量压缩 ---
         try:
@@ -940,81 +969,28 @@ class TrendFollowStrategy:
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                # 1. 定义所有需要的斐波那契周期
-                short_period = self._get_param_value(p.get('short_ma'), 13)
-                mid_period = self._get_param_value(p.get('mid_ma'), 21)
-                long_period = self._get_param_value(p.get('trend_ma'), 55)
-                vlong_period = self._get_param_value(p.get('regime_ma'), 144)
-
-                # 2. 定义所有列名
+                short_period, mid_period = self._get_param_value(p.get('short_ma'), 13), self._get_param_value(p.get('mid_ma'), 21)
+                long_period, vlong_period = self._get_param_value(p.get('trend_ma'), 55), self._get_param_value(p.get('regime_ma'), 144)
                 short_ma_col, mid_ma_col = f"EMA_{short_period}_D", f"EMA_{mid_period}_D"
                 long_ma_col, vlong_ma_col = f"EMA_{long_period}_D", f"EMA_{vlong_period}_D"
                 long_ma_slope_col, vlong_ma_slope_col = f'SLOPE_{long_ma_col}_5', f'SLOPE_{vlong_ma_col}_20'
                 vol_ma_col = 'VOL_MA_21_D'
                 required_cols = [short_ma_col, mid_ma_col, long_ma_col, vlong_ma_col, long_ma_slope_col, vlong_ma_slope_col, vol_ma_col]
-
-                # 3. 前置诊断
-                if not all(col in df.columns for col in required_cols):
-                    missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [诊断探针-前置检查] '健康回踩' 依赖项检查失败，缺少列: {missing} ---\n")
-                else:
-                    # 4. 计算所有布尔条件
-                    is_volume_shrinking = df['volume_D'] < df[vol_ma_col]
-                    is_in_pullback_state = df['close_D'] < df[short_ma_col]
+                if all(col in df.columns for col in required_cols):
+                    is_volume_shrinking, is_in_pullback_state = df['volume_D'] < df[vol_ma_col], df['close_D'] < df[short_ma_col]
                     common_conditions_ok = is_volume_shrinking & is_in_pullback_state
-
-                    # 【场景B: 深度回踩】(终极大结局版)
                     is_structure_ok = df[long_ma_col] > df[vlong_ma_col]
-                    # 核心修正：为斜率判断增加一个极小的负容忍度
                     slope_epsilon = self._get_param_value(p.get('slope_epsilon'), -0.001)
                     is_momentum_ok = df[vlong_ma_slope_col] > slope_epsilon
                     is_bull_regime = is_structure_ok | is_momentum_ok
                     is_testing_lma = df['low_D'] <= df[long_ma_col] * self._get_param_value(p.get('support_buffer_long'), 1.02)
                     deep_pullback_setup = is_bull_regime & is_testing_lma & common_conditions_ok
-
-                    # 【场景A: 浅度回踩】(逻辑不变)
-                    is_lma_slope_ok = df[long_ma_slope_col] > 0
-                    is_far_above_lma = df['low_D'] > df[long_ma_col]
+                    is_lma_slope_ok, is_far_above_lma = df[long_ma_slope_col] > 0, df['low_D'] > df[long_ma_col]
                     is_testing_mma = df['low_D'] <= df[mid_ma_col] * self._get_param_value(p.get('support_buffer_mid'), 1.02)
                     shallow_pullback_setup = is_lma_slope_ok & is_far_above_lma & is_testing_mma & common_conditions_ok
-
-                    # 最终融合
-                    final_setup = deep_pullback_setup | shallow_pullback_setup
-                    setups['SETUP_HEALTHY_PULLBACK'] = final_setup
-                    print(f"      -> '健康回踩'(终极大结局)完成: 深度场景发现{deep_pullback_setup.sum()}天, 浅度场景发现{shallow_pullback_setup.sum()}天, 共{final_setup.sum()}天。")
-
-                    # 5. 构建【终极诊断探针】
-                    probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
-                    probe_df = pd.DataFrame(index=df.loc[probe_start_date:].index)
-                    
-                    # --- 深度回踩诊断 ---
-                    probe_df['LMA_val'] = df[long_ma_col]
-                    probe_df['VLMA_val'] = df[vlong_ma_col]
-                    probe_df['StructOK'] = is_structure_ok
-                    probe_df['VLMA_Slope'] = df[vlong_ma_slope_col]
-                    probe_df['SlopeThresh'] = slope_epsilon # 新增：打印斜率阈值
-                    probe_df['MomentumOK'] = is_momentum_ok
-                    probe_df['DeepRegimeOK'] = is_bull_regime
-                    probe_df['DayLow'] = df['low_D']
-                    probe_df['LMA_Zone'] = df[long_ma_col] * self._get_param_value(p.get('support_buffer_long'), 1.02)
-                    probe_df['DeepTestOK'] = is_testing_lma
-                    
-                    # --- 最终结果 ---
-                    probe_df['_DEEP'] = deep_pullback_setup
-                    probe_df['_SHALLOW'] = shallow_pullback_setup
-                    probe_df['_SETUP'] = final_setup
-
-                    key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21', '2024-09-09'], utc=True if df.index.tz else None)
-                    interesting_days_mask = probe_df['_SETUP'] | probe_df.index.isin(key_dates_to_check)
-                    interesting_days = probe_df.loc[interesting_days_mask]
-
-                    if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (终极大结局) ---")
-                        deep_cols = ['LMA_val', 'VLMA_val', 'StructOK', 'VLMA_Slope', 'SlopeThresh', 'MomentumOK', 'DeepRegimeOK', 'DeepTestOK', '_DEEP', '_SETUP']
-                        print(interesting_days[deep_cols].to_string(float_format="%.3f"))
-                        print("\n--- [终极探针] 诊断结束 ---\n")
+                    setups['SETUP_HEALTHY_PULLBACK'] = deep_pullback_setup | shallow_pullback_setup
         except Exception as e:
-            print(f"      -> [警告] 计算'健康回踩'(终极大结局)时出错: {e}")
+            print(f"      -> [警告] 计算'健康回踩'时出错: {e}")
 
         # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
         try:
