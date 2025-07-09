@@ -1029,50 +1029,50 @@ class TrendFollowStrategy:
 
                     # --- 新增: 深度诊断探针 (指定时间范围) ---
                     # 修改: 定义探针的开始和结束日期
-                    probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
-                    probe_end_date = pd.to_datetime('2024-9-30').tz_localize(df.index.tz)
-                    print(f"\n--- [深度探针-SETUP | {probe_start_date.date()} to {probe_end_date.date()}] 诊断 '资本背离' ---")
+                    # probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
+                    # probe_end_date = pd.to_datetime('2024-9-30').tz_localize(df.index.tz)
+                    # print(f"\n--- [深度探针-SETUP | {probe_start_date.date()} to {probe_end_date.date()}] 诊断 '资本背离' ---")
                     
-                    # 修改: 根据指定的开始和结束日期筛选数据
-                    probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
+                    # # 修改: 根据指定的开始和结束日期筛选数据
+                    # probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
 
-                    for timestamp, row in probe_df.iterrows():
-                        is_setup_ok_today = final_setup.get(timestamp, False)
+                    # for timestamp, row in probe_df.iterrows():
+                    #     is_setup_ok_today = final_setup.get(timestamp, False)
                         
-                        if is_setup_ok_today:
-                            print(f"====== 日期: {timestamp.date()} | [✔ 成功] ======")
-                            print("  - 所有条件均满足。")
-                        else:
-                            print(f"====== 日期: {timestamp.date()} | [✖ 失败] ======")
-                            failure_reasons = []
-                            # 逐一检查每个条件，并记录失败原因、阈值和实际值
-                            if not cond_price_weak.get(timestamp, True):
-                                reason = f"  - 价格弱势: 失败 (要求: close < EMA_55, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_mf_slope_improving.get(timestamp, True):
-                                reason = f"  - 主力资金斜率改善: 失败 (要求: > {mf_slope_threshold}, 实际: {row[mf_slope_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_mf_accelerating.get(timestamp, True):
-                                reason = f"  - 主力资金流入加速: 失败 (要求: > {mf_accel_threshold}, 实际: {row[mf_accel_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_retail_selling.get(timestamp, True):
-                                reason = f"  - 散户资金流出: 失败 (要求: < {retail_slope_threshold}, 实际: {row[retail_slope_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_price_stabilizing.get(timestamp, True):
-                                reason = f"  - 价格下跌趋缓: 失败 (要求: > {price_accel_threshold}, 实际: {row[price_accel_col]:.4f})"
-                                failure_reasons.append(reason)
-                            if not cond_volatility_squeezing.get(timestamp, True):
-                                reason = f"  - 波动率收缩: 失败 (要求: < {bbw_slope_threshold}, 实际: {row[bbw_slope_col]:.4f})"
-                                failure_reasons.append(reason)
+                    #     if is_setup_ok_today:
+                    #         print(f"====== 日期: {timestamp.date()} | [✔ 成功] ======")
+                    #         print("  - 所有条件均满足。")
+                    #     else:
+                    #         print(f"====== 日期: {timestamp.date()} | [✖ 失败] ======")
+                    #         failure_reasons = []
+                    #         # 逐一检查每个条件，并记录失败原因、阈值和实际值
+                    #         if not cond_price_weak.get(timestamp, True):
+                    #             reason = f"  - 价格弱势: 失败 (要求: close < EMA_55, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})"
+                    #             failure_reasons.append(reason)
+                    #         if not cond_mf_slope_improving.get(timestamp, True):
+                    #             reason = f"  - 主力资金斜率改善: 失败 (要求: > {mf_slope_threshold}, 实际: {row[mf_slope_col]:.2f})"
+                    #             failure_reasons.append(reason)
+                    #         if not cond_mf_accelerating.get(timestamp, True):
+                    #             reason = f"  - 主力资金流入加速: 失败 (要求: > {mf_accel_threshold}, 实际: {row[mf_accel_col]:.2f})"
+                    #             failure_reasons.append(reason)
+                    #         if not cond_retail_selling.get(timestamp, True):
+                    #             reason = f"  - 散户资金流出: 失败 (要求: < {retail_slope_threshold}, 实际: {row[retail_slope_col]:.2f})"
+                    #             failure_reasons.append(reason)
+                    #         if not cond_price_stabilizing.get(timestamp, True):
+                    #             reason = f"  - 价格下跌趋缓: 失败 (要求: > {price_accel_threshold}, 实际: {row[price_accel_col]:.4f})"
+                    #             failure_reasons.append(reason)
+                    #         if not cond_volatility_squeezing.get(timestamp, True):
+                    #             reason = f"  - 波动率收缩: 失败 (要求: < {bbw_slope_threshold}, 实际: {row[bbw_slope_col]:.4f})"
+                    #             failure_reasons.append(reason)
                             
-                            if failure_reasons:
-                                for r in failure_reasons:
-                                    print(r)
-                            else:
-                                # 此处处理一种边缘情况：如果probe_df中的某天在原始df中不存在于final_setup的索引中
-                                print("  - 状态为失败但所有子条件检查通过，可能存在数据对齐问题或逻辑边缘情况。")
+                    #         if failure_reasons:
+                    #             for r in failure_reasons:
+                    #                 print(r)
+                    #         else:
+                    #             # 此处处理一种边缘情况：如果probe_df中的某天在原始df中不存在于final_setup的索引中
+                    #             print("  - 状态为失败但所有子条件检查通过，可能存在数据对齐问题或逻辑边缘情况。")
                     
-                    print("--- [探针] 诊断结束 ---\n")
+                    # print("--- [探针] 诊断结束 ---\n")
                     
                     print(f"      -> '资本背离'(JSON参数驱动版) 完成: 发现 {final_setup.sum()} 天满足所有条件。")
         except Exception as e:
@@ -1701,20 +1701,18 @@ class TrendFollowStrategy:
                         break # 找到第一个满足的最高等级就跳出
                 
                 current_priority = df.at[idx, 'temp_priority']
-                # 只有当新事件的优先级更高时，才覆盖
                 if matched_tier['priority'] > current_priority:
                     df.at[idx, 'temp_priority'] = matched_tier['priority']
                     df.at[idx, 'temp_duration'] = matched_tier['duration']
-                    # 将重置信息直接存入主导上下文名称，简化后续逻辑
                     df.at[idx, 'CONTEXT_ACTIVE_NAME'] = base_name
-                    print(f"          - 日期 {idx.date()}: 剧本 '{playbook_name}' 命中，健康分 {score_at_trigger:.0f}，匹配等级(P{matched_tier['priority']}, D{matched_tier['duration']})，设置主导叙事为 '{base_name}'。")
-                    # ▼▼▼【代码修改 V39.5】: 当状态被设置时，记录锚点价格 ▼▼▼
+                    
                     if definition.get('invalidation', {}).get('enabled', False):
                         anchor_metric = definition['invalidation']['anchor_metric']
                         anchor_col = f"CONTEXT_{base_name}_ANCHOR"
                         if anchor_metric in df.columns:
                             df.at[idx, anchor_col] = df.at[idx, anchor_metric]
-                            print(f"            -> 状态 '{base_name}' 开启，记录锚点价格({anchor_metric}): {df.at[idx, anchor_col]:.2f}")
+                            # ▼▼▼【调试探针 1: 状态开启与锚点记录】▼▼▼
+                            print(f"          - [上下文引擎探针] 日期 {idx.date()}: 剧本 '{playbook_name}' 触发，开启 '{base_name}' 状态，持续 {matched_tier['duration']} 天。记录锚点价格 ({anchor_metric}): {df.at[idx, anchor_col]:.2f}")
 
         # --- 步骤 4: 更新计时器和主导上下文状态 ---
         print("        -> 步骤2.3: 更新主导上下文状态...")
@@ -1739,8 +1737,7 @@ class TrendFollowStrategy:
             reset_mask = (df['CONTEXT_ACTIVE_NAME'] == base_name) & (df['temp_duration'] > 0)
             if reset_mask.any():
                 df.loc[reset_mask, timer_col] = df.loc[reset_mask, 'temp_duration']
-        # ▼▼▼【代码修改 V39.5】: 应用状态失效逻辑 ▼▼▼
-        print("        -> 步骤2.3.1: 检查并应用状态失效条件...")
+        # ▼▼▼【代码修改 V39.5-Debug】: 应用状态失效逻辑并增加详细探针 ▼▼▼
         for playbook_name, definition in context_definitions.items():
             invalidation_params = definition.get('invalidation', {})
             if invalidation_params.get('enabled', False):
@@ -1750,19 +1747,25 @@ class TrendFollowStrategy:
                 check_metric_col = invalidation_params['check_metric']
                 
                 if all(c in df.columns for c in [timer_col, anchor_col, check_metric_col]):
-                    # 只有在计时器>0时才检查失效
-                    is_active = df[timer_col] > 0
-                    # 检查是否跌破锚点
+                    is_active_yesterday = df[timer_col].shift(1) > 0
                     is_invalidated = df[check_metric_col] < df[anchor_col]
-                    # 最终需要清零的掩码
-                    invalidation_mask = is_active & is_invalidated
+                    invalidation_mask = is_active_yesterday & is_invalidated
                     
+                    # 循环检查每一天，提供详细日志
+                    for idx in df.index[invalidation_mask]:
+                        anchor_val = df.at[idx, anchor_col]
+                        check_val = df.at[idx, check_metric_col]
+                        # ▼▼▼【调试探针 2: 状态失效检查】▼▼▼
+                        print(f"          - [上下文引擎探针] 日期 {idx.date()}: 检查 '{base_name}' 失效条件... 检查价({check_metric_col}): {check_val:.2f} vs 锚点价({anchor_col}): {anchor_val:.2f}. 条件: {check_val < anchor_val} -> 状态失效!")
+                        # ▲▲▲【调试探针结束】▲▲▲
+
                     if invalidation_mask.any():
                         df.loc[invalidation_mask, timer_col] = 0
-                        df.loc[invalidation_mask, anchor_col] = np.nan # 清除锚点
-                        # 如果失效的是当前主导叙事，也一并清除
+                        df.loc[invalidation_mask, anchor_col] = np.nan
                         df.loc[invalidation_mask & (df['CONTEXT_ACTIVE_NAME'] == base_name), 'CONTEXT_ACTIVE_NAME'] = 'NONE'
-                        print(f"          - [状态失效] '{base_name}' 状态因跌破锚点而在 {invalidation_mask.sum()} 天被强制终止。")
+                        # ▼▼▼【调试探针 3: 状态失效执行】▼▼▼
+                        print(f"          - [上下文引擎探针] [!!] '{base_name}' 状态因跌破锚点而在 {invalidation_mask.sum()} 天被强制终止。")
+                        # ▲▲▲【调试探针结束】▲▲▲
 
         # --- 步骤 5: 更新主导上下文的剩余时间和最终的原子布尔状态 ---
         print("        -> 步骤2.4: 更新主导上下文计时器和原子状态...")
@@ -1776,6 +1779,13 @@ class TrendFollowStrategy:
                 df.loc[mask, 'CONTEXT_ACTIVE_TIMER'] = df.loc[mask, timer_col]
                 
             df[bool_col] = df[timer_col] > 0
+
+            # ▼▼▼【调试探针 4: 每日最终状态】▼▼▼
+            active_today = df[bool_col]
+            if active_today.any():
+                for idx in df.index[active_today]:
+                     print(f"          - [上下文引擎探针] 日期 {idx.date()}: '{base_name}' 最终状态为 Active, 计时器剩余: {df.at[idx, timer_col]:.0f}")
+            # ▲▲▲【调试探针结束】▲▲▲
 
         # 清理临时列
         df.drop(columns=['temp_priority', 'temp_duration'], inplace=True)
