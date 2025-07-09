@@ -146,6 +146,9 @@ class TrendFollowStrategy:
             if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
             and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_', 'cond_')) # 增加对 cond_ 前缀的排除
         }
+        if 'close_D' in df.columns:
+            df['pct_change_D'] = df['close_D'].pct_change()
+            print("    - [核心修正 V45.52] 已强制重新计算 'pct_change_D' 列。")
 
         if rename_map:
             df = df.rename(columns=rename_map)
@@ -194,7 +197,7 @@ class TrendFollowStrategy:
         if not filtered_entry_signals.empty:
             for entry_date, row in filtered_entry_signals.iterrows():
                 entry_score = row['entry_score']
-                pct_change_val = row.get('pct_change_D', row.get('pct_change', 0)) * 100
+                pct_change_val = row.get('pct_change_D', 0) * 100
                 print(f"\n====== 日期: {entry_date.date()} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {pct_change_val:.2f}% ======")
                 print(f"  - 核心前提 (右侧趋势): {row.get('robust_right_side_precondition', '未知')}")
                 
