@@ -487,6 +487,23 @@
               { "min_score": 6, "duration": 12, "priority": 65, "说明": "完美健康度下的回踩，确认信号强。" },
               { "min_score": 4, "duration": 8, "priority": 45, "说明": "标准健康度下的回踩，给予较短的观察期。" }
             ]
+          },
+          "INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE": {
+            "base_name": "CAPITAL_DIVERGENCE_ACTIVE",
+            "tiers": [
+              {
+                "min_score": 0,
+                "priority": 5,
+                "duration": 3
+              }
+            ],
+            "invalidation": {
+              "enabled": true,
+              "anchor_metric": "low_D",
+              "check_metric": "close_D",
+              "condition": "less",
+              "breach_buffer": 0.02
+            }
           }
         }
       },
