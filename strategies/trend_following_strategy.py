@@ -432,23 +432,13 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'AWAKENED_BEAST', 'cn_name': '猛兽苏醒',
-                # 准备条件: 检查“资本背离”的持久化状态是否激活
+                # 准备条件(T-1日): 市场处于“资本背离”的有利背景之下。
                 'setup': df.get('CONTEXT_CAPITAL_DIVERGENCE_ACTIVE', default_series),
-                # 触发条件: “动能背离”的核心准备状态成立
-                'trigger': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series),
-                'score': 330, 
-                'precondition': True, # 这是一个左侧组合信号，放宽右侧前提
-                'comment': '【V46.0 状态持久化版】捕捉“资本背离”状态开启后，由“动能背离”事件点燃的终极反转信号。'
-            },
-            {
-                'name': 'CONTEXTUAL_MOMENTUM_IGNITION', 'cn_name': '上下文动能点火',
-                # 准备条件: “资本背离”的上下文状态必须激活
-                'setup': df.get('CONTEXT_CAPITAL_DIVERGENCE_ACTIVE', default_series),
-                # 触发条件: “动能拐点”剧本的原始条件同时满足
+                # 触发条件(T日): “动能拐点”的完整信号出现（Jerk峰值已过 + 确认阳线）。
                 'trigger': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series) & trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
-                'score': 315, # 赋予比普通“动能拐点”更高的分数
+                'score': 330, 
                 'precondition': True, # 左侧信号，放宽右侧前提
-                'comment': '【协同剧本】在“资本背离”的有利背景下，由“动能拐点”事件点燃的更高质量的买入信号。'
+                'comment': '【V48.0 终极版】在“资本背离”背景(T-1)确立后，由“动能拐点”(T)事件点燃的终极反转信号。'
             },
             {
                 'name': 'WASH_AND_RISE', 'cn_name': '洗盘拉升',
@@ -643,7 +633,7 @@ class TrendFollowStrategy:
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
             if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
             
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST', 'CONTEXTUAL_MOMENTUM_IGNITION']:
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'CONTEXTUAL_MOMENTUM_IGNITION']:
                 condition = setup & trigger
             else:
                 condition = setup.shift(1).fillna(False) & trigger
