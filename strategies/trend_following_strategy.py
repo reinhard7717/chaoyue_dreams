@@ -398,7 +398,7 @@ class TrendFollowStrategy:
             {
                 'name': 'MOMENTUM_INFLECTION_POINT', 'cn_name': '动能拐点',
                 'setup': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series),
-                'trigger': trigger_events.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series),
+                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
                 'score': 295, 'precondition': True, # 前提放宽，因为这是左侧信号
                 'comment': '捕捉下跌动能的“加加速度”达到峰值后的第一个确认阳线，是最高精度的左侧反转信号。'
             },
@@ -1904,6 +1904,21 @@ class TrendFollowStrategy:
                         print(f"      -> 'MACD金叉' 触发器定义完成，发现低位 {triggers.get('TRIGGER_MACD_LOW_CROSS', pd.Series([])).sum()} 天, 零轴 {triggers.get('TRIGGER_MACD_ZERO_CROSS', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'指标交叉'时出错: {e}")
+        # --- “反转确认扳机” ---
+        try:
+            p = trigger_params.get('reversal_confirmation_candle', {})
+            if self._get_param_value(p.get('enabled'), True):
+                is_green = df['close_D'] > df['open_D']
+                # 条件2: 涨幅足够大
+                min_pct_change = self._get_param_value(p.get('min_pct_change'), 0.03) # 至少上涨3%
+                is_strong_rally = df['pct_change_D'] > min_pct_change
+                # 条件3: 收盘价在当天振幅的一半以上，代表收盘强势
+                is_closing_strong = df['close_D'] > (df['high_D'] + df['low_D']) / 2
+                
+                triggers['TRIGGER_REVERSAL_CONFIRMATION_CANDLE'] = is_green & is_strong_rally & is_closing_strong
+                print(f"      -> '反转确认阳线' 专属触发器定义完成，发现 {triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', pd.Series([])).sum()} 天。")
+        except Exception as e:
+            print(f"      -> [警告] 计算'反转确认阳线'触发器时出错: {e}")
 
         # 强势阳线 (通用)
         try:
