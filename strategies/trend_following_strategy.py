@@ -948,34 +948,34 @@ class TrendFollowStrategy:
                 long_ma_slope_col = f'SLOPE_{long_ma_col}_5'
                 
                 required_cols = [short_ma_col, long_ma_col, long_ma_slope_col, 'VOL_MA_21_D']
-                
-                # --- 前置诊断探针 ---
-                pre_check_data = {col: col in df.columns for col in required_cols}
-                if not all(pre_check_data.values()):
-                    print("\n--- [诊断探针-前置检查] '健康回踩' 依赖项检查失败 ---")
-                    print("错误: 缺少必要的计算列，无法执行逻辑。请检查策略配置文件中的'slope_params'。")
-                    for col, status in pre_check_data.items():
-                        print(f"  - 依赖列 '{col}': {'✔ 存在' if status else '❌【缺失】'}")
-                    print("--- [诊断探针] 检查结束 ---\n")
-                
-                # --- 主逻辑 ---
-                if all(pre_check_data.values()):
-                    is_price_above_lma = df['close_D'] > df[long_ma_col]
-                    is_lma_slope_ok = df[long_ma_slope_col] > 0
-                    is_long_trend_ok = is_price_above_lma & is_lma_slope_ok
-                    is_in_pullback_state = df['close_D'] < df[short_ma_col]
-                    is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
-                    final_setup = is_long_trend_ok & is_in_pullback_state & is_volume_shrinking
-                    setups['SETUP_HEALTHY_PULLBACK'] = final_setup
-                    print(f"      -> '健康回踩'(诊断增强版)准备状态定义完成，发现 {final_setup.sum()} 天。")
+                if all(c in df.columns for c in required_cols):
+                    # 条件1: 长期趋势的根基依然稳固 (核心修正)
+                    # 不再要求斜率>0，而是要求它没有明确转为下降趋势，允许走平或微跌。
+                    slope_tolerance = self._get_param_value(p.get('slope_tolerance'), -0.005)
+                    is_long_trend_intact = df[long_ma_slope_col] > slope_tolerance
+                    
+                    # 条件2: 价格正在考验长期支撑 (核心修正)
+                    # 不再要求价格>长期均线，而是要求最低价触及均线附近的支撑区。
+                    support_buffer = self._get_param_value(p.get('support_buffer'), 1.02) # 允许最低价触及均线上方2%
+                    is_testing_long_ma = df['low_D'] <= df[long_ma_col] * support_buffer
 
-                    # --- 主探针 ---
+                    # 条件3: 处于短期回踩状态 (逻辑不变)
+                    is_in_pullback_state = df['close_D'] < df[short_ma_col]
+                    
+                    # 条件4: 量能配合 (缩量，逻辑不变)
+                    is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
+
+                    final_setup = is_long_trend_intact & is_testing_long_ma & is_in_pullback_state & is_volume_shrinking
+                    setups['SETUP_HEALTHY_PULLBACK'] = final_setup
+                    print(f"      -> '健康回踩'(最终决战版)准备状态定义完成，发现 {final_setup.sum()} 天。")
+
+                    # --- “健康回踩”专属探针 (同步升级) ---
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
                     probe_df = pd.DataFrame({
-                        'Price_Above_LMA': is_price_above_lma,
-                        'LMA_Slope_OK': is_lma_slope_ok,
-                        'In_Pullback_OK': is_in_pullback_state,
-                        'Vol_Shrink_OK': is_volume_shrinking,
+                        'LMA_Slope_OK': is_long_trend_intact,      # 探针: 长期趋势是否完好
+                        'Is_Testing_LMA': is_testing_long_ma,     # 探针: 是否在考验长期均线
+                        'In_Pullback_OK': is_in_pullback_state,   # 探针: 是否处于短期回踩
+                        'Vol_Shrink_OK': is_volume_shrinking,     # 探针: 是否缩量
                         '_Setup': final_setup
                     }).loc[probe_start_date:]
                     
@@ -984,12 +984,9 @@ class TrendFollowStrategy:
                     interesting_days = probe_df[interesting_days_mask]
                     
                     if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (诊断增强版) ---")
+                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '健康回踩' (最终决战版) ---")
                         print(interesting_days.to_string())
                         print("--- [终极探针] 诊断结束 ---\n")
-                else:
-                    missing_cols_str = ", ".join([c for c in required_cols if c not in df.columns])
-                    print(f"      -> [警告] 缺少列: {missing_cols_str}。无法计算'健康回踩'(最终修正版)。请确保在斜率中心配置了对'EMA_55_D'的斜率计算。")
         except Exception as e:
             print(f"      -> [警告] 计算'健康回踩'(最终修正版)时出错: {e}")
 
