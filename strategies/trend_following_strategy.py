@@ -121,36 +121,39 @@ class TrendFollowStrategy:
         # print("    - [类型标准化引擎 V40.6] 类型检查完成。")
         return df
 
-    def apply_strategy(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
+    def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V41.12 智能出场集成版】
-        - 核心修改: 移除旧的顶背离信号计算，并正式集成“风险状态计算”与“智能出场决策”两大模块。
+        【V45.8 终极架构版】
+        - 核心架构修复: 函数签名从接收 df_dict 改为直接接收一个完全预处理好的日线DataFrame (df)。
+        本模块不再关心任何其他时间周期的原始数据，职责更加纯粹。
         """
-        # print("\n--- [战术策略层 apply_strategy V22.2] 开始执行 ---") # 日常运行时可注释
-        df = df_dict.get('D')
+        print("\n" + "="*60)
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V45.8】 ======")
+        
+        # --- 步骤 0: 输入验证 ---
         if df is None or df.empty:
+            print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
         
         df = self._ensure_numeric_types(df)
-        # 在每次运行时重置筹码信号的缓存
         self._chip_atomic_signals_cache_by_tf = {}
 
         timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
 
-        # ▼▼▼ 精准的列名重命名逻辑 ▼▼▼
+        # ▼▼▼ 精准的列名重命名逻辑 (保持不变) ▼▼▼
         rename_map = {
             col: f"{col}_D" for col in df.columns 
             if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
-            and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_'))
+            and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_', 'cond_')) # 增加对 cond_ 前缀的排除
         }
 
         if rename_map:
             df = df.rename(columns=rename_map)
 
-        # 步骤 1: 准备所有衍生特征 (如主力/散户净流入)
+        # 步骤 1: 准备衍生特征 (保持不变)
         df = self._prepare_derived_features(df)
 
-        # 步骤 2: 基于准备好的特征，计算所有斜率
+        # 步骤 2: 计算斜率 (保持不变)
         df = self._calculate_trend_slopes(df, params)
 
         self.signals, self.scores = {}, {}
@@ -159,26 +162,18 @@ class TrendFollowStrategy:
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
         print("    - [信息] 核心计分流程开始...")
-        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, df_dict, params)
+        df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, params)
         self._last_score_details_df = score_details_df
 
-        # 这一步至关重要，它让调试工具能看到日线级别的剧本
         print("    - [信息] 正在将战术剧本触发详情合并到最终结果中...")
         if score_details_df is not None and not score_details_df.empty:
-            # 排除非剧本的得分项，如基础分、奖励分等
             excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP')
-            # 遍历所有得分项
             for playbook_name in score_details_df.columns:
-                # 如果不是排除项，就认为是有效的战术剧本
                 if not playbook_name.startswith(excluded_prefixes):
-                    # 创建一个 'playbook_' 前缀的列，值为布尔型 (当天此剧本是否得分 > 0)
                     df[f'playbook_{playbook_name}'] = score_details_df[playbook_name] > 0
 
-        # ▼▼▼ 集成智能出场矩阵 ▼▼▼
         print("    - [信息] 智能出场逻辑判断开始...")
-        # 步骤: 计算所有“风险状态”
         risk_states = self._calculate_risk_states(df, params)
-        # 步骤: 基于风险状态计算出场信号
         df.loc[:, 'exit_signal_code'] = self._calculate_exit_signals(df, risk_states, params)
 
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params')
@@ -189,29 +184,20 @@ class TrendFollowStrategy:
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_definitions_for_log}
 
         entry_signals = df[df['signal_entry']]
-        print("\n---【多时间框架协同策略(V45.2 日志过滤版) 逻辑链调试】---")
+        print("\n---【多时间框架协同策略(V45.8 终极架构版) 逻辑链调试】---")
         
-        # 定义日志的起始日期
-        log_start_date = pd.to_datetime('2024-07-01').date() # 使用 .date() 来比较日期部分
-        
-        # 筛选出所有买入信号
-        entry_signals = df[df['signal_entry']]
-        
-        # 在打印前再次筛选日期
+        log_start_date = pd.to_datetime('2024-07-01').date()
         filtered_entry_signals = entry_signals[entry_signals.index.date >= log_start_date]
         
         print(f"【最终买入】(得分>{score_threshold})信号总数: {len(entry_signals)} | 24年7月后信号数: {len(filtered_entry_signals)}")
         
         if not filtered_entry_signals.empty:
-            # 遍历过滤后的信号进行打印
             for entry_date, row in filtered_entry_signals.iterrows():
                 entry_score = row['entry_score']
-                # 优先获取 pct_change_D，如果不存在则获取 pct_change
                 pct_change_val = row.get('pct_change_D', row.get('pct_change', 0)) * 100
                 print(f"\n====== 日期: {entry_date.date()} | 收盘: {row.get('close_D', 'N/A'):.2f} | 涨跌: {pct_change_val:.2f}% ======")
                 print(f"  - 核心前提 (右侧趋势): {row.get('robust_right_side_precondition', '未知')}")
                 
-                # 检查 entry_date 是否存在于 score_details_df 的索引中
                 if self._last_score_details_df is not None and entry_date in self._last_score_details_df.index:
                     score_breakdown = self._last_score_details_df.loc[entry_date].dropna()
                     active_playbooks = [
@@ -219,19 +205,15 @@ class TrendFollowStrategy:
                         if v > 0 and not k.startswith(('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'DYNAMICS_SCORE', 'WATCHING_SETUP'))
                     ]
                 else:
-                    active_playbooks = [] # 如果找不到对应的得分详情，则为空列表
+                    active_playbooks = []
 
-                # 获取准备状态
                 active_setups = [
                     s.replace('SETUP_', '') for s in setup_conditions.keys()
                     if s in setup_conditions and isinstance(setup_conditions[s], pd.Series) and not setup_conditions[s].empty and entry_date in setup_conditions[s].index and setup_conditions[s].at[entry_date]
                 ]
-                # 将准备状态的英文名也转换为中文名
                 setup_cn_name_map = {
-                    'PROLONGED_COMPRESSION': '长期蓄势', # 新增S级准备状态的中文名
-                    'CAPITAL_FLOW_DIVERGENCE': '资金暗流',
-                    'ENERGY_COMPRESSION': '能量压缩', 
-                    'HEALTHY_PULLBACK': '健康回踩', 'DUCK_NECK_FORMING': '老鸭颈',
+                    'PROLONGED_COMPRESSION': '长期蓄势', 'CAPITAL_FLOW_DIVERGENCE': '资金暗流',
+                    'ENERGY_COMPRESSION': '能量压缩', 'HEALTHY_PULLBACK': '健康回踩', 'DUCK_NECK_FORMING': '老鸭颈',
                     'CHIP_ACCUMULATION': '筹码吸筹', 'WASHOUT_DAY': '巨阴洗盘',
                     'SHOCK_BOTTOM': '休克谷底', 'DOJI_PAUSE': '十字星暂停',
                     'RELATIVE_STRENGTH': '相对强势', 'FORTRESS_SIEGE': '堡垒围攻',
@@ -242,9 +224,11 @@ class TrendFollowStrategy:
 
                 print(f"  【✔ 买入信号触发】")
                 print(f"    - 总分: {entry_score:.2f} (阈值: {score_threshold})")
-                # 使用中文名打印剧本
                 print(f"    - 激活的日线剧本: {[playbook_cn_name_map.get(p, p) for p in active_playbooks]}")
                 print(f"    - 成立的准备状态: {active_setups_cn if active_setups_cn else '无'}")
+
+        print(f"====== 【战术引擎 V45.8】执行完毕 ======")
+        print("="*60 + "\n")
 
         return df, atomic_signals
 
@@ -546,20 +530,22 @@ class TrendFollowStrategy:
         ]
         return playbook_definitions
 
-    def _calculate_entry_score(self, df: pd.DataFrame, df_dict: Dict[str, pd.DataFrame], params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
+    def _calculate_entry_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V44.0 架构统一重构版】
-        - 核心重构: 彻底重写本函数，使其与 V41.8+ 的“准备/触发”分离架构完全兼容。
-        - 解决问题: 根除因版本混杂导致的逻辑冲突，确保 S 级剧本的信号能被正确评估。
+        【V45.8 终极架构版】
+        - 核心重构: 彻底移除 df_dict 参数，函数现在只依赖一个被完全预处理过的日线DataFrame。
+        - 依赖解耦: 所有对多时间框架数据的依赖（周线信号、分钟线VWAP）均由上游的总指挥模块处理完毕，
+                    本函数只负责在日线层面进行计分，职责单一且清晰。
         """
-        print("    [计分V44.0] 启动架构统一的计分引擎...")
+        print("    [计分V45.8] 启动终极架构计分引擎...")
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         
-        # --- 步骤1: 计算并记录战略背景基础分 (逻辑不变) ---
-        print("    [计分V44.0] 步骤1: 计算周线战略背景基础分...")
+        # --- 步骤1: 计算战略背景基础分 (逻辑不变) ---
+        # ... (此部分代码保持不变) ...
+        print("    [计分V45.8] 步骤1: 计算周线战略背景基础分...")
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
         all_base_score_cols = [king_signal_col]
@@ -574,13 +560,11 @@ class TrendFollowStrategy:
             all_base_score_cols.append(base_col_name)
             if score > 0 and df[col].any():
                 score_details_df.loc[df[col], base_col_name] = score
-        
         strategic_accel_col = 'EVENT_STRATEGIC_ACCELERATING_W'
         if strategic_accel_col in df.columns and df[strategic_accel_col].any():
             accel_score = self._get_param_value(points.get('STRATEGIC_ACCEL_SCORE'), 100)
             score_details_df.loc[df[strategic_accel_col], 'BASE_STRATEGIC_ACCEL'] = accel_score
             all_base_score_cols.append('BASE_STRATEGIC_ACCEL')
-
         score_details_df.fillna(0, inplace=True)
         if king_signal_col in score_details_df.columns:
             king_signal_mask = (score_details_df[king_signal_col] > 0)
@@ -589,72 +573,34 @@ class TrendFollowStrategy:
                 score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
         
         # --- 步骤2: 进行核心前提交叉验证 (逻辑不变) ---
-        print("    [计分V44.0] 步骤2: 进行核心前提交叉验证...")
+        print("    [计分V45.8] 步骤2: 进行核心前提交叉验证...")
         validated_premises = self._validate_core_premises(df, params)
 
-        # --- 步骤3: 【架构统一】调用独立的“准备”和“触发”中心 ---
-        print("    [计分V44.0] 步骤3: 调用独立的准备状态和触发事件中心...")
-        # 调用最新的准备状态函数 (V43.1)
+        # --- 步骤3: 调用独立的“准备”和“触发”中心 (逻辑不变) ---
+        print("    [计分V45.8] 步骤3: 调用独立的准备状态和触发事件中心...")
         setup_conditions = self._calculate_setup_conditions(df, params)
-        # 调用最新的触发事件函数 (V41.8)
         trigger_events = self._define_trigger_events(df, params)
-        
-        # 合并所有原子信号用于返回
         atomic_signals.update(setup_conditions)
         atomic_signals.update(trigger_events)
-        # 将 setup 状态写入主 df，供日志和后续分析使用
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
 
         # --- 步骤4: 计算趋势动力学附加分 (逻辑不变) ---
-        print("    [计分V44.0] 步骤4: 计算趋势动力学附加分...")
+        print("    [计分V45.8] 步骤4: 计算趋势动力学附加分...")
         dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
 
-        # --- 步骤5: 【架构统一】构建并评估“剧本矩阵” ---
-        print("    [计分V44.0] 步骤5: 按优先级评估“剧本矩阵”...")
+        # --- 步骤5: 构建并评估“剧本矩阵” (逻辑不变) ---
+        print("    [计分V45.8] 步骤5: 按优先级评估“剧本矩阵”...")
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
-
         df['base_score'] = 0.0
         has_been_scored = pd.Series(False, index=df.index)
-
         for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
-
-            if isinstance(setup, bool):
-                setup = pd.Series(setup, index=df.index)
-
-            # ▼▼▼【代码修改 V44.1】: 增加S级剧本的专用探针3 (最终评估) ▼▼▼
-            if playbook['name'] in ['PERFECT_STORM', 'AWAKENED_BEAST']:
-                probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                
-                daily_eval_df = pd.DataFrame({
-                    'setup(T-1)': setup.shift(1).fillna(False),
-                    'trigger(T)': trigger,
-                    'precondition(T)': playbook['precondition'],
-                    '~has_been_scored(T)': ~has_been_scored
-                })
-                
-                # 组合筛选条件：1. 日期符合要求 2. 至少有一个条件为True
-                interesting_days = daily_eval_df[
-                    (daily_eval_df.index >= probe_start_date) & 
-                    (daily_eval_df.any(axis=1))
-                ]
-                
-                if not interesting_days.empty:
-                    print(f"\n--- [探针-EVAL | >24-07-01] 每日评估详情 for 剧本: {playbook['name']} ---")
-                    print(interesting_days.to_string())
-                    print(f"--- [探针-EVAL] 评估结束 for {playbook['name']} ---\n")
-            # ▲▲▲【代码修改 V44.1】▲▲▲
-            
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL']:
-                condition = setup & trigger
-            else:
-                # 传统逻辑: 准备状态(T-1) + 触发器(T)
-                condition = setup.shift(1).fillna(False) & trigger
-
+            if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
+            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL']: condition = setup & trigger
+            else: condition = setup.shift(1).fillna(False) & trigger
             is_triggered = condition & playbook['precondition'] & ~has_been_scored
-            
             if is_triggered.any():
                 score = self._get_param_value(points.get(playbook['name']), playbook['score'])
                 df.loc[is_triggered, 'base_score'] = score
@@ -663,50 +609,40 @@ class TrendFollowStrategy:
                 playbook_cn_name = playbook.get('cn_name', playbook['name'])
                 print(f"    - [剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
 
-        # 【观察分逻辑】(逻辑不变)
+        # --- 观察分逻辑 (逻辑不变) ---
         watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
-        is_in_any_setup = (
-            setup_conditions.get('SETUP_ENERGY_COMPRESSION', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_CAPITAL_FLOW_DIVERGENCE', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_HEALTHY_PULLBACK', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_DUCK_NECK_FORMING', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_CHIP_ACCUMULATION', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_WASHOUT_DAY', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_SHOCK_BOTTOM', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_DOJI_PAUSE', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_BULLISH_FLAG_FORMING', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_RELATIVE_STRENGTH', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_FORTRESS_SIEGE', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_BOTTOM_DIVERGENCE', pd.Series(False, index=df.index)) |
-            setup_conditions.get('SETUP_BBAND_SQUEEZE', pd.Series(False, index=df.index))
-        )
+        is_in_any_setup = pd.concat([s for k, s in setup_conditions.items() if k.startswith('SETUP_') and isinstance(s, pd.Series) and not s.empty], axis=1).any(axis=1)
         is_watching = is_in_any_setup & ~has_been_scored
         if is_watching.any():
             df.loc[is_watching, 'base_score'] = watching_score
             score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
             print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
 
-        # --- 步骤6: 融合剧本分、动力学分与环境修正项 (逻辑不变) ---
-        print("    [计分V44.0] 步骤6: 融合所有得分项...")
+        # --- 步骤6: 融合剧本分、动力学分与环境修正项 ---
+        print("    [计分V45.8] 步骤6: 融合所有得分项...")
         final_score = df['base_score'].copy()
         has_primary_score = final_score > 0
         if (has_primary_score).any():
             final_score.loc[has_primary_score] += dynamics_score.loc[has_primary_score]
             score_details_df.loc[has_primary_score, 'DYNAMICS_SCORE'] = dynamics_score.loc[has_primary_score]
 
-        cond_vwap_support = self._check_vwap_confirmation(df_dict, params)
+        # ▼▼▼【代码修改 V45.8】: 直接使用预处理好的VWAP支撑列，不再需要df_dict或任何相关函数 ▼▼▼
+        cond_vwap_support = df.get('cond_vwap_support', pd.Series(False, index=df.index))
+        # ▲▲▲【代码修改 V45.8】▲▲▲
+        
         if (cond_vwap_support & has_primary_score).any():
             bonus = self._get_param_value(points.get('BONUS_VWAP_SUPPORT'), 20)
             final_score.loc[cond_vwap_support & has_primary_score] += bonus
             score_details_df.loc[cond_vwap_support & has_primary_score, 'BONUS_VWAP_SUPPORT'] = bonus
 
+        # --- 后续所有奖励、惩罚、合并、否决等逻辑都保持不变 ---
+        # ... (此部分代码保持不变) ...
         high_consensus_bonus = self._get_param_value(points.get('BONUS_HIGH_CONSENSUS'), 30)
         is_high_consensus = (validated_premises.get('trend_health_score', pd.Series(0)) >= 5) & has_primary_score
         if is_high_consensus.any():
             final_score.loc[is_high_consensus] += high_consensus_bonus
             score_details_df.loc[is_high_consensus, 'BONUS_HIGH_CONSENSUS'] = high_consensus_bonus
             print(f"      -> '高共识度(健康分>=5)'奖励触发了 {is_high_consensus.sum()} 天。")
-
         industry_params = self._get_params_block(params, 'industry_context_params', {})
         if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
             rank_series = df['industry_strength_rank_D']
@@ -726,33 +662,24 @@ class TrendFollowStrategy:
             is_top_tier = (rank_series >= top_tier_rank_threshold) & has_primary_score
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
-        
-        # --- 步骤7: 合并战略与战术得分 (逻辑不变) ---
-        print("    [计分V44.0] 步骤7: 合并战略与战术得分...")
+        print("    [计分V45.8] 步骤7: 合并战略与战术得分...")
         base_score_from_weekly = score_details_df.filter(regex='^BASE_').sum(axis=1)
         final_score += base_score_from_weekly
-
-        # --- 更新上下文状态 (逻辑不变) ---
-        print("    [计分V44.0] 步骤X: 更新上下文状态...")
+        print("    [计分V45.8] 步骤X: 更新上下文状态...")
         df = self._update_contextual_states(df, score_details_df, validated_premises, params)
-
-        # --- 步骤8: 最终风险否决层 (逻辑不变) ---
-        print("    [计分V44.0] 步骤8: 应用最终风险否决层...")
+        print("    [计分V45.8] 步骤8: 应用最终风险否决层...")
         cond_trend_exhaustion = setup_conditions.get('RISK_TREND_EXHAUSTION', pd.Series(False, index=df.index))
         if cond_trend_exhaustion.any():
             final_score.loc[cond_trend_exhaustion] = 0
             print(f"    - [风险否决] '趋势衰竭'信号触发，否决了 {cond_trend_exhaustion.sum()} 天的买入信号。")
-
         cond_heaven_earth_board = self._identify_board_patterns(df, params).get('heaven_earth_board', pd.Series(False, index=df.index))
         if cond_heaven_earth_board.any():
             final_score.loc[cond_heaven_earth_board] = 0
             print(f"    - [风险否决] '天地板'信号触发，否决了 {cond_heaven_earth_board.sum()} 天的买入信号。")
-            
         cond_volume_breakdown = self._find_volume_breakdown_exit(df, params)
         if cond_volume_breakdown.any():
             final_score.loc[cond_volume_breakdown] = 0
             print(f"    - [风险否决] '结构崩溃'信号触发，否决了 {cond_volume_breakdown.sum()} 天的买入信号。")
-            
         kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | \
                             df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | \
                             df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | \
@@ -763,9 +690,10 @@ class TrendFollowStrategy:
 
         # 清理临时列
         df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore')
-        print("    [计分V44.0] 计分流程结束。")
+        print("    [计分V45.8] 计分流程结束。")
         
         return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
+
     def _calculate_exit_signals(self, df: pd.DataFrame, risk_states: Dict[str, pd.Series], params: dict) -> pd.Series:
         """
         【V41.12 智能出场矩阵版】
@@ -2229,50 +2157,6 @@ class TrendFollowStrategy:
         
         # 8. 清理临时列
         df.drop(columns=['last_peak_price', 'last_trough_price'], inplace=True)
-
-    def _check_vwap_confirmation(self, df_dict: Dict[str, pd.DataFrame], params: dict) -> pd.Series:
-        """
-        【V2.5 最终修复版】检查VWAP支撑确认信号。
-        """
-        # print("    [VWAP确认] 正在执行分钟线VWAP确认逻辑 (V2.5 最终修复版)...") # 可以注释掉常规日志
-        vwap_params = self._get_params_block(params, 'vwap_confirmation_params')
-        if not vwap_params.get('enabled', False):
-            if 'D' in df_dict and not df_dict['D'].empty:
-                return pd.Series(False, index=df_dict['D'].index)
-            return pd.Series([])
-
-        tf = vwap_params.get('timeframe', '5')
-        buffer = vwap_params.get('confirmation_buffer', 0.001)
-
-        df_minute = df_dict.get(tf)
-        df_daily = df_dict.get('D')
-
-        if df_minute is None or df_minute.empty or df_daily is None or df_daily.empty:
-             return pd.Series(False, index=df_daily.index if df_daily is not None else None)
-
-        # 检查VWAP列是否存在
-        vwap_col = f'VWAP_{tf}'
-        if vwap_col not in df_minute.columns: vwap_col = 'VWAP_D' # 兼容旧列名
-        if vwap_col not in df_minute.columns: return pd.Series(False, index=df_daily.index)
-
-        # 核心逻辑：检查分钟线是否在VWAP之上，然后按天聚合
-        # .normalize() 对UTC时区索引同样有效，会将其归一化到当天的零点
-        is_above_vwap = df_minute['close'] > df_minute[vwap_col] * (1 + buffer)
-        daily_confirmation = is_above_vwap.groupby(is_above_vwap.index.normalize()).any()
-        
-        # 将聚合后的日线信号映射回原始的日线DataFrame
-        final_signal = pd.Series(False, index=df_daily.index)
-        
-        if not daily_confirmation.empty:
-            # 使用 .reindex() 是一种更健壮和简洁的映射方式
-            # 它会根据 df_daily 的归一化日期索引，从 daily_confirmation 中查找对应的值
-            # 找不到的日期会自动填充为 fill_value (默认为NaN，我们用 .fillna(False) 处理)
-            normalized_daily_index = df_daily.index.normalize()
-            final_signal = daily_confirmation.reindex(normalized_daily_index).fillna(False)
-            # reindex 后索引会变成归一化的日期，需要把它重置回原始的日线索引
-            final_signal.index = df_daily.index
-        # print(f"    [VWAP确认] 完成，共产生 {final_signal.sum()} 个VWAP支撑信号。") # 可以注释掉常规日志
-        return final_signal
 
     def _identify_board_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """

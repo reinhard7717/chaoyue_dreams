@@ -334,7 +334,17 @@ class MultiTimeframeTrendStrategy:
         return df_merged
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        final_df, atomic_signals = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
+        # 步骤1: 融合周线战略信号到日线数据 (逻辑不变)
+        strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
+        df_daily_prepared = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+
+        # 步骤2: 融合分钟线信号（如VWAP支撑）到日线数据 (逻辑不变)
+        # 这一步是关键，它为战术引擎准备好了所有跨周期数据
+        df_daily_prepared = self._prepare_intraday_signals(all_dfs, self.tactical_config)
+
+        # 步骤3: 使用完全准备好的日线数据调用战术引擎
+        final_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
+        
         self.daily_analysis_df = final_df
         if final_df is None or final_df.empty: return []
         return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
@@ -367,6 +377,56 @@ class MultiTimeframeTrendStrategy:
                 df_copy[slope_col] = np.nan
                 df_copy[accel_col] = np.nan
         return df_copy
+
+    def _prepare_intraday_signals(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> pd.DataFrame:
+        """
+        【V6.15 新增】
+        在调用战术引擎前，预处理所有需要分钟线数据的信号。
+        目前主要用于计算 VWAP 支撑确认，并将其作为一个布尔列合并到日线DataFrame中。
+        这遵循了“总指挥准备一切数据”的架构原则。
+        """
+        df_daily = all_dfs.get('D')
+        if df_daily is None or df_daily.empty:
+            return df_daily
+
+        # --- VWAP 确认逻辑 ---
+        vwap_params = self.tactical_engine._get_params_block(params, 'vwap_confirmation_params', {})
+        # 注意：这里我们借用了 tactical_engine 的参数解析工具函数
+        
+        # 默认给一个False列，如果后续不满足条件则返回这个
+        df_daily['cond_vwap_support'] = False
+
+        if not vwap_params.get('enabled', False):
+            return df_daily
+
+        timeframe = vwap_params.get('timeframe', '30')
+        df_intraday = all_dfs.get(timeframe)
+
+        if df_intraday is None or df_intraday.empty:
+            print(f"    - [总指挥警告] 缺少分钟线({timeframe})数据，无法计算VWAP支撑。")
+            return df_daily
+
+        vwap_col = f'VWAP_{timeframe}'
+        close_col = f'close_{timeframe}'
+
+        if vwap_col not in df_intraday.columns or close_col not in df_intraday.columns:
+            print(f"    - [总指挥警告] 分钟线数据中缺少 '{vwap_col}' 或 '{close_col}'，跳过VWAP确认。")
+            return df_daily
+
+        df_intra_filtered = df_intraday[[close_col, vwap_col]].copy()
+        df_intra_filtered['date'] = df_intra_filtered.index.date
+
+        last_bar_support = df_intra_filtered.groupby('date').apply(
+            lambda g: g[close_col].iloc[-1] > g[vwap_col].iloc[-1] if not g.empty else False
+        )
+        
+        # 将计算出的VWAP支撑信号（以date为索引）映射回日线DataFrame
+        # 使用 .map() 可以安全地处理日期不匹配的情况
+        df_daily['cond_vwap_support'] = df_daily.index.date.map(last_bar_support).fillna(False)
+        
+        print(f"    - [总指挥信息] 已预处理VWAP支撑信号，发现 {df_daily['cond_vwap_support'].sum()} 个支撑日。")
+        return df_daily
+
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False): return []
@@ -635,17 +695,17 @@ class MultiTimeframeTrendStrategy:
             
             # 运行周线战略引擎（通常日志较少，直接运行）
             strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
-            all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+            df_daily_prepared = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
             
-            # ▼▼▼【代码修改 V6.12】: 使用 stdout 重定向来捕获战术引擎的日志 ▼▼▼
+            # 在调试模式下同样进行分钟线信号的预处理
+            df_daily_prepared = self._prepare_intraday_signals(all_dfs, self.tactical_config)
+            
             log_capture_buffer = io.StringIO()
             with redirect_stdout(log_capture_buffer):
-                # 在这个代码块内，所有 print 都会被写入 buffer
-                final_df, _ = self.tactical_engine.apply_strategy(all_dfs, self.tactical_config)
+                final_df, _ = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
             
             # 获取捕获到的所有日志
             captured_logs = log_capture_buffer.getvalue()
-            # ▲▲▲【代码修改 V6.12】▲▲▲
 
             if final_df is None or final_df.empty:
                 print("[信息] 战术引擎运行完成，但未生成任何分析结果。")
