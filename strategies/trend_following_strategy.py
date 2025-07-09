@@ -387,10 +387,22 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'AWAKENED_BEAST', 'cn_name': '猛兽苏醒',
-                'setup': setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', default_series),
-                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
-                'score': 330, 'precondition': True,
-                'comment': '【V45.53 升级】捕捉主力资金流出减缓、并确认反转的“资本拐点”，是最高精度的资金驱动型反转信号。'
+                # 准备条件: 检查“资本背离”的持久化状态是否激活
+                'setup': df.get('CONTEXT_CAPITAL_DIVERGENCE_ACTIVE', default_series),
+                # 触发条件: “动能背离”的核心准备状态成立
+                'trigger': setup_conditions.get('SETUP_MOMENTUM_DIVERGENCE', default_series),
+                'score': 330, 
+                'precondition': True, # 这是一个左侧组合信号，放宽右侧前提
+                'comment': '【V46.0 状态持久化版】捕捉“资本背离”状态开启后，由“动能背离”事件点燃的终极反转信号。'
+            },
+            {
+                'name': 'INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE', 'cn_name': '内部-设置资本背离状态',
+                'setup': True, # 无需前置setup
+                # 触发条件: “资本背离”准备状态成立的当天
+                'trigger': setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', default_series),
+                'score': 0, # 不产生任何分数，仅用于触发上下文
+                'precondition': True,
+                'comment': '内部辅助剧本，当资本背离条件满足时，开启一个持续数天的上下文状态，用于被其他剧本捕获。'
             },
             {
                 'name': 'WASH_AND_RISE', 'cn_name': '洗盘拉升',
@@ -1619,6 +1631,23 @@ class TrendFollowStrategy:
         # --- 步骤 1: 从配置加载上下文定义 ---
         context_params = self._get_params_block(params, 'context_setting_params', {})
         context_definitions = context_params.get('definitions', {})
+
+        # ▼▼▼【代码修改 V39.5】: 动态注入“资本背离”上下文的定义，并为其增加失效条件 ▼▼▼
+        if 'INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE' not in context_definitions:
+            context_definitions['INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE'] = {
+                'base_name': 'CAPITAL_DIVERGENCE_ACTIVE',
+                'tiers': [{'min_score': 0, 'priority': 5, 'duration': 3}],
+                # 新增：定义状态的失效条件
+                'invalidation': {
+                    'enabled': True,
+                    # 当状态开启时，记录当时的最低价作为“防守底线”
+                    'anchor_metric': 'low_D', 
+                    # 如果后续收盘价跌破了“防守底线”，则状态失效
+                    'check_metric': 'close_D',
+                    'condition': 'less' # check_metric < anchor_metric
+                }
+            }
+            print("        -> [动态注入] 已为'资本背离'状态添加上下文定义(含失效条件)。")
         
         # 从前提验证结果中获取健康度评分
         trend_health_score = validated_premises.get('trend_health_score', pd.Series(0, index=df.index))
@@ -1642,6 +1671,12 @@ class TrendFollowStrategy:
         # 创建用于存储当天动态优先级和持续时间的临时列
         df['temp_priority'] = 0
         df['temp_duration'] = 0
+        # ▼▼▼【代码修改 V39.5】: 初始化锚点价格列 ▼▼▼
+        for playbook_name, definition in context_definitions.items():
+            if definition.get('invalidation', {}).get('enabled', False):
+                anchor_col = f"CONTEXT_{definition['base_name']}_ANCHOR"
+                if anchor_col not in df.columns:
+                    df[anchor_col] = np.nan
 
         for playbook_name, definition in context_definitions.items():
             if playbook_name not in score_details_df.columns:
@@ -1673,6 +1708,13 @@ class TrendFollowStrategy:
                     # 将重置信息直接存入主导上下文名称，简化后续逻辑
                     df.at[idx, 'CONTEXT_ACTIVE_NAME'] = base_name
                     print(f"          - 日期 {idx.date()}: 剧本 '{playbook_name}' 命中，健康分 {score_at_trigger:.0f}，匹配等级(P{matched_tier['priority']}, D{matched_tier['duration']})，设置主导叙事为 '{base_name}'。")
+                    # ▼▼▼【代码修改 V39.5】: 当状态被设置时，记录锚点价格 ▼▼▼
+                    if definition.get('invalidation', {}).get('enabled', False):
+                        anchor_metric = definition['invalidation']['anchor_metric']
+                        anchor_col = f"CONTEXT_{base_name}_ANCHOR"
+                        if anchor_metric in df.columns:
+                            df.at[idx, anchor_col] = df.at[idx, anchor_metric]
+                            print(f"            -> 状态 '{base_name}' 开启，记录锚点价格({anchor_metric}): {df.at[idx, anchor_col]:.2f}")
 
         # --- 步骤 4: 更新计时器和主导上下文状态 ---
         print("        -> 步骤2.3: 更新主导上下文状态...")
@@ -1682,6 +1724,13 @@ class TrendFollowStrategy:
         
         # 状态继承：如果今天没有新事件，则继承昨天的状态
         df['CONTEXT_ACTIVE_NAME'] = df['CONTEXT_ACTIVE_NAME'].where(df['temp_priority'] > 0, df['CONTEXT_ACTIVE_NAME'].shift(1).fillna('NONE'))
+        # ▼▼▼【代码修改 V39.5】: 继承锚点价格 ▼▼▼
+        for playbook_name, definition in context_definitions.items():
+             if definition.get('invalidation', {}).get('enabled', False):
+                base_name = definition['base_name']
+                anchor_col = f"CONTEXT_{base_name}_ANCHOR"
+                # 如果今天没有新设置锚点，就继承昨天的
+                df[anchor_col] = df[anchor_col].fillna(method='ffill')
         
         # 更新所有计时器
         for base_name in all_base_names:
@@ -1690,6 +1739,30 @@ class TrendFollowStrategy:
             reset_mask = (df['CONTEXT_ACTIVE_NAME'] == base_name) & (df['temp_duration'] > 0)
             if reset_mask.any():
                 df.loc[reset_mask, timer_col] = df.loc[reset_mask, 'temp_duration']
+        # ▼▼▼【代码修改 V39.5】: 应用状态失效逻辑 ▼▼▼
+        print("        -> 步骤2.3.1: 检查并应用状态失效条件...")
+        for playbook_name, definition in context_definitions.items():
+            invalidation_params = definition.get('invalidation', {})
+            if invalidation_params.get('enabled', False):
+                base_name = definition['base_name']
+                timer_col = f"CONTEXT_{base_name}_TIMER"
+                anchor_col = f"CONTEXT_{base_name}_ANCHOR"
+                check_metric_col = invalidation_params['check_metric']
+                
+                if all(c in df.columns for c in [timer_col, anchor_col, check_metric_col]):
+                    # 只有在计时器>0时才检查失效
+                    is_active = df[timer_col] > 0
+                    # 检查是否跌破锚点
+                    is_invalidated = df[check_metric_col] < df[anchor_col]
+                    # 最终需要清零的掩码
+                    invalidation_mask = is_active & is_invalidated
+                    
+                    if invalidation_mask.any():
+                        df.loc[invalidation_mask, timer_col] = 0
+                        df.loc[invalidation_mask, anchor_col] = np.nan # 清除锚点
+                        # 如果失效的是当前主导叙事，也一并清除
+                        df.loc[invalidation_mask & (df['CONTEXT_ACTIVE_NAME'] == base_name), 'CONTEXT_ACTIVE_NAME'] = 'NONE'
+                        print(f"          - [状态失效] '{base_name}' 状态因跌破锚点而在 {invalidation_mask.sum()} 天被强制终止。")
 
         # --- 步骤 5: 更新主导上下文的剩余时间和最终的原子布尔状态 ---
         print("        -> 步骤2.4: 更新主导上下文计时器和原子状态...")
