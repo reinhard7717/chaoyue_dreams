@@ -882,7 +882,7 @@ class TrendFollowStrategy:
         # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
         # --- 剧本A: 动能背离 (Momentum Divergence) ---
         try:
-            p = setup_params.get('momentum_divergence_params', {}) # 使用新的参数块
+            p = setup_params.get('momentum_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('lookback'), 20)
                 long_period = self._get_param_value(p.get('trend_ma'), 55)
@@ -892,36 +892,42 @@ class TrendFollowStrategy:
                 vlong_ma_accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
                 
                 required_cols = ['close_D', long_ma_col, vlong_ma_accel_col]
-                if all(col in df.columns for col in required_cols):
-                    # 条件1: 价格处于明确的弱势背景
+                
+                # 【核心修改】增加强制性的前置检查站
+                if not all(col in df.columns for col in required_cols):
+                    missing = [col for col in required_cols if col not in df.columns]
+                    print(f"\n--- [前置检查失败] '动能背离' 无法计算，缺少列: {missing} ---\n")
+                else:
+                    # 只有在所有列都存在时，才执行核心逻辑
                     is_price_weak = df['close_D'] < df[long_ma_col]
-                    # 条件2: 下跌加速度转正
                     is_momentum_turning = df[vlong_ma_accel_col] > 0
-                    
                     final_setup = is_price_weak & is_momentum_turning
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
-                    print(f"      -> '动能背离'(新增)完成: 寻找“价弱 & 加速强”的拐点，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '动能背离' 完成: 寻找“价弱 & 加速强”的拐点，发现 {final_setup.sum()} 天。")
 
                     # --- 动能背离专属探针 ---
                     probe_start_date = pd.to_datetime('2024-07-01', utc=True) if df.index.tz else pd.to_datetime('2024-07-01')
                     key_dates_to_check = pd.to_datetime(['2024-08-13', '2024-08-21'], utc=True if df.index.tz else None)
                     interesting_days_mask = final_setup.loc[probe_start_date:] | df.index.isin(key_dates_to_check)
+                    
                     if interesting_days_mask.any():
                         probe_df = pd.DataFrame({
                             'Close': df['close_D'], 'LMA_val': df[long_ma_col], 'PriceWeakOK': is_price_weak,
                             'MomentumAccel': df[vlong_ma_accel_col], 'MomentumOK': is_momentum_turning,
                             '_SETUP': final_setup
                         }).loc[interesting_days_mask]
-                        print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.41) ---")
-                        print(probe_df.to_string(float_format="%.4f"))
-                        print("--- [终极探针] 诊断结束 ---\n")
+                        
+                        if not probe_df.empty:
+                            print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.42) ---")
+                            print(probe_df.to_string(float_format="%.4f"))
+                            print("--- [终极探针] 诊断结束 ---\n")
 
         except Exception as e:
             print(f"      -> [警告] 计算'动能背离'时出错: {e}")
             
         # --- 剧本B: 资本背离 (Capital Divergence) ---
         try:
-            p = setup_params.get('capital_divergence_params', {}) # 使用新的参数块
+            p = setup_params.get('capital_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('lookback'), 20)
                 long_period = self._get_param_value(p.get('trend_ma'), 55)
@@ -929,16 +935,19 @@ class TrendFollowStrategy:
                 long_ma_col = f"EMA_{long_period}_D"
                 
                 required_cols = ['close_D', mf_col, long_ma_col]
-                if all(col in df.columns for col in required_cols):
-                    # 条件1: 价格处于明确的弱势背景
+                
+                # 【核心修改】增加强制性的前置检查站
+                if not all(col in df.columns for col in required_cols):
+                    missing = [col for col in required_cols if col not in df.columns]
+                    print(f"\n--- [前置检查失败] '资本背离' 无法计算，缺少列: {missing} ---\n")
+                else:
+                    # 只有在所有列都存在时，才执行核心逻辑
                     is_price_weak = df['close_D'] < df[long_ma_col]
-                    # 条件2: 主力资金逆势流入
                     mf_accumulation = df[mf_col].rolling(window=lookback).sum()
                     is_capital_inflow = mf_accumulation > 0
-                    
                     final_setup = is_price_weak & is_capital_inflow
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
-                    print(f"      -> '资本背离'(重构)完成: 寻找“价弱 & 资金强”的背离，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '资本背离' 完成: 寻找“价弱 & 资金强”的背离，发现 {final_setup.sum()} 天。")
 
         except Exception as e:
             print(f"      -> [警告] 计算'资本背离'时出错: {e}")
