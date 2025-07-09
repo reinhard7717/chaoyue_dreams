@@ -345,14 +345,13 @@ class TrendFollowStrategy:
     # 趋势斜率计算中心
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V52.0 性能优化版】趋势斜率计算中心
-        - 核心优化: 彻底废弃了性能极差的 `rolling().apply()` 方法。
-        - 解决方案: 全面采用 `pandas_ta.linreg` 函数进行斜率计算。
-                    `pandas_ta` 的实现基于高度优化的向量化操作，性能相比之前提升百倍以上。
-        - 业务逻辑: 保持了对一阶斜率(SLOPE)、二阶导数(ACCEL)和三阶导数(Jerk)的链式计算，
-                    并保留了 `min_periods` 的设置，确保与原始业务逻辑在结果上完全一致。
+        【V52.1 健壮性修复版】趋势斜率计算中心
+        - 核心修复: 解决了 V52.0 版本中因 pandas_ta.linreg 返回 Series 而非 DataFrame 导致的 AttributeError。
+        - 解决方案: 在处理 linreg 函数的返回值时，增加了类型判断。
+                    无论返回的是 Series 还是 DataFrame，都能正确提取斜率数据，使代码更加健壮。
+        - 性能: 依然保持了 V52.0 版本基于向量化计算带来的巨大性能优势。
         """
-        print("    - [斜率中心 V52.0 性能优化版] 开始计算关键指标的趋势斜率...")
+        print("    - [斜率中心 V52.1 健壮性修复版] 开始计算关键指标的趋势斜率...")
         slope_params = self._get_params_block(params, 'slope_params', {})
         if not self._get_param_value(slope_params.get('enabled'), False):
             print("    - [斜率中心] 斜率计算被禁用。")
@@ -360,57 +359,74 @@ class TrendFollowStrategy:
 
         series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {})
         
-        # 动态添加资金累积列的斜率计算任务，逻辑保持不变
         capital_lookback = 20
         capital_accum_col = f'mf_accumulation_{capital_lookback}_D'
         if capital_accum_col not in series_to_slope:
             series_to_slope[capital_accum_col] = [capital_lookback]
             print(f"      -> 动态为 '{capital_accum_col}' 添加斜率计算任务。")
 
-        # 遍历所有需要计算斜率的列和周期
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
                 print(f"    - [斜率中心] 警告: 列 '{col_name}' 不存在，跳过斜率计算。")
                 continue
             
-            # 获取原始数据列，确保为浮点数类型以避免潜在问题
             source_series = df[col_name].astype(float)
 
             for lookback in lookbacks:
-                # 定义最小计算周期，与原始逻辑保持一致
                 min_p = max(2, lookback // 2)
                 
                 # 1. 计算一阶斜率 (SLOPE)
                 slope_col_name = f'SLOPE_{col_name}_{lookback}'
-                # 使用 pandas_ta.linreg 进行高速计算
-                # ta.linreg 返回一个包含多个值的DataFrame，我们只需要 'slp' (slope) 列
                 linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                # linreg_result 的列名是 LRL_length, LRI_length, LRR_length
-                # 我们需要找到斜率列，它的列名是 LRL_{lookback}
-                slope_series = linreg_result[f'LRL_{lookback}'] if f'LRL_{lookback}' in linreg_result.columns else pd.Series(np.nan, index=df.index)
-                df[slope_col_name] = slope_series
                 
+                # ▼▼▼ 智能处理 Series 或 DataFrame 返回值 ▼▼▼
+                if isinstance(linreg_result, pd.DataFrame):
+                    # 如果返回的是DataFrame，按列名提取
+                    slope_series = linreg_result.get(f'LRL_{lookback}')
+                elif isinstance(linreg_result, pd.Series):
+                    # 如果返回的是Series，直接使用
+                    slope_series = linreg_result
+                else:
+                    # 兜底处理，以防万一
+                    slope_series = pd.Series(np.nan, index=df.index)
+                
+                df[slope_col_name] = slope_series if slope_series is not None else np.nan
+
                 # 2. 计算二阶斜率 (ACCEL - 斜率的斜率)
                 accel_col_name = f'ACCEL_{col_name}_{lookback}'
-                # 对刚刚计算出的一阶斜率再次求斜率
                 if not df[slope_col_name].dropna().empty:
                     accel_linreg_result = df.ta.linreg(close=df[slope_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                    accel_series = accel_linreg_result[f'LRL_{lookback}'] if f'LRL_{lookback}' in accel_linreg_result.columns else pd.Series(np.nan, index=df.index)
-                    df[accel_col_name] = accel_series
+                    # ▼▼▼ 智能处理 Series 或 DataFrame 返回值 ▼▼▼
+                    if isinstance(accel_linreg_result, pd.DataFrame):
+                        accel_series = accel_linreg_result.get(f'LRL_{lookback}')
+                    elif isinstance(accel_linreg_result, pd.Series):
+                        accel_series = accel_linreg_result
+                    else:
+                        accel_series = pd.Series(np.nan, index=df.index)
+                    
+                    df[accel_col_name] = accel_series if accel_series is not None else np.nan
+
                 else:
                     df[accel_col_name] = np.nan
 
                 # 3. 计算三阶斜率 (Jerk - 加速度的斜率)
                 jerk_col_name = f'SLOPE_{accel_col_name}_{lookback}'
-                # 对刚刚计算出的二阶斜率再次求斜率
                 if not df[accel_col_name].dropna().empty:
                     jerk_linreg_result = df.ta.linreg(close=df[accel_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                    jerk_series = jerk_linreg_result[f'LRL_{lookback}'] if f'LRL_{lookback}' in jerk_linreg_result.columns else pd.Series(np.nan, index=df.index)
-                    df[jerk_col_name] = jerk_series
+                    # ▼▼▼ 智能处理 Series 或 DataFrame 返回值 ▼▼▼
+                    if isinstance(jerk_linreg_result, pd.DataFrame):
+                        jerk_series = jerk_linreg_result.get(f'LRL_{lookback}')
+                    elif isinstance(jerk_linreg_result, pd.Series):
+                        jerk_series = jerk_linreg_result
+                    else:
+                        jerk_series = pd.Series(np.nan, index=df.index)
+
+                    df[jerk_col_name] = jerk_series if jerk_series is not None else np.nan
+
                 else:
                     df[jerk_col_name] = np.nan
 
-        print("    - [斜率中心 V52.0 性能优化版] 所有斜率计算完成。")
+        print("    - [斜率中心 V52.1 健壮性修复版] 所有斜率计算完成。")
         return df
 
     # 背景上下文计算中心 (条件驱动)
