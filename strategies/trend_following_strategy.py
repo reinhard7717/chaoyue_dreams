@@ -849,65 +849,30 @@ class TrendFollowStrategy:
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('compression_lookback'), 60)
                 slope_col_name = f'SLOPE_net_mf_amount_D_{lookback}'
-                
                 required_cols = ['cost_95pct_D', 'cost_15pct_D', 'close_D', slope_col_name]
                 if all(c in df.columns for c in required_cols):
-                    # --- 步骤 A: 计算“瞬时”的准备条件 (与上一版逻辑相同) ---
-                    is_chip_concentrated = (df['cost_95pct_D'] - df['cost_15pct_D']) / df['close_D'] < self._get_param_value(p.get('chip_concentration_threshold'), 0.30)
-                    is_price_on_platform = df['close_D'] > df['cost_15pct_D']
-                    is_mf_trend_improving = df[slope_col_name] > 0
-                    
-                    # 这是原始的、零散的信号
-                    initial_setup_signal = is_chip_concentrated & is_price_on_platform & is_mf_trend_improving
-
-                    # ▼▼▼【核心逻辑修正】: 完善状态机计时器逻辑 ▼▼▼
+                    initial_setup_signal = (
+                        ((df['cost_95pct_D'] - df['cost_15pct_D']) / df['close_D'] < self._get_param_value(p.get('chip_concentration_threshold'), 0.30)) &
+                        (df['close_D'] > df['cost_15pct_D']) &
+                        (df[slope_col_name] > 0)
+                    )
                     persistence_days = self._get_param_value(p.get('setup_persistence_days'), 5)
-                    
-                    # 1. 初始化计时器
                     setup_timer = pd.Series(0, index=df.index, dtype=int)
-                    
-                    # 2. 循环处理每一天，实现正确的状态机逻辑
                     for i in range(len(df)):
                         current_index = df.index[i]
-                        # 规则1 (重置/刷新): 如果今天满足初始条件，计时器设为最大值
                         if initial_setup_signal.at[current_index]:
                             setup_timer.at[current_index] = persistence_days
-                        # 规则2 (递减): 如果今天不满足，但昨天在状态中，则计时器减1
                         elif i > 0:
                             prev_index = df.index[i-1]
                             if setup_timer.at[prev_index] > 0:
                                 setup_timer.at[current_index] = setup_timer.at[prev_index] - 1
-                    
-                    # 3. 定义“状态破坏”信号 (逻辑不变)
                     break_threshold = self._get_param_value(p.get('setup_break_threshold'), 0.98)
                     is_setup_broken = df['close_D'] < (df['cost_15pct_D'] * break_threshold)
-                    
-                    # 4. 最终的、具有持续性的Setup信号 (逻辑不变)
                     final_setup = (setup_timer > 0) & ~is_setup_broken
-
                     setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
-                    print(f"      -> [重构] '潜龙出海'准备状态(状态持续版)定义完成，发现 {final_setup.sum()} 天。")
-
-                    # --- 终极探针逻辑 (同步升级) ---
-                    probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                    probe_df = pd.DataFrame({
-                        'Initial_Setup': initial_setup_signal, # 新增: 显示原始信号
-                        'Timer': setup_timer,                  # 新增: 显示计时器
-                        'Is_Broken': is_setup_broken,          # 新增: 显示状态破坏信号
-                        'Final_Setup': final_setup             # 最终的持续状态信号
-                    }).loc[probe_start_date:]
-                    
-                    # 只要原始信号或最终信号为True，就打印出来
-                    interesting_days = probe_df[probe_df[['Initial_Setup', 'Final_Setup']].any(axis=1)]
-                    if not interesting_days.empty:
-                        print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '潜龙出海' (状态持续版) ---")
-                        print(interesting_days.to_string())
-                        print("--- [终极探针] 诊断结束 ---\n")
-                else:
-                    missing = [c for c in required_cols if c not in df.columns]
-                    print(f"      -> [警告] 缺少列: {missing}。请确保在配置文件中为'net_mf_amount_D'增加了'{lookback}'周期的斜率计算。")
+                    print(f"      -> '潜龙出海'准备状态(状态机修正版)定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
-            print(f"      -> [警告] 计算'潜龙出海-长期蓄势'(状态持续版)时出错: {e}")
+            print(f"      -> [警告] 计算'潜龙出海'时出错: {e}")
 
         # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
         try:
@@ -983,6 +948,53 @@ class TrendFollowStrategy:
                     print(f"      -> '健康回踩'准备状态定义完成 (V41.3 斜率版)，发现 {setups.get('SETUP_HEALTHY_PULLBACK', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'健康回踩'时出错: {e}")
+
+        # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
+        try:
+            p = setup_params.get('pullback_post_breakout_params', {})
+            if self._get_param_value(p.get('enabled'), True):
+                # 1. 识别关键的突破日 (复用“潜龙出海”的最终信号)
+                breakout_signal = setups.get('SETUP_PROLONGED_COMPRESSION', pd.Series(False, index=df.index))
+                is_first_day_of_breakout = breakout_signal & ~breakout_signal.shift(1).fillna(False)
+                
+                # 2. 找到每次突破发生时的平台高点或关键支撑作为回踩的“防守线”
+                support_level_on_breakout = df['cost_95pct_D'].shift(1).where(is_first_day_of_breakout)
+                
+                # 3. 让这个支撑位在突破后持续有效一段时间
+                lookback_days = self._get_param_value(p.get('lookback_days'), 15)
+                active_support = support_level_on_breakout.ffill(limit=lookback_days)
+                
+                # 4. 定义回踩状态
+                proximity = self._get_param_value(p.get('proximity_pct'), 1.02)
+                is_pullback_to_support = (df['low_D'] < active_support * proximity) & active_support.notna()
+                is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
+                
+                final_setup = is_pullback_to_support & is_volume_shrinking
+                setups['SETUP_PULLBACK_POST_BREAKOUT'] = final_setup
+                print(f"      -> '突破后回踩'准备状态定义完成，发现 {final_setup.sum()} 天。")
+
+                # --- 专属探针逻辑 ---
+                probe_start_date = pd.to_datetime('2024-07-01', utc=True)
+                probe_df = pd.DataFrame({
+                    'BreakoutDay': is_first_day_of_breakout,
+                    'SupportLine': active_support,
+                    'DayLow': df['low_D'],
+                    'SupportThresh': active_support * proximity,
+                    'Price_OK': is_pullback_to_support,
+                    'Volume': df['volume_D'],
+                    'Vol_MA21': df['VOL_MA_21_D'],
+                    'Volume_OK': is_volume_shrinking,
+                    'Final_Setup': final_setup
+                }).loc[probe_start_date:]
+                
+                interesting_days = probe_df[probe_df[['Price_OK', 'Volume_OK', 'BreakoutDay']].any(axis=1)]
+                if not interesting_days.empty:
+                    print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '突破后回踩' ---")
+                    print(interesting_days.to_string(float_format="%.2f"))
+                    print("--- [终极探针] 诊断结束 ---\n")
+
+        except Exception as e:
+            print(f"      -> [警告] 计算'突破后回踩'时出错: {e}")
 
         # --- 5. 老鸭头-鸭颈 ---
         try:
