@@ -96,6 +96,16 @@
         "apply_on": ["5", "15", "30"],
         "说明": "【日内核心】计算分钟线级别的VWAP（日内成交量加权平均价），是A股日内交易最重要的多空分水岭和支撑/压力位。"
       },
+      "atr": {
+        "enabled": true,
+        "说明": "平均真实波幅(ATR)，用于衡量市场波动性。'潜龙出海'剧本需要此指标。",
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "periods": [14]
+          }
+        ]
+      },
       "boll_bands_and_width": {
         "enabled": true,
         "apply_on": ["D"],
