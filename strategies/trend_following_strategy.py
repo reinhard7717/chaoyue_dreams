@@ -441,15 +441,6 @@ class TrendFollowStrategy:
                 'comment': '【V46.0 状态持久化版】捕捉“资本背离”状态开启后，由“动能背离”事件点燃的终极反转信号。'
             },
             {
-                'name': 'INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE', 'cn_name': '内部-设置资本背离状态',
-                'setup': True, # 无需前置setup
-                # 触发条件: “资本背离”准备状态成立的当天
-                'trigger': setup_conditions.get('SETUP_CAPITAL_DIVERGENCE', default_series),
-                'score': 1, # 不产生任何分数，仅用于触发上下文
-                'precondition': True,
-                'comment': '内部辅助剧本，当资本背离条件满足时，开启一个持续数天的上下文状态，用于被其他剧本捕获。'
-            },
-            {
                 'name': 'CONTEXTUAL_MOMENTUM_IGNITION', 'cn_name': '上下文动能点火',
                 # 准备条件: “资本背离”的上下文状态必须激活
                 'setup': df.get('CONTEXT_CAPITAL_DIVERGENCE_ACTIVE', default_series),
@@ -620,23 +611,19 @@ class TrendFollowStrategy:
 
     def _calculate_entry_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V46.0 时序重构版】
-        - 核心重构: 彻底重构计分流程为三阶段模式，解决上下文状态计算的时序依赖问题。
-          1. 【阶段一】先处理“内部”剧本，这些剧本是状态变化的“因”。
-          2. 【阶段二】基于“因”，调用上下文引擎，计算出当天的最终状态（“果”）。
-          3. 【阶段三】在状态完备后，再处理所有依赖这些状态的“交易”剧本。
-        - 效果: 确保了像 'CONTEXTUAL_MOMENTUM_IGNITION' 这样的协同剧本，能够正确读取到当天激活的上下文状态。
+        【V47.0 架构简化版】
+        - 核心重构: 由于上下文状态已由上游的 _calculate_background_contexts 函数预先计算好，
+                    本函数不再需要复杂的“三阶段”计分和状态更新逻辑，恢复为简洁、高效的单次遍历计分模式。
+        - 效果: 代码更清晰，维护性更强，且从根本上解决了时序依赖问题。
         """
-        print("    [计分V46.0 时序重构版] 启动三阶段计分引擎...")
+        print("    [计分V47.0 架构简化版] 启动计分引擎...")
         atomic_signals = {}
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block(params, 'entry_scoring_params')
         points = scoring_params.get('points', {})
         
-        # --- 准备工作  ---
-        print("    [计分V46.0] 步骤A: 准备基础数据...")
-        validated_premises = self._validate_core_premises(df, params)
-        print("    [计分V46.0] 步骤B: 调用独立的准备状态和触发事件中心...")
+        # --- 步骤1: 准备基础数据 ---
+        print("    [计分V47.0] 步骤1: 调用准备状态和触发事件中心...")
         trigger_events = self._define_trigger_events(df, params)
         atomic_signals.update(trigger_events)
         setup_conditions = self._calculate_setup_conditions(df, params, trigger_events)
@@ -644,51 +631,18 @@ class TrendFollowStrategy:
         for setup_name, setup_signal in setup_conditions.items():
             df[setup_name] = setup_signal
 
-        # --- 阶段一: 处理“内部”上下文设置剧本 ---
-        print("    [计分V46.0] 阶段一: 处理内部上下文设置剧本...")
+        # --- 步骤2: 评估“剧本矩阵” ---
+        print("    [计分V47.0] 步骤2: 按优先级评估“剧本矩阵”...")
+        # 注意：此时传入的df已经包含了正确的CONTEXT_*_ACTIVE列
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
-        
-        # 筛选出所有用于设置上下文的内部剧本
-        context_setting_playbooks = [
-            p for p in playbook_definitions if p['name'].startswith('INTERNAL_SET_CONTEXT')
-        ]
-        
-        # 仅对这些内部剧本进行一次迷你计分，目的是为了填充 score_details_df
-        for playbook in context_setting_playbooks:
-            # 内部剧本通常是setup & trigger同日生效
-            condition = playbook.get('setup', True) & playbook.get('trigger', pd.Series(False, index=df.index))
-            is_triggered = condition & playbook.get('precondition', True)
-            if is_triggered.any():
-                # 内部剧本的分数通常为1或0，仅作标记
-                score = self._get_param_value(points.get(playbook['name']), playbook['score'])
-                score_details_df.loc[is_triggered, playbook['name']] = score
-                print(f"    - [内部剧本命中] '{playbook['name']}' 触发 {is_triggered.sum()} 天，准备设置上下文。")
-
-        # --- 阶段二: 计算最终的上下文状态 ---
-        print("    [计分V46.0] 阶段二: 更新上下文状态机...")
-        # 此时，score_details_df 已经包含了触发上下文所需的信息
-        df = self._update_contextual_states(df, score_details_df, validated_premises, params)
-        # 经过这一步，df 中已经包含了 'CONTEXT_CAPITAL_DIVERGENCE_ACTIVE' 等列，并且值是正确的
-
-        # --- 阶段三: 评估所有“交易”剧本 ---
-        print("    [计分V46.0] 阶段三: 评估所有交易剧本...")
-        # 重新获取一次剧本定义，确保它们能读取到刚刚更新到df中的上下文状态
-        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
-        
-        # 筛选出所有交易剧本（非内部剧本）
-        trading_playbooks = [
-            p for p in playbook_definitions if not p['name'].startswith('INTERNAL_SET_CONTEXT')
-        ]
-
         df['base_score'] = 0.0
         has_been_scored = pd.Series(False, index=df.index)
 
-        for playbook in trading_playbooks:
+        for playbook in playbook_definitions:
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
             if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
             
-            # 同日生效的判断列表保持不变
             if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST', 'CONTEXTUAL_MOMENTUM_IGNITION']:
                 condition = setup & trigger
             else:
@@ -699,13 +653,12 @@ class TrendFollowStrategy:
             if is_triggered.any():
                 score = self._get_param_value(points.get(playbook['name']), playbook['score'])
                 df.loc[is_triggered, 'base_score'] = score
-                # 注意：这里要用 is_triggered 作为 mask，确保只给触发的日期加分
                 score_details_df.loc[is_triggered, playbook['name']] = score
                 has_been_scored.loc[is_triggered] = True
                 playbook_cn_name = playbook.get('cn_name', playbook['name'])
-                print(f"    - [交易剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
+                print(f"    - [剧本命中] 命中剧本 '{playbook['name']} ({playbook_cn_name})'，触发 {is_triggered.sum()} 天。")
 
-        # 观察分逻辑
+        # --- 步骤3: 计算观察分 ---
         watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
         is_in_any_setup = pd.concat([s for k, s in setup_conditions.items() if k.startswith('SETUP_') and isinstance(s, pd.Series) and not s.empty], axis=1).any(axis=1)
         is_watching = is_in_any_setup & ~has_been_scored
@@ -714,16 +667,20 @@ class TrendFollowStrategy:
             score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
             print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
 
-        # 融合动力学分
-        print("    [计分V46.0] 步骤C: 融合所有得分项...")
-        dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
+        # --- 步骤4: 融合所有得分项 ---
+        print("    [计分V47.0] 步骤4: 融合所有得分项...")
         final_score = df['base_score'].copy()
         has_primary_score = final_score > 0
+        
+        # 融合动力学分
+        validated_premises = self._validate_core_premises(df, params)
+        dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
         if (has_primary_score).any():
             final_score.loc[has_primary_score] += dynamics_score.loc[has_primary_score]
             score_details_df.loc[has_primary_score, 'DYNAMICS_SCORE'] = dynamics_score.loc[has_primary_score]
 
         # 融合战略背景分 (周线)
+        # ... (这部分代码保持不变，直接从您原来的函数中复制过来即可) ...
         king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
         king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
         all_base_score_cols = [king_signal_col]
@@ -753,12 +710,12 @@ class TrendFollowStrategy:
         final_score += base_score_from_weekly
 
         # 其他加分项
+        # ... (这部分代码保持不变) ...
         cond_vwap_support = df.get('cond_vwap_support', pd.Series(False, index=df.index))
         if (cond_vwap_support & has_primary_score).any():
             bonus = self._get_param_value(points.get('BONUS_VWAP_SUPPORT'), 20)
             final_score.loc[cond_vwap_support & has_primary_score] += bonus
             score_details_df.loc[cond_vwap_support & has_primary_score, 'BONUS_VWAP_SUPPORT'] = bonus
-        
         high_consensus_bonus = self._get_param_value(points.get('BONUS_HIGH_CONSENSUS'), 30)
         is_high_consensus = (validated_premises.get('trend_health_score', pd.Series(0)) >= 5) & has_primary_score
         if is_high_consensus.any():
@@ -784,8 +741,10 @@ class TrendFollowStrategy:
             is_top_tier = (rank_series >= top_tier_rank_threshold) & has_primary_score
             final_score.loc[is_top_tier] += top_tier_bonus
             score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
-       
-        print("    [计分V46.0] 步骤D: 应用最终风险否决层...")
+
+        # --- 步骤5: 应用最终风险否决层 ---
+        print("    [计分V47.0] 步骤5: 应用最终风险否决层...")
+        # ... (这部分代码保持不变) ...
         cond_trend_exhaustion = setup_conditions.get('RISK_TREND_EXHAUSTION', pd.Series(False, index=df.index))
         if cond_trend_exhaustion.any():
             final_score.loc[cond_trend_exhaustion] = 0
@@ -808,7 +767,7 @@ class TrendFollowStrategy:
 
         # 清理临时列
         df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore')
-        print("    [计分V46.0 时序重构版] 计分流程结束。")
+        print("    [计分V47.0 架构简化版] 计分流程结束。")
         
         return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
 
@@ -1646,168 +1605,6 @@ class TrendFollowStrategy:
             print(f"      -> '趋势加速'奖励触发了 {is_trend_accelerating.sum()} 天，奖励 {accel_bonus} 分。")
             
         return dynamics_score
-
-    # ▼▼▼ 健康度感知上下文引擎 (Health-Aware Context Engine) ▼▼▼
-    def _update_contextual_states(self, df: pd.DataFrame, score_details_df: pd.DataFrame, validated_premises: Dict[str, pd.Series], params: dict) -> pd.DataFrame:
-        """
-        【V39.6.1 缓冲失效修复版 + 调试探针】
-        - 核心升级:
-        1. 缓冲失效: 为状态失效条件增加了 breach_buffer 参数，允许价格在小范围内刺破锚点而不立即失效，以容忍“最后一洗”。
-        2. 探针增强: 调试日志现在会明确打印出计算了缓冲后的新锚点价格。
-        3. Bug修复: 修复了 V39.6 版本中因 active_today 未定义导致的 NameError。
-        """
-        # ▼▼▼【代码修改】: 替换整个函数为 V39.6.1 修复版 ▼▼▼
-        print("      - [上下文中心 V39.6.1-Debug] 正在启动'缓冲失效上下文引擎'...")
-
-        context_params = self._get_params_block(params, 'context_setting_params', {})
-        context_definitions = context_params.get('definitions', {})
-        
-        if 'INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE' not in context_definitions:
-            context_definitions['INTERNAL_SET_CONTEXT_CAPITAL_DIVERGENCE'] = {
-                'base_name': 'CAPITAL_DIVERGENCE_ACTIVE',
-                'tiers': [{'min_score': 0, 'priority': 5, 'duration': 3}],
-                'invalidation': {
-                    'enabled': True,
-                    'anchor_metric': 'low_D', 
-                    'check_metric': 'close_D',
-                    'condition': 'less',
-                    'breach_buffer': 0.01 
-                }
-            }
-            print("        -> [动态注入] 已为'资本背离'状态添加上下文定义(含1%缓冲失效条件)。")
-
-        trend_health_score = validated_premises.get('trend_health_score', pd.Series(0, index=df.index))
-
-        all_base_names = {v['base_name'] for k, v in context_definitions.items()}
-        
-        for base_name in all_base_names:
-            timer_col = f"CONTEXT_{base_name}_TIMER"
-            if timer_col in df.columns:
-                df[timer_col] = (df[timer_col].shift(1) - 1).fillna(0).clip(lower=0)
-            else:
-                df[timer_col] = 0
-
-        df['temp_priority'] = 0
-        df['temp_duration'] = 0
-        for playbook_name, definition in context_definitions.items():
-            if definition.get('invalidation', {}).get('enabled', False):
-                anchor_col = f"CONTEXT_{definition['base_name']}_ANCHOR"
-                if anchor_col not in df.columns:
-                    df[anchor_col] = np.nan
-
-        for playbook_name, definition in context_definitions.items():
-            if playbook_name not in score_details_df.columns:
-                continue
-            
-            triggered_mask = score_details_df[playbook_name] > 0
-            if not triggered_mask.any():
-                continue
-
-            base_name = definition['base_name']
-            tiers = sorted(definition['tiers'], key=lambda x: x['min_score'], reverse=True)
-            
-            for idx in df.index[triggered_mask]:
-                score_at_trigger = trend_health_score.at[idx]
-                
-                matched_tier = tiers[0]
-                for tier in tiers:
-                    if score_at_trigger >= tier['min_score']:
-                        matched_tier = tier
-                        break
-                
-                current_priority = df.at[idx, 'temp_priority']
-                if matched_tier['priority'] > current_priority:
-                    df.at[idx, 'temp_priority'] = matched_tier['priority']
-                    df.at[idx, 'temp_duration'] = matched_tier['duration']
-                    if 'CONTEXT_ACTIVE_NAME' not in df.columns:
-                        df['CONTEXT_ACTIVE_NAME'] = 'NONE'
-                    df.at[idx, 'CONTEXT_ACTIVE_NAME'] = base_name
-                    
-                    if definition.get('invalidation', {}).get('enabled', False):
-                        anchor_metric = definition['invalidation']['anchor_metric']
-                        anchor_col = f"CONTEXT_{base_name}_ANCHOR"
-                        if anchor_metric in df.columns:
-                            df.at[idx, anchor_col] = df.at[idx, anchor_metric]
-                            print(f"          - [上下文引擎探针] 日期 {idx.date()}: 剧本 '{playbook_name}' 触发，开启 '{base_name}' 状态，持续 {matched_tier['duration']} 天。记录锚点价格 ({anchor_metric}): {df.at[idx, anchor_col]:.2f}")
-
-        if 'CONTEXT_ACTIVE_NAME' not in df.columns:
-            df['CONTEXT_ACTIVE_NAME'] = 'NONE'
-        
-        df['CONTEXT_ACTIVE_NAME'] = df['CONTEXT_ACTIVE_NAME'].where(df['temp_priority'] > 0, df['CONTEXT_ACTIVE_NAME'].shift(1).fillna('NONE'))
-        
-        for playbook_name, definition in context_definitions.items():
-             if definition.get('invalidation', {}).get('enabled', False):
-                base_name = definition['base_name']
-                anchor_col = f"CONTEXT_{base_name}_ANCHOR"
-                df[anchor_col] = df[anchor_col].fillna(method='ffill')
-
-        for base_name in all_base_names:
-            timer_col = f"CONTEXT_{base_name}_TIMER"
-            reset_mask = (df['CONTEXT_ACTIVE_NAME'] == base_name) & (df['temp_duration'] > 0)
-            if reset_mask.any():
-                df.loc[reset_mask, timer_col] = df.loc[reset_mask, 'temp_duration']
-
-        for playbook_name, definition in context_definitions.items():
-            invalidation_params = definition.get('invalidation', {})
-            if invalidation_params.get('enabled', False):
-                base_name = definition['base_name']
-                timer_col = f"CONTEXT_{base_name}_TIMER"
-                anchor_col = f"CONTEXT_{base_name}_ANCHOR"
-                check_metric_col = invalidation_params['check_metric']
-                
-                if all(c in df.columns for c in [timer_col, anchor_col, check_metric_col]):
-                    is_active_yesterday = df[timer_col].shift(1) > 0
-                    
-                    breach_buffer = invalidation_params.get('breach_buffer', 0.0)
-                    breach_level = df[anchor_col] * (1 - breach_buffer)
-                    is_invalidated = df[check_metric_col] < breach_level
-                    
-                    invalidation_mask = is_active_yesterday & is_invalidated
-                    
-                    for idx in df.index[invalidation_mask]:
-                        anchor_val = df.at[idx, anchor_col]
-                        check_val = df.at[idx, check_metric_col]
-                        print(f"          - [上下文引擎探针] 日期 {idx.date()}: 检查 '{base_name}' 失效... 检查价({check_metric_col}): {check_val:.2f} vs 锚点价(含{breach_buffer:.0%}缓冲): {breach_level.at[idx]:.2f}. 条件: True -> 状态失效!")
-
-                    if invalidation_mask.any():
-                        df.loc[invalidation_mask, timer_col] = 0
-                        df.loc[invalidation_mask, anchor_col] = np.nan
-                        df.loc[invalidation_mask & (df['CONTEXT_ACTIVE_NAME'] == base_name), 'CONTEXT_ACTIVE_NAME'] = 'NONE'
-                        print(f"          - [上下文引擎探针] [!!] '{base_name}' 状态因跌破缓冲锚点而在 {invalidation_mask.sum()} 天被强制终止。")
-
-        df['CONTEXT_ACTIVE_TIMER'] = 0
-        for base_name in all_base_names:
-            timer_col = f"CONTEXT_{base_name}_TIMER"
-            bool_col = f"CONTEXT_{base_name}"
-            
-            mask = df['CONTEXT_ACTIVE_NAME'] == base_name
-            if mask.any():
-                df.loc[mask, 'CONTEXT_ACTIVE_TIMER'] = df.loc[mask, timer_col]
-                
-            df[bool_col] = df[timer_col] > 0
-            
-            # 修复 NameError 的地方
-            active_today = df[bool_col]
-            
-            if base_name == 'CAPITAL_DIVERGENCE_ACTIVE' and active_today.any():
-                for idx in df.index[active_today]:
-                     print(f"          - [上下文引擎探针] 日期 {idx.date()}: '{base_name}' 最终状态为 Active, 计时器剩余: {df.at[idx, timer_col]:.0f}")
-
-        df.drop(columns=['temp_priority', 'temp_duration'], inplace=True, errors='ignore')
-        
-        active_days = (df['CONTEXT_ACTIVE_NAME'] != 'NONE').sum()
-        if active_days > 0:
-            # 增加对列存在的检查，避免在没有激活日时报错
-            if not df[df['CONTEXT_ACTIVE_NAME'] != 'NONE'].empty:
-                last_active_day = df[df['CONTEXT_ACTIVE_NAME'] != 'NONE'].index[-1]
-                last_active_context = df.loc[last_active_day, 'CONTEXT_ACTIVE_NAME']
-                last_active_timer = df.loc[last_active_day, 'CONTEXT_ACTIVE_TIMER']
-                print(f"      - [上下文中心 V39.6.1-Debug] 状态机更新完成。共发现 {active_days} 个处于上下文状态的交易日。")
-                print(f"        -> 最近的上下文: 日期={last_active_day.date()}, 主导叙事='{last_active_context}', 剩余时间={last_active_timer:.0f}天。")
-        else:
-            print("      - [上下文中心 V39.6.1-Debug] 状态机更新完成。未发现任何处于上下文状态的交易日。")
-
-        return df
 
     # ▼▼▼ 触发事件融合中心 (Trigger Event Fusion Center) ▼▼▼
     def _define_trigger_events(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
