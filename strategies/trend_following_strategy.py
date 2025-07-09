@@ -167,7 +167,6 @@ class TrendFollowStrategy:
         # 这是一个独立的分析模块，位置可以保持不变
         self._analyze_dynamic_box_and_ma_trend(df, params)
 
-        # ▼▼▼【代码修改】: 核心流程重构，引入状态机三步法 ▼▼▼
         print("    - [信息] 核心计分流程开始 (V50.0 状态机三步法)...")
 
         # 步骤 3.1: 计算“准备状态(Setup)”和“触发事件(Trigger)”
@@ -185,7 +184,6 @@ class TrendFollowStrategy:
         print("    - [主流程 V50.0] 步骤3.3: 执行最终计分...")
         df.loc[:, 'entry_score'], atomic_signals, score_details_df, setup_conditions = self._calculate_entry_score(df, params, trigger_events, setup_conditions)
         self._last_score_details_df = score_details_df
-        # ▲▲▲【代码修改结束】▲▲▲
 
         print("    - [信息] 正在将战术剧本触发详情合并到最终结果中...")
         if score_details_df is not None and not score_details_df.empty:
@@ -229,7 +227,6 @@ class TrendFollowStrategy:
                 else:
                     active_playbooks = []
 
-                # ▼▼▼【代码修改】: 使用最终的 setup_conditions 进行日志记录 ▼▼▼
                 active_setups = [
                     s.replace('SETUP_', '') for s in setup_conditions.keys()
                     if s in setup_conditions and isinstance(setup_conditions[s], pd.Series) and not setup_conditions[s].empty and entry_date in setup_conditions[s].index and setup_conditions[s].at[entry_date]
@@ -254,7 +251,6 @@ class TrendFollowStrategy:
                     'MOMENTUM_DIVERGENCE': '动能拐点',
                 }
                 active_setups_cn = [setup_cn_name_map.get(s, s) for s in active_setups]
-                # ▲▲▲【代码修改结束】▲▲▲
 
                 print(f"  【✔ 买入信号触发】")
                 print(f"    - 总分: {entry_score:.2f} (阈值: {score_threshold})")
@@ -891,20 +887,25 @@ class TrendFollowStrategy:
     # ▼▼▼ “准备状态中心” (Setup Condition Center) ▼▼▼
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V45.0 健壮重构版】
-        - 核心重构: 彻底重写S级剧本的准备状态计算逻辑，放弃复杂脆弱的形态识别，
-                    改用基于滚动窗口的、更健壮的“区间状态”判断，确保信号能被稳定识别。
+        【V51.0 统一探针版】
+        - 核心重构: 移除了所有分散在函数内部的探针和调试打印语句。
+        - 核心新增: 在函数末尾增加了一个统一的、强大的“准备状态诊断中心”，
+                    能够对指定日期范围内的所有准备状态进行逐一、详细的诊断，
+                    清晰地展示成功或失败的原因、阈值和实际值。
         """
-        print("    - [准备状态中心 V45.0] 启动，开始计算所有准备状态...")
+        print("    - [准备状态中心 V51.0 统一探针版] 启动，开始计算所有准备状态...")
+        # ▼▼▼【代码修改】: 移除所有分散的探针和调试打印 ▼▼▼
+        # probe_start_date = pd.to_datetime('2024-09-15').tz_localize(df.index.tz) # 移动到函数末尾
+        # probe_end_date = pd.to_datetime('2024-12-15').tz_localize(df.index.tz) # 移动到函数末尾
         setups = {}
         setup_params = self._get_params_block(params, 'setup_condition_params', {})
         playbook_specific_params = self._get_params_block(params, 'playbook_specific_params', {})
 
-        # --- 1. 调用原子信号中心 (逻辑不变) ---
+        # --- 1. 调用原子信号中心 ---
         chip_atomic_signals = self._define_chip_atomic_signals(df, params)
         setups['SETUP_CHIP_ACCUMULATION'] = chip_atomic_signals.get('ATOMIC_REINFORCEMENT', pd.Series(False, index=df.index))
 
-        # --- 2. 【S级剧本重构】“潜龙出海”的准备状态 (SETUP_PROLONGED_COMPRESSION) ---
+        # --- 2. “潜龙出海”的准备状态 (SETUP_PROLONGED_COMPRESSION) ---
         try:
             p = playbook_specific_params.get('perfect_storm_params', {})
             if self._get_param_value(p.get('enabled'), True):
@@ -931,177 +932,70 @@ class TrendFollowStrategy:
                     is_setup_broken = df['close_D'] < (df['cost_15pct_D'] * break_threshold)
                     final_setup = (setup_timer > 0) & ~is_setup_broken
                     setups['SETUP_PROLONGED_COMPRESSION'] = final_setup
-                    print(f"      -> '潜龙出海'准备状态(状态机修正版)定义完成，发现 {final_setup.sum()} 天。")
+                    print(f"      -> '潜龙出海'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'潜龙出海'时出错: {e}")
 
-        # --- 3. 【S级剧本重构】“猛兽苏醒”的准备状态 (SETUP_CAPITAL_FLOW_DIVERGENCE) ---
-        # --- 剧本A: 动能背离 (Momentum Divergence) ---
+        # --- 3. 动能背离 (Momentum Divergence) ---
         try:
             p = setup_params.get('momentum_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
                 lookback = self._get_param_value(p.get('lookback'), 20)
                 long_period = self._get_param_value(p.get('trend_ma'), 55)
                 vlong_period = self._get_param_value(p.get('regime_ma'), 144)
-                
                 long_ma_col = f"EMA_{long_period}_D"
                 accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
                 jerk_col = f'SLOPE_{accel_col}_{lookback}'
-                
                 required_cols = ['close_D', long_ma_col, accel_col, jerk_col]
-                
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
-                    print(f"\n--- [前置检查失败] '动能背离(终极解耦)' 无法计算，缺少列: {missing} ---\n")
+                    print(f"      -> [警告] '动能背离'无法计算，缺少列: {missing}")
                 else:
-                    is_price_weak = df['close_D'] < df[long_ma_col]
-                    is_accel_positive = df[accel_col] > 0
-                    
                     jerk_t = df[jerk_col]
                     jerk_t_minus_1 = df[jerk_col].shift(1)
                     jerk_t_minus_2 = df[jerk_col].shift(2)
-                    
                     is_peak_confirmed = (jerk_t_minus_1 > jerk_t_minus_2) & (jerk_t_minus_1 > jerk_t)
-                    
-                    # 最终的准备状态(Setup)只由核心事件决定
                     final_setup = is_peak_confirmed
-                    
                     setups['SETUP_MOMENTUM_DIVERGENCE'] = final_setup
-                    print(f"      -> '动能背离'(终极解耦版) 完成: 寻找“Jerk峰值已过”的事件日，发现 {final_setup.sum()} 天。")
-
-                    # --- 聚焦探针逻辑 (诊断信息更全面) ---
-                    # probe_start_date = pd.to_datetime('2024-08-01').tz_localize(df.index.tz)
-                    # probe_end_date = pd.to_datetime('2024-09-30').tz_localize(df.index.tz)
-                    
-                    # key_dates_to_check_raw = ['2024-08-21', '2024-08-22']
-                    # key_dates_as_date_obj = [pd.to_datetime(d).date() for d in key_dates_to_check_raw]
-                    
-                    # df_dates = df.index.date
-                    # is_key_date = pd.Series(df_dates, index=df.index).isin(key_dates_as_date_obj)
-                    
-                    # window_mask = (df.index >= probe_start_date) & (df.index <= probe_end_date)
-                    # interesting_days_mask = window_mask & (final_setup | is_key_date)
-                    
-                    # if interesting_days_mask.any():
-                    #     probe_df = pd.DataFrame({
-                    #         'Close': df['close_D'], 'PriceWeakOK': is_price_weak,
-                    #         'Accel': df[accel_col], 'AccelOK': is_accel_positive,
-                    #         'Jerk(T-1)': jerk_t_minus_1, 'Jerk(T)': jerk_t,
-                    #         '_SETUP': final_setup
-                    #     }).loc[interesting_days_mask]
-                        
-                    #     if not probe_df.empty:
-                    #         print("\n--- [终极探针-SETUP] 诊断 '动能背离' (V45.50 终极解耦版) ---")
-                    #         print(probe_df.to_string(float_format="%.6f"))
-                    #         print("--- [终极探针] 诊断结束 ---\n")
+                    print(f"      -> '动能背离'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
-            print(f"      -> [警告] 计算'动能背离(终极解耦)'时出错: {e}")
+            print(f"      -> [警告] 计算'动能背离'时出错: {e}")
             
-        # --- 剧本B: 资本背离 (Capital Divergence) ---
+        # --- 4. 资本背离 (Capital Divergence) ---
         try:
-            # 修正: 从 'capital_flow_divergence_params' 读取参数，而不是 'capital_divergence_params'
             p = setup_params.get('capital_flow_divergence_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                print("      -> '资本背离' (JSON参数驱动版) 启动...")
-                # 1. 从JSON加载所有参数
                 trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
                 mf_slope_threshold = self._get_param_value(p.get('mf_slope_threshold'), 0)
                 mf_accel_threshold = self._get_param_value(p.get('mf_accel_threshold'), 0)
                 retail_slope_threshold = self._get_param_value(p.get('retail_slope_threshold'), 0)
                 price_accel_threshold = self._get_param_value(p.get('price_accel_threshold'), 0)
                 bbw_slope_threshold = self._get_param_value(p.get('bbw_slope_threshold'), 0)
-
-                # 2. 定义所有需要的列名 (与 slope_params 中的定义匹配)
                 trend_ma_col = f'EMA_{trend_ma_period}_D'
-                mf_slope_col = 'SLOPE_net_mf_amount_D_10' # 使用10周期斜率
-                mf_accel_col = 'ACCEL_net_mf_amount_D_10' # 使用10周期加速度
-                retail_slope_col = 'SLOPE_net_retail_amount_D_20' # 使用20周期斜率
-                price_accel_col = 'ACCEL_close_D_10' # 使用10周期加速度
-                bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10' # 使用10周期斜率
-
-                required_cols = [
-                    'close_D', trend_ma_col, mf_slope_col, mf_accel_col,
-                    retail_slope_col, price_accel_col, bbw_slope_col
-                ]
-
-                # 3. 检查所有必需的列是否存在
+                mf_slope_col = 'SLOPE_net_mf_amount_D_10'
+                mf_accel_col = 'ACCEL_net_mf_amount_D_10'
+                retail_slope_col = 'SLOPE_net_retail_amount_D_20'
+                price_accel_col = 'ACCEL_close_D_10'
+                bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10'
+                required_cols = ['close_D', trend_ma_col, mf_slope_col, mf_accel_col, retail_slope_col, price_accel_col, bbw_slope_col]
                 if not all(col in df.columns for col in required_cols):
                     missing = [col for col in required_cols if col not in df.columns]
                     print(f"      -> [警告] '资本背离'无法计算，缺少衍生列: {missing}")
                     setups['SETUP_CAPITAL_DIVERGENCE'] = pd.Series(False, index=df.index)
                 else:
-                    # 4. 根据JSON参数构建所有条件
                     cond_price_weak = df['close_D'] < df[trend_ma_col]
                     cond_mf_slope_improving = df[mf_slope_col] > mf_slope_threshold
                     cond_mf_accelerating = df[mf_accel_col] > mf_accel_threshold
                     cond_retail_selling = df[retail_slope_col] < retail_slope_threshold
                     cond_price_stabilizing = df[price_accel_col] > price_accel_threshold
                     cond_volatility_squeezing = df[bbw_slope_col] < bbw_slope_threshold
-
-                    # 5. 组合所有条件形成最终的准备状态
-                    final_setup = (
-                        cond_price_weak &
-                        cond_mf_slope_improving &
-                        cond_mf_accelerating &
-                        cond_retail_selling &
-                        cond_price_stabilizing &
-                        cond_volatility_squeezing
-                    )
+                    final_setup = (cond_price_weak & cond_mf_slope_improving & cond_mf_accelerating & cond_retail_selling & cond_price_stabilizing & cond_volatility_squeezing)
                     setups['SETUP_CAPITAL_DIVERGENCE'] = final_setup
-
-                    # --- 新增: 深度诊断探针 (指定时间范围) ---
-                    # 定义探针的开始和结束日期，聚焦于问题发生的时间段
-                probe_start_date = pd.to_datetime('2024-08-15').tz_localize(df.index.tz)
-                probe_end_date = pd.to_datetime('2024-08-25').tz_localize(df.index.tz)
-                print(f"\n--- [深度探针-SETUP | {probe_start_date.date()} to {probe_end_date.date()}] 诊断 '资本背离' ---")
-                
-                # 根据指定的开始和结束日期筛选数据
-                probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
-
-                # 检查probe_df是否为空，避免在没有数据时报错
-                if not probe_df.empty:
-                    for timestamp, row in probe_df.iterrows():
-                        is_setup_ok_today = final_setup.get(timestamp, False)
-                        
-                        if is_setup_ok_today:
-                            print(f"====== 日期: {timestamp.date()} | [✔ 成功] ======")
-                            print("  - 所有条件均满足。")
-                        else:
-                            print(f"====== 日期: {timestamp.date()} | [✖ 失败] ======")
-                            failure_reasons = []
-                            # 逐一检查每个条件，并记录失败原因、阈值和实际值
-                            if not cond_price_weak.get(timestamp, True):
-                                reason = f"  - 价格弱势: 失败 (要求: close < EMA_55, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_mf_slope_improving.get(timestamp, True):
-                                reason = f"  - 主力资金斜率改善: 失败 (要求: > {mf_slope_threshold}, 实际: {row[mf_slope_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_mf_accelerating.get(timestamp, True):
-                                reason = f"  - 主力资金流入加速: 失败 (要求: > {mf_accel_threshold}, 实际: {row[mf_accel_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_retail_selling.get(timestamp, True):
-                                reason = f"  - 散户资金流出: 失败 (要求: < {retail_slope_threshold}, 实际: {row[retail_slope_col]:.2f})"
-                                failure_reasons.append(reason)
-                            if not cond_price_stabilizing.get(timestamp, True):
-                                reason = f"  - 价格下跌趋缓: 失败 (要求: > {price_accel_threshold}, 实际: {row[price_accel_col]:.4f})"
-                                failure_reasons.append(reason)
-                            if not cond_volatility_squeezing.get(timestamp, True):
-                                reason = f"  - 波动率收缩: 失败 (要求: < {bbw_slope_threshold}, 实际: {row[bbw_slope_col]:.4f})"
-                                failure_reasons.append(reason)
-                            
-                            if failure_reasons:
-                                for r in failure_reasons:
-                                    print(r)
-                            else:
-                                print("  - 状态为失败但所有子条件检查通过，可能存在数据对齐问题或逻辑边缘情况。")
-                
-                    print("--- [探针] 诊断结束 ---\n")
-                    
-                    print(f"      -> '资本背离'(JSON参数驱动版) 完成: 发现 {final_setup.sum()} 天满足所有条件。")
+                    print(f"      -> '资本背离'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
-            print(f"      -> [警告] 计算'资本背离(JSON参数驱动版)'时出错: {e}")
+            print(f"      -> [警告] 计算'资本背离'时出错: {e}")
 
-        # --- 能量压缩 ---
+        # --- 5. 能量压缩 ---
         try:
             p = setup_params.get('energy_compression_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1111,16 +1005,13 @@ class TrendFollowStrategy:
                 if all(c in df.columns for c in [volatility_slope_col, volume_slope_col, price_slope_col]):
                     cond1 = df[volatility_slope_col] < self._get_param_value(p.get('volatility_slope_threshold'), -0.001)
                     cond2 = df[volume_slope_col] < self._get_param_value(p.get('volume_slope_threshold'), -1.0)
-                    cond3 = df[price_slope_col].between(
-                        self._get_param_value(p.get('price_slope_threshold_lower'), -0.1),
-                        self._get_param_value(p.get('price_slope_threshold_upper'), 0.05)
-                    )
+                    cond3 = df[price_slope_col].between(self._get_param_value(p.get('price_slope_threshold_lower'), -0.1), self._get_param_value(p.get('price_slope_threshold_upper'), 0.05))
                     setups['SETUP_ENERGY_COMPRESSION'] = cond1 & cond2 & cond3
                     print(f"      -> '能量压缩'准备状态定义完成，发现 {setups.get('SETUP_ENERGY_COMPRESSION', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'能量压缩'时出错: {e}")
 
-        # --- 4. 健康回踩 ---
+        # --- 6. 健康回踩 ---
         try:
             p = setup_params.get('healthy_pullback_params', {})
             if self._get_param_value(p.get('enabled'), True):
@@ -1144,59 +1035,31 @@ class TrendFollowStrategy:
                     is_testing_mma = df['low_D'] <= df[mid_ma_col] * self._get_param_value(p.get('support_buffer_mid'), 1.02)
                     shallow_pullback_setup = is_lma_slope_ok & is_far_above_lma & is_testing_mma & common_conditions_ok
                     setups['SETUP_HEALTHY_PULLBACK'] = deep_pullback_setup | shallow_pullback_setup
+                    print(f"      -> '健康回踩'准备状态定义完成，发现 {setups.get('SETUP_HEALTHY_PULLBACK', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'健康回踩'时出错: {e}")
 
-        # --- 4. 剧本联动: 突破后回踩 (Post-Breakout Pullback) ---
+        # --- 7. 突破后回踩 ---
         try:
             p = setup_params.get('pullback_post_breakout_params', {})
             if self._get_param_value(p.get('enabled'), True):
-                
-                # 1. 启动器: 直接从传入的参数中获取“主力点火”事件
                 ignition_trigger = trigger_events.get('CHIP_INSTITUTIONAL_BREAKOUT', pd.Series(False, index=df.index))
-                
-                # 2. 支撑线: 在“主力点火”当天，捕获当日的95%成本线作为支撑 (逻辑不变)
                 support_level_on_ignition = df['cost_95pct_D'].where(ignition_trigger)
-                
-                # 3. 让支撑位在点火后持续有效N天 (逻辑不变)
                 lookback_days = self._get_param_value(p.get('lookback_days'), 15)
                 active_support = support_level_on_ignition.ffill(limit=lookback_days)
-                
-                # 4. 定义回踩状态 (逻辑不变)
                 proximity_pct = self._get_param_value(p.get('proximity_pct'), 0.02)
                 depth_pct = self._get_param_value(p.get('depth_pct'), 0.03)
                 gravity_zone_upper = active_support * (1 + proximity_pct)
                 gravity_zone_lower = active_support * (1 - depth_pct)
                 is_pullback_to_support = (df['low_D'] <= gravity_zone_upper) & (df['low_D'] >= gravity_zone_lower) & active_support.notna()
                 is_volume_shrinking = df['volume_D'] < df['VOL_MA_21_D']
-                
                 final_setup = is_pullback_to_support & is_volume_shrinking
                 setups['SETUP_PULLBACK_POST_BREAKOUT'] = final_setup
-                print(f"      -> '突破后回踩'(架构重构版)准备状态定义完成，发现 {final_setup.sum()} 天。")
-
-                # --- 专属探针逻辑 (同步升级) ---
-                # probe_start_date = pd.to_datetime('2024-07-01', utc=True)
-                # probe_df = pd.DataFrame({
-                #     'IgnitionDay': ignition_trigger,
-                #     'SupportLine': active_support,
-                #     'DayLow': df['low_D'],
-                #     'ZoneLower': gravity_zone_lower, # 新增: 引力区下轨
-                #     'ZoneUpper': gravity_zone_upper, # 新增: 引力区上轨
-                #     'Price_OK': is_pullback_to_support,
-                #     'Volume_OK': is_volume_shrinking,
-                #     '_Setup': final_setup
-                # }).loc[probe_start_date:]
-                
-                # interesting_days = probe_df[probe_df[['IgnitionDay', '_Setup']].any(axis=1)]
-                # if not interesting_days.empty:
-                #     print("\n--- [终极探针-SETUP | >24-07-01] 诊断 '突破后回踩' (精准引力区版) ---")
-                #     print(interesting_days.to_string(float_format="%.2f"))
-                #     print("--- [终极探针] 诊断结束 ---\n")
-
+                print(f"      -> '突破后回踩'准备状态定义完成，发现 {final_setup.sum()} 天。")
         except Exception as e:
-            print(f"      -> [警告] 计算'突破后回踩'(架构重构版)时出错: {e}")
+            print(f"      -> [警告] 计算'突破后回踩'时出错: {e}")
 
-        # --- 5. 老鸭头-鸭颈 ---
+        # --- 8. 老鸭头-鸭颈 ---
         try:
             p = setup_params.get('duck_neck_forming_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1210,7 +1073,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'老鸭头-鸭颈'时出错: {e}")
 
-        # --- 6. 巨阴洗盘日 ---
+        # --- 9. 巨阴洗盘日 ---
         try:
             p = setup_params.get('washout_day_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1224,62 +1087,51 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'巨阴洗盘日'时出错: {e}")
 
-        # --- 7. V反-休克谷底 ---
+        # --- 10. V反-休克谷底 ---
         try:
             p = setup_params.get('shock_bottom_params', {})
             if self._get_param_value(p.get('enabled'), False):
                 drop_days = self._get_param_value(p.get('drop_days'), 10)
                 drop_pct = self._get_param_value(p.get('drop_pct'), -0.20)
                 winner_rate_threshold = self._get_param_value(p.get('winner_rate_threshold'), 10.0)
-                
-                # 条件1: 快速大幅下跌
                 high_in_period = df['high_D'].rolling(window=drop_days).max()
                 current_drop_pct = (df['low_D'] / high_in_period - 1)
                 is_deep_drop = current_drop_pct < drop_pct
-                
-                # 条件2: 下跌中主力资金是净流出的 (真摔)
                 main_force_flow_during_drop = df['net_mf_amount_D'].rolling(window=drop_days).sum()
                 is_main_force_fleeing = main_force_flow_during_drop < 0
-                
-                # 条件3: 获利盘被清洗
                 is_panic_selling = df['winner_rate_D'] < winner_rate_threshold
-                
                 setups['SETUP_SHOCK_BOTTOM'] = is_deep_drop & is_main_force_fleeing & is_panic_selling
-                print(f"      -> 'V反-休克谷底'准备状态定义完成 (V41.3 真摔版)，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
+                print(f"      -> 'V反-休克谷底'准备状态定义完成，发现 {setups.get('SETUP_SHOCK_BOTTOM', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'V反-休克谷底'时出错: {e}")
 
-        # --- 8. 堡垒围攻 ---
+        # --- 11. 堡垒围攻 ---
         try:
             p = setup_params.get('fortress_siege_params', {})
             if self._get_param_value(p.get('enabled'), False):
                 support_col = self._get_param_value(p.get('support_col'), 'prev_high_support_D')
                 if support_col in df.columns:
-                    # 1. 识别有效堡垒 (这是一个状态，将作为剧本的precondition)
                     touch_buffer = self._get_param_value(p.get('fortress_touch_buffer'), 0.02)
                     is_near_support = abs(df['low_D'] - df[support_col]) / df[support_col].replace(0, np.nan) < touch_buffer
                     touch_counts = is_near_support.rolling(window=self._get_param_value(p.get('fortress_lookback'), 60)).sum()
                     df['temp_is_fortress_valid'] = touch_counts >= self._get_param_value(p.get('fortress_min_touches'), 2)
-                    
-                    # 2. 定义“健康围攻”准备状态
                     vol_ma_period = self._get_param_value(p.get('vol_ma_period'), 21)
                     vol_ma_col = f"VOL_MA_{vol_ma_period}_D"
                     touched_support = df['low_D'] <= df[support_col]
                     is_volume_shrinking_before = df['volume_D'].shift(1) < df[vol_ma_col].shift(1)
                     setups['SETUP_FORTRESS_SIEGE'] = touched_support & is_volume_shrinking_before
-                    print(f"      -> '堡垒围攻'准备状态定义完成 (V41.3)，发现 {setups.get('SETUP_FORTRESS_SIEGE', pd.Series([])).sum()} 天。")
+                    print(f"      -> '堡垒围攻'准备状态定义完成，发现 {setups.get('SETUP_FORTRESS_SIEGE', pd.Series([])).sum()} 天。")
                 else:
                     df['temp_is_fortress_valid'] = False
         except Exception as e:
             print(f"      -> [警告] 计算'堡垒围攻'时出错: {e}")
             df['temp_is_fortress_valid'] = False
 
-        # --- 十字星暂停 (Doji Pause) ---
+        # --- 12. 十字星暂停 ---
         try:
             p = setup_params.get('doji_pause_params', {})
             if self._get_param_value(p.get('enabled'), False):
                 body_ratio_threshold = self._get_param_value(p.get('body_ratio_threshold'), 0.15)
-                # 准备状态是“昨天是十字星”
                 prev_body = abs(df['open_D'].shift(1) - df['close_D'].shift(1))
                 prev_range = (df['high_D'].shift(1) - df['low_D'].shift(1)).replace(0, np.nan)
                 is_doji_yesterday = (prev_body / prev_range) < body_ratio_threshold
@@ -1288,7 +1140,7 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'十字星暂停'时出错: {e}")
         
-        # --- BIAS极端超卖 ---
+        # --- 13. BIAS极端超卖 ---
         try:
             p = playbook_specific_params.get('bias_reversal_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1298,27 +1150,22 @@ class TrendFollowStrategy:
                     oversold_threshold = self._get_param_value(p.get('oversold_threshold'), -15.0)
                     setups['SETUP_BIAS_EXTREME_OVERSOLD'] = df[bias_col] < oversold_threshold
                     print(f"      -> 'BIAS极端超卖'准备状态定义完成，发现 {setups.get('SETUP_BIAS_EXTREME_OVERSOLD', pd.Series([])).sum()} 天。")
-                else:
-                    print(f"      -> [警告] 缺少列 '{bias_col}'，无法计算'BIAS极端超卖'准备状态。")
         except Exception as e:
             print(f"      -> [警告] 计算'BIAS极端超卖'时出错: {e}")
 
-        # --- 获利盘洗净 ---
+        # --- 14. 获利盘洗净 ---
         try:
             p = playbook_specific_params.get('winner_rate_reversal_params', {})
             if self._get_param_value(p.get('enabled'), False):
                 winner_rate_col = 'winner_rate_D'
                 if winner_rate_col in df.columns:
                     washout_threshold = self._get_param_value(p.get('washout_threshold'), 10.0)
-                    # 准备状态是前一天获利盘极低
                     setups['SETUP_WINNER_RATE_WASHED_OUT'] = df[winner_rate_col].shift(1) < washout_threshold
                     print(f"      -> '获利盘洗净'准备状态定义完成，发现 {setups.get('SETUP_WINNER_RATE_WASHED_OUT', pd.Series([])).sum()} 天。")
-                else:
-                    print(f"      -> [警告] 缺少列 '{winner_rate_col}'，无法计算'获利盘洗净'准备状态。")
         except Exception as e:
             print(f"      -> [警告] 计算'获利盘洗净'时出错: {e}")
 
-        # --- 布林带压缩 ---
+        # --- 15. 布林带压缩 ---
         try:
             p = setup_params.get('bband_squeeze_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1328,11 +1175,11 @@ class TrendFollowStrategy:
                     squeeze_percentile = self._get_param_value(p.get('squeeze_percentile'), 0.10)
                     low_bbw_threshold = df[bbw_col].shift(1).rolling(window=squeeze_lookback).quantile(squeeze_percentile)
                     setups['SETUP_BBAND_SQUEEZE'] = df[bbw_col].shift(1) < low_bbw_threshold
-                    print(f"      -> '布林带压缩'准备状态定义完成 (V41.4)，发现 {setups.get('SETUP_BBAND_SQUEEZE', pd.Series([])).sum()} 天。")
+                    print(f"      -> '布林带压缩'准备状态定义完成，发现 {setups.get('SETUP_BBAND_SQUEEZE', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'布林带压缩'时出错: {e}")
 
-        # --- 新增: 缺口支撑 (Upward Gap Support) ---
+        # --- 16. 缺口支撑 ---
         try:
             p = playbook_specific_params.get('gap_support_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1343,16 +1190,14 @@ class TrendFollowStrategy:
                 active_support.loc[is_gap_up] = gap_support_level[is_gap_up]
                 active_support = active_support.ffill(limit=gap_check_days)
                 group = (active_support.diff() != 0).cumsum()
-                # 检查从缺口日之后，最低价是否一直高于支撑位
                 lowest_since_gap = df.groupby(group)['low_D'].transform('cummin')
                 is_supported = lowest_since_gap > active_support
-                # 最终状态是：当前存在一个有效的、未被回补的缺口支撑
                 setups['SETUP_GAP_SUPPORT'] = is_supported.fillna(False)
                 print(f"      -> '缺口支撑'准备状态定义完成，发现 {setups.get('SETUP_GAP_SUPPORT', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'缺口支撑'时出错: {e}")
 
-        # --- 风险：趋势衰竭 ---
+        # --- 17. 风险：趋势衰竭 ---
         try:
             p = setup_params.get('trend_exhaustion_params', {})
             if self._get_param_value(p.get('enabled'), False):
@@ -1366,47 +1211,115 @@ class TrendFollowStrategy:
         except Exception as e:
             print(f"      -> [警告] 计算'趋势衰竭'时出错: {e}")
 
-        # --- 新增: 均线回撤预备 (Pullback to MA) ---
+        # --- 18. 均线回撤预备 ---
         try:
             p = playbook_specific_params.get('pullback_ma_entry_params', {})
             if self._get_param_value(p.get('enabled'), False):
                 support_ma_col = f"EMA_{self._get_param_value(p.get('support_ma'), 20)}_D"
                 if support_ma_col in df.columns:
-                    # 预备状态的定义：
-                    # 1. 满足由健康度审计中心定义的高置信度右侧前提
                     precondition = self._validate_core_premises(df, params)['robust_right_side_precondition']
-                    # 2. 收盘价在支撑均线之上
                     is_above_support = df['close_D'] > df[support_ma_col]
-                    # 3. 收盘价距离支撑均线足够近
                     proximity_threshold = self._get_param_value(p.get('setup_proximity_threshold'), 0.03)
                     is_close_to_support = (df['close_D'] / df[support_ma_col] - 1) < proximity_threshold
-                    # 最终的预备信号
                     setups['SETUP_PULLBACK_MA'] = precondition & is_above_support & is_close_to_support
-                    # 记录目标价位，可用于后续更精细的触发器
                     df[f'target_price_{support_ma_col}'] = df[support_ma_col].where(setups['SETUP_PULLBACK_MA'])
                     print(f"      -> '均线回撤预备'准备状态定义完成，发现 {setups.get('SETUP_PULLBACK_MA', pd.Series([])).sum()} 天。")
         except Exception as e:
             print(f"      -> [警告] 计算'均线回撤预备'时出错: {e}")
+        # ▲▲▲【代码修改结束】▲▲▲
 
-        # --- 11. 填充与清洗 ---
+        # --- 填充与清洗 ---
         all_needed_setups = [
-            'SETUP_PROLONGED_COMPRESSION', 'SETUP_CAPITAL_FLOW_DIVERGENCE', 'SETUP_PULLBACK_WITH_MF_INFLOW',
+            'SETUP_PROLONGED_COMPRESSION', 'SETUP_CAPITAL_DIVERGENCE', 'SETUP_PULLBACK_WITH_MF_INFLOW',
             'SETUP_PULLBACK_POST_BREAKOUT', 'SETUP_PULLBACK_POST_REVERSAL', 'SETUP_DUCK_NECK_FORMING',
             'SETUP_ENERGY_COMPRESSION', 'SETUP_HEALTHY_PULLBACK', 'SETUP_SHOCK_BOTTOM', 'SETUP_WASHOUT_DAY',
             'SETUP_RELATIVE_STRENGTH', 'SETUP_FORTRESS_SIEGE', 'SETUP_CHIP_ACCUMULATION', 'RISK_TREND_EXHAUSTION',
             'SETUP_DOJI_PAUSE', 'SETUP_BULLISH_FLAG_FORMING', 'SETUP_BOTTOM_DIVERGENCE', 'SETUP_BBAND_SQUEEZE',
             'SETUP_CHIP_CONCENTRATION', 'SETUP_BIAS_EXTREME_OVERSOLD', 'SETUP_WINNER_RATE_WASHED_OUT', 
-            'SETUP_GAP_SUPPORT', 'SETUP_PULLBACK_MA'
+            'SETUP_GAP_SUPPORT', 'SETUP_PULLBACK_MA', 'SETUP_MOMENTUM_DIVERGENCE'
         ]
         for setup_name in all_needed_setups:
             if setup_name not in setups:
                 setups[setup_name] = pd.Series(False, index=df.index)
             else:
                 setups[setup_name].fillna(False, inplace=True)
+        
+        # ▼▼▼【代码修改】: 新增统一的“准备状态诊断中心” ▼▼▼
+        # --- 统一探针: 准备状态诊断中心 ---
+        probe_start_date = pd.to_datetime('2024-09-15').tz_localize(df.index.tz)
+        probe_end_date = pd.to_datetime('2024-12-15').tz_localize(df.index.tz)
+        
+        print(f"\n--- [统一探针 V51.0 | {probe_start_date.date()} to {probe_end_date.date()}] 诊断所有准备状态 ---")
+        
+        probe_df = df[(df.index >= probe_start_date) & (df.index <= probe_end_date)]
+
+        if not probe_df.empty:
+            for timestamp, row in probe_df.iterrows():
+                print(f"\n====== 日期: {timestamp.date()} ======")
+                
+                # --- 诊断1: 资本背离 (SETUP_CAPITAL_DIVERGENCE) ---
+                try:
+                    p = setup_params.get('capital_flow_divergence_params', {})
+                    if self._get_param_value(p.get('enabled'), True):
+                        print("  --- 诊断: 资本背离 (SETUP_CAPITAL_DIVERGENCE) ---")
+                        is_setup_ok = setups['SETUP_CAPITAL_DIVERGENCE'].get(timestamp, False)
+                        if is_setup_ok:
+                            print("    [✔ 成功] 所有条件均满足。")
+                        else:
+                            print("    [✖ 失败] 未满足以下条件:")
+                            trend_ma_period = self._get_param_value(p.get('trend_ma_period'), 55)
+                            trend_ma_col = f'EMA_{trend_ma_period}_D'
+                            mf_slope_col = 'SLOPE_net_mf_amount_D_10'
+                            mf_accel_col = 'ACCEL_net_mf_amount_D_10'
+                            retail_slope_col = 'SLOPE_net_retail_amount_D_20'
+                            price_accel_col = 'ACCEL_close_D_10'
+                            bbw_slope_col = 'SLOPE_BBW_21_2.0_D_10'
+                            
+                            # 逐一检查
+                            if not (row['close_D'] < row[trend_ma_col]):
+                                print(f"      - 价格弱势: 失败 (要求: close < EMA_{trend_ma_period}, 实际: {row['close_D']:.2f} >= {row[trend_ma_col]:.2f})")
+                            if not (row[mf_slope_col] > self._get_param_value(p.get('mf_slope_threshold'), 0)):
+                                print(f"      - 主力资金斜率改善: 失败 (要求: > {self._get_param_value(p.get('mf_slope_threshold'), 0)}, 实际: {row[mf_slope_col]:.2f})")
+                            if not (row[mf_accel_col] > self._get_param_value(p.get('mf_accel_threshold'), 0)):
+                                print(f"      - 主力资金流入加速: 失败 (要求: > {self._get_param_value(p.get('mf_accel_threshold'), 0)}, 实际: {row[mf_accel_col]:.2f})")
+                            if not (row[retail_slope_col] < self._get_param_value(p.get('retail_slope_threshold'), 0)):
+                                print(f"      - 散户资金流出: 失败 (要求: < {self._get_param_value(p.get('retail_slope_threshold'), 0)}, 实际: {row[retail_slope_col]:.2f})")
+                            if not (row[price_accel_col] > self._get_param_value(p.get('price_accel_threshold'), 0)):
+                                print(f"      - 价格下跌趋缓: 失败 (要求: > {self._get_param_value(p.get('price_accel_threshold'), 0):.4f}, 实际: {row[price_accel_col]:.4f})")
+                            if not (row[bbw_slope_col] < self._get_param_value(p.get('bbw_slope_threshold'), 0)):
+                                print(f"      - 波动率收缩: 失败 (要求: < {self._get_param_value(p.get('bbw_slope_threshold'), 0):.4f}, 实际: {row[bbw_slope_col]:.4f})")
+                except Exception as e:
+                    print(f"    [✖ 错误] 诊断时发生异常: {e}")
+
+                # --- 诊断2: 动能背离 (SETUP_MOMENTUM_DIVERGENCE) ---
+                try:
+                    p = setup_params.get('momentum_divergence_params', {})
+                    if self._get_param_value(p.get('enabled'), True):
+                        print("  --- 诊断: 动能背离 (SETUP_MOMENTUM_DIVERGENCE) ---")
+                        is_setup_ok = setups['SETUP_MOMENTUM_DIVERGENCE'].get(timestamp, False)
+                        if is_setup_ok:
+                            print("    [✔ 成功] 所有条件均满足。")
+                        else:
+                            print("    [✖ 失败] 未满足以下条件:")
+                            lookback = self._get_param_value(p.get('lookback'), 20)
+                            vlong_period = self._get_param_value(p.get('regime_ma'), 144)
+                            accel_col = f'ACCEL_EMA_{vlong_period}_D_{lookback}'
+                            jerk_col = f'SLOPE_{accel_col}_{lookback}'
+                            
+                            jerk_t = df.at[timestamp, jerk_col]
+                            jerk_t_minus_1 = df.shift(1).at[timestamp, jerk_col]
+                            jerk_t_minus_2 = df.shift(2).at[timestamp, jerk_col]
+                            
+                            if not ((jerk_t_minus_1 > jerk_t_minus_2) and (jerk_t_minus_1 > jerk_t)):
+                                print(f"      - Jerk峰值确认: 失败 (要求: T-1 > T-2 且 T-1 > T, 实际: {jerk_t_minus_1:.6f} vs {jerk_t_minus_2:.6f} 和 {jerk_t:.6f})")
+                except Exception as e:
+                    print(f"    [✖ 错误] 诊断时发生异常: {e}")
+
+        print("\n--- [统一探针] 诊断结束 ---\n")
             
-        print("    - [准备状态中心 V41.7] 所有准备状态计算完成。")
+        print("    - [准备状态中心 V51.0] 所有准备状态计算完成。")
         return setups
-    
+ 
     # ▼▼▼ 智能衍生特征引擎 (Intelligent Derived Feature Engine) ▼▼▼
     def _prepare_derived_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
