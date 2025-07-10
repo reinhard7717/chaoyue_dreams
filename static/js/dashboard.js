@@ -357,75 +357,86 @@ document.addEventListener('DOMContentLoaded', function() {
     // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
     // =========================================================================
     function initializeFavTrendListPage() {
-        console.log('正在初始化【自选股监控】页面功能...');
+        // ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
+        console.log('--- [JS] 正在初始化【自选股监控】页面功能 (initializeFavTrendListPage) ---');
+        // ▲▲▲【代码修改结束】▲▲▲
 
         const tableBody = document.getElementById('fav-trend-table-body');
-        if (!tableBody) return;
+        if (!tableBody) {
+            console.error('[JS] 错误：在自选股监控页面未找到 ID 为 "fav-trend-table-body" 的元素。');
+            return;
+        }
 
-        // --- 整合原有的折叠功能 ---
-        tableBody.addEventListener('click', function(event) {
+        // --- 整合原有的折叠功能 和 新增移除自选股功能 ---
+        tableBody.addEventListener('click', async function(event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
+            const removeButton = event.target.closest('button[data-action="remove"]');
+
+            // 处理折叠按钮
             if (toggleBtn) {
+                console.log('[JS] 折叠/展开按钮被点击。');
                 event.preventDefault(); 
                 const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
                 if (!list) return;
                 list.classList.toggle('expanded');
                 const isExpanded = list.classList.contains('expanded');
                 toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
+                return; // 处理完折叠后，不再继续执行
             }
-        });
 
-        // --- 新增移除自选股功能 ---
-        tableBody.addEventListener('click', async function(event) {
-            const removeButton = event.target.closest('button[data-action="remove"]');
-            if (!removeButton) return;
+            // 处理移除按钮
+            if (removeButton) {
+                // ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
+                console.log('[JS] 移除按钮被点击。');
+                // ▲▲▲【代码修改结束】▲▲▲
+                const favoriteId = removeButton.dataset.id;
+                const stockCode = removeButton.dataset.stockCode;
+                const stockName = removeButton.dataset.stockName;
 
-            const favoriteId = removeButton.dataset.id;
-            const stockCode = removeButton.dataset.stockCode;
-            const stockName = removeButton.dataset.stockName;
+                if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
+                    removeButton.disabled = true;
+                    removeButton.innerHTML = '...';
 
-            if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
-                removeButton.disabled = true;
-                removeButton.innerHTML = '...'; // 临时加载状态
+                    try {
+                        const csrfToken = getCookie('csrftoken');
+                        if (!csrfToken) throw new Error('无法获取CSRF令牌');
+                        
+                        console.log(`[JS] 正在发送 DELETE 请求到 /dashboard/api/favorites/${favoriteId}/`);
+                        const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
+                            method: 'DELETE',
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRFToken': csrfToken
+                            }
+                        });
 
-                try {
-                    const csrfToken = getCookie('csrftoken');
-                    if (!csrfToken) throw new Error('无法获取CSRF令牌');
-
-                    const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
-                        method: 'DELETE',
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'X-CSRFToken': csrfToken
+                        if (response.ok || response.status === 204) {
+                            console.log('[JS] 后端成功响应，正在从界面移除该行。');
+                            showNotification(`股票 ${stockCode} 已成功移除`, 'success');
+                            const rowToRemove = removeButton.closest('tr');
+                            if (rowToRemove) {
+                                rowToRemove.classList.add('flash-remove');
+                                setTimeout(() => {
+                                    rowToRemove.remove();
+                                    if (tableBody.children.length === 0) {
+                                        const colspan = tableBody.previousElementSibling.rows[0].cells.length;
+                                        tableBody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 20px;">自选股列表已清空。</td></tr>`;
+                                    }
+                                }, 300);
+                            }
+                        } else {
+                            const errorData = await response.json().catch(() => ({}));
+                            const errorMsg = errorData.detail || `移除股票 ${stockCode} 失败 (状态码: ${response.status})`;
+                            throw new Error(errorMsg);
                         }
-                    });
-
-                    if (response.ok || response.status === 204) {
-                        showNotification(`股票 ${stockCode} 已成功移除`, 'success');
-                        // 直接移除表格行以提供即时反馈
-                        const rowToRemove = removeButton.closest('tr');
-                        if (rowToRemove) {
-                            rowToRemove.classList.add('flash-remove'); // 添加移除动画
-                            setTimeout(() => {
-                                rowToRemove.remove();
-                                // 检查表格是否变空
-                                if (tableBody.children.length === 0) {
-                                    const colspan = tableBody.previousElementSibling.rows[0].cells.length;
-                                    tableBody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 20px;">自选股列表已清空。</td></tr>`;
-                                }
-                            }, 300);
-                        }
-                    } else {
-                        const errorData = await response.json().catch(() => ({}));
-                        const errorMsg = errorData.detail || `移除股票 ${stockCode} 失败`;
-                        throw new Error(errorMsg);
+                    } catch (error) {
+                        console.error('[JS] 移除自选股时发生错误:', error);
+                        showNotification(error.message, 'error');
+                        removeButton.disabled = false;
+                        removeButton.innerHTML = '&times;';
                     }
-                } catch (error) {
-                    showNotification(error.message, 'error');
-                    // 恢复按钮状态
-                    removeButton.disabled = false;
-                    removeButton.innerHTML = '&times;';
                 }
+                return; // 处理完移除后，不再继续执行
             }
         });
     }
@@ -433,16 +444,19 @@ document.addEventListener('DOMContentLoaded', function() {
     // =========================================================================
     // === 页面路由和启动 ======================================================
     // =========================================================================
+    // ▼▼▼【代码修改】: 将路由逻辑从多个if改为if/else if结构，并增加调试日志 ▼▼▼
+    console.log('[JS] DOMContentLoaded 事件触发，开始页面路由判断...');
     if (document.getElementById('favorites-tbody')) {
+        console.log('[JS] 检测到 "favorites-tbody"，判定为【主控台】页面。');
         initializeHomePage();
-    }
-    
-    if (document.getElementById('trend-table-body')) {
+    } else if (document.getElementById('trend-table-body')) {
+        console.log('[JS] 检测到 "trend-table-body"，判定为【策略监控中心】页面。');
         initializeTrendListPage();
-    }
-
-    if (document.getElementById('fav-trend-table-body')) {
+    } else if (document.getElementById('fav-trend-table-body')) {
+        console.log('[JS] 检测到 "fav-trend-table-body"，判定为【自选股监控】页面。');
         initializeFavTrendListPage();
+    } else {
+        console.warn('[JS] 未匹配到任何已知页面的主要元素ID，没有执行任何页面专属的初始化函数。');
     }
 
 });
