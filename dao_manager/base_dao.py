@@ -750,7 +750,7 @@ class BaseDAO(Generic[T]):
         now = timezone.now()
         auto_now_fields = []
 
-        # --- 数据准备阶段 (与V21完全相同) ---
+        # --- 数据准备阶段 ---
         for field in model_class._meta.fields:
             if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
                 df[field.column] = now
@@ -777,17 +777,26 @@ class BaseDAO(Generic[T]):
         all_columns = list(df.columns)
 
         # --- SQL构建阶段 (与V21完全相同) ---
+        # 创建一个从模型字段名到数据库列名的映射字典，例如 {'index': 'index_code'}
+        field_to_column_map = {f.name: f.column for f in model_class._meta.get_fields()}
+        # 直接使用DataFrame的列名构建INSERT部分的列清单，确保与数据顺序一致
+        all_columns = list(df.columns)
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
         # 注意：executemany 的占位符格式与 execute 相同
         placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})"
-        update_fields_set = set(update_fields)
-        update_fields_set.update(auto_now_fields)
-        
-        if not update_fields_set:
-            update_sql = f"`{model_class._meta.pk.name}` = `{model_class._meta.pk.name}`"
+        update_columns_set = set()
+        for field_name in update_fields:
+            # 从映射中获取真实的数据库列名，如果找不到则使用字段名本身（作为安全备份）
+            column_name = field_to_column_map.get(field_name, field_name)
+            update_columns_set.add(column_name)
+        update_columns_set.update(auto_now_fields)
+        if not update_columns_set:
+            # 如果没有要更新的字段，执行一个空操作以触发ON DUPLICATE KEY逻辑，避免语法错误
+            # 这里使用主键的列名(pk.column)而不是字段名(pk.name)以保证健壮性
+            update_sql = f"`{model_class._meta.pk.column}` = `{model_class._meta.pk.column}`"
         else:
-            update_sql = ", ".join([f"`{field}` = VALUES(`{field}`)" for field in update_fields_set])
-
+            # 使用正确的数据库列名构建UPDATE子句
+            update_sql = ", ".join([f"`{col}` = VALUES(`{col}`)" for col in update_columns_set])
         final_sql_template = (
             f"INSERT INTO `{table_name}` ({cols_sql}) "
             f"VALUES {placeholders_sql} "
@@ -796,7 +805,7 @@ class BaseDAO(Generic[T]):
 
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
         
-        # ▼▼▼【核心代码修改】: 使用 executemany 实现真正的批量操作 ▼▼▼
+        # ▼▼▼ 使用 executemany 实现真正的批量操作 ▼▼▼
         try:
             with transaction.atomic():
                 with connection.cursor() as cursor:

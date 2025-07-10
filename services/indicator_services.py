@@ -368,13 +368,16 @@ class IndicatorService:
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         
         # 2. 判断是否需要获取补充数据（资金流、筹码等）
-        needs_supplemental_data = any(
+        needs_legacy_supplemental_data = any(
             params.get('enabled', False) and key in [
                 'advanced_fund_features', 'chip_cost_breakthrough', 
-                'chip_pressure_release', 'winner_rate_reversal', 'capital_flow_divergence' # 扩展检查范围
+                'chip_pressure_release', 'winner_rate_reversal', 'capital_flow_divergence'
             ]
             for key, params in indicators_config.items() if isinstance(params, dict)
         )
+        # 检查是否需要新筹码(AdvancedChipMetrics)数据
+        chip_params = self._find_params_recursively(config, 'chip_feature_params')
+        needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
 
         if not required_tfs:
             return {}
@@ -388,6 +391,14 @@ class IndicatorService:
                 resample_map[tf] = 'D'
             else:
                 base_tfs_to_fetch.add(tf)
+        
+        # 原有的 needs_supplemental_data 逻辑保持不变
+        needs_fund_flow_data = any(
+            params.get('enabled', False) and key in [
+                'advanced_fund_features', 'capital_flow_divergence'
+            ]
+            for key, params in indicators_config.items() if isinstance(params, dict)
+        )
 
         tasks = []
         async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
@@ -400,35 +411,46 @@ class IndicatorService:
                 bars_to_fetch = max(bars_to_fetch, 1000)
             tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
         
-        # ▼▼▼【核心架构】: 统一调用增强后的DAO方法获取所有补充数据 ▼▼▼
-        if needs_supplemental_data:
-            async def _fetch_supplemental_data_tagged(stock_code, trade_time, limit):
+        # ▼▼▼【核心修正】: 统一管理所有补充数据的并发获取 ▼▼▼
+        # 任务1: 获取旧筹码和资金流数据
+        if needs_legacy_supplemental_data:
+            async def _fetch_legacy_supplemental_tagged(stock_code, trade_time, limit):
                 trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
-                # 调用我们刚刚优化的DAO方法，并传入limit参数
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
-                return ('supplemental', df)
-            # 将基础数据量作为limit传入，确保数据量匹配
-            tasks.append(_fetch_supplemental_data_tagged(stock_code, trade_time, base_needed_bars))
+                return ('legacy_supplemental', df)
+            tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
+            print("    - [数据任务] 已添加“旧筹码与资金流”获取任务。")
+
+        # 任务2: 获取新筹码(AdvancedChipMetrics)数据
+        if needs_advanced_chip_data:
+            async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
+                trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+                # 假设您在 StrategiesDAO 中有一个方法来获取这个数据
+                df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
+                return ('advanced_chips', df)
+            tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
+            print("    - [数据任务] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
         
         # 4. 并发执行所有数据获取任务
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
         
         raw_dfs: Dict[str, pd.DataFrame] = {}
         df_supplemental: Optional[pd.DataFrame] = None
-
+        df_advanced_chips: Optional[pd.DataFrame] = None
+        
         for result in all_data_results:
             if isinstance(result, Exception): continue
             if not (isinstance(result, tuple) and len(result) == 2): continue
             
             tag, data = result
-            if tag == 'supplemental':
-                if isinstance(data, pd.DataFrame):
-                    df_supplemental = data
-            else:
+            if tag == 'legacy_supplemental':
+                if isinstance(data, pd.DataFrame): df_legacy_supplemental = data
+            elif tag == 'advanced_chips':
+                if isinstance(data, pd.DataFrame): df_advanced_chips = data
+            else: # 处理 OHLCV 数据
                 tf = tag
                 df = data
-                if isinstance(df, pd.DataFrame) and not df.empty:
-                    raw_dfs[tf] = df
+                if isinstance(df, pd.DataFrame) and not df.empty: raw_dfs[tf] = df
 
         if 'D' not in raw_dfs:
             logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
@@ -458,14 +480,25 @@ class IndicatorService:
 
         async def _calculate_for_tf(tf, df):
             if tf == 'D':
-                # ▼▼▼【核心架构】: 简化数据融合逻辑，只处理一个来源，并使用正确的ffill ▼▼▼
-                if df_supplemental is not None and not df_supplemental.empty:
-                    print("    - [数据融合] 正在将补充数据(资金流、筹码等)合并到日线...")
-                    df_supplemental_std = self._standardize_df_index_to_utc(df_supplemental)
-                    # print(f"    - [数据流追踪] 步骤2: 日线合并前，行数: {len(df)}, 补充数据行数: {len(df_supplemental_std)}")
-                    df = pd.merge(df, df_supplemental_std, left_index=True, right_index=True, how='left')
-                    df[list(df_supplemental_std.columns)] = df[list(df_supplemental_std.columns)].ffill()
-                    # print(f"    - [数据流追踪] 步骤3: 日线合并后，行数: {len(df)}, 列: {df.columns.tolist()}")
+                # 融合旧筹码和资金流数据
+                if df_legacy_supplemental is not None and not df_legacy_supplemental.empty:
+                    print("    - [数据融合] 正在将“旧筹码与资金流”数据合并到日线...")
+                    df_legacy_std = self._standardize_df_index_to_utc(df_legacy_supplemental)
+                    df = pd.merge(df, df_legacy_std, left_index=True, right_index=True, how='left')
+                    df[list(df_legacy_std.columns)] = df[list(df_legacy_std.columns)].ffill()
+                
+                # 融合新筹码(AdvancedChipMetrics)数据
+                if df_advanced_chips is not None and not df_advanced_chips.empty:
+                    print("    - [数据融合] 正在将“新筹码(AdvancedChipMetrics)”数据合并到日线...")
+                    df_advanced_chips_std = self._standardize_df_index_to_utc(df_advanced_chips)
+                    
+                    # 为新筹码指标列添加 'CHIP_' 前缀，以避免与旧数据列名冲突
+                    chip_cols = {col: f"CHIP_{col}" for col in df_advanced_chips_std.columns if col not in ['stock_id', 'trade_time']}
+                    df_advanced_chips_std = df_advanced_chips_std.rename(columns=chip_cols)
+
+                    df = pd.merge(df, df_advanced_chips_std, left_index=True, right_index=True, how='left')
+                    # 使用 ffill 填充，因为这些是每日更新的指标
+                    df[list(df_advanced_chips_std.columns)] = df[list(df_advanced_chips_std.columns)].ffill()
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
 

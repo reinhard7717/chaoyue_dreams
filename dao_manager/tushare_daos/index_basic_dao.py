@@ -372,53 +372,6 @@ class IndexBasicDAO(BaseDAO):
         )()
         return index_daily_basic
 
-    async def save_index_daily_today(self) -> Dict:
-        """
-        保存指数每日指标到数据库
-        接口：index_daily，可以通过数据工具调试和查看数据。
-        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日行情数据
-        数据来源：Tushare社区统计计算
-        """
-        # 获取当前日期
-        today = datetime.datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        indexs = await self.get_index_list()
-        index_daily_dicts = []
-        all_index_codes = [index.index_code for index in indexs]
-        for index_code in all_index_codes:
-            index_info = await self.get_index_by_code(index_code)
-            if index_info is None:
-                offset = 0
-                limit = 8000
-                while True:
-                    if offset >= 100000:
-                        logger.warning(f"offset已达10万，停止拉取。{index_code} 指数日线行情, freq=Day")
-                        break
-                    df = self.ts_pro.index_dailybasic(**{
-                        "trade_date": today_str, "ts_code": index_code, "start_date": "", "end_date": "", "limit": limit, "offset": offset
-                    }, fields=[
-                        "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-                        "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
-                    ])
-                    if not df.empty:
-                        df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                        df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                        for row in df.itertuples():
-                            index_daily_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
-                            index_daily_dicts.append(index_daily_dict)
-                    if len(df) < limit:
-                        break
-                    offset += limit
-        if index_daily_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDaily,
-                data_list=index_daily_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
-        return result        
-
     async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, index_codes: list = None) -> Dict:
         """
         【优化版】保存指数每日指标到数据库

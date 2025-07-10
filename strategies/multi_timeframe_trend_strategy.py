@@ -35,24 +35,37 @@ class MultiTimeframeTrendStrategy:
           - 三级警报 (红色): 跌破日线关键支撑，提示“紧急离场”。
         - 优化: 信号记录中增加 `exit_severity_level` 和 `exit_signal_reason` 字段，分析报告更精细。
         """
-        # ... (构造函数 __init__ 保持不变) ...
         tactical_config_path = 'config/trend_follow_strategy.json'
         strategic_config_path = 'config/weekly_trend_follow_strategy.json'
         self.tactical_config = load_strategy_config(tactical_config_path)
         self.strategic_config = load_strategy_config(strategic_config_path)
+        
+        # ▼▼▼ 调整配置合并逻辑，确保所有参数块都被包含 ▼▼▼
+        # 1. 深度复制战术配置作为基础
+        self.merged_config = deepcopy(self.tactical_config)
+
+        # 2. 合并特征工程参数 (feature_engineering_params)
         base_merged_fe_params = self._merge_feature_engineering_configs(
             self.tactical_config.get('feature_engineering_params', {}),
             self.strategic_config.get('feature_engineering_params', {})
         )
+        # 发现并合并共振和止盈所需的额外指标
         resonance_indicators = self._discover_resonance_indicators(self.tactical_config)
         take_profit_indicators = self._discover_take_profit_indicators(self.tactical_config)
         temp_indicators = self._merge_indicators(base_merged_fe_params.get('indicators', {}), resonance_indicators)
         final_indicators = self._merge_indicators(temp_indicators, take_profit_indicators)
         base_merged_fe_params['indicators'] = final_indicators
-        self.merged_config = deepcopy(self.tactical_config)
         self.merged_config['feature_engineering_params'] = base_merged_fe_params
+
+        # 3. 合并战略引擎的剧本 (如果存在)
         if 'strategy_playbooks' in self.strategic_config:
             self.merged_config['strategy_playbooks'] = deepcopy(self.strategic_config['strategy_playbooks'])
+        
+        # 4. 确保战术引擎的参数块 (如 chip_feature_params) 也被正确合并
+        #    这一步通常在第一步的 deepcopy 中已经完成，但为了明确，可以再次检查
+        if 'strategy_params' in self.tactical_config:
+            self.merged_config['strategy_params'] = deepcopy(self.tactical_config['strategy_params'])
+
         self.indicator_service = IndicatorService()
         self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) 
         self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
