@@ -271,16 +271,15 @@ def schedule_precompute_advanced_chips(self):
         return {"status": "failed", "reason": str(e)}
 
 # ==============================================================================
-# 执行任务 (Executor Task) - 【V3.4 精准调试最终版】
+# 执行任务 (Executor Task) - 【V3.5 最终组装版】
 # ==============================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str):
     """
-    【执行器 V3.4 - 精准调试最终版】
-    增加了关键的调试打印，用于检查传递给计算器的上下文数据是否完整。
-    并修复了 prev_20d_close 的计算逻辑。
+    【执行器 V3.5 - 最终组装版】
+    修正了在收集计算结果时，忘记将 trade_date 添加回结果字典的问题。
     """
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.4 精准调试版)...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.5 最终组装版)...")
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
         dao = StockTimeTradeDAO()
@@ -327,11 +326,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             logger.warning(f"[{stock_code}] 所有数据源内连接后结果为空，可能是日期不匹配或关键数据缺失。任务终止。")
             return {"status": "skipped", "reason": "data sources could not be merged"}
 
-        # ▼▼▼【核心修正】: 在循环前计算好 prev_20d_close ▼▼▼
         daily_context_df = merged_df.drop_duplicates(subset=['trade_time']).set_index('trade_time').sort_index()
         daily_context_df['prev_20d_close'] = daily_context_df['close_price'].shift(20)
         merged_df = pd.merge(merged_df, daily_context_df[['prev_20d_close']], on='trade_time', how='left')
-        # ▲▲▲【核心修正结束】▲▲▲
 
         # --- 步骤 3: 循环计算每日指标 ---
         grouped_data = merged_df.groupby('trade_time')
@@ -339,16 +336,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         
         for trade_date, daily_full_df in grouped_data:
             context_data = daily_full_df.iloc[0].to_dict()
-            
-            # ▼▼▼【核心调试】: 打印传递给计算器的上下文数据的键 ▼▼▼
-            # print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
-            # ▲▲▲【核心调试结束】▲▲▲
-
+            print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
             chip_data_for_calc = daily_full_df[['price', 'percent']]
             calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
             
             if daily_metrics:
+                # ▼▼▼【核心修正】: 将当前循环的日期添加到结果字典中！▼▼▼
+                daily_metrics['trade_time'] = trade_date
+                # ▲▲▲【核心修正结束】▲▲▲
                 all_metrics_list.append(daily_metrics)
 
         if not all_metrics_list:
