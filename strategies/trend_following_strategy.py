@@ -841,12 +841,12 @@ class TrendFollowStrategy:
         # 定义并检查所有必需的列，确保数据完整性
         required_cols = {
             # 新筹码数据 (动态演化)
-            'dynamic_concentration_slope': 'CHIP_concentration_90pct_slope_5d',
-            'dynamic_winner_rate_short': 'CHIP_winner_rate_short_term',
-            'dynamic_winner_rate_long': 'CHIP_winner_rate_long_term',
-            'dynamic_slope_8d': 'CHIP_peak_cost_slope_8d',
-            'dynamic_slope_21d': 'CHIP_peak_cost_slope_21d',
-            'dynamic_accel_21d': 'CHIP_peak_cost_accel_21d',
+            'dynamic_concentration_slope': 'CHIP_concentration_90pct_slope_5d_D',
+            'dynamic_winner_rate_short': 'CHIP_winner_rate_short_term_D',
+            'dynamic_winner_rate_long': 'CHIP_winner_rate_long_term_D',
+            'dynamic_slope_8d': 'CHIP_peak_cost_slope_8d_D',
+            'dynamic_slope_21d': 'CHIP_peak_cost_slope_21d_D',
+            'dynamic_accel_21d': 'CHIP_peak_cost_accel_21d_D',
             # 基础数据
             'base_close': 'close_D'
         }
@@ -932,14 +932,16 @@ class TrendFollowStrategy:
         
         # 3.1 “点火”事件 (EVENT_IGNITION)
         # 定义: 股价上穿市场平均成本，同时伴随着成本峰的加速上移，且发生在吸筹或过渡期之后
-        p_ignite = p.get('ignition_params', {}) # 假设为点火事件增加专属参数
-        # 从旧筹码数据中获取突破信号
-        is_breakout = (df['close_D'] > df['weight_avg_D']) & (df['close_D'].shift(1) <= df['weight_avg_D'].shift(1))
-        # 从新筹码数据中获取加速确认
-        is_accelerating = df.get('CHIP_peak_cost_accel_5d', 0) > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
-        # 要求前一天处于适合点火的状态
+        p_ignite = p.get('ignition_params', {})
+        # 条件1: 成本峰加速，使用已有的21日加速度
+        is_accelerating = df[required_cols['dynamic_accel_21d']] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
+        # 条件2: 获利盘比例温和放大，表示市场开始接受新价格
+        winner_rate_col = required_cols['dynamic_winner_rate_short']
+        is_winner_rate_increasing = df[winner_rate_col] > df[winner_rate_col].shift(1)
+        # 条件3: 要求前一天处于适合点火的状态
         was_in_setup_state = primary_state.shift(1).isin(['ACCUMULATION', 'TRANSITION'])
-        states['CHIP_EVENT_IGNITION'] = is_breakout & is_accelerating & was_in_setup_state
+        
+        states['CHIP_EVENT_IGNITION'] = is_accelerating & is_winner_rate_increasing & was_in_setup_state
         print(f"          -> “点火事件”诊断完成，发现 {states['CHIP_EVENT_IGNITION'].sum()} 天。")
 
         # --- 步骤 4: 清理与返回 ---

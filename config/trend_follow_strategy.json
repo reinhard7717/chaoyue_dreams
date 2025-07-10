@@ -381,7 +381,9 @@
           "close_D": [10, 20, 55],
           "RSI_13_D": [5, 10],
           "BBW_21_2.0_D": [10],
-          "CMF_21_D": [10]
+          "CMF_21_D": [10],
+          "EMA_89_D": [10],
+          "EMA_21_W": [5]
         },
         "auto_detect_patterns": {
           "value": ["net_mf_", "capital_price_"],
