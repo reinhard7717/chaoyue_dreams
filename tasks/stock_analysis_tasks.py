@@ -334,13 +334,20 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         ).rename(columns={'his_high': 'close_price'})
         perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
 
-        # --- 步骤 2: 整合数据 ---
-        # 以日线数据为基础，合并其他所有数据
-        merged_df = daily_data.set_index('trade_time')
-        merged_df = merged_df.join(perf_data.set_index('trade_time'), how='left')
-        # 将每日流通股本数据合并进来
-        merged_df = merged_df.join(daily_basic_data.set_index('trade_time'), how='left')
-        merged_df['prev_20d_close'] = merged_df['close_price'].shift(20)
+        # --- 步骤 2: 统一合并数据 ---
+        print(f"[{stock_code}] 开始合并数据... 筹码: {len(cyq_chips_data)}, 日线: {len(daily_data)}, 基本面: {len(daily_basic_data)}, 性能: {len(perf_data)}")
+        
+        # 核心思想：以筹码数据为基础，将其他所有数据都合并进来
+        merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
+        merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
+        merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
+        
+        print(f"[{stock_code}] 数据合并完成。得到 {len(merged_df)} 条包含所有信息的有效数据行。")
+        logger.info(f"[{stock_code}] 数据合并完成。得到 {len(merged_df.drop_duplicates(subset=['trade_time']))} 个有效交易日的数据。")
+        
+        if merged_df.empty:
+            logger.warning(f"[{stock_code}] 所有数据源内连接后结果为空，可能是日期不匹配或关键数据缺失。任务终止。")
+            return {"status": "skipped", "reason": "data sources could not be merged"}
         
         # --- 步骤 3: 循环计算每日指标 ---
         grouped_chips = cyq_chips_data.groupby('trade_time')
