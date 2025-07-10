@@ -232,13 +232,13 @@
         "HEALTHY_PULLBACK": {
           "说明": "A级菜肴：健康回踩。在强势行情中的标准上车/加仓点。",
           "must_have": {
-            "MA_STATE_STABLE_BULLISH": 40, "必须项1": "首先得是多头排列",
-            "MA_STATE_TOUCHING_SUPPORT": 30, "必须项2": "必须触及支撑"
+            "MA_STATE_STABLE_BULLISH": 40,
+            "MA_STATE_TOUCHING_SUPPORT": 30
           },
           "bonus": {
-            "MA_STATE_PULLBACK_GENTLE": 20, "加分项1": "如果回踩是温和的",
-            "VOL_STATE_SHRINKING": 15, "加分项2": "如果回踩是缩量的",
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 25, "加分项3": "如果回踩中主力资金仍在流入"
+            "MA_STATE_PULLBACK_GENTLE": 20,
+            "VOL_STATE_SHRINKING": 15,
+            "CAPITAL_STATE_INFLOW_CONFIRMED": 25
           }
         },
         "WASHOUT_REVERSAL": {
