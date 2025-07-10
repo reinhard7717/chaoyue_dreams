@@ -341,7 +341,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             context_data = daily_full_df.iloc[0].to_dict()
             
             # ▼▼▼【核心调试】: 打印传递给计算器的上下文数据的键 ▼▼▼
-            print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
+            # print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
             # ▲▲▲【核心调试结束】▲▲▲
 
             chip_data_for_calc = daily_full_df[['price', 'percent']]
