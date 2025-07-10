@@ -624,7 +624,7 @@ class TrendFollowStrategy:
             trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
             
             # 最终剧本信号 = 准备状态成立 AND 触发事件发生
-            playbook_signal = is_setup_valid & trigger_signal
+            playbook_signal = is_setup_valid.shift(1).fillna(False) & trigger_signal
             
             if playbook_signal.any():
                 # --- 3.4: 计算剧本得分 ---
