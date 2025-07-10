@@ -278,7 +278,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
     """
     【执行器 V3.2 - 动态股本最终版】
     为单个股票计算并存储高级筹码指标。
-    此版本从 StockDailyBasic 获取每日动态变化的流通股本。
+    此版本从 StockDailyBasic 获取每日动态变化的流通股本，并修正了所有已知问题。
     """
     logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.2 动态股本版)...")
     try:
@@ -310,10 +310,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             logger.warning(f"[{stock_code}] 在表 {daily_data_model.__name__} 中找不到日线数据，任务终止。")
             return {"status": "skipped", "reason": f"no daily data in {daily_data_model.__name__}"}
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
+        # 单位换算: 从“手”转换为“股”，并重命名
         daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
         daily_data = daily_data.rename(columns={'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
 
-        # ▼▼▼【核心修正】: 从 StockDailyBasic 获取每日流通股本 ▼▼▼
         # 1.3 获取每日基本面数据 (包含流通股本)
         print(f"[{stock_code}] 获取每日基本面数据 (流通股本)...") # 使用print调试
         daily_basic_data = pd.DataFrame.from_records(
@@ -322,13 +322,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         if daily_basic_data.empty:
             logger.warning(f"[{stock_code}] 在 StockDailyBasic 中找不到每日基本面数据，无法计算绝对值指标！")
             return {"status": "skipped", "reason": "no daily basic data"}
-        
         # 单位换算: 从“万股”转换为“股”，并重命名
         daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
         daily_basic_data = daily_basic_data.drop(columns=['float_share'])
         daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
         print(f"[{stock_code}] 获取了 {len(daily_basic_data)} 条每日基本面数据。") # 使用print调试
-        # ▲▲▲【核心修正结束】▲▲▲
 
         # 1.4 获取基础筹码指标 (非分表)
         perf_data = pd.DataFrame.from_records(
@@ -340,40 +338,37 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         # 以日线数据为基础，合并其他所有数据
         merged_df = daily_data.set_index('trade_time')
         merged_df = merged_df.join(perf_data.set_index('trade_time'), how='left')
-        # ▼▼▼【核心修正】: 将每日流通股本数据合并进来 ▼▼▼
+        # 将每日流通股本数据合并进来
         merged_df = merged_df.join(daily_basic_data.set_index('trade_time'), how='left')
-        # ▲▲▲【核心修正结束】▲▲▲
         merged_df['prev_20d_close'] = merged_df['close_price'].shift(20)
         
         # --- 步骤 3: 循环计算每日指标 ---
         grouped_chips = cyq_chips_data.groupby('trade_time')
         all_metrics_list = []
-
         for trade_date, daily_chips_df in grouped_chips:
             if trade_date not in merged_df.index:
                 continue
             
             context_data = merged_df.loc[trade_date].to_dict()
             
-            # ▼▼▼【核心修正】: 检查每日动态获取的流通股本是否存在 ▼▼▼
+            # 检查每日动态获取的关键数据是否存在
             if pd.isna(context_data.get('close_price')) or pd.isna(context_data.get('weight_avg_cost')) or pd.isna(context_data.get('total_chip_volume')):
                 logger.debug(f"[{stock_code}] 在 {trade_date} 缺少关键数据(收盘价/平均成本/流通股本)，跳过计算。")
                 continue
-            # ▲▲▲【核心修正结束】▲▲▲
 
             calculator = ChipFeatureCalculator(daily_chips_df.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
             
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
+                # TODO: 在这里集成龙虎榜、股东、题材等V4.0数据的获取和填充
                 all_metrics_list.append(daily_metrics)
 
         if not all_metrics_list:
             logger.warning(f"[{stock_code}] 未能计算出任何高级指标。")
             return {"status": "skipped", "reason": "calculation resulted in no metrics"}
 
-        # --- 步骤 4 & 5: 计算斜率并存储 (此部分逻辑无需修改) ---
-        # ... (代码与上一版相同，故省略) ...
+        # --- 步骤 4: 计算跨时间序列的指标 (如斜率) ---
         metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time').sort_index()
         if 'peak_cost' in metrics_df.columns:
             for period in [5, 20]:
@@ -384,6 +379,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             metrics_df['peak_cost_accel_5d'] = metrics_df['peak_cost_slope_5d'].diff()
         if 'concentration_90pct' in metrics_df.columns:
             metrics_df['concentration_90pct_slope_5d'] = metrics_df['concentration_90pct'].rolling(5).mean().diff()
+
+        # --- 步骤 5: 存储到数据库 ---
         records_to_create = []
         for trade_date, row in metrics_df.iterrows():
             record_data = row.dropna().to_dict()
@@ -402,7 +399,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
     except Exception as e:
         logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
 
 
 # 保留旧的任务入口以实现兼容性，但调度器不再调用它
