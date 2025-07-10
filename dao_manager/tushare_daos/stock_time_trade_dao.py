@@ -1579,7 +1579,7 @@ class StockTimeTradeDAO(BaseDAO):
                             "limit": limit, "offset": offset
                         }, fields=["ts_code", "trade_date", "price", "percent"])
                         # [修改] 使用异步sleep，并调整为标准限速值
-                        await asyncio.sleep(0.7)
+                        await asyncio.sleep(1)
                     except Exception as e:
                         logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
                         await asyncio.sleep(5) # 异常时等待更久
