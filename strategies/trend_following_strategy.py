@@ -518,7 +518,7 @@ class TrendFollowStrategy:
                 'name': 'N_SHAPE_CONTINUATION_A',
                 'cn_name': '【A级】N字板接力',
                 'setup': score_nshape_cont > 80,
-                'trigger': trigger_events.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series), # 使用放量突破作为触发器
+                'trigger': trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series),
                 'score': 250,
                 'precondition': robust_right_side_precondition,
                 'comment': 'A级: 强势股在涨停或大阳线后，经过短暂、强势的整理，再次放量突破，是经典的趋势中继信号。'
@@ -1595,6 +1595,27 @@ class TrendFollowStrategy:
                 is_volume_confirmed = df['volume_D'] > df.get(vol_ma_col, df['volume_D']) * self._get_param_value(p_pullback.get('min_rebound_volume_ratio'), 0.8)
                 triggers['TRIGGER_PULLBACK_REBOUND'] = dipped_and_recovered & is_green_candle & has_lower_shadow & is_volume_confirmed
                 print(f"      -> '回踩反弹' 事件定义完成，发现 {triggers.get('TRIGGER_PULLBACK_REBOUND', pd.Series([])).sum()} 天。")
+
+        # 2.5 “N字形态突破”事件 (专用于N字板接力)
+        p_nshape = self._get_params_block(params, 'kline_pattern_params', {}).get('n_shape_params', {})
+        if self._get_param_value(p_nshape.get('enabled'), True):
+            # 条件a: 当天是阳线
+            is_positive_day = df['close_D'] > df['open_D']
+            
+            # 条件b: 突破了N字整理期间的高点
+            # 首先，我们需要识别出N字整理期
+            n_shape_consolidation_state = self._diagnose_kline_patterns(df, params).get('KLINE_STATE_N_SHAPE_CONSOLIDATION', pd.Series(False, index=df.index))
+            # 然后，计算整理期内的高点
+            # 我们用一个技巧：只有在整理期，才记录高点，然后向前填充，这样在突破日就能知道前一整理期的高点
+            consolidation_high = df['high_D'].where(n_shape_consolidation_state, np.nan).ffill()
+            # 突破定义：收盘价高于整理期高点
+            is_breaking_consolidation = df['close_D'] > consolidation_high.shift(1) # 用shift(1)获取昨天的整理高点
+            
+            # 条件c: 成交量温和放大
+            is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0) # 至少大于均量
+
+            triggers['TRIGGER_N_SHAPE_BREAKOUT'] = is_positive_day & is_breaking_consolidation & is_volume_ok
+            print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {triggers.get('TRIGGER_N_SHAPE_BREAKOUT', pd.Series([])).sum()} 天。")
 
         # --- 事件组3: 基于指标交叉的事件 ---
         p_cross = trigger_params.get('indicator_cross_params', {})
