@@ -5,10 +5,9 @@
 
 {% block title %}自选股持仓监控 - {{ block.super }}{% endblock %}
 
-{% block head_extra %}
+{% block extra_head %}
 <style>
-    /* ▼▼▼【代码修改】: 移除所有与 playbook 和 strategy 相关的样式，它们已移至 dashboard.css ▼▼▼ */
-    /* 只保留此页面特有的状态和信号详情样式 */
+    /* 此页面特有的状态和信号详情样式 */
     .status-tag {
         padding: 4px 10px;
         border-radius: 15px;
@@ -31,7 +30,6 @@
     .signal-details .reason-level-2 { color: #fb8c00; }
     .signal-details .reason-level-3 { color: #e53935; }
     .signal-details .time-info { color: #616161; font-size: 0.9em; }
-    /* ▲▲▲【代码修改结束】▲▲▲ */
 </style>
 {% endblock %}
 
@@ -50,24 +48,25 @@
 {% endblock sidebar %}
 
 {% block content %}
-{# ... 此处内容无需修改，保持原样 ... #}
 <div class="dashboard-container">
     <section class="trend-list-section">
         <h2><span class="icon">🎯</span> {{ page_title }} (共 {{ total_count }} 条)</h2>
         <div class="table-wrapper">
-            <table class="data-table" id="trend-table">
+            <table class="data-table" id="fav-trend-table"> {# ▼▼▼【代码修改】: 给table一个唯一的ID ▼▼▼ #}
                 <thead>
                     <tr>
                         <th style="width: 15%;">股票</th>
                         <th style="width: 15%;">持仓状态</th>
                         <th style="width: 25%;">建仓信号</th>
                         <th style="width: 25%;">最新动态 / 止盈信号</th>
-                        <th style="width: 20%;">激活剧本</th>
+                        <th style="width: 15%;">激活剧本</th>
+                        <th style="width: 5%;">操作</th> {# ▼▼▼【代码修改】: 增加“操作”列表头 ▼▼▼ #}
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="fav-trend-table-body"> {# ▼▼▼【代码修改】: 给tbody一个唯一的ID ▼▼▼ #}
                     {% for item in page_obj.object_list %}
-                    <tr>
+                    {# ▼▼▼【代码修改】: 为 tr 添加 data-id，方便JS整行操作 ▼▼▼ #}
+                    <tr data-id="{{ item.favorite_id }}">
                         <td>
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
@@ -114,9 +113,9 @@
                                         {% with playbook_display_name=playbook|playbook_display %}
                                             {% if 'ROCKET' in playbook %}
                                                 <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                            {% elif '王牌' in playbook_display_name %}
+                                            {% elif 'S' in playbook_display_name %}
                                                 <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                            {% elif '专家' in playbook_display_name %}
+                                            {% elif 'A+' in playbook_display_name %}
                                                 <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
                                             {% else %}
                                                 <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
@@ -136,9 +135,23 @@
                                 -
                             {% endif %}
                         </td>
+                        {# ▼▼▼【代码修改】: 增加“操作”列和移除按钮 ▼▼▼ #}
+                        <td class="actions">
+                            <button class="btn btn-sm btn-danger" 
+                                    data-action="remove" 
+                                    data-id="{{ item.favorite_id }}"
+                                    data-stock-code="{{ item.stock.stock_code }}"
+                                    data-stock-name="{{ item.stock.stock_name }}"
+                                    title="从自选中移除">
+                                &times;
+                            </button>
+                        </td>
+                        {# ▲▲▲【代码修改结束】▲▲▲ #}
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" style="text-align: center; padding: 20px;">请先在主控台添加自选股，或等待策略信号生成。</td></tr>
+                    {# ▼▼▼【代码修改】: 修正colspan以匹配新的列数 (6列) ▼▼▼ #}
+                    <tr><td colspan="6" style="text-align: center; padding: 20px;">请先在主控台添加自选股，或等待策略信号生成。</td></tr>
+                    {# ▲▲▲【代码修改结束】▲▲▲ #}
                     {% endfor %}
                 </tbody>
             </table>
@@ -159,38 +172,8 @@
         </div>
     </section>
 </div>
+<div id="notification-area"></div> {# 确保通知区域存在 #}
 {% endblock %}
 
-{% block scripts %}
-{# ... 此处脚本无需修改，保持原样 ... #}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const trendTable = document.getElementById('trend-table');
-    if (trendTable) {
-        console.log("折叠功能脚本已加载，并成功找到ID为 'trend-table' 的表格。");
-        trendTable.addEventListener('click', function(event) {
-            const toggleBtn = event.target.closest('.toggle-playbooks');
-            if (!toggleBtn) {
-                return;
-            }
-            console.log("检测到 'toggle-playbooks' 按钮被点击。");
-            event.preventDefault(); 
-            const container = toggleBtn.closest('.playbook-container');
-            if (!container) return;
-            const list = container.querySelector('.playbook-list');
-            if (!list) return;
-            list.classList.toggle('expanded');
-            const isExpanded = list.classList.contains('expanded');
-            console.log("列表 'expanded' 状态已切换为: ", isExpanded);
-            if (isExpanded) {
-                toggleBtn.textContent = toggleBtn.dataset.textCollapse;
-            } else {
-                toggleBtn.textContent = toggleBtn.dataset.textExpand;
-            }
-        });
-    } else {
-        console.error("错误：未能找到ID为 'trend-table' 的表格元素。");
-    }
-});
-</script>
-{% endblock scripts %}
+{% block extra_scripts %}
+{% endblock %}
