@@ -6,12 +6,18 @@ from datetime import datetime
 import logging
 from celery import Celery
 from asgiref.sync import async_to_sync
+import numpy as np
+import pandas as pd
+from django.db import transaction
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
+from services.chip_feature_calculator import ChipFeatureCalculator
+from stock_models.stock_basic import StockInfo
+from stock_models.time_trade import AdvancedChipMetrics, StockCyqPerf
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 # from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
 
@@ -234,7 +240,158 @@ def analyze_all_stocks(self):
         return {"status": "failed", "reason": str(e)}
 
 
+# ==============================================================================
+# 调度任务 (Dispatcher Task) - 此部分无需修改，保持原样
+# ==============================================================================
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.schedule_precompute_advanced_chips', queue='celery')
+def schedule_precompute_advanced_chips(self):
+    """
+    【调度器】
+    调度所有股票的高级筹码指标预计算任务。
+    """
+    try:
+        logger.info("开始调度 [高级筹码指标预计算] 任务...")
+        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        all_codes = favorite_codes + non_favorite_codes
+        
+        if not all_codes:
+            logger.warning("未找到任何股票数据，预计算任务终止。")
+            return {"status": "failed", "reason": "no stocks found"}
+            
+        stock_count = len(all_codes)
+        logger.info(f"找到 {stock_count} 只股票待进行高级筹码预计算。")
+        
+        for stock_code in all_codes:
+            precompute_advanced_chips_for_stock.s(stock_code).set(queue='precompute_chips').apply_async()
+        
+        logger.info(f"已为 {stock_count} 只股票调度 '高级筹码指标预计算' 任务。")
+        return {"status": "started", "stock_count": stock_count}
+    except Exception as e:
+        logger.error(f"调度高级筹码预计算任务时出错: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
 
+# ==============================================================================
+# 执行任务 (Executor Task) - 【V3.0 最终版】
+# ==============================================================================
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
+def precompute_advanced_chips_for_stock(self, stock_code: str):
+    """
+    【执行器 V3.0 - 双重分表最终版】
+    为单个股票计算并存储高级筹码指标。
+    此版本同时处理 StockCyqChips 和 StockDailyData 的分表逻辑。
+    """
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.0 双重分表版)...")
+    try:
+        stock_info = StockInfo.objects.get(stock_code=stock_code)
+        dao = StockTimeTradeDAO()
+        
+        # --- 步骤 1: 高效获取所有需要的数据 (严格遵循分表逻辑) ---
+        
+        # 1.1 获取原始筹码分布数据 (动态分表)
+        print(f"[{stock_code}] 使用DAO获取 [筹码分布] 分表模型...") # 使用print调试
+        chip_model = dao.get_cyq_chips_model_by_code(stock_code)
+        logger.info(f"[{stock_code}] 筹码数据将从表: {chip_model.__name__} 获取。")
+        print(f"[{stock_code}] 筹码数据将从表: {chip_model.__name__} 获取。") # 使用print调试
+        cyq_chips_data = pd.DataFrame.from_records(
+            chip_model.objects.filter(stock=stock_info).values('trade_time', 'price', 'percent')
+        )
+        if cyq_chips_data.empty:
+            logger.warning(f"[{stock_code}] 在表 {chip_model.__name__} 中找不到原始筹码数据，任务终止。")
+            return {"status": "skipped", "reason": f"no raw chip data in {chip_model.__name__}"}
+        cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
+
+        # 1.2 获取日线行情数据 (动态分表)
+        print(f"[{stock_code}] 使用DAO获取 [日线行情] 分表模型...") # 使用print调试
+        daily_data_model = dao.get_daily_data_model_by_code(stock_code)
+        logger.info(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。")
+        print(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。") # 使用print调试
+        daily_data = pd.DataFrame.from_records(
+            daily_data_model.objects.filter(stock=stock_info).values('trade_time', 'volume', 'high', 'low')
+        ).rename(columns={'volume': 'daily_turnover_volume', 'high': 'high_price', 'low': 'low_price'})
+        if daily_data.empty:
+            logger.warning(f"[{stock_code}] 在表 {daily_data_model.__name__} 中找不到日线数据，任务终止。")
+            return {"status": "skipped", "reason": f"no daily data in {daily_data_model.__name__}"}
+        daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
+
+        # 1.3 获取基础筹码指标 (非分表)
+        perf_data = pd.DataFrame.from_records(
+            StockCyqPerf.objects.filter(stock=stock_info).values('trade_time', 'weight_avg', 'his_high')
+        ).rename(columns={'his_high': 'close_price'})
+        perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
+
+        # 1.4 获取总流通股本 (非分表)
+        total_chip_volume = stock_info.circulating_share_capital 
+        if not total_chip_volume:
+            logger.error(f"[{stock_code}] 缺少流通股本数据，无法计算绝对值指标！")
+            return {"status": "failed", "reason": "missing circulating_share_capital"}
+
+        # --- 步骤 2: 整合数据 ---
+        # 以日线数据为基础，合并其他数据
+        merged_df = daily_data.set_index('trade_time')
+        merged_df = merged_df.join(perf_data.set_index('trade_time'), how='left')
+        merged_df['prev_20d_close'] = merged_df['close_price'].shift(20)
+        
+        # --- 步骤 3: 循环计算每日指标 ---
+        grouped_chips = cyq_chips_data.groupby('trade_time')
+        all_metrics_list = []
+
+        for trade_date, daily_chips_df in grouped_chips:
+            if trade_date not in merged_df.index:
+                continue
+            
+            context_data = merged_df.loc[trade_date].to_dict()
+            context_data['total_chip_volume'] = total_chip_volume
+            
+            # 检查是否有NaN值，避免计算错误
+            if pd.isna(context_data.get('close_price')) or pd.isna(context_data.get('weight_avg_cost')):
+                continue
+
+            calculator = ChipFeatureCalculator(daily_chips_df.sort_values(by='price'), context_data)
+            daily_metrics = calculator.calculate_all_metrics()
+            
+            if daily_metrics:
+                daily_metrics['trade_time'] = trade_date
+                # TODO: 在这里集成龙虎榜、股东、题材等V4.0数据的获取和填充
+                all_metrics_list.append(daily_metrics)
+
+        if not all_metrics_list:
+            logger.warning(f"[{stock_code}] 未能计算出任何高级指标。")
+            return {"status": "skipped", "reason": "calculation resulted in no metrics"}
+
+        # --- 步骤 4: 计算跨时间序列的指标 (如斜率) ---
+        metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time').sort_index()
+        
+        if 'peak_cost' in metrics_df.columns:
+            for period in [5, 20]:
+                slope = metrics_df['peak_cost'].rolling(window=period, min_periods=2).apply(
+                    lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
+                )
+                metrics_df[f'peak_cost_slope_{period}d'] = slope
+            metrics_df['peak_cost_accel_5d'] = metrics_df['peak_cost_slope_5d'].diff()
+
+        if 'concentration_90pct' in metrics_df.columns:
+            metrics_df['concentration_90pct_slope_5d'] = metrics_df['concentration_90pct'].rolling(5).mean().diff()
+
+        # --- 步骤 5: 存储到数据库 ---
+        records_to_create = []
+        for trade_date, row in metrics_df.iterrows():
+            record_data = row.dropna().to_dict()
+            records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
+
+        with transaction.atomic():
+            AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
+            AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
+        
+        logger.info(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
+        print(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。") # 使用print调试
+        return {"status": "success", "processed_days": len(records_to_create)}
+
+    except StockInfo.DoesNotExist:
+        logger.error(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
+        return {"status": "failed", "reason": "stock_code not found in StockInfo"}
+    except Exception as e:
+        logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
 
 
 

@@ -1112,6 +1112,76 @@ class StockCyqPerf(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time}"
 
+# 高级筹码指标模型
+class AdvancedChipMetrics(models.Model):
+    """
+    【V4.0 全息版 - 高级筹码指标模型】
+    存储通过离线预计算从原始筹码分布(StockCyqChips)中提炼出的高价值指标。
+    此模型以筹码数据为核心，融合了A股特色的“玩家行为”（龙虎榜、股东）和“环境风险”（解禁、质押、题材），
+    构建了一个全息博弈分析系统。
+    数据由 management/commands/precompute_chip_features.py 每日更新。
+    """
+    # 核心关联键
+    stock = models.ForeignKey('StockInfo', to_field='stock_code', on_delete=models.CASCADE, verbose_name='股票', db_index=True)
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+
+    # --- 1. 核心筹码峰基础指标 ---
+    peak_cost = models.FloatField(verbose_name='主筹码峰成本', null=True, blank=True, help_text="当天筹码分布最密集的价格")
+    peak_percent = models.FloatField(verbose_name='主筹码峰占比(%)', null=True, blank=True, help_text="主筹码峰位置的筹码比例")
+
+    # --- 2. 筹码峰动态指标 (速度与加速度) ---
+    peak_cost_slope_5d = models.FloatField(verbose_name='筹码峰成本5日斜率', null=True, blank=True, help_text="主筹码峰成本的5日线性回归斜率 (短期速度)")
+    peak_cost_slope_20d = models.FloatField(verbose_name='筹码峰成本20日斜率', null=True, blank=True, help_text="主筹码峰成本的20日线性回归斜率 (中期趋势)")
+    peak_cost_accel_5d = models.FloatField(verbose_name='筹码峰成本5日加速度', null=True, blank=True, help_text="主筹码峰成本5日斜率的斜率 (趋势变化快慢)")
+
+    # --- 3. 筹码集中度与稳定性指标 ---
+    concentration_90pct = models.FloatField(verbose_name='90%筹码集中度', null=True, blank=True, help_text="包含90%筹码的最小价格区间宽度 / 平均成本")
+    concentration_90pct_slope_5d = models.FloatField(verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中，正值表示发散")
+    peak_stability = models.FloatField(verbose_name='筹码峰稳定性', null=True, blank=True, help_text="主筹码峰的突出程度(prominence) / 平均占比，值越大越稳定")
+
+    # --- 4. 获利盘结构指标 ---
+    winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例")
+    winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例")
+
+    # --- 5. 多峰形态量化指标 ---
+    is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="当天是否存在多个显著的筹码峰")
+    secondary_peak_cost = models.FloatField(verbose_name='次筹码峰成本', null=True, blank=True, help_text="如果存在，第二大筹码峰的成本价")
+    peak_distance_ratio = models.FloatField(verbose_name='主次峰距离比', null=True, blank=True, help_text="主次峰成本价的距离 / 主峰成本价")
+    peak_strength_ratio = models.FloatField(verbose_name='主次峰强度比', null=True, blank=True, help_text="次峰突出度 / 主峰突出度")
+
+    # --- 6. 压力与支撑量化指标 (相对与绝对) ---
+    pressure_above = models.FloatField(verbose_name='上方2%套牢盘(%)', null=True, blank=True, help_text="收盘价上方2%价格区间内的筹码占比，代表直接压力")
+    support_below = models.FloatField(verbose_name='下方2%支撑盘(%)', null=True, blank=True, help_text="收盘价下方2%价格区间内的筹码占比，代表直接支撑")
+    total_chip_volume = models.BigIntegerField(verbose_name='总筹码量(股)', null=True, blank=True, help_text="用于计算的筹码总量，通常是流通股本")
+    peak_volume = models.BigIntegerField(verbose_name='主筹码峰成交量(股)', null=True, blank=True, help_text="主筹码峰位置的绝对成交股数")
+    pressure_above_volume = models.BigIntegerField(verbose_name='上方套牢盘绝对量(股)', null=True, blank=True, help_text="收盘价上方2%价格区间内的绝对筹码股数")
+    support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True, help_text="收盘价下方2%价格区间内的绝对筹码股数")
+    turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数")
+
+    # --- 7. 玩家行为指标 (Player Behavior) ---
+    is_on_dragon_tiger_list = models.BooleanField(verbose_name='当日是否上榜', default=False, help_text="当天是否登上龙虎榜")
+    d_t_list_institutional_net_buy = models.FloatField(verbose_name='龙虎榜机构净买入额', null=True, blank=True, help_text="龙虎榜“机构专用”席位总净买入额")
+    d_t_list_hot_money_net_buy = models.FloatField(verbose_name='龙虎榜游资净买入额', null=True, blank=True, help_text="龙虎榜知名游资席位总净买入额")
+    top10_shareholder_concentration_q = models.FloatField(verbose_name='前十大股东持股集中度(季度)', null=True, blank=True, help_text="前十大流通股东持股比例之和")
+    qfii_holdings_change_q = models.FloatField(verbose_name='QFII持股变动(季度)', null=True, blank=True, help_text="QFII持股数量的季度环比变化")
+
+    # --- 8. 环境与风险指标 (Context & Risk) ---
+    major_shareholder_pledge_ratio = models.FloatField(verbose_name='大股东质押比例', null=True, blank=True, help_text="主要股东累计质押股份占总股本的比例")
+    upcoming_unlock_ratio_3m = models.FloatField(verbose_name='未来3月解禁比例', null=True, blank=True, help_text="未来3个月即将解禁的股份占总股本的比例")
+    hot_theme_correlation_score = models.FloatField(verbose_name='题材关联度得分', null=True, blank=True, help_text="与当前市场最热题材的关联度评分(0-1)")
+
+    class Meta:
+        verbose_name = '高级筹码指标V4.0(全息版)'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_chip_metrics'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time}"
+
 # 指数日线行情(IndexDaily)
 class IndexDaily(models.Model):
     index = models.ForeignKey('IndexInfo', to_field='index_code', db_column='index_code', related_name="index_daily", on_delete=models.CASCADE, verbose_name="指数")
