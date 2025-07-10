@@ -243,7 +243,7 @@ def analyze_all_stocks(self):
 # ==============================================================================
 # 调度任务 (Dispatcher Task) - 此部分无需修改，保持原样
 # ==============================================================================
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.schedule_precompute_advanced_chips', queue='celery')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.schedule_precompute_advanced_chips', queue='SaveHistoryData_TimeTrade')
 def schedule_precompute_advanced_chips(self):
     """
     【调度器】
@@ -273,7 +273,7 @@ def schedule_precompute_advanced_chips(self):
 # ==============================================================================
 # 执行任务 (Executor Task) - 【V3.0 最终版】
 # ==============================================================================
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='celery')
 def precompute_advanced_chips_for_stock(self, stock_code: str):
     """
     【执行器 V3.0 - 双重分表最终版】
