@@ -171,15 +171,29 @@ class TrendFollowStrategy:
         # 1.3 (可选) 运行独立的K线形态识别
         df = self.pattern_recognizer.identify_all(df)
 
+        # --- 步骤 1.5: 原子状态诊断中心 (一次性完成所有诊断) ---
+        print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
+        atomic_states = {
+            **self._diagnose_chip_states(df, params),
+            **self._diagnose_ma_states(df, params),
+            **self._diagnose_oscillator_states(df, params),
+            **self._diagnose_capital_states(df, params),
+            **self._diagnose_volatility_states(df, params),
+            **self._diagnose_box_states(df, params),
+            **self._diagnose_kline_patterns(df, params),
+            **self._diagnose_board_patterns(df, params) # 假设有板形态诊断
+        }
+        print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
+
         # --- 步骤 2: 准备状态评审 (米其林评审官) ---
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         # 输入是处理好的df，输出是带有置信度分数的字典
-        setup_scores = self._calculate_setup_conditions(df, params, {}, {}) # 后两个参数在新架构下已无用
+        setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
 
         # --- 步骤 3: 触发事件定义 (事件定义中心) ---
         print("--- [总指挥] 步骤3: 触发事件定义引擎启动 ---")
         # 输入是处理好的df，输出是布尔信号字典
-        trigger_events = self._define_trigger_events(df, params, {}) # 最后一个参数在新架构下已无用
+        trigger_events = self._define_trigger_events(df, params, atomic_states)
 
         # --- 步骤 4: 计分总装 (最终计分引擎) ---
         print("--- [总指挥] 步骤4: 最终计分引擎启动 ---")
@@ -697,7 +711,7 @@ class TrendFollowStrategy:
         return final_exit_signal
 
     # ▼▼▼ 准备状态中心 (Setup Condition Center) ▼▼▼
-    def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], chip_atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V57.0 米其林评审版 - 置信度矩阵引擎】
         - 核心思想: 废除简单的布尔型SETUP，引入“置信度矩阵”对每个准备状态进行动态评分和分级。
@@ -708,41 +722,7 @@ class TrendFollowStrategy:
         """
         print("    - [准备状态中心 V57.0 米其林评审版] 启动...")
         
-        # --- 步骤 1: 调用各个独立的诊断模块，获取所有原子状态（食材） ---
-        print("        -> 步骤1: 调用各诊断模块，生成所有原子状态...")
-        
-        # 1.1 筹码状态诊断
-        chip_states = self._diagnose_chip_states(df, params)
-        
-        # 1.2 均线结构与动能状态诊断
-        ma_states = self._diagnose_ma_states(df, params)
-        
-        # 1.3 震荡与超买超卖状态诊断
-        oscillator_states = self._diagnose_oscillator_states(df, params)
-        
-        # 1.4 资金流状态诊断
-        capital_states = self._diagnose_capital_states(df, params)
-
-        # 1.5 波动率与成交量状态诊断
-        volatility_states = self._diagnose_volatility_states(df, params)
-
-        # 1.6 箱体诊断
-        box_states = self._diagnose_box_states(df, params)
-
-        # 1.7 K线组合形态诊断 ▼▼▼
-        kline_patterns = self._diagnose_kline_patterns(df, params)
-
-        # 将所有原子状态合并到一个字典中，方便后续调用
-        atomic_states = {
-            **chip_states, **ma_states, **oscillator_states, 
-            **capital_states, **volatility_states, **box_states,
-            **kline_patterns
-        }
-        print("        -> 原子状态生成完毕。")
-
-        # --- 步骤 2: 【核心】定义置信度矩阵并计算分数 ---
-        print("        -> 步骤2: 定义置信度矩阵并计算各状态分数...")
-        
+       
         # 从配置文件加载评分标准
         scoring_matrix = self._get_params_block(params, 'setup_scoring_matrix', {})
         
@@ -1523,7 +1503,7 @@ class TrendFollowStrategy:
         return df
 
     # ▼▼▼ 触发事件引擎 (Trigger Event Engine) ▼▼▼
-    def _define_trigger_events(self, df: pd.DataFrame, params: dict, chip_atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _define_trigger_events(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V57.0 触发事件引擎】
         - 核心思想: 集中定义所有瞬时的“点火”信号。每个信号都代表一个明确的、可识别的交易动作。
@@ -1604,7 +1584,7 @@ class TrendFollowStrategy:
             
             # 条件b: 突破了N字整理期间的高点
             # 首先，我们需要识别出N字整理期
-            n_shape_consolidation_state = self._diagnose_kline_patterns(df, params).get('KLINE_STATE_N_SHAPE_CONSOLIDATION', pd.Series(False, index=df.index))
+            n_shape_consolidation_state = atomic_states.get('KLINE_STATE_N_SHAPE_CONSOLIDATION', pd.Series(False, index=df.index))
             # 然后，计算整理期内的高点
             # 我们用一个技巧：只有在整理期，才记录高点，然后向前填充，这样在突破日就能知道前一整理期的高点
             consolidation_high = df['high_D'].where(n_shape_consolidation_state, np.nan).ffill()
