@@ -17,7 +17,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import AdvancedChipMetrics, StockCyqPerf
+from stock_models.time_trade import AdvancedChipMetrics, StockCyqPerf, StockDailyBasic
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 # from strategies.trend_following_strategy import TrendFollowStrategy # 不再直接调用
 
@@ -271,27 +271,26 @@ def schedule_precompute_advanced_chips(self):
         return {"status": "failed", "reason": str(e)}
 
 # ==============================================================================
-# 执行任务 (Executor Task) - 【V3.1 字段与单位修正版】
+# 执行任务 (Executor Task) - 【V3.2 动态股本最终版】
 # ==============================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str):
     """
-    【执行器 V3.1 - 字段与单位修正版】
+    【执行器 V3.2 - 动态股本最终版】
     为单个股票计算并存储高级筹码指标。
-    修正了日线数据成交量字段名(volume -> vol)和单位(手 -> 股)的错误。
+    此版本从 StockDailyBasic 获取每日动态变化的流通股本。
     """
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.1 修正版)...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.2 动态股本版)...")
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
         dao = StockTimeTradeDAO()
         
-        # --- 步骤 1: 高效获取所有需要的数据 (严格遵循分表逻辑) ---
+        # --- 步骤 1: 高效获取所有需要的数据 ---
         
         # 1.1 获取原始筹码分布数据 (动态分表)
         print(f"[{stock_code}] 使用DAO获取 [筹码分布] 分表模型...") # 使用print调试
         chip_model = dao.get_cyq_chips_model_by_code(stock_code)
         logger.info(f"[{stock_code}] 筹码数据将从表: {chip_model.__name__} 获取。")
-        print(f"[{stock_code}] 筹码数据将从表: {chip_model.__name__} 获取。") # 使用print调试
         cyq_chips_data = pd.DataFrame.from_records(
             chip_model.objects.filter(stock=stock_info).values('trade_time', 'price', 'percent')
         )
@@ -304,55 +303,67 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         print(f"[{stock_code}] 使用DAO获取 [日线行情] 分表模型...") # 使用print调试
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
         logger.info(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。")
-        print(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。") # 使用print调试
-        
-        # ▼▼▼【核心修正】: 将 'volume' 修改为 'vol' 来匹配模型字段 ▼▼▼
         daily_data = pd.DataFrame.from_records(
             daily_data_model.objects.filter(stock=stock_info).values('trade_time', 'vol', 'high', 'low')
         )
-        # ▲▲▲【核心修正结束】▲▲▲
-
         if daily_data.empty:
             logger.warning(f"[{stock_code}] 在表 {daily_data_model.__name__} 中找不到日线数据，任务终止。")
             return {"status": "skipped", "reason": f"no daily data in {daily_data_model.__name__}"}
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
-
-        # ▼▼▼【核心修正】: 将成交量单位从“手”转换为“股”，并重命名列 ▼▼▼
-        daily_data['daily_turnover_volume'] = daily_data['vol'] * 100  # 1手 = 100股
+        daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
         daily_data = daily_data.rename(columns={'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
+
+        # ▼▼▼【核心修正】: 从 StockDailyBasic 获取每日流通股本 ▼▼▼
+        # 1.3 获取每日基本面数据 (包含流通股本)
+        print(f"[{stock_code}] 获取每日基本面数据 (流通股本)...") # 使用print调试
+        daily_basic_data = pd.DataFrame.from_records(
+            StockDailyBasic.objects.filter(stock=stock_info).values('trade_time', 'float_share')
+        )
+        if daily_basic_data.empty:
+            logger.warning(f"[{stock_code}] 在 StockDailyBasic 中找不到每日基本面数据，无法计算绝对值指标！")
+            return {"status": "skipped", "reason": "no daily basic data"}
+        
+        # 单位换算: 从“万股”转换为“股”，并重命名
+        daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
+        daily_basic_data = daily_basic_data.drop(columns=['float_share'])
+        daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
+        print(f"[{stock_code}] 获取了 {len(daily_basic_data)} 条每日基本面数据。") # 使用print调试
         # ▲▲▲【核心修正结束】▲▲▲
 
-        # 1.3 获取基础筹码指标 (非分表)
+        # 1.4 获取基础筹码指标 (非分表)
         perf_data = pd.DataFrame.from_records(
             StockCyqPerf.objects.filter(stock=stock_info).values('trade_time', 'weight_avg', 'his_high')
         ).rename(columns={'his_high': 'close_price'})
         perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
 
-        # 1.4 获取总流通股本 (非分表)
-        total_chip_volume = stock_info.circulating_share_capital 
-        if not total_chip_volume:
-            logger.error(f"[{stock_code}] 缺少流通股本数据，无法计算绝对值指标！")
-            return {"status": "failed", "reason": "missing circulating_share_capital"}
-
         # --- 步骤 2: 整合数据 ---
-        # 以日线数据为基础，合并其他数据
+        # 以日线数据为基础，合并其他所有数据
         merged_df = daily_data.set_index('trade_time')
         merged_df = merged_df.join(perf_data.set_index('trade_time'), how='left')
+        # ▼▼▼【核心修正】: 将每日流通股本数据合并进来 ▼▼▼
+        merged_df = merged_df.join(daily_basic_data.set_index('trade_time'), how='left')
+        # ▲▲▲【核心修正结束】▲▲▲
         merged_df['prev_20d_close'] = merged_df['close_price'].shift(20)
         
         # --- 步骤 3: 循环计算每日指标 ---
-        # ... (此部分逻辑无需修改，保持原样) ...
         grouped_chips = cyq_chips_data.groupby('trade_time')
         all_metrics_list = []
+
         for trade_date, daily_chips_df in grouped_chips:
             if trade_date not in merged_df.index:
                 continue
+            
             context_data = merged_df.loc[trade_date].to_dict()
-            context_data['total_chip_volume'] = total_chip_volume
-            if pd.isna(context_data.get('close_price')) or pd.isna(context_data.get('weight_avg_cost')):
+            
+            # ▼▼▼【核心修正】: 检查每日动态获取的流通股本是否存在 ▼▼▼
+            if pd.isna(context_data.get('close_price')) or pd.isna(context_data.get('weight_avg_cost')) or pd.isna(context_data.get('total_chip_volume')):
+                logger.debug(f"[{stock_code}] 在 {trade_date} 缺少关键数据(收盘价/平均成本/流通股本)，跳过计算。")
                 continue
+            # ▲▲▲【核心修正结束】▲▲▲
+
             calculator = ChipFeatureCalculator(daily_chips_df.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
+            
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
                 all_metrics_list.append(daily_metrics)
@@ -361,8 +372,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             logger.warning(f"[{stock_code}] 未能计算出任何高级指标。")
             return {"status": "skipped", "reason": "calculation resulted in no metrics"}
 
-        # --- 步骤 4: 计算跨时间序列的指标 (如斜率) ---
-        # ... (此部分逻辑无需修改，保持原样) ...
+        # --- 步骤 4 & 5: 计算斜率并存储 (此部分逻辑无需修改) ---
+        # ... (代码与上一版相同，故省略) ...
         metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time').sort_index()
         if 'peak_cost' in metrics_df.columns:
             for period in [5, 20]:
@@ -373,9 +384,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             metrics_df['peak_cost_accel_5d'] = metrics_df['peak_cost_slope_5d'].diff()
         if 'concentration_90pct' in metrics_df.columns:
             metrics_df['concentration_90pct_slope_5d'] = metrics_df['concentration_90pct'].rolling(5).mean().diff()
-
-        # --- 步骤 5: 存储到数据库 ---
-        # ... (此部分逻辑无需修改，保持原样) ...
         records_to_create = []
         for trade_date, row in metrics_df.iterrows():
             record_data = row.dropna().to_dict()
@@ -394,7 +402,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
     except Exception as e:
         logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
 
 
 
