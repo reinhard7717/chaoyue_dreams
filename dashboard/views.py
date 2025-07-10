@@ -76,41 +76,6 @@ def dashboard_view(request):
     }
     return render(request, 'dashboard/home.html', context)
 
-@login_required
-def monthly_trend_strategy_list(request):
-    """
-    【重构】月线趋势跟踪策略列表页。
-    """
-    str_dao = StrategiesDAO()
-    all_reports_queryset = async_to_sync(str_dao.get_latest_monthly_trend_reports)()
-    
-    return _render_strategy_list_page(
-        request=request,
-        base_queryset=all_reports_queryset,
-        page_title="月线趋势跟踪评分",
-        template_name='dashboard/monthly_trend_strategy.html'
-    )
-
-@login_required
-def fav_monthly_trend_list(request):
-    """
-    【重构】展示用户自选股的月线趋势策略信号。
-    """
-    user_dao = UserDAO()
-    str_dao = StrategiesDAO()
-    
-    user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
-    fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
-    
-    all_reports_queryset = async_to_sync(str_dao.get_latest_monthly_trend_reports_by_stock_codes)(fav_codes)
-
-    return _render_strategy_list_page(
-        request=request,
-        base_queryset=all_reports_queryset,
-        page_title="自选股-月线趋势跟踪",
-        template_name='dashboard/fav_monthly_trend_list.html'
-    )
-
 def get_playbook_priority(playbook_name):
     """
     【V2.0 修正版】根据剧本名称中的关键字为其分配优先级。
@@ -147,7 +112,6 @@ def get_playbook_priority(playbook_name):
     # 默认优先级
     return 3
     # ▲▲▲【代码修改结束】▲▲▲
-
 
 @login_required
 def trend_following_list(request):
@@ -229,13 +193,18 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.6 修复排序错误】
+    【V3.7 增加删除功能支持】
     """
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     
+    # ▼▼▼【代码修改】: 创建一个从股票代码到自选ID的映射 ▼▼▼
+    # 这是为了在后续处理中能方便地找到每只股票对应的FavoriteStock ID
+    fav_id_map = {fav.stock.stock_code: fav.id for fav in user_favorites if fav.stock}
+    # ▲▲▲【代码修改结束】▲▲▲
+
     if not fav_codes:
         return render(request, 'dashboard/fav_trend_following_list.html', {
             'page_title': '自选股持仓监控',
@@ -284,6 +253,9 @@ def fav_trend_following_list(request):
 
         item = {
             'stock': summary['stock'],
+            # ▼▼▼【代码修改】: 从映射中获取并添加 favorite_id ▼▼▼
+            'favorite_id': fav_id_map.get(stock_code), # JS将使用这个ID来调用删除API
+            # ▲▲▲【代码修改结束】▲▲▲
             'buy_info': None,
             'sell_info': None,
             'latest_trade_time': latest_state.trade_time,

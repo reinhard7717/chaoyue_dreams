@@ -1,13 +1,36 @@
-{# 文件: templates/dashboard/trend_following_list.html #}
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
 {% load dashboard_extras %}
 
-{% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
+{% block title %}自选股持仓监控 - {{ block.super }}{% endblock %}
 
 {% block extra_head %}
-    {# 这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #}
+<style>
+    /* 此页面特有的状态和信号详情样式 */
+    .status-tag {
+        padding: 4px 10px;
+        border-radius: 15px;
+        font-weight: bold;
+        color: #fff;
+        font-size: 0.9em;
+        text-align: center;
+        display: inline-block;
+        min-width: 80px;
+    }
+    .status-holding { background-color: #43a047; } /* 持仓观察 (绿色) */
+    .status-wait { background-color: #757575; } /* 等待建仓 (灰色) */
+    .status-alert-level-1 { background-color: #fdd835; color: #424242; } /* 一级预警 (黄色) */
+    .status-alert-level-2 { background-color: #fb8c00; } /* 二级警报 (橙色) */
+    .status-alert-level-3 { background-color: #e53935; } /* 三级警报 (红色) */
+
+    .signal-details { font-size: 0.9em; }
+    .signal-details .reason { font-weight: bold; }
+    .signal-details .reason-level-1 { color: #c49102; }
+    .signal-details .reason-level-2 { color: #fb8c00; }
+    .signal-details .reason-level-3 { color: #e53935; }
+    .signal-details .time-info { color: #616161; font-size: 0.9em; }
+</style>
 {% endblock %}
 
 
@@ -17,8 +40,8 @@
              <h3>导航菜单</h3>
             <ul>
                 <li><a href="{% url 'users:home' %}">主控台</a></li>
-                <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">策略监控中心</a></li>
-                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
+                <li><a href="{% url 'dashboard:trend_following_list' %}">策略监控中心</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}" class="active">自选股监控</a></li>
             </ul>
         </nav>
     </aside>
@@ -27,77 +50,60 @@
 {% block content %}
 <div class="dashboard-container">
     <section class="trend-list-section">
-        <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 只)</h2>
-        <div class="filter-section">
-            <div class="filter-header">
-                <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
-                {% if selected_playbooks %}
-                    <a href="{% url 'dashboard:trend_following_list' %}" class="clear-filters-btn">清除全部</a>
-                {% endif %}
-            </div>
-            <div class="filter-tags-container">
-                {% for playbook in all_playbooks %}
-                    {% with playbook_display_name=playbook|playbook_display %}
-                        {% if playbook in selected_playbooks %}
-                            {% if 'ROCKET' in playbook %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active rocket-signal">🚀 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% elif '王牌' in playbook_display_name %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active king-signal">👑 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% elif '专家' in playbook_display_name %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active expert-signal">🎓 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% else %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% endif %}
-                        {% else %}
-                            {% if 'ROCKET' in playbook %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag rocket-signal">🚀 {{ playbook_display_name }}</a>
-                            {% elif '王牌' in playbook_display_name %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag king-signal">👑 {{ playbook_display_name }}</a>
-                            {% elif '专家' in playbook_display_name %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag expert-signal">🎓 {{ playbook_display_name }}</a>
-                            {% else %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag">{{ playbook_display_name }}</a>
-                            {% endif %}
-                        {% endif %}
-                    {% endwith %}
-                {% empty %}
-                    <span class="no-filters">暂无可用的筛选标签</span>
-                {% endfor %}
-            </div>
-        </div>
+        <h2><span class="icon">🎯</span> {{ page_title }} (共 {{ total_count }} 条)</h2>
         <div class="table-wrapper">
-            <table class="data-table" id="trend-table">
+            <table class="data-table" id="fav-trend-table"> {# ▼▼▼【代码修改】: 给table一个唯一的ID ▼▼▼ #}
                 <thead>
                     <tr>
-                        <th>股票</th>
-                        <th>激活策略</th>
-                        <th>最高分数</th>
-                        <th>激活剧本</th>
-                        <th>最新信号时间</th>
-                        <th>最新买入</th>
-                        <th>最新卖出</th>
-                        {# ▼▼▼【代码修改】: 增加“操作”列的表头 ▼▼▼ #}
-                        <th>操作</th>
-                        {# ▲▲▲【代码修改结束】▲▲▲ #}
+                        <th style="width: 15%;">股票</th>
+                        <th style="width: 15%;">持仓状态</th>
+                        <th style="width: 25%;">建仓信号</th>
+                        <th style="width: 25%;">最新动态 / 止盈信号</th>
+                        <th style="width: 15%;">激活剧本</th>
+                        <th style="width: 5%;">操作</th> {# ▼▼▼【代码修改】: 增加“操作”列表头 ▼▼▼ #}
                     </tr>
                 </thead>
-                <tbody id="trend-table-body"> {# 给tbody一个ID方便JS选择 #}
+                <tbody id="fav-trend-table-body"> {# ▼▼▼【代码修改】: 给tbody一个唯一的ID ▼▼▼ #}
                     {% for item in page_obj.object_list %}
-                    <tr>
+                    {# ▼▼▼【代码修改】: 为 tr 添加 data-id，方便JS整行操作 ▼▼▼ #}
+                    <tr data-id="{{ item.favorite_id }}">
                         <td>
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
-                            <ul class="strategy-list">
-                            {% for name in item.strategy_names %}
-                                <li class="strategy-tag">{{ name|playbook_display }}</li>
-                            {% endfor %}
-                            </ul>
+                            <span class="status-tag {{ item.status_class }}">{{ item.swing_status }}</span>
                         </td>
                         <td>
-                            <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
+                            {% if item.buy_info %}
+                                <strong>买入于: {{ item.buy_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
+                                <br>
+                                <small>策略: {{ item.buy_info.strategy_name|playbook_display }} ({{ item.buy_info.time_level }}分钟)</small>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.sell_info %}
+                                <div class="signal-details">
+                                    {% if item.sell_info.severity_level == 1 %}
+                                        <span class="reason reason-level-1">⚠️ {{ item.sell_info.reason|playbook_display }}</span>
+                                    {% elif item.sell_info.severity_level == 3 %}
+                                        <span class="reason reason-level-3">🚨 {{ item.sell_info.reason|playbook_display }}</span>
+                                    {% else %}
+                                        <span class="reason reason-level-2">🟠 {{ item.sell_info.reason|playbook_display }}</span>
+                                    {% endif %}
+                                    <br>
+                                    <span class="time-info">
+                                        {{ item.sell_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }} ({{ item.sell_info.time_level }}分钟)
+                                    </span>
+                                </div>
+                            {% else %}
+                                <strong>最新: {{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
+                                <br>
+                                <small>分数: {{ item.latest_score|floatformat:0 }}</small>
+                            {% endif %}
                         </td>
                         <td>
                             {% if item.active_playbooks %}
@@ -129,43 +135,47 @@
                                 -
                             {% endif %}
                         </td>
-                        <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
-                        <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
-                        <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
-                        {# ▼▼▼【代码修改】: 增加“操作”列的内容 ▼▼▼ #}
-                        <td>
-                            {# 默认渲染为“添加自选”按钮，JS会自动检查并更新状态 #}
-                            <button class="btn btn-sm btn-outline add-to-favorites-btn" data-stock-code="{{ item.stock.stock_code }}">
-                                <span class="btn-icon">+</span>
-                                <span class="btn-text">添加自选</span>
+                        {# ▼▼▼【代码修改】: 增加“操作”列和移除按钮 ▼▼▼ #}
+                        <td class="actions">
+                            <button class="btn btn-sm btn-danger" 
+                                    data-action="remove" 
+                                    data-id="{{ item.favorite_id }}"
+                                    data-stock-code="{{ item.stock.stock_code }}"
+                                    data-stock-name="{{ item.stock.stock_name }}"
+                                    title="从自选中移除">
+                                &times;
                             </button>
                         </td>
                         {# ▲▲▲【代码修改结束】▲▲▲ #}
                     </tr>
                     {% empty %}
-                    {# ▼▼▼【代码修改】: 修正colspan以匹配新的列数 ▼▼▼ #}
-                    <tr><td colspan="8" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    {# ▼▼▼【代码修改】: 修正colspan以匹配新的列数 (6列) ▼▼▼ #}
+                    <tr><td colspan="6" style="text-align: center; padding: 20px;">请先在主控台添加自选股，或等待策略信号生成。</td></tr>
                     {# ▲▲▲【代码修改结束】▲▲▲ #}
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        
         <div class="pagination">
             {% if page_obj.has_other_pages %}
                 {% if page_obj.has_previous %}
-                    <a href="?page=1&{{ request.GET.urlencode }}">&laquo; 首页</a>
-                    <a href="?page={{ page_obj.previous_page_number }}&{{ request.GET.urlencode }}">上一页</a>
+                    <a href="?page=1">&laquo; 首页</a>
+                    <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
                 {% endif %}
                 <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
                 {% if page_obj.has_next %}
-                    <a href="?page={{ page_obj.next_page_number }}&{{ request.GET.urlencode }}">下一页</a>
-                    <a href="?page={{ page_obj.paginator.num_pages }}&{{ request.GET.urlencode }}">末页 &raquo;</a>
+                    <a href="?page={{ page_obj.next_page_number }}">下一页</a>
+                    <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
                 {% endif %}
             {% endif %}
         </div>
     </section>
 </div>
-{# 增加一个用于显示通知的区域 #}
-<div id="notification-area"></div>
+<div id="notification-area"></div> {# 确保通知区域存在 #}
 {% endblock %}
 
+{% block extra_scripts %}
+    {# ▼▼▼【代码修改】: 移除内联脚本，逻辑将移至 dashboard.js ▼▼▼ #}
+    {# ▲▲▲【代码修改结束】▲▲▲ #}
+{% endblock %}

@@ -247,27 +247,25 @@ document.addEventListener('DOMContentLoaded', function() {
     function initializeTrendListPage() {
         console.log('正在初始化【策略监控中心】页面功能...');
 
-        const trendTable = document.getElementById('trend-table');
         const tableBody = document.getElementById('trend-table-body');
         if (!tableBody) return;
 
-        // 折叠功能
-        if (trendTable) {
-            trendTable.addEventListener('click', function(event) {
-                const toggleBtn = event.target.closest('.toggle-playbooks');
-                if (!toggleBtn) return;
-                event.preventDefault(); 
-                const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
-                if (!list) return;
-                list.classList.toggle('expanded');
-                const isExpanded = list.classList.contains('expanded');
-                toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
-            });
-        }
+        // --- 折叠功能 ---
+        tableBody.addEventListener('click', function(event) {
+            const toggleBtn = event.target.closest('.toggle-playbooks');
+            if (!toggleBtn) return;
+            event.preventDefault(); 
+            const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
+            if (!list) return;
+            list.classList.toggle('expanded');
+            const isExpanded = list.classList.contains('expanded');
+            toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
+        });
 
-        // 添加自选功能
+        // --- 添加自选功能 ---
         const favoriteStockCodes = new Set();
 
+        // 更新按钮状态的辅助函数
         function updateButtonState(button, isFavorite, isLoading = false) {
             const icon = button.querySelector('.btn-icon');
             const text = button.querySelector('.btn-text');
@@ -288,6 +286,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        // 页面加载时，获取自选股列表并初始化按钮状态
         async function initializeFavoriteButtons() {
             try {
                 const response = await fetch('/dashboard/api/favorites/', {
@@ -311,12 +310,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        // 处理点击“添加自选”按钮的事件
         async function handleAddFavorite(event) {
             const button = event.target.closest('.add-to-favorites-btn');
             if (!button || button.disabled) return;
 
             const stockCode = button.dataset.stockCode;
-            updateButtonState(button, false, true);
+            updateButtonState(button, false, true); // 设置为加载中状态
 
             try {
                 const csrfToken = getCookie('csrftoken');
@@ -333,33 +333,116 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (response.ok) {
                     showNotification(`股票 ${stockCode} 添加成功！`, 'success');
                     favoriteStockCodes.add(stockCode);
-                    updateButtonState(button, true);
+                    updateButtonState(button, true); // 设置为已添加状态
                 } else {
                     const errorData = await response.json();
                     const errorMsg = errorData.detail || Object.values(errorData).flat().join(' ') || `添加 ${stockCode} 失败`;
                     showNotification(errorMsg, 'error');
-                    updateButtonState(button, false);
+                    updateButtonState(button, false); // 恢复为初始状态
                 }
             } catch (error) {
                 showNotification('网络错误，请稍后重试', 'error');
-                updateButtonState(button, false);
+                updateButtonState(button, false); // 恢复为初始状态
             }
         }
 
+        // 使用事件委托来处理所有按钮的点击事件
         tableBody.addEventListener('click', handleAddFavorite);
+        
+        // 初始化
         initializeFavoriteButtons();
+    }
+
+    // =========================================================================
+    // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
+    // =========================================================================
+    function initializeFavTrendListPage() {
+        console.log('正在初始化【自选股监控】页面功能...');
+
+        const tableBody = document.getElementById('fav-trend-table-body');
+        if (!tableBody) return;
+
+        // --- 整合原有的折叠功能 ---
+        tableBody.addEventListener('click', function(event) {
+            const toggleBtn = event.target.closest('.toggle-playbooks');
+            if (toggleBtn) {
+                event.preventDefault(); 
+                const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
+                if (!list) return;
+                list.classList.toggle('expanded');
+                const isExpanded = list.classList.contains('expanded');
+                toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
+            }
+        });
+
+        // --- 新增移除自选股功能 ---
+        tableBody.addEventListener('click', async function(event) {
+            const removeButton = event.target.closest('button[data-action="remove"]');
+            if (!removeButton) return;
+
+            const favoriteId = removeButton.dataset.id;
+            const stockCode = removeButton.dataset.stockCode;
+            const stockName = removeButton.dataset.stockName;
+
+            if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
+                removeButton.disabled = true;
+                removeButton.innerHTML = '...'; // 临时加载状态
+
+                try {
+                    const csrfToken = getCookie('csrftoken');
+                    if (!csrfToken) throw new Error('无法获取CSRF令牌');
+
+                    const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
+                        method: 'DELETE',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': csrfToken
+                        }
+                    });
+
+                    if (response.ok || response.status === 204) {
+                        showNotification(`股票 ${stockCode} 已成功移除`, 'success');
+                        // 直接移除表格行以提供即时反馈
+                        const rowToRemove = removeButton.closest('tr');
+                        if (rowToRemove) {
+                            rowToRemove.classList.add('flash-remove'); // 添加移除动画
+                            setTimeout(() => {
+                                rowToRemove.remove();
+                                // 检查表格是否变空
+                                if (tableBody.children.length === 0) {
+                                    const colspan = tableBody.previousElementSibling.rows[0].cells.length;
+                                    tableBody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 20px;">自选股列表已清空。</td></tr>`;
+                                }
+                            }, 300);
+                        }
+                    } else {
+                        const errorData = await response.json().catch(() => ({}));
+                        const errorMsg = errorData.detail || `移除股票 ${stockCode} 失败`;
+                        throw new Error(errorMsg);
+                    }
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                    // 恢复按钮状态
+                    removeButton.disabled = false;
+                    removeButton.innerHTML = '&times;';
+                }
+            }
+        });
     }
 
     // =========================================================================
     // === 页面路由和启动 ======================================================
     // =========================================================================
-    // 通过检查页面上是否存在特定的ID来判断当前是哪个页面，然后执行对应的初始化函数
     if (document.getElementById('favorites-tbody')) {
         initializeHomePage();
     }
     
     if (document.getElementById('trend-table-body')) {
         initializeTrendListPage();
+    }
+
+    if (document.getElementById('fav-trend-table-body')) {
+        initializeFavTrendListPage();
     }
 
 });

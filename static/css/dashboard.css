@@ -566,8 +566,9 @@ section h2 .icon {
     display: inline-flex;
     align-items: center;
     gap: 4px; /* 图标和文字的间距 */
-    min-width: 85px; /* 给按钮一个最小宽度，防止状态切换时宽度变化太大 */
+    min-width: 90px; /* 给按钮一个最小宽度，防止状态切换时宽度变化太大 */
     justify-content: center;
+    transition: all 0.2s ease-in-out;
 }
 
 .add-to-favorites-btn .btn-icon {
@@ -580,6 +581,7 @@ section h2 .icon {
     cursor: wait;
     background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.2);
     color: var(--semi-color-primary);
+    border-color: transparent;
 }
 
 /* 已经是自选股的状态 */
@@ -588,7 +590,7 @@ section h2 .icon {
     border-color: var(--semi-color-success);
     color: var(--semi-color-success);
     cursor: not-allowed;
-    opacity: 0.7; /* 让已添加的按钮不那么显眼 */
+    opacity: 0.8; /* 让已添加的按钮不那么显眼 */
 }
 
 .add-to-favorites-btn.is-favorite .btn-icon {
