@@ -999,15 +999,16 @@ class TrendFollowStrategy:
             states['MA_STATE_D_STABILIZING'] = pd.Series(False, index=df.index)
             print(f"          -> [警告] 缺少日线加速度列 '{accel_d_col}'，'MA_STATE_D_STABILIZING' 无法计算。")
 
-        # 周线动能状态
-        lookback_period_w = 5 # 假设周线使用5周回看
-        slope_w_col = f'SLOPE_{lookback_period_w}_EMA_21_W' # 正确的列名格式
+        # 周线动能状态 -> 使用日线105EMA的25日斜率来模拟
+        simulated_w_ma_period = 105 # 模拟周线21EMA
+        simulated_w_lookback = 25   # 模拟周线5周窗口
+        slope_w_simulated_col = f'SLOPE_{simulated_w_lookback}_EMA_{simulated_w_ma_period}_D'
         
-        if slope_w_col in df.columns:
-            states['MA_STATE_W_STABILIZING'] = (df[slope_w_col].shift(1).fillna(0) < 0) & (df[slope_w_col] >= 0)
+        if slope_w_simulated_col  in df.columns:
+            states['MA_STATE_W_STABILIZING'] = (df[slope_w_simulated_col ].shift(1).fillna(0) < 0) & (df[slope_w_simulated_col ] >= 0)
         else:
             states['MA_STATE_W_STABILIZING'] = pd.Series(False, index=df.index)
-            print(f"          -> [警告] 缺少周线斜率列 '{slope_w_col}'，'MA_STATE_W_STABILIZING' 无法计算。")
+            print(f"          -> [警告] 缺少周线斜率列 '{slope_w_simulated_col }'，'MA_STATE_W_STABILIZING' 无法计算。")
 
         # ---  老鸭头形态诊断 ---
         p_duck = self._get_params_block(params, 'duck_neck_params', {})
