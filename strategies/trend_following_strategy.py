@@ -985,14 +985,27 @@ class TrendFollowStrategy:
         # 底部钝化状态: 空头排列下，价格首次站上短期均线
         states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
 
-        # 日线/周线动能状态
-        slope_d_col = f'SLOPE_EMA_{long_p}_D_10'
-        accel_d_col = f'ACCEL_EMA_{long_p}_D_10'
-        states['MA_STATE_D_STABILIZING'] = df.get(accel_d_col, 0).shift(1).fillna(0) < 0 and df.get(accel_d_col, 0) >= 0
+        # 日线动能状态
+        lookback_period = 10 # 定义用于动能判断的回看周期
+        accel_d_col = f'ACCEL_{lookback_period}_{long_ma}' # 正确的列名格式
+        
+        # 使用安全的方式检查列是否存在
+        if accel_d_col in df.columns:
+            states['MA_STATE_D_STABILIZING'] = (df[accel_d_col].shift(1).fillna(0) < 0) & (df[accel_d_col] >= 0)
+        else:
+            # 如果列不存在，则状态为False
+            states['MA_STATE_D_STABILIZING'] = pd.Series(False, index=df.index)
+            print(f"          -> [警告] 缺少日线加速度列 '{accel_d_col}'，'MA_STATE_D_STABILIZING' 无法计算。")
 
-        # 假设周线数据已合并，并计算了斜率
-        slope_w_col = f'SLOPE_EMA_21_W_5' 
-        states['MA_STATE_W_STABILIZING'] = df.get(slope_w_col, 0).shift(1).fillna(0) < 0 and df.get(slope_w_col, 0) >= 0
+        # 周线动能状态
+        lookback_period_w = 5 # 假设周线使用5周回看
+        slope_w_col = f'SLOPE_{lookback_period_w}_EMA_21_W' # 正确的列名格式
+        
+        if slope_w_col in df.columns:
+            states['MA_STATE_W_STABILIZING'] = (df[slope_w_col].shift(1).fillna(0) < 0) & (df[slope_w_col] >= 0)
+        else:
+            states['MA_STATE_W_STABILIZING'] = pd.Series(False, index=df.index)
+            print(f"          -> [警告] 缺少周线斜率列 '{slope_w_col}'，'MA_STATE_W_STABILIZING' 无法计算。")
 
         # ---  老鸭头形态诊断 ---
         p_duck = self._get_params_block(params, 'duck_neck_params', {})
