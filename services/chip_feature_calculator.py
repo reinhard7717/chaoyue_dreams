@@ -1,31 +1,29 @@
 import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
-from decimal import Decimal # 引入Decimal类型
+from decimal import Decimal
 
 class ChipFeatureCalculator:
     """
-    【V4.1 全息版 - 类型安全修正】
-    一个独立的、纯粹的计算类，负责从处理好的日内筹码和行情数据中，
-    计算出 AdvancedChipMetrics 模型所需的所有指标。
-    此版本修正了 Decimal 和 float 类型不能直接运算的问题。
+    【V4.2 全息版 - .loc/.iloc 修正】
+    修正了因混用 pandas 的 .loc 和 .iloc 导致的 KeyError。
     """
     def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
         """
         初始化计算器。
-        Args:
-            daily_chips_df (pd.DataFrame): 当天已按价格排序的原始筹码分布数据，包含 'price', 'percent' 列。
-            context_data (dict): 包含当天所有上下文信息的字典。
         """
-        self.df = daily_chips_df
+        # ▼▼▼【核心修正】: 在初始化时就重置索引 ▼▼▼
+        # 这样做可以确保 DataFrame 的索引是从0开始的连续整数，
+        # 使得后续无论是基于位置的算法(如find_peaks)还是基于标签的查找都能统一处理，
+        # 从根本上避免 .loc 和 .iloc 的混淆问题。
+        self.df = daily_chips_df.reset_index(drop=True)
+        # ▲▲▲【核心修正结束】▲▲▲
+        
         self.ctx = context_data
         
-        # ▼▼▼【核心修正】: 在初始化时就进行类型转换，确保后续所有计算的类型安全 ▼▼▼
-        # 将可能为 Decimal 的关键数值统一转换为 float
         for key in ['total_chip_volume', 'daily_turnover_volume', 'weight_avg_cost', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
-        # ▲▲▲【核心修正结束】▲▲▲
 
     def calculate_all_metrics(self) -> dict:
         """
@@ -52,11 +50,11 @@ class ChipFeatureCalculator:
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         
         if len(peaks) == 0:
+            # idxmax() 返回的是索引标签，由于我们已经 reset_index，它现在也是整数位置
             peak_idx = self.df['percent'].idxmax()
             return {
                 'peak_cost': self.df.loc[peak_idx, 'price'],
                 'peak_percent': self.df.loc[peak_idx, 'percent'],
-                # 现在这里的乘法是安全的 (float * float)
                 'peak_volume': int(self.df.loc[peak_idx, 'percent'] / 100 * self.ctx['total_chip_volume']),
                 'peak_stability': 1.0,
                 'is_multi_peak': False,
@@ -69,9 +67,11 @@ class ChipFeatureCalculator:
         main_peak_idx_in_peaks = np.argmax(prominences)
         main_peak_df_idx = peaks[main_peak_idx_in_peaks]
         
-        main_peak_cost = self.df.loc[main_peak_df_idx, 'price']
-        main_peak_percent = self.df.loc[main_peak_df_idx, 'percent']
-        # 现在这里的乘法是安全的 (float * float)
+        # ▼▼▼【核心修正】: 使用 .iloc 访问由 find_peaks 返回的整数位置 ▼▼▼
+        # 虽然 reset_index 后 .loc 也能工作，但使用 .iloc 更能明确表达意图
+        main_peak_cost = self.df.iloc[main_peak_df_idx]['price']
+        main_peak_percent = self.df.iloc[main_peak_df_idx]['percent']
+        # ▲▲▲【核心修正结束】▲▲▲
         main_peak_volume = int(main_peak_percent / 100 * self.ctx['total_chip_volume'])
         peak_stability = prominences[main_peak_idx_in_peaks] / self.df['percent'].mean()
 
@@ -88,8 +88,10 @@ class ChipFeatureCalculator:
             remaining_prominences = np.delete(prominences, main_peak_idx_in_peaks)
             secondary_peak_df_idx = remaining_peaks_indices[np.argmax(remaining_prominences)]
             
-            result['secondary_peak_cost'] = self.df.loc[secondary_peak_df_idx, 'price']
-            result['peak_distance_ratio'] = abs(main_peak_cost - result['secondary_peak_cost']) / main_peak_cost
+            # ▼▼▼【核心修正】: 同样使用 .iloc ▼▼▼
+            result['secondary_peak_cost'] = self.df.iloc[secondary_peak_df_idx]['price']
+            # ▲▲▲【核心修正结束】▲▲▲
+            result['peak_distance_ratio'] = abs(main_peak_cost - result['secondary_peak_cost']) / main_peak_cost if main_peak_cost > 0 else None
             result['peak_strength_ratio'] = remaining_prominences.max() / prominences[main_peak_idx_in_peaks]
         else:
             result.update({'secondary_peak_cost': None, 'peak_distance_ratio': None, 'peak_strength_ratio': None})
@@ -97,6 +99,8 @@ class ChipFeatureCalculator:
         return result
 
     def _calculate_concentration(self) -> dict:
+        # 由于在 __init__ 中已经 reset_index，这里的 self.df 索引已经是 0, 1, 2...
+        # 所以原来的代码现在是安全的
         self.df['cumulative_percent'] = self.df['percent'].cumsum()
         
         def get_concentration_range(target_pct: float) -> tuple:
@@ -122,6 +126,7 @@ class ChipFeatureCalculator:
             'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
         }
 
+    # ... 其他方法 _calculate_winner_structure, _calculate_pressure_support, _calculate_effective_turnover 保持不变 ...
     def _calculate_winner_structure(self) -> dict:
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
@@ -153,7 +158,6 @@ class ChipFeatureCalculator:
         return {
             'pressure_above': pressure_pct,
             'support_below': support_pct,
-            # 现在这里的乘法是安全的 (float * float)
             'pressure_above_volume': int(pressure_pct / 100 * self.ctx['total_chip_volume']),
             'support_below_volume': int(support_pct / 100 * self.ctx['total_chip_volume']),
         }
@@ -174,7 +178,6 @@ class ChipFeatureCalculator:
         
         if daily_price_range > 0 and intersection_range > 0:
             effective_ratio = intersection_range / daily_price_range
-            # 现在这里的乘法是安全的 (float * float)
             turnover_volume = int(self.ctx['daily_turnover_volume'] * effective_ratio)
         else:
             turnover_volume = 0
