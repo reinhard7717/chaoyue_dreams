@@ -1165,7 +1165,7 @@ class AdvancedChipMetrics(models.Model):
     class Meta:
         verbose_name = '高级筹码指标(斐波那契版)'
         verbose_name_plural = verbose_name
-        db_table = 'stock_time_trade_advanced_chip_metrics' # 确保表名与您实际使用的一致
+        db_table = 'stock_advanced_chip_metrics' # 确保表名与您实际使用的一致
         unique_together = ('stock', 'trade_time')
         ordering = ['-trade_time']
 
