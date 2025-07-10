@@ -720,7 +720,7 @@ class TrendFollowStrategy:
           2. 根据配置文件中的“置信度矩阵”，对每个准备状态进行量化评分。
           3. 输出以分数形式存在的准备状态 (e.g., 'SETUP_SCORE_DEEP_ACCUMULATION')。
         """
-        print("    - [准备状态中心 V57.0 米其林评审版] 启动...")
+        print("    - [准备状态中心 V59.5] 启动...")
         
        
         # 从配置文件加载评分标准
@@ -765,7 +765,7 @@ class TrendFollowStrategy:
             print(f"            -> '{setup_name}' 评审完成，最高置信度得分: {final_score.max():.0f}")
 
         # --- 步骤 3: 返回分数形式的准备状态 ---
-        print("    - [准备状态中心 V57.0] 所有状态置信度评审完成。")
+        print("    - [准备状态中心 V59.5] 所有状态置信度评审完成。")
         return setup_scores
 
     # 筹码状态诊断引擎
@@ -1512,7 +1512,7 @@ class TrendFollowStrategy:
           2. 基于量价、K线形态、指标交叉等信息，计算出一系列布尔型的触发事件信号。
           3. 输出一个包含所有触发事件的字典 (e.g., {'TRIGGER_CHIP_IGNITION': pd.Series(...), ...})。
         """
-        print("    - [触发事件中心 V57.0] 启动，开始定义所有原子化触发事件...")
+        print("    - [触发事件中心 V59.5] 启动，开始定义所有原子化触发事件...")
         
         # 初始化一个字典来存储所有的触发事件
         triggers = {}
@@ -1638,7 +1638,7 @@ class TrendFollowStrategy:
             else:
                 triggers[key] = triggers[key].fillna(False)
 
-        print("    - [触发事件中心 V57.0] 所有触发事件定义完成。")
+        print("    - [触发事件中心 V59.5] 所有触发事件定义完成。")
         return triggers
 
     # ▼▼▼ 风险状态定义中心 ▼▼▼
