@@ -336,7 +336,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         
         for trade_date, daily_full_df in grouped_data:
             context_data = daily_full_df.iloc[0].to_dict()
-            print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
+            # print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
             chip_data_for_calc = daily_full_df[['price', 'percent']]
             calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
