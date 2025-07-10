@@ -575,26 +575,21 @@ class TrendFollowStrategy:
         df: pd.DataFrame, 
         params: dict, 
         trigger_events: Dict[str, pd.Series], 
-        # ▼▼▼【代码修改】: 输入从 setup_conditions 变为 setup_scores ▼▼▼
         setup_scores: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V57.0 最终计分引擎】
-        - 核心思想: 作为策略的总装配线，将“准备状态的置信度分数”与“触发事件”组合成最终的交易信号和得分。
-        - 职责:
-          1. 调用 _get_playbook_definitions 获取所有剧本的定义。
-          2. 遍历剧本，检查“准备状态分数”是否达到剧本要求的最低门槛。
-          3. 如果“准备状态”和“触发事件”都满足，则计算最终得分，得分可以与准备状态的质量挂钩。
+        【V59.4 架构对齐与时序修复版】
+        - 核心修复 1 (架构对齐): 本函数现在完全适配 _get_playbook_definitions 输出的新版剧本结构，直接使用 'setup' 键中的布尔信号，而不是查找已废弃的 'setup_score_source'。
+        - 核心修复 2 (时序对齐): 解决了因准备状态和触发事件存在一天时序差而导致无法生成信号的问题。
         """
-        print("    - [计分引擎 V57.0] 启动，开始装配剧本并计算最终得分...")
+        print("    - [计分引擎 V59.4] 启动，开始装配剧本并计算最终得分...")
         
         # --- 步骤 1: 初始化 ---
         final_score = pd.Series(0.0, index=df.index)
-        # score_details_df 用于记录每个剧本的贡献分数，便于调试
         score_details_df = pd.DataFrame(index=df.index)
 
         # --- 步骤 2: 获取所有剧本定义 ---
-        # _get_playbook_definitions 现在是剧本的“蓝图中心”
+        # _get_playbook_definitions 返回的剧本中，'setup' 键已经是一个计算好的布尔型 pd.Series
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores)
         
         # --- 步骤 3: 遍历所有剧本蓝图，进行装配和计分 ---
@@ -602,54 +597,32 @@ class TrendFollowStrategy:
             name = playbook['name']
             cn_name = playbook.get('cn_name', name)
             
-            # --- 3.1: 获取剧本的“准备状态”要求 ---
-            # 准备状态的来源，例如 'SETUP_SCORE_DEEP_ACCUMULATION'
-            setup_score_source = playbook.get('setup_score_source')
-            # 剧本要求的最低置信度分数
-            min_setup_score = playbook.get('min_setup_score', 0)
-            
-            # --- 3.2: 获取剧本的“触发事件” ---
-            trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
-
-            # 如果没有定义准备状态来源或触发器，则跳过此剧本
-            if setup_score_source is None or not trigger_signal.any():
-                continue
-
-            # 从传入的 setup_scores 字典中获取对应的分数Series
-            setup_score_series = setup_scores.get(setup_score_source, pd.Series(0, index=df.index))
-            
-            # --- 3.3: 判断剧本是否成立 ---
-           # 直接使用 playbook 中已经计算好的 setup 布尔信号
+            # 直接从剧本定义中获取准备状态（布尔信号）和触发事件
             is_setup_valid = playbook.get('setup', pd.Series(False, index=df.index))
             trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
             
-            # 最终剧本信号 = 准备状态成立 AND 触发事件发生
             playbook_signal = is_setup_valid.shift(1).fillna(False) & trigger_signal
             
             if playbook_signal.any():
-                # --- 3.4: 计算剧本得分 ---
-                # 剧本的基础分
+                # 获取剧本的基础分
                 base_score = playbook.get('score', 0)
-                # 准备状态的质量加成：分数越高，加成越多
-                quality_bonus = setup_score_series * playbook.get('quality_multiplier', 0.1)
                 
-                # 计算该剧本在触发日的总得分
-                current_playbook_score = base_score + quality_bonus
+                # 创建一个与df等长的Series，值为基础分，用于向量化操作
+                current_playbook_score = pd.Series(base_score, index=df.index)
                 
                 # 将该剧本的得分累加到最终总分上
                 final_score.loc[playbook_signal] += current_playbook_score.loc[playbook_signal]
                 
                 # 记录得分详情
                 score_details_df.loc[playbook_signal, name] = current_playbook_score.loc[playbook_signal]
-                print(f"      -> 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献分数约: {base_score:.0f} + 质量加成")
+                print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f} ★★★")
 
         # --- 步骤 4: 最终处理和返回 ---
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V57.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V59.4] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
-        # 返回更新后的df和得分详情，注意函数签名和返回值的变化
         return df, score_details_df
 
     # 风险评分引擎
