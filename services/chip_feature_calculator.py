@@ -1,24 +1,31 @@
 import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
+from decimal import Decimal # 引入Decimal类型
 
 class ChipFeatureCalculator:
     """
-    【V4.0 全息版 - 高级筹码指标计算器】
+    【V4.1 全息版 - 类型安全修正】
     一个独立的、纯粹的计算类，负责从处理好的日内筹码和行情数据中，
     计算出 AdvancedChipMetrics 模型所需的所有指标。
+    此版本修正了 Decimal 和 float 类型不能直接运算的问题。
     """
     def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
         """
         初始化计算器。
         Args:
             daily_chips_df (pd.DataFrame): 当天已按价格排序的原始筹码分布数据，包含 'price', 'percent' 列。
-            context_data (dict): 包含当天所有上下文信息的字典，如：
-                'weight_avg_cost', 'close_price', 'total_chip_volume', 
-                'daily_turnover_volume', 'prev_20d_close'
+            context_data (dict): 包含当天所有上下文信息的字典。
         """
         self.df = daily_chips_df
         self.ctx = context_data
+        
+        # ▼▼▼【核心修正】: 在初始化时就进行类型转换，确保后续所有计算的类型安全 ▼▼▼
+        # 将可能为 Decimal 的关键数值统一转换为 float
+        for key in ['total_chip_volume', 'daily_turnover_volume', 'weight_avg_cost', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
+            if key in self.ctx and isinstance(self.ctx[key], Decimal):
+                self.ctx[key] = float(self.ctx[key])
+        # ▲▲▲【核心修正结束】▲▲▲
 
     def calculate_all_metrics(self) -> dict:
         """
@@ -27,22 +34,12 @@ class ChipFeatureCalculator:
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg_cost', 'close_price', 'total_chip_volume']):
             return {}
 
-        # 1. 识别筹码峰
         peaks_info = self._calculate_peaks()
-
-        # 2. 计算筹码集中度
         concentration_info = self._calculate_concentration()
-
-        # 3. 计算获利盘结构
         winner_structure_info = self._calculate_winner_structure()
-
-        # 4. 计算压力与支撑
         pressure_support_info = self._calculate_pressure_support()
-        
-        # 5. 计算核心区换手
         turnover_info = self._calculate_effective_turnover()
 
-        # 合并所有结果
         return {
             **peaks_info,
             **concentration_info,
@@ -52,7 +49,6 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_peaks(self) -> dict:
-        # 使用 find_peaks 科学地寻找波峰
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         
         if len(peaks) == 0:
@@ -60,6 +56,7 @@ class ChipFeatureCalculator:
             return {
                 'peak_cost': self.df.loc[peak_idx, 'price'],
                 'peak_percent': self.df.loc[peak_idx, 'percent'],
+                # 现在这里的乘法是安全的 (float * float)
                 'peak_volume': int(self.df.loc[peak_idx, 'percent'] / 100 * self.ctx['total_chip_volume']),
                 'peak_stability': 1.0,
                 'is_multi_peak': False,
@@ -74,6 +71,7 @@ class ChipFeatureCalculator:
         
         main_peak_cost = self.df.loc[main_peak_df_idx, 'price']
         main_peak_percent = self.df.loc[main_peak_df_idx, 'percent']
+        # 现在这里的乘法是安全的 (float * float)
         main_peak_volume = int(main_peak_percent / 100 * self.ctx['total_chip_volume'])
         peak_stability = prominences[main_peak_idx_in_peaks] / self.df['percent'].mean()
 
@@ -118,16 +116,16 @@ class ChipFeatureCalculator:
         width_90, _ = get_concentration_range(90.0)
         _, range_70 = get_concentration_range(70.0)
         
-        self.ctx['cost_range_70pct'] = range_70 # 将70%成本区间存入上下文，供后续使用
+        self.ctx['cost_range_70pct'] = range_70
 
         return {
-            'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') else None,
+            'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
         }
 
     def _calculate_winner_structure(self) -> dict:
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
-        if not close_price or not prev_20d_close:
+        if not close_price or not prev_20d_close or pd.isna(prev_20d_close):
             return {'winner_rate_short_term': None, 'winner_rate_long_term': None}
 
         short_term_winners = self.df[(self.df['price'] < close_price) & (self.df['price'] >= prev_20d_close)]
@@ -155,15 +153,12 @@ class ChipFeatureCalculator:
         return {
             'pressure_above': pressure_pct,
             'support_below': support_pct,
+            # 现在这里的乘法是安全的 (float * float)
             'pressure_above_volume': int(pressure_pct / 100 * self.ctx['total_chip_volume']),
             'support_below_volume': int(support_pct / 100 * self.ctx['total_chip_volume']),
         }
         
     def _calculate_effective_turnover(self) -> dict:
-        # 假设原始筹码分布是基于当日收盘后的换手计算的
-        # 这里的计算需要一个前提：我们能获取到当日的成交量明细（分时图），这通常很难
-        # 我们采用一种简化但有效的方法：假设当日的成交均匀分布在全天价格范围内
-        # 然后看这个范围和70%成本区的交集
         low_price = self.ctx.get('low_price')
         high_price = self.ctx.get('high_price')
         cost_range_70_low, cost_range_70_high = self.ctx.get('cost_range_70pct', (None, None))
@@ -171,7 +166,6 @@ class ChipFeatureCalculator:
         if not all([low_price, high_price, cost_range_70_low, cost_range_70_high]):
             return {'turnover_volume_in_cost_range_70pct': None}
             
-        # 计算价格区间的交集
         intersection_low = max(low_price, cost_range_70_low)
         intersection_high = min(high_price, cost_range_70_high)
         
@@ -180,6 +174,7 @@ class ChipFeatureCalculator:
         
         if daily_price_range > 0 and intersection_range > 0:
             effective_ratio = intersection_range / daily_price_range
+            # 现在这里的乘法是安全的 (float * float)
             turnover_volume = int(self.ctx['daily_turnover_volume'] * effective_ratio)
         else:
             turnover_volume = 0
