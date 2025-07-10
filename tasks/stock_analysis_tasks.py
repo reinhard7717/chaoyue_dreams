@@ -271,16 +271,16 @@ def schedule_precompute_advanced_chips(self):
         return {"status": "failed", "reason": str(e)}
 
 # ==============================================================================
-# 执行任务 (Executor Task) - 【V3.0 最终版】
+# 执行任务 (Executor Task) - 【V3.1 字段与单位修正版】
 # ==============================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str):
     """
-    【执行器 V3.0 - 双重分表最终版】
+    【执行器 V3.1 - 字段与单位修正版】
     为单个股票计算并存储高级筹码指标。
-    此版本同时处理 StockCyqChips 和 StockDailyData 的分表逻辑。
+    修正了日线数据成交量字段名(volume -> vol)和单位(手 -> 股)的错误。
     """
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.0 双重分表版)...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.1 修正版)...")
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
         dao = StockTimeTradeDAO()
@@ -305,13 +305,22 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
         logger.info(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。")
         print(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。") # 使用print调试
+        
+        # ▼▼▼【核心修正】: 将 'volume' 修改为 'vol' 来匹配模型字段 ▼▼▼
         daily_data = pd.DataFrame.from_records(
-            daily_data_model.objects.filter(stock=stock_info).values('trade_time', 'volume', 'high', 'low')
-        ).rename(columns={'volume': 'daily_turnover_volume', 'high': 'high_price', 'low': 'low_price'})
+            daily_data_model.objects.filter(stock=stock_info).values('trade_time', 'vol', 'high', 'low')
+        )
+        # ▲▲▲【核心修正结束】▲▲▲
+
         if daily_data.empty:
             logger.warning(f"[{stock_code}] 在表 {daily_data_model.__name__} 中找不到日线数据，任务终止。")
             return {"status": "skipped", "reason": f"no daily data in {daily_data_model.__name__}"}
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
+
+        # ▼▼▼【核心修正】: 将成交量单位从“手”转换为“股”，并重命名列 ▼▼▼
+        daily_data['daily_turnover_volume'] = daily_data['vol'] * 100  # 1手 = 100股
+        daily_data = daily_data.rename(columns={'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
+        # ▲▲▲【核心修正结束】▲▲▲
 
         # 1.3 获取基础筹码指标 (非分表)
         perf_data = pd.DataFrame.from_records(
@@ -332,26 +341,20 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         merged_df['prev_20d_close'] = merged_df['close_price'].shift(20)
         
         # --- 步骤 3: 循环计算每日指标 ---
+        # ... (此部分逻辑无需修改，保持原样) ...
         grouped_chips = cyq_chips_data.groupby('trade_time')
         all_metrics_list = []
-
         for trade_date, daily_chips_df in grouped_chips:
             if trade_date not in merged_df.index:
                 continue
-            
             context_data = merged_df.loc[trade_date].to_dict()
             context_data['total_chip_volume'] = total_chip_volume
-            
-            # 检查是否有NaN值，避免计算错误
             if pd.isna(context_data.get('close_price')) or pd.isna(context_data.get('weight_avg_cost')):
                 continue
-
             calculator = ChipFeatureCalculator(daily_chips_df.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
-            
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
-                # TODO: 在这里集成龙虎榜、股东、题材等V4.0数据的获取和填充
                 all_metrics_list.append(daily_metrics)
 
         if not all_metrics_list:
@@ -359,8 +362,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             return {"status": "skipped", "reason": "calculation resulted in no metrics"}
 
         # --- 步骤 4: 计算跨时间序列的指标 (如斜率) ---
+        # ... (此部分逻辑无需修改，保持原样) ...
         metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time').sort_index()
-        
         if 'peak_cost' in metrics_df.columns:
             for period in [5, 20]:
                 slope = metrics_df['peak_cost'].rolling(window=period, min_periods=2).apply(
@@ -368,16 +371,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
                 )
                 metrics_df[f'peak_cost_slope_{period}d'] = slope
             metrics_df['peak_cost_accel_5d'] = metrics_df['peak_cost_slope_5d'].diff()
-
         if 'concentration_90pct' in metrics_df.columns:
             metrics_df['concentration_90pct_slope_5d'] = metrics_df['concentration_90pct'].rolling(5).mean().diff()
 
         # --- 步骤 5: 存储到数据库 ---
+        # ... (此部分逻辑无需修改，保持原样) ...
         records_to_create = []
         for trade_date, row in metrics_df.iterrows():
             record_data = row.dropna().to_dict()
             records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
-
         with transaction.atomic():
             AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
             AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
