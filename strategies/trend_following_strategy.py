@@ -171,7 +171,7 @@ class TrendFollowStrategy:
         # 1.3 (可选) 运行独立的K线形态识别
         df = self.pattern_recognizer.identify_all(df)
         # 1.4 【新】运行独立的筹码诊断引擎，为df添加 CHIP_... 列
-        df = self._diagnose_chip_market_state(df, params) # 假设这个函数现在只负责添加列，不返回状态字典
+        df = self._diagnose_chip_states(df, params) # 假设这个函数现在只负责添加列，不返回状态字典
 
         # --- 步骤 2: 准备状态评审 (米其林评审官) ---
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
