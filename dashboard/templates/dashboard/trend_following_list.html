@@ -6,8 +6,8 @@
 
 {% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
 
-{% block head_extra %}
-
+{% block extra_head %}
+    {# 这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #}
 {% endblock %}
 
 
@@ -36,11 +36,9 @@
                 {% endif %}
             </div>
             <div class="filter-tags-container">
-                {# ▼▼▼【代码修改】: 在筛选区循环中加入特殊样式的判断逻辑 ▼▼▼ #}
                 {% for playbook in all_playbooks %}
                     {% with playbook_display_name=playbook|playbook_display %}
                         {% if playbook in selected_playbooks %}
-                            {# --- 已选中的筛选标签 --- #}
                             {% if 'ROCKET' in playbook %}
                                 <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active rocket-signal">🚀 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                             {% elif '王牌' in playbook_display_name %}
@@ -51,7 +49,6 @@
                                 <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                             {% endif %}
                         {% else %}
-                            {# --- 未选中的筛选标签 --- #}
                             {% if 'ROCKET' in playbook %}
                                 <a href="{% query_builder add_playbook=playbook %}" class="filter-tag rocket-signal">🚀 {{ playbook_display_name }}</a>
                             {% elif '王牌' in playbook_display_name %}
@@ -66,7 +63,6 @@
                 {% empty %}
                     <span class="no-filters">暂无可用的筛选标签</span>
                 {% endfor %}
-                {# ▲▲▲【代码修改结束】▲▲▲ #}
             </div>
         </div>
         <div class="table-wrapper">
@@ -80,9 +76,12 @@
                         <th>最新信号时间</th>
                         <th>最新买入</th>
                         <th>最新卖出</th>
+                        {# ▼▼▼【代码修改】: 增加“操作”列的表头 ▼▼▼ #}
+                        <th>操作</th>
+                        {# ▲▲▲【代码修改结束】▲▲▲ #}
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="trend-table-body"> {# 给tbody一个ID方便JS选择 #}
                     {% for item in page_obj.object_list %}
                     <tr>
                         <td>
@@ -133,9 +132,20 @@
                         <td>{{ item.latest_trade_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_sell_time|date:"Y-m-d H:i"|default:"-" }}</td>
+                        {# ▼▼▼【代码修改】: 增加“操作”列的内容 ▼▼▼ #}
+                        <td>
+                            {# 默认渲染为“添加自选”按钮，JS会自动检查并更新状态 #}
+                            <button class="btn btn-sm btn-outline add-to-favorites-btn" data-stock-code="{{ item.stock.stock_code }}">
+                                <span class="btn-icon">+</span>
+                                <span class="btn-text">添加自选</span>
+                            </button>
+                        </td>
+                        {# ▲▲▲【代码修改结束】▲▲▲ #}
                     </tr>
                     {% empty %}
-                    <tr><td colspan="7" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    {# ▼▼▼【代码修改】: 修正colspan以匹配新的列数 ▼▼▼ #}
+                    <tr><td colspan="8" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    {# ▲▲▲【代码修改结束】▲▲▲ #}
                     {% endfor %}
                 </tbody>
             </table>
@@ -155,35 +165,7 @@
         </div>
     </section>
 </div>
-
+{# 增加一个用于显示通知的区域 #}
+<div id="notification-area"></div>
 {% endblock %}
 
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const trendTable = document.getElementById('trend-table');
-    if (trendTable) {
-        console.log("折叠功能脚本已在 'trend_following_list.html' 页面加载。");
-        trendTable.addEventListener('click', function(event) {
-            const toggleBtn = event.target.closest('.toggle-playbooks');
-            if (!toggleBtn) {
-                return;
-            }
-            event.preventDefault(); 
-            const container = toggleBtn.closest('.playbook-container');
-            if (!container) return;
-            const list = container.querySelector('.playbook-list');
-            if (!list) return;
-            list.classList.toggle('expanded');
-            const isExpanded = list.classList.contains('expanded');
-            console.log("按钮被点击，列表 'expanded' 状态切换为: ", isExpanded);
-            if (isExpanded) {
-                toggleBtn.textContent = toggleBtn.dataset.textCollapse;
-            } else {
-                toggleBtn.textContent = toggleBtn.dataset.textExpand;
-            }
-        });
-    }
-});
-</script>
-{% endblock scripts %}

@@ -695,184 +695,133 @@ class TrendFollowStrategy:
         ]
         return playbook_definitions
 
-    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], chip_atomic_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
+    def _calculate_entry_score(
+        self, 
+        df: pd.DataFrame, 
+        params: dict, 
+        trigger_events: Dict[str, pd.Series], 
+        setup_conditions: Dict[str, pd.Series],
+        atomic_signals: Dict[str, pd.Series]
+    ) -> Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V52.2 向量化重构版】
-        - 核心优化: 重构了剧本计分的核心逻辑，用 `idxmax()` 向量化操作取代了原有的 `for` 循环和 `has_been_scored` 状态标记。
-        - 解决方案: 1. 一次性计算所有剧本的得分矩阵。
-                    2. 使用 `idxmax(axis=1)` 沿行查找第一个（即优先级最高的）被触发的剧本名称。
-                    3. 根据返回的剧本名称高效地赋予基础分。
-        - 业务逻辑: 完美复现了“多剧本按优先级匹配，只取其一”的原始逻辑，但代码更简洁，执行效率更高。
-        """
-        print("    [计分V52.2 向量化重构版] 启动计分引擎...")
-        atomic_signals = {}
-        score_details_df = pd.DataFrame(index=df.index)
-        scoring_params = self._get_params_block(params, 'entry_scoring_params')
-        points = scoring_params.get('points', {})
-        
-        atomic_signals.update(trigger_events)
-        atomic_signals.update(setup_conditions)
-        for setup_name, setup_signal in setup_conditions.items():
-            df[setup_name] = setup_signal
+        【V3.0 游资信号融合版】
+        计算最终的入场综合得分。
+        该版本集成了对游资席位数据的分析，用于创建新剧本、增强现有剧本和提供额外加分。
 
-        print("    [计分V52.2] 步骤2: 按优先级评估“剧本矩阵”...")
-        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_conditions)
+        Args:
+            df (pd.DataFrame): 包含了所有基础、指标和游资信号的DataFrame。
+            params (dict): 策略的完整配置字典。
+            trigger_events (Dict[str, pd.Series]): 触发器事件信号。
+            setup_conditions (Dict[str, pd.Series]): 准备状态信号。
+            atomic_signals (Dict[str, pd.Series]): 用于收集所有原子信号的字典。
+
+        Returns:
+            Tuple[pd.Series, Dict[str, pd.Series], pd.DataFrame, Dict[str, pd.Series]]:
+            - final_score: 最终得分序列。
+            - atomic_signals: 更新后的原子信号字典。
+            - score_details_df: 得分详情DataFrame。
+            - playbook_signals: 各个剧本的触发信号字典。
+        """
+        print("--- [计分引擎 V3.0] 开始计算入场综合得分 (已集成游资信号分析)... ---")
         
-        # --- 步骤2.1: 向量化计算所有剧本的潜在得分 ---
-        playbook_scores_list = []
-        playbook_names = []
+        # 1. 初始化
+        score_details_df = pd.DataFrame(index=df.index)
+        final_score = pd.Series(0, index=df.index)
+        playbook_signals = {}
+
+        # 2. 提取评分参数
+        scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
+        playbook_scores = scoring_params.get('playbook_scores', {})
+        bonus_points = scoring_params.get('bonus_points', {})
+
+        # 3. 定义所有交易剧本 (Playbooks)
+        #    这是策略的核心，定义了多种市场情景下的交易逻辑。
+        playbook_definitions = [
+            # 剧本1: 顶级游资领涨 (新剧本) - 最高优先级
+            {
+                'name': 'HOT_MONEY_LEAD',
+                'cn_name': '顶级游资领涨',
+                # 前提条件: 当天必须有顶级游资席位净买入
+                'precondition': df.get('HM_ACTIVE_TOP_TIER_D', pd.Series(False, index=df.index)),
+                'setup': setup_conditions.get('SETUP_BREAKOUT_POTENTIAL', pd.Series(True, index=df.index)),
+                'trigger': trigger_events.get('TRIGGER_MOMENTUM_BREAKOUT', pd.Series(False, index=df.index))
+            },
+            # 剧本2: 动量突破 (增强版)
+            {
+                'name': 'MOMENTUM_BREAKOUT',
+                'cn_name': '动量突破',
+                # 前提条件: 增强为必须有任意游资活跃
+                'precondition': df.get('HM_ACTIVE_ANY_D', pd.Series(False, index=df.index)),
+                'setup': pd.Series(True, index=df.index), # 纯事件驱动，无特定setup
+                'trigger': trigger_events.get('TRIGGER_MOMENTUM_BREAKOUT', pd.Series(False, index=df.index))
+            },
+            # 剧本3: 主力加速突破 (机构风格)
+            {
+                'name': 'INSTITUTIONAL_ACCELERATION',
+                'cn_name': '主力加速突破',
+                'precondition': pd.Series(True, index=df.index), # 无特定前提
+                'setup': setup_conditions.get('SETUP_CHIP_ACCUMULATION', pd.Series(False, index=df.index)),
+                'trigger': trigger_events.get('TRIGGER_CHIP_INSTITUTIONAL_BREAKOUT', pd.Series(False, index=df.index))
+            },
+            # 剧本4: 潜龙出海 (机构风格)
+            {
+                'name': 'PERFECT_STORM',
+                'cn_name': '潜龙出海',
+                'precondition': pd.Series(True, index=df.index),
+                'setup': setup_conditions.get('SETUP_PROLONGED_COMPRESSION', pd.Series(False, index=df.index)),
+                'trigger': trigger_events.get('TRIGGER_CHIP_INSTITUTIONAL_BREAKOUT', pd.Series(False, index=df.index))
+            },
+            # ... 您可以继续添加其他剧本 ...
+        ]
+
+        # 4. 遍历剧本并计算基础分
+        print("    - [计分] 步骤1: 评估所有交易剧本...")
         for playbook in playbook_definitions:
+            name = playbook['name']
+            
+            # 安全地获取信号，如果不存在则为False
+            precondition = playbook.get('precondition', pd.Series(False, index=df.index))
             setup = playbook.get('setup', pd.Series(False, index=df.index))
             trigger = playbook.get('trigger', pd.Series(False, index=df.index))
-            if isinstance(setup, bool): setup = pd.Series(setup, index=df.index)
             
-            # 修正：左侧交易剧本的 setup 和 trigger 是当天的
-            if playbook['name'] in ['V_REVERSAL_ENTRY', 'WASHOUT_REVERSAL', 'MOMENTUM_INFLECTION_POINT', 'AWAKENED_BEAST']:
-                condition = setup & trigger
-            else:
-                condition = setup.shift(1).fillna(False) & trigger
+            # 计算剧本触发信号
+            playbook_signal = precondition & setup & trigger
+            playbook_signals[f'playbook_{name}'] = playbook_signal
             
-            is_triggered = condition & playbook['precondition']
-            score = self._get_param_value(points.get(playbook['name']), playbook['score'])
-            
-            # 创建一个Series，触发日为分数，否则为0
-            playbook_scores_list.append(pd.Series(score, index=df.index).where(is_triggered, 0))
-            playbook_names.append(playbook['name'])
+            if playbook_signal.any():
+                score = playbook_scores.get(name, 0)
+                final_score.loc[playbook_signal] += score
+                score_details_df.loc[playbook_signal, f'score_{name}'] = score
+                print(f"      -> 剧本 '{playbook['cn_name']}' 触发了 {playbook_signal.sum()} 天，基础分: +{score}")
 
-        # --- 步骤2.2: 使用 idxmax 实现“取高优先级第一匹配”逻辑 ---
-        # 将所有剧本分数合并为一个DataFrame
-        playbook_scores_df = pd.concat(playbook_scores_list, axis=1, keys=playbook_names)
-        
-        # idxmax(axis=1) 会返回每行第一个最大值（即第一个非零分数）的列名（剧本名）
-        # 对于全为0的行，idxmax会报错，我们用 where 子句处理
-        has_any_trigger = playbook_scores_df.sum(axis=1) > 0
-        triggered_playbook_names = pd.Series(index=df.index, dtype=object)
-        if has_any_trigger.any():
-             triggered_playbook_names.loc[has_any_trigger] = playbook_scores_df[has_any_trigger].idxmax(axis=1)
-
-        # --- 步骤2.3: 高效赋值 ---
-        df['base_score'] = triggered_playbook_names.map(playbook_scores_df.max(axis=1)).fillna(0)
-        
-        # 填充 score_details_df 用于日志和调试
-        for name in playbook_names:
-            mask = (triggered_playbook_names == name)
-            if mask.any():
-                score_details_df.loc[mask, name] = playbook_scores_df.loc[mask, name]
-                playbook_cn_name = next((p.get('cn_name', p['name']) for p in playbook_definitions if p['name'] == name), name)
-                print(f"    - [剧本命中] 命中剧本 '{name} ({playbook_cn_name})'，触发 {mask.sum()} 天。")
-
-        # --- 步骤3: 计算观察分 (逻辑不变，但作用于未被剧本命中的日期) ---
-        has_been_scored = df['base_score'] > 0
-        watching_score = self._get_param_value(points.get('WATCHING_SCORE'), 50)
-        is_in_any_setup = pd.concat([s for k, s in setup_conditions.items() if k.startswith('SETUP_') and isinstance(s, pd.Series) and not s.empty], axis=1).any(axis=1)
-        is_watching = is_in_any_setup & ~has_been_scored
-        if is_watching.any():
-            df.loc[is_watching, 'base_score'] = watching_score
-            score_details_df.loc[is_watching, 'WATCHING_SETUP'] = watching_score
-            print(f"    - [后续跟踪] 发现 {is_watching.sum()} 天处于'观察准备'状态，赋予观察分。")
-
-        # --- 步骤4: 融合所有得分项 ---
-        print("    [计分V47.0] 步骤4: 融合所有得分项...")
-        final_score = df['base_score'].copy()
+        # 5. 计算额外加分项 (Bonus Points)
+        print("    - [计分] 步骤2: 计算额外加分项...")
         has_primary_score = final_score > 0
         
-        # 融合动力学分
-        validated_premises = self._validate_core_premises(df, params)
-        dynamics_score = self._score_trend_dynamics(df, params, validated_premises)
-        if (has_primary_score).any():
-            final_score.loc[has_primary_score] += dynamics_score.loc[has_primary_score]
-            score_details_df.loc[has_primary_score, 'DYNAMICS_SCORE'] = dynamics_score.loc[has_primary_score]
+        # 加分项1: 游资协同攻击
+        coordinated_attack_signal = df.get('HM_COORDINATED_ATTACK_D', pd.Series(False, index=df.index))
+        bonus_mask_hm = has_primary_score & coordinated_attack_signal
+        if bonus_mask_hm.any():
+            bonus = bonus_points.get('BONUS_HM_COORDINATED_ATTACK', 50)
+            final_score.loc[bonus_mask_hm] += bonus
+            score_details_df.loc[bonus_mask_hm, 'bonus_hm_coordinated'] = bonus
+            print(f"      -> '游资协同攻击' 奖励触发了 {bonus_mask_hm.sum()} 天，额外加分: +{bonus}")
 
-        # 融合战略背景分 (周线)
-        king_signal_col = 'BASE_SIGNAL_BREAKOUT_TRIGGER'
-        king_score = self._get_param_value(points.get('BREAKOUT_TRIGGER_SCORE'), 150)
-        all_base_score_cols = [king_signal_col]
-        if king_signal_col in df.columns and df[king_signal_col].any():
-            score_details_df.loc[df[king_signal_col], king_signal_col] = king_score
-        playbook_scores_map = self._get_params_block(params, 'playbook_scores', default_return={})
-        playbook_cols = [col for col in df.columns if col.startswith('playbook_') and col.endswith('_W')]
-        for col in playbook_cols:
-            playbook_name = col.replace('playbook_', '').replace('_W', '')
-            score = playbook_scores_map.get(playbook_name, 0)
-            base_col_name = f"BASE_{playbook_name.upper()}"
-            all_base_score_cols.append(base_col_name)
-            if score > 0 and df[col].any():
-                score_details_df.loc[df[col], base_col_name] = score
-        strategic_accel_col = 'EVENT_STRATEGIC_ACCELERATING_W'
-        if strategic_accel_col in df.columns and df[strategic_accel_col].any():
-            accel_score = self._get_param_value(points.get('STRATEGIC_ACCEL_SCORE'), 100)
-            score_details_df.loc[df[strategic_accel_col], 'BASE_STRATEGIC_ACCEL'] = accel_score
-            all_base_score_cols.append('BASE_STRATEGIC_ACCEL')
-        score_details_df.fillna(0, inplace=True)
-        if king_signal_col in score_details_df.columns:
-            king_signal_mask = (score_details_df[king_signal_col] > 0)
-            if king_signal_mask.any():
-                other_base_score_cols = [col for col in all_base_score_cols if col != king_signal_col and col in score_details_df.columns]
-                score_details_df.loc[king_signal_mask, other_base_score_cols] = 0
-        base_score_from_weekly = score_details_df.filter(regex='^BASE_').sum(axis=1)
-        final_score += base_score_from_weekly
-
-        # 其他加分项
-        # ... (这部分代码保持不变) ...
-        cond_vwap_support = df.get('cond_vwap_support', pd.Series(False, index=df.index))
-        if (cond_vwap_support & has_primary_score).any():
-            bonus = self._get_param_value(points.get('BONUS_VWAP_SUPPORT'), 20)
-            final_score.loc[cond_vwap_support & has_primary_score] += bonus
-            score_details_df.loc[cond_vwap_support & has_primary_score, 'BONUS_VWAP_SUPPORT'] = bonus
-        high_consensus_bonus = self._get_param_value(points.get('BONUS_HIGH_CONSENSUS'), 30)
-        is_high_consensus = (validated_premises.get('trend_health_score', pd.Series(0)) >= 5) & has_primary_score
-        if is_high_consensus.any():
-            final_score.loc[is_high_consensus] += high_consensus_bonus
-            score_details_df.loc[is_high_consensus, 'BONUS_HIGH_CONSENSUS'] = high_consensus_bonus
-            print(f"      -> '高共识度(健康分>=5)'奖励触发了 {is_high_consensus.sum()} 天。")
-        industry_params = self._get_params_block(params, 'industry_context_params', {})
-        if industry_params.get('enabled', False) and 'industry_strength_rank_D' in df.columns:
-            rank_series = df['industry_strength_rank_D']
-            multiplier = pd.Series(1.0, index=df.index)
-            weak_rank_threshold = industry_params.get('weak_rank_threshold', 0.3)
-            weak_penalty_multiplier = industry_params.get('weak_industry_penalty_multiplier', 0.7)
-            strength_multiplier_factor = industry_params.get('strength_rank_multiplier', 0.5)
-            top_tier_rank_threshold = industry_params.get('top_tier_rank_threshold', 0.9)
-            top_tier_bonus = industry_params.get('top_tier_bonus', 30)
-            is_weak = (rank_series < weak_rank_threshold) & has_primary_score
-            multiplier.loc[is_weak] = weak_penalty_multiplier
-            is_strong = (rank_series >= weak_rank_threshold) & has_primary_score
-            multiplier.loc[is_strong] = 1 + (rank_series * strength_multiplier_factor)
-            score_change = final_score * (multiplier - 1)
-            final_score += score_change
-            score_details_df['INDUSTRY_MULTIPLIER_ADJ'] = score_change.where(score_change != 0)
-            is_top_tier = (rank_series >= top_tier_rank_threshold) & has_primary_score
-            final_score.loc[is_top_tier] += top_tier_bonus
-            score_details_df.loc[is_top_tier, 'INDUSTRY_TOP_TIER_BONUS'] = top_tier_bonus
-
-        # --- 步骤5: 应用最终风险否决层 ---
-        print("    [计分V47.0] 步骤5: 应用最终风险否决层...")
-        # ... (这部分代码保持不变) ...
-        cond_trend_exhaustion = setup_conditions.get('RISK_TREND_EXHAUSTION', pd.Series(False, index=df.index))
-        if cond_trend_exhaustion.any():
-            final_score.loc[cond_trend_exhaustion] = 0
-            print(f"    - [风险否决] '趋势衰竭'信号触发，否决了 {cond_trend_exhaustion.sum()} 天的买入信号。")
-        cond_heaven_earth_board = self._identify_board_patterns(df, params).get('heaven_earth_board', pd.Series(False, index=df.index))
-        if cond_heaven_earth_board.any():
-            final_score.loc[cond_heaven_earth_board] = 0
-            print(f"    - [风险否决] '天地板'信号触发，否决了 {cond_heaven_earth_board.sum()} 天的买入信号。")
-        cond_volume_breakdown = self._find_volume_breakdown_exit(df, params)
-        if cond_volume_breakdown.any():
-            final_score.loc[cond_volume_breakdown] = 0
-            print(f"    - [风险否决] '结构崩溃'信号触发，否决了 {cond_volume_breakdown.sum()} 天的买入信号。")
-        kline_strong_bearish = df.get('kline_c_evening_star', pd.Series(False, index=df.index)) | \
-                            df.get('kline_c_bearish_engulfing_decent', pd.Series(False, index=df.index)) | \
-                            df.get('kline_c_three_black_crows', pd.Series(False, index=df.index)) | \
-                            df.get('kline_c_dark_cloud_cover_decent', pd.Series(False, index=df.index))
-        if kline_strong_bearish.any():
-            final_score.loc[kline_strong_bearish] = 0
-            print(f"    - [风险否决] '强看跌K线'信号触发，否决了 {kline_strong_bearish.sum()} 天的买入信号。")
-
-        # 清理临时列
-        df.drop(columns=['base_score', 'temp_is_fortress_valid'], inplace=True, errors='ignore')
-        print("    [计分V47.0 架构简化版] 计分流程结束。")
+        # 6. 最终处理和返回
+        print("    - [计分] 步骤3: 整合所有得分项...")
         
-        return final_score.round(0), atomic_signals, score_details_df.fillna(0), setup_conditions
+        # 将所有剧本信号合并到原子信号字典中，用于后续分析
+        atomic_signals.update(playbook_signals)
+        
+        # 填充NaN值为0，确保数据干净
+        score_details_df.fillna(0, inplace=True)
+        
+        # 最终得分四舍五入为整数
+        final_score = final_score.round(0)
+        
+        print(f"--- [计分引擎 V3.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        
+        return final_score, atomic_signals, score_details_df, playbook_signals
 
     def _calculate_exit_signals(self, df: pd.DataFrame, risk_states: Dict[str, pd.Series], params: dict) -> pd.Series:
         """
@@ -1409,7 +1358,7 @@ class TrendFollowStrategy:
             print("      -> 'net_mf_amount_D' 不存在或为空，执行回退计算...")
             if all(c in df.columns for c in ['buy_lg_amount_D', 'sell_lg_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D']):
                 df['net_mf_amount_D'] = (df['buy_lg_amount_D'] + df['buy_elg_amount_D']) - (df['sell_lg_amount_D'] + df['sell_elg_amount_D'])
-                print("        -> 回退计算 'net_mf_amount_D' 成功。")
+                # print("        -> 回退计算 'net_mf_amount_D' 成功。")
             else:
                 print("        -> [警告] 缺少计算 'net_mf_amount_D' 所需的原始资金流列，该列将填充为0。")
                 df['net_mf_amount_D'] = 0

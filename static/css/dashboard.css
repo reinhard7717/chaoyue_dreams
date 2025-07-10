@@ -560,3 +560,37 @@ section h2 .icon {
     text-decoration: underline;
     background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.2);
 }
+
+.add-to-favorites-btn {
+    /* 继承 .btn, .btn-sm, .btn-outline 的基础样式 */
+    display: inline-flex;
+    align-items: center;
+    gap: 4px; /* 图标和文字的间距 */
+    min-width: 85px; /* 给按钮一个最小宽度，防止状态切换时宽度变化太大 */
+    justify-content: center;
+}
+
+.add-to-favorites-btn .btn-icon {
+    font-weight: bold;
+}
+
+/* 正在加载/处理中的状态 */
+.add-to-favorites-btn.is-loading,
+.add-to-favorites-btn:disabled:not(.is-favorite) {
+    cursor: wait;
+    background-color: rgba(var(--semi-color-primary-rgb, 99, 164, 255), 0.2);
+    color: var(--semi-color-primary);
+}
+
+/* 已经是自选股的状态 */
+.add-to-favorites-btn.is-favorite {
+    background-color: transparent;
+    border-color: var(--semi-color-success);
+    color: var(--semi-color-success);
+    cursor: not-allowed;
+    opacity: 0.7; /* 让已添加的按钮不那么显眼 */
+}
+
+.add-to-favorites-btn.is-favorite .btn-icon {
+    font-weight: bold;
+}

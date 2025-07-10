@@ -72,6 +72,7 @@ def dashboard_view(request):
     initial_favorites_json_string = json.dumps(initial_favorites_data, cls=DjangoJSONEncoder)
     context = {
         'initial_favorites_json': initial_favorites_json_string,
+        'user_favorites': user_favorites, # 新增此行
     }
     return render(request, 'dashboard/home.html', context)
 
