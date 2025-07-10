@@ -387,7 +387,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
         with transaction.atomic():
             AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
-            AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
+            AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=500)
         
         logger.info(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
         print(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。") # 使用print调试
