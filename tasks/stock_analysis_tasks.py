@@ -262,7 +262,7 @@ def schedule_precompute_advanced_chips(self):
         logger.info(f"找到 {stock_count} 只股票待进行高级筹码预计算。")
         
         for stock_code in all_codes:
-            precompute_advanced_chips_for_stock.s(stock_code).set(queue='precompute_chips').apply_async()
+            precompute_advanced_chips_for_stock.s(stock_code).set(queue='SaveHistoryData_TimeTrade').apply_async()
         
         logger.info(f"已为 {stock_count} 只股票调度 '高级筹码指标预计算' 任务。")
         return {"status": "started", "stock_count": stock_count}
