@@ -271,26 +271,22 @@ def schedule_precompute_advanced_chips(self):
         return {"status": "failed", "reason": str(e)}
 
 # ==============================================================================
-# 执行任务 (Executor Task) - 【V3.2 动态股本最终版】
+# 执行任务 (Executor Task) - 【V3.4 精准调试最终版】
 # ==============================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str):
     """
-    【执行器 V3.2 - 动态股本最终版】
-    为单个股票计算并存储高级筹码指标。
-    此版本从 StockDailyBasic 获取每日动态变化的流通股本，并修正了所有已知问题。
+    【执行器 V3.4 - 精准调试最终版】
+    增加了关键的调试打印，用于检查传递给计算器的上下文数据是否完整。
+    并修复了 prev_20d_close 的计算逻辑。
     """
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.2 动态股本版)...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V3.4 精准调试版)...")
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
         dao = StockTimeTradeDAO()
         
-        # --- 步骤 1: 高效获取所有需要的数据 ---
-        
-        # 1.1 获取原始筹码分布数据 (动态分表)
-        print(f"[{stock_code}] 使用DAO获取 [筹码分布] 分表模型...") # 使用print调试
+        # --- 步骤 1: 分别获取所有数据源 ---
         chip_model = dao.get_cyq_chips_model_by_code(stock_code)
-        logger.info(f"[{stock_code}] 筹码数据将从表: {chip_model.__name__} 获取。")
         cyq_chips_data = pd.DataFrame.from_records(
             chip_model.objects.filter(stock=stock_info).values('trade_time', 'price', 'percent')
         )
@@ -299,83 +295,67 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
             return {"status": "skipped", "reason": f"no raw chip data in {chip_model.__name__}"}
         cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
 
-        # 1.2 获取日线行情数据 (动态分表)
-        print(f"[{stock_code}] 使用DAO获取 [日线行情] 分表模型...") # 使用print调试
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
-        logger.info(f"[{stock_code}] 日线数据将从表: {daily_data_model.__name__} 获取。")
         daily_data = pd.DataFrame.from_records(
             daily_data_model.objects.filter(stock=stock_info).values('trade_time', 'vol', 'high', 'low')
         )
-        if daily_data.empty:
-            logger.warning(f"[{stock_code}] 在表 {daily_data_model.__name__} 中找不到日线数据，任务终止。")
-            return {"status": "skipped", "reason": f"no daily data in {daily_data_model.__name__}"}
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
-        # 单位换算: 从“手”转换为“股”，并重命名
         daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
         daily_data = daily_data.rename(columns={'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
 
-        # 1.3 获取每日基本面数据 (包含流通股本)
-        print(f"[{stock_code}] 获取每日基本面数据 (流通股本)...") # 使用print调试
         daily_basic_data = pd.DataFrame.from_records(
             StockDailyBasic.objects.filter(stock=stock_info).values('trade_time', 'float_share')
         )
-        if daily_basic_data.empty:
-            logger.warning(f"[{stock_code}] 在 StockDailyBasic 中找不到每日基本面数据，无法计算绝对值指标！")
-            return {"status": "skipped", "reason": "no daily basic data"}
-        # 单位换算: 从“万股”转换为“股”，并重命名
+        daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
         daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
         daily_basic_data = daily_basic_data.drop(columns=['float_share'])
-        daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
-        print(f"[{stock_code}] 获取了 {len(daily_basic_data)} 条每日基本面数据。") # 使用print调试
 
-        # 1.4 获取基础筹码指标 (非分表)
         perf_data = pd.DataFrame.from_records(
             StockCyqPerf.objects.filter(stock=stock_info).values('trade_time', 'weight_avg', 'his_high')
-        ).rename(columns={'his_high': 'close_price'})
+        )
         perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
+        perf_data = perf_data.rename(columns={'his_high': 'close_price', 'weight_avg': 'weight_avg_cost'})
 
         # --- 步骤 2: 统一合并数据 ---
         print(f"[{stock_code}] 开始合并数据... 筹码: {len(cyq_chips_data)}, 日线: {len(daily_data)}, 基本面: {len(daily_basic_data)}, 性能: {len(perf_data)}")
-        
-        # 核心思想：以筹码数据为基础，将其他所有数据都合并进来
         merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
         
-        print(f"[{stock_code}] 数据合并完成。得到 {len(merged_df)} 条包含所有信息的有效数据行。")
         logger.info(f"[{stock_code}] 数据合并完成。得到 {len(merged_df.drop_duplicates(subset=['trade_time']))} 个有效交易日的数据。")
-        
         if merged_df.empty:
             logger.warning(f"[{stock_code}] 所有数据源内连接后结果为空，可能是日期不匹配或关键数据缺失。任务终止。")
             return {"status": "skipped", "reason": "data sources could not be merged"}
-        
-        # --- 步骤 3: 循环计算每日指标 ---
-        grouped_chips = cyq_chips_data.groupby('trade_time')
-        all_metrics_list = []
-        for trade_date, daily_chips_df in grouped_chips:
-            if trade_date not in merged_df.index:
-                continue
-            
-            context_data = merged_df.loc[trade_date].to_dict()
-            
-            # 检查每日动态获取的关键数据是否存在
-            if pd.isna(context_data.get('close_price')) or pd.isna(context_data.get('weight_avg_cost')) or pd.isna(context_data.get('total_chip_volume')):
-                logger.debug(f"[{stock_code}] 在 {trade_date} 缺少关键数据(收盘价/平均成本/流通股本)，跳过计算。")
-                continue
 
-            calculator = ChipFeatureCalculator(daily_chips_df.sort_values(by='price'), context_data)
+        # ▼▼▼【核心修正】: 在循环前计算好 prev_20d_close ▼▼▼
+        daily_context_df = merged_df.drop_duplicates(subset=['trade_time']).set_index('trade_time').sort_index()
+        daily_context_df['prev_20d_close'] = daily_context_df['close_price'].shift(20)
+        merged_df = pd.merge(merged_df, daily_context_df[['prev_20d_close']], on='trade_time', how='left')
+        # ▲▲▲【核心修正结束】▲▲▲
+
+        # --- 步骤 3: 循环计算每日指标 ---
+        grouped_data = merged_df.groupby('trade_time')
+        all_metrics_list = []
+        
+        for trade_date, daily_full_df in grouped_data:
+            context_data = daily_full_df.iloc[0].to_dict()
+            
+            # ▼▼▼【核心调试】: 打印传递给计算器的上下文数据的键 ▼▼▼
+            print(f"[{stock_code}][{trade_date}] 准备计算... 上下文数据包含的键: {sorted(list(context_data.keys()))}")
+            # ▲▲▲【核心调试结束】▲▲▲
+
+            chip_data_for_calc = daily_full_df[['price', 'percent']]
+            calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
             
             if daily_metrics:
-                daily_metrics['trade_time'] = trade_date
-                # TODO: 在这里集成龙虎榜、股东、题材等V4.0数据的获取和填充
                 all_metrics_list.append(daily_metrics)
 
         if not all_metrics_list:
             logger.warning(f"[{stock_code}] 未能计算出任何高级指标。")
             return {"status": "skipped", "reason": "calculation resulted in no metrics"}
 
-        # --- 步骤 4: 计算跨时间序列的指标 (如斜率) ---
+        # --- 步骤 4 & 5: 计算斜率并存储 ---
         metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time').sort_index()
         if 'peak_cost' in metrics_df.columns:
             for period in [5, 20]:
@@ -387,17 +367,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str):
         if 'concentration_90pct' in metrics_df.columns:
             metrics_df['concentration_90pct_slope_5d'] = metrics_df['concentration_90pct'].rolling(5).mean().diff()
 
-        # --- 步骤 5: 存储到数据库 ---
         records_to_create = []
         for trade_date, row in metrics_df.iterrows():
             record_data = row.dropna().to_dict()
             records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
         with transaction.atomic():
             AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
-            AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=500)
+            AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
         
         logger.info(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
-        print(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。") # 使用print调试
+        print(f"[{stock_code}] 成功！已为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
         return {"status": "success", "processed_days": len(records_to_create)}
 
     except StockInfo.DoesNotExist:
