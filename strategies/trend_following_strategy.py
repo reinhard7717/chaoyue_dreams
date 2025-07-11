@@ -662,12 +662,16 @@ class TrendFollowStrategy:
                     setup_details = f"得分:{setup_score.get(date, 0):.0f} | 必须:[{', '.join(must_have_status)}] | 加分:[{', '.join(bonus_status)}]"
 
                     # --- 获取当天的Trigger详情 ---
-                    # ... (这部分代码不变，因为它们直接操作df，索引是安全的) ...
-                    accel_val = df.get(accel_col, pd.Series(0)).get(date, 0)
+                    accel_val = df.get(accel_col, pd.Series(0)).get(date)
+                    accel_val = accel_val if pd.notna(accel_val) else 0.0 # 健壮性处理
                     is_accel = accel_val > accel_thresh
                     
-                    winner_val = df.get(winner_rate_col, pd.Series(0)).get(date, 0)
-                    winner_prev_val = df.get(winner_rate_col, pd.Series(0)).shift(1).get(date, 0)
+                    winner_val = df.get(winner_rate_col, pd.Series(0)).get(date)
+                    winner_val = winner_val if pd.notna(winner_val) else 0.0 # 健壮性处理
+
+                    winner_prev_val = df.get(winner_rate_col, pd.Series(0)).shift(1).get(date)
+                    winner_prev_val = winner_prev_val if pd.notna(winner_prev_val) else 0.0 # 健壮性处理
+                    
                     is_winner_inc = winner_val > winner_prev_val
                     
                     # 【关键修复】使用 reindex 保证索引安全
