@@ -596,7 +596,7 @@ class TrendFollowStrategy:
         - 核心修复 1 (架构对齐): 本函数现在完全适配 _get_playbook_definitions 输出的新版剧本结构，直接使用 'setup' 键中的布尔信号，而不是查找已废弃的 'setup_score_source'。
         - 核心修复 2 (时序对齐): 解决了因准备状态和触发事件存在一天时序差而导致无法生成信号的问题。
         """
-        print("    - [计分引擎 V59.4] 启动，开始装配剧本并计算最终得分...")
+        print("    - [计分引擎 V59.6 终极探针版] 启动，开始装配剧本并计算最终得分...")
         
         # --- 步骤 1: 初始化 ---
         final_score = pd.Series(0.0, index=df.index)
@@ -605,6 +605,11 @@ class TrendFollowStrategy:
         # --- 步骤 2: 获取所有剧本定义 ---
         # _get_playbook_definitions 返回的剧本中，'setup' 键已经是一个计算好的布尔型 pd.Series
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores)
+
+        # 为了探针，我们需要重新获取一次 atomic_states
+        atomic_states = {
+            **self._diagnose_kline_patterns(df, params)
+        }
         
         # --- 步骤 3: 遍历所有剧本蓝图，进行装配和计分 ---
         for playbook in playbook_definitions:
@@ -624,6 +629,56 @@ class TrendFollowStrategy:
                       f"准备状态共 {is_setup_valid.sum()} 天 | "
                       f"触发事件共 {trigger_signal.sum()} 天 | "
                       f"对齐后信号共 {playbook_signal.sum()} 天。")
+                
+            if name == 'N_SHAPE_CONTINUATION_A' and (is_setup_valid.any() or trigger_signal.any()):
+                print("\n" + "-"*20 + f" 探针启动: 正在深入分析剧本 '{cn_name}' " + "-"*20)
+                
+                # 准备探针所需的所有数据列
+                # 1. 准备状态相关
+                n_shape_consolidation_state = atomic_states.get('KLINE_STATE_N_SHAPE_CONSOLIDATION', pd.Series(False, index=df.index))
+                
+                # 2. 触发事件相关
+                is_positive_day = df['close_D'] > df['open_D']
+                consolidation_high = df['high_D'].where(n_shape_consolidation_state, np.nan).ffill()
+                is_breaking_consolidation = df['close_D'] > consolidation_high.shift(1)
+                is_volume_ok = df['volume_D'] > df.get('VOL_MA_21_D', 0)
+                
+                # 找出所有关键日期
+                setup_dates = df.index[is_setup_valid]
+                trigger_dates = df.index[trigger_signal]
+                key_dates = sorted(list(set(setup_dates) | set(trigger_dates)))
+
+                print(f"  -> 发现准备状态日: {[d.date() for d in setup_dates]}")
+                print(f"  -> 发现触发事件日: {[d.date() for d in trigger_dates]}")
+                print("-" * 80)
+                print(f"{'日期':<12} | {'Setup?':<8} | {'Trigger?':<10} | {'昨日Setup?':<12} | {'最终信号?':<10} | {'详情':<50}")
+                print("-" * 80)
+
+                for date in key_dates:
+                    # 准备当天的数据
+                    row = {
+                        'Setup': is_setup_valid.get(date, False),
+                        'Trigger': trigger_signal.get(date, False),
+                        'YesterdaySetup': yesterday_setup_valid.get(date, False),
+                        'FinalSignal': playbook_signal.get(date, False),
+                        'is_positive': is_positive_day.get(date, False),
+                        'close': df.loc[date, 'close_D'],
+                        'consol_high_yest': consolidation_high.shift(1).get(date, np.nan),
+                        'is_breaking': is_breaking_consolidation.get(date, False),
+                        'volume': df.loc[date, 'volume_D'],
+                        'vol_ma': df.get('VOL_MA_21_D', pd.Series(0, index=df.index)).get(date, 0),
+                        'is_vol_ok': is_volume_ok.get(date, False)
+                    }
+                    
+                    details = (
+                        f"阳线:{row['is_positive']}; "
+                        f"突破:{row['is_breaking']} (收盘{row['close']:.2f} > 昨日整理高{row['consol_high_yest']:.2f}); "
+                        f"放量:{row['is_vol_ok']} (量{row['volume']:.0f} > 均量{row['vol_ma']:.0f})"
+                    )
+                    
+                    print(f"{str(date.date()):<12} | {str(row['Setup']):<8} | {str(row['Trigger']):<10} | {str(row['YesterdaySetup']):<12} | {str(row['FinalSignal']):<10} | {details}")
+
+                print("-" * 20 + " 探针分析结束 " + "-"*20 + "\n")
             
             if playbook_signal.any():
                 # 获取剧本的基础分
@@ -643,7 +698,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V59.4] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V59.6] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 

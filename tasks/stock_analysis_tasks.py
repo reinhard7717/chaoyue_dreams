@@ -282,7 +282,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     - 加速度计算采用5日和21日两个代表性周期。
     """
     mode = "增量更新" if is_incremental else "全量刷新"
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V4.4.1, 模式: {mode})...")
+    # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V4.4.1, 模式: {mode})...")
     
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
@@ -295,7 +295,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             try:
                 last_metric = AdvancedChipMetrics.objects.filter(stock=stock_info).latest('trade_time')
                 last_metric_date = last_metric.trade_time
-                logger.info(f"[{stock_code}] 找到最新已计算数据于: {last_metric_date}。")
+                # logger.info(f"[{stock_code}] 找到最新已计算数据于: {last_metric_date}。")
             except AdvancedChipMetrics.DoesNotExist:
                 logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
                 is_incremental = False
