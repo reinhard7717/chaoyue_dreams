@@ -301,6 +301,7 @@ class TrendFollowStrategy:
                 'setup': score_deep_accum > 120,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 400, 'precondition': True,
+                'side': 'right',
                 'comment': 'S+级: 筹码、均线、资金、波动率四维共振后的首次点火，确定性极高。'
             },
             {
@@ -308,6 +309,7 @@ class TrendFollowStrategy:
                 'setup': (score_deep_accum > 80) & (score_deep_accum <= 120),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 350, 'precondition': True,
+                'side': 'right',
                 'comment': 'S级: 核心条件具备，多重验证下的标准启动信号。'
             },
             {
@@ -315,6 +317,7 @@ class TrendFollowStrategy:
                 'setup': (score_deep_accum > 50) & (score_deep_accum <= 80),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 280, 'precondition': True,
+                'side': 'right',
                 'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
             },
             {
@@ -322,6 +325,7 @@ class TrendFollowStrategy:
                 'setup': score_cap_pit > 80,
                 'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
                 'score': 290, 'precondition': True,
+                'side': 'left',
                 'comment': 'A+级: 在市场恐慌形成的“投降坑”中，出现日线级别动能企稳后的反转K线，可靠性高。'
             },
             {
@@ -329,6 +333,7 @@ class TrendFollowStrategy:
                 'setup': (score_cap_pit > 50) & (score_cap_pit <= 80),
                 'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
                 'score': 220, 'precondition': True,
+                'side': 'left',
                 'comment': 'A级: 出现投降坑，但动能尚未完全企稳，属于高风险高赔率的左侧博弈。'
             },
             {
@@ -336,6 +341,7 @@ class TrendFollowStrategy:
                 'setup': score_healthy_markup > 60,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 240, 'precondition': robust_right_side_precondition,
+                'side': 'right',
                 'comment': 'A级: 在均线多头排列、资金确认的趋势中，出现的回踩反弹，是可靠的顺势上车点。'
             },
             {
@@ -343,6 +349,7 @@ class TrendFollowStrategy:
                 'setup': score_healthy_markup > 80,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 240, 'precondition': robust_right_side_precondition,
+                'side': 'right',
                 'comment': 'A级: 在通过多维度验证的健康主升浪中，出现的回踩反弹，是可靠的加仓或上车点。'
             },
             {
@@ -350,20 +357,23 @@ class TrendFollowStrategy:
                 'setup': (score_healthy_markup > 50) & (score_healthy_markup <= 80),
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 180, 'precondition': robust_right_side_precondition,
+                'side': 'right',
                 'comment': 'B+级: 趋势尚可，但某些维度存在瑕疵，属于机会主义的趋势跟踪。'
             },
             {
                 'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
                 'setup': score_energy_comp > 40,
-                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series), # 使用突破型触发器
+                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
                 'score': 230, 'precondition': robust_right_side_precondition,
+                'side': 'right',
                 'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
             },
             {
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转',
                 'setup': setup_washout_reversal,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 使用企稳型触发器
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 260, 'precondition': True,
+                'side': 'left',
                 'comment': 'A级: 在恐慌性的巨量阴线后，出现企稳反转信号，通常是主力极端洗盘后的拉升前兆。'
             },
             {
@@ -371,6 +381,7 @@ class TrendFollowStrategy:
                 'setup': score_nshape_cont > 80,
                 'trigger': trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series),
                 'score': 250, 'precondition': robust_right_side_precondition,
+                'side': 'right',
                 'comment': 'A级: 强势股在涨停或大阳线后，经过短暂、强势的整理，再次放量突破，是经典的趋势中继信号。'
             },
             {
@@ -378,6 +389,7 @@ class TrendFollowStrategy:
                 'setup': score_gap_support > 60,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 190, 'precondition': robust_right_side_precondition,
+                'side': 'right',
                 'comment': 'B+级: 股价回踩到前期跳空缺口获得支撑并反弹，是可靠的右侧交易机会。'
             },
             {
@@ -385,6 +397,7 @@ class TrendFollowStrategy:
                 'setup': score_bottoming_process > 50,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 190, 'precondition': True,
+                'side': 'left',
                 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线，是高赔率的左侧博弈机会。'
             },
             {
@@ -392,8 +405,9 @@ class TrendFollowStrategy:
                 'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
                 'score': 380, 
                 'precondition': True,
-                'is_event_driven': True, # 新增标志，表明这是纯事件驱动
-                'comment': '市场情绪的极致反转，拥有最高优先级。'
+                'is_event_driven': True,
+                'side': 'left',
+                'comment': '市场情绪的极致反转，拥有最高优先级，解除所有限制。'
             },
         ]
         # ▼▼▼【代码修改 V62.3】: 移除风控过滤，保持剧本定义纯净 ▼▼▼
@@ -416,15 +430,18 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V64.2 上下文回溯与探针修复最终版】
-        - 核心革命: 采用“先触发，后回溯上下文”的新范式，极大增强策略适应性。
-        - 探针修复: 重新集成并适配了全局剧本探针日志，确保调试能力。
+        【V64.9 左右侧分离最终版】
+        - 核心革命: 引入“左右侧交易”概念，为不同剧本应用不同规则。
+          - 右侧剧本 (顺势): 必须在长期均线上方的“观察区”内才能触发，追求高胜率。
+          - 左侧剧本 (逆势): 解除“观察区”限制，允许在均线下方寻找转折点，追求高赔率。
+        - 范式: 维持“先触发，后回溯上下文”的核心范式。
         - 流程: 1.准备探针数据 -> 2.执行回溯逻辑生成最终信号 -> 3.计分 -> 4.输出探针日志。
         """
-        print("    - [计分引擎 V64.2 上下文回溯与探针修复最终版] 启动...")
+        print("    - [计分引擎 V64.9 左右侧分离最终版] 启动...")
         
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
+        # _get_playbook_definitions 函数现在应包含 'side' 属性
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         default_series = pd.Series(False, index=df.index)
 
@@ -442,11 +459,11 @@ class TrendFollowStrategy:
 
         # ==================== 步骤2: 上下文回溯核心逻辑，生成最终信号 ====================
         
-        # 定义宽松的“观察区”
+        # 定义右侧交易的“观察区”
         watching_ma_col = 'EMA_55_D'
         if watching_ma_col not in df.columns:
-            print(f"      -> [严重警告] 缺少观察区所需均线 '{watching_ma_col}'，计分引擎可能无法正常工作。")
-            SETUP_WATCHING = default_series.copy()
+            print(f"      -> [严重警告] 缺少观察区所需均线 '{watching_ma_col}'，右侧交易剧本可能无法正常工作。")
+            SETUP_WATCHING = pd.Series(True, index=df.index) # 如果没有55线，则默认全部在观察区
         else:
             SETUP_WATCHING = df['close_D'] > df[watching_ma_col]
         
@@ -461,6 +478,7 @@ class TrendFollowStrategy:
         for playbook in playbook_definitions:
             name = playbook['name']
             trigger_signal = playbook.get('trigger', default_series)
+            playbook_side = playbook.get('side', 'right') # 默认为右侧交易，保证向前兼容
             
             # 纯事件驱动的剧本，逻辑不变
             if playbook.get('is_event_driven', False):
@@ -468,8 +486,16 @@ class TrendFollowStrategy:
             else:
                 # 新范式逻辑
                 playbook_signal = default_series.copy()
-                potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
                 
+                # ▼▼▼ 核心逻辑分流，根据左右侧属性决定是否应用观察区限制 ▼▼▼
+                if playbook_side == 'left':
+                    # 对于左侧交易剧本，不使用 SETUP_WATCHING 限制
+                    potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
+                    # print(f"      -> 剧本 '{playbook.get('cn_name')}' 为左侧交易，不受55均线观察区限制。") # 可选的调试信息
+                else: # 'right' 或其他未定义的
+                    # 对于右侧交易剧本，必须在观察区内
+                    potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
+
                 # 对每个潜在触发日，进行上下文回溯
                 for date_index in potential_trigger_indices:
                     loc = df.index.get_loc(date_index)
@@ -536,10 +562,9 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V64.2] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V64.9] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
-
     def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> pd.Series:
         """
         【V57.0 风险评分引擎】
