@@ -383,14 +383,16 @@ class TrendFollowStrategy:
                 'comment': '市场情绪的极致反转，拥有最高优先级。'
             },
         ]
-        final_playbook_list = []
-        for playbook in playbook_definitions:
-            modified_playbook = playbook.copy()
-            original_setup = modified_playbook.get('setup', True)
-            modified_playbook['setup'] = original_setup & ~is_in_distribution_risk
-            final_playbook_list.append(modified_playbook)
-        print(f"    - [剧本定义中心 V57.0] 完成，共定义 {len(final_playbook_list)} 个动态分级剧本。")
-        return final_playbook_list
+        # ▼▼▼【代码修改 V62.3】: 移除风控过滤，保持剧本定义纯净 ▼▼▼
+        # final_playbook_list = []
+        # for playbook in playbook_definitions:
+        #     modified_playbook = playbook.copy()
+        #     original_setup = modified_playbook.get('setup', pd.Series(False, index=df.index))
+        #     modified_playbook['setup'] = original_setup & ~is_in_distribution_risk
+        #     final_playbook_list.append(modified_playbook)
+
+        print(f"    - [剧本定义中心 V62.3] 完成，共定义 {len(playbook_definitions)} 个纯净剧本。")
+        return playbook_definitions # 直接返回原始定义
 
     def _calculate_entry_score(
         self, 
