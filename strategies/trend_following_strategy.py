@@ -451,18 +451,17 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V64.9 左右侧分离最终版】
-        - 核心革命: 引入“左右侧交易”概念，为不同剧本应用不同规则。
-          - 右侧剧本 (顺势): 必须在长期均线上方的“观察区”内才能触发，追求高胜率。
-          - 左侧剧本 (逆势): 解除“观察区”限制，允许在均线下方寻找转折点，追求高赔率。
-        - 范式: 维持“先触发，后回溯上下文”的核心范式。
-        - 流程: 1.准备探针数据 -> 2.执行回溯逻辑生成最终信号 -> 3.计分 -> 4.输出探针日志。
+        【V69.0 终极形态版】
+        - 核心革命: 重构计分引擎，使其能够正确处理三种剧本模式：
+          1. 前提驱动型 ('precondition'): trigger 和 precondition 必须在同一天满足。
+          2. 准备驱动型 ('setup'): trigger 触发后，回溯寻找 context_window 内的 setup。
+          3. 纯事件驱动型 ('is_event_driven'): 只看 trigger。
+        - 这解决了之前引擎无法识别 'precondition' 键的根本性设计缺陷。
         """
-        print("    - [计分引擎 V64.9 左右侧分离最终版] 启动...")
+        print("    - [计分引擎 V69.0 终极形态版] 启动...")
         
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
-        # _get_playbook_definitions 函数现在应包含 'side' 属性
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         default_series = pd.Series(False, index=df.index)
 
@@ -470,60 +469,61 @@ class TrendFollowStrategy:
         final_playbook_signals = {}
         all_setups = default_series.copy()
         all_triggers = default_series.copy()
+        all_preconditions = default_series.copy() # 新增，用于探针日志
 
         for playbook in playbook_definitions:
-            # 预先计算所有setup和trigger的并集，用于确定探针的关键日期
             setup_signal = playbook.get('setup', default_series)
             trigger_signal = playbook.get('trigger', default_series)
-            all_setups = all_setups | setup_signal
-            all_triggers = all_triggers | trigger_signal
+            precondition_signal = playbook.get('precondition', default_series)
+            all_setups |= setup_signal
+            all_triggers |= trigger_signal
+            all_preconditions |= precondition_signal
 
-        # ==================== 步骤2: 上下文回溯核心逻辑，生成最终信号 ====================
+        # ==================== 步骤2: 上下文回溯与前提判断核心逻辑 ====================
         
-        # 定义右侧交易的“观察区”
         watching_ma_col = 'EMA_55_D'
         if watching_ma_col not in df.columns:
             print(f"      -> [严重警告] 缺少观察区所需均线 '{watching_ma_col}'，右侧交易剧本可能无法正常工作。")
-            SETUP_WATCHING = pd.Series(True, index=df.index) # 如果没有55线，则默认全部在观察区
+            SETUP_WATCHING = pd.Series(True, index=df.index)
         else:
             SETUP_WATCHING = df['close_D'] > df[watching_ma_col]
         
-        # 获取全局风险状态和回溯窗口
         is_in_distribution_risk = setup_scores.get('SETUP_SCORE_DISTRIBUTION_RISK', default_series.copy()) > 0
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
-        print(f"      -> 使用“触发后回溯”新范式，上下文回溯窗口: {context_window}天。")
+        print(f"      -> 计分引擎已升级，支持'前提(precondition)'和'准备(setup)'两种模式。回溯窗口: {context_window}天。")
 
-        # 遍历所有剧本，应用新逻辑生成最终信号
+        # ▼▼▼【代码重构 V69.0】: 遍历所有剧本，根据其定义类型应用不同逻辑 ▼▼▼
         for playbook in playbook_definitions:
             name = playbook['name']
             trigger_signal = playbook.get('trigger', default_series)
-            playbook_side = playbook.get('side', 'right') # 默认为右侧交易，保证向前兼容
+            playbook_side = playbook.get('side', 'right')
+            playbook_signal = default_series.copy()
+
+            # 根据剧本类型分流处理
+            if 'precondition' in playbook:
+                # --- 模式1: 前提驱动型 ---
+                precondition_signal = playbook.get('precondition', default_series)
+                base_signal = trigger_signal & precondition_signal & ~is_in_distribution_risk
+                if playbook_side == 'right':
+                    playbook_signal = base_signal & SETUP_WATCHING
+                else: # left side
+                    playbook_signal = base_signal
             
-            # 纯事件驱动的剧本，逻辑不变
-            if playbook.get('is_event_driven', False):
-                playbook_signal = trigger_signal & ~is_in_distribution_risk
-            else:
-                # 新范式逻辑
-                playbook_signal = default_series.copy()
-                
-                # ▼▼▼ 核心逻辑分流，根据左右侧属性决定是否应用观察区限制 ▼▼▼
+            elif 'setup' in playbook:
+                # --- 模式2: 准备驱动型 (上下文回溯) ---
                 if playbook_side == 'left':
-                    # 对于左侧交易剧本，不使用 SETUP_WATCHING 限制
                     potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
-                    # print(f"      -> 剧本 '{playbook.get('cn_name')}' 为左侧交易，不受55均线观察区限制。") # 可选的调试信息
-                else: # 'right' 或其他未定义的
-                    # 对于右侧交易剧本，必须在观察区内
+                else: # right side
                     potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
 
-                # 对每个潜在触发日，进行上下文回溯
                 for date_index in potential_trigger_indices:
                     loc = df.index.get_loc(date_index)
                     if loc < context_window: continue
                     
                     context_start_loc = loc - context_window
-                    context_end_loc = loc - 1 # 上下文窗口不包含触发当天
+                    context_end_loc = loc - 1
                     
                     setup_condition_series = playbook.get('setup', default_series)
                     was_setup_in_context = setup_condition_series.iloc[context_start_loc : context_end_loc + 1].any()
@@ -531,9 +531,14 @@ class TrendFollowStrategy:
                     if was_setup_in_context:
                         playbook_signal.loc[date_index] = True
             
-            final_playbook_signals[name] = playbook_signal.fillna(False)
+            elif playbook.get('is_event_driven', False):
+                # --- 模式3: 纯事件驱动型 ---
+                playbook_signal = trigger_signal & ~is_in_distribution_risk
 
-        # ==================== 步骤3: 根据最终信号进行计分 ====================
+            final_playbook_signals[name] = playbook_signal.fillna(False)
+        # ▲▲▲【代码重构 V69.0】▲▲▲
+
+        # ==================== 步骤3: 根据最终信号进行计分 (逻辑不变) ====================
         for playbook in playbook_definitions:
             name = playbook['name']
             cn_name = playbook.get('cn_name', name)
@@ -548,12 +553,12 @@ class TrendFollowStrategy:
                 triggered_dates_str = self._format_debug_dates(playbook_signal)
                 print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
 
-        # ==================== 步骤4: 全局剧本探针日志输出 ====================
+        # ==================== 步骤4: 全局剧本探针日志输出 (增强版) ====================
         probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
-        key_dates = df.index[(all_setups | all_triggers) & (df.index >= probe_start_date)].unique().sort_values()
+        key_dates = df.index[(all_setups | all_triggers | all_preconditions) & (df.index >= probe_start_date)].unique().sort_values()
 
         print("\n========================= 全局剧本探针已启动 (从 " + probe_start_date + " 开始) =========================")
-        print(f"-> 发现准备状态日: {all_setups[all_setups.index >= probe_start_date].sum()} 天 | 发现触发事件日: {all_triggers[all_triggers.index >= probe_start_date].sum()} 天 | 筛选后关键日期: {len(key_dates)}")
+        print(f"-> 发现准备/前提日: {(all_setups | all_preconditions)[(all_setups | all_preconditions).index >= probe_start_date].sum()} 天 | 发现触发事件日: {all_triggers[all_triggers.index >= probe_start_date].sum()} 天 | 筛选后关键日期: {len(key_dates)}")
         print("--------------------------------------------------------------------------------")
         print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12}".format("日期", "剧本名称", "Setup?", "Trigger?", "最终信号?"))
         print("--------------------------------------------------------------------------------")
@@ -564,17 +569,18 @@ class TrendFollowStrategy:
                 name = playbook['name']
                 cn_name = playbook.get('cn_name', name)
                 
-                is_setup_today = playbook.get('setup', default_series).loc[date]
+                # 探针现在能同时识别 setup 和 precondition
+                is_setup_or_precondition_today = playbook.get('setup', default_series).loc[date] or playbook.get('precondition', default_series).loc[date]
                 is_trigger_today = playbook.get('trigger', default_series).loc[date]
                 is_final_signal_today = final_playbook_signals.get(name, default_series).loc[date]
 
-                if is_setup_today or is_trigger_today or is_final_signal_today:
+                if is_setup_or_precondition_today or is_trigger_today or is_final_signal_today:
                     if not has_output_for_date:
                         print(f"{date.strftime('%Y-%m-%d')}   | -----------------------------------------------------------------")
                         has_output_for_date = True
                     
                     print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12}".format(
-                        "", f"{cn_name}", str(is_setup_today), str(is_trigger_today), str(is_final_signal_today)
+                        "", f"{cn_name}", str(is_setup_or_precondition_today), str(is_trigger_today), str(is_final_signal_today)
                     ))
 
         print("========================= 全局剧本探针分析结束 =========================")
@@ -583,7 +589,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V64.9] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V69.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
