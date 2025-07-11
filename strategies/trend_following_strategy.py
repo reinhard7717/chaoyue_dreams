@@ -292,7 +292,7 @@ class TrendFollowStrategy:
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         score_bottoming_process = setup_conditions.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
-        
+        score_platform_support = setup_conditions.get('SETUP_SCORE_PLATFORM_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         is_in_distribution_risk = setup_conditions.get('SETUP_DISTRIBUTION_RISK', pd.Series(False, index=df.index))
         
         # --- 步骤 3: 定义所有交易剧本 (Playbooks) ---
@@ -362,6 +362,15 @@ class TrendFollowStrategy:
                 'score': 240, 'precondition': robust_right_side_precondition,
                 'side': 'right',
                 'comment': 'A级: 在通过多维度验证的健康主升浪中，出现的回踩反弹，是可靠的加仓或上车点。'
+            },
+             # ▼▼▼ “平台支撑回踩”剧本 ▼▼▼
+            {
+                'name': 'PLATFORM_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】平台支撑回踩',
+                'setup': score_platform_support > 60,
+                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
+                'score': 195, 'precondition': True,
+                'side': 'right',
+                'comment': 'B+级: 在均线粘合的平台整理区，股价精准回踩关键支撑线后企稳反弹，是潜在突破的左侧埋伏点。'
             },
             {
                 'name': 'TREND_CONTINUATION_B_PLUS', 'cn_name': '【B+级】趋势中继',
@@ -532,7 +541,7 @@ class TrendFollowStrategy:
                 print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
 
         # ==================== 步骤4: 全局剧本探针日志输出 ====================
-        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-04-01')
+        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
         key_dates = df.index[(all_setups | all_triggers) & (df.index >= probe_start_date)].unique().sort_values()
 
         print("\n========================= 全局剧本探针已启动 (从 " + probe_start_date + " 开始) =========================")
@@ -820,7 +829,8 @@ class TrendFollowStrategy:
         short_p = self._get_param_value(p.get('short_ma'), 13)
         mid_p = self._get_param_value(p.get('mid_ma'), 34)
         long_p = self._get_param_value(p.get('long_ma'), 89)
-        short_ma, mid_ma, long_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D'
+        support_p = self._get_param_value(p.get('support_ma'), 55) # 从配置读取关键支撑线
+        short_ma, mid_ma, long_ma, support_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D', f'EMA_{support_p}_D'
         if not all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
             print(f"          -> [警告] 缺少均线列，均线状态诊断跳过。")
             return states
@@ -832,6 +842,15 @@ class TrendFollowStrategy:
         states['MA_STATE_CONVERGING'] = ma_spread_zscore < self._get_param_value(p.get('converging_zscore'), -1.0)
         states['MA_STATE_DIVERGING'] = ma_spread_zscore > self._get_param_value(p.get('diverging_zscore'), 1.0)
         states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
+
+        # ▼▼▼【代码新增 V67.0】: 定义“触碰关键支撑线”状态 ▼▼▼
+        is_touching = df['low_D'] <= df[support_ma]
+        is_closing_above = df['close_D'] >= df[support_ma]
+        states[f'MA_STATE_TOUCHING_SUPPORT_{support_p}'] = is_touching & is_closing_above
+        signal = states[f'MA_STATE_TOUCHING_SUPPORT_{support_p}']
+        dates_str = self._format_debug_dates(signal)
+        print(f"          -> '触碰{support_p}日线支撑' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+
         lookback_period = 10
         accel_d_col = f'ACCEL_{lookback_period}_{long_ma}'
         if accel_d_col in df.columns:
