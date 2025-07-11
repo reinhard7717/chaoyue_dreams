@@ -393,73 +393,113 @@ class TrendFollowStrategy:
         setup_scores: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V59.4 架构对齐与时序修复版】
+        【V62.1 全局探针与增强日志版】
+        - 核心升级 1 (全局探针): 废弃了之前硬编码的、针对特定剧本的探针。新的探针会自动扫描所有剧本的准备(setup)和触发(trigger)状态，并在任何一个状态被激活时，打印出当天所有剧本的详细情况，极大提升了调试效率和广度。
+        - 核心升级 2 (增强日志): 最终的剧本触发日志现在会明确打印出信号发生的具体日期，便于快速与K线图进行比对。
         """
-        print("    - [计分引擎 V59.7 探针版] 启动，开始装配剧本并计算最终得分...")
+        print("    - [计分引擎 V62.1 全局探针版] 启动，开始装配剧本并计算最终得分...")
+        
+        # --- 步骤 1: 初始化 ---
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
+
+        # --- 步骤 2: 获取所有剧本定义 ---
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores)
-        atomic_states = {
-            **self._diagnose_chip_states(df, params),
-            **self._diagnose_ma_states(df, params),
-            **self._diagnose_capital_states(df, params),
-            **self._diagnose_volatility_states(df, params),
-        }
+
+        # ▼▼▼【代码修改 V62.1】: 升级为全局探针 ▼▼▼
+        # 1. 收集所有剧本的关键日期和状态序列
+        all_setup_dates = set()
+        all_trigger_dates = set()
+        playbook_details_map = {} # 使用字典存储每个剧本的setup和trigger series，避免重复获取
+
+        for playbook in playbook_definitions:
+            name = playbook['name']
+            is_setup_valid = playbook.get('setup', pd.Series(False, index=df.index))
+            trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
+            
+            playbook_details_map[name] = {'setup': is_setup_valid, 'trigger': trigger_signal}
+            
+            # 收集所有有活动的日期
+            all_setup_dates.update(df.index[is_setup_valid])
+            all_trigger_dates.update(df.index[trigger_signal])
+
+        # 2. 如果有任何活动，并且开启了详细日志，则启动全局探针
+        if self.verbose_logging and (all_setup_dates or all_trigger_dates):
+            key_dates = sorted(list(all_setup_dates | all_trigger_dates))
+            print("\n" + "="*25 + " 全局剧本探针已启动 " + "="*25)
+            print(f"-> 发现准备状态日: {len(all_setup_dates)} 天 | 发现触发事件日: {len(all_trigger_dates)} 天 | 关键日期总数: {len(key_dates)}")
+            print("-" * 80)
+            # 打印表头
+            print(f"{'日期':<12} | {'剧本名称':<25} | {'Setup?':<8} | {'Trigger?':<10} | {'最终信号?':<10}")
+            print("-" * 80)
+
+            for date in key_dates:
+                has_activity_on_date = False # 标记当天是否有任何活动，用于控制日期打印
+                
+                # 遍历所有剧本，检查在当前日期'date'的状态
+                for playbook in playbook_definitions:
+                    name = playbook['name']
+                    cn_name = playbook.get('cn_name', name)
+                    details = playbook_details_map[name]
+                    
+                    is_setup_on_date = details['setup'].get(date, False)
+                    is_trigger_on_date = details['trigger'].get(date, False)
+                    
+                    # 计算最终信号 (需要前一天的setup状态)
+                    was_setup_yesterday = details['setup'].shift(1).fillna(False).get(date, False)
+                    final_signal_on_date = was_setup_yesterday and is_trigger_on_date
+
+                    # 只要当天有任何一个状态为True，就打印该剧本的信息
+                    if is_setup_on_date or is_trigger_on_date or final_signal_on_date:
+                        # 如果这是当天打印的第一条信息，先打印日期
+                        if not has_activity_on_date:
+                            print(f"{str(date.date()):<12} | {'-'*65}")
+                            has_activity_on_date = True
+                        
+                        # 打印该剧本在当天的状态详情
+                        print(f"{'':<12} | {cn_name:<25} | {str(is_setup_on_date):<8} | {str(is_trigger_on_date):<10} | {str(final_signal_on_date):<10}")
+
+            print("="*25 + " 全局剧本探针分析结束 " + "="*25 + "\n")
+        # ▲▲▲【代码修改 V62.1】▲▲▲
+
+        # --- 步骤 3: 遍历所有剧本蓝图，进行装配和计分 ---
         for playbook in playbook_definitions:
             name = playbook['name']
             cn_name = playbook.get('cn_name', name)
-            is_setup_valid = playbook.get('setup', pd.Series(False, index=df.index))
-            trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
+            
+            # 从之前构建的map中获取状态，提高效率
+            details = playbook_details_map[name]
+            is_setup_valid = details['setup']
+            trigger_signal = details['trigger']
+            
+            # 核心时序逻辑：用昨天的准备状态，匹配今天的触发信号
             yesterday_setup_valid = is_setup_valid.shift(1).fillna(False)
             playbook_signal = yesterday_setup_valid & trigger_signal
-            if name.startswith('HEALTHY_MARKUP') and (is_setup_valid.any() or trigger_signal.any()):
-                print("\n" + "-"*20 + f" 探针启动: 正在深入分析剧本 '{cn_name}' " + "-"*20)
-                setup_score = setup_scores.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
-                must_have_keys = ['VOL_STATE_SQUEEZE_WINDOW', 'MA_STATE_CONVERGING']
-                bonus_keys = ['MA_STATE_W_STABILIZING', 'CAPITAL_STATE_SLOPE_CROSS', 'CHIP_STATE_ACCUMULATION', 'VOL_STATE_SQUEEZE']
-                p_ignite = self._get_params_block(params, 'chip_feature_params', {}).get('ignition_params', {})
-                accel_thresh = self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
-                accel_col = 'CHIP_peak_cost_accel_21d_D'
-                winner_rate_col = 'CHIP_winner_rate_short_term_D'
-                setup_dates = df.index[is_setup_valid]
-                trigger_dates = df.index[trigger_signal]
-                key_dates = sorted(list(set(setup_dates) | set(trigger_dates)))
-                print(f"  -> 发现准备状态日: {[d.date() for d in setup_dates]}")
-                print(f"  -> 发现触发事件日: {[d.date() for d in trigger_dates]}")
-                print("-" * 120)
-                print(f"{'日期':<12} | {'Setup?':<8} | {'Trigger?':<10} | {'最终信号?':<10} | {'Setup详情':<60} | {'Trigger详情'}")
-                print("-" * 120)
-                for date in key_dates:
-                    must_have_status = [f"{key.split('_')[-1]}:{'T' if atomic_states.get(key, pd.Series(False)).reindex(df.index, fill_value=False).get(date, False) else 'F'}" for key in must_have_keys]
-                    bonus_status = [f"{key.split('_')[-1]}:{'T' if atomic_states.get(key, pd.Series(False)).reindex(df.index, fill_value=False).get(date, False) else 'F'}" for key in bonus_keys]
-                    setup_details = f"得分:{setup_score.get(date, 0):.0f} | 必须:[{', '.join(must_have_status)}] | 加分:[{', '.join(bonus_status)}]"
-                    accel_val = df.get(accel_col, pd.Series(0)).get(date)
-                    accel_val = accel_val if pd.notna(accel_val) else 0.0
-                    is_accel = accel_val > accel_thresh
-                    winner_val = df.get(winner_rate_col, pd.Series(0)).get(date)
-                    winner_val = winner_val if pd.notna(winner_val) else 0.0
-                    winner_prev_val = df.get(winner_rate_col, pd.Series(0)).shift(1).get(date)
-                    winner_prev_val = winner_prev_val if pd.notna(winner_prev_val) else 0.0
-                    is_winner_inc = winner_val > winner_prev_val
-                    primary_state_series = atomic_states.get('CHIP_STATE_PRIMARY', pd.Series('N/A', index=df.index)).reindex(df.index, fill_value='N/A')
-                    prev_state = primary_state_series.shift(1).get(date, 'N/A')
-                    was_in_setup = prev_state in ['ACCUMULATION', 'TRANSITION']
-                    trigger_details = (
-                        f"加速:{'T' if is_accel else 'F'}({accel_val:.2f}>{accel_thresh}) | "
-                        f"获利盘:{'T' if is_winner_inc else 'F'}({winner_val:.1f}>{winner_prev_val:.1f}) | "
-                        f"前置态:{'T' if was_in_setup else 'F'}({prev_state})"
-                    )
-                    print(f"{str(date.date()):<12} | {str(is_setup_valid.get(date, False)):<8} | {str(trigger_signal.get(date, False)):<10} | {str(playbook_signal.get(date, False)):<10} | {setup_details:<60} | {trigger_details}")
-                print("-" * 20 + " 探针分析结束 " + "-"*20 + "\n")
+            
             if playbook_signal.any():
+                # 获取剧本的基础分
                 base_score = playbook.get('score', 0)
+                
+                # 创建一个与df等长的Series，值为基础分，用于向量化操作
                 current_playbook_score = pd.Series(base_score, index=df.index)
+                
+                # 将该剧本的得分累加到最终总分上
                 final_score.loc[playbook_signal] += current_playbook_score.loc[playbook_signal]
+                
+                # 记录得分详情
                 score_details_df.loc[playbook_signal, name] = current_playbook_score.loc[playbook_signal]
-                print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f} ★★★")
+                
+                # ▼▼▼【代码修改 V62.1】: 增强剧本触发日志 ▼▼▼
+                triggered_dates_str = self._format_debug_dates(playbook_signal)
+                print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
+                # ▲▲▲【代码修改 V62.1】▲▲▲
+
+        # --- 步骤 4: 最终处理和返回 ---
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
-        print(f"--- [计分引擎 V59.6] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        
+        print(f"--- [计分引擎 V62.1] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        
         return df, score_details_df
 
     def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> pd.Series:
