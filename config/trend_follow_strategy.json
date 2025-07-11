@@ -173,8 +173,11 @@
         "DEEP_ACCUMULATION": {
           "说明": "S级菜肴：深度吸筹区。目标是找到最可能成为主升浪起点的吸筹末期。",
           "must_have": {
-            "VOL_STATE_SQUEEZE_WINDOW": 50,
             "MA_STATE_CONVERGING": 30
+          },
+          "any_of_must_have": {
+            "VOL_STATE_SQUEEZE_WINDOW": 50,
+            "CHIP_STATE_HIGHLY_CONCENTRATED": 50
           },
           "bonus": {
             "MA_STATE_W_STABILIZING": 40,
@@ -207,8 +210,9 @@
         "HEALTHY_MARKUP": {
           "说明": "【V60.1 优化版】A级菜肴：健康主升浪。放宽了准入条件，以更好地捕捉真实市场中的上涨趋势。",
           "must_have": {
-            "MA_STATE_PRICE_ABOVE_LONG_MA": 50,
-            "CAPITAL_STATE_CMF_BULLISH": 20
+            "MA_STATE_PRICE_ABOVE_LONG_MA": 40,
+            "CAPITAL_STATE_CMF_BULLISH": 20,
+            "CHIP_STATE_MARKUP": 20
           },
           "bonus": {
             "MA_STATE_STABLE_BULLISH": 30,
@@ -313,6 +317,10 @@
         },
         "capitulation_params": {
           "winner_rate_threshold": { "value": 8.0, "说明": "定义“投降坑”的总获利盘比例上限(%)" }
+        },
+        "structure_params": {
+          "enabled": true,
+          "high_concentration_threshold": 0.15
         },
         "ignition_params": {
           "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度" }
