@@ -820,20 +820,28 @@ class TrendFollowStrategy:
             states['OSC_STATE_MACD_DIVERGENCE'] = is_price_higher & is_macd_z_lower
 
         # ▼▼▼ BIAS机会状态的诊断 ▼▼▼
+        # ▼▼▼【代码修改 V64.7】: 使用动态分位数阈值 ▼▼▼
         p_bias = self._get_params_block(params, 'playbook_specific_params', {}).get('bias_reversal_params', {})
         if self._get_param_value(p_bias.get('enabled'), True):
-            bias_period = self._get_param_value(p_bias.get('bias_period'), 55)
-            bias_col = f'BIAS_{bias_period}_D'
+            bias_col = 'BIAS_55_D'
+            
             if bias_col in df.columns:
-                # 定义负向乖离机会状态
-                oversold_threshold = self._get_param_value(p_bias.get('oversold_threshold'), -10.0)
-                states['OPP_STATE_NEGATIVE_DEVIATION'] = df[bias_col] < oversold_threshold
+                # 获取动态阈值参数
+                dynamic_threshold_params = p_bias.get('dynamic_threshold', {})
+                window = self._get_param_value(dynamic_threshold_params.get('window'), 120)
+                quantile = self._get_param_value(dynamic_threshold_params.get('quantile'), 0.1)
+
+                # 计算滚动的分位数阈值
+                dynamic_oversold_threshold = df[bias_col].rolling(window=window).quantile(quantile)
+
+                # 判断当前BIAS是否低于动态阈值
+                states['OPP_STATE_NEGATIVE_DEVIATION'] = df[bias_col] < dynamic_oversold_threshold
                 
                 signal = states.get('OPP_STATE_NEGATIVE_DEVIATION', pd.Series(False, index=df.index))
                 dates_str = self._format_debug_dates(signal)
-                print(f"          -> '价格负向乖离' 机会状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+                print(f"          -> '价格负向乖离' 机会状态诊断完成 (基于{bias_col}动态分位数 窗口:{window}, 分位:{quantile})，共激活 {signal.sum()} 天。{dates_str}")
             else:
-                print(f"          -> [警告] 缺少列 '{bias_col}'，BIAS相关状态无法诊断。")
+                print(f"          -> [警告] 缺少列 '{bias_col}'，价格负向乖离状态无法诊断。")
         
         print("        -> [诊断模块] 震荡指标状态诊断执行完毕。")
         return states
