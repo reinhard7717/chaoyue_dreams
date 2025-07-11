@@ -656,11 +656,13 @@ class TrendFollowStrategy:
 
                 for date in key_dates:
                     # --- 获取当天的Setup详情 ---
-                    must_have_status = [f"{key.split('_')[-1]}:{'T' if atomic_states.get(key, pd.Series(False))[date] else 'F'}" for key in must_have_keys]
-                    bonus_status = [f"{key.split('_')[-1]}:{'T' if atomic_states.get(key, pd.Series(False))[date] else 'F'}" for key in bonus_keys]
+                    # 【关键修复】使用 reindex 保证索引安全
+                    must_have_status = [f"{key.split('_')[-1]}:{'T' if atomic_states.get(key, pd.Series(False)).reindex(df.index, fill_value=False).get(date, False) else 'F'}" for key in must_have_keys]
+                    bonus_status = [f"{key.split('_')[-1]}:{'T' if atomic_states.get(key, pd.Series(False)).reindex(df.index, fill_value=False).get(date, False) else 'F'}" for key in bonus_keys]
                     setup_details = f"得分:{setup_score.get(date, 0):.0f} | 必须:[{', '.join(must_have_status)}] | 加分:[{', '.join(bonus_status)}]"
 
                     # --- 获取当天的Trigger详情 ---
+                    # ... (这部分代码不变，因为它们直接操作df，索引是安全的) ...
                     accel_val = df.get(accel_col, pd.Series(0)).get(date, 0)
                     is_accel = accel_val > accel_thresh
                     
@@ -668,8 +670,8 @@ class TrendFollowStrategy:
                     winner_prev_val = df.get(winner_rate_col, pd.Series(0)).shift(1).get(date, 0)
                     is_winner_inc = winner_val > winner_prev_val
                     
-                    # 需要重新计算 primary_state 来获取前一日状态
-                    primary_state_series = atomic_states.get('CHIP_STATE_PRIMARY', pd.Series('N/A')) # 假设_diagnose_chip_states会输出这个
+                    # 【关键修复】使用 reindex 保证索引安全
+                    primary_state_series = atomic_states.get('CHIP_STATE_PRIMARY', pd.Series('N/A')).reindex(df.index, fill_value='N/A')
                     prev_state = primary_state_series.shift(1).get(date, 'N/A')
                     was_in_setup = prev_state in ['ACCUMULATION', 'TRANSITION']
                     
