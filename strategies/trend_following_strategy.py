@@ -276,15 +276,14 @@ class TrendFollowStrategy:
 
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
-        【V65.0 投降坑识别版】
-        - 核心升级: 适配了新的 'CAPITULATION_PIT' 评分逻辑，强化了投降坑反转剧本的定义。
+        【V70.0 逻辑净化版】
+        - 核心修正: 彻底移除了所有剧本定义中遗留的、与新逻辑冲突的 'precondition': True 键值对。
+        - 这解决了由于字典键重复定义导致 'precondition' 被错误地覆盖为布尔值的问题。
         """
-        print("    - [剧本定义中心 V65.0 投降坑识别版] 启动...")
-        # --- 步骤 1: 初始化和获取上下文 ---
+        print("    - [剧本定义中心 V70.0 逻辑净化版] 启动...")
+        # --- 步骤 1 & 2 不变 ---
         default_series = pd.Series(False, index=df.index)
         robust_right_side_precondition = df.get('robust_right_side_precondition', pd.Series(True, index=df.index))
-        
-        # --- 步骤 2: 获取所有准备状态的“置信度分数” ---
         score_deep_accum = setup_conditions.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
         score_cap_pit = setup_conditions.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         score_healthy_markup = setup_conditions.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
@@ -299,9 +298,9 @@ class TrendFollowStrategy:
         playbook_definitions = [
             {
                 'name': 'ABYSS_GAZE_S', 'cn_name': '【S级】深渊凝视',
-                'setup': score_cap_pit > 80, # 必须是评分最高的“投降坑”
-                'trigger': trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series), # 使用专属的恐慌反转触发器
-                'score': 320, 'precondition': True,
+                'setup': score_cap_pit > 80,
+                'trigger': trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series),
+                'score': 320, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'left',
                 'comment': 'S级: 在市场极度恐慌、流动性枯竭的深渊中，捕捉到的第一个功能性强度反转信号，是最高赔率的史诗级机会。'
             },
@@ -309,7 +308,7 @@ class TrendFollowStrategy:
                 'name': 'PERFECT_STORM_S_PLUS', 'cn_name': '【S+级】潜龙出海',
                 'setup': score_deep_accum > 120,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 400, 'precondition': True,
+                'score': 400, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'right',
                 'comment': 'S+级: 筹码、均线、资金、波动率四维共振后的首次点火，确定性极高。'
             },
@@ -317,7 +316,7 @@ class TrendFollowStrategy:
                 'name': 'PERFECT_STORM_S', 'cn_name': '【S级】潜龙出海',
                 'setup': (score_deep_accum > 80) & (score_deep_accum <= 120),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 350, 'precondition': True,
+                'score': 350, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'right',
                 'comment': 'S级: 核心条件具备，多重验证下的标准启动信号。'
             },
@@ -325,24 +324,23 @@ class TrendFollowStrategy:
                 'name': 'PERFECT_STORM_A_PLUS', 'cn_name': '【A+级】潜龙出海',
                 'setup': (score_deep_accum > 50) & (score_deep_accum <= 80),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 280, 'precondition': True,
+                'score': 280, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'right',
                 'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
             },
-            # ▼▼▼ “投降坑”评分逻辑，聚焦于识别“混乱之底” ▼▼▼
             {
                 'name': 'PIT_REVERSAL_A_PLUS', 'cn_name': '【A+级】投降坑反转',
-                'setup': score_cap_pit > 80, # 要求价格超卖+获利盘低+筹码发散全部满足
+                'setup': score_cap_pit > 80,
                 'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
-                'score': 290, 'precondition': True,
+                'score': 290, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'left',
                 'comment': 'A+级: 在市场极度恐慌、筹码发散的“混乱之底”后，出现强力反转K线，是最高质量的左侧信号。'
             },
             {
                 'name': 'PIT_REVERSAL_A', 'cn_name': '【A级】投降坑反转',
-                'setup': (score_cap_pit > 50) & (score_cap_pit <= 80), # 要求价格超卖，且至少满足一个附加条件
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 使用更宽容的企稳型触发器
-                'score': 220, 'precondition': True,
+                'setup': (score_cap_pit > 50) & (score_cap_pit <= 80),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'score': 220, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'left',
                 'comment': 'A级: 出现投降迹象，并伴随企稳阳线，是高赔率的左侧博弈机会。'
             },
@@ -350,7 +348,8 @@ class TrendFollowStrategy:
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪',
                 'setup': score_healthy_markup > 60,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 240, 'precondition': robust_right_side_precondition,
+                'score': 240, 
+                'precondition': robust_right_side_precondition, # 注意：这个precondition是旧的，现在由side='right'和SETUP_WATCHING处理，但保留它不会导致崩溃
                 'side': 'right',
                 'comment': 'A级: 在均线多头排列、资金确认的趋势中，出现的回踩反弹，是可靠的顺势上车点。'
             },
@@ -358,33 +357,33 @@ class TrendFollowStrategy:
                 'name': 'TREND_CONTINUATION_A', 'cn_name': '【A级】趋势中继',
                 'setup': score_healthy_markup > 80,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 240, 'precondition': robust_right_side_precondition,
+                'score': 240, 
+                'precondition': robust_right_side_precondition,
                 'side': 'right',
                 'comment': 'A级: 在通过多维度验证的健康主升浪中，出现的回踩反弹，是可靠的加仓或上车点。'
             },
-             # ▼▼▼ “平台支撑回踩”剧本 ▼▼▼
             {
                 'name': 'PLATFORM_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】平台支撑回踩',
+                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'precondition': atomic_states.get('MA_STATE_CONVERGING', default_series),
                 'score': 195,
                 'side': 'right',
                 'comment': 'B+级: 在均线粘合的平台整理区，股价精准回踩关键支撑线后企稳反弹，是潜在突破的左侧埋伏点。'
             },
-            # ▼▼▼ “能量压缩突破”剧本 ▼▼▼
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                # 使用 'precondition' 来定义触发的、持续性的上下文背景
                 'precondition': atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series),
-                'score': 190, 'precondition': True,
+                'score': 190, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'right',
-                'comment': 'B+级: 在波动率极度压缩后，出现的第一根企稳突破阳线，是潜在主升浪的“点火”信号。'
+                'comment': 'B+级: 在“能量待爆发”的背景状态下(前提)，出现的第一根企稳突破阳线(事件)，是潜在主升浪的“点火”信号。'
             },
             {
                 'name': 'TREND_CONTINUATION_B_PLUS', 'cn_name': '【B+级】趋势中继',
                 'setup': (score_healthy_markup > 50) & (score_healthy_markup <= 80),
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 180, 'precondition': robust_right_side_precondition,
+                'score': 180, 
+                'precondition': robust_right_side_precondition,
                 'side': 'right',
                 'comment': 'B+级: 趋势尚可，但某些维度存在瑕疵，属于机会主义的趋势跟踪。'
             },
@@ -392,7 +391,8 @@ class TrendFollowStrategy:
                 'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
                 'setup': score_energy_comp > 40,
                 'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
-                'score': 230, 'precondition': robust_right_side_precondition,
+                'score': 230, 
+                'precondition': robust_right_side_precondition,
                 'side': 'right',
                 'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
             },
@@ -400,7 +400,7 @@ class TrendFollowStrategy:
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转',
                 'setup': setup_washout_reversal,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 260, 'precondition': True,
+                'score': 260, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'left',
                 'comment': 'A级: 在恐慌性的巨量阴线后，出现企稳反转信号，通常是主力极端洗盘后的拉升前兆。'
             },
@@ -408,7 +408,8 @@ class TrendFollowStrategy:
                 'name': 'N_SHAPE_CONTINUATION_A', 'cn_name': '【A级】N字板接力',
                 'setup': score_nshape_cont > 80,
                 'trigger': trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series),
-                'score': 250, 'precondition': robust_right_side_precondition,
+                'score': 250, 
+                'precondition': robust_right_side_precondition,
                 'side': 'right',
                 'comment': 'A级: 强势股在涨停或大阳线后，经过短暂、强势的整理，再次放量突破，是经典的趋势中继信号。'
             },
@@ -416,7 +417,8 @@ class TrendFollowStrategy:
                 'name': 'GAP_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】缺口支撑回踩',
                 'setup': score_gap_support > 60,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 190, 'precondition': robust_right_side_precondition,
+                'score': 190, 
+                'precondition': robust_right_side_precondition,
                 'side': 'right',
                 'comment': 'B+级: 股价回踩到前期跳空缺口获得支撑并反弹，是可靠的右侧交易机会。'
             },
@@ -424,7 +426,7 @@ class TrendFollowStrategy:
                 'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳',
                 'setup': score_bottoming_process > 50,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 190, 'precondition': True,
+                'score': 190, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'side': 'left',
                 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线，是高赔率的左侧博弈机会。'
             },
@@ -432,14 +434,14 @@ class TrendFollowStrategy:
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板',
                 'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
                 'score': 380, 
-                'precondition': True,
+                # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'is_event_driven': True,
                 'side': 'left',
                 'comment': '市场情绪的极致反转，拥有最高优先级，解除所有限制。'
             },
         ]
 
-        print(f"    - [剧本定义中心 V65.0] 完成，共定义 {len(playbook_definitions)} 个纯净剧本。")
+        print(f"    - [剧本定义中心 V70.0] 完成，共定义 {len(playbook_definitions)} 个纯净剧本。")
         return playbook_definitions
 
     def _calculate_entry_score(
@@ -451,14 +453,10 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V69.0 终极形态版】
-        - 核心革命: 重构计分引擎，使其能够正确处理三种剧本模式：
-          1. 前提驱动型 ('precondition'): trigger 和 precondition 必须在同一天满足。
-          2. 准备驱动型 ('setup'): trigger 触发后，回溯寻找 context_window 内的 setup。
-          3. 纯事件驱动型 ('is_event_driven'): 只看 trigger。
-        - 这解决了之前引擎无法识别 'precondition' 键的根本性设计缺陷。
+        【V69.1 健壮性加固版】
+        - 核心修正: 优化了探针日志的逻辑，使其在获取 setup 或 precondition 状态时更加健壮，避免因剧本定义不含特定键而引发的 'bool' object has no attribute 'loc' 错误。
         """
-        print("    - [计分引擎 V69.0 终极形态版] 启动...")
+        print("    - [计分引擎 V69.1 健壮性加固版] 启动...")
         
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
@@ -469,15 +467,15 @@ class TrendFollowStrategy:
         final_playbook_signals = {}
         all_setups = default_series.copy()
         all_triggers = default_series.copy()
-        all_preconditions = default_series.copy() # 新增，用于探针日志
+        all_preconditions = default_series.copy()
 
         for playbook in playbook_definitions:
-            setup_signal = playbook.get('setup', default_series)
-            trigger_signal = playbook.get('trigger', default_series)
-            precondition_signal = playbook.get('precondition', default_series)
-            all_setups |= setup_signal
-            all_triggers |= trigger_signal
-            all_preconditions |= precondition_signal
+            if 'setup' in playbook:
+                all_setups |= playbook['setup']
+            if 'trigger' in playbook:
+                all_triggers |= playbook['trigger']
+            if 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
+                all_preconditions |= playbook['precondition']
 
         # ==================== 步骤2: 上下文回溯与前提判断核心逻辑 ====================
         
@@ -494,28 +492,24 @@ class TrendFollowStrategy:
         )
         print(f"      -> 计分引擎已升级，支持'前提(precondition)'和'准备(setup)'两种模式。回溯窗口: {context_window}天。")
 
-        # ▼▼▼【代码重构 V69.0】: 遍历所有剧本，根据其定义类型应用不同逻辑 ▼▼▼
         for playbook in playbook_definitions:
             name = playbook['name']
             trigger_signal = playbook.get('trigger', default_series)
             playbook_side = playbook.get('side', 'right')
             playbook_signal = default_series.copy()
 
-            # 根据剧本类型分流处理
-            if 'precondition' in playbook:
-                # --- 模式1: 前提驱动型 ---
-                precondition_signal = playbook.get('precondition', default_series)
+            if 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
+                precondition_signal = playbook['precondition']
                 base_signal = trigger_signal & precondition_signal & ~is_in_distribution_risk
                 if playbook_side == 'right':
                     playbook_signal = base_signal & SETUP_WATCHING
-                else: # left side
+                else:
                     playbook_signal = base_signal
             
             elif 'setup' in playbook:
-                # --- 模式2: 准备驱动型 (上下文回溯) ---
                 if playbook_side == 'left':
                     potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
-                else: # right side
+                else:
                     potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
 
                 for date_index in potential_trigger_indices:
@@ -532,11 +526,9 @@ class TrendFollowStrategy:
                         playbook_signal.loc[date_index] = True
             
             elif playbook.get('is_event_driven', False):
-                # --- 模式3: 纯事件驱动型 ---
                 playbook_signal = trigger_signal & ~is_in_distribution_risk
 
             final_playbook_signals[name] = playbook_signal.fillna(False)
-        # ▲▲▲【代码重构 V69.0】▲▲▲
 
         # ==================== 步骤3: 根据最终信号进行计分 (逻辑不变) ====================
         for playbook in playbook_definitions:
@@ -569,9 +561,13 @@ class TrendFollowStrategy:
                 name = playbook['name']
                 cn_name = playbook.get('cn_name', name)
                 
-                # 探针现在能同时识别 setup 和 precondition
-                is_setup_or_precondition_today = playbook.get('setup', default_series).loc[date] or playbook.get('precondition', default_series).loc[date]
-                is_trigger_today = playbook.get('trigger', default_series).loc[date]
+                # ▼▼▼【代码修正 V69.1】: 增加健壮性检查，避免对布尔值执行 .loc 操作 ▼▼▼
+                is_setup_today = playbook.get('setup', default_series).loc[date] if 'setup' in playbook and isinstance(playbook.get('setup'), pd.Series) else False
+                is_precondition_today = playbook.get('precondition', default_series).loc[date] if 'precondition' in playbook and isinstance(playbook.get('precondition'), pd.Series) else False
+                is_setup_or_precondition_today = is_setup_today or is_precondition_today
+                # ▲▲▲【代码修正 V69.1】▲▲▲
+                
+                is_trigger_today = playbook.get('trigger', default_series).loc[date] if 'trigger' in playbook else False
                 is_final_signal_today = final_playbook_signals.get(name, default_series).loc[date]
 
                 if is_setup_or_precondition_today or is_trigger_today or is_final_signal_today:
@@ -589,7 +585,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V69.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V69.1] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
