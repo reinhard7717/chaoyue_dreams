@@ -42,7 +42,8 @@ class TrendFollowStrategy:
         if not isinstance(signal_series, pd.Series) or signal_series.dtype != bool:
             return ""
         
-        active_dates = signal_series[signal_series].index
+        start_date_filter = pd.to_datetime('2024-05-01')
+        active_dates = signal_series[signal_series & (signal_series.index >= start_date_filter)].index
         count = len(active_dates)
         
         if count == 0:
@@ -142,6 +143,11 @@ class TrendFollowStrategy:
             **self._diagnose_kline_patterns(df, params),
             **self._diagnose_board_patterns(df, params)
         }
+        # ▼▼▼ 将风险/机会因子也注入到原子状态中 ▼▼▼
+        # 这样做是为了让 setup 引擎能够访问到 OPP_STATE_NEGATIVE_DEVIATION
+        risk_and_opp_factors = self._diagnose_risk_factors(df, params)
+        atomic_states.update(risk_and_opp_factors)
+
         print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
@@ -151,8 +157,8 @@ class TrendFollowStrategy:
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
         self._last_score_details_df = score_details_df
         print("--- [总指挥] 步骤5: 智能风险评审与出场决策引擎启动 ---")
-        risk_factors = self._diagnose_risk_factors(df, params)
-        risk_score = self._calculate_risk_score(df, params, risk_factors)
+        # risk_factors = self._diagnose_risk_factors(df, params)
+        risk_score = self._calculate_risk_score(df, params, risk_and_opp_factors)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         print("--- [总指挥] 步骤6: 最终信号合成与日志输出 ---")
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params')
@@ -285,6 +291,7 @@ class TrendFollowStrategy:
         setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', pd.Series(False, index=df.index))
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
+        score_bottoming_process = setup_conditions.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
         
         is_in_distribution_risk = setup_conditions.get('SETUP_DISTRIBUTION_RISK', pd.Series(False, index=df.index))
         
@@ -373,6 +380,13 @@ class TrendFollowStrategy:
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
                 'score': 190, 'precondition': robust_right_side_precondition,
                 'comment': 'B+级: 股价回踩到前期跳空缺口获得支撑并反弹，是可靠的右侧交易机会。'
+            },
+            {
+                'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳',
+                'setup': score_bottoming_process > 50,
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'score': 190, 'precondition': True,
+                'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线，是高赔率的左侧博弈机会。'
             },
             {
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板',
@@ -1016,6 +1030,26 @@ class TrendFollowStrategy:
         signal = risks.get('RISK_EVENT_HEAVEN_EARTH_BOARD', pd.Series([]))
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '天地板' 极端风险事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+
+        # ▼▼▼ 重新定义BIAS状态，使其既可用于风险，也可用于机会 ▼▼▼
+        p_bias = self._get_params_block(params, 'playbook_specific_params', {}).get('bias_reversal_params', {})
+        if self._get_param_value(p_bias.get('enabled'), True):
+            bias_period = self._get_param_value(p_bias.get('bias_period'), 20)
+            bias_col = f'BIAS_{bias_period}_D'
+            if bias_col in df.columns:
+                # 定义超买风险
+                overbought_threshold = self._get_param_value(p_bias.get('overbought_threshold'), 15.0)
+                risks['RISK_STATE_BIAS_OVERBOUGHT'] = df[bias_col] > overbought_threshold
+                
+                # 定义负向乖离机会状态
+                oversold_threshold = self._get_param_value(p_bias.get('oversold_threshold'), -10.0)
+                risks['OPP_STATE_NEGATIVE_DEVIATION'] = df[bias_col] < oversold_threshold
+                
+                signal = risks.get('OPP_STATE_NEGATIVE_DEVIATION', pd.Series(False, index=df.index))
+                dates_str = self._format_debug_dates(signal)
+                print(f"      -> '价格负向乖离' 机会状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            else:
+                print(f"      -> [警告] 缺少列 '{bias_col}'，BIAS相关状态无法诊断。")
         
         for key in risks:
             risks[key] = risks[key].fillna(False)

@@ -274,6 +274,15 @@
             "MA_STATE_STABLE_BULLISH": 20,
             "VOL_STATE_SHRINKING": 15
           }
+        },
+        "BOTTOMING_PROCESS": {
+          "说明": "B级菜肴：底部企稳。捕捉因连续下跌导致价格严重偏离均线后，缩量盘整并出现企稳迹象的机会。",
+          "must_have": {
+            "OPP_STATE_NEGATIVE_DEVIATION": 60
+          },
+          "bonus": {
+            "VOL_STATE_SHRINKING": 20
+          }
         }
       },
       "trigger_event_params": {
@@ -435,9 +444,10 @@
       "playbook_specific_params": {
         "说明": "【V41.9 新增】为特定、独立的交易剧本配置专属参数。",
         "bias_reversal_params": {
-          "enabled": { "value": true, "说明": "启用'BIAS超跌反转'剧本。" },
-          "bias_period": { "value": 20, "说明": "计算BIAS指标的周期。" },
-          "oversold_threshold": { "value": -15.0, "说明": "定义'极端超卖'的BIAS阈值。" }
+          "enabled": { "value": true, "说明": "启用'BIAS'相关状态诊断。" },
+          "bias_period": { "value": 21, "说明": "计算BIAS指标的周期。" },
+          "oversold_threshold": { "value": -10.0, "说明": "定义'负向乖离'机会区的BIAS阈值。" },
+          "overbought_threshold": { "value": 15.0, "说明": "定义'超买'风险区的BIAS阈值。" }
         },
         "gap_support_params": {
           "enabled": { "value": true, "说明": "启用'缺口支撑'状态和剧本。" },
