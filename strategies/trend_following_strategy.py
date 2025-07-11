@@ -483,6 +483,9 @@ class TrendFollowStrategy:
                 # 对于传统剧本，使用“昨日准备，今日触发”模型
                 yesterday_setup_valid = is_setup_valid.shift(1).fillna(False)
                 playbook_signal = yesterday_setup_valid & trigger_signal
+
+            # 只有在非风险日，信号才有效
+            playbook_signal = playbook_signal & ~is_in_distribution_risk
             
             if playbook_signal.any():
                 base_score = playbook.get('score', 0)
