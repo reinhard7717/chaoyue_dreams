@@ -729,20 +729,21 @@ class TrendFollowStrategy:
                 # ▼▼▼【代码新增 V65.0】: 新增“筹码发散”状态，用于识别投降坑 ▼▼▼
                 p_scattered = p.get('scattered_params', {})
                 if self._get_param_value(p_scattered.get('enabled'), True):
-                    scattered_threshold = self._get_param_value(p_scattered.get('threshold'), 30.0)
-                    states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold
+                    scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
+                    scattered_threshold_ratio = scattered_threshold_pct / 100.0 # 将百分比转换为比率
+                    states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold_ratio
 
                     # ▼▼▼【代码新增 V65.2 深度调试探针】▼▼▼
-                    print(f"      -> [探针自检] DataFrame 索引前5项: {df.index[:5]}")
-                    debug_date = pd.to_datetime('2024-09-09', utc=True) # 指定为UTC时区
+                    debug_date = pd.to_datetime('2024-09-09', utc=True)
                     if debug_date in df.index:
                         value_on_date = df.loc[debug_date, conc_col]
-                        is_triggered = value_on_date > scattered_threshold
+                        is_triggered = value_on_date > scattered_threshold_ratio
                         print("="*80)
                         print(f"      -> [深度调试探针] 日期: {debug_date.date()}")
                         print(f"      -> 筹码集中度(90%)列名: {conc_col}")
-                        print(f"      -> 当日实际计算值: {value_on_date:.4f}")
-                        print(f"      -> 设定的发散阈值: > {scattered_threshold}")
+                        print(f"      -> 当日实际计算值 (比率): {value_on_date:.4f}")
+                        print(f"      -> 设定的发散阈值 (百分比): > {scattered_threshold_pct}%")
+                        print(f"      -> 换算后的阈值 (比率): > {scattered_threshold_ratio}")
                         print(f"      -> 是否触发'筹码发散'状态: {is_triggered}")
                         print("="*80)
                     # ▲▲▲【代码新增 V65.2】▲▲▲
