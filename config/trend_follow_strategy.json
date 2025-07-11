@@ -200,16 +200,6 @@
           "must_have_score": { "value": 40, "说明": "满足核心条件(价格负向乖离)的基础分。" },
           "bonus_score": { "value": 25, "说明": "每满足一个加分项(获利盘低、筹码发散)的额外加分。" }
         },
-        "PLATFORM_SUPPORT_PULLBACK": {
-          "enabled": { "value": true, "说明": "【V67.0新增】B+级菜肴：平台支撑回踩。识别在均线粘合区的关键支撑位买点。" },
-          "must_have": {
-            "MA_STATE_CONVERGING": 30,
-            "MA_STATE_TOUCHING_SUPPORT_55": 50
-          },
-          "bonus": {
-            "VOL_STATE_SHRINKING": 20
-          }
-        },
         "HEALTHY_MARKUP": {
           "说明": "【V60.1 优化版】A级菜肴：健康主升浪。放宽了准入条件，以更好地捕捉真实市场中的上涨趋势。",
           "must_have": {

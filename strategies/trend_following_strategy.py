@@ -293,7 +293,6 @@ class TrendFollowStrategy:
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         score_bottoming_process = setup_conditions.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
-        score_platform_support = setup_conditions.get('SETUP_SCORE_PLATFORM_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         is_in_distribution_risk = setup_conditions.get('SETUP_DISTRIBUTION_RISK', pd.Series(False, index=df.index))
         
         # --- 步骤 3: 定义所有交易剧本 (Playbooks) ---
@@ -367,9 +366,8 @@ class TrendFollowStrategy:
              # ▼▼▼ “平台支撑回踩”剧本 ▼▼▼
             {
                 'name': 'PLATFORM_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】平台支撑回踩',
-                'setup': score_platform_support > 60,
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 195, 'precondition': True,
+                'precondition': atomic_states.get('MA_STATE_CONVERGING', default_series),
+                'score': 195,
                 'side': 'right',
                 'comment': 'B+级: 在均线粘合的平台整理区，股价精准回踩关键支撑线后企稳反弹，是潜在突破的左侧埋伏点。'
             },
