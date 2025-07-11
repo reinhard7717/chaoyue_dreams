@@ -731,6 +731,22 @@ class TrendFollowStrategy:
                 if self._get_param_value(p_scattered.get('enabled'), True):
                     scattered_threshold = self._get_param_value(p_scattered.get('threshold'), 30.0)
                     states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold
+
+                    # ▼▼▼【代码新增 V65.2 深度调试探针】▼▼▼
+                    debug_date = pd.to_datetime('2024-09-09')
+                    if debug_date in df.index:
+                        value_on_date = df.loc[debug_date, conc_col]
+                        is_triggered = value_on_date > scattered_threshold
+                        print("="*80)
+                        print(f"      -> [深度调试探针] 日期: {debug_date.date()}")
+                        print(f"      -> 筹码集中度(90%)列名: {conc_col}")
+                        print(f"      -> 当日实际计算值: {value_on_date:.4f}")
+                        print(f"      -> 设定的发散阈值: > {scattered_threshold}")
+                        print(f"      -> 是否触发'筹码发散'状态: {is_triggered}")
+                        print("="*80)
+                    # ▲▲▲【代码新增 V65.2】▲▲▲
+
+
                     signal = states.get('CHIP_STATE_SCATTERED', default_series)
                     dates_str = self._format_debug_dates(signal)
                     print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold}%)，共激活 {signal.sum()} 天。{dates_str}")
