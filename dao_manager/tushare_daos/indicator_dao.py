@@ -144,15 +144,12 @@ class IndicatorDAO(BaseDAO):
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【V4.4 精确定位版】获取历史数据并直接高效转换为 pandas DataFrame。
+        【V4.4 精确定位版 & V4.5 前复权版】获取历史数据并直接高效转换为 pandas DataFrame。
         - 核心升级: 日志中明确打印出本次查询将要使用的数据库模型/表名，解决了因异步导致日志混淆的问题，可以精确定位到是哪个表的查询出了问题。
+        - V4.5 升级: 当查询日线数据时，优先使用前复权价格（*_qfq），并将其重命名为标准的 OHLC 列名，以供计算使用。
         """
         # 1. 统一时间级别
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
-
-        # print(f"\n--- [DAO-数据库 V4.4-调试开始] ---")
-        # print(f"    - 参数: code={stock_code}, level='{time_level_str}', limit={limit}, trade_time={trade_time}")
-
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
@@ -186,48 +183,57 @@ class IndicatorDAO(BaseDAO):
                     model_map = kc_map if stock_code.startswith('68') else base_map
                 elif stock_code.endswith('.BJ'):
                     model_map = {'5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ}
-
                 if model_map and time_level_str in model_map:
                     ModelClass = model_map[time_level_str]
                 else:
                     logger.warning(f"未找到特定分钟线表 for {stock_code} {time_level_str}, 使用通用分钟表 StockMinuteData")
                     ModelClass = StockMinuteData
                     extra_filters['time_level'] = time_level_str
-            
             # 4. 统一构建和执行查询
             if not ModelClass:
                 logger.error(f"未能为 {stock_code} 在时间级别 {time_level_str} 找到对应的数据库模型。")
                 return None
-
             model_name = ModelClass._meta.db_table
-            # print(f"    - 模型选择: 将从表 '{model_name}' 中查询数据。")
-
             qs = ModelClass.objects.filter(stock=stock)
             if extra_filters:
                 qs = qs.filter(**extra_filters)
             if trade_time:
-                # 注意：这里假设您的 trade_time 字段在所有表中都是 trade_time
-                # 如果日线/周线/月线表中使用的是 trade_date，需要调整
-                # 为保持兼容性，我们假设所有表都有 trade_time
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            
-            fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
+            # [--- 修改开始 ---]
+            # 根据时间级别选择查询字段和重命名映射
+            if time_level_str == "d":
+                # 日线数据，使用前复权价格
+                print(f"    - 日线级别查询: 使用前复权(qfq)字段。")  # 调试信息
+                fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'vol', 'amount']
+                rename_map = {
+                    'open_qfq': 'open',
+                    'high_qfq': 'high',
+                    'low_qfq': 'low',
+                    'close_qfq': 'close',
+                    'vol': 'volume'
+                }
+            else:
+                # 其他周期数据（周、月、分钟），使用原始价格
+                print(f"    - {time_level_str} 级别查询: 使用原始OHLC字段。")  # 调试信息
+                fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
+                rename_map = {'vol': 'volume'}
+            # [--- 修改结束 ---]
             limited_qs = qs.order_by('-trade_time')[:limit]
             data_values = await sync_to_async(list)(
                 limited_qs.values(*fields)
             )
-
             print(f"    - 查询结果: 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
-
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")
                 return None
-            
             df = pd.DataFrame.from_records(data_values)
             df = df.iloc[::-1].reset_index(drop=True)
-            df.rename(columns={'vol': 'volume'}, inplace=True)
+            # [--- 修改开始 ---]
+            # 使用预定义的映射进行重命名，将 qfq 字段和 vol 字段统一为标准名称
+            df.rename(columns=rename_map, inplace=True)
+            # [--- 修改结束 ---]
             if 'trade_time' not in df.columns:
                 logger.error(f"查询结果缺少 'trade_time' 列: {stock_code} {time_level_str}")
                 return None
@@ -242,16 +248,12 @@ class IndicatorDAO(BaseDAO):
                 missing = [col for col in required_cols if col not in df.columns]
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
-
-            # print(f"    - 数据返回: 成功为 '{model_name}' 生成DataFrame，最终返回 {len(df)} 行。")
-            # print(f"--- [DAO-数据库 V4.4-调试结束 for {model_name}] ---\n")
-
             return df
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
             return None
 
-    # ▼▼▼【新增行业分析相关的所有DAO方法 ▼▼▼
+    # ▼▼▼ 行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
         获取所有同花顺行业指数的基本信息。
