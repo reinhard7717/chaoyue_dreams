@@ -615,7 +615,15 @@ class TrendFollowStrategy:
             is_setup_valid = playbook.get('setup', pd.Series(False, index=df.index))
             trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
             
-            playbook_signal = is_setup_valid.shift(1).fillna(False) & trigger_signal
+            yesterday_setup_valid = is_setup_valid.shift(1).fillna(False)
+            
+            playbook_signal = yesterday_setup_valid & trigger_signal
+
+            if is_setup_valid.any() or trigger_signal.any():
+                print(f"      -> [调试] 剧本 '{cn_name}': "
+                      f"准备状态共 {is_setup_valid.sum()} 天 | "
+                      f"触发事件共 {trigger_signal.sum()} 天 | "
+                      f"对齐后信号共 {playbook_signal.sum()} 天。")
             
             if playbook_signal.any():
                 # 获取剧本的基础分
